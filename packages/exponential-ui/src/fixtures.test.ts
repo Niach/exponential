@@ -29,9 +29,12 @@ describe(`catalog-components.json`, () => {
 
   test(`covers every visible component × every enum value × both booleans`, () => {
     const seen = new Set(cases.map((c) => c.node.component))
-    expect([...seen].sort()).toEqual(componentNames().sort())
+    const deprecated = Object.entries(coreCatalog.components).filter(([, d]) => d.deprecated).map(([n]) => n)
+    expect([...seen].sort()).toEqual([...componentNames(), ...deprecated].sort())
+    // Round 3: a deprecated alias keeps its example case only.
+    for (const name of deprecated) expect(cases.filter((c) => c.node.component === name).map((c) => c.name)).toEqual([`${name}/example`])
     for (const [name, def] of Object.entries(coreCatalog.components)) {
-      if (def.hidden) continue
+      if (def.hidden || def.deprecated) continue
       for (const [prop, schema] of Object.entries(def.props)) {
         if (schema.type === `enum`) {
           const values = schema.values ?? coreCatalog.enums[schema.enum!]
@@ -75,7 +78,11 @@ describe(`catalog-macros.json`, () => {
       const ids = preorder(expanded)
       expect(new Set(ids).size, c.name).toBe(ids.length)
       expect(expanded.id).toBe(c.input.id)
-      expect(expanded.recipe?.macro).toBe(c.input.component)
+      // Round 3: a deprecated alias over a MACRO is transparent (the
+      // replacement's root recipe wins); over a native the alias tags the root.
+      const def = coreCatalog.components[c.input.component]
+      const replacement = def.deprecated && coreCatalog.components[def.deprecated].kind === `macro` ? def.deprecated : c.input.component
+      expect(expanded.recipe?.macro, c.name).toBe(replacement)
       expect(expanded.recipe?.part).toBe(`root`)
     }
   })
@@ -93,7 +100,7 @@ describe(`catalog-macros.json`, () => {
     expect(paged.children[0].on?.press).toEqual({ event: { name: `page`, context: { list: `issues`, page: 1 } } })
     expect(paged.children[2].on?.press).toEqual({ event: { name: `page`, context: { list: `issues`, page: 3 } } })
 
-    const pill = cases.find((c) => c.name === `Pill/pressable=true`)!
+    const pill = cases.find((c) => c.name === `Chip/pressable=true`)!
     const pressed = reduceNested({ ...pill.input, on: { press: { event: { name: `pick` } } } }, { catalogId: CORE_CATALOG_ID }).root
     expect(pressed.on?.press).toEqual({ event: { name: `pick` } })
   })

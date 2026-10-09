@@ -80,6 +80,7 @@ pub mod surface;
 pub mod theme;
 pub mod themes;
 pub mod tracks;
+pub mod tree_guides;
 pub mod types;
 pub mod validate;
 

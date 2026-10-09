@@ -201,32 +201,92 @@ struct RingLeaf: View {
     }
 }
 
-/// `TreeGuides`: 16 px columns, 1 px lines at x = 7, the elbow at mid-height.
+/// `TreeGuides` (round 3, `layout.json` `treeGuideColumn` /
+/// `treeGuideRadius` / `treeGuideBridge`): column `i`'s line has its LEFT
+/// edge at `i·14 + 7`; the elbow = a vertical from `top − bridge` to the
+/// row's centre, a 3 px ROUNDED corner, a stub to the column's right edge
+/// (`i·14 + 14`); `tee` continues the vertical to the bottom; pass-through
+/// columns run full height from `top − bridge`. The bridge is paint only:
+/// the canvas overshoots the part's top so a Section's hairline divider
+/// never breaks the line. Mirrored under RTL (gpui `tree_guides`).
 struct TreeGuidesLeaf: View {
     let cx: LeafContext
 
     var body: some View {
         let depth = Int(max(cx.props.num("depth") ?? 0, 0))
-        let elbowAt = cx.props.num("elbowAt").map { Int($0) } ?? (depth - 1)
+        // The core fills `elbowAt`; a row it never saw (a lone root, a template item) draws no elbow.
+        let elbowAt = cx.props.num("elbowAt").map { Int($0) } ?? -1
         let tee = cx.props.flag("tee")
         let pass = cx.props.list("passThrough").compactMap { $0.number.map { Int($0) } }
         let line = cx.part("TreeGuides", "line")
         let color = line.color ?? cx.ink.opacity(0.25)
         let lw = line.px("width") ?? 1
+        let rtl = cx.rtl
+        let geo = TreeGuideGeometry.self
+        let bridge = geo.bridge
+        let w = cx.size.width
         let h = cx.size.height
         Canvas { ctx, _ in
-            for i in 0..<depth {
-                let x = CGFloat(i) * 16 + 7
-                if pass.contains(i) {
-                    ctx.fill(Path(CGRect(x: x, y: 0, width: lw, height: h)), with: .color(color))
-                }
-                if i == elbowAt {
-                    ctx.fill(Path(CGRect(x: x, y: 0, width: lw, height: tee ? h : h / 2)), with: .color(color))
-                    ctx.fill(Path(CGRect(x: x, y: (h / 2).rounded(.down), width: 16 - 7, height: lw)), with: .color(color))
+            for seg in geo.segments(depth: depth, elbowAt: elbowAt, tee: tee, passThrough: pass, height: h, lineWidth: lw) {
+                var path = Path()
+                switch seg {
+                case let .vertical(x, from, to):
+                    let px = rtl ? w - x - lw : x
+                    path.addRect(CGRect(x: px, y: from + bridge, width: lw, height: to - from))
+                    ctx.fill(path, with: .color(color))
+                case let .elbow(x, mid, stubEnd):
+                    // The corner and the stub: ONE stroked path, so the
+                    // quarter-turn is round rather than mitred.
+                    let dir: CGFloat = rtl ? -1 : 1
+                    let cxl = (rtl ? w - x - lw : x) + lw / 2
+                    let end = rtl ? w - stubEnd : stubEnd
+                    let r = geo.radius
+                    path.move(to: CGPoint(x: cxl, y: mid - r + bridge))
+                    path.addQuadCurve(to: CGPoint(x: cxl + dir * r, y: mid + bridge), control: CGPoint(x: cxl, y: mid + bridge))
+                    path.addLine(to: CGPoint(x: end, y: mid + bridge))
+                    ctx.stroke(path, with: .color(color), lineWidth: lw)
                 }
             }
         }
-        .frame(width: cx.size.width, height: cx.size.height)
+        // Taller by the bridge, bottom-aligned: the canvas starts `bridge`
+        // px above the part (a frame does not clip).
+        .frame(width: w, height: h + bridge)
+        .frame(width: w, height: h, alignment: .bottom)
+    }
+}
+
+/// The tree-guide geometry in the part's own coordinates (y = 0 is the
+/// part's top; the bridge makes verticals start ABOVE it), shared by the
+/// painter and the geometry test.
+enum TreeGuideGeometry {
+    static let column = SurfaceMeasurer.treeGuideColumn
+    static let radius = SurfaceMeasurer.treeGuideRadius
+    static let bridge = SurfaceMeasurer.treeGuideBridge
+
+    enum Segment: Equatable {
+        /// A `lineWidth`-wide vertical whose LEFT edge is at `x`.
+        case vertical(x: CGFloat, from: CGFloat, to: CGFloat)
+        /// The rounded corner from `(x, mid − radius)` into the stub that
+        /// runs at `mid` to `stubEnd`.
+        case elbow(x: CGFloat, mid: CGFloat, stubEnd: CGFloat)
+    }
+
+    static func segments(depth: Int, elbowAt: Int, tee: Bool, passThrough: [Int], height h: CGFloat, lineWidth: CGFloat = 1) -> [Segment] {
+        var out: [Segment] = []
+        let top = -bridge
+        let mid = h / 2
+        for i in 0..<max(depth, 0) {
+            let x = CGFloat(i) * column + column / 2
+            if passThrough.contains(i) {
+                out.append(.vertical(x: x, from: top, to: h))
+            }
+            if i == elbowAt {
+                let to = tee ? h : mid - radius
+                if to > top { out.append(.vertical(x: x, from: top, to: to)) }
+                out.append(.elbow(x: x, mid: mid, stubEnd: CGFloat(i + 1) * column))
+            }
+        }
+        return out
     }
 }
 

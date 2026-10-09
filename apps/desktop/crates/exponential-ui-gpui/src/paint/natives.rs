@@ -848,31 +848,65 @@ pub fn ring(cx: &LeafCx) -> AnyElement {
     out.into_any_element()
 }
 
-/// `TreeGuides`: 16 px columns, 1 px lines at x = 7, the elbow at mid-height
-/// (mirrored in RTL).
+/// `TreeGuides` (round 3, `layout.json` `treeGuideColumn` / `treeGuideRadius`
+/// / `treeGuideBridge`): 14 px columns, the 1 px line of column i at
+/// x = i·14 + 7. The elbow = a vertical from the row's top − bridge into a
+/// 3 px ROUNDED corner at the row's centre, then a stub to the column's right
+/// edge; `tee` carries the vertical on to the bottom; `passThrough` columns =
+/// full-height verticals from top − bridge. The bridge overshoots the row's
+/// top (paint only) so the line carries across a Section divider. Mirrored in
+/// RTL. Stroke width / colour = the `TreeGuides/line` recipe.
 pub fn tree_guides(cx: &LeafCx) -> AnyElement {
     let depth = cx.num("depth").unwrap_or(0.0).max(0.0) as usize;
-    let elbow_at = cx.num("elbowAt").map(|v| v as i64).unwrap_or(depth as i64 - 1);
+    // The core fills `elbowAt`; a row it never saw (a lone root, a template item) draws no elbow.
+    let elbow_at = cx.num("elbowAt").map(|v| v as i64).unwrap_or(-1);
     let tee = cx.bool("tee");
     let pass: Vec<i64> = cx.node.props.get("passThrough").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).map(|v| v as i64).collect()).unwrap_or_default();
     let line = cx.part_props("TreeGuides", "line", &[]);
     let color = color_of(line.get("color").and_then(Value::as_str)).unwrap_or(cx.ink.opacity(0.25));
     let lw = px_prop(&line, "width").unwrap_or(1.0);
-    let h = cx.h;
-    let w = cx.w;
-    let mx = |x: f32, width: f32| if cx.rtl { w - x - width } else { x };
-    let mut out = div().size_full().relative();
-    for i in 0..depth {
-        let x = i as f32 * 16.0 + 7.0;
-        if pass.contains(&(i as i64)) {
-            out = out.child(div().absolute().left(px(mx(x, lw))).top_0().w(px(lw)).h(px(h)).bg(color));
-        }
-        if i as i64 == elbow_at {
-            out = out.child(div().absolute().left(px(mx(x, lw))).top_0().w(px(lw)).h(px(if tee { h } else { h / 2.0 })).bg(color));
-            out = out.child(div().absolute().left(px(mx(x, 16.0 - 7.0))).top(px((h / 2.0).floor())).w(px(16.0 - 7.0)).h(px(lw)).bg(color));
-        }
-    }
-    out.into_any_element()
+    let rtl = cx.rtl;
+    let col = exponential_ui::layout::TREE_GUIDE_COLUMN as f32;
+    let radius = exponential_ui::layout::TREE_GUIDE_RADIUS as f32;
+    let bridge = exponential_ui::layout::TREE_GUIDE_BRIDGE as f32;
+    canvas(
+        |_, _, _| (),
+        move |bounds: Bounds<Pixels>, _, window, _| {
+            let (left, width) = (f32::from(bounds.origin.x), f32::from(bounds.size.width));
+            let (y0, h) = (f32::from(bounds.origin.y), f32::from(bounds.size.height));
+            // The physical x of a span starting at gutter offset `x`.
+            let at = |x: f32, span: f32| if rtl { left + width - x - span } else { left + x };
+            let (top, bottom, mid) = (y0 - bridge, y0 + h, y0 + h / 2.0);
+            let vertical = |window: &mut Window, x: f32, from: f32, to: f32| {
+                if to > from {
+                    window.paint_quad(gpui::fill(Bounds::new(point(px(at(x, lw)), px(from)), gpui::size(px(lw), px(to - from))), color));
+                }
+            };
+            for i in 0..depth {
+                let x = i as f32 * col + col / 2.0;
+                if pass.contains(&(i as i64)) {
+                    vertical(window, x, top, bottom);
+                }
+                if i as i64 == elbow_at {
+                    vertical(window, x, top, if tee { bottom } else { mid - radius });
+                    // The corner and the stub: ONE stroked path, so the
+                    // quarter-turn is round rather than mitred.
+                    let cxl = at(x, lw) + lw / 2.0;
+                    let dir = if rtl { -1.0 } else { 1.0 };
+                    let stub_end = at((i + 1) as f32 * col, 0.0);
+                    let mut path = PathBuilder::stroke(px(lw));
+                    path.move_to(point(px(cxl), px(mid - radius)));
+                    path.curve_to(point(px(cxl + dir * radius), px(mid)), point(px(cxl), px(mid)));
+                    path.line_to(point(px(stub_end), px(mid)));
+                    if let Ok(path) = path.build() {
+                        window.paint_path(path, color);
+                    }
+                }
+            }
+        },
+    )
+    .size_full()
+    .into_any_element()
 }
 
 /// The `Unknown` placeholder note.

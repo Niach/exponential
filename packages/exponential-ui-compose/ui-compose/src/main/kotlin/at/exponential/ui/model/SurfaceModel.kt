@@ -46,7 +46,7 @@ import kotlinx.coroutines.SupervisorJob
 
 /** How overlays present. */
 enum class OverlayPresentation {
-    /** Dialog / Drawer as sheets, Popover as a popup, DropdownMenu as a menu, Tooltip painted (default). */
+    /** Dialog / Drawer as sheets, Popover and Menu (the core's layers) as popups, Tooltip painted (default). */
     Native,
 
     /** Everything painted inside the surface at the core's frames with a scrim (snapshots, hosts that own their windows). */
@@ -888,15 +888,6 @@ class SurfaceModel(
                 part(rc, "trigger", ownerProps(index), states + "open").style
             else -> base
         }
-    }
-
-    /**
-     * Does the DropdownMenu `owner` paint its items (recipe `native: false`)
-     * instead of opening a native menu?
-     */
-    fun menuPainted(owner: String): Boolean {
-        val n = indexOf(owner)?.let(::node) ?: return false
-        return part("DropdownMenu", "content", n.props).native == false
     }
 
     /** Does a Select paint its popup (recipe `native: false`)? The native menu is the default. */

@@ -236,49 +236,59 @@ struct SliderTrackLeaf: View {
     }
 }
 
-/// A ToggleGroup: a row of items, the chosen ones selected (single or
-/// multiple); `segmented` draws the row on a track. Keyboard focus rings
-/// the ROVING item (`toggleGroupFocusIndex`, gpui `paint_toggle_group`).
-struct ToggleGroupLeaf: View {
+/// A Segmented (round 3, the old ToggleGroup): a row of items, the chosen
+/// ones selected (single or multiple); `segmented` draws the row on a track,
+/// `bar` (the old TabBar) lays each item out as a COLUMN (icon over a
+/// caption label) sharing the full width. Keyboard focus rings the ROVING
+/// item (`segmentedFocusIndex`, gpui `paint_segmented`).
+struct SegmentedLeaf: View {
     let cx: LeafContext
 
     var body: some View {
         let props = cx.props
         let items = props.list("items")
-        let values = cx.model.toggleGroupValues(cx.index)
-        let item = cx.part("ToggleGroup", "item")
+        let values = cx.model.segmentedValues(cx.index)
+        let bar = props.str("variant") == "bar"
+        let item = cx.part("Segmented", "item")
         let box = item.toggleItemBox
         let pad = box.paddingHorizontal
-        let h = box.height
-        // The measurer's text style (`SurfaceMeasurer.toggleGroup`): the
+        let h = bar ? cx.inner.height : box.height
+        // The measurer's text style (`SurfaceMeasurer.segmented`): the
         // label is drawn by the shaper at its measured width, so the item
         // painted is the item measured (a SwiftUI `Text` sized itself in
         // its own font and truncated "Board" to "Boa…").
         let ts = TextStyle(fontSize: item.px("fontSize") ?? cx.textStyle.fontSize, fontWeight: Int(item.props.num("fontWeight") ?? 500), lineHeight: cx.textStyle.lineHeight, fontFamily: item.fontFamily, letterSpacing: cx.textStyle.letterSpacing, textTransform: cx.textStyle.textTransform)
         let border = item.px("borderWidth") ?? 0
-        let fill = props.flag("fill")
+        let fill = props.flag("fill") || bar
         let disabledAll = cx.model.isDisabled(cx.index)
-        let roving = cx.model.focusVisible(cx.node.id) ? cx.model.toggleGroupFocusIndex(cx.index) : nil
-        HStack(spacing: cx.style.gap) {
+        let roving = cx.model.focusVisible(cx.node.id) ? cx.model.segmentedFocusIndex(cx.index) : nil
+        let row = HStack(spacing: cx.style.gap) {
             ForEach(Array(items.enumerated()), id: \.offset) { k, it in
                 let value = it["value"] ?? .string(it["label"]?.displayText ?? "")
                 let selected = values.contains(value.displayText)
                 let disabled = disabledAll || it["disabled"]?.bool == true
                 let ring = roving == k
-                let st = cx.part("ToggleGroup", "item", states: (selected ? ["selected"] : []) + (disabled ? ["disabled"] : []) + (ring ? ["focus-visible"] : []))
+                let states = (selected ? ["selected"] : []) + (disabled ? ["disabled"] : []) + (ring ? ["focus-visible"] : [])
+                let st = cx.part("Segmented", "item", states: states)
                 Button {
-                    cx.model.toggleGroupSelect(cx.index, value: value)
+                    cx.model.segmentedSelect(cx.index, value: value)
                 } label: {
-                    HStack(spacing: item.px("gap") ?? 0) {
-                        if let icon = it["icon"]?.string {
-                            ConceptIcon(name: icon, size: 16, color: st.color ?? cx.ink, model: cx.model)
-                        }
-                        if let label = it["label"]?.displayText, !label.isEmpty {
-                            TextLabel(label, ts, color: st.color ?? cx.ink, lines: 1)
-                                .frame(width: TextShaper.width(label, ts), height: ts.lineHeight)
+                    Group {
+                        if bar {
+                            barItem(it, states: states, color: st.color ?? cx.ink)
+                        } else {
+                            HStack(spacing: item.px("gap") ?? 0) {
+                                if let icon = it["icon"]?.string {
+                                    ConceptIcon(name: icon, size: 16, color: st.color ?? cx.ink, model: cx.model)
+                                }
+                                if let label = it["label"]?.displayText, !label.isEmpty {
+                                    TextLabel(label, ts, color: st.color ?? cx.ink, lines: 1)
+                                        .frame(width: TextShaper.width(label, ts), height: ts.lineHeight)
+                                }
+                            }
+                            .padding(.horizontal, pad + border)
                         }
                     }
-                    .padding(.horizontal, pad + border)
                     .frame(maxWidth: fill ? .infinity : nil)
                     .frame(height: h)
                     .paintedBox(st.style, size: CGSize(width: 0, height: h))
@@ -297,6 +307,37 @@ struct ToggleGroupLeaf: View {
         }
         .frame(width: cx.inner.width, height: cx.inner.height, alignment: .leading)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
+        // A `bar` = navigation (the bottom destinations): VoiceOver's tab
+        // bar container; the selected item carries `.isSelected` (SwiftUI
+        // has no `aria-current`).
+        if bar {
+            row.accessibilityElement(children: .contain).accessibilityAddTraits(.isTabBar)
+        } else {
+            row
+        }
+    }
+
+    /// One `bar` item: the `icon` part (`$control.iconMd`) over the caption
+    /// `label` part, `xxs` apart, `xs` vertical padding (gpui
+    /// `segmented_bar_item`).
+    @ViewBuilder
+    private func barItem(_ it: JSONValue, states: [String], color: Color) -> some View {
+        let iconInk = cx.part("Segmented", "icon", states: states).color ?? color
+        let labelPart = cx.part("Segmented", "label", states: states)
+        let caption = SurfaceMeasurer.barCaption(cx.part("Text", "root", props: ["variant": .string("caption")]), base: cx.textStyle)
+        let ts = TextStyle(fontSize: caption.fontSize, fontWeight: Int(labelPart.props.num("fontWeight") ?? Double(cx.textStyle.fontWeight)), lineHeight: caption.lineHeight, fontFamily: caption.fontFamily, italic: caption.italic)
+        VStack(spacing: cx.spacing("xxs")) {
+            if let icon = it["icon"]?.string {
+                ConceptIcon(name: icon, size: cx.control("iconMd", 20), color: iconInk, model: cx.model)
+            }
+            if let label = it["label"]?.displayText, !label.isEmpty {
+                TextLabel(label, ts, color: labelPart.color ?? color, lines: 1)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: ts.lineHeight)
+            }
+        }
+        .padding(.vertical, cx.spacing("xs"))
+        .frame(minWidth: 0, maxWidth: .infinity)
     }
 }
 
@@ -313,7 +354,7 @@ struct DrawnBox: Equatable {
 }
 
 extension PartStyle {
-    /// A ToggleGroup `item` as `ToggleGroupLeaf` draws it.
+    /// A Segmented `item` as `SegmentedLeaf` draws it.
     var toggleItemBox: DrawnBox {
         DrawnBox(width: nil, height: height ?? 36, paddingHorizontal: px("paddingHorizontal") ?? px("padding") ?? 12, gap: style.gap, borderWidth: style.borderWidth, borderRadius: style.radius)
     }

@@ -209,7 +209,7 @@ final class ConformanceTests: XCTestCase {
 
     /// The border box the PAINTER gives a control's sizing part: its node's
     /// frame (the measurer's answer) + the box it paints with, or the box
-    /// it draws a sub-part with (Slider thumb, ToggleGroup item).
+    /// it draws a sub-part with (Slider thumb, Segmented item).
     func measuredBox(_ m: SurfaceModel, component: String, part: String) -> [String: Double]? {
         func box(_ i: Int) -> [String: Double] {
             let f = m.frame(i), s = m.style(i)
@@ -231,9 +231,9 @@ final class ConformanceTests: XCTestCase {
         case ("Slider", "thumb"):
             guard let track = m.nodes.first(where: { $0.component == "Slider" && $0.part == "track" }) else { return nil }
             return drawn(m.part("Slider", "thumb", props: m.ownerProps(track.index)).sliderThumbBox)
-        case ("ToggleGroup", "item"):
-            guard let g = m.nodes.first(where: { $0.component == "ToggleGroup" }) else { return nil }
-            var d = m.part("ToggleGroup", "item", props: g.props).toggleItemBox
+        case ("Segmented", "item"):
+            guard let g = m.nodes.first(where: { $0.component == "Segmented" }) else { return nil }
+            var d = m.part("Segmented", "item", props: g.props).toggleItemBox
             // The leaf's frame holds the items at their drawn height.
             d.height = min(d.height, m.frame(g.index).height - 2 * m.style(g.index).paddingVertical)
             return drawn(d)

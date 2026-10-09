@@ -16,7 +16,7 @@ use crate::types::Props;
 pub const CONTROL_PARTS: &[(&str, &str)] = &[
     ("Button", "root"),
     ("Toggle", "root"),
-    ("ToggleGroup", "item"),
+    ("Segmented", "item"),
     ("Input", "field"),
     ("Textarea", "field"),
     ("Select", "trigger"),

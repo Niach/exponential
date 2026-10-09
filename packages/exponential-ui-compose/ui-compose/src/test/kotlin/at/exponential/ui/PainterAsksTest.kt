@@ -83,7 +83,7 @@ class PainterAsksTest {
     @Test
     fun hoverReachesTheCoreAndRestylesTheNode() {
         val m = makeModel(theme = "neutral", mode = at.exponential.ui.theme.Mode.Light)
-        m.setNested("""{"id":"pill","component":"Pill","props":{"label":"All","pressable":true}}""")
+        m.setNested("""{"id":"pill","component":"Chip","props":{"label":"All","pressable":true}}""")
         val i = m.indexOf("pill")!!
         val rest = m.style(i).background
         m.hover("pill", true)

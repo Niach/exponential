@@ -47,7 +47,7 @@ const list = [
       surfaceId: `inbox`,
       components: [
         { id: `root`, component: `Group`, title: `Inbox`, footer: `3 unread`, children: { componentId: `row`, path: `/items` } },
-        { id: `row`, component: `ListRow`, title: { path: `title` }, subtitle: { path: `who` }, meta: { path: `when` }, icon: `inbox`, chevron: true },
+        { id: `row`, component: `Row`, title: { path: `title` }, subtitle: { path: `who` }, meta: { path: `when` }, icon: `inbox`, chevron: `right`, pressable: true },
       ],
     },
   },

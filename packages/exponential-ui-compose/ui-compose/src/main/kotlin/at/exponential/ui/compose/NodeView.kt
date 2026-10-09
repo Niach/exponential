@@ -60,14 +60,14 @@ import at.exponential.ui.theme.PaintStyle
 
 /**
  * Which pressables handle their own gestures (no clickable wrapper): the
- * text fields, the picker triggers, the Slider track, ToggleGroups, the
+ * text fields, the picker triggers, the Slider track, Segmented controls, the
  * carousel indicator and Resizable handles.
  */
 internal fun selfHandling(n: NodeInfo): Boolean {
     if (n.isTextField) return true
     return n.isPickerTrigger ||
         (n.component == "Slider" && n.part == "track") ||
-        n.component == "ToggleGroup" ||
+        n.component == "Segmented" ||
         (n.component == "Box" && n.part == "indicator") ||
         (n.ownerComponent == "Resizable" && n.part == "handle")
 }
@@ -293,14 +293,13 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
             .then(band),
     ) {
         // An overlay owner the core marks as a leaf still carries its inline
-        // trigger (a DropdownMenu's default button): paint the children.
+        // trigger (a press Menu's default button): paint the children.
         CompositionLocalProvider(LocalInvisible provides invisible) {
             if (node.isLeaf && model.children.getOrNull(index).isNullOrEmpty()) {
                 LeafContent(LeafContext(model, node, size, style, model.ink(index), model.textStyle(index)))
             } else {
                 ContainerContent(index, node, model, style, size)
             }
-            TriggerMenu(node, model)
         }
         // An invisible box swallows the pointer over its whole area, so the
         // self-handling controls below (sliders, pickers) take nothing either.
@@ -344,20 +343,20 @@ private fun toggleTooltip(model: SurfaceModel, target: String) {
     model.setOpen(target, model.layers.none { it.owner == target })
 }
 
-/** The ContextMenu whose target contains this node (a long press opens it, round 1). */
+/** The context Menu (`openOn: contextmenu`) whose target contains this node (a long press opens it, round 1). */
 private fun contextMenuOwner(node: NodeInfo, model: SurfaceModel): String? {
     var p = node.parent
     var hops = 0
     while (p != null && hops < 64) {
         val n = model.node(p) ?: return null
-        if (n.component == "ContextMenu") return n.id
+        if (n.isContextMenu) return n.id
         p = n.parent
         hops += 1
     }
     return null
 }
 
-/** Open a ContextMenu at its target (the core places the menu at the pointer it is given). */
+/** Open a context Menu at its target (the core places the menu at the pointer it is given). */
 private fun openContextMenu(model: SurfaceModel, owner: String) {
     val i = model.indexOf(owner) ?: return
     val f = model.frame(i)

@@ -72,11 +72,24 @@ class ComponentSnapshotImagesTest {
     fun setUp() = Fixtures.require()
 
     companion object {
-        /** Root components (after macros: a Sheet is a Drawer) whose content is a layer (a Toast: the toast layer). */
-        val OVERLAYS = setOf("Dialog", "Drawer", "Popover", "Tooltip", "DropdownMenu", "Toast")
+        /** Root components whose content is a layer (a Toast: the toast layer). */
+        val OVERLAYS = setOf("Dialog", "Drawer", "Popover", "Tooltip", "Menu", "Toast")
 
-        /** Components that stretch to their ROW (round 2 §7): alone they are 0 tall. */
-        val ROW_STRETCHED = setOf("TreeGuides")
+        /**
+         * Round 3 (VAPP-102): the NEW components whose PNG is not recorded
+         * yet. The images are recorded on ubuntu only (Robolectric's native
+         * graphics differ per OS), by the `record-compose-fixtures.yml`
+         * workflow (`EXPONENTIAL_UI_RECORD=1`); until it has run, a MISSING
+         * image of exactly these components is skipped (never recorded on a
+         * dev machine). Empty this set once the workflow committed them.
+         */
+        val PENDING_IMAGES = emptySet<String>()
+
+        /** Deprecated aliases (round 3) only prove they expand: no image of their own. */
+        fun deprecated(component: String): Boolean {
+            val i = ExponentialUICatalog.componentNames.indexOf(component)
+            return i >= 0 && ExponentialUICatalog.componentDeprecated[i].isNotEmpty()
+        }
     }
 
     private fun model(id: String, theme: String, overlays: OverlayPresentation = OverlayPresentation.Native): SurfaceModel {
@@ -106,6 +119,7 @@ class ComponentSnapshotImagesTest {
         val firsts = LinkedHashMap<String, JsonValue>()
         for (c in cases) {
             val component = (c["name"]?.string ?: "?").substringBefore("/")
+            if (deprecated(component)) continue
             if (!firsts.containsKey(component)) firsts[component] = c
         }
         assertTrue("components ${firsts.size}", firsts.size >= 55)
@@ -133,11 +147,13 @@ class ComponentSnapshotImagesTest {
             assertTrue("$component laid out", m.passCount > 0)
             if (overlay) {
                 assertEquals("$component: one open layer", 1, m.layers.size)
-            } else if (component !in ROW_STRETCHED) {
+            } else {
                 assertTrue("$component height ${m.surfaceSize.height}", m.surfaceSize.height > 0f)
             }
             assertEquals("$component: the surface got its width", 366f, m.width, 0.5f)
-            capture("components/$component.png")
+            val name = "components/$component.png"
+            if (component in PENDING_IMAGES && !recording && !File(dir, name).exists()) continue
+            capture(name)
         }
     }
 

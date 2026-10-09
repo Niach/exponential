@@ -109,7 +109,7 @@ fn an_untitled_code_block_names_its_language_in_the_header() {
 
 #[test]
 fn the_host_hover_resolves_recipes_and_stays_beside_other_states() {
-    let mut s = themed(json!({"id": "pill", "component": "Pill", "props": {"label": "All", "pressable": true}}), "neutral", Mode::Light);
+    let mut s = themed(json!({"id": "pill", "component": "Chip", "props": {"label": "All", "pressable": true}}), "neutral", Mode::Light);
     s.set_viewport(300.0, 0.0, None);
     s.layout(&mut fixed());
     let rest = color(&s, "pill").0;
@@ -117,7 +117,7 @@ fn the_host_hover_resolves_recipes_and_stays_beside_other_states() {
     assert!(s.set_hover("pill", true));
     assert!(!s.set_hover("pill", true), "no change, no restyle");
     s.layout(&mut fixed());
-    assert_eq!(color(&s, "pill").0, accent, "Pill/root `state: hover`");
+    assert_eq!(color(&s, "pill").0, accent, "Chip/root `state: hover`");
     assert_eq!(s.host_states("pill"), ["hover".to_string()]);
     assert!(s.set_pressed(&["pill".into()]));
     assert_eq!(s.host_states("pill"), ["hover".to_string(), "pressed".to_string()], "pressing keeps the hover");

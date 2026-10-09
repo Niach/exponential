@@ -14,3 +14,6 @@ export const FIELD_INTRINSIC_WIDTH: number = layoutJson.fieldIntrinsicWidth
 export const MEDIA_INTRINSIC_WIDTH: number = layoutJson.mediaIntrinsicWidth
 export const MEDIA_ASPECT_RATIO: number = layoutJson.mediaAspectRatio
 export const TREE_GUIDE_COLUMN: number = layoutJson.treeGuideColumn
+/** Round 3: the elbow's corner radius and how far the guide verticals overshoot a row's top edge (paint only). */
+export const TREE_GUIDE_RADIUS: number = layoutJson.treeGuideRadius
+export const TREE_GUIDE_BRIDGE: number = layoutJson.treeGuideBridge

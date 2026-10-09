@@ -56,8 +56,12 @@ export interface ComponentDef {
    *  pass leaves it unbound and the painter binds it once per row with the
    *  row as its data scope (src/dynamic.ts bindRowSlot). */
   slotScope?: `row`
-  /** Never offered to a model (the Unknown placeholder). */
+  /** Never offered to a model (the Unknown placeholder, TreeGuides = a Row part). */
   hidden?: boolean
+  /** Round 3 (docs/round-3-contract.md): a ONE-RELEASE alias naming its
+   *  replacement; a macro that expands to it. Still reduces; never in the
+   *  prompt, the docs, the specimens or the lite subset. */
+  deprecated?: string
   /** `planned` = in the catalog, painters land later. */
   status?: string
   description: string

@@ -1034,9 +1034,16 @@
         }
       ]
     },
-    "ToggleGroup": {
+    "Segmented": {
       "root": [
         {
+          "when": {
+            "variant": [
+              "toggles",
+              "outline",
+              "segmented"
+            ]
+          },
           "style": {
             "gap": "$spacing.xxs"
           }
@@ -1050,10 +1057,27 @@
             "borderRadius": "$radius.md",
             "padding": "$spacing.xxs"
           }
+        },
+        {
+          "when": {
+            "variant": "bar"
+          },
+          "style": {
+            "backgroundColor": "$color.background",
+            "borderTopWidth": "$border.hairline",
+            "borderColor": "$color.border"
+          }
         }
       ],
       "item": [
         {
+          "when": {
+            "variant": [
+              "toggles",
+              "outline",
+              "segmented"
+            ]
+          },
           "style": {
             "height": "$control.toggle",
             "paddingHorizontal": "$spacing.md",
@@ -1086,6 +1110,11 @@
         },
         {
           "when": {
+            "variant": [
+              "toggles",
+              "outline",
+              "segmented"
+            ],
             "size": "sm"
           },
           "style": {
@@ -1095,6 +1124,11 @@
         },
         {
           "when": {
+            "variant": [
+              "toggles",
+              "outline",
+              "segmented"
+            ],
             "size": "lg"
           },
           "style": {
@@ -1104,6 +1138,11 @@
         },
         {
           "when": {
+            "variant": [
+              "toggles",
+              "outline",
+              "segmented"
+            ],
             "state": "hover"
           },
           "style": {
@@ -1113,6 +1152,10 @@
         },
         {
           "when": {
+            "variant": [
+              "toggles",
+              "outline"
+            ],
             "state": "selected"
           },
           "style": {
@@ -1129,6 +1172,64 @@
             "backgroundColor": "$color.background",
             "color": "$color.foreground",
             "boxShadow": "$shadow.sm"
+          }
+        },
+        {
+          "when": {
+            "variant": "bar"
+          },
+          "style": {
+            "color": "$color.mutedForeground",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "variant": "bar",
+            "state": "pressed"
+          },
+          "style": {
+            "opacity": 0.7
+          }
+        }
+      ],
+      "icon": [
+        {
+          "when": {
+            "variant": "bar"
+          },
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "variant": "bar",
+            "state": "selected"
+          },
+          "style": {
+            "color": "$color.primary"
+          }
+        }
+      ],
+      "label": [
+        {
+          "when": {
+            "variant": "bar"
+          },
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "variant": "bar",
+            "state": "selected"
+          },
+          "style": {
+            "color": "$color.foreground",
+            "fontWeight": "$type.weight.medium"
           }
         }
       ]
@@ -1427,7 +1528,7 @@
         }
       ]
     },
-    "DropdownMenu": {
+    "Menu": {
       "trigger": [
         {
           "style": {
@@ -2784,8 +2885,8 @@
         }
       ]
     },
-    "Band": {
-      "root": [
+    "Section": {
+      "header": [
         {
           "style": {
             "backgroundColor": "$color.muted"
@@ -2793,11 +2894,117 @@
         },
         {
           "when": {
-            "variant": "group"
+            "tint": "primary"
           },
           "style": {
-            "backgroundColor": "#00000000",
-            "paddingHorizontal": "$spacing.sm"
+            "backgroundColor": "$color.accent"
+          }
+        },
+        {
+          "when": {
+            "tint": "success"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        },
+        {
+          "when": {
+            "tint": "warning"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        },
+        {
+          "when": {
+            "tint": "danger"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        },
+        {
+          "when": {
+            "tint": "info"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        },
+        {
+          "when": {
+            "collapsible": true,
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent"
+          }
+        }
+      ],
+      "chevron": [
+        {
+          "style": {
+            "color": "$color.mutedForeground",
+            "transition": "$motion.standard",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "open": true
+          },
+          "style": {
+            "transform": "rotate(90deg)"
+          }
+        }
+      ],
+      "title": [
+        {
+          "when": {
+            "tint": "primary"
+          },
+          "style": {
+            "color": "$color.primary"
+          }
+        },
+        {
+          "when": {
+            "tint": "success"
+          },
+          "style": {
+            "color": "$color.success"
+          }
+        },
+        {
+          "when": {
+            "tint": "warning"
+          },
+          "style": {
+            "color": "$color.warning"
+          }
+        },
+        {
+          "when": {
+            "tint": "danger"
+          },
+          "style": {
+            "color": "$color.destructive"
+          }
+        },
+        {
+          "when": {
+            "tint": "info"
+          },
+          "style": {
+            "color": "$color.info"
+          }
+        }
+      ],
+      "caption": [
+        {
+          "style": {
+            "color": "$color.mutedForeground"
           }
         }
       ],
@@ -3014,7 +3221,7 @@
         }
       ]
     },
-    "Pill": {
+    "Chip": {
       "root": [
         {
           "style": {
@@ -3025,6 +3232,16 @@
         {
           "style": {
             "backgroundColor": "$color.background",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.border"
+          }
+        },
+        {
+          "when": {
+            "shape": "rect"
+          },
+          "style": {
+            "backgroundColor": "$color.card",
             "borderWidth": "$border.hairline",
             "borderColor": "$color.border"
           }
@@ -3088,7 +3305,8 @@
         },
         {
           "when": {
-            "tone": "neutral"
+            "tone": "neutral",
+            "shape": "pill"
           },
           "style": {
             "borderColor": "$color.mutedForeground"
@@ -3143,7 +3361,8 @@
         },
         {
           "when": {
-            "tone": "neutral"
+            "tone": "neutral",
+            "shape": "pill"
           },
           "style": {
             "color": "$color.mutedForeground"
@@ -3200,6 +3419,13 @@
           "when": {
             "tone": "neutral"
           },
+          "style": {
+            "color": "$color.mutedForeground"
+          }
+        }
+      ],
+      "detail": [
+        {
           "style": {
             "color": "$color.mutedForeground"
           }
@@ -3343,7 +3569,7 @@
         }
       ]
     },
-    "ListRow": {
+    "Row": {
       "root": [
         {
           "style": {
@@ -3353,47 +3579,12 @@
         },
         {
           "when": {
-            "state": "hover"
+            "surface": "card"
           },
-          "style": {
-            "backgroundColor": "$color.accent"
-          }
-        },
-        {
-          "when": {
-            "selected": true
-          },
-          "style": {
-            "backgroundColor": "$color.accent"
-          }
-        }
-      ]
-    },
-    "CardRow": {
-      "root": [
-        {
           "style": {
             "backgroundColor": "$color.card",
             "borderWidth": "$border.hairline",
             "borderColor": "$color.border"
-          }
-        },
-        {
-          "when": {
-            "state": "hover"
-          },
-          "style": {
-            "backgroundColor": "$color.accent"
-          }
-        }
-      ]
-    },
-    "NavRow": {
-      "root": [
-        {
-          "style": {
-            "transition": "$motion.fast",
-            "transitionEasing": "$ease.standard"
           }
         },
         {
@@ -3413,12 +3604,14 @@
           }
         }
       ],
-      "label": [
+      "identifier": [
         {
           "style": {
-            "color": "$color.foreground"
+            "color": "$color.mutedForeground"
           }
-        },
+        }
+      ],
+      "title": [
         {
           "when": {
             "selected": true
@@ -3428,35 +3621,11 @@
             "color": "$color.accentForeground"
           }
         }
-      ]
-    },
-    "PickerRow": {
-      "root": [
-        {
-          "when": {
-            "state": "hover"
-          },
-          "style": {
-            "backgroundColor": "$color.accent"
-          }
-        }
-      ]
-    },
-    "EntityChip": {
-      "root": [
+      ],
+      "value": [
         {
           "style": {
-            "backgroundColor": "$color.card",
-            "borderWidth": "$border.hairline",
-            "borderColor": "$color.border"
-          }
-        },
-        {
-          "when": {
-            "state": "hover"
-          },
-          "style": {
-            "backgroundColor": "$color.accent"
+            "color": "$color.foreground"
           }
         }
       ]
@@ -3592,121 +3761,8 @@
         }
       ]
     },
-    "ButtonGroup": {
-      "button": [
-        {
-          "when": {
-            "selected": true
-          },
-          "style": {
-            "backgroundColor": "$color.accent",
-            "color": "$color.accentForeground"
-          }
-        }
-      ]
-    },
     "Box": {
       "root": []
-    },
-    "ContextMenu": {
-      "content": [
-        {
-          "style": {
-            "backgroundColor": "$color.popover",
-            "color": "$color.popoverForeground",
-            "borderWidth": "$border.hairline",
-            "borderColor": "$color.border",
-            "borderRadius": "$radius.md",
-            "boxShadow": "$shadow.md",
-            "padding": "$spacing.xs"
-          }
-        }
-      ],
-      "item": [
-        {
-          "style": {
-            "height": "$control.buttonSm",
-            "paddingHorizontal": "$spacing.sm",
-            "borderRadius": "$radius.sm",
-            "fontSize": "$type.size.sm",
-            "lineHeight": "$type.lineHeight.sm",
-            "color": "$color.popoverForeground",
-            "gap": "$spacing.sm"
-          }
-        },
-        {
-          "when": {
-            "state": "hover"
-          },
-          "style": {
-            "backgroundColor": "$color.accent",
-            "color": "$color.accentForeground"
-          }
-        },
-        {
-          "when": {
-            "state": "selected"
-          },
-          "style": {
-            "backgroundColor": "$color.accent",
-            "color": "$color.accentForeground"
-          }
-        },
-        {
-          "when": {
-            "state": "disabled"
-          },
-          "style": {
-            "opacity": "$opacity.disabled"
-          }
-        }
-      ],
-      "separator": [
-        {
-          "style": {
-            "height": "$control.hairline",
-            "backgroundColor": "$color.border"
-          }
-        }
-      ],
-      "label": [
-        {
-          "style": {
-            "paddingHorizontal": "$spacing.sm",
-            "fontSize": "$type.size.sm",
-            "fontWeight": "$type.weight.medium",
-            "color": "$color.foreground"
-          }
-        }
-      ],
-      "shortcut": [
-        {
-          "style": {
-            "fontSize": "$type.size.xs",
-            "lineHeight": "$type.lineHeight.xs",
-            "color": "$color.mutedForeground",
-            "letterSpacing": 1
-          }
-        }
-      ],
-      "check": [
-        {
-          "style": {
-            "width": "$control.iconSm",
-            "height": "$control.iconSm",
-            "color": "$color.foreground"
-          }
-        }
-      ],
-      "submenuIndicator": [
-        {
-          "style": {
-            "width": "$control.iconSm",
-            "height": "$control.iconSm",
-            "color": "$color.mutedForeground"
-          }
-        }
-      ]
     },
     "Toast": {
       "root": [
@@ -4762,65 +4818,6 @@
         {
           "style": {
             "color": "$color.foreground"
-          }
-        }
-      ]
-    },
-    "TabBar": {
-      "root": [
-        {
-          "style": {
-            "backgroundColor": "$color.background",
-            "borderTopWidth": "$border.hairline",
-            "borderColor": "$color.border"
-          }
-        }
-      ],
-      "item": [
-        {
-          "style": {
-            "color": "$color.mutedForeground",
-            "transition": "$motion.fast",
-            "transitionEasing": "$ease.standard"
-          }
-        },
-        {
-          "when": {
-            "state": "pressed"
-          },
-          "style": {
-            "opacity": 0.7
-          }
-        }
-      ],
-      "icon": [
-        {
-          "style": {
-            "color": "$color.mutedForeground"
-          }
-        },
-        {
-          "when": {
-            "selected": true
-          },
-          "style": {
-            "color": "$color.primary"
-          }
-        }
-      ],
-      "label": [
-        {
-          "style": {
-            "color": "$color.mutedForeground"
-          }
-        },
-        {
-          "when": {
-            "selected": true
-          },
-          "style": {
-            "color": "$color.foreground",
-            "fontWeight": "$type.weight.medium"
           }
         }
       ]

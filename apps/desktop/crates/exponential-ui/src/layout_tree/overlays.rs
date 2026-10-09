@@ -1,8 +1,10 @@
-//! Overlay natives (Dialog, Drawer, Popover, Tooltip, DropdownMenu,
-//! ContextMenu), menus with checkbox / label / separator entries and ONE
-//! level of submenus, and the Toast band. The trigger stays inline; the
-//! content is a LAYER with its own root (`<owner>.content`), placed by the
-//! surface against the viewport, an anchor or a point.
+//! Overlay natives (Dialog, Drawer, Popover, Tooltip, Menu), menus with
+//! checkbox / label / separator entries and ONE level of submenus, and the
+//! Toast band. The trigger stays inline; the content is a LAYER with its own
+//! root (`<owner>.content`), placed by the surface against the viewport, an
+//! anchor or a point. Round 3: `Menu` replaces DropdownMenu + ContextMenu
+//! (`openOn: press` = its ONE child is the trigger, `contextmenu` = its ONE
+//! child is the target region, opened at the pointer).
 
 use serde_json::{json, Value};
 
@@ -10,6 +12,12 @@ use super::{bool_prop, js, str_prop, Builder, LNode, LayerPlacement, NodeKind, T
 use crate::overlay::{OverlayAlign, OverlaySide};
 use crate::theme::RecipeQuery;
 use crate::types::UiNode;
+
+/// True for a `Menu` opened by a right click / long press (`openOn:
+/// contextmenu`): its ONE child is the target region.
+pub fn is_context_menu(component: &str, props: &crate::types::Props) -> bool {
+    component == "Menu" && str_prop(props, "openOn") == Some("contextmenu")
+}
 
 /// Toasts visible at once (the newest three).
 pub const MAX_TOASTS: usize = 3;
@@ -29,13 +37,16 @@ impl Builder<'_, '_> {
         let owner = self.nodes[index as usize].clone();
         let layer_parent = owner.layer;
         let kind = owner.component.clone();
+        let context_menu = is_context_menu(&owner.component, &owner.props);
+        let press_menu = kind == "Menu" && !context_menu;
         // Round 2 §7: the overlay is LAYOUT-TRANSPARENT, its frame is the
         // trigger's. A control trigger (Button, Toggle) keeps its own size;
         // any other trigger (a Link, a Box) is the flex item: the wrapper
-        // takes the parent's alignment and the trigger fills it.
-        let slot_trigger = node.slots.as_ref().and_then(|s| s.get("trigger"));
+        // takes the parent's alignment and the trigger fills it. A press
+        // Menu's trigger is its ONE child (no `trigger` slot).
+        let slot_trigger = if press_menu { node.children.first() } else { node.slots.as_ref().and_then(|s| s.get("trigger")) };
         let fills = slot_trigger.is_some_and(|t| !matches!(t.component.as_str(), "Button" | "Toggle"));
-        if kind == "ContextMenu" {
+        if context_menu {
             self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column"))]);
         } else if fills {
             self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("row")), ("alignItems", json!("stretch"))]);
@@ -48,7 +59,8 @@ impl Builder<'_, '_> {
             if let Some(a) = anchor.filter(|_| fills) {
                 self.style_default(a, &[("flexGrow", json!(1)), ("minWidth", json!(0))]);
             }
-        } else if kind == "DropdownMenu" {
+        } else if press_menu {
+            // No child: the default outline Button from label / icon.
             let label = owner.props.get("label").cloned().unwrap_or_else(|| Value::String(self.string("menu")));
             let mut props = json!({"label": label, "variant": "outline"});
             if let Some(icon) = owner.props.get("icon") {
@@ -65,7 +77,7 @@ impl Builder<'_, '_> {
             self.nodes[wrap as usize].part_query = None;
             self.children_of(wrap, node, scope, false);
             anchor = Some(wrap);
-        } else if kind == "ContextMenu" {
+        } else if context_menu {
             // The target region: the child, inline.
             self.children_of(index, node, scope, false);
         }
@@ -87,11 +99,11 @@ impl Builder<'_, '_> {
             "Dialog" => LayerPlacement::Centered,
             "Drawer" => LayerPlacement::Edge(side.unwrap_or(OverlaySide::Bottom)),
             "Tooltip" => LayerPlacement::Anchored { anchor: anchor.unwrap_or(index), side: side.unwrap_or(OverlaySide::Top), align: OverlayAlign::Center },
-            "DropdownMenu" => LayerPlacement::Anchored { anchor: anchor.unwrap_or(index), side: OverlaySide::Bottom, align: OverlayAlign::Start },
-            "ContextMenu" => match point {
+            "Menu" if context_menu => match point {
                 Some((x, y)) => LayerPlacement::AtPoint { x, y },
                 None => LayerPlacement::Anchored { anchor: index, side: OverlaySide::Bottom, align: OverlayAlign::Start },
             },
+            "Menu" => LayerPlacement::Anchored { anchor: anchor.unwrap_or(index), side: OverlaySide::Bottom, align: OverlayAlign::Start },
             _ => LayerPlacement::Anchored { anchor: anchor.unwrap_or(index), side: side.unwrap_or(OverlaySide::Bottom), align: OverlayAlign::Center },
         };
         let content_style = match kind.as_str() {
@@ -101,7 +113,7 @@ impl Builder<'_, '_> {
                 _ => json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.lg", "height": "100%"}),
             },
             "Tooltip" => json!({"display": "flex", "flexDirection": "row", "paddingHorizontal": "$spacing.sm", "paddingVertical": "$spacing.xs", "borderRadius": "$radius.md"}),
-            "DropdownMenu" | "ContextMenu" => json!({"display": "flex", "flexDirection": "column", "padding": "$spacing.xs", "borderRadius": "$radius.md", "minWidth": 160}),
+            "Menu" => json!({"display": "flex", "flexDirection": "column", "padding": "$spacing.xs", "borderRadius": "$radius.md", "minWidth": 160}),
             _ => json!({"display": "flex", "flexDirection": "column", "gap": "$spacing.md", "padding": "$spacing.md", "borderRadius": "$radius.md"}),
         };
         let (layer, root) = self.layer_root(&owner, "content", content_style);
@@ -147,7 +159,7 @@ impl Builder<'_, '_> {
                 let text = owner.props.get("content").map(js).unwrap_or_default();
                 self.text_part(root, &owner_now, "label", &text, "caption", "");
             }
-            "DropdownMenu" | "ContextMenu" => {
+            "Menu" => {
                 let items = owner.props.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
                 self.menu_items(root, &owner_now, &items, "", true);
                 scroll_body = Some(root);

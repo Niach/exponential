@@ -44,6 +44,10 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_BRIDGE
+import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_COLUMN
+import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_RADIUS
+import at.exponential.ui.json.Props
 import at.exponential.ui.json.list
 import at.exponential.ui.json.num
 import at.exponential.ui.json.str
@@ -60,7 +64,6 @@ import java.io.InputStream
 import at.exponential.ui.host.MediaRequest
 import java.net.HttpURLConnection
 import java.net.URL
-import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -315,31 +318,84 @@ internal fun RingLeaf(cx: LeafContext) {
 }
 
 /**
- * `TreeGuides`: 16 dp columns, a 1 dp line (`TreeGuides/line`) at x = 7 per
- * pass-through column, the elbow at mid-height (`tee` = the line runs on).
+ * `TreeGuides` (round 3, `layout.json` `treeGuideColumn` / `treeGuideRadius`
+ * / `treeGuideBridge`, the gpui painter): 14 dp columns, the 1 dp line of
+ * column i with its LEFT edge at x = i·14 + 7. The elbow = a vertical from
+ * the row's top − bridge into a 3 dp ROUNDED corner at the row's centre,
+ * then a stub to the column's right edge (i·14 + 14); `tee` carries the
+ * vertical on to the bottom; `passThrough` columns = full-height verticals
+ * from top − bridge. The bridge overshoots the row's top (paint only) so the
+ * line carries across a Section divider. Mirrored in RTL. Stroke width /
+ * colour = the `TreeGuides/line` recipe.
  */
 @Composable
 internal fun TreeGuidesLeaf(cx: LeafContext) {
-    val depth = max(cx.props.num("depth") ?: 0.0, 0.0).toInt()
-    val elbowAt = cx.props.num("elbowAt")?.toInt() ?: (depth - 1)
-    val tee = cx.props["tee"]?.bool == true
-    val pass = cx.props.list("passThrough").mapNotNull { it.number?.toInt() }
+    val geometry = treeGuideGeometry(cx.props, cx.rtl)
     val line = cx.part("TreeGuides", "line")
     val color = line.color ?: line.style.background ?: cx.ink.copy(alpha = 0.25f)
     val lw = line.px("width") ?: 1f
     Canvas(Modifier.fillMaxSize()) {
         val d = density
-        val h = size.height
-        val lwPx = lw * d
-        for (i in 0 until depth) {
-            val x = (i * 16f + 7f) * d
-            if (pass.contains(i)) drawRect(color, Offset(x, 0f), Size(lwPx, h))
-            if (i == elbowAt) {
-                drawRect(color, Offset(x, 0f), Size(lwPx, if (tee) h else h / 2f))
-                drawRect(color, Offset(x, floor(h / 2f / d) * d), Size((16f - 7f) * d, lwPx))
+        val width = size.width / d
+        val h = size.height / d
+        geometry.paint(width, h, lw) { op ->
+            when (op) {
+                is TreeGuideOp.Vertical -> drawRect(color, Offset(op.x * d, op.from * d), Size(lw * d, (op.to - op.from) * d))
+                is TreeGuideOp.Elbow -> {
+                    val path = Path().apply {
+                        moveTo(op.x * d, (op.mid - op.radius) * d)
+                        quadraticTo(op.x * d, op.mid * d, (op.x + op.dir * op.radius) * d, op.mid * d)
+                        lineTo(op.stubEnd * d, op.mid * d)
+                    }
+                    drawPath(path, color, style = Stroke(width = lw * d))
+                }
             }
         }
     }
+}
+
+/** One drawing step of the tree guides (dp, the leaf's own coordinates). */
+internal sealed interface TreeGuideOp {
+    /** A `lw`-wide vertical whose LEFT edge is at `x`, from `from` to `to`. */
+    data class Vertical(val x: Float, val from: Float, val to: Float) : TreeGuideOp
+
+    /** The rounded corner + stub: down the line's centre `x` into a quarter turn at `mid`, then across to `stubEnd`. */
+    data class Elbow(val x: Float, val mid: Float, val radius: Float, val dir: Float, val stubEnd: Float) : TreeGuideOp
+}
+
+/** The tree guides' props, laid out by [paint] (pure: the geometry test reads it without a canvas). */
+internal class TreeGuideGeometry(val depth: Int, val elbowAt: Int, val tee: Boolean, val pass: List<Int>, val rtl: Boolean) {
+    fun paint(width: Float, height: Float, lw: Float, draw: (TreeGuideOp) -> Unit) {
+        val col = TREE_GUIDE_COLUMN
+        val radius = TREE_GUIDE_RADIUS
+        val top = -TREE_GUIDE_BRIDGE
+        val mid = height / 2f
+        // The physical x of a span starting at gutter offset `x`.
+        fun at(x: Float, span: Float) = if (rtl) width - x - span else x
+        fun vertical(x: Float, from: Float, to: Float) {
+            if (to > from) draw(TreeGuideOp.Vertical(at(x, lw), from, to))
+        }
+        for (i in 0 until depth) {
+            val x = i * col + col / 2f
+            if (pass.contains(i)) vertical(x, top, height)
+            if (i == elbowAt) {
+                vertical(x, top, if (tee) height else mid - radius)
+                draw(TreeGuideOp.Elbow(at(x, lw) + lw / 2f, mid, radius, if (rtl) -1f else 1f, at((i + 1) * col, 0f)))
+            }
+        }
+    }
+}
+
+internal fun treeGuideGeometry(props: Props, rtl: Boolean): TreeGuideGeometry {
+    val depth = max(props.num("depth") ?: 0.0, 0.0).toInt()
+    return TreeGuideGeometry(
+        depth = depth,
+        // The core fills `elbowAt`; a row it never saw (a lone root, a template item) draws no elbow.
+        elbowAt = props.num("elbowAt")?.toInt() ?: -1,
+        tee = props["tee"]?.bool == true,
+        pass = props.list("passThrough").mapNotNull { it.number?.toInt() },
+        rtl = rtl,
+    )
 }
 
 /** The Carousel dot strip (`Carousel/indicator`), centred on the core's leaf (overflowing it); a dot tap pages. */

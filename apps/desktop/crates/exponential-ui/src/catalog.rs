@@ -181,11 +181,11 @@ impl CatalogView {
 }
 
 /// Component names in source order, optionally the lite subset, never the
-/// hidden placeholder.
+/// hidden placeholder nor a deprecated alias.
 pub fn component_names(lite: bool) -> Vec<String> {
     CORE.components
         .iter()
-        .filter(|(_, def)| !def.is_hidden() && (!lite || def.lite))
+        .filter(|(_, def)| def.is_offered() && (!lite || def.lite))
         .map(|(name, _)| name.clone())
         .collect()
 }

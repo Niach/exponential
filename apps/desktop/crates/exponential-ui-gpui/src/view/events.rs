@@ -214,7 +214,7 @@ impl SurfaceView {
             }
             self.layer_return.insert(target, n.id.clone());
         }
-        if is_text_field(&n) || matches!((n.component.as_str(), n.part.as_deref()), ("Slider", Some("track")) | ("ToggleGroup", _)) {
+        if is_text_field(&n) || matches!((n.component.as_str(), n.part.as_deref()), ("Slider", Some("track")) | ("Segmented", _)) {
             return;
         }
         self.fire(index, "press", None, cx);
@@ -438,7 +438,7 @@ impl SurfaceView {
             });
         }
         // Keyboard focus inside a hover-opened trigger (a Tooltip anchor, a
-        // HoverCard trigger) is that trigger's `focus-visible`: it opens.
+        // hover Popover trigger) is that trigger's `focus-visible`: it opens.
         let trigger = if keyboard { now.and_then(|i| self.hover_trigger_above(i)) } else { None };
         if trigger != self.focus_trigger {
             if let Some(old) = self.focus_trigger.take() {
@@ -579,7 +579,7 @@ impl SurfaceView {
         let step_h = arrow_step(key, rtl, false);
         let step_hv = arrow_step(key, rtl, true);
         match (n.component.as_str(), owner.as_str(), part.as_deref()) {
-            ("ToggleGroup", _, _) => return self.toggle_group_key(&n, key, step_hv, window, cx),
+            ("Segmented", _, _) => return self.segmented_key(&n, key, step_hv, window, cx),
             ("Chart", _, None) if !super::state::is_sparkline(&n) => {
                 let count = crate::paint::chart::point_count(&n.props);
                 return match crate::paint::chart::step_point(self.chart_hover(n.index), count, step_h, key) {
@@ -657,7 +657,7 @@ impl SurfaceView {
                     return true;
                 }
             }
-            ("Box", "DropdownMenu" | "ContextMenu", Some("item")) => {
+            ("Box", "Menu", Some("item")) => {
                 let kind = n.props.get("kind").and_then(Value::as_str).unwrap_or("item");
                 let (open_key, close_key) = if rtl { ("left", "right") } else { ("right", "left") };
                 if key == open_key && kind == "submenu" {
@@ -866,8 +866,8 @@ impl SurfaceView {
         self.cache.nodes.iter().find(|x| !x.removed && x.owner.as_deref() == Some(owner) && x.part.as_deref() == Some("day") && x.props.get("date").and_then(Value::as_str) == Some(iso) && x.props.get("outside").and_then(Value::as_bool) != Some(true)).map(|x| x.index)
     }
 
-    /// ToggleGroup keys: arrows move the roving item, Space/Enter toggle it.
-    fn toggle_group_key(&mut self, n: &exponential_ui::surface::PlacedNode, key: &str, step: Option<i64>, window: &mut Window, cx: &mut Context<Self>) -> bool {
+    /// Segmented keys: arrows move the roving item, Space/Enter toggle it.
+    fn segmented_key(&mut self, n: &exponential_ui::surface::PlacedNode, key: &str, step: Option<i64>, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let items = n.props.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
         if items.is_empty() {
             return false;
@@ -879,7 +879,7 @@ impl SurfaceView {
             "end" => len - 1,
             "enter" | "space" => {
                 if let Some(v) = items.get(current as usize).and_then(|i| i.get("value")).cloned() {
-                    self.toggle_group_select(n.index, v, window, cx);
+                    self.segmented_select(n.index, v, window, cx);
                 }
                 return true;
             }
@@ -893,7 +893,7 @@ impl SurfaceView {
         true
     }
 
-    /// A ToggleGroup's roving item: the one the arrows moved to, else the
+    /// A Segmented's roving item: the one the arrows moved to, else the
     /// first selected, else the first.
     pub(crate) fn group_index(&self, n: &exponential_ui::surface::PlacedNode) -> usize {
         if let Some(i) = self.group_focus.get(&n.id) {
@@ -1011,7 +1011,7 @@ impl SurfaceView {
 
     // -- Pointer: context menu, files, sliders, scrolling -----------------
 
-    /// A right click (or Shift+F10) inside a ContextMenu: open it at the
+    /// A right click (or Shift+F10) inside a context Menu: open it at the
     /// pointer (surface coordinates).
     pub(crate) fn context_menu(&mut self, index: u32, position: Point<Pixels>, cx: &mut Context<Self>) {
         let x = f32::from(position.x - self.origin.x);
@@ -1194,10 +1194,10 @@ impl SurfaceView {
         }
     }
 
-    // -- ToggleGroup, charts ------------------------------------------------
+    // -- Segmented, charts --------------------------------------------------
 
-    /// A ToggleGroup item press: single = that value, multiple = toggled set.
-    pub(crate) fn toggle_group_select(&mut self, index: u32, value: Value, _window: &mut Window, cx: &mut Context<Self>) {
+    /// A Segmented item press: single = that value, multiple = toggled set.
+    pub(crate) fn segmented_select(&mut self, index: u32, value: Value, _window: &mut Window, cx: &mut Context<Self>) {
         let Some(n) = self.cache.node(index).cloned() else { return };
         let multiple = n.props.get("type").and_then(Value::as_str) == Some("multiple");
         let current = n.props.get("value").cloned().unwrap_or(Value::Null);

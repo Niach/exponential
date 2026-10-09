@@ -208,7 +208,7 @@ class SurfaceMeasurer(
             else -> when (leaf.component) {
                 "Text" -> text(leaf, ts, inner)
                 "Markdown" -> markdown(leaf, inner)
-                "Button", "Toggle", "DropdownMenu" -> button(leaf)
+                "Button", "Toggle" -> button(leaf)
                 "Link" -> {
                     val label = shown(props.shownText("label").ifEmpty { props.str("href") }, leaf)
                     Content(line(label, ts), ts.lineHeight, baseline(ts))
@@ -234,7 +234,7 @@ class SurfaceMeasurer(
                 // depth × `treeGuideColumn` wide; no height of its own (it
                 // stretches to its row, round 2 §7).
                 "TreeGuides" -> plain(max((props.num("depth") ?: 0.0).toFloat(), 0f) * TREE_GUIDE_COLUMN, 0f)
-                "ToggleGroup" -> toggleGroup(leaf).let { plain(it.width, it.height) }
+                "Segmented" -> segmented(leaf).let { plain(it.width, it.height) }
                 "Unknown" -> {
                     val label = part("Unknown", "label", props)
                     val lts = ResolvedTextStyle(label.px("fontSize") ?: 12f, 400, label.px("lineHeight") ?: 16f, label.fontFamily)
@@ -429,16 +429,42 @@ class SurfaceMeasurer(
         return Size(FIELD_INTRINSIC_WIDTH, min(max(lines, rows), max(maxRows, rows)) * ts.lineHeight)
     }
 
-    private fun toggleGroup(leaf: LeafRequest): Size {
+    /**
+     * A `bar` Segmented (round 3, the old TabBar): `$control.tabBar` tall,
+     * each item a COLUMN (icon over a caption label) sharing the width; its
+     * min-content width = the widest of icon and label per item (gpui).
+     */
+    private fun segmentedBar(leaf: LeafRequest): Size {
+        val ts = barCaption(ts(leaf))
+        val icon = control("iconMd", 20f)
+        val pad = spacing("xs")
+        var w = 0f
+        for (it in leaf.props.list("items")) {
+            val label = shown(it["label"]?.displayText ?: "", leaf)
+            val lw = if (label.isEmpty()) 0f else line(label, ts)
+            val iw = if (it["icon"]?.string != null) icon else 0f
+            w += max(lw, iw) + 2 * pad
+        }
+        return Size(w, control("tabBar", 56f))
+    }
+
+    /** The `bar` Segmented's caption: the `Text` caption recipe (size, line height), the item's weight. */
+    internal fun barCaption(base: ResolvedTextStyle): ResolvedTextStyle {
+        val caption = part("Text", "root", mapOf("variant" to JsonValue.Str("caption")))
+        return ResolvedTextStyle(caption.px("fontSize") ?: 12f, base.fontWeight, caption.px("lineHeight") ?: 16f, base.fontFamily)
+    }
+
+    private fun segmented(leaf: LeafRequest): Size {
         val props = leaf.props
+        if (props.str("variant") == "bar") return segmentedBar(leaf)
         val items = props.list("items")
-        val item = part("ToggleGroup", "item", props)
+        val item = part("Segmented", "item", props)
         val pad = item.px("paddingHorizontal") ?: item.px("padding") ?: 12f
         val border = item.px("borderWidth") ?: 0f
         val h = item.height ?: 36f
         val base = ts(leaf)
         val ts = ResolvedTextStyle(item.px("fontSize") ?: base.fontSize, (item.props["fontWeight"]?.number ?: 500.0).toInt(), base.lineHeight, item.fontFamily, base.letterSpacing)
-        // Icon ↔ label: the `ToggleGroup/item` recipe's gap (none = 0, as the web and gpui).
+        // Icon ↔ label: the `Segmented/item` recipe's gap (none = 0, as the web and gpui).
         val itemGap = item.px("gap") ?: 0f
         var w = 0f
         for ((i, it) in items.withIndex()) {
@@ -512,7 +538,7 @@ class SurfaceMeasurer(
                 // Round 2 §7: the count is its own muted part after the title.
                 owner == "Accordion" && part == "trigger" -> 0f to ((if (props["count"] != null) 8f + countW else 0f) + 16f + max(gap, 8f))
                 owner == "Select" && part == "item" -> icon("icon") to (16f + max(gap, 8f))
-                (owner == "DropdownMenu" || owner == "ContextMenu") && part == "itemLabel" -> icon("icon") to 0f
+                owner == "Menu" && part == "itemLabel" -> icon("icon") to 0f
                 owner == "Table" && part == "headerCell" -> 0f to (if (props["sortIcon"] != null || props.flag("sortable")) 16f + 4f else 0f)
                 else -> 0f to 0f
             }

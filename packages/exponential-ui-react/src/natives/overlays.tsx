@@ -1,5 +1,5 @@
 // VAPP-87 + round 1: the OVERLAYS — Dialog, Drawer, Popover, Tooltip,
-// DropdownMenu, ContextMenu on Radix portals, and the Toast. Every portal
+// Menu (press | contextmenu) on Radix portals, and the Toast. Every portal
 // mounts into the surface's OVERLAY LAYER inside the `xui` container (so a
 // breakpoint still matches inside a Dialog, audit bug C); toasts mount into
 // the TOAST layer above it. The placement contract the core mirrors: side +
@@ -273,7 +273,7 @@ export function TooltipNative({ node, props, rootProps, children }: NativeProps)
 }
 
 // ---------------------------------------------------------------------------
-// Menus (DropdownMenu + ContextMenu share the items)
+// Menu (round 3: ONE native for the old DropdownMenu + ContextMenu)
 // ---------------------------------------------------------------------------
 
 interface MenuItem {
@@ -291,7 +291,10 @@ interface MenuItem {
 
 type MenuNs = typeof MenuPrimitive | typeof ContextPrimitive
 
-function MenuItems({ ns, items, rawItems, part, component, emit, scope, path }: { ns: MenuNs; items: MenuItem[]; rawItems: unknown; part: PartFn; component: `DropdownMenu` | `ContextMenu`; emit: NativeProps[`emit`]; scope: string; path: string }) {
+/** The entries, shared by both openings. A submenu's `items` may be a
+ *  binding (`{path}` to rows a host source feeds): the bind pass resolved it
+ *  already, so it renders like a literal one. */
+function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, path }: { ns: MenuNs; items: MenuItem[]; rawItems: unknown; part: PartFn; overlay: string; emit: NativeProps[`emit`]; scope: string; path: string }) {
   const ctx = useSurfaceContext()
   const raws = arr<Record<string, unknown>>(rawItems)
   const N = ns as typeof MenuPrimitive
@@ -311,12 +314,12 @@ function MenuItems({ ns, items, rawItems, part, component, emit, scope, path }: 
                 {icon}
                 <span className="xui-menu-label">{str(item.label)}</span>
                 <span {...(part(`submenuIndicator`) as Record<string, string>)}>
-                  <BuiltinIcon slot={`${component}.submenuIndicator`} />
+                  <BuiltinIcon slot="Menu.submenuIndicator" />
                 </span>
               </N.SubTrigger>
               <N.Portal container={ctx.portal ?? undefined}>
-                <N.SubContent {...(part(`content`) as Record<string, string>)} sideOffset={2} collisionPadding={OVERLAY_PADDING} data-xui-overlay={`${component}.sub`}>
-                  <MenuItems ns={ns} items={arr<MenuItem>(item.items)} rawItems={raws[i]?.items} part={part} component={component} emit={emit} scope={scope} path={`${key}.`} />
+                <N.SubContent {...(part(`content`) as Record<string, string>)} sideOffset={2} collisionPadding={OVERLAY_PADDING} data-xui-overlay={`${overlay}.sub`}>
+                  <MenuItems ns={ns} items={arr<MenuItem>(item.items)} rawItems={raws[i]?.items} part={part} overlay={overlay} emit={emit} scope={scope} path={`${key}.`} />
                 </N.SubContent>
               </N.Portal>
             </N.Sub>
@@ -339,7 +342,7 @@ function MenuItems({ ns, items, rawItems, part, component, emit, scope, path }: 
             >
               <span {...(part(`check`) as Record<string, string>)}>
                 <N.ItemIndicator>
-                  <BuiltinIcon slot={`${component}.check`} />
+                  <BuiltinIcon slot="Menu.check" />
                 </N.ItemIndicator>
               </span>
               <span className="xui-menu-label">{str(item.label)}</span>
@@ -359,19 +362,29 @@ function MenuItems({ ns, items, rawItems, part, component, emit, scope, path }: 
   )
 }
 
-export function DropdownMenuNative({ node, props, rootProps, emit, slots, scope }: NativeProps) {
+/** Menu: `openOn: press` (default) = a Radix DropdownMenu, its ONE child the
+ *  trigger (no child = the default outline Button from label/icon, no
+ *  chevron), anchored bottom-start; `openOn: contextmenu` = a Radix
+ *  ContextMenu over the child (right-click / long-press / Shift+F10 / the
+ *  Menu key), opened at the pointer (the child's corner from the keyboard). */
+export function MenuNative(p: NativeProps) {
+  return p.props.openOn === `contextmenu` ? <ContextMenuOpening {...p} /> : <PressMenuOpening {...p} />
+}
+
+function PressMenuOpening({ node, props, rootProps, emit, children, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const items = arr<MenuItem>(props.items)
   const label = str(props.label)
   const icon = str(props.icon)
   const [open, setOpen] = useState(false)
+  const child = node.children[0] ?? null
   return (
     <MenuPrimitive.Root open={open} onOpenChange={setOpen} dir={ctx.direction}>
-      <div {...overlayRootProps(rootProps, true, node.slots?.trigger)}>
+      <div {...overlayRootProps(rootProps, true, child)}>
         <MenuPrimitive.Trigger asChild>
-          {slots.trigger ? (
-            <Trigger>{slots.trigger}</Trigger>
+          {child ? (
+            <Trigger>{children}</Trigger>
           ) : (
             // Round 2 §7: the default trigger = an outline button with the
             // icon (when set) and the label (`$string.menu` without one and
@@ -384,17 +397,15 @@ export function DropdownMenuNative({ node, props, rootProps, emit, slots, scope 
         </MenuPrimitive.Trigger>
       </div>
       <MenuPrimitive.Portal container={ctx.portal ?? undefined}>
-        <MenuPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} align="start" sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="DropdownMenu">
-          <MenuItems ns={MenuPrimitive} items={items} rawItems={node.props.items} part={part} component="DropdownMenu" emit={emit} scope={scope} path="" />
+        <MenuPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} align="start" sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="press">
+          <MenuItems ns={MenuPrimitive} items={items} rawItems={node.props.items} part={part} overlay="Menu" emit={emit} scope={scope} path="" />
         </MenuPrimitive.Content>
       </MenuPrimitive.Portal>
     </MenuPrimitive.Root>
   )
 }
 
-/** ContextMenu: right-click / long-press / Shift+F10 / the Menu key on its
- *  one child opens the menu at the pointer (or the child's corner). */
-export function ContextMenuNative({ node, props, rootProps, emit, children, scope }: NativeProps) {
+function ContextMenuOpening({ node, props, rootProps, emit, children, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const items = arr<MenuItem>(props.items)
@@ -417,8 +428,8 @@ export function ContextMenuNative({ node, props, rootProps, emit, children, scop
         </div>
       </ContextPrimitive.Trigger>
       <ContextPrimitive.Portal container={ctx.portal ?? undefined}>
-        <ContextPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} collisionPadding={OVERLAY_PADDING} data-xui-overlay="ContextMenu">
-          <MenuItems ns={ContextPrimitive} items={items} rawItems={node.props.items} part={part} component="ContextMenu" emit={emit} scope={scope} path="" />
+        <ContextPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="contextmenu">
+          <MenuItems ns={ContextPrimitive} items={items} rawItems={node.props.items} part={part} overlay="Menu" emit={emit} scope={scope} path="" />
         </ContextPrimitive.Content>
       </ContextPrimitive.Portal>
     </ContextPrimitive.Root>

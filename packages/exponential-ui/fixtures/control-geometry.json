@@ -3,7 +3,7 @@
   "parts": {
     "Button": "root",
     "Toggle": "root",
-    "ToggleGroup": "item",
+    "Segmented": "item",
     "Input": "field",
     "Textarea": "field",
     "Select": "trigger",
@@ -279,7 +279,7 @@
           }
         }
       },
-      "ToggleGroup": {
+      "Segmented": {
         "part": "item",
         "cases": {
           "default": {
@@ -321,10 +321,23 @@
               "borderRadius": 6
             }
           },
-          "variant=default": {
+          "variant=segmented": {
             "props": {
               "type": "single",
-              "variant": "default",
+              "variant": "segmented",
+              "size": "default",
+              "fill": false
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 12,
+              "borderRadius": 6
+            }
+          },
+          "variant=toggles": {
+            "props": {
+              "type": "single",
+              "variant": "toggles",
               "size": "default",
               "fill": false
             },
@@ -348,18 +361,14 @@
               "borderRadius": 8
             }
           },
-          "variant=segmented": {
+          "variant=bar": {
             "props": {
               "type": "single",
-              "variant": "segmented",
+              "variant": "bar",
               "size": "default",
               "fill": false
             },
-            "geometry": {
-              "height": 32,
-              "paddingHorizontal": 12,
-              "borderRadius": 6
-            }
+            "geometry": {}
           },
           "size=sm": {
             "props": {
@@ -1266,7 +1275,7 @@
           }
         }
       },
-      "ToggleGroup": {
+      "Segmented": {
         "part": "item",
         "cases": {
           "default": {
@@ -1308,10 +1317,23 @@
               "borderRadius": 8
             }
           },
-          "variant=default": {
+          "variant=segmented": {
             "props": {
               "type": "single",
-              "variant": "default",
+              "variant": "segmented",
+              "size": "default",
+              "fill": false
+            },
+            "geometry": {
+              "height": 24,
+              "paddingHorizontal": 12,
+              "borderRadius": 8
+            }
+          },
+          "variant=toggles": {
+            "props": {
+              "type": "single",
+              "variant": "toggles",
               "size": "default",
               "fill": false
             },
@@ -1335,18 +1357,14 @@
               "borderRadius": 10
             }
           },
-          "variant=segmented": {
+          "variant=bar": {
             "props": {
               "type": "single",
-              "variant": "segmented",
+              "variant": "bar",
               "size": "default",
               "fill": false
             },
-            "geometry": {
-              "height": 24,
-              "paddingHorizontal": 12,
-              "borderRadius": 8
-            }
+            "geometry": {}
           },
           "size=sm": {
             "props": {
@@ -2253,7 +2271,7 @@
           }
         }
       },
-      "ToggleGroup": {
+      "Segmented": {
         "part": "item",
         "cases": {
           "default": {
@@ -2295,10 +2313,23 @@
               "borderRadius": 10
             }
           },
-          "variant=default": {
+          "variant=segmented": {
             "props": {
               "type": "single",
-              "variant": "default",
+              "variant": "segmented",
+              "size": "default",
+              "fill": false
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 12,
+              "borderRadius": 10
+            }
+          },
+          "variant=toggles": {
+            "props": {
+              "type": "single",
+              "variant": "toggles",
               "size": "default",
               "fill": false
             },
@@ -2322,18 +2353,14 @@
               "borderRadius": 9999
             }
           },
-          "variant=segmented": {
+          "variant=bar": {
             "props": {
               "type": "single",
-              "variant": "segmented",
+              "variant": "bar",
               "size": "default",
               "fill": false
             },
-            "geometry": {
-              "height": 32,
-              "paddingHorizontal": 12,
-              "borderRadius": 10
-            }
+            "geometry": {}
           },
           "size=sm": {
             "props": {

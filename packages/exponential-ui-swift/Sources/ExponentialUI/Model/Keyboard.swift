@@ -208,8 +208,8 @@ extension SurfaceModel {
         let stepHV = Self.arrowStep(key, rtl: rtl, vertical: true)
         let vertical: Int? = key == "down" ? 1 : (key == "up" ? -1 : nil)
         switch (n.component, owner, n.part) {
-        case ("ToggleGroup", _, _):
-            return toggleGroupKey(n, key: key, step: stepHV)
+        case ("Segmented", _, _):
+            return segmentedKey(n, key: key, step: stepHV)
         case ("Chart", _, nil) where !n.isSparkline:
             let count = Self.chartPointCount(n.props)
             guard count > 0 else { return false }
@@ -271,7 +271,7 @@ extension SurfaceModel {
                 focusKey(t)
                 return true
             }
-        case ("Box", "DropdownMenu", "item"), ("Box", "ContextMenu", "item"):
+        case ("Box", "Menu", "item"):
             let kind = n.props.str("kind").isEmpty ? "item" : n.props.str("kind")
             let (openKey, closeKey) = rtl ? ("left", "right") : ("right", "left")
             if key == openKey && kind == "submenu" {
@@ -462,18 +462,18 @@ extension SurfaceModel {
         nodes.first { !$0.removed && $0.owner == owner && $0.part == "day" && $0.props.str("date") == iso && !$0.props.flag("outside") }?.index
     }
 
-    /// ToggleGroup keys: arrows move the roving item, Space / Enter toggle it.
-    private func toggleGroupKey(_ n: NodeInfo, key: String, step: Int?) -> Bool {
+    /// Segmented keys: arrows move the roving item, Space / Enter toggle it.
+    private func segmentedKey(_ n: NodeInfo, key: String, step: Int?) -> Bool {
         let items = n.props.list("items")
         guard !items.isEmpty else { return false }
         let len = items.count
-        let current = toggleGroupFocusIndex(n.index)
+        let current = segmentedFocusIndex(n.index)
         let next: Int
         switch key {
         case "home": next = 0
         case "end": next = len - 1
         case "enter", "space":
-            if let v = items[safe: current]?["value"] { toggleGroupSelect(n.index, value: v) }
+            if let v = items[safe: current]?["value"] { segmentedSelect(n.index, value: v) }
             groupFocus[n.id] = current
             return true
         default:

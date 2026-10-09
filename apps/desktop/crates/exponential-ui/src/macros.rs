@@ -401,7 +401,11 @@ fn expand_macro(node: UiNode, macro_: &str, def: &MacroDef, view: &CatalogView, 
     if depth > MAX_DEPTH {
         return Err(format!("macro {macro_}: expansion deeper than {MAX_DEPTH}"));
     }
-    let base_props = props_at(&node.props, None);
+    let mut base_props = props_at(&node.props, None);
+    // Round 3: an `on.press` implies `pressable` on a macro that offers it (Row, Chip).
+    if node.on.as_ref().is_some_and(|o| o.contains_key("press")) && !base_props.contains_key("pressable") && view.components.get(macro_).is_some_and(|d| d.props.contains_key("pressable")) {
+        base_props.insert("pressable".into(), Value::Bool(true));
+    }
     let variants = responsive_variants(&node.props);
     let mut exp = Expansion { view, macro_, def, source: &node, base_props: base_props.clone(), variants, claimed: HashSet::new(), issues: Vec::new() };
     let ctx = ExprContext { id: &node.id, props: &base_props, vars: IndexMap::new() };
@@ -481,7 +485,10 @@ pub fn expand_macros(root: &UiNode, view: &CatalogView) -> Result<UiNode, String
 /// `expandMacros(root, {issues})`.
 pub fn expand_macros_with_issues(root: &UiNode, view: &CatalogView) -> Result<(UiNode, Vec<ReduceIssue>), String> {
     let mut issues = Vec::new();
-    let node = expand_tree(root, view, 0, &mut issues)?;
+    let mut node = expand_tree(root, view, 0, &mut issues)?;
+    // Round 3: the tree guides of nested Rows come from their siblings, so
+    // they are filled AFTER the whole tree is native (`tree_guides`).
+    crate::tree_guides::apply_tree_guides(&mut node);
     Ok((node, issues))
 }
 

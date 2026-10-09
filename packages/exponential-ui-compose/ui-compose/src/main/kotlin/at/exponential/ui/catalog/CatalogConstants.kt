@@ -23,6 +23,10 @@ object CatalogConstants {
     val MEDIA_INTRINSIC_WIDTH: Float = named("mediaIntrinsicWidth")
     val MEDIA_ASPECT_RATIO: Float = named("mediaAspectRatio")
     val TREE_GUIDE_COLUMN: Float = named("treeGuideColumn")
+    /** The tree-guide elbow's corner radius (round 3). */
+    val TREE_GUIDE_RADIUS: Float = named("treeGuideRadius")
+    /** How far every guide vertical overshoots the row's top (paint only, round 3: bridges a Section divider). */
+    val TREE_GUIDE_BRIDGE: Float = named("treeGuideBridge")
 
     /** `locale.json` `rtlMirroredIcons`: the directional glyphs mirrored under rtl (round 1 §4). */
     val rtlMirroredIcons: List<String> = ExponentialUICatalog.rtlMirroredIcons

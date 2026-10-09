@@ -54,18 +54,25 @@ describe(`components`, () => {
     ]
     // Round 2 (docs/round-2-contract.md §1).
     const round2 = [`Resizable`]
-    for (const name of [...expected, ...round1, ...round2]) expect(coreCatalog.components[name], name).toBeDefined()
-    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length)
+    // Round 3 (docs/round-3-contract.md): the app's list / menu / chip vocabulary; the folded ones stay as deprecated aliases.
+    const round3 = [`Row`, `Section`, `Chip`, `Segmented`, `Menu`]
+    const deprecated = [`Band`, `RowList`, `ToggleGroup`, `ButtonGroup`, `TabBar`, `Sheet`, `HoverCard`, `DropdownMenu`, `ContextMenu`, `Pill`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`]
+    for (const name of [...expected, ...round1, ...round2, ...round3]) expect(coreCatalog.components[name], name).toBeDefined()
+    for (const name of deprecated) expect(coreCatalog.components[name].deprecated, name).toBeDefined()
+    expect(Object.entries(coreCatalog.components).filter(([, d]) => d.deprecated).map(([n]) => n)).toEqual(deprecated)
+    const hidden = [`TreeGuides`] // round 3: a Row part, never authored
+    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length - deprecated.length - hidden.length)
+    for (const name of deprecated) expect(componentNames()).not.toContain(name)
   })
 
   test(`kinds follow the issue's table`, () => {
     const kind = (name: string) => coreCatalog.components[name].kind
-    for (const native of [`Box`, `List`, `Text`, `Image`, `Icon`, `Video`, `AudioPlayer`, `Avatar`, `Carousel`, `Tabs`, `ToggleGroup`, `Accordion`, `Dialog`, `Drawer`, `Popover`, `Tooltip`, `DropdownMenu`, `Ring`, `Spinner`, `Skeleton`, `Button`, `Link`, `Toggle`, `Input`, `Textarea`, `Checkbox`, `Radio`, `Switch`, `Slider`, `Select`, `DatePicker`, `Markdown`, `Composer`, `TreeGuides`, `Chart`])
+    for (const native of [`Box`, `List`, `Text`, `Image`, `Icon`, `Video`, `AudioPlayer`, `Avatar`, `Carousel`, `Tabs`, `Segmented`, `Accordion`, `Dialog`, `Drawer`, `Popover`, `Tooltip`, `Menu`, `Ring`, `Spinner`, `Skeleton`, `Button`, `Link`, `Toggle`, `Input`, `Textarea`, `Checkbox`, `Radio`, `Switch`, `Slider`, `Select`, `DatePicker`, `Markdown`, `Composer`, `TreeGuides`, `Chart`])
       expect(kind(native), native).toBe(`native`)
-    for (const macro of [`Stack`, `Grid`, `Card`, `Separator`, `Heading`, `Badge`, `Alert`, `Pill`, `EmptyState`, `Pagination`, `ButtonGroup`, `Progress`, `Meter`, `Band`, `RowList`, `Group`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`, `Collapsible`, `Sheet`])
+    for (const macro of [`Stack`, `Grid`, `Card`, `Separator`, `Heading`, `Badge`, `Alert`, `Pill`, `EmptyState`, `Pagination`, `ButtonGroup`, `Progress`, `Meter`, `Band`, `RowList`, `Group`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`, `Collapsible`, `Sheet`, `Row`, `Section`, `Chip`, `ToggleGroup`, `DropdownMenu`, `ContextMenu`])
       expect(kind(macro), macro).toBe(`macro`)
     // Round 1: natives only where a renderer must own behaviour, macros elsewhere.
-    for (const native of [`Table`, `Form`, `NumberField`, `ChipInput`, `DateRangePicker`, `TimePicker`, `FileUpload`, `CodeBlock`, `ContextMenu`, `Toast`])
+    for (const native of [`Table`, `Form`, `NumberField`, `ChipInput`, `DateRangePicker`, `TimePicker`, `FileUpload`, `CodeBlock`, `Toast`])
       expect(kind(native), native).toBe(`native`)
     for (const macro of [`ScrollArea`, `Sidebar`, `AppBar`, `Kbd`, `Label`, `Breadcrumb`, `TabBar`, `Stepper`, `AlertDialog`, `HoverCard`, `Sparkline`, `Rating`])
       expect(kind(macro), macro).toBe(`macro`)
@@ -87,12 +94,17 @@ describe(`components`, () => {
     expect(coreCatalog.components.Badge.props.variant.enum).toBe(`variant`)
   })
 
-  test(`core-lite = no overlays, media or Chart`, () => {
+  test(`core-lite = the app-shaped vocabulary: no overlays, media, Chart, data tables or the rarer controls`, () => {
     const lite = coreLite()
     expect(lite).toEqual([...LITE_COMPONENTS] as string[])
+    // Round 3 (VAPP-102): the app deleted these primitives; they stay in the full catalog only.
+    const rarer = [`Pagination`, `Accordion`, `Radio`, `Slider`, `Spinner`, `Table`, `Toggle`, `Carousel`]
     for (const [name, def] of components) {
-      if (def.hidden) continue
-      const excluded = def.group === `overlay` || def.group === `media` || name === `Chart` || name === `Sparkline`
+      if (def.hidden || def.deprecated) {
+        expect(lite.includes(name), name).toBe(false)
+        continue
+      }
+      const excluded = def.group === `overlay` || def.group === `media` || name === `Chart` || name === `Sparkline` || rarer.includes(name)
       if (name === `Icon` || name === `Avatar`) continue // the two media natives every list needs
       expect(lite.includes(name), name).toBe(!excluded)
     }

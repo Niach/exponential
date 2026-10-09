@@ -14,6 +14,8 @@ export {
   componentDef,
   componentNames,
   coreLite,
+  isOffered,
+  deprecatedComponents,
   parseTokenRef,
   isKnownToken,
 } from "./catalog"
@@ -54,7 +56,9 @@ export { normalizeSizes, resizePanels, keyboardResize, panelExtents, dragDelta, 
 export type { PanelLimits, ResizeKey } from "./resizable"
 export { nodeDirections, physicalTextAlign, nodeTextAlign } from "./direction"
 export type { Direction, PhysicalAlign } from "./direction"
-export { LAYOUT_CONSTANTS, FIELD_INTRINSIC_WIDTH, MEDIA_INTRINSIC_WIDTH, MEDIA_ASPECT_RATIO, TREE_GUIDE_COLUMN } from "./layout"
+export { LAYOUT_CONSTANTS, FIELD_INTRINSIC_WIDTH, MEDIA_INTRINSIC_WIDTH, MEDIA_ASPECT_RATIO, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, TREE_GUIDE_BRIDGE } from "./layout"
+export { treeGuides, applyTreeGuides, isRowRoot } from "./tree-guides"
+export type { TreeGuide } from "./tree-guides"
 export { ANIMATIONS, ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, animatesOpacity, animationTiming, animationFrame, cubicBezier, keyframesCss, animationCss, paintedOpacity } from "./animation"
 export type { AnimationDef, AnimationFrame, AnimationTiming, Keyframe } from "./animation"
 export type { DataScope, ResolveOptions, ActionOutcome, FunctionTable } from "./dynamic"

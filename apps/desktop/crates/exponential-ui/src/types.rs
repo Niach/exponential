@@ -218,6 +218,10 @@ pub struct ComponentDef {
     pub hidden: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status: Option<String>,
+    /// Round 3: a deprecated alias names its replacement. It still reduces
+    /// and expands, but is never offered (prompt, docs, `component_names`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deprecated: Option<String>,
     #[serde(default)]
     pub description: String,
     #[serde(default)]
@@ -244,6 +248,11 @@ impl ComponentDef {
     }
     pub fn is_hidden(&self) -> bool {
         self.hidden == Some(true)
+    }
+    /// True for a component a model is offered: neither the hidden
+    /// placeholder nor a deprecated alias (round 3).
+    pub fn is_offered(&self) -> bool {
+        !self.is_hidden() && self.deprecated.is_none()
     }
     /// True when the slots are ROW-SCOPED (`slotScope: "row"`, Table).
     pub fn has_row_slots(&self) -> bool {

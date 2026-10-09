@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-85: the kitchen sink, extended from the VAPP-4 spike (packages/domain-contract/fixtures/vapp-kitchen-sink.json on exp/VAPP-4) to the FULL core catalog: every visible component at least once, in the nested authoring form (id, component, props, style, children, slots, on). The spike's layout cases stay: flex rows/columns with wrap + grow/shrink/basis, a grid with gridTemplateAreas + fr + minmax and a 600 px surface breakpoint, an absolute badge overlay, 16:9 media, min/max + percentages + gap, :pressed buttons. Every renderer paints this once as the view `exponential-ui-kitchen-sink`; kitchen-sink.expanded.json is what it receives. Round 1 (docs/round-1-contract.md) adds the app shell (AppBar, Breadcrumb, TabBar), a RESPONSIVE section every renderer must prove at three widths (a Grid of cards 1 → 2 → 3 columns via a responsive `columns`, a Sidebar that collapses below md, a Stack that turns horizontal at md, nodes hidden on narrow or on wide surfaces, hover/focus-visible/orientation/hover-capability blocks, a Drawer whose side is responsive), a Form of the new fields, the data Table with typed, sortable, selectable columns and a slot cell, the new chart kinds, the CodeBlock, the overlay newcomers and BOUND macros (Collapsible open, Pagination page, TabBar value, Progress value: two-way through the `set` action).",
+  "$comment": "VAPP-85: the kitchen sink, extended from the VAPP-4 spike (packages/domain-contract/fixtures/vapp-kitchen-sink.json on exp/VAPP-4) to the FULL core catalog: every visible component at least once, in the nested authoring form (id, component, props, style, children, slots, on). The spike's layout cases stay: flex rows/columns with wrap + grow/shrink/basis, a grid with gridTemplateAreas + fr + minmax and a 600 px surface breakpoint, an absolute badge overlay, 16:9 media, min/max + percentages + gap, :pressed buttons. Every renderer paints this once as the view `exponential-ui-kitchen-sink`; kitchen-sink.expanded.json is what it receives. Round 1 (docs/round-1-contract.md) adds the app shell (AppBar, Breadcrumb, the bottom bar), a RESPONSIVE section every renderer must prove at three widths (a Grid of cards 1 → 2 → 3 columns via a responsive `columns`, a Sidebar that collapses below md, a Stack that turns horizontal at md, nodes hidden on narrow or on wide surfaces, hover/focus-visible/orientation/hover-capability blocks, a Drawer whose side is responsive), a Form of the new fields, the data Table with typed, sortable, selectable columns and a slot cell, the new chart kinds, the CodeBlock, the overlay newcomers and BOUND inputs (Collapsible open, Pagination page, the bottom bar value, Progress value: two-way through the `set` action). Round 3 (VAPP-102) speaks the new vocabulary only, never a deprecated alias: ONE tree Section of Rows nested by depth [0,1,1,2,1,0] (elbow, tee and pass-through guides, filled by the core), Row as the property/picker/nav/card row, Chip as pill and rect, Segmented in all four variants (segmented, toggles, outline, the full-width `bar` bottom bar), Menu with its trigger child and as a context menu, a bottom Drawer for the old sheet and a hover Popover for the old hover card.",
   "id": "root",
   "component": "Box",
   "style": {
@@ -192,28 +192,23 @@
           },
           "children": [
             {
-              "id": "nav-band",
-              "component": "Band",
+              "id": "nav-rows",
+              "component": "Section",
               "props": {
                 "title": "Sources",
                 "count": 3,
-                "icon": "nav-boards"
-              }
-            },
-            {
-              "id": "nav-rows",
-              "component": "RowList",
-              "props": {
-                "guides": false
+                "icon": "nav-boards",
+                "tree": true
               },
               "children": [
                 {
                   "id": "row-1",
-                  "component": "ListRow",
+                  "component": "Row",
                   "props": {
                     "title": "r/selfhosted",
                     "meta": "312 posts",
-                    "selected": true
+                    "selected": true,
+                    "depth": 0
                   },
                   "on": {
                     "press": {
@@ -228,22 +223,57 @@
                 },
                 {
                   "id": "row-2",
-                  "component": "ListRow",
+                  "component": "Row",
                   "props": {
                     "title": "r/opensource",
                     "subtitle": "Open source",
                     "meta": "88 posts",
-                    "icon": "ui-folder"
+                    "icon": "ui-folder",
+                    "pressable": true,
+                    "depth": 1
                   }
                 },
                 {
                   "id": "row-3",
-                  "component": "ListRow",
+                  "component": "Row",
                   "props": {
                     "title": "r/webdev",
                     "meta": "1.2k posts",
                     "density": "compact",
-                    "chevron": true
+                    "chevron": "right",
+                    "pressable": true,
+                    "depth": 1
+                  }
+                },
+                {
+                  "id": "row-4",
+                  "component": "Row",
+                  "props": {
+                    "title": "r/reactjs",
+                    "meta": "640 posts",
+                    "pressable": true,
+                    "depth": 2
+                  }
+                },
+                {
+                  "id": "row-5",
+                  "component": "Row",
+                  "props": {
+                    "title": "r/rust",
+                    "meta": "402 posts",
+                    "pressable": true,
+                    "depth": 1
+                  }
+                },
+                {
+                  "id": "row-6",
+                  "component": "Row",
+                  "props": {
+                    "title": "r/homelab",
+                    "identifier": "HL",
+                    "meta": "57 posts",
+                    "pressable": true,
+                    "depth": 0
                   }
                 }
               ]
@@ -308,7 +338,7 @@
                 },
                 {
                   "id": "media-badge",
-                  "component": "Pill",
+                  "component": "Chip",
                   "props": {
                     "label": "LIVE",
                     "tone": "success"
@@ -383,9 +413,10 @@
               "children": [
                 {
                   "id": "pill-1",
-                  "component": "Pill",
+                  "component": "Chip",
                   "props": {
                     "label": "All",
+                    "shape": "pill",
                     "selected": true,
                     "pressable": true
                   },
@@ -402,7 +433,7 @@
                 },
                 {
                   "id": "pill-2",
-                  "component": "Pill",
+                  "component": "Chip",
                   "props": {
                     "label": "Drafts",
                     "pressable": true
@@ -410,7 +441,7 @@
                 },
                 {
                   "id": "pill-3",
-                  "component": "Pill",
+                  "component": "Chip",
                   "props": {
                     "label": "Bug",
                     "dot": "#EF4444"
@@ -418,7 +449,7 @@
                 },
                 {
                   "id": "pill-4",
-                  "component": "Pill",
+                  "component": "Chip",
                   "props": {
                     "label": "Archived",
                     "icon": "ui-archive"
@@ -862,7 +893,7 @@
         },
         {
           "id": "segmented",
-          "component": "ToggleGroup",
+          "component": "Segmented",
           "props": {
             "items": [
               {
@@ -886,7 +917,7 @@
         },
         {
           "id": "toggles",
-          "component": "ToggleGroup",
+          "component": "Segmented",
           "props": {
             "items": [
               {
@@ -902,7 +933,7 @@
             ],
             "type": "multiple",
             "value": "bold",
-            "variant": "outline",
+            "variant": "toggles",
             "size": "sm"
           }
         },
@@ -981,9 +1012,9 @@
         },
         {
           "id": "button-group",
-          "component": "ButtonGroup",
+          "component": "Segmented",
           "props": {
-            "buttons": [
+            "items": [
               {
                 "label": "Day",
                 "value": "day"
@@ -997,7 +1028,8 @@
                 "value": "month"
               }
             ],
-            "selected": "week"
+            "value": "week",
+            "variant": "outline"
           },
           "on": {
             "change": {
@@ -1195,7 +1227,7 @@
           "slots": {
             "statusCell": {
               "id": "table-status",
-              "component": "Pill",
+              "component": "Chip",
               "props": {
                 "label": {
                   "path": "status"
@@ -1383,20 +1415,22 @@
       "children": [
         {
           "id": "prop-assignee",
-          "component": "PropertyRow",
+          "component": "Row",
           "props": {
-            "label": "Assignee",
+            "title": "Assignee",
             "value": "Alex Chen",
             "icon": "ui-assignee"
           }
         },
         {
           "id": "pick-status",
-          "component": "PickerRow",
+          "component": "Row",
           "props": {
-            "label": "Status",
+            "title": "Status",
             "value": "In progress",
-            "icon": "settings-statuses"
+            "icon": "settings-statuses",
+            "chevron": "selector",
+            "pressable": true
           },
           "on": {
             "press": {
@@ -1408,28 +1442,41 @@
         },
         {
           "id": "pick-label",
-          "component": "PickerRow",
+          "component": "Row",
           "props": {
-            "label": "Labels",
-            "placeholder": "Add a label"
+            "title": "Labels",
+            "placeholder": "Add a label",
+            "chevron": "selector",
+            "pressable": true
           }
         },
         {
           "id": "nav-inbox",
-          "component": "NavRow",
+          "component": "Row",
           "props": {
-            "label": "Inbox",
+            "title": "Inbox",
             "icon": "nav-inbox",
-            "count": 3,
-            "selected": true
+            "selected": true,
+            "pressable": true
+          },
+          "slots": {
+            "trailing": {
+              "id": "nav-inbox-count",
+              "component": "Badge",
+              "props": {
+                "text": "3",
+                "variant": "secondary"
+              }
+            }
           }
         },
         {
           "id": "nav-reviews",
-          "component": "NavRow",
+          "component": "Row",
           "props": {
-            "label": "Reviews",
-            "icon": "nav-reviews"
+            "title": "Reviews",
+            "icon": "nav-reviews",
+            "pressable": true
           }
         }
       ]
@@ -1446,12 +1493,14 @@
       "children": [
         {
           "id": "card-row",
-          "component": "CardRow",
+          "component": "Row",
           "props": {
             "title": "MacBook Pro",
             "subtitle": "Online · 2 runs",
             "icon": "ui-device",
-            "meta": "now"
+            "meta": "now",
+            "surface": "card",
+            "pressable": true
           },
           "style": {
             "flexBasis": 240,
@@ -1460,12 +1509,14 @@
         },
         {
           "id": "chip-board",
-          "component": "EntityChip",
+          "component": "Chip",
           "props": {
             "label": "Sprint 12",
+            "shape": "rect",
             "icon": "nav-boards",
             "detail": "APP",
-            "removable": true
+            "removable": true,
+            "pressable": true
           },
           "on": {
             "press": {
@@ -1482,42 +1533,13 @@
         },
         {
           "id": "chip-user",
-          "component": "EntityChip",
+          "component": "Chip",
           "props": {
             "label": "Alex Chen",
-            "image": "https://example.com/alex.png"
+            "shape": "rect",
+            "image": "https://example.com/alex.png",
+            "pressable": true
           }
-        },
-        {
-          "id": "tree",
-          "component": "Stack",
-          "props": {
-            "direction": "horizontal",
-            "gap": "none",
-            "align": "center"
-          },
-          "children": [
-            {
-              "id": "tree-guides",
-              "component": "TreeGuides",
-              "props": {
-                "depth": 2,
-                "elbowAt": 1,
-                "tee": true,
-                "passThrough": [
-                  0
-                ]
-              }
-            },
-            {
-              "id": "tree-text",
-              "component": "Text",
-              "props": {
-                "text": "Nested row",
-                "variant": "caption"
-              }
-            }
-          ]
         }
       ]
     },
@@ -1589,7 +1611,7 @@
         },
         {
           "id": "list-item",
-          "component": "ListRow",
+          "component": "Row",
           "props": {
             "title": {
               "path": "title"
@@ -1688,9 +1710,10 @@
         },
         {
           "id": "sheet",
-          "component": "Sheet",
+          "component": "Drawer",
           "props": {
             "title": "Details",
+            "side": "bottom",
             "open": false
           },
           "slots": {
@@ -1708,7 +1731,7 @@
               "id": "sheet-body",
               "component": "Text",
               "props": {
-                "text": "Everything in a side sheet."
+                "text": "Everything in a bottom sheet."
               }
             }
           ]
@@ -1764,10 +1787,8 @@
         },
         {
           "id": "menu",
-          "component": "DropdownMenu",
+          "component": "Menu",
           "props": {
-            "label": "More",
-            "icon": "ui-more",
             "items": [
               {
                 "label": "Rename",
@@ -1792,7 +1813,18 @@
                 "name": "menu"
               }
             }
-          }
+          },
+          "children": [
+            {
+              "id": "menu-trigger",
+              "component": "Button",
+              "props": {
+                "label": "More",
+                "icon": "ui-more",
+                "variant": "outline"
+              }
+            }
+          ]
         },
         {
           "id": "alert-dialog",
@@ -1825,9 +1857,10 @@
         },
         {
           "id": "hover-card",
-          "component": "HoverCard",
+          "component": "Popover",
           "props": {
-            "side": "top"
+            "side": "top",
+            "openOn": "hover"
           },
           "slots": {
             "trigger": {
@@ -1869,7 +1902,7 @@
         },
         {
           "id": "context-menu",
-          "component": "ContextMenu",
+          "component": "Menu",
           "props": {
             "items": [
               {
@@ -1915,7 +1948,8 @@
                 "value": "delete",
                 "destructive": true
               }
-            ]
+            ],
+            "openOn": "contextmenu"
           },
           "on": {
             "select": {
@@ -2061,20 +2095,31 @@
               "children": [
                 {
                   "id": "resp-nav-inbox",
-                  "component": "NavRow",
+                  "component": "Row",
                   "props": {
-                    "label": "Inbox",
+                    "title": "Inbox",
                     "icon": "nav-inbox",
                     "selected": true,
-                    "count": 2
+                    "pressable": true
+                  },
+                  "slots": {
+                    "trailing": {
+                      "id": "resp-nav-inbox-count",
+                      "component": "Badge",
+                      "props": {
+                        "text": "2",
+                        "variant": "secondary"
+                      }
+                    }
                   }
                 },
                 {
                   "id": "resp-nav-issues",
-                  "component": "NavRow",
+                  "component": "Row",
                   "props": {
-                    "label": "Issues",
-                    "icon": "nav-issues"
+                    "title": "Issues",
+                    "icon": "nav-issues",
+                    "pressable": true
                   }
                 }
               ]
@@ -2249,7 +2294,7 @@
           "children": [
             {
               "id": "resp-chip-0",
-              "component": "Pill",
+              "component": "Chip",
               "props": {
                 "label": "Bug"
               },
@@ -2259,7 +2304,7 @@
             },
             {
               "id": "resp-chip-1",
-              "component": "Pill",
+              "component": "Chip",
               "props": {
                 "label": "iOS"
               },
@@ -2269,7 +2314,7 @@
             },
             {
               "id": "resp-chip-2",
-              "component": "Pill",
+              "component": "Chip",
               "props": {
                 "label": "Android"
               },
@@ -2279,7 +2324,7 @@
             },
             {
               "id": "resp-chip-3",
-              "component": "Pill",
+              "component": "Chip",
               "props": {
                 "label": "Desktop"
               },
@@ -2289,7 +2334,7 @@
             },
             {
               "id": "resp-chip-4",
-              "component": "Pill",
+              "component": "Chip",
               "props": {
                 "label": "Web"
               },
@@ -2299,7 +2344,7 @@
             },
             {
               "id": "resp-chip-5",
-              "component": "Pill",
+              "component": "Chip",
               "props": {
                 "label": "Infra"
               },
@@ -2309,7 +2354,7 @@
             },
             {
               "id": "resp-chip-6",
-              "component": "Pill",
+              "component": "Chip",
               "props": {
                 "label": "Docs"
               },
@@ -2551,7 +2596,7 @@
     },
     {
       "id": "tab-bar",
-      "component": "TabBar",
+      "component": "Segmented",
       "props": {
         "items": [
           {
@@ -2572,7 +2617,9 @@
         ],
         "value": {
           "path": "/ui/tab"
-        }
+        },
+        "variant": "bar",
+        "fill": true
       },
       "on": {
         "change": {

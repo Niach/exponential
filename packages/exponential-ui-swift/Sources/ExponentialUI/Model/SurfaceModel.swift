@@ -112,7 +112,7 @@ public final class SurfaceModel {
     /// A programmatic scroll a native scroll view should follow
     /// (scrollIntoView, keyboard scrolling), by container slot.
     public internal(set) var scrollJumps: [Int: ScrollJump] = [:]
-    /// The ToggleGroup item the arrows moved to (group id → item index).
+    /// The Segmented item the arrows moved to (group id → item index).
     public internal(set) var groupFocus: [String: Int] = [:]
     /// The category / slice a Chart's tooltip shows (chart slot → index).
     public internal(set) var chartHover: [Int: Int] = [:]

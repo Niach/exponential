@@ -214,7 +214,7 @@ const LIFT_NESTED: NestedNode = {
   component: `Box`,
   children: [
     { id: `list`, component: `List`, template: { component: `row`, path: `/items` } },
-    { id: `row`, component: `ListRow`, props: { title: { path: `title` } } },
+    { id: `row`, component: `Row`, props: { title: { path: `title` } } },
     {
       id: `card`,
       component: `Box`,
@@ -524,7 +524,7 @@ function benchFixture() {
     catalogId: CORE_CATALOG_ID,
     components: [
       { id: `root`, component: `List`, direction: `vertical`, divided: true, style: { height: 800 }, children: { componentId: `bench-row`, path: `/rows`, key: `id` } },
-      { id: `bench-row`, component: `ListRow`, title: { path: `title` }, meta: { path: `meta` } },
+      { id: `bench-row`, component: `Row`, title: { path: `title` }, meta: { path: `meta` }, pressable: true },
     ],
     steps: { scroll: { count: 100, by: `viewport` }, scrollToIndex: { index: 50_000, align: `start` } },
     metrics: [`firstPaintMs`, `scrollStepMs`, `scrollToIndexMs`, `renderedItems`],

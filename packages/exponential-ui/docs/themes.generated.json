@@ -2061,17 +2061,33 @@
       "props": []
     },
     {
-      "name": "Band",
+      "name": "Section",
       "kind": "macro",
       "parts": [
         "root",
+        "header",
+        "chevron",
         "icon",
         "title",
-        "count"
+        "caption",
+        "count",
+        "spacer",
+        "body"
       ],
       "props": [
-        "variant"
+        "tint",
+        "tree",
+        "open",
+        "collapsible"
       ]
+    },
+    {
+      "name": "Band",
+      "kind": "macro",
+      "parts": [
+        "root"
+      ],
+      "props": []
     },
     {
       "name": "RowList",
@@ -2079,9 +2095,7 @@
       "parts": [
         "root"
       ],
-      "props": [
-        "guides"
-      ]
+      "props": []
     },
     {
       "name": "Group",
@@ -2260,11 +2274,13 @@
       ]
     },
     {
-      "name": "ToggleGroup",
+      "name": "Segmented",
       "kind": "native",
       "parts": [
         "root",
-        "item"
+        "item",
+        "icon",
+        "label"
       ],
       "props": [
         "type",
@@ -2272,6 +2288,14 @@
         "size",
         "fill"
       ]
+    },
+    {
+      "name": "ToggleGroup",
+      "kind": "macro",
+      "parts": [
+        "root"
+      ],
+      "props": []
     },
     {
       "name": "Accordion",
@@ -2317,13 +2341,9 @@
       "name": "ButtonGroup",
       "kind": "macro",
       "parts": [
-        "root",
-        "button"
+        "root"
       ],
-      "props": [
-        "size",
-        "selected"
-      ]
+      "props": []
     },
     {
       "name": "Breadcrumb",
@@ -2343,14 +2363,9 @@
       "name": "TabBar",
       "kind": "macro",
       "parts": [
-        "root",
-        "item",
-        "icon",
-        "label"
+        "root"
       ],
-      "props": [
-        "selected"
-      ]
+      "props": []
     },
     {
       "name": "Stepper",
@@ -2455,7 +2470,7 @@
       ]
     },
     {
-      "name": "DropdownMenu",
+      "name": "Menu",
       "kind": "native",
       "parts": [
         "trigger",
@@ -2467,19 +2482,23 @@
         "check",
         "submenuIndicator"
       ],
+      "props": [
+        "openOn"
+      ]
+    },
+    {
+      "name": "DropdownMenu",
+      "kind": "macro",
+      "parts": [
+        "root"
+      ],
       "props": []
     },
     {
       "name": "ContextMenu",
-      "kind": "native",
+      "kind": "macro",
       "parts": [
-        "content",
-        "item",
-        "separator",
-        "label",
-        "shortcut",
-        "check",
-        "submenuIndicator"
+        "root"
       ],
       "props": []
     },
@@ -2525,18 +2544,30 @@
       ]
     },
     {
-      "name": "Pill",
+      "name": "Chip",
       "kind": "macro",
       "parts": [
         "root",
         "dot",
+        "image",
         "icon",
-        "label"
+        "label",
+        "detail",
+        "remove"
       ],
       "props": [
+        "shape",
         "selected",
         "tone"
       ]
+    },
+    {
+      "name": "Pill",
+      "kind": "macro",
+      "parts": [
+        "root"
+      ],
+      "props": []
     },
     {
       "name": "EmptyState",
@@ -2954,32 +2985,40 @@
       ]
     },
     {
-      "name": "ListRow",
+      "name": "Row",
       "kind": "macro",
       "parts": [
         "root",
+        "guides",
         "icon",
+        "identifier",
         "body",
         "title",
         "subtitle",
         "meta",
+        "value",
         "chevron"
       ],
       "props": [
         "selected",
-        "density"
+        "density",
+        "surface",
+        "depth"
       ]
+    },
+    {
+      "name": "ListRow",
+      "kind": "macro",
+      "parts": [
+        "root"
+      ],
+      "props": []
     },
     {
       "name": "CardRow",
       "kind": "macro",
       "parts": [
-        "root",
-        "icon",
-        "body",
-        "title",
-        "subtitle",
-        "meta"
+        "root"
       ],
       "props": []
     },
@@ -2987,10 +3026,7 @@
       "name": "PropertyRow",
       "kind": "macro",
       "parts": [
-        "root",
-        "icon",
-        "label",
-        "value"
+        "root"
       ],
       "props": []
     },
@@ -2998,11 +3034,7 @@
       "name": "PickerRow",
       "kind": "macro",
       "parts": [
-        "root",
-        "icon",
-        "label",
-        "value",
-        "chevron"
+        "root"
       ],
       "props": []
     },
@@ -3011,24 +3043,15 @@
       "kind": "macro",
       "parts": [
         "root",
-        "icon",
-        "label",
         "count"
       ],
-      "props": [
-        "selected"
-      ]
+      "props": []
     },
     {
       "name": "EntityChip",
       "kind": "macro",
       "parts": [
-        "root",
-        "image",
-        "icon",
-        "label",
-        "detail",
-        "remove"
+        "root"
       ],
       "props": []
     },

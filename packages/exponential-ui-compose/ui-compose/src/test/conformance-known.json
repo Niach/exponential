@@ -87,14 +87,14 @@
     },
     "kitchen-sink/neutral/dark/600/ltr" : {
       "onlyCand" : 0,
-      "onlyRef" : 7,
+      "onlyRef" : 8,
       "position" : 0,
       "size" : 0,
       "wrap" : 0
     },
     "kitchen-sink/neutral/dark/600/rtl" : {
       "onlyCand" : 0,
-      "onlyRef" : 7,
+      "onlyRef" : 8,
       "position" : 0,
       "size" : 0,
       "wrap" : 0

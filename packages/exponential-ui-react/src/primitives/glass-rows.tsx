@@ -16,6 +16,50 @@ import { cn } from "./cn"
 // `border-glass-stroke` IS the row stroke: styles.css maps
 // `--color-glass-stroke: var(--glass-stroke-row)`, and there is no
 // `glass-stroke-row` colour utility.
+//
+// VAPP-102 — ONE vocabulary: `ListRow` and `GlassSectionHeader` are the app's
+// PAINTERS of the catalog's `Row` and `Section` anatomy (catalog/macros.json).
+// The SDK's recipe-driven Box/Text pipeline paints the same parts on every
+// platform (React, SwiftUI, Compose, gpui); here the app keeps its own
+// pixel-locked classes (the shots store must not move) and stamps the
+// catalog's part names on the DOM instead: `data-part` = `ROW_PARTS` /
+// `SECTION_PARTS`, `data-density` accepts the catalog's `default|compact`.
+// A row's inner parts (leading, identifier, body, title, subtitle, meta,
+// value, trailing, chevron) are whatever the call site renders inside it,
+// in that order; a call site that wants them addressable stamps the same
+// `data-part` names.
+
+/** The catalog `Row`'s parts, in paint order (`guides` = the tree guides). */
+export const ROW_PARTS = [
+  `root`,
+  `guides`,
+  `leading`,
+  `icon`,
+  `identifier`,
+  `body`,
+  `title`,
+  `subtitle`,
+  `meta`,
+  `value`,
+  `trailing`,
+  `chevron`,
+] as const
+export type RowPart = (typeof ROW_PARTS)[number]
+
+/** The catalog `Section`'s parts, in paint order. */
+export const SECTION_PARTS = [
+  `root`,
+  `header`,
+  `chevron`,
+  `leading`,
+  `icon`,
+  `title`,
+  `caption`,
+  `count`,
+  `trailing`,
+  `body`,
+] as const
+export type SectionPart = (typeof SECTION_PARTS)[number]
 
 const ChevronDownGlyph = ChevronDown
 const ChevronRightGlyph = ChevronRight
@@ -61,11 +105,11 @@ function GlassSectionHeader({
           <ChevronRightGlyph className="size-3.5 shrink-0 text-muted-foreground" />
         ))}
       {leading}
-      <span className="min-w-0 truncate text-sm font-medium text-foreground/85">{label}</span>
+      <span data-part="title" className="min-w-0 truncate text-sm font-medium text-foreground/85">{label}</span>
       {(count !== undefined || trailing) && (
-        <div className="ml-auto flex items-center gap-1.5">
+        <div data-part="trailing" className="ml-auto flex items-center gap-1.5">
           {count !== undefined && (
-            <span className="text-xs tabular-nums text-muted-foreground">
+            <span data-part="count" className="text-xs tabular-nums text-muted-foreground">
               {count}
             </span>
           )}
@@ -86,6 +130,7 @@ function GlassSectionHeader({
       <button
         type="button"
         data-slot="glass-section-header"
+        data-part="header"
         aria-expanded={open}
         onClick={onToggle}
         className={bandClassName}
@@ -95,7 +140,7 @@ function GlassSectionHeader({
     )
   }
   return (
-    <div data-slot="glass-section-header" className={bandClassName}>
+    <div data-slot="glass-section-header" data-part="header" className={bandClassName}>
       {body}
     </div>
   )
@@ -121,6 +166,10 @@ const LIST_ROW_COMPACT = `h-7 gap-2 px-2 py-0 text-sm`
  *  in settings. */
 export const SETTINGS_LIST_CLASS = `flex flex-col divide-y divide-glass-stroke`
 
+/** `ListRow`'s densities: the app's `list`/`compact`, plus the catalog
+ *  `Row`'s `default` (= `list`). */
+export type ListRowDensity = `list` | `compact` | `default`
+
 function ListRow({
   interactive = false,
   active = false,
@@ -136,12 +185,15 @@ function ListRow({
   active?: boolean
   /** Render the row as its single child (a `Link`/`<a>`), like `Button`. */
   asChild?: boolean
-  /** `compact` = the sidebar's 28px one-line row (EXP-962). */
-  density?: `list` | `compact`
+  /** `compact` = the sidebar's 28px one-line row (EXP-962); `default` =
+   *  the catalog's name for `list`. */
+  density?: ListRowDensity
 }) {
+  // The DOM keeps the app's spelling, so every `[data-density=list]` stays.
+  const dataDensity = density === `compact` ? `compact` : `list`
   const rowClassName = cn(
     LIST_ROW,
-    density === `compact` && LIST_ROW_COMPACT,
+    dataDensity === `compact` && LIST_ROW_COMPACT,
     interactive && LIST_ROW_INTERACTIVE,
     active && `bg-glass-active`,
     className
@@ -150,7 +202,8 @@ function ListRow({
     return (
       <Slot.Root
         data-slot="list-row"
-        data-density={density}
+        data-part="root"
+        data-density={dataDensity}
         onClick={onClick}
         onKeyDown={onKeyDown}
         className={rowClassName}
@@ -162,7 +215,8 @@ function ListRow({
   return (
     <div
       data-slot="list-row"
-      data-density={density}
+      data-part="root"
+      data-density={dataDensity}
       role={clickable ? `button` : undefined}
       tabIndex={clickable ? 0 : undefined}
       onClick={onClick}

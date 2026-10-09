@@ -3,7 +3,7 @@
 // not the List), a bounded one still windowing itself, the keyboard through
 // a WINDOWED Table (a roving tab stop; arrows/End by index past the mounted
 // rows), height/orientation conditions read the viewport (no feedback
-// loop), and two HoverCards (focus into B's content keeps B open while A is
+// loop), and two hover Popovers (focus into B's content keeps B open while A is
 // open too).
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
@@ -146,9 +146,9 @@ describe(`height/orientation conditions read the viewport, not the content`, () 
   })
 })
 
-describe(`HoverCard focus is scoped to its OWN content`, () => {
+describe(`a hover Popover's focus is scoped to its OWN content`, () => {
   it(`with A open, focus moving from B's trigger into B's content keeps B open`, async () => {
-    const card = (k: string) => ({ id: `hc${k}`, component: `HoverCard`, slots: { trigger: { id: `t${k}`, component: `Button`, props: { label: `Card ${k}` } } }, children: [{ id: `b${k}`, component: `Button`, props: { label: `Inside ${k}` } }] })
+    const card = (k: string) => ({ id: `hc${k}`, component: `Popover`, props: { openOn: `hover` }, slots: { trigger: { id: `t${k}`, component: `Button`, props: { label: `Card ${k}` } } }, children: [{ id: `b${k}`, component: `Button`, props: { label: `Inside ${k}` } }] })
     const node = { id: `root`, component: `Box`, style: { display: `flex`, gap: 200, padding: 80 }, children: [card(`A`), card(`B`)] }
     const page = await openPage(h, treeView(node, {}, { width: 900 }), { width: 1000, height: 600 })
     await page.hover(`[data-xui-id="tA"]`)

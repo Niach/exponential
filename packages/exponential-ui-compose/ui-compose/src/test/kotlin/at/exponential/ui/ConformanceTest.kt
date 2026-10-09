@@ -319,11 +319,11 @@ class ConformanceTest {
             part == "root" -> m.indexOf("c")?.let(::box)
             // The Radio item recipe is the dot's.
             component == "Radio" -> partNode("dot")?.let(::box)
-            // ToggleGroup: one leaf; the measurer sizes every item from the item recipe.
-            component == "ToggleGroup" -> {
+            // Segmented: one leaf; the measurer sizes every item from the item recipe.
+            component == "Segmented" -> {
                 val i = m.indexOf("c") ?: return null
                 val root = m.boxStyle(i)
-                val item = m.part("ToggleGroup", "item", m.node(i)!!.props)
+                val item = m.part("Segmented", "item", m.node(i)!!.props)
                 mapOf(
                     "height" to m.frame(i).height - 2 * (root.paddingVertical + root.borderWidth),
                     "paddingHorizontal" to (item.px("paddingHorizontal") ?: item.px("padding") ?: 12f),

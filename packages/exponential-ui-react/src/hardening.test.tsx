@@ -7,7 +7,7 @@
 // edits, RTL (chart mirror, calendar keys by the SURFACE direction, logical
 // CSS), localized sizes + phrases, stale optionSource answers, an honest
 // Copy, locale digits, the calendar's tab stop. The Chromium half (windowing
-// an unbounded List, keyboard through a windowed Table, two HoverCards) is
+// an unbounded List, keyboard through a windowed Table, two hover Popovers) is
 // browser/hardening.test.ts.
 
 import { afterEach, describe, expect, it, vi } from "vitest"

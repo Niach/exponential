@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest"
 import {
+  TREE_GUIDE_COLUMN,
+  TREE_GUIDE_RADIUS,
+  treeGuides as sdkTreeGuides,
+} from "@exponential-at/ui"
+import {
   treeGuideCentre,
   treeGuideIsEmpty,
   treeGuides,
   TREE_BASE,
   TREE_INDENT,
+  TREE_RADIUS,
 } from "./tree-guides"
 
 // EXP-965: the connector rule, ×4 (desktop `domain::tree_guides`, iOS
@@ -103,5 +109,19 @@ describe(`treeGuideIsEmpty`, () => {
     expect(
       treeGuideIsEmpty({ elbowAt: null, tee: false, passThrough: [0] })
     ).toBe(false)
+  })
+})
+
+// VAPP-102: ONE rule, the SDK's; the app's geometry names = the catalog's
+// layout numbers (`layout.json` treeGuideColumn / treeGuideRadius).
+describe(`the catalog twin`, () => {
+  it(`is the SDK's rule, not a copy`, () => {
+    expect(treeGuides).toBe(sdkTreeGuides)
+  })
+
+  it(`shares the catalog geometry`, () => {
+    expect(TREE_INDENT).toBe(TREE_GUIDE_COLUMN)
+    expect(TREE_RADIUS).toBe(TREE_GUIDE_RADIUS)
+    expect(TREE_BASE).toBe(12)
   })
 })

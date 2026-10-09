@@ -277,7 +277,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             }
         case ("Markdown", _):
             content = markdown(leaf, wrap: inner)
-        case ("Button", _), ("Toggle", _), ("DropdownMenu", _):
+        case ("Button", _), ("Toggle", _):
             content = button(leaf)
         case ("Link", _):
             let label = props.str("label").isEmpty ? props.str("href") : props.str("label")
@@ -309,7 +309,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             // depth × `treeGuideColumn` wide; no height of its own (it
             // stretches to its row, round 2 §7).
             content = MeasuredContent(max(props.num("depth") ?? 0, 0) * Self.treeGuideColumn, 0)
-        case ("ToggleGroup", _): content = MeasuredContent(toggleGroup(leaf))
+        case ("Segmented", _): content = MeasuredContent(segmented(leaf))
         case ("Unknown", _):
             let label = part("Unknown", "label", props)
             let lts = TextStyle(fontSize: label.px("fontSize") ?? 12, fontWeight: 400, lineHeight: label.px("lineHeight") ?? 16, fontFamily: label.fontFamily)
@@ -370,7 +370,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     }
 
     /// The owners whose text parts carry chrome (`textChrome`).
-    static let chromeOwners: Set<String> = ["Tabs", "Accordion", "Select", "TimePicker", "DropdownMenu", "ContextMenu", "Table"]
+    static let chromeOwners: Set<String> = ["Tabs", "Accordion", "Select", "TimePicker", "Menu", "Table"]
 
     /// The owner of a `Text` part when the core names none: the part names
     /// are unique per owner; a `Select` option always carries `disabled`
@@ -380,7 +380,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         case "tab": "Tabs"
         case "trigger": "Accordion"
         case "item": props["disabled"] != nil ? "Select" : "TimePicker"
-        case "itemLabel": "DropdownMenu"
+        case "itemLabel": "Menu"
         case "headerCell", "cell": "Table"
         default: "Text"
         }
@@ -404,7 +404,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         // Round 2 §7: the count is its own muted part after the title.
         case ("Accordion", "trigger"): return (0, (has(props, "count") ? 8 + countWidth : 0) + 16 + max(gap, 8))
         case ("Select", "item"): return (icon("icon"), 16 + max(gap, 8))
-        case ("DropdownMenu", "itemLabel"), ("ContextMenu", "itemLabel"): return (icon("icon"), 0)
+        case ("Menu", "itemLabel"): return (icon("icon"), 0)
         case ("Table", "headerCell"): return (0, has(props, "sortIcon") || props.flag("sortable") ? 16 + 4 : 0)
         default: return (0, 0)
         }
@@ -575,10 +575,36 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         return MeasuredContent(max(w, 24) + icon, ts.lineHeight, Self.baseline(ts))
     }
 
-    private func toggleGroup(_ leaf: LeafRequest) -> CGSize {
+    /// The `bar` Segmented's caption (round 3, gpui `bar_caption`): the
+    /// `Text` caption recipe's size and line height over the base style,
+    /// no tracking or case.
+    static func barCaption(_ caption: PartStyle, base: TextStyle) -> TextStyle {
+        TextStyle(fontSize: caption.px("fontSize") ?? 12, fontWeight: base.fontWeight, lineHeight: caption.px("lineHeight") ?? 16, fontFamily: base.fontFamily, italic: base.italic)
+    }
+
+    /// A `bar` Segmented (round 3, the old TabBar): `$control.tabBar` tall,
+    /// each item a COLUMN (icon over a caption label) sharing the width; its
+    /// min-content width = the widest of icon and label per item, plus `xs`
+    /// on both sides (gpui `segmented_bar`).
+    private func segmentedBar(_ leaf: LeafRequest) -> CGSize {
+        let ts = Self.barCaption(part("Text", "root", ["variant": .string("caption")]), base: leaf.textStyle)
+        let icon = control("iconMd", 20)
+        let pad = spacing("xs")
+        var w: CGFloat = 0
+        for it in leaf.props.list("items") {
+            let label = it["label"]?.displayText ?? ""
+            let lw = label.isEmpty ? 0 : line(label, ts)
+            let iw: CGFloat = it["icon"]?.string != nil ? icon : 0
+            w += max(lw, iw) + 2 * pad
+        }
+        return CGSize(width: w, height: control("tabBar", 56))
+    }
+
+    private func segmented(_ leaf: LeafRequest) -> CGSize {
         let props = leaf.props
+        if props.str("variant") == "bar" { return segmentedBar(leaf) }
         let items = props.list("items")
-        let item = part("ToggleGroup", "item", props)
+        let item = part("Segmented", "item", props)
         let box = item.toggleItemBox
         let pad = box.paddingHorizontal
         let border = item.px("borderWidth") ?? 0
@@ -590,7 +616,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             let hasIcon = it["icon"]?.string != nil
             let lw = label.isEmpty ? 0 : line(label, ts)
             let iw: CGFloat = hasIcon ? 16 : 0
-            // Icon ↔ label: the `ToggleGroup/item` recipe's gap (none = 0, as the web and gpui).
+            // Icon ↔ label: the `Segmented/item` recipe's gap (none = 0, as the web and gpui).
             let innerGap: CGFloat = (hasIcon && lw > 0) ? (item.px("gap") ?? 0) : 0
             w += 2 * (pad + border) + iw + innerGap + lw
             if i > 0 { w += leaf.control.gap }
@@ -613,7 +639,11 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     /// The AudioPlayer controls row when the theme has no `$control.row`.
     static let audioControlsHeight: CGFloat = 32
     /// `catalog/layout.json` (round 2 §7): `mediaIntrinsicWidth` 320 at
-    /// `mediaAspectRatio` 16:9, `treeGuideColumn` 16.
+    /// `mediaAspectRatio` 16:9; round 3: `treeGuideColumn` 14, `treeGuideRadius`
+    /// 3 (the elbow corner), `treeGuideBridge` 1 (verticals overshoot the
+    /// row's top, paint only).
     static let mediaDefault = CGSize(width: 320, height: 320 / 1.7777778)
-    static let treeGuideColumn: CGFloat = 16
+    static let treeGuideColumn: CGFloat = 14
+    static let treeGuideRadius: CGFloat = 3
+    static let treeGuideBridge: CGFloat = 1
 }

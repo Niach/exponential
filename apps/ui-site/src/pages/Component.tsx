@@ -11,6 +11,7 @@ import {
   relatedComponents,
   specimenById,
   componentByName,
+  aliasesOf,
   type ComponentDoc,
 } from "../lib/catalog"
 import type { PageProps } from "../lib/routes"
@@ -49,6 +50,7 @@ export default function ComponentPage({ path }: PageProps) {
   const keys = keyboardRows(doc)
   const parts = doc.kind === `macro` ? macroParts(doc.name) : []
   const related = relatedComponents(doc)
+  const replaces = aliasesOf(doc.name)
 
   const sections = [
     { id: `preview`, label: `Preview` },
@@ -84,6 +86,16 @@ export default function ComponentPage({ path }: PageProps) {
                     <a key={p} className="sdk-chip" href={componentPath(componentByName(p)!)}>
                       {p}
                     </a>
+                  ))}
+                </dd>
+              </div>
+            )}
+            {replaces.length > 0 && (
+              <div>
+                <dt>Replaces</dt>
+                <dd>
+                  {replaces.map((alias) => (
+                    <code key={alias}>{alias}</code>
                   ))}
                 </dd>
               </div>

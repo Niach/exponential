@@ -24,7 +24,7 @@ fun LeafContent(context: LeafContext) {
         "Extension" -> ExtensionLeaf(cx)
         "Text" -> TextPart(cx)
         "Markdown" -> MarkdownLeaf(cx)
-        "Button", "Toggle", "DropdownMenu" -> ButtonLeaf(cx)
+        "Button", "Toggle" -> ButtonLeaf(cx)
         "Link" -> LinkLeaf(cx)
         "Icon" -> IconLeaf(cx)
         "Avatar" -> AvatarLeaf(cx)
@@ -53,7 +53,7 @@ fun LeafContent(context: LeafContext) {
         "Radio" -> if (n.part == "dot") RadioDot(cx)
         "Switch" -> if (n.part == "track") SwitchTrack(cx)
         "Slider" -> if (n.part == "track") SliderTrack(cx)
-        "ToggleGroup" -> ToggleGroupLeaf(cx)
+        "Segmented" -> SegmentedLeaf(cx)
         // Geometry mode (no theme) and parts without content: bare boxes.
         else -> Unit
     }

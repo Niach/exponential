@@ -5,12 +5,12 @@
 // of the full core prompt; prompt.test.ts fails when it grows past the
 // budget — cut descriptions before cutting components.
 
-import { CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, catalogView, coreCatalog } from "./catalog"
+import { CORE_CATALOG_ID, CORE_LITE_CATALOG_ID, catalogView, coreCatalog, isOffered } from "./catalog"
 import type { ComponentDef, ExtensionDef, PropSchema } from "./types"
 
 export interface PromptOptions {
   extensions?: readonly ExtensionDef[]
-  /** The core-lite subset (no overlays, media or Chart). */
+  /** The core-lite subset (the app-shaped vocabulary: no overlays, media, Chart, data tables or the rarer controls). */
   lite?: boolean
   /** Omit the per-prop lines (names + types only). */
   terse?: boolean
@@ -151,11 +151,11 @@ export function catalogPrompt(options: PromptOptions = {}): string {
   lines.push(`Components (props marked * are required, ~ accept a binding, ^ are responsive; =x is the default, else an enum defaults to its first value and a boolean to false):`)
   if (!options.terse) lines.push(`Common props (no description below): ${Object.entries(COMMON_PROPS).map(([k, v]) => (v ? `${k} (${v})` : k)).join(`, `)}.`)
   for (const [name, def] of Object.entries(coreCatalog.components)) {
-    if (def.hidden) continue
+    if (!isOffered(def)) continue
     if (options.lite && !def.lite) continue
     lines.push(componentBlock(name, def, view.enums, options.terse ?? false))
   }
-  const listed = Object.values(coreCatalog.components).filter((def) => !def.hidden && (!options.lite || def.lite))
+  const listed = Object.values(coreCatalog.components).filter((def) => isOffered(def) && (!options.lite || def.lite))
   lines.push(`Shapes: ${defsBlock(coreCatalog.defs, view.enums, usedShapes(listed, coreCatalog.defs)).join(`; `)}`)
   lines.push(`Functions (client-side, the A2UI basic ones plus core ones): ${coreCatalog.functions.names.join(`, `)}.`)
   lines.push(`Style keys (Box): display, flex*, justifyContent, align*, gap, width, height, min/max sizes, aspectRatio, position (relative|absolute|sticky), top/right/bottom/left, inset*, padding*/margin* (+Horizontal/Vertical/InlineStart/End), grid*, overflow(X/Y), direction, backgroundColor, backgroundGradient {angle, stops}, backdropBlur $blur.*, color, border*, opacity, boxShadow, font*, letterSpacing, text*, transition $motion.*, transform (translate/scale/rotate, paint only), animation (pulse|spin|fade-in|slide-in-up/down/left/right|shimmer), visibility, pointerEvents, userSelect, cursor. Values: px, "N%", "auto", or tokens $spacing.md, $color.primary, $radius.lg, $control.row.`)

@@ -18,13 +18,13 @@ describe(`catalog prompt`, () => {
     expect(budget.lite).toEqual({ components: componentNames({ lite: true }).length, chars: lite.length, tokens: estimateTokens(lite) })
     const terse = catalogPrompt({ terse: true })
     expect(budget.terse).toEqual({ components: componentNames().length, chars: terse.length, tokens: estimateTokens(terse) })
-    expect(terse.length).toBeLessThan(lite.length)
+    expect(terse.length).toBeLessThan(full.length)
   })
 
   test(`names the catalog, every visible component and prop, never the placeholder`, () => {
     expect(full.startsWith(`Catalog ${CORE_CATALOG_ID}.`)).toBe(true)
     for (const [name, def] of Object.entries(coreCatalog.components)) {
-      if (def.hidden) {
+      if (def.hidden || def.deprecated) {
         expect(full).not.toContain(`\n${name}:`)
         continue
       }
@@ -34,10 +34,10 @@ describe(`catalog prompt`, () => {
     expect(full).toContain(`Functions (client-side`)
   })
 
-  test(`the lite prompt drops overlays, media and Chart`, () => {
+  test(`the lite prompt drops overlays, media, Chart, data tables and the rarer controls`, () => {
     const lite = catalogPrompt({ lite: true })
     expect(lite.startsWith(`Catalog ${CORE_LITE_CATALOG_ID}.`)).toBe(true)
-    for (const name of [`Dialog`, `Drawer`, `Popover`, `Tooltip`, `DropdownMenu`, `Image`, `Video`, `Chart`]) expect(lite).not.toContain(`\n${name}:`)
+    for (const name of [`Dialog`, `Drawer`, `Popover`, `Tooltip`, `Menu`, `Image`, `Video`, `Chart`, `Table`, `Slider`, `Pagination`]) expect(lite).not.toContain(`\n${name}:`)
     expect(lite).toContain(`\nStack:`)
   })
 

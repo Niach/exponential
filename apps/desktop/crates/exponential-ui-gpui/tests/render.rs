@@ -136,7 +136,7 @@ fn open_everything(view: &Entity<SurfaceView>, cx: &mut VisualTestContext) {
     view.update(cx, |v, cx| {
         let nodes = v.surface_mut().nodes();
         let mut ids: Vec<String> = nodes.iter().filter(|n| !n.removed).filter_map(|n| n.trigger_for.clone()).collect();
-        ids.extend(nodes.iter().filter(|n| !n.removed && n.part.is_none() && matches!(n.component.as_str(), "Select" | "DatePicker" | "DateRangePicker" | "TimePicker" | "Dialog" | "Drawer" | "Popover" | "Tooltip" | "DropdownMenu" | "ContextMenu" | "ChipInput" | "Toast")).map(|n| n.id.clone()));
+        ids.extend(nodes.iter().filter(|n| !n.removed && n.part.is_none() && matches!(n.component.as_str(), "Select" | "DatePicker" | "DateRangePicker" | "TimePicker" | "Dialog" | "Drawer" | "Popover" | "Tooltip" | "Menu" | "ChipInput" | "Toast")).map(|n| n.id.clone()));
         ids.sort();
         ids.dedup();
         for id in ids {

@@ -330,7 +330,7 @@ pub struct SurfaceView {
     toast_hover: HashSet<String>,
     announcement: Option<(SharedString, String)>,
     copy_resets: HashMap<String, Task<()>>,
-    /// ToggleGroup roving item (`group id` → item index).
+    /// Segmented roving item (`group id` → item index).
     group_focus: HashMap<String, usize>,
     /// A calendar day to focus once its month is built (keyboard paging).
     pending_day: Option<(String, String)>,

@@ -155,7 +155,7 @@ fn rtl_mirrors_the_arrow_keys(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_menu_opens_from_the_keyboard_moves_and_selects(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "children": [
-        {"id": "menu", "component": "DropdownMenu", "props": {"label": "More", "items": [{"label": "Rename", "value": "rename"}, {"label": "Archive", "value": "archive"}, {"label": "Delete", "value": "delete"}]}, "on": {"select": {"event": {"name": "menuPick"}}}}
+        {"id": "menu", "component": "Menu", "props": {"label": "More", "items": [{"label": "Rename", "value": "rename"}, {"label": "Archive", "value": "archive"}, {"label": "Delete", "value": "delete"}]}, "on": {"select": {"event": {"name": "menuPick"}}}}
     ]});
     let (view, log, cx) = surface(cx, tree, false);
     let trigger = tab(&view, cx).expect("the trigger takes focus");
@@ -370,7 +370,7 @@ fn copy_writes_the_clipboard_and_resets(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_right_click_opens_the_context_menu_at_the_pointer(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "style": {"padding": 20}, "children": [
-        {"id": "ctx", "component": "ContextMenu", "props": {"items": [{"label": "Copy", "value": "copy"}, {"label": "Delete", "value": "delete"}]}, "children": [
+        {"id": "ctx", "component": "Menu", "props": {"openOn": "contextmenu", "items": [{"label": "Copy", "value": "copy"}, {"label": "Delete", "value": "delete"}]}, "children": [
             {"id": "area", "component": "Box", "style": {"height": 200, "width": 300}}
         ]}
     ]});

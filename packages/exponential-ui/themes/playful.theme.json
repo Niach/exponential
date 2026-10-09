@@ -140,12 +140,21 @@
       { "style": { "borderWidth": "$border.none", "borderRadius": "$radius.xl2", "boxShadow": "$shadow.md" } }
     ] },
     "Group": { "body": [ { "style": { "borderWidth": "$border.none", "boxShadow": "$shadow.sm" } } ] },
-    "CardRow": { "root": [ { "style": { "borderWidth": "$border.none", "boxShadow": "$shadow.sm", "borderRadius": "$radius.xl" } } ] },
-    "Band": { "root": [ { "style": { "backgroundColor": "$color.secondary", "borderRadius": "$radius.full" } } ], "title": [ { "style": { "color": "$color.secondaryForeground" } } ] },
+    "Row": {
+      "root": [
+        { "when": { "surface": "card" }, "style": { "borderWidth": "$border.none", "boxShadow": "$shadow.sm", "borderRadius": "$radius.xl" } },
+        { "when": { "selected": true }, "style": { "backgroundColor": "$color.secondary" } },
+        { "when": { "selected": true, "surface": "flat" }, "style": { "borderRadius": "$radius.full" } }
+      ],
+      "title": [ { "when": { "selected": true }, "style": { "color": "$color.secondaryForeground", "fontWeight": "$type.weight.bold" } } ],
+      "icon": [ { "when": { "selected": true }, "style": { "color": "$color.secondaryForeground" } } ]
+    },
+    "Section": { "header": [ { "style": { "backgroundColor": "$color.secondary", "borderRadius": "$radius.full" } } ], "title": [ { "style": { "color": "$color.secondaryForeground" } } ] },
     "Alert": { "root": [ { "style": { "borderWidth": "$border.none", "backgroundColor": "$color.muted", "borderRadius": "$radius.xl2" } } ] },
-    "Pill": {
+    "Chip": {
       "root": [
         { "style": { "backgroundColor": "$color.secondary", "borderWidth": "$border.none" } },
+        { "when": { "shape": "rect" }, "style": { "borderRadius": "$radius.full", "borderWidth": "$border.none", "backgroundColor": "$color.muted" } },
         { "when": { "selected": true }, "style": { "backgroundColor": "$color.primary", "borderColor": "$color.primary" } }
       ],
       "label": [
@@ -153,7 +162,6 @@
         { "when": { "selected": true }, "style": { "color": "$color.primaryForeground" } }
       ]
     },
-    "EntityChip": { "root": [ { "style": { "borderRadius": "$radius.full", "borderWidth": "$border.none", "backgroundColor": "$color.muted" } } ] },
     "Tabs": {
       "list": [ { "style": { "backgroundColor": "#00000000", "borderRadius": "$radius.none", "padding": "$spacing.none", "gap": "$spacing.lg" } } ],
       "tab": [
@@ -162,12 +170,15 @@
       ],
       "indicator": [ { "style": { "height": "$border.thick", "backgroundColor": "$color.primary", "borderRadius": "$radius.full" } } ]
     },
-    "ToggleGroup": {
+    "Segmented": {
       "root": [ { "when": { "variant": "segmented" }, "style": { "borderRadius": "$radius.full", "backgroundColor": "$color.secondary" } } ],
       "item": [
-        { "style": { "borderRadius": "$radius.full", "fontWeight": "$type.weight.bold" } },
+        { "when": { "variant": ["toggles", "outline"] }, "style": { "borderRadius": "$radius.full", "fontWeight": "$type.weight.bold" } },
+        { "when": { "variant": "segmented" }, "style": { "fontWeight": "$type.weight.bold" } },
         { "when": { "variant": "segmented", "state": "selected" }, "style": { "backgroundColor": "$color.primary", "color": "$color.primaryForeground" } }
-      ]
+      ],
+      "icon": [ { "when": { "variant": "bar", "state": "selected" }, "style": { "color": "$color.primary", "transform": "scale(1.15)" } } ],
+      "label": [ { "when": { "variant": "bar", "state": "selected" }, "style": { "color": "$color.primary", "fontWeight": "$type.weight.bold" } } ]
     },
     "Toggle": { "root": [ { "style": { "borderRadius": "$radius.full", "fontWeight": "$type.weight.bold" } } ] },
     "Input": { "field": [ { "style": { "borderRadius": "$radius.full", "borderWidth": "$border.thick", "paddingHorizontal": "$spacing.lg", "boxShadow": "$shadow.none" } } ] },
@@ -185,16 +196,13 @@
     "Dialog": { "content": [ { "style": { "borderRadius": "$radius.xl3", "borderWidth": "$border.none" } } ] },
     "Drawer": { "content": [ { "style": { "borderRadius": "$radius.xl3", "borderWidth": "$border.none" } } ] },
     "Popover": { "content": [ { "style": { "borderRadius": "$radius.xl", "borderWidth": "$border.none" } } ] },
-    "DropdownMenu": { "content": [ { "style": { "borderRadius": "$radius.xl", "borderWidth": "$border.none", "padding": "$spacing.sm" } } ], "item": [ { "style": { "borderRadius": "$radius.full" } } ] },
+    "Menu": { "content": [ { "style": { "borderRadius": "$radius.xl", "borderWidth": "$border.none", "padding": "$spacing.sm" } } ], "item": [ { "style": { "borderRadius": "$radius.full" } } ] },
     "Tooltip": { "content": [ { "style": { "borderRadius": "$radius.full", "backgroundColor": "$color.accentForeground", "color": "$color.accent" } } ] },
     "Progress": { "track": [ { "style": { "backgroundColor": "$color.secondary" } } ] },
     "Meter": { "track": [ { "style": { "backgroundColor": "$color.secondary" } } ] },
     "Skeleton": { "root": [ { "style": { "backgroundColor": "$color.muted", "borderRadius": "$radius.lg" } } ] },
-    "ListRow": { "root": [ { "when": { "selected": true }, "style": { "backgroundColor": "$color.secondary", "borderRadius": "$radius.full" } } ] },
-    "NavRow": { "root": [ { "when": { "selected": true }, "style": { "backgroundColor": "$color.primary", "borderRadius": "$radius.full" } } ], "label": [ { "when": { "selected": true }, "style": { "color": "$color.primaryForeground", "fontWeight": "$type.weight.bold" } } ], "icon": [ { "when": { "selected": true }, "style": { "color": "$color.primaryForeground" } } ] },
     "Avatar": { "root": [ { "style": { "borderRadius": "$radius.lg" } } ], "fallback": [ { "style": { "backgroundColor": "$color.secondary", "color": "$color.secondaryForeground", "fontWeight": "$type.weight.bold" } } ] },
     "Unknown": { "root": [ { "style": { "borderRadius": "$radius.xl", "borderWidth": "$border.thick" } } ] },
-    "ContextMenu": { "content": [ { "style": { "borderRadius": "$radius.xl", "borderWidth": "$border.none", "padding": "$spacing.sm" } } ], "item": [ { "style": { "borderRadius": "$radius.full" } } ] },
     "Toast": { "root": [ { "style": { "borderRadius": "$radius.xl3", "borderWidth": "$border.none", "backgroundColor": "$color.primary", "color": "$color.primaryForeground" } } ], "description": [ { "style": { "color": "$color.primaryForeground", "opacity": "$opacity.secondary" } } ], "icon": [ { "style": { "color": "$color.primaryForeground" } } ] },
     "CodeBlock": { "root": [ { "style": { "borderRadius": "$radius.xl", "borderWidth": "$border.none", "backgroundColor": "$color.secondary" } } ], "token": [ { "when": { "kind": "keyword" }, "style": { "color": "$color.primary", "fontWeight": "$type.weight.bold" } } ] },
     "Table": { "header": [ { "style": { "color": "$color.primary", "borderBottomWidth": "$border.thick", "borderColor": "$color.primary" } } ], "row": [ { "when": { "striped": true }, "style": { "backgroundColor": "$color.secondary" } } ] },
@@ -204,7 +212,6 @@
     "DateRangePicker": { "trigger": [ { "style": { "borderRadius": "$radius.full", "borderWidth": "$border.thick", "boxShadow": "$shadow.none" } } ], "day": [ { "style": { "borderRadius": "$radius.full" } } ], "range": [ { "style": { "backgroundColor": "$color.secondary", "color": "$color.secondaryForeground" } } ] },
     "FileUpload": { "dropzone": [ { "style": { "borderRadius": "$radius.xl2", "borderWidth": "$border.thick", "borderColor": "$color.primary", "backgroundColor": "$color.muted" } } ] },
     "Kbd": { "root": [ { "style": { "borderRadius": "$radius.md", "backgroundColor": "$color.secondary", "borderColor": "$color.primary" } } ] },
-    "TabBar": { "icon": [ { "when": { "selected": true }, "style": { "color": "$color.primary", "transform": "scale(1.15)" } } ], "label": [ { "when": { "selected": true }, "style": { "color": "$color.primary", "fontWeight": "$type.weight.bold" } } ] },
     "Stepper": { "marker": [ { "style": { "borderWidth": "$border.thick", "borderColor": "$color.primary" } }, { "when": { "status": "done" }, "style": { "backgroundColor": "$color.secondary", "color": "$color.secondaryForeground", "borderColor": "$color.secondary" } } ], "check": [ { "style": { "color": "$color.secondaryForeground" } } ] },
     "Rating": { "icon": [ { "when": { "filled": true }, "style": { "color": "$color.primary" } } ] }
   }

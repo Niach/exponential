@@ -61,10 +61,11 @@ describe(`recipe contract`, () => {
     expect(parts.Badge.parts).toEqual([`root`, `icon`, `label`])
     expect(parts.Badge.props).toEqual([`variant`])
     expect(parts.Meter.props).toEqual([`tone`])
-    expect(parts.ButtonGroup.props).toEqual([`size`, `selected`])
+    expect(parts.Row.props).toEqual([`selected`, `density`, `surface`, `depth`])
+    expect(parts.Section.props).toEqual([`tint`, `tree`, `open`, `collapsible`])
     expect(parts.Switch.parts).toContain(`track`)
     expect(parts.Button.props).toEqual([`variant`, `size`, `disabled`, `loading`])
-    expect(Object.keys(parts).length).toBe(83)
+    expect(Object.keys(parts).length).toBe(88)
     // Round 1: a template-built slot part (AlertDialog's footer) and painter-supplied discriminators.
     expect(parts.AlertDialog.parts).toEqual([`root`, `footer`, `cancel`, `confirm`])
     expect(parts.CodeBlock.props).toContain(`kind`)

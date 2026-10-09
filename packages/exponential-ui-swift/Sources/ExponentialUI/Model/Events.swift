@@ -102,7 +102,7 @@ extension SurfaceModel {
             layerReturn[target] = n.id
         }
         switch (n.component, n.part) {
-        case ("Slider", "track"), ("ToggleGroup", _):
+        case ("Slider", "track"), ("Segmented", _):
             return
         default:
             if n.isTextField { return }
@@ -178,7 +178,7 @@ extension SurfaceModel {
         setInteraction(id) { $0.dragover = over }
     }
 
-    /// Does overlay `target` open on hover (Tooltip, a hover Popover / HoverCard)?
+    /// Does overlay `target` open on hover (Tooltip, a hover Popover)?
     func opensOnHover(_ target: String) -> Bool {
         guard let t = node(id: target) else { return false }
         return t.component == "Tooltip" || (t.component == "Popover" && t.props.str("openOn") == "hover")
@@ -232,7 +232,7 @@ extension SurfaceModel {
     // MARK: - overlays
 
     /// Open or close an overlay owner (Dialog, Drawer, Popover, Tooltip,
-    /// DropdownMenu, ContextMenu, Select, the pickers, Toast).
+    /// Menu, Select, the pickers, Toast).
     public func setOpen(_ owner: String, _ open: Bool) {
         dispatch(surface.setOpen(id: owner, open: open))
     }
@@ -340,8 +340,8 @@ extension SurfaceModel {
 
     // MARK: - controls (values are the core's)
 
-    /// A ToggleGroup item press: single = that value, multiple = toggled set.
-    public func toggleGroupSelect(_ index: Int, value: JSONValue) {
+    /// A Segmented item press: single = that value, multiple = toggled set.
+    public func segmentedSelect(_ index: Int, value: JSONValue) {
         guard let n = node(index), !isDisabled(index) else { return }
         let multiple = n.props.str("type") == "multiple"
         let current = n.props["value"] ?? .null
@@ -363,8 +363,8 @@ extension SurfaceModel {
         fire(index, "change", payload: .object(["value": next]))
     }
 
-    /// The values a ToggleGroup shows selected.
-    public func toggleGroupValues(_ index: Int) -> [String] {
+    /// The values a Segmented shows selected.
+    public func segmentedValues(_ index: Int) -> [String] {
         guard let n = node(index) else { return [] }
         let v = n.props["value"] ?? .null
         switch v {
@@ -375,12 +375,12 @@ extension SurfaceModel {
         }
     }
 
-    /// A ToggleGroup's roving item: the one the arrows moved to, else the
+    /// A Segmented's roving item: the one the arrows moved to, else the
     /// first selected, else the first.
-    public func toggleGroupFocusIndex(_ index: Int) -> Int {
+    public func segmentedFocusIndex(_ index: Int) -> Int {
         guard let n = node(index) else { return 0 }
         if let i = groupFocus[n.id] { return i }
-        let chosen = toggleGroupValues(index)
+        let chosen = segmentedValues(index)
         return n.props.list("items").firstIndex { chosen.contains(($0["value"] ?? .null).displayText) } ?? 0
     }
 
@@ -466,7 +466,7 @@ extension SurfaceModel {
         fire(o.index, "change", payload: .object(["page": .number(Double(page))]))
     }
 
-    /// A right click / long press (or Shift+F10) inside a ContextMenu: open
+    /// A right click / long press (or Shift+F10) inside a context Menu (`openOn: contextmenu`): open
     /// it at `point` (surface coordinates; nil = at the node).
     public func contextMenu(_ index: Int, at point: CGPoint? = nil) {
         let p = point ?? CGPoint(x: frame(index).midX, y: frame(index).midY)

@@ -29,13 +29,14 @@
     },
     {
       "id": "bench-row",
-      "component": "ListRow",
+      "component": "Row",
       "title": {
         "path": "title"
       },
       "meta": {
         "path": "meta"
-      }
+      },
+      "pressable": true
     }
   ],
   "steps": {

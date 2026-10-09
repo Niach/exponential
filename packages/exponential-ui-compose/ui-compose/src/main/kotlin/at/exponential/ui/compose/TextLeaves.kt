@@ -68,7 +68,7 @@ internal fun TextPart(cx: LeafContext) {
     when (n.ownerComponent to n.part) {
         "Tabs" to "tab" -> TabLeaf(cx)
         "Accordion" to "trigger" -> AccordionTriggerLeaf(cx)
-        "DropdownMenu" to "itemLabel", "ContextMenu" to "itemLabel" -> MenuItemLeaf(cx)
+        "Menu" to "itemLabel" -> MenuItemLeaf(cx)
         "Select" to "item" -> SelectItemLeaf(cx)
         "Table" to "headerCell" -> HeaderCellLeaf(cx)
         "Table" to "cell" -> when (cx.props.str("cellType")) {
@@ -159,7 +159,7 @@ internal fun AccordionTriggerLeaf(cx: LeafContext) {
     }
 }
 
-/** A DropdownMenu / ContextMenu `itemLabel`: icon + label (the item's recipe colours it: destructive, disabled). */
+/** A Menu `itemLabel`: icon + label (the item's recipe colours it: destructive, disabled). */
 @Composable
 internal fun MenuItemLeaf(cx: LeafContext) {
     InnerBox(cx) {

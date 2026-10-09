@@ -20,7 +20,7 @@ import java.io.File
 
 /**
  * The shared list bench (`fixtures/bench-list.json`, round 2 §5) on the
- * JVM: 100,000 `ListRow`s on a 390 × 800 surface (neutral), the painter's
+ * JVM: 100,000 `Row`s on a 390 × 800 surface (neutral), the painter's
  * model with the REAL Compose text measure (Robolectric, density 2.75).
  * `firstPaintMs` = reduce + bind + measure + lay out the first window;
  * `scrollStepMs` = the mean of 100 one-viewport steps; `scrollToIndexMs` =

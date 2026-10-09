@@ -20,7 +20,7 @@ nothing from the Exponential app.
 
 | path | what |
 |---|---|
-| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 17 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 83 components with props + descriptions |
+| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 17 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 88 components (70 offered + 16 one-release `deprecated` aliases + the hidden TreeGuides part, round 3) with props + descriptions |
 | `catalog/macros.json` | the declarative expansion table, one template per macro component |
 | `catalog/basic-map.json` | A2UI basic → core: components (+ named transforms), icons, functions |
 | `catalog/style.json` | the `Box` style whitelist (VAPP-4), one source for TS / schema / natives |
@@ -29,7 +29,7 @@ nothing from the Exponential app.
 | `catalog/locale.json` | round 1: week start by region, likely regions (CLDR), deprecated language aliases, the RTL languages, the glyphs mirrored under RTL |
 | `catalog/code.json` | round 1: CodeBlock's built-in tokenizer (rules + per-language specs) |
 | `catalog/a11y.json` | round 1: the machine-readable role vocabulary; per component its role, notes and keyboard expectations; the rules; the host commands (focus, announce, scrollIntoView). Macro parts carry role/states/name via `$a11y` (macros.json) |
-| `catalog/layout.json` | round 2: the shared layout numbers (window threshold + overscan, field and media intrinsic sizes, Resizable step/min/hit, TreeGuides column) |
+| `catalog/layout.json` | round 2: the shared layout numbers (window threshold + overscan, field and media intrinsic sizes, Resizable step/min/hit, the tree-guide column/radius/bridge) |
 | `catalog/recipes.json` | the recipe contract: interaction states (+ `invalid`, `dragover`), the recipe key whitelist (+ motion, transform, per-side borders), every native's parts + `when` props (macro parts come from macros.json) |
 | `catalog/host.json` | the host API contract (VAPP-91): message kinds, ops, error codes, function decisions, URL schemes, MCP carrier, package format |
 | `catalog/core.schema.json` | generated: the catalog as JSON Schema in A2UI's catalog shape |
@@ -43,6 +43,7 @@ nothing from the Exponential app.
 | `fixtures/` | the contract (below) |
 | `docs/round-1-contract.md` | the renderer-hardening round: every contract change with notes per renderer |
 | `docs/round-2-contract.md` | round 2: Resizable, sticky, backdrop blur, animations, the Formatter, sections + scrollToIndex, the 53 gpui-vs-web decisions; a checklist per renderer |
+| `docs/round-3-contract.md` | round 3 (VAPP-102): ONE Row / Section / Chip / Segmented / Menu, the core-computed tree guides (`src/tree-guides.ts`, `fixtures/tree-guides.json`), the 16 deprecated aliases, the lite prune |
 | `src/host/` | the host API reference: router, decoders, policy, sources, packages, the `ExponentialHost` runtime + transports |
 | `src/connector/` | the Exponential connector (MCP OAuth + `exp:` sources over MCP) and `createVappHost` |
 | `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide; round 1's real-font harness beside it (`run.ts`, `dump.ts`, `compare.ts`, `fonts.json`) |
@@ -292,7 +293,7 @@ bun run --filter @exponential-at/ui build:builder   # bundles builder/dist (igno
 
 ## Extensions
 
-The Exponential app's extension (IssueRow, RunRow, IssueChip, …) lives with
+The Exponential app's extension (IssueRow, SessionRow, IssueChip, …) lives with
 the app at `packages/ui/exponential-ui/extension.json` and is validated by
 `@exp/ui`'s tests through `defineExtension`; it is the first user of the
 mechanism and not part of this package.

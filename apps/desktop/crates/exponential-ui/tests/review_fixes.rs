@@ -239,7 +239,7 @@ fn a_page_scrolled_list_is_not_clamped_by_its_own_box() {
 #[test]
 fn a_hover_card_stays_open_while_the_pointer_moves_into_its_content() {
     let mut s = surface(json!({"id": "root", "component": "Box", "children": [
-        {"id": "hc", "component": "HoverCard", "slots": {"trigger": {"id": "who", "component": "Text", "props": {"text": "@ada"}}},
+        {"id": "hc", "component": "Popover", "props": {"openOn": "hover"}, "slots": {"trigger": {"id": "who", "component": "Text", "props": {"text": "@ada"}}},
          "children": [{"id": "profile", "component": "Link", "props": {"label": "Profile", "href": "https://example.com/ada"}}]}
     ]}));
     s.set_viewport(400.0, 600.0, None);
@@ -279,7 +279,7 @@ fn without_a_core_close_delay_the_content_still_holds_a_hover_card_open() {
     // gpui's way: the host delays the trigger's un-hover itself; the core
     // closes at once when NOTHING holds the card, and the content holds it.
     let mut s = surface(json!({"id": "root", "component": "Box", "children": [
-        {"id": "hc", "component": "HoverCard", "slots": {"trigger": {"id": "who", "component": "Text", "props": {"text": "@ada"}}},
+        {"id": "hc", "component": "Popover", "props": {"openOn": "hover"}, "slots": {"trigger": {"id": "who", "component": "Text", "props": {"text": "@ada"}}},
          "children": [{"id": "card", "component": "Text", "props": {"text": "Ada Lovelace"}}]},
         {"id": "tip", "component": "Tooltip", "props": {"content": "Saves"}, "children": [{"id": "btn", "component": "Button", "props": {"label": "Save"}}]}
     ]}));

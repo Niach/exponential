@@ -107,9 +107,10 @@ private struct PaintedLayer: View {
             .gesture(sheetDrag(edge ?? ""), including: edge != nil && layer.dismissible ? .all : .subviews)
     }
 
-    /// The viewport edge a Drawer / Sheet hangs from (nil: not a sheet).
+    /// The viewport edge a Drawer hangs from (nil: not a sheet; the `Sheet`
+    /// alias expands to a bottom Drawer in the core).
     static func sheetEdge(_ l: LayerInfo) -> String? {
-        guard l.kind == "Drawer" || l.kind == "Sheet" else { return nil }
+        guard l.kind == "Drawer" else { return nil }
         switch l.position {
         case "top", "right", "bottom", "left": return l.position
         default: return nil

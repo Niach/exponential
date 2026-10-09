@@ -39,7 +39,7 @@ struct LeafContent: View {
             TextLeaf(cx: cx)
         case ("Markdown", _):
             MarkdownLeaf(cx: cx)
-        case ("Button", _), ("Toggle", _), ("DropdownMenu", _):
+        case ("Button", _), ("Toggle", _):
             ButtonLeaf(cx: cx)
         case ("Link", _):
             LinkLeaf(cx: cx)
@@ -79,8 +79,8 @@ struct LeafContent: View {
             SwitchTrackLeaf(cx: cx)
         case ("Slider", "track"):
             SliderTrackLeaf(cx: cx)
-        case ("ToggleGroup", _):
-            ToggleGroupLeaf(cx: cx)
+        case ("Segmented", _):
+            SegmentedLeaf(cx: cx)
         // Geometry mode (no theme): a field native is one leaf showing its
         // value; a Table / CodeBlock / FileUpload its text. (Themed, the
         // natives are containers of parts; a Table stays a leaf that carries

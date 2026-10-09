@@ -180,10 +180,13 @@ mod tests {
         assert_eq!(parts["Badge"].parts, ["root", "icon", "label"]);
         assert_eq!(parts["Badge"].props, ["variant"]);
         assert_eq!(parts["Meter"].props, ["tone"]);
-        assert_eq!(parts["ButtonGroup"].props, ["size", "selected"]);
+        assert_eq!(parts["Row"].props, ["selected", "density", "surface", "depth"]);
+        assert_eq!(parts["Section"].props, ["tint", "tree", "open", "collapsible"]);
+        assert_eq!(parts["Segmented"].parts, ["root", "item", "icon", "label"]);
+        assert_eq!(parts["Menu"].props, ["openOn"]);
         assert!(parts["Switch"].parts.iter().any(|p| p == "track"));
         assert_eq!(parts["Button"].props, ["variant", "size", "disabled", "loading"]);
-        assert_eq!(parts.len(), 83);
+        assert_eq!(parts.len(), 88);
     }
 
     #[test]

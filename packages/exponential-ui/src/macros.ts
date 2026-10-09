@@ -14,6 +14,7 @@
 // `$a11y` becomes the node's `accessibility` (role, states, name: §6).
 
 import { TOKEN_GROUPS, catalogView } from "./catalog"
+import { applyTreeGuides } from "./tree-guides"
 import type { CatalogView } from "./catalog"
 import { evalConditionValue, evalValue, isBinding, isDynamic, truthy, type ExprContext } from "./expr"
 import type { Action, ExtensionDef, MacroChild, MacroDef, MacroTemplate, ReduceIssue, UiNode, Visible } from "./types"
@@ -283,6 +284,8 @@ function buildNode(
 function expandMacro(node: UiNode, macro: string, def: MacroDef, view: CatalogView, depth: number, issues?: ReduceIssue[]): UiNode {
   if (depth > MAX_DEPTH) throw new Error(`macro ${macro}: expansion deeper than ${MAX_DEPTH}`)
   const baseProps = propsAt(node.props, null)
+  // Round 3: an `on.press` implies `pressable` on a macro that offers it (Row, Chip).
+  if (node.on?.press && baseProps.pressable === undefined && view.components[macro]?.props.pressable) baseProps.pressable = true
   const exp: Expansion = { view, macro, def, source: node, baseProps, variants: responsiveVariants(node.props), claimed: new Set(), issues }
   const ctx: ExprContext = { id: node.id, props: baseProps, vars: {} }
   const [root] = expandTemplate(def.root, exp, ctx, node.id)
@@ -322,7 +325,9 @@ export function expandMacros(
   root: UiNode,
   options: { extensions?: readonly ExtensionDef[]; issues?: ReduceIssue[] } = {}
 ): UiNode {
-  return expandTree(clone(root), catalogView(options.extensions), 0, options.issues)
+  // Round 3: the tree guides of nested Rows come from their siblings, so
+  // they are filled AFTER the whole tree is native (src/tree-guides.ts).
+  return applyTreeGuides(expandTree(clone(root), catalogView(options.extensions), 0, options.issues))
 }
 
 /** True for a value the expander would keep (see expr.ts). */

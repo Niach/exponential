@@ -61,14 +61,16 @@ A2UI messages (JSON) ─▶ reducer ─▶ UiNode tree ─▶ bind pass + layout
    tokenizer's tokens), Chart (one leaf carrying `extent`, `nice_ticks`,
    colour tokens), Form (`summary`, failing fields `invalid`). Every popup
    is a LAYER with its own root: Dialog/Drawer (scrolling `body`), Popover,
-   Tooltip, HoverCard (open on hover / keyboard focus of the trigger, held
+   Tooltip, a hover Popover (open on hover / keyboard focus of the trigger, held
    open while the pointer is on the trigger OR anywhere in its content;
    leaving both closes at once, or — `settings.hover_close_ms > 0`, 150
    like the web — raises `OutEvent::HoverTimer {owner, delay_ms}` and
    closes on `hover_timeout(owner)` unless the pointer came back),
-   DropdownMenu and
-   ContextMenu (checkbox / label / separator entries, one level of
-   submenus, a context menu opens at the pointer), the Select combobox
+   Menu (checkbox / label / separator entries, one level of submenus
+   whose rows may be a bound `{path}`; `openOn: press` = its ONE child is
+   the trigger, no child = a default outline Button; `openOn: contextmenu`
+   = the child is the target region and the menu opens at the pointer), the
+   Select combobox
    (search + options), the DatePicker/DateRangePicker calendar (week start
    by locale), the TimePicker list and the Toast band.
 6. **Surface** (`surface`): nodes live in STABLE SLOTS keyed by id. A
@@ -195,6 +197,19 @@ direction.
 | Resizable | parts `panel` / `handle` / `grip`; `event(handle, "drag", {phase: start\|move\|end, delta})` from the start sizes, `event(handle, "key", {key})` (`resizable::RESIZE_KEYS`; others are ignored); a bound `sizes` writes and `change {sizes}` fires on a drag end or key that changed the sizes. Arithmetic: `resizable::*` |
 | lists | `direction: horizontal` windows on x; `divided` = gap + hairline at every boundary (`<list>.divider.<item>` between items); `sectionBy` + slot `section` (`<list>.section.<i>`, a level-3 heading) + `stickyHeaders` (`list::scroll_offset_for_item`); an unbounded list windows against its scrolling ancestor or the host viewport (`Surface::set_surface_scroll`); `scroll_to_index(id, index, align)` / `SurfaceCommand::ScrollToIndex` (the host viewport case emits `OutEvent::ScrollSurface`); window past 50 items |
 | strings | `$string.invalidValue`, `dialog`, `codeBlock`, `table`, `carousel` / `slide`, `resize` on the nodes' `accessibility` |
+
+## Round 3 (`docs/round-3-contract.md`, VAPP-102)
+
+| area | API |
+|---|---|
+| vocabulary | natives `Segmented` (ToggleGroup renamed; `variant` segmented \| toggles \| outline \| `bar`, content-sized unless `fill` or `bar`) and `Menu` (DropdownMenu + ContextMenu, `openOn` press \| contextmenu, glyphs `Menu.check` / `Menu.submenuIndicator`); macros `Row`, `Section`, `Chip` |
+| aliases | `ComponentDef::deprecated` names the replacement; `is_offered()` = neither hidden nor deprecated (`catalog::component_names` lists only offered ones); an alias still reduces and expands |
+| tree guides | `tree_guides::tree_guides(depths)` (the ×4 app rule) and `apply_tree_guides(root)`, run at the end of `macros::expand_macros`: every Row root's `guides` part (a hidden `TreeGuides`) gets `{depth, elbowAt?, tee, passThrough}` from its siblings; `layout::TREE_GUIDE_COLUMN` 14, `TREE_GUIDE_RADIUS` 3, `TREE_GUIDE_BRIDGE` 1 (paint only) |
+| bindable submenus | `menuItem.items` resolves along its schema: a `{path}` there becomes the submenu's rows |
+
+`tests/round3_fixtures.rs` replays `tree-guides.json` and the `Row/tree:*`
+macro cases; `tests/round3_layout.rs` covers the Menu triggers, a bound
+submenu and Segmented sizing.
 
 ## Host API (`host`, VAPP-91)
 

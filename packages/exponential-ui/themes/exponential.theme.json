@@ -306,8 +306,8 @@
         }
       ]
     },
-    "Band": {
-      "root": [
+    "Section": {
+      "header": [
         {
           "style": {
             "backgroundColor": "$color.muted"
@@ -427,7 +427,17 @@
         }
       ]
     },
-    "ToggleGroup": {
+    "Segmented": {
+      "root": [
+        {
+          "when": {
+            "variant": "bar"
+          },
+          "style": {
+            "backgroundColor": "$color.card"
+          }
+        }
+      ],
       "item": [
         {
           "when": {
@@ -441,12 +451,20 @@
         }
       ]
     },
-    "Pill": {
+    "Chip": {
       "root": [
         {
           "style": {
             "backgroundColor": "$color.secondary",
             "borderColor": "$color.border"
+          }
+        },
+        {
+          "when": {
+            "shape": "rect"
+          },
+          "style": {
+            "backgroundColor": "$color.secondary"
           }
         },
         {
@@ -460,16 +478,7 @@
         }
       ]
     },
-    "EntityChip": {
-      "root": [
-        {
-          "style": {
-            "backgroundColor": "$color.secondary"
-          }
-        }
-      ]
-    },
-    "ListRow": {
+    "Row": {
       "root": [
         {
           "when": {
@@ -489,51 +498,7 @@
         }
       ]
     },
-    "NavRow": {
-      "root": [
-        {
-          "when": {
-            "state": "hover"
-          },
-          "style": {
-            "backgroundColor": "$color.secondary"
-          }
-        },
-        {
-          "when": {
-            "selected": true
-          },
-          "style": {
-            "backgroundColor": "$color.accent"
-          }
-        }
-      ]
-    },
-    "PickerRow": {
-      "root": [
-        {
-          "when": {
-            "state": "hover"
-          },
-          "style": {
-            "backgroundColor": "$color.secondary"
-          }
-        }
-      ]
-    },
-    "CardRow": {
-      "root": [
-        {
-          "when": {
-            "state": "hover"
-          },
-          "style": {
-            "backgroundColor": "$color.secondary"
-          }
-        }
-      ]
-    },
-    "DropdownMenu": {
+    "Menu": {
       "item": [
         {
           "when": {
@@ -689,26 +654,6 @@
         }
       ]
     },
-    "ContextMenu": {
-      "item": [
-        {
-          "when": {
-            "state": "hover"
-          },
-          "style": {
-            "backgroundColor": "$color.secondary"
-          }
-        },
-        {
-          "when": {
-            "state": "selected"
-          },
-          "style": {
-            "backgroundColor": "$color.accent"
-          }
-        }
-      ]
-    },
     "Toast": {
       "root": [
         {
@@ -771,15 +716,6 @@
     },
     "Sidebar": {
       "sidebar": [
-        {
-          "style": {
-            "backgroundColor": "$color.card"
-          }
-        }
-      ]
-    },
-    "TabBar": {
-      "root": [
         {
           "style": {
             "backgroundColor": "$color.card"

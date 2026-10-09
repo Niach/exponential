@@ -29,6 +29,7 @@ import androidx.compose.ui.semantics.traversalIndex
 import androidx.compose.ui.state.ToggleableState
 import at.exponential.ui.json.Props
 import at.exponential.ui.json.num
+import at.exponential.ui.json.flag
 import at.exponential.ui.json.str
 import at.exponential.ui.model.NodeInfo
 import at.exponential.ui.model.SurfaceModel
@@ -117,7 +118,7 @@ private fun SemanticsPropertyReceiver.applyA11y(a: A11y, live: String?, model: S
  * (`combinedLabel`, the children cleared); landmarks, groups, headings,
  * progress bars and live regions carry their label, role, level, value
  * and live mode; leaves their component's role, label and state. Text
- * fields, picker triggers and ToggleGroups keep the semantics their own
+ * fields, picker triggers and Segmented controls keep the semantics their own
  * composables set. Called during composition: every value it reads is
  * captured there.
  */
@@ -130,6 +131,9 @@ internal fun Modifier.nodeSemantics(node: NodeInfo, model: SurfaceModel): Modifi
             val label = named(a.label ?: model.combinedLabel(node.index), a.description)
             val index = node.index
             val disabledNow = model.isDisabled(index)
+            val menuKind = if (node.ownerComponent == "Menu" && node.part == "item") node.props.str("kind") else ""
+            val menuChecked = node.checked || node.props.flag("checked")
+            val menuOpen = node.open
             return clearAndSetSemantics {
                 contentDescription = label ?: ""
                 role = Role.Button
@@ -141,6 +145,14 @@ internal fun Modifier.nodeSemantics(node: NodeInfo, model: SurfaceModel): Modifi
                     true -> collapse { model.press(index); true }
                     false -> expand { model.press(index); true }
                     null -> {}
+                }
+                // Round 3 Menu rows: a checkbox row is a checkbox (its state),
+                // a submenu row expands / collapses its submenu (gpui: menuitemcheckbox).
+                if (menuKind == "checkbox") {
+                    role = Role.Checkbox
+                    toggleableState = ToggleableState(menuChecked)
+                } else if (menuKind == "submenu") {
+                    if (menuOpen) collapse { model.press(index); true } else expand { model.press(index); true }
                 }
             }
         }
@@ -230,7 +242,7 @@ private fun Modifier.leafSemantics(node: NodeInfo, model: SurfaceModel, a: A11y,
             contentDescription = label ?: model.string("loading")
             if (c == "Ring") node.props.num("value")?.let { v -> progressBarRangeInfo = ProgressBarRangeInfo(v.toFloat().coerceIn(0f, 1f), 0f..1f) } else progressBarRangeInfo = ProgressBarRangeInfo.Indeterminate
         }
-        node.isPickerTrigger || c == "ToggleGroup" -> this
+        node.isPickerTrigger || c == "Segmented" -> this
         c == "Link" -> {
             val index = node.index
             clearAndSetSemantics {

@@ -3,6 +3,269 @@
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "cases": [
     {
+      "name": "Band/example",
+      "node": {
+        "id": "band",
+        "component": "Band",
+        "props": {
+          "title": "In progress",
+          "count": 4
+        }
+      }
+    },
+    {
+      "name": "RowList/example",
+      "node": {
+        "id": "row-list",
+        "component": "RowList",
+        "props": {
+          "guides": false
+        },
+        "children": [
+          {
+            "id": "row-list-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "ToggleGroup/example",
+      "node": {
+        "id": "toggle-group",
+        "component": "ToggleGroup",
+        "props": {
+          "items": [
+            {
+              "label": "List",
+              "value": "list"
+            },
+            {
+              "label": "Board",
+              "value": "board"
+            }
+          ],
+          "value": "list",
+          "variant": "segmented"
+        }
+      }
+    },
+    {
+      "name": "ButtonGroup/example",
+      "node": {
+        "id": "button-group",
+        "component": "ButtonGroup",
+        "props": {
+          "buttons": [
+            {
+              "label": "Day",
+              "value": "day"
+            },
+            {
+              "label": "Week",
+              "value": "week"
+            }
+          ],
+          "selected": "day"
+        }
+      }
+    },
+    {
+      "name": "TabBar/example",
+      "node": {
+        "id": "tab-bar",
+        "component": "TabBar",
+        "props": {
+          "items": [
+            {
+              "label": "Inbox",
+              "value": "inbox",
+              "icon": "nav-inbox"
+            },
+            {
+              "label": "Issues",
+              "value": "issues",
+              "icon": "nav-issues"
+            }
+          ],
+          "value": "inbox"
+        }
+      }
+    },
+    {
+      "name": "Sheet/example",
+      "node": {
+        "id": "sheet",
+        "component": "Sheet",
+        "props": {
+          "title": "Details",
+          "open": false
+        },
+        "children": [
+          {
+            "id": "sheet-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "HoverCard/example",
+      "node": {
+        "id": "hover-card",
+        "component": "HoverCard",
+        "props": {
+          "side": "bottom"
+        },
+        "children": [
+          {
+            "id": "hover-card-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "DropdownMenu/example",
+      "node": {
+        "id": "dropdown-menu",
+        "component": "DropdownMenu",
+        "props": {
+          "label": "More",
+          "items": [
+            {
+              "label": "Rename",
+              "value": "rename"
+            },
+            {
+              "label": "Delete",
+              "value": "delete",
+              "destructive": true
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "ContextMenu/example",
+      "node": {
+        "id": "context-menu",
+        "component": "ContextMenu",
+        "props": {
+          "items": [
+            {
+              "label": "Copy",
+              "value": "copy",
+              "shortcut": "⌘C"
+            },
+            {
+              "label": "Delete",
+              "value": "delete",
+              "destructive": true
+            }
+          ]
+        },
+        "children": [
+          {
+            "id": "context-menu-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Pill/example",
+      "node": {
+        "id": "pill",
+        "component": "Pill",
+        "props": {
+          "label": "Drafts",
+          "selected": true
+        }
+      }
+    },
+    {
+      "name": "ListRow/example",
+      "node": {
+        "id": "list-row",
+        "component": "ListRow",
+        "props": {
+          "title": "r/selfhosted",
+          "meta": "312 posts"
+        }
+      }
+    },
+    {
+      "name": "CardRow/example",
+      "node": {
+        "id": "card-row",
+        "component": "CardRow",
+        "props": {
+          "title": "MacBook Pro",
+          "subtitle": "Online · 2 runs",
+          "icon": "ui-device"
+        }
+      }
+    },
+    {
+      "name": "PropertyRow/example",
+      "node": {
+        "id": "property-row",
+        "component": "PropertyRow",
+        "props": {
+          "label": "Assignee",
+          "value": "Alex Chen"
+        }
+      }
+    },
+    {
+      "name": "PickerRow/example",
+      "node": {
+        "id": "picker-row",
+        "component": "PickerRow",
+        "props": {
+          "label": "Status",
+          "value": "In progress"
+        }
+      }
+    },
+    {
+      "name": "NavRow/example",
+      "node": {
+        "id": "nav-row",
+        "component": "NavRow",
+        "props": {
+          "label": "Inbox",
+          "icon": "nav-inbox",
+          "count": 3,
+          "selected": true
+        }
+      }
+    },
+    {
+      "name": "EntityChip/example",
+      "node": {
+        "id": "entity-chip",
+        "component": "EntityChip",
+        "props": {
+          "label": "Sprint 12",
+          "icon": "nav-boards"
+        }
+      }
+    },
+    {
       "name": "Box/example",
       "node": {
         "id": "box",
@@ -1471,52 +1734,17 @@
       }
     },
     {
-      "name": "Band/example",
+      "name": "Section/example",
       "node": {
-        "id": "band",
-        "component": "Band",
+        "id": "section",
+        "component": "Section",
         "props": {
           "title": "In progress",
-          "count": 4,
-          "variant": "group"
-        }
-      }
-    },
-    {
-      "name": "Band/variant=default",
-      "node": {
-        "id": "band",
-        "component": "Band",
-        "props": {
-          "title": "In progress",
-          "count": 4,
-          "variant": "default"
-        }
-      }
-    },
-    {
-      "name": "Band/variant=group",
-      "node": {
-        "id": "band",
-        "component": "Band",
-        "props": {
-          "title": "In progress",
-          "count": 4,
-          "variant": "group"
-        }
-      }
-    },
-    {
-      "name": "RowList/example",
-      "node": {
-        "id": "row-list",
-        "component": "RowList",
-        "props": {
-          "guides": false
+          "icon": "nav-issues"
         },
         "children": [
           {
-            "id": "row-list-child",
+            "id": "section-child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1526,16 +1754,18 @@
       }
     },
     {
-      "name": "RowList/guides=true",
+      "name": "Section/collapsible=true",
       "node": {
-        "id": "row-list",
-        "component": "RowList",
+        "id": "section",
+        "component": "Section",
         "props": {
-          "guides": true
+          "title": "In progress",
+          "icon": "nav-issues",
+          "collapsible": true
         },
         "children": [
           {
-            "id": "row-list-child",
+            "id": "section-child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -1545,16 +1775,228 @@
       }
     },
     {
-      "name": "RowList/guides=false",
+      "name": "Section/collapsible=false",
       "node": {
-        "id": "row-list",
-        "component": "RowList",
+        "id": "section",
+        "component": "Section",
         "props": {
-          "guides": false
+          "title": "In progress",
+          "icon": "nav-issues",
+          "collapsible": false
         },
         "children": [
           {
-            "id": "row-list-child",
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Section/open=true",
+      "node": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "open": true
+        },
+        "children": [
+          {
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Section/open=false",
+      "node": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "open": false
+        },
+        "children": [
+          {
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Section/tint=neutral",
+      "node": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "tint": "neutral"
+        },
+        "children": [
+          {
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Section/tint=primary",
+      "node": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "tint": "primary"
+        },
+        "children": [
+          {
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Section/tint=success",
+      "node": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "tint": "success"
+        },
+        "children": [
+          {
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Section/tint=warning",
+      "node": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "tint": "warning"
+        },
+        "children": [
+          {
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Section/tint=danger",
+      "node": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "tint": "danger"
+        },
+        "children": [
+          {
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Section/tint=info",
+      "node": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "tint": "info"
+        },
+        "children": [
+          {
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Section/tree=true",
+      "node": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "tree": true
+        },
+        "children": [
+          {
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Section/tree=false",
+      "node": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "tree": false
+        },
+        "children": [
+          {
+            "id": "section-child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -2696,10 +3138,72 @@
       }
     },
     {
-      "name": "ToggleGroup/example",
+      "name": "Segmented/example",
       "node": {
-        "id": "toggle-group",
-        "component": "ToggleGroup",
+        "id": "segmented",
+        "component": "Segmented",
+        "props": {
+          "items": [
+            {
+              "label": "List",
+              "value": "list"
+            },
+            {
+              "label": "Board",
+              "value": "board"
+            }
+          ],
+          "value": "list"
+        }
+      }
+    },
+    {
+      "name": "Segmented/type=single",
+      "node": {
+        "id": "segmented",
+        "component": "Segmented",
+        "props": {
+          "items": [
+            {
+              "label": "List",
+              "value": "list"
+            },
+            {
+              "label": "Board",
+              "value": "board"
+            }
+          ],
+          "value": "list",
+          "type": "single"
+        }
+      }
+    },
+    {
+      "name": "Segmented/type=multiple",
+      "node": {
+        "id": "segmented",
+        "component": "Segmented",
+        "props": {
+          "items": [
+            {
+              "label": "List",
+              "value": "list"
+            },
+            {
+              "label": "Board",
+              "value": "board"
+            }
+          ],
+          "value": "list",
+          "type": "multiple"
+        }
+      }
+    },
+    {
+      "name": "Segmented/variant=segmented",
+      "node": {
+        "id": "segmented",
+        "component": "Segmented",
         "props": {
           "items": [
             {
@@ -2717,10 +3221,10 @@
       }
     },
     {
-      "name": "ToggleGroup/type=single",
+      "name": "Segmented/variant=toggles",
       "node": {
-        "id": "toggle-group",
-        "component": "ToggleGroup",
+        "id": "segmented",
+        "component": "Segmented",
         "props": {
           "items": [
             {
@@ -2733,59 +3237,15 @@
             }
           ],
           "value": "list",
-          "variant": "segmented",
-          "type": "single"
+          "variant": "toggles"
         }
       }
     },
     {
-      "name": "ToggleGroup/type=multiple",
+      "name": "Segmented/variant=outline",
       "node": {
-        "id": "toggle-group",
-        "component": "ToggleGroup",
-        "props": {
-          "items": [
-            {
-              "label": "List",
-              "value": "list"
-            },
-            {
-              "label": "Board",
-              "value": "board"
-            }
-          ],
-          "value": "list",
-          "variant": "segmented",
-          "type": "multiple"
-        }
-      }
-    },
-    {
-      "name": "ToggleGroup/variant=default",
-      "node": {
-        "id": "toggle-group",
-        "component": "ToggleGroup",
-        "props": {
-          "items": [
-            {
-              "label": "List",
-              "value": "list"
-            },
-            {
-              "label": "Board",
-              "value": "board"
-            }
-          ],
-          "value": "list",
-          "variant": "default"
-        }
-      }
-    },
-    {
-      "name": "ToggleGroup/variant=outline",
-      "node": {
-        "id": "toggle-group",
-        "component": "ToggleGroup",
+        "id": "segmented",
+        "component": "Segmented",
         "props": {
           "items": [
             {
@@ -2803,10 +3263,10 @@
       }
     },
     {
-      "name": "ToggleGroup/variant=segmented",
+      "name": "Segmented/variant=bar",
       "node": {
-        "id": "toggle-group",
-        "component": "ToggleGroup",
+        "id": "segmented",
+        "component": "Segmented",
         "props": {
           "items": [
             {
@@ -2819,15 +3279,15 @@
             }
           ],
           "value": "list",
-          "variant": "segmented"
+          "variant": "bar"
         }
       }
     },
     {
-      "name": "ToggleGroup/size=sm",
+      "name": "Segmented/size=sm",
       "node": {
-        "id": "toggle-group",
-        "component": "ToggleGroup",
+        "id": "segmented",
+        "component": "Segmented",
         "props": {
           "items": [
             {
@@ -2840,16 +3300,15 @@
             }
           ],
           "value": "list",
-          "variant": "segmented",
           "size": "sm"
         }
       }
     },
     {
-      "name": "ToggleGroup/size=default",
+      "name": "Segmented/size=default",
       "node": {
-        "id": "toggle-group",
-        "component": "ToggleGroup",
+        "id": "segmented",
+        "component": "Segmented",
         "props": {
           "items": [
             {
@@ -2862,16 +3321,15 @@
             }
           ],
           "value": "list",
-          "variant": "segmented",
           "size": "default"
         }
       }
     },
     {
-      "name": "ToggleGroup/size=lg",
+      "name": "Segmented/size=lg",
       "node": {
-        "id": "toggle-group",
-        "component": "ToggleGroup",
+        "id": "segmented",
+        "component": "Segmented",
         "props": {
           "items": [
             {
@@ -2884,16 +3342,15 @@
             }
           ],
           "value": "list",
-          "variant": "segmented",
           "size": "lg"
         }
       }
     },
     {
-      "name": "ToggleGroup/fill=true",
+      "name": "Segmented/fill=true",
       "node": {
-        "id": "toggle-group",
-        "component": "ToggleGroup",
+        "id": "segmented",
+        "component": "Segmented",
         "props": {
           "items": [
             {
@@ -2906,16 +3363,15 @@
             }
           ],
           "value": "list",
-          "variant": "segmented",
           "fill": true
         }
       }
     },
     {
-      "name": "ToggleGroup/fill=false",
+      "name": "Segmented/fill=false",
       "node": {
-        "id": "toggle-group",
-        "component": "ToggleGroup",
+        "id": "segmented",
+        "component": "Segmented",
         "props": {
           "items": [
             {
@@ -2928,7 +3384,6 @@
             }
           ],
           "value": "list",
-          "variant": "segmented",
           "fill": false
         }
       }
@@ -3083,89 +3538,6 @@
       }
     },
     {
-      "name": "ButtonGroup/example",
-      "node": {
-        "id": "button-group",
-        "component": "ButtonGroup",
-        "props": {
-          "buttons": [
-            {
-              "label": "Day",
-              "value": "day"
-            },
-            {
-              "label": "Week",
-              "value": "week"
-            }
-          ],
-          "selected": "day"
-        }
-      }
-    },
-    {
-      "name": "ButtonGroup/size=sm",
-      "node": {
-        "id": "button-group",
-        "component": "ButtonGroup",
-        "props": {
-          "buttons": [
-            {
-              "label": "Day",
-              "value": "day"
-            },
-            {
-              "label": "Week",
-              "value": "week"
-            }
-          ],
-          "selected": "day",
-          "size": "sm"
-        }
-      }
-    },
-    {
-      "name": "ButtonGroup/size=default",
-      "node": {
-        "id": "button-group",
-        "component": "ButtonGroup",
-        "props": {
-          "buttons": [
-            {
-              "label": "Day",
-              "value": "day"
-            },
-            {
-              "label": "Week",
-              "value": "week"
-            }
-          ],
-          "selected": "day",
-          "size": "default"
-        }
-      }
-    },
-    {
-      "name": "ButtonGroup/size=lg",
-      "node": {
-        "id": "button-group",
-        "component": "ButtonGroup",
-        "props": {
-          "buttons": [
-            {
-              "label": "Day",
-              "value": "day"
-            },
-            {
-              "label": "Week",
-              "value": "week"
-            }
-          ],
-          "selected": "day",
-          "size": "lg"
-        }
-      }
-    },
-    {
       "name": "Breadcrumb/example",
       "node": {
         "id": "breadcrumb",
@@ -3185,28 +3557,6 @@
               "value": "exp-42"
             }
           ]
-        }
-      }
-    },
-    {
-      "name": "TabBar/example",
-      "node": {
-        "id": "tab-bar",
-        "component": "TabBar",
-        "props": {
-          "items": [
-            {
-              "label": "Inbox",
-              "value": "inbox",
-              "icon": "nav-inbox"
-            },
-            {
-              "label": "Issues",
-              "value": "issues",
-              "icon": "nav-issues"
-            }
-          ],
-          "value": "inbox"
         }
       }
     },
@@ -3618,66 +3968,6 @@
       }
     },
     {
-      "name": "Sheet/example",
-      "node": {
-        "id": "sheet",
-        "component": "Sheet",
-        "props": {
-          "title": "Details",
-          "open": false
-        },
-        "children": [
-          {
-            "id": "sheet-child",
-            "component": "Text",
-            "props": {
-              "text": "Child"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "Sheet/open=true",
-      "node": {
-        "id": "sheet",
-        "component": "Sheet",
-        "props": {
-          "title": "Details",
-          "open": true
-        },
-        "children": [
-          {
-            "id": "sheet-child",
-            "component": "Text",
-            "props": {
-              "text": "Child"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "Sheet/open=false",
-      "node": {
-        "id": "sheet",
-        "component": "Sheet",
-        "props": {
-          "title": "Details",
-          "open": false
-        },
-        "children": [
-          {
-            "id": "sheet-child",
-            "component": "Text",
-            "props": {
-              "text": "Child"
-            }
-          }
-        ]
-      }
-    },
-    {
       "name": "AlertDialog/example",
       "node": {
         "id": "alert-dialog",
@@ -3960,141 +4250,6 @@
       }
     },
     {
-      "name": "HoverCard/example",
-      "node": {
-        "id": "hover-card",
-        "component": "HoverCard",
-        "props": {
-          "side": "bottom"
-        },
-        "children": [
-          {
-            "id": "hover-card-child",
-            "component": "Text",
-            "props": {
-              "text": "Child"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "HoverCard/side=top",
-      "node": {
-        "id": "hover-card",
-        "component": "HoverCard",
-        "props": {
-          "side": "top"
-        },
-        "children": [
-          {
-            "id": "hover-card-child",
-            "component": "Text",
-            "props": {
-              "text": "Child"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "HoverCard/side=right",
-      "node": {
-        "id": "hover-card",
-        "component": "HoverCard",
-        "props": {
-          "side": "right"
-        },
-        "children": [
-          {
-            "id": "hover-card-child",
-            "component": "Text",
-            "props": {
-              "text": "Child"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "HoverCard/side=bottom",
-      "node": {
-        "id": "hover-card",
-        "component": "HoverCard",
-        "props": {
-          "side": "bottom"
-        },
-        "children": [
-          {
-            "id": "hover-card-child",
-            "component": "Text",
-            "props": {
-              "text": "Child"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "HoverCard/side=left",
-      "node": {
-        "id": "hover-card",
-        "component": "HoverCard",
-        "props": {
-          "side": "left"
-        },
-        "children": [
-          {
-            "id": "hover-card-child",
-            "component": "Text",
-            "props": {
-              "text": "Child"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "HoverCard/open=true",
-      "node": {
-        "id": "hover-card",
-        "component": "HoverCard",
-        "props": {
-          "side": "bottom",
-          "open": true
-        },
-        "children": [
-          {
-            "id": "hover-card-child",
-            "component": "Text",
-            "props": {
-              "text": "Child"
-            }
-          }
-        ]
-      }
-    },
-    {
-      "name": "HoverCard/open=false",
-      "node": {
-        "id": "hover-card",
-        "component": "HoverCard",
-        "props": {
-          "side": "bottom",
-          "open": false
-        },
-        "children": [
-          {
-            "id": "hover-card-child",
-            "component": "Text",
-            "props": {
-              "text": "Child"
-            }
-          }
-        ]
-      }
-    },
-    {
       "name": "Tooltip/example",
       "node": {
         "id": "tooltip",
@@ -4194,10 +4349,10 @@
       }
     },
     {
-      "name": "DropdownMenu/example",
+      "name": "Menu/example",
       "node": {
-        "id": "dropdown-menu",
-        "component": "DropdownMenu",
+        "id": "menu",
+        "component": "Menu",
         "props": {
           "label": "More",
           "items": [
@@ -4211,31 +4366,72 @@
               "destructive": true
             }
           ]
-        }
+        },
+        "children": [
+          {
+            "id": "menu-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
       }
     },
     {
-      "name": "ContextMenu/example",
+      "name": "Menu/openOn=press",
       "node": {
-        "id": "context-menu",
-        "component": "ContextMenu",
+        "id": "menu",
+        "component": "Menu",
         "props": {
+          "label": "More",
           "items": [
             {
-              "label": "Copy",
-              "value": "copy",
-              "shortcut": "⌘C"
+              "label": "Rename",
+              "value": "rename"
             },
             {
               "label": "Delete",
               "value": "delete",
               "destructive": true
             }
-          ]
+          ],
+          "openOn": "press"
         },
         "children": [
           {
-            "id": "context-menu-child",
+            "id": "menu-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Menu/openOn=contextmenu",
+      "node": {
+        "id": "menu",
+        "component": "Menu",
+        "props": {
+          "label": "More",
+          "items": [
+            {
+              "label": "Rename",
+              "value": "rename"
+            },
+            {
+              "label": "Delete",
+              "value": "delete",
+              "destructive": true
+            }
+          ],
+          "openOn": "contextmenu"
+        },
+        "children": [
+          {
+            "id": "menu-child",
             "component": "Text",
             "props": {
               "text": "Child"
@@ -4494,10 +4690,10 @@
       }
     },
     {
-      "name": "Pill/example",
+      "name": "Chip/example",
       "node": {
-        "id": "pill",
-        "component": "Pill",
+        "id": "chip",
+        "component": "Chip",
         "props": {
           "label": "Drafts",
           "selected": true
@@ -4505,10 +4701,34 @@
       }
     },
     {
-      "name": "Pill/selected=true",
+      "name": "Chip/shape=pill",
       "node": {
-        "id": "pill",
-        "component": "Pill",
+        "id": "chip",
+        "component": "Chip",
+        "props": {
+          "label": "Drafts",
+          "selected": true,
+          "shape": "pill"
+        }
+      }
+    },
+    {
+      "name": "Chip/shape=rect",
+      "node": {
+        "id": "chip",
+        "component": "Chip",
+        "props": {
+          "label": "Drafts",
+          "selected": true,
+          "shape": "rect"
+        }
+      }
+    },
+    {
+      "name": "Chip/selected=true",
+      "node": {
+        "id": "chip",
+        "component": "Chip",
         "props": {
           "label": "Drafts",
           "selected": true
@@ -4516,10 +4736,10 @@
       }
     },
     {
-      "name": "Pill/selected=false",
+      "name": "Chip/selected=false",
       "node": {
-        "id": "pill",
-        "component": "Pill",
+        "id": "chip",
+        "component": "Chip",
         "props": {
           "label": "Drafts",
           "selected": false
@@ -4527,10 +4747,10 @@
       }
     },
     {
-      "name": "Pill/tone=neutral",
+      "name": "Chip/tone=neutral",
       "node": {
-        "id": "pill",
-        "component": "Pill",
+        "id": "chip",
+        "component": "Chip",
         "props": {
           "label": "Drafts",
           "selected": true,
@@ -4539,10 +4759,10 @@
       }
     },
     {
-      "name": "Pill/tone=primary",
+      "name": "Chip/tone=primary",
       "node": {
-        "id": "pill",
-        "component": "Pill",
+        "id": "chip",
+        "component": "Chip",
         "props": {
           "label": "Drafts",
           "selected": true,
@@ -4551,10 +4771,10 @@
       }
     },
     {
-      "name": "Pill/tone=success",
+      "name": "Chip/tone=success",
       "node": {
-        "id": "pill",
-        "component": "Pill",
+        "id": "chip",
+        "component": "Chip",
         "props": {
           "label": "Drafts",
           "selected": true,
@@ -4563,10 +4783,10 @@
       }
     },
     {
-      "name": "Pill/tone=warning",
+      "name": "Chip/tone=warning",
       "node": {
-        "id": "pill",
-        "component": "Pill",
+        "id": "chip",
+        "component": "Chip",
         "props": {
           "label": "Drafts",
           "selected": true,
@@ -4575,10 +4795,10 @@
       }
     },
     {
-      "name": "Pill/tone=danger",
+      "name": "Chip/tone=danger",
       "node": {
-        "id": "pill",
-        "component": "Pill",
+        "id": "chip",
+        "component": "Chip",
         "props": {
           "label": "Drafts",
           "selected": true,
@@ -4587,10 +4807,10 @@
       }
     },
     {
-      "name": "Pill/tone=info",
+      "name": "Chip/tone=info",
       "node": {
-        "id": "pill",
-        "component": "Pill",
+        "id": "chip",
+        "component": "Chip",
         "props": {
           "label": "Drafts",
           "selected": true,
@@ -4599,10 +4819,34 @@
       }
     },
     {
-      "name": "Pill/pressable=true",
+      "name": "Chip/removable=true",
       "node": {
-        "id": "pill",
-        "component": "Pill",
+        "id": "chip",
+        "component": "Chip",
+        "props": {
+          "label": "Drafts",
+          "selected": true,
+          "removable": true
+        }
+      }
+    },
+    {
+      "name": "Chip/removable=false",
+      "node": {
+        "id": "chip",
+        "component": "Chip",
+        "props": {
+          "label": "Drafts",
+          "selected": true,
+          "removable": false
+        }
+      }
+    },
+    {
+      "name": "Chip/pressable=true",
+      "node": {
+        "id": "chip",
+        "component": "Chip",
         "props": {
           "label": "Drafts",
           "selected": true,
@@ -4611,10 +4855,10 @@
       }
     },
     {
-      "name": "Pill/pressable=false",
+      "name": "Chip/pressable=false",
       "node": {
-        "id": "pill",
-        "component": "Pill",
+        "id": "chip",
+        "component": "Chip",
         "props": {
           "label": "Drafts",
           "selected": true,
@@ -7565,232 +7809,155 @@
       }
     },
     {
-      "name": "ListRow/example",
+      "name": "Row/example",
       "node": {
-        "id": "list-row",
-        "component": "ListRow",
+        "id": "row",
+        "component": "Row",
         "props": {
           "title": "r/selfhosted",
-          "meta": "312 posts"
+          "meta": "312 posts",
+          "pressable": true
         }
       }
     },
     {
-      "name": "ListRow/selected=true",
+      "name": "Row/chevron=none",
       "node": {
-        "id": "list-row",
-        "component": "ListRow",
+        "id": "row",
+        "component": "Row",
         "props": {
           "title": "r/selfhosted",
           "meta": "312 posts",
+          "pressable": true,
+          "chevron": "none"
+        }
+      }
+    },
+    {
+      "name": "Row/chevron=right",
+      "node": {
+        "id": "row",
+        "component": "Row",
+        "props": {
+          "title": "r/selfhosted",
+          "meta": "312 posts",
+          "pressable": true,
+          "chevron": "right"
+        }
+      }
+    },
+    {
+      "name": "Row/chevron=selector",
+      "node": {
+        "id": "row",
+        "component": "Row",
+        "props": {
+          "title": "r/selfhosted",
+          "meta": "312 posts",
+          "pressable": true,
+          "chevron": "selector"
+        }
+      }
+    },
+    {
+      "name": "Row/selected=true",
+      "node": {
+        "id": "row",
+        "component": "Row",
+        "props": {
+          "title": "r/selfhosted",
+          "meta": "312 posts",
+          "pressable": true,
           "selected": true
         }
       }
     },
     {
-      "name": "ListRow/selected=false",
+      "name": "Row/selected=false",
       "node": {
-        "id": "list-row",
-        "component": "ListRow",
+        "id": "row",
+        "component": "Row",
         "props": {
           "title": "r/selfhosted",
           "meta": "312 posts",
+          "pressable": true,
           "selected": false
         }
       }
     },
     {
-      "name": "ListRow/density=default",
+      "name": "Row/density=default",
       "node": {
-        "id": "list-row",
-        "component": "ListRow",
+        "id": "row",
+        "component": "Row",
         "props": {
           "title": "r/selfhosted",
           "meta": "312 posts",
+          "pressable": true,
           "density": "default"
         }
       }
     },
     {
-      "name": "ListRow/density=compact",
+      "name": "Row/density=compact",
       "node": {
-        "id": "list-row",
-        "component": "ListRow",
+        "id": "row",
+        "component": "Row",
         "props": {
           "title": "r/selfhosted",
           "meta": "312 posts",
+          "pressable": true,
           "density": "compact"
         }
       }
     },
     {
-      "name": "ListRow/chevron=true",
+      "name": "Row/surface=flat",
       "node": {
-        "id": "list-row",
-        "component": "ListRow",
+        "id": "row",
+        "component": "Row",
         "props": {
           "title": "r/selfhosted",
           "meta": "312 posts",
-          "chevron": true
+          "pressable": true,
+          "surface": "flat"
         }
       }
     },
     {
-      "name": "ListRow/chevron=false",
+      "name": "Row/surface=card",
       "node": {
-        "id": "list-row",
-        "component": "ListRow",
+        "id": "row",
+        "component": "Row",
         "props": {
           "title": "r/selfhosted",
           "meta": "312 posts",
-          "chevron": false
+          "pressable": true,
+          "surface": "card"
         }
       }
     },
     {
-      "name": "CardRow/example",
+      "name": "Row/pressable=true",
       "node": {
-        "id": "card-row",
-        "component": "CardRow",
+        "id": "row",
+        "component": "Row",
         "props": {
-          "title": "MacBook Pro",
-          "subtitle": "Online · 2 runs",
-          "icon": "ui-device"
+          "title": "r/selfhosted",
+          "meta": "312 posts",
+          "pressable": true
         }
       }
     },
     {
-      "name": "PropertyRow/example",
+      "name": "Row/pressable=false",
       "node": {
-        "id": "property-row",
-        "component": "PropertyRow",
+        "id": "row",
+        "component": "Row",
         "props": {
-          "label": "Assignee",
-          "value": "Alex Chen"
-        }
-      }
-    },
-    {
-      "name": "PickerRow/example",
-      "node": {
-        "id": "picker-row",
-        "component": "PickerRow",
-        "props": {
-          "label": "Status",
-          "value": "In progress"
-        }
-      }
-    },
-    {
-      "name": "NavRow/example",
-      "node": {
-        "id": "nav-row",
-        "component": "NavRow",
-        "props": {
-          "label": "Inbox",
-          "icon": "nav-inbox",
-          "count": 3,
-          "selected": true
-        }
-      }
-    },
-    {
-      "name": "NavRow/selected=true",
-      "node": {
-        "id": "nav-row",
-        "component": "NavRow",
-        "props": {
-          "label": "Inbox",
-          "icon": "nav-inbox",
-          "count": 3,
-          "selected": true
-        }
-      }
-    },
-    {
-      "name": "NavRow/selected=false",
-      "node": {
-        "id": "nav-row",
-        "component": "NavRow",
-        "props": {
-          "label": "Inbox",
-          "icon": "nav-inbox",
-          "count": 3,
-          "selected": false
-        }
-      }
-    },
-    {
-      "name": "EntityChip/example",
-      "node": {
-        "id": "entity-chip",
-        "component": "EntityChip",
-        "props": {
-          "label": "Sprint 12",
-          "icon": "nav-boards"
-        }
-      }
-    },
-    {
-      "name": "EntityChip/removable=true",
-      "node": {
-        "id": "entity-chip",
-        "component": "EntityChip",
-        "props": {
-          "label": "Sprint 12",
-          "icon": "nav-boards",
-          "removable": true
-        }
-      }
-    },
-    {
-      "name": "EntityChip/removable=false",
-      "node": {
-        "id": "entity-chip",
-        "component": "EntityChip",
-        "props": {
-          "label": "Sprint 12",
-          "icon": "nav-boards",
-          "removable": false
-        }
-      }
-    },
-    {
-      "name": "TreeGuides/example",
-      "node": {
-        "id": "tree-guides",
-        "component": "TreeGuides",
-        "props": {
-          "depth": 1,
-          "elbowAt": 0,
-          "tee": true,
-          "passThrough": []
-        }
-      }
-    },
-    {
-      "name": "TreeGuides/tee=true",
-      "node": {
-        "id": "tree-guides",
-        "component": "TreeGuides",
-        "props": {
-          "depth": 1,
-          "elbowAt": 0,
-          "tee": true,
-          "passThrough": []
-        }
-      }
-    },
-    {
-      "name": "TreeGuides/tee=false",
-      "node": {
-        "id": "tree-guides",
-        "component": "TreeGuides",
-        "props": {
-          "depth": 1,
-          "elbowAt": 0,
-          "tee": false,
-          "passThrough": []
+          "title": "r/selfhosted",
+          "meta": "312 posts",
+          "pressable": false
         }
       }
     }

@@ -145,7 +145,9 @@ Nothing is measured through Compose intrinsics, so a pass runs headless (JVM tes
 - **Resizable.** A handle drags from the sizes at the drag START (`drag {phase, delta}`, the core's `resizePanels`), on Compose's minimum touch target around the hairline; arrows, Home, End and Enter go to the core's `keyboardResize`; TalkBack adjusts it.
 - **Chart.** Bar, stackedBar, line, area, pie, donut and sparkline from the core's numbers: the nice ticks and their formatted labels, the palette, the donut hole, the legend. Value labels, the tooltip and the summary format through the surface formatter. A tap or the pointer shows the tooltip; focused, ArrowLeft / ArrowRight move it, Home / End jump, Escape hides it. In RTL the cartesian kinds mirror (pie and donut do not). A missing point is skipped and reads `—` in the tooltip.
 - **CodeBlock.** The core tokenizer's tokens coloured by `CodeBlock/token {kind}`; copy goes through `HostPlugin.copy` and the core announces `copied`.
-- **DropdownMenu.** An M3 `DropdownMenu`, its open state driven by the core's layer.
+- **Segmented.** One leaf painted from the `Segmented/item` recipe (`segmented`, `toggles`, `outline`); a tap selects through the core (single, or the toggled set when `multiple`). `bar` (the old TabBar) fills the row, each item a column of the `icon` part over a caption `label`, every item a tab with the current page selected.
+- **Menu.** The core's layer, as gpui and SwiftUI paint it: action rows, checkbox rows with the `Menu.check` glyph (a checkbox to TalkBack), separators, group labels, and a submenu as its own layer beside its row (one level; an outside tap on it closes only the submenu). `openOn: press` opens from its ONE child (or the default outline Button); `contextmenu` from a long press on the child.
+- **Tree guides.** A `Row` with `depth` reserves `depth × 14` dp and paints the guides the core computed: the 1 dp line of column i at x = i·14 + 7, a 3 dp rounded elbow into a stub to the column's edge, verticals overshooting the row's top by 1 dp so they cross a Section divider; mirrored in RTL.
 - **Text fields.** Input, Textarea, Composer and the inline fields (NumberField / ChipInput `input`, Select `search`) are host-owned `BasicTextField`s (`OwnedTextField`):
   - the view owns its `TextFieldValue`;
   - every edit carries a revision;
@@ -160,11 +162,10 @@ Nothing is measured through Compose intrinsics, so a pass runs headless (JVM tes
 **`Native` (the default):**
 - **Dialog:** a Compose `Dialog`, back and outside-tap only when `dismissible`.
 - **Drawer:** an M3 `ModalBottomSheet`, which refuses Hidden when not dismissible. A second modal stacks.
-- **Popover** and every other overlay (HoverCard, ContextMenu, a painted DropdownMenu, the core's picker popups): a focusable `Popup` on the side the core placed it. It flips and clamps into the window.
-- **DropdownMenu:** an M3 menu.
+- **Popover**, **Menu** (and an open submenu) and the core's picker popups: a focusable `Popup` with the core's layer on the side the core placed it. It flips and clamps into the window.
 - **Tooltip:** painted in the surface at the core's frame after a long press.
 - **Toast:** painted in the surface at the core's frame. The duration runs in the model; a press or the pointer pauses it, and on release the REST of it runs. Escape never closes one.
-- **ContextMenu:** a long press on its target (Shift+F10 from the keyboard).
+- **Menu `openOn: contextmenu`:** a long press on its target (Shift+F10 from the keyboard).
 
 Viewport-placed painted layers (a centred dialog, an edge sheet, the toasts) follow the part of the surface the host shows.
 
@@ -188,11 +189,11 @@ Hardware keys follow `catalog/a11y.json`:
 |---|---|
 | Tab / Shift+Tab | every control, in pre-order (handler-less buttons too); focus from the keyboard is `:focus-visible` |
 | Enter, Space | press the focused control |
-| arrows, Home, End | rove Tabs (activating), Radio, ToggleGroup, Accordion headers, menu items and options (with type-ahead); step a Slider, a Carousel, a Resizable handle; ±1 day / week in a calendar (PageUp / PageDown = month, Shift = year) |
+| arrows, Home, End | rove Tabs (activating), Radio, Segmented, Accordion headers, menu items and options (with type-ahead); step a Slider, a Carousel, a Resizable handle; ±1 day / week in a calendar (PageUp / PageDown = month, Shift = year) |
 | ArrowDown | open a picker or menu trigger |
 | ArrowUp / ArrowDown in a NumberField | step it |
 | Backspace in an empty ChipInput | remove the last chip |
-| Shift+F10 | open the ContextMenu around the focused node |
+| Shift+F10 | open the context Menu around the focused node |
 | Escape | close the top layer (an AlertDialog presses its cancel), else a tooltip |
 
 A focused scroll container scrolls with the arrows, Page keys, Home and End. Tab leaves a multi-line field.
@@ -350,7 +351,7 @@ The TalkBack walk (real TalkBack, swipes on the emulator's virtual touchscreen) 
 
 - Line breaks follow Android's text layout; the `lines` clamp ellipsizes.
 - Images load through a small `BitmapFactory` loader: http(s), file, content and android.resource URIs, downsampled to 2048 px. `data:` URIs and SVG are not supported, and the host app needs the INTERNET permission. Video and AudioPlayer are static placeholders.
-- Native M3 controls (Switch, Slider, menus, the DatePickerDialog) take M3 defaults apart from the primary tint; the DatePickerDialog takes the host's `MaterialTheme`. The M3 Slider keeps a 16 dp thumb (not M3's 44 dp bar) and a 48 dp touch height, both overflowing the 6 dp track frame vertically.
+- Native M3 controls (Switch, Slider, the Select menu, the DatePickerDialog) take M3 defaults apart from the primary tint; the DatePickerDialog takes the host's `MaterialTheme`. The M3 Slider keeps a 16 dp thumb (not M3's 44 dp bar) and a 48 dp touch height, both overflowing the 6 dp track frame vertically.
 - A pressable container clears its children's semantics (`clearAndSetSemantics`, the SwiftUI `.ignore`), so a nested pressable inside a pressable row is not separately reachable.
 - Markdown paints with the primitives' `MarkdownView`. It rounds the wrap width while the text measurer ceils it, so a paragraph exactly on a wrap boundary can paint one line off (the leaf clips to its frame).
 - The Ring's value label is wider than the 32 dp ring and clips at a narrow card edge (the shared measurer rule; iOS does the same).

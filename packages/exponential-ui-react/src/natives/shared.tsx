@@ -87,7 +87,7 @@ const PLACED: Readonly<Record<string, readonly string[]>> = {
   Table: [`header`, `body`, `caption`, `empty`],
   Carousel: [`page`, `indicator`, `controls`, `previous`, `next`],
   Tooltip: [`anchor`],
-  DropdownMenu: [`trigger`],
+  Menu: [`trigger`],
   FileUpload: [`label`, `dropzone`, `icon`, `title`, `hint`, `browse`, `description`],
   CodeBlock: [`header`, `title`, `copy`, `body`],
   AudioPlayer: [`track`, `controls`],

@@ -61,15 +61,15 @@ final class InteractionTests: XCTestCase {
         m.press(dot)
         XCTAssertTrue(m.radioChecked(dot))
         XCTAssertFalse(m.radioChecked(m.index(of: "form-plan.dot.0")!))
-        // ToggleGroup single + multiple.
+        // Segmented single + multiple.
         let seg = m.index(of: "segmented")!
-        m.toggleGroupSelect(seg, value: .string("board"))
-        XCTAssertEqual(m.toggleGroupValues(seg), ["board"])
+        m.segmentedSelect(seg, value: .string("board"))
+        XCTAssertEqual(m.segmentedValues(seg), ["board"])
         let multi = m.index(of: "toggles")!
-        m.toggleGroupSelect(multi, value: .string("italic"))
-        XCTAssertEqual(Set(m.toggleGroupValues(multi)), ["bold", "italic"])
-        m.toggleGroupSelect(multi, value: .string("bold"))
-        XCTAssertEqual(m.toggleGroupValues(multi), ["italic"])
+        m.segmentedSelect(multi, value: .string("italic"))
+        XCTAssertEqual(Set(m.segmentedValues(multi)), ["bold", "italic"])
+        m.segmentedSelect(multi, value: .string("bold"))
+        XCTAssertEqual(m.segmentedValues(multi), ["italic"])
         // Slider snaps to the step.
         let trackIdx = m.index(of: "form-volume.track")!
         m.sliderDrag(trackIdx, value: SurfaceModel.snap(42, min: 0, max: 100, step: 5))
@@ -219,7 +219,7 @@ final class InteractionTests: XCTestCase {
         XCTAssertEqual(priorities, priorities.sorted(by: >))
         XCTAssertEqual(Set(priorities).count, priorities.count)
         // Labels: every focusable leaf has an accessible name.
-        let unnamed = m.nodes.filter { $0.isFocusable && $0.isLeaf && !$0.isTextField && $0.component != "ToggleGroup" && $0.part != "box" && $0.part != "dot" && $0.part != "track" && $0.part != "field" && $0.part != "indicator" && $0.accessibilityLabel == nil }
+        let unnamed = m.nodes.filter { $0.isFocusable && $0.isLeaf && !$0.isTextField && $0.component != "Segmented" && $0.part != "box" && $0.part != "dot" && $0.part != "track" && $0.part != "field" && $0.part != "indicator" && $0.accessibilityLabel == nil }
         XCTAssertEqual(unnamed.map(\.id), [])
         // The header title reads before the button, the form before the footer.
         let order = m.nodes.filter { $0.isLeaf && !$0.hidden }.map(\.id)

@@ -422,7 +422,7 @@ describe(`explicit sizes (§7)`, () => {
         { id: `dl`, component: `Dialog`, props: { title: `T` }, slots: { trigger: { id: `dt`, component: `Button`, props: { label: `Open` } } } },
         { id: `hc`, component: `Popover`, props: { openOn: `hover` }, slots: { trigger: { id: `ht`, component: `Link`, props: { label: `who` } } } },
         { id: `nt`, component: `Popover` },
-        { id: `mn`, component: `DropdownMenu`, props: { label: `More`, items: [{ label: `A` }] } },
+        { id: `mn`, component: `Menu`, props: { label: `More`, items: [{ label: `A` }] } },
       ],
     } as unknown as NestedNode)
     const { container } = render(<ExponentialSurface {...r} theme="neutral" id="ov" />)

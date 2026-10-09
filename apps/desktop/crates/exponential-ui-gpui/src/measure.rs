@@ -483,6 +483,19 @@ pub fn chart_legend(props: &Map<String, Value>) -> Vec<String> {
     }
 }
 
+/// The `bar` Segmented's caption: the `Text` caption recipe (size,
+/// line height), the item's weight.
+pub(crate) fn bar_caption(theme: Option<&ResolvedTheme>, mode: Mode, base: &TextStyle) -> TextStyle {
+    let caption = part_props(theme, mode, "Text", "root", &Map::from_iter([("variant".to_string(), Value::from("caption"))]), &[]);
+    TextStyle {
+        font_size: px_prop(&caption, "fontSize").unwrap_or(12.0),
+        line_height: px_prop(&caption, "lineHeight").unwrap_or(16.0),
+        letter_spacing: None,
+        text_transform: None,
+        ..base.clone()
+    }
+}
+
 /// The leading/trailing chrome a one-line text part carries beside its text
 /// (an icon, a count, a chevron, a check, a sort arrow): `(lead, trail)` px.
 pub fn text_chrome(owner_component: &str, part: Option<&str>, props: &Map<String, Value>, gap: f32, count_w: f32) -> (f32, f32) {
@@ -493,7 +506,7 @@ pub fn text_chrome(owner_component: &str, part: Option<&str>, props: &Map<String
         // Round 2 §7: `count` is its own muted part after the title, then the chevron.
         ("Accordion", Some("trigger")) => (0.0, if has(props, "count") { gap.max(4.0) + count_w } else { 0.0 } + 16.0 + gap.max(8.0)),
         ("Select", Some("item")) => (icon("icon"), 16.0 + gap.max(8.0)),
-        ("DropdownMenu" | "ContextMenu", Some("itemLabel")) => (icon("icon"), 0.0),
+        ("Menu", Some("itemLabel")) => (icon("icon"), 0.0),
         ("Table", Some("headerCell")) => (0.0, if has(props, "sortIcon") || props.get("sortable").and_then(Value::as_bool) == Some(true) { 16.0 + 4.0 } else { 0.0 }),
         _ => (0.0, 0.0),
     }
@@ -805,10 +818,31 @@ impl<'a> GpuiMeasure<'a> {
         (w.max(24.0) + icon, ts.line_height, Some(self.line_baseline(ts)))
     }
 
-    fn toggle_group(&mut self, leaf: &LeafRequest) -> (f32, f32) {
+    /// A `bar` Segmented (round 3, the old TabBar): `$control.tabBar` tall,
+    /// each item a COLUMN (icon over a caption label) sharing the width; its
+    /// min-content width = the widest of icon and label per item.
+    fn segmented_bar(&mut self, leaf: &LeafRequest) -> (f32, f32) {
+        let items = leaf.props.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
+        let ts = bar_caption(self.theme, self.mode, leaf.text_style);
+        let icon = control(self.theme, "iconMd", 20.0);
+        let pad = spacing(self.theme, "xs");
+        let mut w = 0.0;
+        for it in &items {
+            let label = display_text(it.get("label"));
+            let lw = if label.is_empty() { 0.0 } else { self.line(&label, &ts) };
+            let iw = if it.get("icon").and_then(Value::as_str).is_some() { icon } else { 0.0 };
+            w += lw.max(iw) + 2.0 * pad;
+        }
+        (w, control(self.theme, "tabBar", 56.0))
+    }
+
+    fn segmented(&mut self, leaf: &LeafRequest) -> (f32, f32) {
         let props = leaf.props;
+        if str_prop(props, "variant") == "bar" {
+            return self.segmented_bar(leaf);
+        }
         let items = props.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
-        let item = self.part("ToggleGroup", "item", props, &[]);
+        let item = self.part("Segmented", "item", props, &[]);
         let pad = px_prop(&item, "paddingHorizontal").or_else(|| px_prop(&item, "padding")).unwrap_or(12.0);
         let border = px_prop(&item, "borderWidth").unwrap_or(0.0);
         let h = px_prop(&item, "height").unwrap_or(36.0);
@@ -824,7 +858,7 @@ impl<'a> GpuiMeasure<'a> {
             ..Default::default()
         };
         let gap = leaf.control.gap;
-        // Icon ↔ label: the `ToggleGroup/item` recipe's gap (none = 0, as the web).
+        // Icon ↔ label: the `Segmented/item` recipe's gap (none = 0, as the web).
         let item_gap = px_prop(&item, "gap").unwrap_or(0.0);
         let mut w = 0.0;
         for (i, it) in items.iter().enumerate() {
@@ -889,7 +923,7 @@ impl<'a> GpuiMeasure<'a> {
                 }
             }
             ("Markdown", _) => self.markdown(leaf, inner),
-            ("Button" | "Toggle" | "DropdownMenu", _) => self.button(leaf, owner),
+            ("Button" | "Toggle", _) => self.button(leaf, owner),
             ("Link", _) => {
                 let label = str_or(props, "label", str_prop(props, "href"));
                 let w = self.line(&label, ts);
@@ -922,7 +956,7 @@ impl<'a> GpuiMeasure<'a> {
                 let depth = num_prop(props, "depth").unwrap_or(0.0).max(0.0) as f32;
                 plain((depth * exponential_ui::layout::TREE_GUIDE_COLUMN as f32, 0.0))
             }
-            ("ToggleGroup", _) => plain(self.toggle_group(leaf)),
+            ("Segmented", _) => plain(self.segmented(leaf)),
             ("Unknown", _) => {
                 let label = self.part("Unknown", "label", props, &[]);
                 let lts = TextStyle {
