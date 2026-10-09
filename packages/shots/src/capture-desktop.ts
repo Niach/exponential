@@ -233,6 +233,12 @@ export async function mintSessionToken(
     // Bun-only fetch option; the demo instance may sit behind Caddy's
     // self-signed dev certificate.
     tls: { rejectUnauthorized: false },
+    // EXP-1267: a wedged server fails the lane in seconds, not never.
+    signal: AbortSignal.timeout(15_000),
+  }).catch((error: unknown) => {
+    throw new Error(
+      `sign-in for ${email} at ${baseUrl} got no answer (${error instanceof Error ? error.message : String(error)}) — is the server up?`
+    )
   })
   if (!response.ok) {
     throw new Error(
@@ -263,6 +269,7 @@ export async function sessionValid(baseUrl: string, token: string): Promise<bool
     const response = await fetch(`${baseUrl}/api/auth/get-session`, {
       headers: { authorization: `Bearer ${token}`, origin: baseUrl },
       tls: { rejectUnauthorized: false },
+      signal: AbortSignal.timeout(15_000),
     })
     if (!response.ok) return false
     const body = (await response.json()) as { user?: { id?: string } } | null

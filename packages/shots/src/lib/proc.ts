@@ -27,6 +27,13 @@ export interface RunOptions {
   /** Prefix for streamed lines, e.g. `[ios]`. */
   label?: string
   timeoutMs?: number
+  /**
+   * EXP-1267: a STREAMED command that has printed nothing for this long gets a
+   * `still running` line (repeated at the same interval), so a wedged
+   * simulator or a stuck gradle daemon is never a silent hang. Never kills —
+   * that is `timeoutMs`'s job. Default 2 minutes; 0 turns it off.
+   */
+  quietNoticeMs?: number
 }
 
 /** Run a command to completion, capturing (and optionally mirroring) its output. */
@@ -55,11 +62,31 @@ export async function run(options: RunOptions): Promise<RunResult> {
     }, options.timeoutMs)
   }
 
+  const started = Date.now()
+  let lastOutput = started
+  const touched = () => {
+    lastOutput = Date.now()
+  }
+  const quietMs = options.quietNoticeMs ?? 120_000
+  const quiet =
+    options.stream && quietMs > 0
+      ? setInterval(() => {
+          const silent = Date.now() - lastOutput
+          if (silent < quietMs) return
+          process.stdout.write(
+            `${options.label ? `${options.label} ` : ``}… still running ${options.cmd.slice(0, 3).join(` `)} ` +
+              `(${formatDuration(Date.now() - started)} in, nothing printed for ${formatDuration(silent)}` +
+              `${options.timeoutMs ? `, killed at ${formatDuration(options.timeoutMs)}` : ``})\n`
+          )
+        }, quietMs)
+      : undefined
+
   const drains = Promise.all([
-    drain(child.stdout, options.stream ? process.stdout : undefined, options.label),
-    drain(child.stderr, options.stream ? process.stderr : undefined, options.label),
+    drain(child.stdout, options.stream ? process.stdout : undefined, options.label, touched),
+    drain(child.stderr, options.stream ? process.stderr : undefined, options.label, touched),
   ])
   const code = await child.exited
+  if (quiet) clearInterval(quiet)
   const settled = await Promise.race([
     drains,
     // The child is gone; give inherited pipe holders a moment to flush, then
@@ -80,13 +107,15 @@ export async function run(options: RunOptions): Promise<RunResult> {
 async function drain(
   stream: ReadableStream<Uint8Array> | number | undefined,
   mirror: NodeJS.WriteStream | undefined,
-  label?: string
+  label?: string,
+  onChunk?: () => void
 ): Promise<string> {
   if (!stream || typeof stream === `number`) return ``
   const decoder = new TextDecoder()
   let text = ``
   let pending = ``
   for await (const chunk of stream as ReadableStream<Uint8Array>) {
+    onChunk?.()
     const piece = decoder.decode(chunk, { stream: true })
     text += piece
     if (!mirror) continue
@@ -99,9 +128,18 @@ async function drain(
   return text
 }
 
+/** `95s` / `4m05s` / `1h02m` — for progress and timeout messages. */
+export function formatDuration(ms: number): string {
+  const seconds = Math.round(ms / 1000)
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes}m${String(seconds % 60).padStart(2, `0`)}s`
+  return `${Math.floor(minutes / 60)}h${String(minutes % 60).padStart(2, `0`)}m`
+}
+
 /** Is this executable on PATH? */
 export async function hasCommand(name: string): Promise<boolean> {
-  const result = await run({ cmd: [`which`, name] })
+  const result = await run({ cmd: [`which`, name], timeoutMs: 10_000 })
   return result.code === 0
 }
 

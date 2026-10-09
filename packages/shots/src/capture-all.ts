@@ -16,9 +16,15 @@
  *      dies twenty minutes in because `adb` sees no device has wasted twenty
  *      minutes; every prerequisite is cheap to check and is checked up front.
  *   2. Seed, resolve ids, bring up the relay stub — the shared world.
- *   3. Capture platform by platform. A platform that FAILS does not stop the
- *      others: a broken emulator should still let the web and desktop lanes
- *      refresh, and the summary says exactly what is missing.
+ *   3. Capture every lane CONCURRENTLY (EXP-1267, `lanes.ts`): web, desktop,
+ *      iOS and android each wait on their own device, so they overlap, and only
+ *      the pairs that truly share something (the screen-region desktop lane vs
+ *      the device fleet other lanes photograph, one simulator, one emulator,
+ *      one `capture-views.json`) are serialized — `--plan` prints the schedule
+ *      and why. The backend-free `package` lanes start before the seed. A lane
+ *      that FAILS does not stop the others: a broken emulator should still let
+ *      the web and desktop lanes refresh, and the summary says exactly what is
+ *      missing, with a rerun line per platform for just the failed views.
  *   4. Import the native lanes' output, write the store, rebuild the index.
  *   5. Summarise, and print `git status shots/` — the review-shaped answer to
  *      "what did this run actually change?".
@@ -55,7 +61,16 @@ import {
 } from "./capture-desktop.ts"
 import { fetchDemoIds, type DemoIds } from "./ids.ts"
 import { importNative, NATIVE_PLATFORMS } from "./import-native.ts"
-import { hasCommand, killChild, run, sleep, track, type Child } from "./lib/proc.ts"
+import {
+  describeSchedule,
+  parseJobs,
+  rerunLines,
+  runLanes,
+  withLaneLabel,
+  type LaneSpec,
+  type ResourceClaim,
+} from "./lanes.ts"
+import { formatDuration, hasCommand, killChild, run, sleep, track, type Child } from "./lib/proc.ts"
 import { rawDir, rawShotPath, repoRoot } from "./paths.ts"
 import {
   formatDiffReport,
@@ -92,6 +107,35 @@ const STEER_DEPENDENT_VIEWS = new Set([
   `board`,
   `machine-settings`,
 ])
+/**
+ * Views that photograph the demo user's DEVICE FLEET: the Devices page, a
+ * device's settings, the Add-server dialog, the wizard's devices step, and
+ * every composer / runner picker that names a machine (EXP-1267). The desktop
+ * lane registers its own machine for as long as it runs, so these must not be
+ * photographed on another lane meanwhile — see `RESOURCE_REASONS.fleet`.
+ * Conservative on purpose: a view wrongly listed here only costs overlap, a
+ * view wrongly missing costs a ghost "Mac mini" in a committed shot.
+ */
+const FLEET_VIEWS = new Set([
+  `agents`,
+  `machine-settings`,
+  `add-server`,
+  `onboarding-devices`,
+  `chat`,
+  `chat-issues`,
+  `chat-action`,
+  `chat-from-issue`,
+  `composer-menu`,
+  `steering`,
+  `action-page`,
+  `action-create`,
+  `action-triggers`,
+  `trigger-editor`,
+  `action-runs`,
+  `settings-agents`,
+  `settings-worktrees`,
+  `getting-started`,
+])
 /** The stub's stdout banner (apps/web/scripts/screenshot-desktop.ts). */
 const RELAY_BANNER = `Screenshot desktop online:`
 const RELAY_TIMEOUT_MS = 90_000
@@ -121,6 +165,10 @@ interface Options {
    * the unattended refresh automation runs after every merge.
    */
   since?: string
+  /** EXP-1267: how many lanes may run at once (`--jobs N`; `--serial` = 1). */
+  jobs: number
+  /** Print the lane schedule for this scope and exit; touches nothing. */
+  plan: boolean
 }
 
 function parseArgs(argv: string[]): Options {
@@ -157,6 +205,8 @@ function parseArgs(argv: string[]): Options {
     writeOnly: argv.includes(`--write-only`),
     reposRoot: flag(`repos-root`) ?? process.env.SHOTS_REPOS_ROOT,
     since,
+    jobs: parseJobs(argv),
+    plan: argv.includes(`--plan`),
   }
 }
 
@@ -394,14 +444,20 @@ function needsRelay(options: Options, scope: Scope): boolean {
   return laneViews(scope, ...options.platforms).some((id) => STEER_DEPENDENT_VIEWS.has(id))
 }
 
-async function composeServices(): Promise<Map<string, string>> {
+async function composeServices(): Promise<{ states: Map<string, string>; problem?: string }> {
   const result = await run({
     cmd: [`docker`, `compose`, `ps`, `--format`, `json`],
     cwd: repoRoot(),
-    timeoutMs: 60_000,
+    // EXP-1267: a stopped Docker Desktop makes this hang, not fail.
+    timeoutMs: 20_000,
   })
   const states = new Map<string, string>()
-  if (result.code !== 0) return states
+  if (result.code === 124) {
+    return { states, problem: `\`docker compose ps\` did not answer within 20s — is Docker running?` }
+  }
+  if (result.code !== 0) {
+    return { states, problem: `\`docker compose ps\` exited ${result.code}: ${result.stderr.trim().slice(-300)}` }
+  }
   // `docker compose ps --format json` emits either one array or one object per
   // line depending on the compose version — handle both rather than pinning one.
   for (const line of result.stdout.split(`\n`)) {
@@ -418,7 +474,7 @@ async function composeServices(): Promise<Map<string, string>> {
       /* a non-JSON progress line */
     }
   }
-  return states
+  return { states }
 }
 
 async function reachable(url: string): Promise<boolean> {
@@ -441,8 +497,10 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
   // VAPP-88: a package-only run (the SDK example apps) photographs nothing
   // that talks to the backend; only the device tooling is checked.
   const backendless = packageOnly(scope)
-  const services = backendless ? new Map<string, string>() : await composeServices()
+  const compose = backendless ? { states: new Map<string, string>() } : await composeServices()
+  const services = compose.states
   const running = (name: string): boolean => (services.get(name) ?? ``).toLowerCase() === `running`
+  if (compose.problem) checks.push({ label: `docker compose ps`, ok: false, detail: compose.problem })
 
   for (const service of backendless ? [] : CORE_SERVICES) {
     checks.push({
@@ -564,12 +622,19 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
     if (!hasAdb) {
       checks.push({ label: `adb`, ok: false, detail: `not on PATH — install the Android SDK` })
     } else {
-      const devices = await run({ cmd: [`adb`, `devices`], timeoutMs: 30_000 })
+      const devices = await run({ cmd: [`adb`, `devices`], timeoutMs: 15_000 })
+      if (devices.code === 124) {
+        checks.push({
+          label: `adb: attached device`,
+          ok: false,
+          detail: `\`adb devices\` hung for 15s — \`adb kill-server && adb start-server\`, then re-run`,
+        })
+      }
       const attached = devices.stdout
         .split(`\n`)
         .slice(1)
         .filter((line) => /\tdevice$/.test(line.trim()))
-      checks.push({
+      if (devices.code !== 124) checks.push({
         label: `adb: attached device`,
         ok: attached.length > 0,
         detail:
@@ -608,25 +673,30 @@ interface LaneOutcome {
    * `failed` (not `missing`) so a crashed app is visible in the table.
    */
   failedViews?: string[]
+  /**
+   * EXP-1267: the lane never ran (its gate failed). Whatever `.shots-raw/`
+   * holds for its views is a PREVIOUS run's, so the store must not encode it.
+   */
+  notRun?: boolean
 }
 
-async function captureWeb(
-  platforms: Platform[],
-  options: Options,
+/**
+ * One `capture:views` pass over `views` for the given browser form factors.
+ *
+ * One browser run serves both form factors, so it captures the UNION and the
+ * store writer drops what the narrower form factor did not ask for. The lane
+ * builder may split the browser work into two passes (EXP-1267: the fleet
+ * views wait for the desktop lane); passes never overlap, because both would
+ * write the same `capture-views.json`.
+ */
+async function captureWebPass(
+  formFactors: Platform[],
+  views: string[],
+  explicit: boolean,
   scope: Scope,
-  outcomes: LaneOutcome[]
+  outcomes: LaneOutcome[],
+  label: string
 ): Promise<void> {
-  const formFactors = platforms.filter(
-    (platform) => platform === `web` || platform === `web-mobile`
-  )
-  if (formFactors.length === 0) return
-  // One browser run serves both form factors, so it captures the UNION and the
-  // store writer drops what the narrower form factor did not ask for.
-  const views = laneViews(scope, ...formFactors)
-  if (views.length === 0) {
-    console.log(`\n── web ───────────────────────────────────────────────\n  skipped — no view in scope`)
-    return
-  }
   const formFactor = formFactors.length === 2 ? `all` : formFactors[0]!
   const cmd = [
     `bun`,
@@ -638,7 +708,7 @@ async function captureWeb(
     `--out`,
     rawDir(),
   ]
-  if (isScoped(options, scope)) cmd.push(`--views`, views.join(`,`))
+  if (explicit) cmd.push(`--views`, views.join(`,`))
 
   // EXP-913: the lane is judged on the results file it is about to write, so
   // the PREVIOUS run's rows must not be sitting there — a crash before the
@@ -647,12 +717,12 @@ async function captureWeb(
   // that never gets that far (or a `bun` that never starts).
   clearCaptureViewsResults()
 
-  console.log(`\n── web (${formFactor}) ─────────────────────────────────`)
+  console.log(`\n── ${label} (${formFactor}, ${views.length} view(s)) ─────────────────────`)
   const result = await run({
     cmd,
     cwd: join(repoRoot(), `apps/web`),
     stream: true,
-    label: `[web]`,
+    label: `[${label}]`,
     timeoutMs: 30 * 60_000,
   })
   // EXP-913: capture:views records every view and keeps going, rewriting
@@ -662,9 +732,8 @@ async function captureWeb(
   const recorded = readCaptureViewsResults()
   const anyRecordedFailure = recorded?.some((row) => row.error !== undefined) ?? false
   for (const platform of formFactors) {
-    const failed = recorded
-      ?.filter((row) => row.formFactor === platform && row.error !== undefined)
-      .map((row) => row.viewId)
+    const owed = views.filter((id) => scope.get(platform)?.has(id))
+    if (owed.length === 0) continue
     const killed = result.code === 124 ? `capture:views timed out` : undefined
     if (!recorded || (result.code !== 0 && !killed && !anyRecordedFailure)) {
       // No per-view record, or an exit the record does not explain (a crash
@@ -673,17 +742,23 @@ async function captureWeb(
         platform,
         ok: result.code === 0,
         detail: result.code === 0 ? undefined : `capture:views exited ${result.code}`,
+        failedViews: result.code === 0 ? undefined : owed,
       })
       continue
     }
+    const rows = recorded.filter((row) => row.formFactor === platform)
+    const failed = rows.filter((row) => row.error !== undefined).map((row) => row.viewId)
+    // A killed pass also owes every view it never reached.
+    const unreached = killed ? owed.filter((id) => !rows.some((row) => row.viewId === id)) : []
     const problems = [
-      ...(failed && failed.length > 0 ? [`${failed.length} view(s) failed: ${failed.join(`, `)}`] : []),
-      ...(killed ? [killed] : []),
+      ...(failed.length > 0 ? [`${failed.length} view(s) failed: ${failed.join(`, `)}`] : []),
+      ...(killed ? [`${killed}${unreached.length > 0 ? ` before ${unreached.length} view(s)` : ``}`] : []),
     ]
     outcomes.push({
       platform,
       ok: problems.length === 0,
       detail: problems.length === 0 ? undefined : problems.join(` · `),
+      failedViews: [...failed, ...unreached],
     })
   }
 }
@@ -835,9 +910,17 @@ async function capturePackageIOS(views: string[], outcomes: LaneOutcome[]): Prom
     run({ cmd: [`xcrun`, `simctl`, ...args], cwd: root, timeoutMs })
 
   // `boot` refuses an already-booted device; `bootstatus -b` is the real wait.
-  await simctl([`boot`, udid])
-  const booted = await simctl([`bootstatus`, udid, `-b`], 10 * 60_000)
-  if (booted.code !== 0) return void fail(`simulator ${PACKAGE_IOS.simulator} did not boot`)
+  // EXP-1267: bounded at 4 minutes (a warm boot takes seconds, a cold one
+  // well under two), so a wedged CoreSimulator fails the lane, not the night.
+  await simctl([`boot`, udid], 60_000)
+  const booted = await simctl([`bootstatus`, udid, `-b`], 4 * 60_000)
+  if (booted.code !== 0) {
+    return void fail(
+      booted.code === 124
+        ? `simulator ${PACKAGE_IOS.simulator} did not finish booting within 4m — \`xcrun simctl shutdown ${udid}\` (or erase it) and re-run`
+        : `simulator ${PACKAGE_IOS.simulator} did not boot (simctl bootstatus exited ${booted.code})`
+    )
+  }
   await simctl([`ui`, udid, `appearance`, `dark`])
   await simctl([
     `status_bar`,
@@ -1229,50 +1312,97 @@ async function restoreAndroidAutofill(previous: string | undefined): Promise<voi
   }
 }
 
+/** The two fastlane lanes, and the catalog lane each one photographs. */
+const FASTLANE_LANES = {
+  // `screenshots` is the 8-shot store set the catalog's `store` captures name,
+  // `styleguide_screenshots` the wider parity set.
+  store: `screenshots`,
+  styleguide: `styleguide_screenshots`,
+} as const
+
+/** The view ids (not shot ids) one fastlane lane owes, in catalog order. */
+function laneViewIds(
+  scope: Scope,
+  platform: `ios` | `android`,
+  lane: NativeCapture[`lane`]
+): string[] {
+  return viewsFor(platform)
+    .filter((view) => scope.get(platform)?.has(view.id))
+    .filter((view) => (captureFor(view, platform) as NativeCapture | undefined)?.lane === lane)
+    .map((view) => view.id)
+}
+
 async function captureFastlane(
   platform: `ios` | `android`,
+  lane: `store` | `styleguide`,
   outcomes: LaneOutcome[],
   scope: Scope,
   scoped: boolean
 ): Promise<void> {
   const dir = join(repoRoot(), platform === `android` ? `apps/android` : `apps/ios`)
-  // Both lanes matter: `screenshots` is the 8-shot store set the catalog's
-  // `store` captures name, `styleguide_screenshots` the wider parity set.
-  for (const lane of [`screenshots`, `styleguide_screenshots`] as const) {
-    const shots = laneShotIds(scope, platform, lane === `screenshots` ? `store` : `styleguide`)
-    if (shots.length === 0) {
-      console.log(`\n── ${platform}: fastlane ${lane} — skipped, no shot in scope`)
-      continue
-    }
-    // `shots:<ids>` is the suites' own allowlist (EXP-642): navigation still
-    // runs, but a snapshot outside the list is not taken. A simulator lane is
-    // minutes per shot, so an unattended refresh that only moved two screens
-    // must not pay for forty.
-    const cmd = [`bundle`, `exec`, `fastlane`, lane]
-    if (scoped) cmd.push(`shots:${shots.join(`,`)}`)
-
-    console.log(`\n── ${platform}: fastlane ${lane} ──────────────────────`)
-    const result = await run({
-      cmd,
-      cwd: dir,
-      // fastlane's `snapshot` (iOS) shells out to the `simctl` gem, which reads
-      // `xcrun simctl list -j devicetypes` as US-ASCII when the process locale
-      // isn't UTF-8. A device type whose bundle path carries a non-ASCII byte
-      // (e.g. a stray "ʀ" in an "iPhone Xʀ" profile) then blows up JSON
-      // parsing; the gem swallows that and returns a bare identifier string,
-      // which fastlane calls `.name` on and crashes with a NoMethodError that
-      // looks nothing like an encoding issue (EXP-644).
-      env: platform === `ios` ? { LC_ALL: `en_US.UTF-8`, LANG: `en_US.UTF-8` } : undefined,
-      stream: true,
-      label: `[${platform}]`,
-      timeoutMs: 90 * 60_000,
-    })
-    outcomes.push({
-      platform,
-      ok: result.code === 0,
-      detail: result.code === 0 ? undefined : `fastlane ${lane} exited ${result.code}`,
-    })
+  const fastlane = FASTLANE_LANES[lane]
+  const shots = laneShotIds(scope, platform, lane)
+  if (shots.length === 0) {
+    console.log(`\n── ${platform}: fastlane ${fastlane} — skipped, no shot in scope`)
+    return
   }
+  // `shots:<ids>` is the suites' own allowlist (EXP-642): navigation still
+  // runs, but a snapshot outside the list is not taken. A simulator lane is
+  // minutes per shot, so an unattended refresh that only moved two screens
+  // must not pay for forty.
+  const cmd = [`bundle`, `exec`, `fastlane`, fastlane]
+  if (scoped) cmd.push(`shots:${shots.join(`,`)}`)
+
+  console.log(`\n── ${platform}: fastlane ${fastlane} ──────────────────────`)
+  const result = await run({
+    cmd,
+    cwd: dir,
+    // fastlane's `snapshot` (iOS) shells out to the `simctl` gem, which reads
+    // `xcrun simctl list -j devicetypes` as US-ASCII when the process locale
+    // isn't UTF-8. A device type whose bundle path carries a non-ASCII byte
+    // (e.g. a stray "ʀ" in an "iPhone Xʀ" profile) then blows up JSON
+    // parsing; the gem swallows that and returns a bare identifier string,
+    // which fastlane calls `.name` on and crashes with a NoMethodError that
+    // looks nothing like an encoding issue (EXP-644).
+    env: platform === `ios` ? { LC_ALL: `en_US.UTF-8`, LANG: `en_US.UTF-8` } : undefined,
+    stream: true,
+    label: `[${platform}:${lane}]`,
+    timeoutMs: 90 * 60_000,
+  })
+  outcomes.push({
+    platform,
+    ok: result.code === 0,
+    detail: result.code === 0 ? undefined : `fastlane ${fastlane} exited ${result.code}`,
+    // The suite reports no per-shot verdict: a failed lane owes all its views
+    // (the importer still picks up any shot it did write).
+    failedViews: result.code === 0 ? undefined : laneViewIds(scope, platform, lane),
+  })
+}
+
+/**
+ * Wait for the attached emulator to finish booting (EXP-1267). `adb devices`
+ * lists an emulator as `device` well before Android is usable; anything driven
+ * before `sys.boot_completed` fails in ways that look like app bugs. Bounded,
+ * and says what to do when it runs out.
+ */
+async function waitForAndroidBoot(timeoutMs = 120_000): Promise<void> {
+  const started = Date.now()
+  let last = ``
+  let announced = false
+  while (Date.now() - started < timeoutMs) {
+    const prop = await run({ cmd: [`adb`, `shell`, `getprop`, `sys.boot_completed`], timeoutMs: 15_000 })
+    if (prop.code === 0 && prop.stdout.trim() === `1`) return
+    last = prop.code === 124 ? `adb shell hung` : prop.stdout.trim() || prop.stderr.trim() || `empty`
+    if (!announced) {
+      console.log(`  waiting for the emulator to finish booting (up to ${formatDuration(timeoutMs)})…`)
+      announced = true
+    }
+    await sleep(2_000)
+  }
+  throw new Error(
+    `the emulator did not finish booting within ${formatDuration(timeoutMs)} (sys.boot_completed: ${last}) — ` +
+      `cold-boot it (\`emulator -avd ${ANDROID_AVD} -no-snapshot-load\`) and re-run`
+  )
 }
 
 /**
@@ -1338,10 +1468,16 @@ async function startRelayStub(): Promise<Child | undefined> {
   })()
   void watchErr
 
-  const deadline = Date.now() + RELAY_TIMEOUT_MS
+  const started = Date.now()
+  const deadline = started + RELAY_TIMEOUT_MS
+  let nextNotice = started + 15_000
   while (!online && Date.now() < deadline) {
     if (child.exitCode !== null) {
       throw new Error(`the relay stub exited (${child.exitCode}) before it came online`)
+    }
+    if (Date.now() >= nextNotice) {
+      console.log(`[relay] still waiting for \`${RELAY_BANNER}\` (${formatDuration(Date.now() - started)} of ${formatDuration(RELAY_TIMEOUT_MS)})`)
+      nextNotice += 15_000
     }
     await sleep(500)
   }
@@ -1418,6 +1554,11 @@ async function assertShapesSyncable(baseUrl: string): Promise<void> {
     headers: { authorization: `Bearer ${token}`, origin: baseUrl },
     // Bun-only: the instance may sit behind Caddy's self-signed dev certificate.
     tls: { rejectUnauthorized: false },
+    signal: AbortSignal.timeout(20_000),
+  }).catch((error: unknown) => {
+    throw new Error(
+      `the boards shape at ${baseUrl} got no answer within 20s (${error instanceof Error ? error.message : String(error)}) — is Electric running?`
+    )
   })
   if (!response.ok) {
     throw new Error(`the boards shape answered ${response.status} ${response.statusText}. ${fix}`)
@@ -1482,6 +1623,11 @@ async function writeStore(
   const refused = new Set(
     outcomes.flatMap((outcome) => (outcome.failedViews ?? []).map((id) => `${outcome.platform}/${id}`))
   )
+  const unrun = new Set(
+    outcomes
+      .filter((outcome) => outcome.notRun)
+      .flatMap((outcome) => (outcome.failedViews ?? []).map((id) => `${outcome.platform}/${id}`))
+  )
 
   for (const platform of options.platforms) {
     const tally = emptyTally()
@@ -1489,6 +1635,10 @@ async function writeStore(
     for (const view of viewsFor(platform)) {
       if (!scope.get(platform)?.has(view.id)) continue
       const raw = join(rawDir(), platform, `${view.id}.png`)
+      if (unrun.has(`${platform}/${view.id}`)) {
+        tally.failed++
+        continue
+      }
       if (!existsSync(raw)) {
         if (refused.has(`${platform}/${view.id}`)) tally.failed++
         else tally.missing++
@@ -1584,13 +1734,206 @@ function dedupeBroad(broad: AffectedScope[`broad`]): AffectedScope[`broad`] {
   })
 }
 
+/* --------------------------------------------------------------- the lanes */
+
+/**
+ * One schedulable lane plus what it owes: the views per platform (for the
+ * rerun line when it dies wholesale) and its own outcome list, so the summary
+ * reads in lane order whatever order they finished in.
+ */
+interface PlannedLane {
+  spec: LaneSpec
+  views: Map<Platform, string[]>
+  outcomes: LaneOutcome[]
+}
+
+/**
+ * Turn the scope into the lane list `runLanes` schedules (EXP-1267).
+ *
+ * Declaration order = priority (FIFO on shared keys): the backend-free
+ * package lanes first (they start during the seed), then desktop, so the
+ * fleet-free work of every other lane overlaps it and only the fleet views
+ * wait for it, then the browser and the fastlane lanes.
+ *
+ * `backend` is the shared world (seed → shape check → relay stub → demo ids):
+ * every lane that talks to the backend waits on it, and fails unrun if it
+ * fails. `ids` is read only after that gate opened.
+ */
+function buildLanes(
+  options: Options,
+  scope: Scope,
+  backend: { gate?: Promise<unknown>; ids: () => DemoIds }
+): PlannedLane[] {
+  const lanes: PlannedLane[] = []
+  const scoped = isScoped(options, scope)
+  const add = (
+    id: string,
+    summary: string,
+    views: Map<Platform, string[]>,
+    resources: ResourceClaim[],
+    usesBackend: boolean,
+    body: (outcomes: LaneOutcome[]) => Promise<void>
+  ) => {
+    const outcomes: LaneOutcome[] = []
+    lanes.push({
+      views,
+      outcomes,
+      spec: {
+        id,
+        summary,
+        resources,
+        gate: usesBackend ? backend.gate : undefined,
+        gateLabel: usesBackend ? `seed` : undefined,
+        run: () => withLaneLabel(id, () => body(outcomes)),
+      },
+    })
+  }
+  const fleetClaim = (views: string[]): ResourceClaim[] =>
+    views.some((id) => FLEET_VIEWS.has(id)) ? [{ key: `fleet`, mode: `shared` }] : []
+  const count = (views: string[], platform: string) => `${platform} · ${views.length} view(s)`
+
+  // VAPP-88/89: the SDK example apps. No backend, so no gate.
+  const iosPackage = options.platforms.includes(`ios`) ? packageViews(scope, `ios`) : []
+  if (iosPackage.length > 0) {
+    add(`ios:package`, count(iosPackage, `ios package example`), new Map([[`ios`, iosPackage]]),
+      [{ key: `ios-simulator`, mode: `exclusive` }], false,
+      (outcomes) => capturePackageIOS(iosPackage, outcomes))
+  }
+  const androidPackage = options.platforms.includes(`android`) ? packageViews(scope, `android`) : []
+  if (androidPackage.length > 0) {
+    add(`android:package`, count(androidPackage, `android package example`), new Map([[`android`, androidPackage]]),
+      [{ key: `adb-device`, mode: `exclusive` }], false,
+      async (outcomes) => {
+        let demoMode = false
+        try {
+          await waitForAndroidBoot()
+          // Pin the status bar exactly like the fastlane lane's shots.
+          demoMode = await enableAndroidDemoMode()
+          await capturePackageAndroid(androidPackage, outcomes)
+        } finally {
+          await restoreAndroidStatusBar(demoMode)
+        }
+      })
+  }
+
+  const desktopViews = options.platforms.includes(`desktop`) ? laneViews(scope, `desktop`) : []
+  if (desktopViews.length > 0) {
+    add(`desktop`, count(desktopViews, `desktop`), new Map([[`desktop`, desktopViews]]),
+      [{ key: `screen`, mode: `exclusive` }, { key: `fleet`, mode: `exclusive` }], true,
+      async (outcomes) => {
+        console.log(`\n── desktop ───────────────────────────────────────────`)
+        const result = await captureDesktop({
+          ids: backend.ids(),
+          viewIds: scoped ? desktopViews : undefined,
+          reposRoot: options.reposRoot,
+        })
+        const failed = result.shots.filter((shot) => shot.state === `failed`).map((shot) => shot.viewId)
+        outcomes.push({
+          platform: `desktop`,
+          ok: result.failures === 0,
+          detail: result.failures === 0 ? undefined : `${result.failures} view(s) failed: ${failed.join(`, `)}`,
+          failedViews: failed,
+        })
+      })
+  }
+
+  const formFactors = options.platforms.filter((platform) => platform === `web` || platform === `web-mobile`)
+  const webViews = laneViews(scope, ...formFactors)
+  if (webViews.length > 0) {
+    const perPlatform = (views: string[]) =>
+      new Map(formFactors.map((platform) => [platform, views.filter((id) => scope.get(platform)?.has(id))]))
+    const results: ResourceClaim = { key: `capture-views`, mode: `exclusive` }
+    const fleet = webViews.filter((id) => FLEET_VIEWS.has(id))
+    const rest = webViews.filter((id) => !FLEET_VIEWS.has(id))
+    // Split the browser work only when it buys overlap: the fleet-free views
+    // run beside the desktop lane, the fleet views after it. Serial, or with
+    // no desktop lane, one pass is cheaper (one browser, one sign-in).
+    if (options.jobs > 1 && desktopViews.length > 0 && fleet.length > 0 && rest.length > 0) {
+      add(`web`, count(rest, formFactors.join(`+`)), perPlatform(rest), [results], true,
+        (outcomes) => captureWebPass(formFactors, rest, true, scope, outcomes, `web`))
+      add(`web:fleet`, `${count(fleet, formFactors.join(`+`))} (device-fleet views)`, perPlatform(fleet),
+        [results, ...fleetClaim(fleet)], true,
+        (outcomes) => captureWebPass(formFactors, fleet, true, scope, outcomes, `web:fleet`))
+    } else {
+      add(`web`, count(webViews, formFactors.join(`+`)), perPlatform(webViews),
+        [results, ...fleetClaim(webViews)], true,
+        (outcomes) => captureWebPass(formFactors, webViews, scoped, scope, outcomes, `web`))
+    }
+  }
+
+  for (const platform of [`ios`, `android`] as const) {
+    if (!options.platforms.includes(platform)) continue
+    for (const lane of [`store`, `styleguide`] as const) {
+      const views = laneViewIds(scope, platform, lane)
+      if (views.length === 0) continue
+      const device: ResourceClaim =
+        platform === `ios` ? { key: `ios-simulator`, mode: `exclusive` } : { key: `adb-device`, mode: `exclusive` }
+      add(`${platform}:${lane}`, count(views, `${platform} fastlane ${FASTLANE_LANES[lane]}`), new Map([[platform, views]]),
+        [device, ...fleetClaim(views)], true,
+        async (outcomes) => {
+          if (platform === `ios`) return captureFastlane(platform, lane, outcomes, scope, scoped)
+          let autofill: string | undefined
+          let demoMode = false
+          try {
+            await waitForAndroidBoot()
+            autofill = await disableAndroidAutofill()
+            demoMode = await enableAndroidDemoMode()
+            await captureFastlane(platform, lane, outcomes, scope, scoped)
+          } finally {
+            await restoreAndroidStatusBar(demoMode)
+            await restoreAndroidAutofill(autofill)
+          }
+        })
+    }
+  }
+  return lanes
+}
+
+/**
+ * Every failed lane's outcomes, with a lane-wide death (a throw, a gate that
+ * never opened) spread over the views it owed.
+ */
+function collectOutcomes(
+  planned: PlannedLane[],
+  runs: { ok: boolean; started: boolean; error?: string }[]
+): LaneOutcome[] {
+  const outcomes: LaneOutcome[] = []
+  for (const [index, lane] of planned.entries()) {
+    const run = runs[index]
+    outcomes.push(...lane.outcomes)
+    if (run && !run.ok) {
+      for (const [platform, views] of lane.views) {
+        outcomes.push({
+          platform,
+          ok: false,
+          detail: `${lane.spec.id}: ${run.error ?? `failed`}`,
+          failedViews: views,
+          notRun: !run.started,
+        })
+      }
+    }
+  }
+  return outcomes
+}
+
+/** The failed views per platform, from every failed outcome. */
+function failedByPlatform(outcomes: LaneOutcome[]): Map<string, string[]> {
+  const failed = new Map<string, string[]>()
+  for (const outcome of outcomes) {
+    if (outcome.ok || outcome.platform === `native-import`) continue
+    failed.set(outcome.platform, [...(failed.get(outcome.platform) ?? []), ...(outcome.failedViews ?? [])])
+  }
+  return failed
+}
+
 /* ---------------------------------------------------------------------- main */
 
 async function main(): Promise<number> {
   const options = parseArgs(process.argv.slice(2))
   const { scope, affected, since } = await resolveScope(options)
   if (!options.writeOnly) {
-    await gateSignIn(scope)
+    // `--plan` touches nothing, not even the auth-config probe.
+    if (!options.plan) await gateSignIn(scope)
     gateRelay(options, scope)
   }
   const relayNeeded =
@@ -1634,6 +1977,14 @@ async function main(): Promise<number> {
     }
   }
 
+  if (options.plan) {
+    const planned = buildLanes(options, scope, { ids: () => ({}) as DemoIds })
+    console.log(`\n── lane schedule (--plan: nothing is checked, seeded or captured) ──`)
+    if (planned.length === 0) console.log(`  no lane in scope`)
+    else for (const line of describeSchedule(planned.map((lane) => lane.spec), options.jobs)) console.log(line)
+    return 0
+  }
+
   if (options.up && !options.dryRun) {
     console.log(`\n── docker compose --profile steer up -d ──────────────`)
     await run({
@@ -1665,116 +2016,103 @@ async function main(): Promise<number> {
 
   // A dry run stops here for the expensive half: seeding, driving four capture
   // technologies and standing up a relay all MUTATE the world, which is exactly
-  // what `--dry-run` promises not to do. What it still does is re-encode
-  // whatever `.shots-raw/` already holds and report what the store WOULD say.
+  // what `--dry-run` promises not to do. What it still does is print the lane
+  // schedule, re-encode whatever `.shots-raw/` already holds and report what
+  // the store WOULD say.
   const outcomes: LaneOutcome[] = []
   let relay: Child | undefined
   let ids: DemoIds | undefined
 
+  async function prepareBackend(): Promise<void> {
+    if (!options.skipSeed) {
+      console.log(`\n── seed:screenshots ──────────────────────────────────`)
+      const seed = await run({
+        cmd: [`bun`, `run`, `seed:screenshots`],
+        cwd: join(repoRoot(), `apps/web`),
+        stream: true,
+        label: `[seed]`,
+        timeoutMs: 15 * 60_000,
+      })
+      if (seed.code !== 0) {
+        throw new Error(`seeding failed (exit ${seed.code}) — every lane would photograph the wrong data`)
+      }
+    }
+
+    // Before anything is driven: a server whose shape responses cannot be
+    // advanced yields a complete set of confidently-empty screenshots that
+    // every downstream check accepts. Fail here instead, in one request.
+    console.log(`\n── shape proxy ───────────────────────────────────────`)
+    await assertShapesSyncable(DEV_URL)
+    console.log(`  ok    ${DEV_URL}/api/shapes — control headers present, body decodable`)
+
+    // The relay stub comes BEFORE the id lookup on purpose: the demo user's own
+    // `devices` row is written by the stub as it announces itself, not by the
+    // seed, and `screenshots:ids` can only report a row that already exists. Ask
+    // first and `$device` is unresolvable on every freshly-seeded run — which
+    // silently skipped `machine-settings` (the Device settings dialog) forever.
+    // ONE stub serves every lane: the relay replays its log to each viewer.
+    if (relayNeeded) relay = await startRelayStub()
+
+    ids = await fetchDemoIds()
+    console.log(
+      `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportToken ? `` : ` · NO reporter token (support-reporter will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}${ids.steeredSessionId ? `` : ` · NO showcase session (steering will skip)`}${ids.runChangesSessionId ? `` : ` · NO run-changes session (run-changes will skip)`}`
+    )
+  }
+
   try {
-    if (!options.dryRun && !options.writeOnly && packageOnly(scope)) {
-      // VAPP-88/89: the SDK example apps need no backend: straight to the device lanes.
-      console.log(`\n── package-only run: no seed, no relay, no demo ids ──`)
-      for (const platform of [`ios`, `android`] as const) {
-        if (packageViews(scope, platform).length === 0) continue
-        let demoMode = false
-        try {
-          if (platform === `ios`) await capturePackageIOS(packageViews(scope, `ios`), outcomes)
-          if (platform === `android`) {
-            // Pin the status bar exactly like the fastlane lane's shots.
-            demoMode = await enableAndroidDemoMode()
-            await capturePackageAndroid(packageViews(scope, `android`), outcomes)
-          }
-        } catch (error) {
-          outcomes.push({ platform, ok: false, detail: error instanceof Error ? error.message : String(error) })
-        } finally {
-          if (platform === `android`) await restoreAndroidStatusBar(demoMode)
-        }
-      }
-    } else if (!options.dryRun && !options.writeOnly) {
-      if (!options.skipSeed) {
-        console.log(`\n── seed:screenshots ──────────────────────────────────`)
-        const seed = await run({
-          cmd: [`bun`, `run`, `seed:screenshots`],
-          cwd: join(repoRoot(), `apps/web`),
-          stream: true,
-          label: `[seed]`,
-          timeoutMs: 15 * 60_000,
-        })
-        if (seed.code !== 0) {
-          console.error(`seeding failed (exit ${seed.code}) — every lane would photograph the wrong data.`)
-          return 1
-        }
+    if (!options.writeOnly) {
+      // The shared world every backend lane needs, built once: seed → shape
+      // check → relay stub → demo ids. A deferred gate, so the backend-free
+      // package lanes start building while the seed runs.
+      let openGate: () => void = () => {}
+      let failGate: (error: unknown) => void = () => {}
+      const gate = new Promise<void>((resolve, reject) => {
+        openGate = resolve
+        failGate = reject
+      })
+      const planned = buildLanes(options, scope, {
+        gate,
+        ids: () => {
+          if (!ids) throw new Error(`demo ids were never resolved`)
+          return ids
+        },
+      })
+      const needsBackend = planned.some((lane) => lane.spec.gate !== undefined)
+
+      console.log(`\n── lane schedule ─────────────────────────────────────`)
+      if (planned.length === 0) console.log(`  no lane in scope`)
+      for (const line of describeSchedule(planned.map((lane) => lane.spec), options.jobs)) console.log(line)
+      if (!needsBackend && planned.length > 0) {
+        // VAPP-88/89: the SDK example apps need no backend.
+        console.log(`  package-only run: no seed, no relay, no demo ids`)
       }
 
-      // Before anything is driven: a server whose shape responses cannot be
-      // advanced yields a complete set of confidently-empty screenshots that
-      // every downstream check accepts. Fail here instead, in one request.
-      console.log(`\n── shape proxy ───────────────────────────────────────`)
-      await assertShapesSyncable(DEV_URL)
-      console.log(`  ok    ${DEV_URL}/api/shapes — control headers present, body decodable`)
-
-      // The relay stub comes BEFORE the id lookup on purpose: the demo user's own
-      // `devices` row is written by the stub as it announces itself, not by the
-      // seed, and `screenshots:ids` can only report a row that already exists. Ask
-      // first and `$device` is unresolvable on every freshly-seeded run — which
-      // silently skipped `machine-settings` (the Device settings dialog) forever.
-      if (relayNeeded) relay = await startRelayStub()
-
-      ids = await fetchDemoIds()
-      console.log(
-        `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportToken ? `` : ` · NO reporter token (support-reporter will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}${ids.steeredSessionId ? `` : ` · NO showcase session (steering will skip)`}${ids.runChangesSessionId ? `` : ` · NO run-changes session (run-changes will skip)`}`
-      )
-
-      await captureWeb(options.platforms, options, scope, outcomes)
-
-      if (laneViews(scope, `desktop`).length > 0) {
-        console.log(`\n── desktop ───────────────────────────────────────────`)
-        try {
-          const result = await captureDesktop({
-            ids,
-            viewIds: isScoped(options, scope) ? laneViews(scope, `desktop`) : undefined,
-            reposRoot: options.reposRoot,
-          })
-          outcomes.push({
-            platform: `desktop`,
-            ok: result.failures === 0,
-            detail: result.failures === 0 ? undefined : `${result.failures} view(s) failed`,
-          })
-        } catch (error) {
-          outcomes.push({
-            platform: `desktop`,
-            ok: false,
-            detail: error instanceof Error ? error.message : String(error),
-          })
+      if (!options.dryRun && planned.length > 0) {
+        const started = Date.now()
+        const lanesDone = runLanes(
+          planned.map((lane) => lane.spec),
+          {
+            jobs: options.jobs,
+            onStart: (id) => console.log(`\n▶ ${id} started`),
+            onEnd: (run) =>
+              console.log(`\n${run.ok ? `■` : `✗`} ${run.id} ${run.ok ? `done` : `FAILED`} in ${formatDuration(run.ms)}${run.error ? ` — ${run.error}` : ``}`),
+          }
+        )
+        if (needsBackend) {
+          try {
+            await prepareBackend()
+            openGate()
+          } catch (error) {
+            console.error(`\nshared setup failed: ${error instanceof Error ? error.message : String(error)}`)
+            console.error(`Every backend lane is skipped; the package lanes still finish.`)
+            failGate(error)
+          }
         }
-      }
-
-      for (const platform of [`ios`, `android`] as const) {
-        if (laneViews(scope, platform).length === 0) continue
-        let autofill: string | undefined
-        let demoMode = false
-        try {
-          if (platform === `android`) {
-            autofill = await disableAndroidAutofill()
-            demoMode = await enableAndroidDemoMode()
-          }
-          // VAPP-88/89: `package` views come from the SDK example apps; the
-          // fastlane lanes below only ever pick store + styleguide shots.
-          if (platform === `ios`) await capturePackageIOS(packageViews(scope, `ios`), outcomes)
-          if (platform === `android`) await capturePackageAndroid(packageViews(scope, `android`), outcomes)
-          await captureFastlane(platform, outcomes, scope, isScoped(options, scope))
-        } catch (error) {
-          outcomes.push({
-            platform,
-            ok: false,
-            detail: error instanceof Error ? error.message : String(error),
-          })
-        } finally {
-          if (platform === `android`) {
-            await restoreAndroidStatusBar(demoMode)
-            await restoreAndroidAutofill(autofill)
-          }
+        const runs = await lanesDone
+        outcomes.push(...collectOutcomes(planned, runs))
+        console.log(`\n── lanes (${formatDuration(Date.now() - started)} wall clock) ───────────────────────`)
+        for (const run of runs) {
+          console.log(`  ${run.ok ? `ok  ` : `FAIL`}  ${run.id.padEnd(20)}${formatDuration(run.ms)}${run.error ? ` — ${run.error}` : ``}`)
         }
       }
     }
@@ -1832,6 +2170,15 @@ async function main(): Promise<number> {
       console.error(`\nlane failures:`)
       for (const failure of laneFailures) {
         console.error(`  ${failure.platform}: ${failure.detail ?? `failed`}`)
+      }
+      // EXP-1267: one line per platform, narrowed to exactly what failed.
+      const reruns = rerunLines(
+        failedByPlatform(laneFailures),
+        options.reposRoot ? [`--repos-root`, options.reposRoot] : []
+      )
+      if (reruns.length > 0) {
+        console.error(`\nrerun just the failed views:`)
+        for (const line of reruns) console.error(`  ${line}`)
       }
     }
     return laneFailures.length > 0 || failures.length > 0 ? 1 : 0
