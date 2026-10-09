@@ -8,6 +8,11 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -491,8 +496,12 @@ fun AgentScreen(
             // EXP-1249: the faint brand mark's TOP HALF above the composer
             // (the logo in the foreground colour at ~2.5%, min(520dp, 92% of
             // the width), a clip of half its height with the logo at its top,
-            // 24dp above the card), the Agent page only. Measured UNBOUNDED:
-            // clamped to the page width the circle shrank to half of that.
+            // 24dp above the card), the Agent page only; the half FADES out
+            // toward the card (an alpha mask: solid for its top third,
+            // transparent at the clip's bottom edge; the clip is its own
+            // small offscreen layer, so DstIn multiplies only the mark).
+            // Measured UNBOUNDED: clamped to the page width the circle shrank
+            // to half of that.
             item(key = "__brand_mark__") {
                 BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(bottom = 18.dp)) {
                     val size = minOf(520.dp, maxWidth * 0.92f)
@@ -501,7 +510,19 @@ fun AgentScreen(
                             .align(Alignment.TopCenter)
                             .width(size)
                             .height(size / 2)
-                            .clipToBounds(),
+                            .clipToBounds()
+                            .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+                            .drawWithContent {
+                                drawContent()
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        0f to Color.Black,
+                                        0.33f to Color.Black,
+                                        1f to Color.Transparent,
+                                    ),
+                                    blendMode = BlendMode.DstIn,
+                                )
+                            },
                     ) {
                         ExponentialMark(
                             size = size,

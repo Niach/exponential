@@ -136,6 +136,8 @@ const PLUS_MENU_WANTED_HEIGHT: f32 = 360.;
 /// its ink (the foreground at ~2.5%). The column gap keeps it off the card.
 const PAGE_MARK_SIZE: f32 = 520.;
 const PAGE_MARK_ALPHA: f32 = 0.025;
+/// How many slices the half mark's fade is painted in (gpui has no mask).
+const PAGE_MARK_FADE_STEPS: usize = 12;
 
 /// EXP-1249: the searchable picker a "+" menu row opens, anchored to the +.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3235,21 +3237,37 @@ impl ChatScreenView {
         // EXP-1249: the faint brand mark's TOP HALF above the card — the page
         // only (never the dialog), the column's first row so the gap keeps
         // it off the box, and with no hitbox so it never takes a click.
-        let mark = div()
+        // The half FADES out toward the card (solid for its top third,
+        // transparent at the clip's bottom edge): gpui paints no alpha mask,
+        // so the clip is PAGE_MARK_FADE_STEPS horizontal slices, each the
+        // icon offset up by its row and inked a step fainter (web's
+        // `mask-image: linear-gradient(black 33%, transparent)`).
+        let slice_h = PAGE_MARK_SIZE / 2. / PAGE_MARK_FADE_STEPS as f32;
+        let foreground = cx.theme().foreground;
+        let mark = v_flex()
             .w(px(PAGE_MARK_SIZE))
-            .h(px(PAGE_MARK_SIZE / 2.))
             .max_w_full()
             .flex_shrink_0()
             .overflow_hidden()
-            .flex()
-            .justify_center()
-            .items_start()
-            .child(
-                Icon::from(crate::icons::ExpIcon::Logo)
-                    .size(px(PAGE_MARK_SIZE))
+            .children((0..PAGE_MARK_FADE_STEPS).map(|row| {
+                let top = (row as f32 + 0.5) / PAGE_MARK_FADE_STEPS as f32;
+                let fade = ((1. - top) / (1. - 0.33)).clamp(0., 1.);
+                div()
+                    .w_full()
+                    .h(px(slice_h))
                     .flex_shrink_0()
-                    .text_color(cx.theme().foreground.opacity(PAGE_MARK_ALPHA)),
-            );
+                    .overflow_hidden()
+                    .flex()
+                    .justify_center()
+                    .items_start()
+                    .child(
+                        Icon::from(crate::icons::ExpIcon::Logo)
+                            .size(px(PAGE_MARK_SIZE))
+                            .flex_shrink_0()
+                            .mt(px(-(row as f32) * slice_h))
+                            .text_color(foreground.opacity(PAGE_MARK_ALPHA * fade)),
+                    )
+            }));
         v_flex()
             .size_full()
             .min_h_0()
