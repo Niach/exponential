@@ -15,7 +15,7 @@
 // once per item under the item's scope, keyed by `template.key`.
 
 import { Component, Fragment, memo, useCallback, useContext, useEffect, useMemo, type CSSProperties, type ReactNode } from "react"
-import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, withOwnWrites } from "@exponential-at/ui"
+import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential-at/ui"
 import type { ExtensionDef, UiNode } from "@exponential-at/ui"
 import { dynamicStyleEntries, nodeClass, queryToken, styleDirection } from "./box-css"
 import { InstanceContext, ScopeContext, SurfaceContext, resolveContextOf, useSurfaceContext, type SurfaceContextValue } from "./context"
@@ -331,7 +331,9 @@ export function templateItems(ctx: SurfaceContextValue, node: UiNode, scope: str
   const tpl = ctx.templateNode(template.component)
   if (!Array.isArray(list) || !tpl) return null
   const keys = templateItemKeys(list, template.key)
-  const items = list.map((_, index) => ({ key: keys[index], path: `${path}/${index}`, index }))
+  // VAPP-103: the surface's `maxTemplateItems` budget for this site.
+  const count = ctx.templateBudget?.allowed.get(templateSiteKey(node.id, scope)) ?? list.length
+  const items = list.slice(0, count).map((_, index) => ({ key: keys[index], path: `${path}/${index}`, index }))
   return { items, tpl }
 }
 

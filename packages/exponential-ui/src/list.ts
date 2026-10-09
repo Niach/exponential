@@ -7,9 +7,9 @@
 // it.
 
 import { absolutePath, readPointer } from "./dynamic"
-import type { ChildTemplate } from "./types"
+import type { ChildTemplate, UiNode } from "./types"
 
-import { WINDOW_OVERSCAN } from "./layout"
+import { WINDOW_OVERSCAN, WINDOW_THRESHOLD } from "./layout"
 import { MAX_TEMPLATE_ITEMS } from "./limits"
 export { WINDOW_THRESHOLD, WINDOW_OVERSCAN } from "./layout"
 
@@ -69,6 +69,50 @@ export function templateInstances(data: unknown, template: ChildTemplate, scope 
   // VAPP-103: never more than `maxTemplateItems` (a renderer counts them
   // per surface; past the limit the rest is not rendered).
   return list.slice(0, MAX_TEMPLATE_ITEMS).map((_, index) => ({ key: keys[index], path: `${path}/${index}`, index, instance: `${instance}.${instanceSegment(keys[index])}` }))
+}
+
+/** A template site's key in a `TemplateBudget`: the node holding the
+ *  template + the data scope it sits in. */
+export const templateSiteKey = (nodeId: string, scope: string) => `${nodeId}\u0000${scope}`
+
+export interface TemplateBudget {
+  /** Items each template site renders (absent = all of them). */
+  allowed: Map<string, number>
+  /** The template component that hit `maxTemplateItems` first; null = none. */
+  exceeded: string | null
+}
+
+/** VAPP-103: the template items ONE surface instantiates, counted against
+ *  `maxTemplateItems` in the Rust layout build's order (depth-first: a
+ *  node's static children, then its template items, each item's own
+ *  templates before the next item); past the limit the rest is not
+ *  rendered. A windowed List (more than `WINDOW_THRESHOLD` rows) mounts its
+ *  rows on demand: its items are not counted up front. Iterative. */
+export function templateBudget(root: UiNode, data: unknown, templateNode: (componentId: string) => UiNode | undefined): TemplateBudget {
+  const allowed = new Map<string, number>()
+  let left = MAX_TEMPLATE_ITEMS
+  let exceeded: string | null = null
+  const stack: { node: UiNode; scope: string }[] = [{ node: root, scope: `` }]
+  while (stack.length) {
+    const { node, scope } = stack.pop()!
+    const next: { node: UiNode; scope: string }[] = []
+    for (const slot of Object.values(node.slots ?? {})) next.push({ node: slot, scope })
+    for (const child of node.children) next.push({ node: child, scope })
+    const template = node.template
+    const tpl = template ? templateNode(template.component) : undefined
+    const path = template ? absolutePath(template.path, { base: scope }) : ``
+    const list = template && tpl ? readPointer(data, path) : undefined
+    const windowed = Array.isArray(list) && node.component === `List` && node.children.length + list.length > WINDOW_THRESHOLD
+    if (template && tpl && Array.isArray(list) && !windowed) {
+      const count = Math.min(list.length, left)
+      allowed.set(templateSiteKey(node.id, scope), count)
+      left -= count
+      if (count < list.length) exceeded ??= template.component
+      for (let i = 0; i < count; i++) next.push({ node: tpl, scope: `${path}/${i}` })
+    }
+    for (let i = next.length - 1; i >= 0; i--) stack.push(next[i]!)
+  }
+  return { allowed, exceeded }
 }
 
 // ---------------------------------------------------------------------------

@@ -23,9 +23,11 @@ import {
   parseMediaCondition,
   resolveMode,
   stringTable,
+  templateBudget,
   textDirection,
   DEFAULT_LOCALE,
   DEFAULT_THEME_ID,
+  LIMIT_ISSUES,
 } from "@exponential-at/ui"
 import type { ModeName, ResolvedTheme, ScrollAlign, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
 import { BASE_CSS } from "./base-css"
@@ -358,6 +360,11 @@ export function ExponentialSurface({
   const templates = (surface ? surface.templates : templatesProp) ?? NO_TEMPLATES
   const templateNode = useCallback((componentId: string) => templates[componentId], [templates])
   const templateRoots = useMemo(() => Object.values(templates), [templates])
+  // VAPP-103: past `maxTemplateItems` per surface the rest is not rendered.
+  const budget = useMemo(() => (root ? templateBudget(root, data, templateNode) : undefined), [root, data, templateNode])
+  useEffect(() => {
+    if (budget?.exceeded) console.warn(`[exponential-ui] ${surfaceId}: ${budget.exceeded}: ${LIMIT_ISSUES.templateItems}`)
+  }, [surfaceId, budget?.exceeded])
   useEffect(() => {
     if (IS_DEV && root) warnMissingTemplates(surfaceId, root, templates)
   }, [surfaceId, root, templates])
@@ -444,6 +451,7 @@ export function ExponentialSurface({
       data,
       setData,
       templateNode,
+      templateBudget: budget,
       states,
       measure,
       portal,
@@ -463,7 +471,7 @@ export function ExponentialSurface({
       hover,
       announce,
     }),
-    [surfaceId, compiled, theme, mode, hostValue, extensions, extensionDefs, data, setData, templateNode, states, measure, portal, toastLayer, direction, functions, openUrl, locale, formatter, now, registerScroller, strings, t, breakpoint, xq, reducedMotion, hover, announce]
+    [surfaceId, compiled, theme, mode, hostValue, extensions, extensionDefs, data, setData, templateNode, budget, states, measure, portal, toastLayer, direction, functions, openUrl, locale, formatter, now, registerScroller, strings, t, breakpoint, xq, reducedMotion, hover, announce]
   )
 
   const nodeEl = useCallback((id: string): HTMLElement | null => rootEl?.querySelector<HTMLElement>(`[data-xui-id="${typeof CSS !== `undefined` && CSS.escape ? CSS.escape(id) : id.replace(/"/g, `\\"`)}"]`) ?? null, [rootEl])

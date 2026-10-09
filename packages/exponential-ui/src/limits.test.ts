@@ -7,7 +7,7 @@ import { describe, expect, test } from "bun:test"
 import { CORE_CATALOG_ID } from "./catalog"
 import { POINTER_ISSUES, runAction, writePointer } from "./dynamic"
 import { LIMIT_ISSUES, LIMITS, MAX_COMPONENTS, MAX_DEPTH, MAX_MESSAGE_BYTES, MAX_POINTER_BYTES, MAX_POINTER_SEGMENTS, MAX_TEMPLATE_ITEMS } from "./limits"
-import { templateInstances } from "./list"
+import { templateBudget, templateInstances, templateSiteKey } from "./list"
 import { reduceNested, reduceSurface } from "./reducer"
 import { HostRouter } from "./host/router"
 import { SurfaceStore } from "./host/runtime"
@@ -65,6 +65,24 @@ describe(`limits (catalog/limits.json)`, () => {
   test(`a template renders at most maxTemplateItems items`, () => {
     const items = Array.from({ length: MAX_TEMPLATE_ITEMS + 5 }, (_, i) => i)
     expect(templateInstances({ items }, { component: `row`, path: `/items` }).length).toBe(MAX_TEMPLATE_ITEMS)
+  })
+
+  test(`maxTemplateItems counts per SURFACE, depth-first, a windowed List aside`, () => {
+    const node = (id: string, component: string, children: UiNode[] = [], template?: UiNode[`template`]): UiNode => ({ id, component, props: {}, children, ...(template ? { template } : {}) })
+    const cell = node(`cell`, `Box`)
+    const row = node(`row`, `Box`, [], { component: `cell`, path: `cells` })
+    const templates: Record<string, UiNode> = { row, cell }
+    const half = MAX_TEMPLATE_ITEMS / 2
+    const data = { rows: [{ cells: Array(half - 1).fill(0) }, { cells: Array(half).fill(0) }], big: Array(MAX_TEMPLATE_ITEMS * 2).fill(0) }
+    const root = node(`root`, `Box`, [node(`list`, `List`, [], { component: `cell`, path: `/big` }), node(`rows`, `Box`, [], { component: `row`, path: `/rows` })])
+    const b = templateBudget(root, data, (id) => templates[id])
+    expect(b.allowed.has(templateSiteKey(`list`, ``))).toBe(false)
+    expect(b.allowed.get(templateSiteKey(`rows`, ``))).toBe(2)
+    expect(b.allowed.get(templateSiteKey(`row`, `/rows/0`))).toBe(half - 1)
+    // 2 rows + (half - 1) cells spent: the second row gets what is left.
+    expect(b.allowed.get(templateSiteKey(`row`, `/rows/1`))).toBe(half - 1)
+    expect(b.exceeded).toBe(`cell`)
+    expect(templateBudget(root, { rows: [] }, (id) => templates[id]).exceeded).toBeNull()
   })
 
   test(`data pointers refuse gaps, huge indices, non-indices and long paths (iteratively)`, () => {

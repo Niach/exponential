@@ -13,7 +13,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render } from "@testing-library/react"
 import { useState } from "react"
-import { BIND_FUNCTIONS, CORE_CATALOG_ID, reduceNested } from "@exponential-at/ui"
+import { BIND_FUNCTIONS, CORE_CATALOG_ID, LIMIT_ISSUES, MAX_TEMPLATE_ITEMS, reduceNested } from "@exponential-at/ui"
 import type { NestedNode } from "@exponential-at/ui"
 import { ExponentialSurface, surfaceLayout } from "./surface"
 import { CLIENT_FUNCTIONS, hostPath, LITERAL_ROWS_ROOT } from "./data"
@@ -182,6 +182,26 @@ describe(`template instance ids`, () => {
     const all = Array.from(container.querySelectorAll<HTMLElement>(`[data-xui-id]`)).map((e) => e.dataset.xuiId!)
     expect(all.filter((id) => id.startsWith(`orow`))).toEqual([`orow.a`, `orow.#1`, `orow.#2`])
     expect(new Set(all).size).toBe(all.length)
+  })
+})
+
+describe(`maxTemplateItems (VAPP-103)`, () => {
+  it(`counts template items per SURFACE like the Rust layout build: the rest is not rendered`, () => {
+    const nested = {
+      id: `root`,
+      component: `Box`,
+      children: [
+        { id: `a`, component: `Box`, template: { component: `dot`, path: `/a` }, children: [] },
+        { id: `b`, component: `Box`, template: { component: `dot`, path: `/b` }, children: [] },
+        { id: `defs`, component: `Box`, visible: false, children: [{ id: `dot`, component: `Box`, children: [] }] },
+      ],
+    } as unknown as NestedNode
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    const { container } = render(<ExponentialSurface {...reduced(nested)} data={{ a: Array(MAX_TEMPLATE_ITEMS - 3).fill(0), b: Array(10).fill(0) }} theme="neutral" id="ti" />)
+    expect(container.querySelectorAll(`[data-xui-id^="dot."]`).length).toBe(MAX_TEMPLATE_ITEMS)
+    expect(container.querySelector(`[data-xui-id="b"]`)!.children.length).toBe(3)
+    expect(warn).toHaveBeenCalledWith(`[exponential-ui] ti: dot: ${LIMIT_ISSUES.templateItems}`)
+    warn.mockRestore()
   })
 })
 

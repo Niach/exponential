@@ -49,8 +49,8 @@ export { resolveDynamic, isVisible, runAction, withOwnWrites, submitClosesOverla
 // Round 2 (docs/round-2-contract.md): formatting, lists, panels, direction, animation.
 export { displayString, englishFormatter, intlFormatter, formatFunctions, formatPattern, parseDateValue, relativeTimeUnit, currencyDigits, FORMAT_FUNCTION_NAMES, ENGLISH_FORMAT_FUNCTIONS, ENGLISH_DATE_PATTERNS, ENGLISH_TIME_PATTERN, ENGLISH_DATE_TIME_JOIN, fixedOffset, intlZoneOffset } from "./format"
 export type { Formatter, NumberOptions, DateOptions, DateStyle, PluralCategory, RelativeUnit, ZoneOffset } from "./format"
-export { templateItemKeys, tableRowKeys, templateInstances, itemExtents, itemOffsets, virtualWindow, scrollOffsetForIndex, scrollOffsetForItem, instanceSegment, listSections, sectionRows, stickyHeader, WINDOW_OVERSCAN } from "./list"
-export type { TemplateInstance, WindowRange, ScrollAlign, ListSection } from "./list"
+export { templateItemKeys, tableRowKeys, templateInstances, itemExtents, itemOffsets, virtualWindow, scrollOffsetForIndex, scrollOffsetForItem, instanceSegment, listSections, sectionRows, stickyHeader, templateBudget, templateSiteKey, WINDOW_OVERSCAN } from "./list"
+export type { TemplateInstance, TemplateBudget, WindowRange, ScrollAlign, ListSection } from "./list"
 export { normalizeSizes, resizePanels, keyboardResize, panelExtents, dragDelta, RESIZE_STEP, PANEL_MIN, RESIZE_HANDLE_HIT } from "./resizable"
 export type { PanelLimits, ResizeKey } from "./resizable"
 export { nodeDirections, physicalTextAlign, nodeTextAlign } from "./direction"
