@@ -66,6 +66,7 @@ jobs:
         with:
           name: conformance-react
           path: .conformance/
+          include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
 
   rust:
     runs-on: ubuntu-latest
@@ -98,6 +99,7 @@ jobs:
         with:
           name: conformance-rust
           path: .conformance/
+          include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
 
   swift:
     # Same image as test-ios.yml / build-ios.yml.
@@ -125,6 +127,7 @@ jobs:
         with:
           name: conformance-swift
           path: .conformance/
+          include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
 
   compose:
     runs-on: ubuntu-latest
@@ -161,6 +164,7 @@ jobs:
         with:
           name: conformance-compose
           path: .conformance/
+          include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
 
   conformant:
     needs: [react, rust, swift, compose]

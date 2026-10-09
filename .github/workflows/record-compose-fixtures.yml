@@ -60,3 +60,4 @@ jobs:
             packages/exponential-ui-compose/ui-compose/src/test/snapshots/
             packages/exponential-ui-compose/ui-compose/conformance/
             .conformance/
+          include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
