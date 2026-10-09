@@ -117,9 +117,8 @@ public struct AccountPickerTriggerLabel: View {
 }
 
 /// What a login READS as, brand mark aside: the email, its health badge, and
-/// the EXP-992 bars under both. Shared by the `GlassMenu` row below and by the
-/// shared picker's own row (`AccountPicker`, EXP-1021), so the two surfaces
-/// cannot drift apart.
+/// the EXP-992 bars under both — the shared picker's own row body
+/// (`AccountPicker`, EXP-1021).
 struct AccountOptionBody: View {
     let option: AccountOption
 
@@ -141,71 +140,6 @@ struct AccountOptionBody: View {
             if let limits = option.limits {
                 AccountLimitBars(limits: limits)
             }
-        }
-    }
-}
-
-/// THE account picker, as every launch surface names it: the trigger label
-/// above, and the SHARED picker (`AccountPicker`, EXP-1021) behind it — one
-/// sheet of plain rows, brand mark + email, the EXP-992 limit bars under
-/// each login. A single option is not a choice, so it renders as the plain
-/// trigger label, chevron-less, exactly like a lone agent used to.
-///
-/// EXP-1030 retired its own `GlassMenu` body (and the checkmarked row that
-/// came with it): a picker that draws its own menu is how the app's pickers
-/// drifted apart in the first place. The shim stays because the launch
-/// surfaces speak of an account picker with a trigger and a lone-option
-/// rule, and neither belongs inside the typed picker.
-public struct AccountPickerMenu: View {
-    let options: [AccountOption]
-    let selection: AccountOption?
-    let mark: (String) -> Image?
-    let onSelect: (AccountOption) -> Void
-
-    public init(
-        options: [AccountOption],
-        selection: AccountOption?,
-        mark: @escaping (String) -> Image?,
-        onSelect: @escaping (AccountOption) -> Void
-    ) {
-        self.options = options
-        self.selection = selection
-        self.mark = mark
-        self.onSelect = onSelect
-    }
-
-    /// What the trigger names: the caller's pick, else the first option (the
-    /// last used login) — the trigger always says something.
-    private var current: AccountOption? {
-        selection ?? options.first
-    }
-
-    public var body: some View {
-        if options.count > 1 {
-            AccountPicker(
-                options: options,
-                // Keyed by `<agent>:<profileId>`: the ambient `system` login
-                // repeats across agents, so a profile id alone is not one row.
-                value: current?.key,
-                onChange: { key in
-                    guard let picked = options.first(where: { $0.key == key }) else { return }
-                    onSelect(picked)
-                },
-                mark: mark,
-                trigger: {
-                    AccountPickerTriggerLabel(
-                        option: current, mark: current.flatMap { mark($0.agent) }
-                    )
-                }
-            )
-            .accessibilityLabel(current?.email ?? "Account")
-        } else {
-            AccountPickerTriggerLabel(
-                option: current,
-                mark: current.flatMap { mark($0.agent) },
-                chevron: false
-            )
-            .accessibilityLabel(current?.email ?? "Account")
         }
     }
 }

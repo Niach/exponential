@@ -329,20 +329,42 @@ function MenuTrailing({
   )
 }
 
-/** Keeps a submenu body's keys its own: Radix's menu typeahead would move
- *  focus off a search field on every character, and ←/→ would close the
- *  submenu under the caret. Escape still closes. */
+/** A submenu body's own keys: a search field keeps its caret keys and
+ *  characters (Radix typeahead would steal focus, ←/→ would close the
+ *  submenu under the caret). Keys from anywhere else reach Radix, so ←
+ *  returns to the parent row, typeahead jumps and Tab stays trapped.
+ *  Escape always closes. */
 function SubmenuBody({ children }: { children: ReactNode }) {
   return (
     <div
       data-slot="menu-submenu-body"
       onKeyDown={(event) => {
-        if (event.key !== `Escape`) event.stopPropagation()
+        if (event.key !== `Escape` && isEditable(event.target)) event.stopPropagation()
       }}
     >
       {children}
     </div>
   )
+}
+
+const BODY_FOCUS_FIELD = `[data-slot=command-input], input:not([type=hidden]):not([disabled]), textarea:not([disabled])`
+const BODY_FOCUSABLE = `${BODY_FOCUS_FIELD}, button:not([disabled]), [href], [tabindex]:not([tabindex="-1"])`
+
+/** Radix focuses a keyboard-opened submenu's CONTENT element, and a body
+ *  that is not Radix items (a cmdk search list) leaves ArrowDown nothing to
+ *  land on. When the content itself takes focus, hand it to the body's
+ *  search field, else (a body with no Radix rows) its first focusable. */
+function focusIntoSubmenuBody(event: React.FocusEvent<HTMLDivElement>) {
+  if (event.target !== event.currentTarget) return
+  const body = event.currentTarget.querySelector<HTMLElement>(`[data-slot=menu-submenu-body]`)
+  if (body === null) return
+  const field = body.querySelector<HTMLElement>(BODY_FOCUS_FIELD)
+  if (field !== null) {
+    field.focus()
+    return
+  }
+  if (body.querySelector(`[data-radix-collection-item]`) !== null) return
+  body.querySelector<HTMLElement>(BODY_FOCUSABLE)?.focus()
 }
 
 function DropdownEntries({ entries }: { entries: readonly MenuEntry[] }) {
@@ -413,6 +435,7 @@ function DropdownEntries({ entries }: { entries: readonly MenuEntry[] }) {
                 </DropdownMenuSubTrigger>
                 <DropdownMenuSubContent
                   className={entry.contentClassName ?? `w-[14rem]`}
+                  onFocus={entry.body !== undefined ? focusIntoSubmenuBody : undefined}
                 >
                   {entry.body !== undefined ? (
                     <SubmenuBody>{entry.body}</SubmenuBody>

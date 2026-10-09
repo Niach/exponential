@@ -64,21 +64,6 @@ export function faceLabel(face: WorkFaceKind, multipleRuns = false): string {
   }
 }
 
-/** EXP-1152: the `+N −M` counts of the files the diff draws (the run's live
- *  diff, else the issue's loaded PR files) once they are known; `null` while
- *  none are. EXP-1251: the tab reads `Guide`, the counts sit in the body. */
-export interface ChangesFaceCounts {
-  additions: number
-  deletions: number
-}
-
-export function changesFaceCounts(
-  totals: { files: number; additions: number; deletions: number } | null | undefined
-): ChangesFaceCounts | null {
-  if (!totals || totals.files <= 0) return null
-  return { additions: totals.additions, deletions: totals.deletions }
-}
-
 /** The faces a subject can show, in their fixed order. EXP-1251: the Guide
  *  shows when the run published results OR there is a diff (live, PR or
  *  branch), independent of Run: an issue with an open PR and no run of mine
@@ -287,6 +272,20 @@ export function issueResultsRun<T extends CodingTargetRow & { results?: unknown 
   )
   if (onIssue || !issuePrUrl) return onIssue
   return newest(rows.filter((row) => sessionResultPrUrls(row.results).includes(issuePrUrl)))
+}
+
+/** EXP-1251: the rows `issueResultsRun` reads on an issue page — the
+ *  issue's own runs plus every team run that published results (a run on
+ *  ANOTHER issue, or a batch run, may tag topics with this issue's PR). */
+export function resultsCandidateRows<T extends { id: string; results?: unknown }>(
+  issueRows: readonly T[],
+  teamRows: readonly T[]
+): T[] {
+  const seen = new Set(issueRows.map((row) => row.id))
+  return [
+    ...issueRows,
+    ...teamRows.filter((row) => !seen.has(row.id) && hasSessionResults(row.results)),
+  ]
 }
 
 /** EXP-934: the header's `…` CONTEXT MENU (Share · Move to board · Unmark
@@ -515,6 +514,10 @@ export interface TurnRowCaptionInput {
    *  ended run. */
   runEndedAt: Date | string | number | null | undefined
   now: Date | string | number
+  /** False = the settled turn's end is not a real observation (the first
+   *  turn closed only by the next message, its own end never seen): the
+   *  row drops the duration rather than count the idle gap. */
+  endKnown?: boolean
 }
 
 export function turnRowCaption(
@@ -524,6 +527,7 @@ export function turnRowCaption(
   if (start === null) return null
   const end = stampOrNull(input.turn.endedAt)
   if (end !== null) {
+    if (input.endKnown === false) return { text: `Done on ${input.device}`, tone: `muted` }
     return {
       text: `Done on ${input.device} · ${formatTurnDuration(end - start)}`,
       tone: `muted`,

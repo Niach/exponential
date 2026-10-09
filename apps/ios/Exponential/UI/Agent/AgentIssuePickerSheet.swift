@@ -13,7 +13,8 @@ import SwiftUI
 /// one sheet, the one selection language (a checked row reads by its own
 /// highlight, never a leading circle), rows `IDENT Title` behind the issue's
 /// status glyph. This view is what is left of it: the ranked pool, the pin
-/// snapshot and the guard captions, which ride the picker's footer. It is
+/// snapshot and the guard captions, which ride the picker's footer over the
+/// `Implement N issues` button (EXP-1249, composer-menu.json). It is
 /// HOST-DRIVEN (`open`): the composer's tool button is the trigger, and it
 /// lives in another view tree.
 struct AgentIssuePickerSheet: View {
@@ -56,7 +57,7 @@ struct AgentIssuePickerSheet: View {
             emptyText: model.issues.isEmpty ? "No eligible issues to code." : "No matching issues.",
             open: $isPresented,
             hideTrigger: true,
-            footer: showsGuards ? { AnyView(guards) } : nil,
+            footer: showsFooter ? { AnyView(footer) } : nil,
             sheetIdentifier: "agent-composer-issues-picker",
             trigger: { EmptyView() }
         )
@@ -97,6 +98,27 @@ struct AgentIssuePickerSheet: View {
 
     private var showsGuards: Bool {
         model.multiRepo || model.overCap || model.costWarning
+    }
+
+    private var pickedCount: Int { model.effectiveChecked.count }
+
+    private var showsFooter: Bool { showsGuards || pickedCount > 0 }
+
+    /// The guard captions over composer-menu.json's `implementButton`
+    /// (`Implement N issues`, once something is picked). The button only
+    /// closes the picker: the picks already are the run's subject.
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if showsGuards { guards }
+            if pickedCount > 0 {
+                GlassSubmitButton(ComposerMenu.implementButtonLabel(pickedCount)) {
+                    isPresented = false
+                }
+                .accessibilityIdentifier(ComposerMenu.implementSubmitTestId)
+                .padding(.horizontal, GlassPickerTokens.rowHPadding)
+                .padding(.vertical, 10)
+            }
+        }
     }
 
     /// The batch guards, under the rows — what cannot start, said where the

@@ -28,7 +28,7 @@ use gpui_component::{
     button::{Button, ButtonVariant},
     h_flex,
     input::InputState,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
@@ -885,7 +885,7 @@ impl McpServersPane {
                     if http {
                         let (target, pane) = (target.clone(), pane.clone());
                         menu = menu.item(
-                            PopupMenuItem::new("Test connection")
+                            crate::controls::pointer_label_item("Test connection", false)
                                 .icon(Icon::new(registry::UI_REFRESH))
                                 .on_click(move |_, window, cx| {
                                     let target = target.clone();
@@ -896,7 +896,7 @@ impl McpServersPane {
                     if secret {
                         let (target, pane) = (target.clone(), pane.clone());
                         menu = menu.item(
-                            PopupMenuItem::new("Replace key")
+                            crate::controls::pointer_label_item("Replace key", false)
                                 .icon(Icon::new(registry::UI_EDIT))
                                 .on_click(move |_, window, cx| {
                                     let target = target.clone();
@@ -912,7 +912,7 @@ impl McpServersPane {
                     if share_menu_offered(http, shared) {
                         let (target, pane) = (target.clone(), pane.clone());
                         menu = menu.item(
-                            PopupMenuItem::new(share_menu_label(shared))
+                            crate::controls::pointer_label_item(share_menu_label(shared), false)
                                 .icon(Icon::new(registry::UI_SHARE))
                                 .on_click(move |_, window, cx| {
                                     let target = target.clone();
@@ -1031,7 +1031,7 @@ impl McpServersPane {
                 let (edit, team, pane_edit) = (edit.clone(), team.clone(), pane.clone());
                 let (remove, pane_remove) = (remove.clone(), pane.clone());
                 menu.item(
-                    PopupMenuItem::new("Edit")
+                    crate::controls::pointer_label_item("Edit", false)
                         .icon(Icon::new(registry::UI_EDIT))
                         .on_click(move |_, window, cx| {
                             let (edit, team) = (edit.clone(), team.clone());

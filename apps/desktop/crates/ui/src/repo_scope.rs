@@ -77,7 +77,7 @@ pub(crate) fn repo_picker(id: &'static str, window: &Window, cx: &mut App) -> Op
                     menu = menu.item(
                         // No per-item icon: it would replace the check
                         // mark (the worktree switcher's menu reads the same).
-                        PopupMenuItem::new(full_name.clone())
+                        crate::controls::pointer_label_item(full_name.clone(), false)
                             .checked(repository_id == active_id)
                             .on_click(move |_, window, cx| {
                                 crate::navigation::set_active_repo(

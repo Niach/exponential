@@ -358,16 +358,6 @@ export function GuideShowCompleteDiffRow({
   )
 }
 
-/** @deprecated EXP-1251: the Guide opens SECTIONS (`onOpenChanges`); kept
- *  only for the callers wave B moves. Hands out the tap only while there is a
- *  diff to open. */
-export function guideFileOpener(
-  files: readonly DiffFile[] | null | undefined,
-  open: (path: string) => void
-): ((path: string) => void) | undefined {
-  return files && files.length > 0 ? open : undefined
-}
-
 /**
  * EXP-1172: the picture an `exponential_sessions_show` call filed, drawn
  * under that call's transcript row — one tile at the inline base, fitted to
@@ -433,8 +423,6 @@ export function SessionResultsView({
   /** @deprecated EXP-1251: without `onOpenChanges`, a row opens its FIRST
    *  file here (the pre-Guide callers). */
   onOpenFile?: (path: string) => void
-  /** Kept for callers; the Guide no longer lists file paths. */
-  isMobile?: boolean
   /** EXP-1154: false = bands without the `01 / 04` caption (the PR-body
    *  fallback's single group). */
   numbered?: boolean

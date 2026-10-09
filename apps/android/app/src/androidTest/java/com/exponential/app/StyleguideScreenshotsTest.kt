@@ -18,6 +18,7 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.rule.GrantPermissionRule
+import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.ui.onboarding.OnboardingTestHooks
 import org.junit.After
@@ -422,8 +423,11 @@ class StyleguideScreenshotsTest {
             flow.waitFor(hasText(title, substring = true), SYNC_TIMEOUT)
             composeRule.onAllNodes(hasText(title, substring = true)).onFirst().performClick()
         }
-        // Done closes the picker; the chips are on the composer already.
-        composeRule.onAllNodes(hasText("Done")).onFirst().performClick()
+        // The footer reads "Implement 2 issues" (composer-menu.json
+        // `implementButton`) and only closes: the chips are on the composer already.
+        flow.waitFor(hasTestTag(ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID), NAV_TIMEOUT)
+        flow.waitFor(hasText(ComposerMenu.implementButtonLabel(2)), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag(ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID)).performClick()
         flow.waitForGone(hasTestTag("agent-composer-issues-picker"), NAV_TIMEOUT)
         flow.waitFor(hasIssueChip(), NAV_TIMEOUT)
         flow.waitFor(hasContentDescription("Start batch · 2"), NAV_TIMEOUT)
@@ -597,13 +601,20 @@ class StyleguideScreenshotsTest {
         // finished chat run whose own pull request is open; its row opens
         // RunChangesScreen, fed by codingSessions.prFiles — a real public PR
         // the seed points the run at (SCREENSHOT_RUN_PR_URL), so there are
-        // actual files to show. Same expanded-card wait as the store review.
+        // actual files to show. EXP-1251: the screen opens on the Guide (no
+        // report = ONE Changes row); that row opens the section page, where
+        // the file cards draw. Back twice: the section, then the screen.
         flow.waitFor(hasText(RUN_CHANGES_TITLE, substring = true), SYNC_TIMEOUT)
         composeRule.onAllNodes(hasTestTag("review-run-row")).onFirst().performClick()
+        flow.waitFor(hasTestTag("guide-changes-row"), SYNC_TIMEOUT)
+        composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
+        flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("changes-file-row"), SYNC_TIMEOUT)
         flow.waitFor(hasText("unchanged line", substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_run-changes")
+        composeRule.onNode(hasTestTag("guide-section-back")).performClick()
+        flow.waitFor(hasTestTag("guide-changes-row"), NAV_TIMEOUT)
         composeRule.onNode(hasContentDescription("Back")).performClick()
         flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         flow.settle()

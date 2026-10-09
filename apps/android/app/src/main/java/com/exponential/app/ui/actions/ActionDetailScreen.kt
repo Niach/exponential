@@ -25,7 +25,6 @@ import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -56,6 +55,7 @@ import com.exponential.app.domain.TreeGuides
 import com.exponential.app.domain.sessionTree
 import com.exponential.app.domain.visibleSessionTreeRows
 import com.exponential.app.domain.triggerCaption
+import com.exponential.app.ui.components.GlassSwitch
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.CodingSessionRow
@@ -66,13 +66,11 @@ import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSegmentedControl
 import com.exponential.app.ui.components.LoadingState
-import com.exponential.app.ui.components.SwitchThumb
 import com.exponential.app.ui.components.TabPager
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.actionGlyph
 import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.components.effortLabel
-import com.exponential.app.ui.components.glassSwitchColors
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
@@ -452,12 +450,10 @@ private fun TriggerRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             // Owner-only (every `actions.update` is owner-gated server-side).
-            Switch(
+            GlassSwitch(
                 checked = trigger.enabled,
                 onCheckedChange = onSetEnabled,
                 enabled = isOwner && !busy && !locked,
-                colors = glassSwitchColors(),
-                thumbContent = SwitchThumb,
                 modifier = Modifier.testTag("trigger-enabled"),
             )
             if (isOwner) {

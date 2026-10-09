@@ -39,7 +39,7 @@
 
 use gpui::{div, App, Context, Div, Entity, IntoElement, ParentElement as _, Render, Styled as _, Window};
 use gpui_component::{
-    menu::{PopupMenu, PopupMenuItem},
+    menu::PopupMenu,
     Icon, Side,
 };
 
@@ -120,10 +120,10 @@ impl MenuDemo {
         let menu = PopupMenu::build(window, cx, |menu, window, cx| {
             menu.check_side(Side::Right)
                 .label("EXP-42")
-                .item(PopupMenuItem::new("Open issue").icon(Icon::from(ExpIcon::Pencil)))
-                .item(PopupMenuItem::new("Copy issue ID").icon(Icon::from(ExpIcon::Copy)))
+                .item(crate::controls::pointer_label_item("Open issue", false).icon(Icon::from(ExpIcon::Pencil)))
+                .item(crate::controls::pointer_label_item("Copy issue ID", false).icon(Icon::from(ExpIcon::Copy)))
                 .item(
-                    PopupMenuItem::new("Show sub-issues")
+                    crate::controls::pointer_label_item("Show sub-issues", false)
                         .icon(Icon::new(registry::UI_ASSIGNEE))
                         .checked(true),
                 )
@@ -134,14 +134,13 @@ impl MenuDemo {
                     cx,
                     |menu, _, _| {
                         menu.check_side(Side::Right)
-                            .item(PopupMenuItem::new("Bug").checked(true))
-                            .item(PopupMenuItem::new("Feature"))
+                            .item(crate::controls::pointer_label_item("Bug", false).checked(true))
+                            .item(crate::controls::pointer_label_item("Feature", false))
                     },
                 )
                 .item(
-                    PopupMenuItem::new("Move to board")
-                        .icon(Icon::from(ExpIcon::SquareKanban))
-                        .disabled(true),
+                    crate::controls::pointer_label_item("Move to board", true)
+                        .icon(Icon::from(ExpIcon::SquareKanban)),
                 )
                 .item(crate::controls::danger_menu_item(
                     "Delete issue",

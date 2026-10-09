@@ -6,9 +6,9 @@ import SwiftUI
 // The team-member lookups the create and detail surfaces share.
 //
 // The `PickerSheet` this file was named for is gone (EXP-603): the stock
-// `NavigationStack`+`List` sheet was the last non-glass picker in the app, and
-// `GlassPickerSheet` (ExpUI/GlassSheet.swift) took its call sites over with the
-// same generic signature. EXP-1021 then retired the `AssigneeOption` row model
+// `NavigationStack`+`List` sheet was the last non-glass picker in the app; its
+// call sites ride the shared `GlassPicker` now. EXP-1021 retired the
+// `AssigneeOption` row model
 // that lived here too: the shared `AssigneePicker` owns the "Unassigned"
 // sentinel now, in one place for all four clients. The filename stays — Tuist
 // globs it, and these lookups have no better home.

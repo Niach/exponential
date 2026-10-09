@@ -20,7 +20,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Disableable as _, Icon,
 };
 
@@ -312,7 +312,7 @@ fn comment_card_content(
                                 // beside an iconed one.
                                 menu.when(can_edit, |menu| {
                                     menu.item(
-                                        PopupMenuItem::new("Edit")
+                                        crate::controls::pointer_label_item("Edit", false)
                                             .icon(Icon::new(registry::UI_EDIT))
                                             .on_click(move |_, window, cx| {
                                                 timeline_edit.update(cx, |timeline, cx| {

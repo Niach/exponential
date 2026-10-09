@@ -27,6 +27,9 @@ struct GuideFace<Merge: View>: View {
     var prFallback: GuidePrFallback?
     /// The rail of the PR's open stack (`PrStack.stackView`), nil = none.
     var stack: PrStack.StackView?
+    /// The board's own default branch: the Stack card's base row when the
+    /// bottom member's base is not synced (Reviews' fallback).
+    var defaultBranch: String?
     /// A stack member tap: the Work screen swaps to that issue in place.
     var onOpenStackMember: ((String) -> Void)?
     /// A stack member's long-press "Merge through here".
@@ -46,6 +49,7 @@ struct GuideFace<Merge: View>: View {
         truncatedLines: Int? = nil,
         prFallback: GuidePrFallback? = nil,
         stack: PrStack.StackView? = nil,
+        defaultBranch: String? = nil,
         onOpenStackMember: ((String) -> Void)? = nil,
         onMergeThrough: ((String) -> Void)? = nil,
         section: Binding<GuideSectionKey?>,
@@ -59,6 +63,7 @@ struct GuideFace<Merge: View>: View {
         self.truncatedLines = truncatedLines
         self.prFallback = prFallback
         self.stack = stack
+        self.defaultBranch = defaultBranch
         self.onOpenStackMember = onOpenStackMember
         self.onMergeThrough = onMergeThrough
         _section = section
@@ -84,6 +89,7 @@ struct GuideFace<Merge: View>: View {
                 diffStatus: diffStatus,
                 prFallback: prFallback,
                 stack: stack,
+                defaultBranch: defaultBranch,
                 onOpenStackMember: onOpenStackMember,
                 onMergeThrough: onMergeThrough,
                 onOpen: { key in
@@ -129,6 +135,7 @@ private struct GuideBody: View {
     let diffStatus: GuideDiffStatus
     let prFallback: GuidePrFallback?
     let stack: PrStack.StackView?
+    let defaultBranch: String?
     let onOpenStackMember: ((String) -> Void)?
     let onMergeThrough: ((String) -> Void)?
     let onOpen: (GuideSectionKey) -> Void
@@ -167,6 +174,7 @@ private struct GuideBody: View {
                 if let stack {
                     GuideStackCard(
                         stack: stack,
+                        defaultBranch: defaultBranch,
                         onOpen: onOpenStackMember,
                         onMergeThrough: onMergeThrough
                     )
@@ -420,8 +428,21 @@ struct GuideStackCard: View {
     static let title = "Stack"
 
     let stack: PrStack.StackView
+    /// The board's default branch, for a bottom member with no synced base.
+    var defaultBranch: String?
     var onOpen: ((String) -> Void)?
     var onMergeThrough: ((String) -> Void)?
+
+    /// The base row: the bottom member's synced base, else the board's
+    /// default branch, else the literal `default branch` (Reviews ×4).
+    static func baseRowTitle(_ baseBranch: String?, defaultBranch: String?) -> String {
+        for candidate in [baseBranch, defaultBranch] {
+            if let value = candidate?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty {
+                return value
+            }
+        }
+        return "default branch"
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -437,7 +458,7 @@ struct GuideStackCard: View {
                         id: $0.issueId, identifier: $0.identifier, title: $0.title, current: $0.isCurrent
                     )
                 },
-                baseBranch: stack.baseBranch ?? "",
+                baseBranch: Self.baseRowTitle(stack.baseBranch, defaultBranch: defaultBranch),
                 onOpen: onOpen.map { open in { member in open(member.id) } },
                 onMergeThrough: onMergeThrough.map { merge in { member in merge(member.id) } }
             )

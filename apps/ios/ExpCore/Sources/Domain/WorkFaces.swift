@@ -61,26 +61,6 @@ public enum WorkFaces {
         }
     }
 
-    /// EXP-1152: the `+N −M` counts of the files the diff draws (the run's
-    /// live diff, else the issue's loaded PR files) once they are known; `nil`
-    /// while none are. EXP-1251: the tab reads `Guide`, the counts sit in the
-    /// body.
-    public struct ChangesFaceCounts: Equatable, Sendable {
-        public let additions: Int
-        public let deletions: Int
-
-        public init(additions: Int, deletions: Int) {
-            self.additions = additions
-            self.deletions = deletions
-        }
-    }
-
-    /// No totals, or totals over zero files (an empty diff), give none.
-    public static func changesFaceCounts(_ totals: Diff.Totals?) -> ChangesFaceCounts? {
-        guard let totals, totals.files > 0 else { return nil }
-        return ChangesFaceCounts(additions: totals.additions, deletions: totals.deletions)
-    }
-
     /// The faces a subject can show, in their fixed order. EXP-1251: the
     /// Guide shows when the run published results OR there is a diff (live,
     /// PR or branch), independent of Run: an issue with an open PR and no run

@@ -72,15 +72,13 @@ class WorkFacesTest {
         assertEquals("Plan mode", PLAN_MODE_LABEL)
     }
 
-    // EXP-1152: the diff's `+N −M` once known (EXP-1251: read by the body).
+    // EXP-1251: a Stack card swap holds the Guide until the member's row loads.
     @Test
-    fun `counts the changes once the files are known`() {
-        assertNull(changesFaceCounts(null))
-        assertNull(changesFaceCounts(Diff.Totals(files = 0, additions = 0, deletions = 0)))
-        assertEquals(
-            ChangesFaceCounts(additions = 12, deletions = 2),
-            changesFaceCounts(Diff.Totals(files = 3, additions = 12, deletions = 2)),
-        )
+    fun `a swapped subject holds the Guide until its issue row loads`() {
+        assertTrue(holdSwappedGuide(WorkFaceKind.Issue, WorkFaceKind.Guide, swappedRowLoaded = false))
+        assertFalse(holdSwappedGuide(WorkFaceKind.Issue, WorkFaceKind.Guide, swappedRowLoaded = true))
+        assertFalse(holdSwappedGuide(WorkFaceKind.Guide, WorkFaceKind.Guide, swappedRowLoaded = false))
+        assertFalse(holdSwappedGuide(WorkFaceKind.Issue, WorkFaceKind.Run, swappedRowLoaded = false))
     }
 
     // EXP-1251: web "the Guide URL" (legacy results / diff land on the Guide).

@@ -92,7 +92,6 @@ export * from "./progress-ring"
 export * from "./readiness-checklist"
 // EXP-1196: THE device readiness block (device-doctor.json).
 export * from "./device-readiness"
-// EXP-1170: THE phone properties sheet row.
 export * from "./search-field"
 export * from "./resize-handle"
 export * from "./segmented-bar"

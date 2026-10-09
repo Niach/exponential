@@ -35,7 +35,6 @@ const h = vi.hoisted(() => ({
   ),
   // EXP-1248: stack membership (null = a lone PR) and the run PR's children.
   openStackMember: vi.fn(async (): Promise<unknown> => null),
-  openChildPrUrls: vi.fn(async (): Promise<Set<string>> => new Set()),
   ensureGithubStack: vi.fn(async () => ({ number: 7, baseRef: `master`, open: true, pulls: [] })),
   mergeThrough: vi.fn(
     async (
@@ -100,7 +99,6 @@ vi.mock(`@/lib/integrations/pr-sync`, () => ({
 vi.mock(`@/lib/pr-merge-guard`, async (importOriginal) => ({
   ...(await importOriginal<object>()),
   openStackMember: h.openStackMember,
-  openChildPrUrls: h.openChildPrUrls,
 }))
 vi.mock(`@/lib/pr-stacks`, () => ({
   ensureGithubStack: h.ensureGithubStack,
@@ -153,7 +151,6 @@ beforeEach(() => {
   vi.clearAllMocks()
   _clearPrActorClaims()
   h.openStackMember.mockResolvedValue(null)
-  h.openChildPrUrls.mockResolvedValue(new Set())
 })
 
 describe(`mergeRepositoryPull on a PR stacked on an open PR (EXP-1145)`, () => {
@@ -536,14 +533,27 @@ describe(`mergeRepositoryPull on an open-stack member`, () => {
     })
   })
 
-  it(`an issue-less run PR with a PR on its branch is a stack bottom`, async () => {
-    h.selectQueue.push([], [{ prBaseBranch: null, branch: `exp/chat-1a2b3c4d` }])
-    h.openChildPrUrls.mockResolvedValue(new Set([`https://github.com/owner/repo/pull/301`]))
+  it(`an issue-less run PR with a PR on its branch lands alone: plainly`, async () => {
+    // No issue on the PR, the run row (no base), no linked issues.
+    h.selectQueue.push([], [{ prBaseBranch: null }], [])
 
     await expect(
       mergeRepositoryPull({ repo, prNumber: 300, userId: `actor`, viaAgent: true })
-    ).rejects.toMatchObject({
-      message: `This pull request is part of an open stack. Merging through it lands #300; merge with mergeStack to land them.`,
-    })
+    ).resolves.toEqual({ merged: true })
+    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(1)
+    expect(h.mergeThrough).not.toHaveBeenCalled()
+  })
+
+  it(`merges a stack bottom (a landing of one) plainly, even with mergeStack`, async () => {
+    h.selectQueue.push([onPr(`master`)])
+    h.openStackMember.mockResolvedValue({ kind: `stack`, landing: [member(11)] })
+    h.selectQueue.push([], [], [], [], [{ id: `issue-11` }])
+
+    await expect(
+      mergeRepositoryPull({ repo, prNumber: 241, userId: `actor`, viaAgent: true, mergeStack: true })
+    ).resolves.toEqual({ merged: true })
+    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(1)
+    expect(h.mergeThrough).not.toHaveBeenCalled()
+    expect(h.ensureGithubStack).not.toHaveBeenCalled()
   })
 })

@@ -1,5 +1,7 @@
 package com.exponential.app.ui.issue
 
+import androidx.compose.foundation.layout.PaddingValues
+import com.exponential.app.ui.components.SectionBand
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -37,7 +39,6 @@ import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.Motion
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
-import com.exponential.app.ui.theme.glassSectionBand
 
 // EXP-895 — ONE file's diff, the whole of the per-file rendering ×4 (web
 // `FileDiffCard`): a tappable `letter · path · +a −b · chevron` header over the
@@ -225,19 +226,15 @@ fun DiffFileCard(
     val failed = state == DiffCardState.Failed
     val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
     Column(modifier = modifier.fillMaxWidth().then(if (flush) Modifier else Modifier.glassRow())) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("changes-file-row")
-                // The header is the section BAND everywhere — a flush card
-                // drops the outer edge, never the band under its header.
-                .glassSectionBand()
-                .then(if (ready) Modifier.clickable(onClick = onToggle) else Modifier)
-                .padding(
-                    horizontal = if (compact) 10.dp else 12.dp,
-                    vertical = if (compact) 7.dp else 10.dp,
-                ),
-            verticalAlignment = Alignment.CenterVertically,
+        // The header is the section BAND everywhere — a flush card drops the
+        // outer edge, never the band under its header.
+        SectionBand(
+            modifier = Modifier.testTag("changes-file-row"),
+            onClick = if (ready) onToggle else null,
+            contentPadding = PaddingValues(
+                horizontal = if (compact) 10.dp else 12.dp,
+                vertical = if (compact) 7.dp else 10.dp,
+            ),
         ) {
             DiffStatusLetter(file.status, danger = failed)
             Spacer(Modifier.width(8.dp))

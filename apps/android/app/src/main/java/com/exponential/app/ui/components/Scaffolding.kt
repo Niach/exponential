@@ -1,5 +1,7 @@
 package com.exponential.app.ui.components
 
+import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,15 +59,10 @@ fun SectionHeader(
     leading: (@Composable () -> Unit)? = null,
     trailing: (@Composable () -> Unit)? = null,
 ) {
-    Row(
-        modifier = modifier
-            .fillMaxWidth()
-            // The band's 4dp breathing room over its rows (web `mb-1`) — OUTSIDE
-            // the fill, so the strip itself stays tight around its title.
-            .padding(bottom = 4.dp)
-            .glassSectionBand()
-            .padding(horizontal = 12.dp, vertical = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
+    SectionBand(
+        // The band's 4dp breathing room over its rows (web `mb-1`) — OUTSIDE
+        // the fill, so the strip itself stays tight around its title.
+        modifier = modifier.padding(bottom = 4.dp),
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         leading?.invoke()
@@ -86,6 +83,33 @@ fun SectionHeader(
         )
         trailing?.invoke()
     }
+}
+
+/**
+ * THE band strip (EXP-818 `Modifier.glassSectionBand` paint + its layout): the
+ * ONE composable that paints a group band. [SectionHeader] is its titled form;
+ * a band whose content is not a plain title (a diff file card's header, the
+ * diff tree's summary, the empty "Add sub-issues" band) fills the slot.
+ * [onClick] makes the whole strip the tap target.
+ */
+@Composable
+fun SectionBand(
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+    horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
+    content: @Composable RowScope.() -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .fillMaxWidth()
+            .glassSectionBand()
+            .then(if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier)
+            .padding(contentPadding),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = horizontalArrangement,
+        content = content,
+    )
 }
 
 /**

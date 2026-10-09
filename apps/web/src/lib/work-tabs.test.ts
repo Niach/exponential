@@ -16,6 +16,7 @@ import {
   tabKey,
   upsertFromRoute,
   isPreviewOrigin,
+  previewSlotKey,
   type LiveRun,
   type WorkTab,
   type WorkTabsState,
@@ -339,11 +340,24 @@ describe(`the preview slot`, () => {
 
   it(`gives each list its own slot`, () => {
     let s = openIssue(EMPTY_WORK_TABS, `i1`, `inbox`)
-    s = openIssue(s, `m1`, `inbox:my-issues`)
     s = upsertFromRoute(s, { kind: `run`, runId: `r1`, issueId: null, from: `agent:recent` })
     s = upsertFromRoute(s, { kind: `run`, runId: `r2`, issueId: null, from: `agent:recent` })
-    s = openIssue(s, `m2`, `inbox:my-issues`)
-    expect(keys(s)).toEqual([`issue:i1`, `issue:m2`, `run:r2`])
+    s = openIssue(s, `i2`, `inbox`)
+    expect(keys(s)).toEqual([`issue:i2`, `run:r2`])
+  })
+
+  // Both Inbox tabs are ONE list: one slot, like the desktop's `inbox_slot`.
+  it(`shares one slot between the two Inbox tabs`, () => {
+    expect(previewSlotKey(`inbox`)).toBe(`inbox`)
+    expect(previewSlotKey(`inbox:my-issues`)).toBe(`inbox`)
+    expect(previewSlotKey(`agent:recent`)).toBe(`recent`)
+    expect(previewSlotKey(`board:web`)).toBeNull()
+    let s = openIssue(EMPTY_WORK_TABS, `i1`, `inbox`)
+    s = openIssue(s, `m1`, `inbox:my-issues`)
+    expect(keys(s)).toEqual([`issue:m1`])
+    expect(s.tabs[0]).toMatchObject({ from: `inbox:my-issues` })
+    s = openIssue(s, `i2`, `inbox`)
+    expect(keys(s)).toEqual([`issue:i2`])
   })
 
   it(`a run opened from Recent under an issue takes the slot too`, () => {

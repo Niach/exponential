@@ -132,4 +132,54 @@ class AttachmentEntityDecodeTest {
         assertEquals("k.poster", entity.posterStorageKey)
         assertTrue(entity.hasPoster)
     }
+
+    // EXP-1247 `as_file`: a PgBool, Electric may send "t"/"f" or "true"/"false"
+    // text; a plain Boolean would throw and drop EVERY attachment row.
+    private fun rowWithAsFile(key: String, value: String) = """
+        {
+          "id": "att-5",
+          "team_id": "team-1",
+          "issue_id": "issue-1",
+          "filename": "notes.pdf",
+          "content_type": "application/pdf",
+          "size_bytes": 10,
+          "storage_key": "k",
+          "url": "/api/attachments/att-5",
+          "$key": $value,
+          "created_at": "2026-09-11 10:00:00+00",
+          "updated_at": "2026-09-11 10:00:00+00"
+        }
+    """.trimIndent()
+
+    private fun decode(row: String) = json.decodeFromString(AttachmentEntity.serializer(), row)
+
+    @Test
+    fun `as_file decodes the postgres text f as false`() {
+        assertFalse(decode(rowWithAsFile("as_file", "\"f\"")).asFile)
+    }
+
+    @Test
+    fun `as_file decodes the postgres text t as true`() {
+        assertTrue(decode(rowWithAsFile("as_file", "\"t\"")).asFile)
+    }
+
+    @Test
+    fun `as_file decodes the text true as true`() {
+        assertTrue(decode(rowWithAsFile("as_file", "\"true\"")).asFile)
+    }
+
+    @Test
+    fun `as_file decodes a json boolean`() {
+        assertTrue(decode(rowWithAsFile("as_file", "true")).asFile)
+    }
+
+    @Test
+    fun `the camelCase asFile key decodes too`() {
+        assertTrue(decode(rowWithAsFile("asFile", "\"t\"")).asFile)
+    }
+
+    @Test
+    fun `a row without as_file defaults to false`() {
+        assertFalse(decode(rowWithAsFile("width", "null")).asFile)
+    }
 }

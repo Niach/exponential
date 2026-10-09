@@ -6,12 +6,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -20,7 +18,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -32,17 +29,19 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.DeviceWorktreeEntity
 import com.exponential.app.domain.AccountOption
-import com.exponential.app.ui.components.AccountPickerPill
+import com.exponential.app.ui.components.GlassSwitch
+import com.exponential.app.ui.components.GlassSwitchSize
+import com.exponential.app.ui.components.picker.AccountPicker
+import com.exponential.app.ui.components.picker.AccountPickerPillTrigger
+import com.exponential.app.ui.components.toPickerAccount
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillMode
-import com.exponential.app.ui.components.SwitchThumb
 import com.exponential.app.ui.components.deviceIcon
 import com.exponential.app.ui.components.picker.DevicePicker
 import com.exponential.app.ui.components.picker.DevicePickerDevice
 import com.exponential.app.ui.components.deviceOptionLabel
-import com.exponential.app.ui.components.glassSwitchColors
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelOptionsFor
 import com.exponential.app.ui.components.supportsPlanMode
@@ -128,12 +127,21 @@ internal fun AgentOptionsRow(
         // agent, so there is no agent pill beside it.
         // EXP-642: the store slide's pop-out rect used to be measured off the
         // segmented strip this replaced, so the testTag stays on this pill.
-        AccountPickerPill(
-            options = accountOptions,
-            selectedKey = launch.accountKey,
-            onSelect = onAccountChange,
-            modifier = Modifier.testTag("start-coding-agent-picker"),
-        )
+        val account = accountOptions.firstOrNull { it.key == launch.accountKey } ?: accountOptions.firstOrNull()
+        if (account != null) {
+            AccountPicker(
+                options = accountOptions.map { it.toPickerAccount() },
+                value = account.key,
+                onChange = { key -> accountOptions.firstOrNull { it.key == key }?.let(onAccountChange) },
+                trigger = { open ->
+                    AccountPickerPillTrigger(
+                        option = account.toPickerAccount(),
+                        onOpen = if (accountOptions.size > 1) open else null,
+                        modifier = Modifier.testTag("start-coding-agent-picker"),
+                    )
+                },
+            )
+        }
         OptionMenuPill(
             text = modelLabel(launch.model),
             contentDescription = "Model",
@@ -167,7 +175,7 @@ internal fun AgentOptionsRow(
 /**
  * EXP-827: the Plan switch on the row's capsule. The whole pill is the tap
  * target and reads as ONE switch to TalkBack; the M3 switch inside is a pure
- * indicator ([glassSwitchColors] chrome), scaled to sit in the 28dp capsule.
+ * indicator ([GlassSwitch]), scaled to sit in the 28dp capsule.
  */
 @Composable
 private fun PlanSwitchPill(
@@ -177,22 +185,7 @@ private fun PlanSwitchPill(
     GlassPill(
         "Plan",
         onClick = { onCheckedChange(!checked) },
-        trailing = {
-            Box(
-                modifier = Modifier.size(width = 36.dp, height = 22.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Switch(
-                    checked = checked,
-                    onCheckedChange = null,
-                    colors = glassSwitchColors(),
-                    thumbContent = SwitchThumb,
-                    modifier = Modifier
-                        .requiredSize(width = 52.dp, height = 32.dp)
-                        .scale(0.7f),
-                )
-            }
-        },
+        trailing = { GlassSwitch(checked = checked, onCheckedChange = null, size = GlassSwitchSize.Pill) },
         contentDescription = "Plan mode",
         modifier = Modifier.semantics {
             role = Role.Switch

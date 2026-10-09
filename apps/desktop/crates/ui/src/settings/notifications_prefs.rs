@@ -30,7 +30,7 @@ use gpui::{div, px, IntoElement, ParentElement, Render, SharedString, Styled, Wi
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
@@ -460,7 +460,7 @@ impl Render for NotificationsPrefsPane {
                                 ] {
                                     let entity = entity.clone();
                                     menu = menu.item(
-                                        PopupMenuItem::new(label)
+                                        crate::controls::pointer_label_item(label, false)
                                             .checked(current == value)
                                             .on_click(move |_, _, cx| {
                                                 entity.update(cx, |this, cx| {
@@ -501,7 +501,7 @@ impl Render for NotificationsPrefsPane {
                                     for value in 0..24i64 {
                                         let entity = entity.clone();
                                         menu = menu.item(
-                                            PopupMenuItem::new(format!("{value}:00"))
+                                            crate::controls::pointer_label_item(format!("{value}:00"), false)
                                                 .checked(hour == value)
                                                 .on_click(move |_, _, cx| {
                                                     entity.update(cx, |this, cx| {

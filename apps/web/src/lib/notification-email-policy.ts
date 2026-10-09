@@ -562,8 +562,8 @@ export function buildInboxDeepLinkPath(teamSlug: string): string {
 }
 
 // EXP-933: the path a digest item links to (null = unlinked text). An issue
-// row → the issue, and an `agent_message` about one → that issue's Results
-// face (`?view=results`: the agent's message points at its report);
+// row → the issue, and an `agent_message` about one → that issue's Guide
+// face (`?view=guide`: the agent's message points at its report);
 // issue-less rows → the Inbox (`agent_message`) or the run
 // (`session_blocked`). SLOP-4: `reporter_reply` is issue-scoped, so it takes
 // the issue arm like `issue_comment`.
@@ -581,7 +581,7 @@ export function digestItemPath(item: {
       boardSlug: item.boardSlug,
       identifier: item.issueIdentifier,
     })
-    return item.type === `agent_message` ? `${path}?view=results` : path
+    return item.type === `agent_message` ? `${path}?view=guide` : path
   }
   if (!item.notificationTeamSlug) return null
   if (item.type === `agent_message`) {

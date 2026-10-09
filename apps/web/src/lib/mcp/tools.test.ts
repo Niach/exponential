@@ -300,6 +300,14 @@ vi.mock(`@/lib/pr-stacks`, () => ({
   })),
   ensureGithubStack: vi.fn(async () => ({ number: 1, baseRef: `master`, open: true, pulls: [] })),
   mergeThrough: vi.fn(),
+  GitHubStackForkError: class GitHubStackForkError extends Error {
+    constructor(
+      public status: number,
+      message: string
+    ) {
+      super(message)
+    }
+  },
 }))
 vi.mock(`@/lib/run-pr-body`, () => ({
   runPrBody: vi.fn(async (_id: string | null, fallback: string | undefined) => ({
@@ -336,6 +344,12 @@ import { notifyParentOfChildEnd } from "@/lib/steer-child-messages"
 import { readRunTranscript, TranscriptReadError } from "@/lib/steer-transcript"
 import { maybeMergeYoloTree } from "@/lib/yolo-tree-merge"
 import { openStackThrough } from "@/lib/pr-merge-guard"
+import {
+  ensureGithubStack,
+  GitHubStackForkError,
+  inferBaseBranch,
+} from "@/lib/pr-stacks"
+import { claimPrOpen } from "@/lib/integrations/pr-actor-claims"
 import { runHasReportBody, runPrBody, syncRunPrBody } from "@/lib/run-pr-body"
 import { loadGuideDiff } from "@/lib/session-guide-diff"
 import { retiredIdentifiers } from "@/lib/issue-resolver"
@@ -3759,6 +3773,50 @@ describe(`exponential_pr_open — repositoryId path`, () => {
     expect(db.transaction).not.toHaveBeenCalled()
   })
 
+  // EXP-1248 (M17): the chore form infers its base and joins the stack too.
+  it(`no base: opens on the inferred open PR's branch and joins its stack`, async () => {
+    armRepoPr()
+    vi.mocked(inferBaseBranch).mockResolvedValueOnce({ base: `exp/chat-1a2b3c4d`, prNumber: 8 })
+    vi.mocked(ensureGithubStack).mockResolvedValueOnce({
+      number: 3,
+      baseRef: `main`,
+      open: true,
+      pulls: [{ number: 8 }, { number: 9 }],
+    } as never)
+
+    const result = await collectTools(USER, null).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/refresh-screenshots-1a2b3c4d`,
+      title: `Refresh screenshots`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ number: 9, stack: { number: 3, position: 2, size: 2 } })
+    expect(inferBaseBranch).toHaveBeenCalledWith(
+      expect.objectContaining({ repo: `acme/app`, head: `exp/refresh-screenshots-1a2b3c4d`, defaultBranch: `main` })
+    )
+    expect(createPullRequest).toHaveBeenCalledWith(
+      expect.objectContaining({ base: `exp/chat-1a2b3c4d` })
+    )
+    expect(ensureGithubStack).toHaveBeenCalledWith(
+      expect.objectContaining({ lowerPrNumber: 8, newPrNumber: 9 })
+    )
+  })
+
+  it(`no base: a failed inference errors before the claim`, async () => {
+    armRepoPr()
+    vi.mocked(inferBaseBranch).mockRejectedValueOnce(new Error(`boom`))
+
+    const result = await collectTools(USER, null).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/refresh-screenshots-1a2b3c4d`,
+      title: `Refresh screenshots`,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(claimPrOpen).not.toHaveBeenCalled()
+    expect(createPullRequest).not.toHaveBeenCalled()
+  })
+
   // EXP-1105: yolo mode merges what pr_open just opened, through pr_merge.
   it(`leaves the PR open when the team is not in yolo mode`, async () => {
     armRepoPr()
@@ -6358,6 +6416,183 @@ describe(`exponential_pr_open — a follow-up run based on its parent's branch`,
       `'exp/EXP-11' is the branch of merged PR #241 (EXP-11). Rebase onto main and pass no base.`
     )
     expect(createPullRequest).not.toHaveBeenCalled()
+  })
+
+  // EXP-1248 (M17): base inference + the GitHub stack join.
+  const lowerRow = (over: Record<string, unknown> = {}) => ({
+    id: LOWER_ISSUE,
+    identifier: `EXP-11`,
+    teamId: `ws-1`,
+    prNumber: 241,
+    prState: `open`,
+    prUrl: LOWER_PR_URL,
+    branch: `exp/EXP-11`,
+    ...over,
+  })
+  const stacked = { number: 7, baseRef: `main`, open: true, pulls: [{ number: 241 }, { number: 242 }] }
+
+  it(`no base: opens on the inferred open PR's branch over the team's own PR branches and joins its stack`, async () => {
+    armPrOpen()
+    dbRows.current = [lowerRow()]
+    vi.mocked(inferBaseBranch).mockResolvedValueOnce({ base: `exp/EXP-11`, prNumber: 241 })
+    vi.mocked(ensureGithubStack).mockResolvedValueOnce(stacked as never)
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+    })
+
+    expect(parseOk(result)).toMatchObject({
+      number: 242,
+      base: `exp/EXP-11`,
+      stack: { number: 7, position: 2, size: 2 },
+    })
+    expect(inferBaseBranch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        repo: `acme/app`,
+        head: `exp/EXP-12`,
+        defaultBranch: `main`,
+        candidates: [{ number: 241, branch: `exp/EXP-11` }],
+      })
+    )
+    expect(vi.mocked(createPullRequest).mock.calls.at(-1)![0]).toMatchObject({ base: `exp/EXP-11` })
+    expect(ensureGithubStack).toHaveBeenCalledWith(
+      expect.objectContaining({ repo: `acme/app`, lowerPrNumber: 241, newPrNumber: 242 })
+    )
+    expect(insertRelationInTx).toHaveBeenCalledTimes(1)
+  })
+
+  it(`no base: an inferred branch whose issue row already merged is never refused`, async () => {
+    armPrOpen()
+    dbRows.current = [lowerRow({ prState: `merged` })]
+    vi.mocked(inferBaseBranch).mockResolvedValueOnce({ base: `exp/EXP-11`, prNumber: 241 })
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ number: 242, base: `exp/EXP-11` })
+    expect(insertRelationInTx).not.toHaveBeenCalled()
+    // The run PR GitHub inferred is the lower PR.
+    expect(ensureGithubStack).toHaveBeenCalledWith(
+      expect.objectContaining({ lowerPrNumber: 241, newPrNumber: 242 })
+    )
+  })
+
+  it(`no base: a failed inference errors before any claim or PR`, async () => {
+    armPrOpen()
+    vi.mocked(inferBaseBranch).mockRejectedValueOnce(new Error(`GitHub returned 403 comparing`))
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(claimPrOpen).not.toHaveBeenCalled()
+    expect(createPullRequest).not.toHaveBeenCalled()
+  })
+
+  it(`an explicit base on a teammate's open PR joins that PR's stack`, async () => {
+    armPrOpen()
+    dbRows.current = [lowerRow()]
+    vi.mocked(ensureGithubStack).mockResolvedValueOnce(stacked as never)
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      base: `exp/EXP-11`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ stack: { number: 7, position: 2, size: 2 } })
+    expect(inferBaseBranch).not.toHaveBeenCalled()
+    expect(ensureGithubStack).toHaveBeenCalledWith(
+      expect.objectContaining({ lowerPrNumber: 241, newPrNumber: 242 })
+    )
+  })
+
+  it.each([
+    [`the default branch`, `main`, [] as unknown[]],
+    [`a board's pinned branch`, `release/1.x`, [{ id: `repo-1`, defaultBranch: `release/1.x`, defaultBranchOverride: null }]],
+  ])(`a base on %s is no stack`, async (_label, base, rows) => {
+    armPrOpen()
+    dbRows.current = rows
+    vi.mocked(findOpenPullByHead).mockResolvedValue({ number: 5 } as never)
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      base,
+    })
+
+    expect(parseOk(result)).not.toHaveProperty(`stack`)
+    expect(ensureGithubStack).not.toHaveBeenCalled()
+  })
+
+  it(`a failed stack join is the tool's error, with the PR still linked`, async () => {
+    const updates = armPrOpen()
+    dbRows.current = [lowerRow()]
+    vi.mocked(ensureGithubStack).mockRejectedValueOnce(
+      new Error(`GitHub could not stack PRs #241, #242 (422): nope`)
+    )
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      base: `exp/EXP-11`,
+    })
+
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toBe(
+      `PR #242 is open and linked, but joining the GitHub stack of #241 failed: GitHub could not stack PRs #241, #242 (422): nope`
+    )
+    expect(
+      updates.find((u) => u.set.prUrl === `https://github.com/acme/app/pull/242`)
+    ).toBeDefined()
+  })
+
+  // C7: a second follow-up on the same parent forks the line: a tree.
+  it(`a sibling already on the parent's branch makes a tree: no stack call, no error`, async () => {
+    armPrOpen()
+    dbRows.current = [
+      lowerRow(),
+      { prUrl: `https://github.com/acme/app/pull/250`, branch: `exp/EXP-15` },
+    ]
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      base: `exp/EXP-11`,
+    })
+
+    expect(parseOk(result)).not.toHaveProperty(`stack`)
+    expect(ensureGithubStack).not.toHaveBeenCalled()
+  })
+
+  it(`GitHub's fork refusal (a sibling opened elsewhere) is skipped too`, async () => {
+    armPrOpen()
+    dbRows.current = [lowerRow()]
+    vi.mocked(ensureGithubStack).mockRejectedValueOnce(
+      new GitHubStackForkError(409, `PR #241 already has PR #250 stacked on it`)
+    )
+
+    const result = await tool(`exponential_pr_open`)({
+      issueId: UUID,
+      title: `Upper`,
+      head: `exp/EXP-12`,
+      base: `exp/EXP-11`,
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(parseOk(result)).not.toHaveProperty(`stack`)
   })
 })
 

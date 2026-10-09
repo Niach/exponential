@@ -705,6 +705,7 @@ struct WorkScreen: View {
             truncatedLines: truncatedLines,
             prFallback: hasRunResults ? nil : prFallback,
             stack: guideStack,
+            defaultBranch: issueVM?.board?.defaultBranch,
             onOpenStackMember: { openStackMember($0) },
             onMergeThrough: mergeThroughHandler,
             section: $guideSection,

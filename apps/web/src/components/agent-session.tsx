@@ -13,6 +13,7 @@ import {
   useSyncExternalStore,
 } from "react"
 import { parseDiff, type DiffFile } from "@exp/domain-contract/diff"
+import type { ReviewFilesState } from "@/hooks/use-review-files"
 import { editCard } from "@exp/domain-contract/edit-card"
 import { expToolGroupCaption } from "@exp/domain-contract/exp-tool-group"
 import { linkSegments } from "@/lib/linkify"
@@ -97,7 +98,10 @@ import {
   type WorkFaceKind,
 } from "@/lib/work-faces"
 import { setShowWork, useShowWork } from "@/lib/show-work-pref"
-import { useSessionTurnEvents } from "@/lib/session-turn-events"
+import {
+  firstTurnEndKnown,
+  useSessionTurnEvents,
+} from "@/lib/session-turn-events"
 import { runHasEnded } from "@/lib/past-runs"
 import type { CodingSession } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
@@ -379,6 +383,8 @@ export function AgentSessionView({
   onOpenRun,
   onStart,
   prFiles,
+  prFilesState,
+  onRetryPrFiles,
   prUrl,
   graphBadge,
   renderMobileHeader,
@@ -436,6 +442,11 @@ export function AgentSessionView({
   /** EXP-893: the issue's PR files, the Guide's diff when the run
    *  published no live diff (`useReviewFiles`). */
   prFiles?: DiffFile[] | null
+  /** The PR files fetch behind `prFiles` — the Guide's loading / none /
+   *  error states with no report to stand on. */
+  prFilesState?: ReviewFilesState | null
+  /** Retries that fetch (the Guide's error state). */
+  onRetryPrFiles?: () => void
   /** EXP-893: the PR page — the GitHub button, which EXP-949 confines to
    *  the Guide on every width. */
   prUrl?: string | null
@@ -945,6 +956,10 @@ export function AgentSessionView({
     () => sessionTurns(session.results, turnEvents),
     [session.results, turnEvents]
   )
+  const firstEndKnown = useMemo(
+    () => firstTurnEndKnown(turnEvents, session.startedAt),
+    [turnEvents, session.startedAt]
+  )
   const threadEmpty = thread.items.length === 0 && thread.reply === null
   /** EXP-1175: the status row over the thread / transcript — fixture
    *  `run-row.json` ×4. */
@@ -967,9 +982,6 @@ export function AgentSessionView({
     now: runRowNow,
   })
   const runToolLine = live ? lastToolLine(feed) : null
-  /** EXP-1245: the thread draws its turns (one status row each) once the
-   *  feed told us about any; the transcript keeps the one run-wide row. */
-  const perTurnThread = !showWork && turns.perTurn
   const ownerName =
     teamUsers.find((user) => user.id === session.userId)?.name ?? null
   const lastTurn = turns.turns.length - 1
@@ -980,6 +992,7 @@ export function AgentSessionView({
       device: device.label || session.deviceLabel || `Desktop`,
       runEndedAt: session.endedAt ?? session.updatedAt,
       now: runRowNow,
+      endKnown: index > 0 || firstEndKnown,
     })
     if (!caption) return null
     const open = turn.endedAt === null
@@ -1003,6 +1016,10 @@ export function AgentSessionView({
    *  too and no card waits. */
   const feedPlaceholder =
     feed.length === 0 && (showWork || (threadEmpty && !cardPending))
+  /** EXP-1245: the thread draws its turns (one status row each) once the
+   *  feed told us about any; the transcript keeps the one run-wide row, and
+   *  so does a placeholder (no thread mounted to draw the turn rows). */
+  const perTurnThread = !showWork && turns.perTurn && !feedPlaceholder
   const pendingCardRows = useMemo(
     () => (cardPending ? rows.filter(rowIsPendingCard) : []),
     [cardPending, rows]
@@ -1656,7 +1673,8 @@ export function AgentSessionView({
               <GuideBody
                 groups={resultGroups}
                 files={guideFiles}
-                loading={guideFiles === null && mergeProps?.prState === `open`}
+                filesState={prFilesState}
+                onRetry={onRetryPrFiles}
                 stack={guideStack}
                 onOpenChanges={openSection}
                 renderText={renderResultText}

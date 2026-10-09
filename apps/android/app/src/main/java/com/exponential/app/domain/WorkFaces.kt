@@ -49,19 +49,6 @@ fun faceLabel(face: WorkFaceKind, multipleRuns: Boolean = false): String = when 
     WorkFaceKind.Guide -> GUIDE_FACE_LABEL
 }
 
-/**
- * EXP-1152: the `+N −M` counts of the files the diff draws (the run's live
- * diff, else the issue's loaded PR files) once they are known; `null` while
- * none are. EXP-1251: the tab reads `Guide`, the counts sit in the body.
- * Mirrors web `changesFaceCounts`.
- */
-data class ChangesFaceCounts(val additions: Int, val deletions: Int)
-
-fun changesFaceCounts(totals: Diff.Totals?): ChangesFaceCounts? {
-    if (totals == null || totals.files <= 0) return null
-    return ChangesFaceCounts(totals.additions, totals.deletions)
-}
-
 /** The faces a subject can show, in their fixed order. EXP-1251: the Guide
  *  shows when the run published results OR there is a diff (live, PR or
  *  branch), independent of Run: an issue with an open PR and no run of mine
@@ -263,6 +250,13 @@ fun fallbackFace(shown: WorkFaceKind, available: List<WorkFaceKind>): WorkFaceKi
     }
     return order.firstOrNull { it in available } ?: available.firstOrNull()
 }
+
+/** EXP-1251: a Stack card swap is an ARRIVAL: the new member's issue row
+ *  loads a frame late (no PR yet = no Guide), so the swapped-to Guide is held
+ *  instead of falling back, until that row is in or the reader picks another
+ *  face. True = keep waiting. */
+fun holdSwappedGuide(shown: WorkFaceKind, wanted: WorkFaceKind, swappedRowLoaded: Boolean): Boolean =
+    shown != wanted && wanted == WorkFaceKind.Guide && !swappedRowLoaded
 
 /** The composer footer's model — the `model` config option's value, null
  *  when the engine reported none or a blank. */

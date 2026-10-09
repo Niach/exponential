@@ -117,6 +117,31 @@ export function turnEventsOf(
   return [...first, ...messages, ...log.edges]
 }
 
+/** Whether the FIRST turn's end is a real observation. Its start is the
+ *  run's own (synthetic), so its end is known only when the view watched it
+ *  run: the first event after the run's start is an observed `started`
+ *  edge. Mounting after it ended leaves only the next message to close it,
+ *  and that time includes the idle gap. */
+export function firstTurnEndKnown(
+  events: readonly SessionTurnEvent[],
+  runStartedAt: Date | string | number | null | undefined
+): boolean {
+  const start =
+    runStartedAt === null || runStartedAt === undefined
+      ? Number.NaN
+      : new Date(runStartedAt).getTime()
+  const [first, ...rest] = events
+  // No synthetic run start in front: every turn opened on an observed edge.
+  if (!first || first.kind !== `turn` || first.state !== `started` || first.at !== start) {
+    return true
+  }
+  const next = rest
+    .map((event, order) => ({ event, order }))
+    .filter(({ event }) => Number.isFinite(event.at))
+    .sort((a, b) => a.event.at - b.event.at || a.order - b.order)[0]?.event
+  return next === undefined || (next.kind === `turn` && next.state === `started`)
+}
+
 const logs = new Map<string, TurnLog>()
 
 export function turnLogFor(sessionId: string): TurnLog {

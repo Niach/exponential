@@ -1175,7 +1175,7 @@
       "blurb": "The PR diff of an ISSUE-LESS run (a chat or action run's own pull request, EXP-1194) on the run's Guide: the same file cards as the issue's Guide pages, fed by codingSessions.prFiles, opened from the Reviews \"Agent runs\" row. A teammate's run, so it reads read-only.",
       "order": 3,
       "web": {
-        "route": "/t/$teamSlug/sessions/$runChangesSessionId?view=diff",
+        "route": "/t/$teamSlug/sessions/$runChangesSessionId?view=guide&section=all",
         "anchor": {
           "text": "processing.impl.ResolverImpl",
           "timeoutMs": 60000
@@ -1203,7 +1203,7 @@
         }
       },
       "notes": {
-        "web": "EXP-1204. The run is Jonas's finished chat run (seed `DEMO_SESSION_IDS.runChanges`), so the demo user is a TEAMMATE and the page is `TeammateRunChanges`: the stub header with the GitHub button over the issue Changes body, the file tree in the sidebar on md+, no steer ticket. The owner's own run draws the same files on its run face. Like review-diff the diff is fetched live from GitHub (`codingSessions.prFiles` → the run's `pr_url`), which also insists the PR's repo is a TEAM repository: the seed registers it (`android/kotlin`, an ARCHIVED repo on purpose — a team repo's OPEN PRs would land in the Reviews queue as an external group, and an archived repo can never grow one). The anchor is a line of the first file's own patch (the ResolverImpl import #125 adds).",
+        "web": "EXP-1204. The run is Jonas's finished chat run (seed `DEMO_SESSION_IDS.runChanges`), so the demo user is a TEAMMATE and the page is `TeammateRunGuide`: the stub header with the GitHub button over the run's Guide, read-only, no steer ticket. `?view=guide&section=all` opens the Guide's Show complete diff page (every file card, the file tree beside them on md+), the same page review-diff captures for an issue. The owner's own run draws the same Guide on its run face. Like review-diff the diff is fetched live from GitHub (`codingSessions.prFiles` → the run's `pr_url`), which also insists the PR's repo is a TEAM repository: the seed registers it (`android/kotlin`, an ARCHIVED repo on purpose — a team repo's OPEN PRs would land in the Reviews queue as an external group, and an archived repo can never grow one). The anchor is a line of the first file's own patch (the ResolverImpl import #125 adds).",
         "desktop": "`session:<id>` with `EXP_DEV_RUN_FACE=guide` opens the run on its Guide (the steer viewer's `load_pr_changes` reads an issue-less run's PR files by the RUN id, a teammate's included; no relay ticket is minted); `EXP_DEV_TOOL=reviews` pins the Reviews origin, the way the Reviews run row opens it.",
         "ios": "Styleguide lane: Reviews → the \"Agent runs\" row (matched by the run's subject) pushes `RunChangesView` (`AppRoute.runChanges`); the shot waits for the first `changes-file-row`.",
         "android": "Styleguide lane: Reviews → the first `review-run-row` opens `RunChangesScreen` (`runChanges/{sessionId}`); the shot waits for the first expanded card's unchanged-lines divider, like the store review."

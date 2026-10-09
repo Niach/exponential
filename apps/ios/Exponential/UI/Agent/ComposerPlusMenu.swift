@@ -59,10 +59,10 @@ struct ComposerPlusMenu: View {
         let label = row.label(codex: launch.agent == "codex")
         switch row.kind {
         case .toggle:
-            Toggle(isOn: toggleBinding(row.id)) {
-                rowLabel(row, label: label)
+            GlassToggleRow(label, isOn: toggleBinding(row.id)) {
+                rowIcon(row)
             }
-            .tint(DesignTokens.Palette.primary)
+            .font(.body)
             .padding(.horizontal, 12)
             .frame(minHeight: 48)
             .accessibilityIdentifier(ComposerMenu.rowTestId(row.id))
@@ -97,11 +97,15 @@ struct ComposerPlusMenu: View {
         }
     }
 
+    private func rowIcon(_ row: ComposerMenu.Row) -> some View {
+        AppIcon(Self.icon(row.icon), size: 18, weight: .medium)
+            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            .frame(width: 22)
+    }
+
     private func rowLabel(_ row: ComposerMenu.Row, label: String) -> some View {
         HStack(spacing: 12) {
-            AppIcon(Self.icon(row.icon), size: 18, weight: .medium)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .frame(width: 22)
+            rowIcon(row)
             Text(label)
                 .font(.body)
                 .foregroundStyle(.white)

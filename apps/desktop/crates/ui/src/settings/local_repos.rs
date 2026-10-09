@@ -70,7 +70,6 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
-    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use std::collections::HashMap;
@@ -848,12 +847,12 @@ impl LocalReposPane {
             let repository_id = repository_id.cloned();
             let full_name = repo.full_name.clone();
             let path = path.clone();
-            Button::new((terminal_id, wt_ix))
+            crate::controls::PointerMenu::for_button(Button::new((terminal_id, wt_ix))
                 .ghost()
                 .web_icon_xs()
                 .icon(registry::NAV_TERMINAL)
-                .tooltip("Open a terminal in this worktree")
-                .dropdown_menu(move |mut menu, _window, _cx| {
+                .tooltip("Open a terminal in this worktree"),
+                move |mut menu, _window, _cx| {
                     for agent in &agents {
                         // No matching team repository ⇒ no repository_id ⇒ no
                         // installation token to mint: the agent items stay

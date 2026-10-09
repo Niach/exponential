@@ -35,10 +35,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.exponential.app.domain.Diff
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.GUIDE_FACE_LABEL
 import com.exponential.app.domain.GuideSectionPage
@@ -52,7 +50,6 @@ import com.exponential.app.ui.issue.DiffCounts
 import com.exponential.app.ui.issue.DiffFileCard
 import com.exponential.app.ui.issue.DiffFileListSheet
 import com.exponential.app.ui.issue.diffOpensByDefault
-import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import kotlinx.coroutines.launch
 
@@ -213,35 +210,6 @@ internal fun FileListCircle(count: Int, onClick: () -> Unit) {
                 color = Color.White.copy(alpha = TextEmphasis.Secondary),
             )
         }
-    }
-}
-
-/** `N files  +A −D` — a page's summary row, the shared labels ×4. */
-@Composable
-internal fun ChangesSummaryRow(totals: Diff.Totals) {
-    val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 4.dp).testTag("work-changes-summary"),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        Text(
-            "${totals.files} ${if (totals.files == 1) "file" else "files"}",
-            style = MaterialTheme.typography.labelMedium,
-            color = secondary,
-        )
-        Text(
-            Diff.additionsLabel(totals.additions),
-            color = DesignTokens.Diff.AddFg,
-            fontFamily = FontFamily.Monospace,
-            style = MaterialTheme.typography.labelSmall,
-        )
-        Text(
-            Diff.deletionsLabel(totals.deletions),
-            color = DesignTokens.Diff.DelFg,
-            fontFamily = FontFamily.Monospace,
-            style = MaterialTheme.typography.labelSmall,
-        )
     }
 }
 

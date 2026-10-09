@@ -29,7 +29,7 @@ use gpui::{
 };
 use gpui_component::{
     button::Button,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
@@ -679,7 +679,7 @@ impl ActionView {
                     let delete_view = view.clone();
                     let delete_id = trigger_id.clone();
                     menu.item(
-                        PopupMenuItem::new("Edit")
+                        crate::controls::pointer_label_item("Edit", false)
                             .icon(Icon::from(registry::UI_EDIT))
                             .on_click(move |_, window, cx| {
                                 crate::trigger_dialog::open_edit(

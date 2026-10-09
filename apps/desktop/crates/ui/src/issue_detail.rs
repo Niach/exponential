@@ -830,7 +830,7 @@ impl IssueDetailView {
         let on_pick: crate::session_results::OnPickStackRow = Rc::new(move |issue_id, window, cx| {
             let issue_id = issue_id.to_string();
             let _ = this.update(cx, |this, cx| this.set_guide_open_for(Some(issue_id.clone()), cx));
-            crate::navigation::navigate_replace(window, cx, Screen::IssueDetail { issue_id });
+            crate::navigation::navigate_replace_tab(window, cx, Screen::IssueDetail { issue_id });
         });
         let on_merge: crate::session_results::OnPickStackRow = Rc::new(move |issue_id, window, cx| {
             crate::pr_merge::ask_stack_merge_mode(
@@ -950,11 +950,6 @@ impl IssueDetailView {
     pub(crate) fn forget_tab_state(&mut self, issue_id: &str) {
         let live = self.issue_id.as_deref() == Some(issue_id);
         self.tab_states.forget(issue_id, live);
-    }
-
-    /// EXP-894: every issue tab went (a team switch).
-    pub(crate) fn clear_tab_states(&mut self) {
-        self.tab_states.clear(self.issue_id.as_deref());
     }
 
     /// The area under the fixed header: the scrolling body. (EXP-818 retired

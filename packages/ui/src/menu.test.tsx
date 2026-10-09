@@ -181,6 +181,68 @@ describe(`Menu — trigger (pointer device)`, () => {
   })
 })
 
+describe(`Menu — keyboard into a body submenu`, () => {
+  const openByKeyboard = (name: string) => {
+    const trigger = screen.getByRole(`button`, { name })
+    act(() => trigger.focus())
+    act(() => {
+      fireEvent.keyDown(trigger, { key: `Enter` })
+    })
+  }
+  const openSubByKeyboard = (label: string) => {
+    const subTrigger = screen.getByText(label).closest<HTMLElement>(`[role=menuitem]`)!
+    act(() => subTrigger.focus())
+    act(() => {
+      fireEvent.keyDown(subTrigger, { key: `ArrowRight` })
+    })
+    return subTrigger
+  }
+
+  it(`→ on a searchable body's row lands focus in its search field`, () => {
+    render(
+      <Menu
+        entries={[
+          {
+            kind: `submenu`,
+            label: `Implement issue`,
+            body: (
+              <div>
+                <input data-slot="command-input" aria-label="Search issues" />
+                <div role="option" aria-selected="false">EXP-1</div>
+              </div>
+            ),
+          },
+        ]}
+        trigger={<button type="button">Plus</button>}
+      />
+    )
+    openByKeyboard(`Plus`)
+    openSubByKeyboard(`Implement issue`)
+    const field = screen.getByRole(`textbox`, { name: `Search issues` })
+    expect(document.activeElement).toBe(field)
+    // The caret keys stay the field's: ← does not close the submenu.
+    act(() => {
+      fireEvent.keyDown(field, { key: `ArrowLeft` })
+    })
+    expect(document.querySelector(`[data-slot=dropdown-menu-sub-content]`)).toBeTruthy()
+    expect(document.activeElement).toBe(field)
+  })
+
+  it(`← from a picker row returns to the sub-trigger`, () => {
+    render(<Menu entries={entries()} trigger={<button type="button">More</button>} />)
+    openByKeyboard(`More`)
+    const subTrigger = openSubByKeyboard(`Effort`)
+    const sub = document.querySelector<HTMLElement>(`[data-slot=dropdown-menu-sub-content]`)!
+    const row = within(sub).getAllByRole(`menuitemradio`)[0]!
+    act(() => row.focus())
+    act(() => {
+      fireEvent.keyDown(row, { key: `ArrowLeft` })
+    })
+    expect(document.querySelector(`[data-slot=dropdown-menu-sub-content]`)).toBeNull()
+    expect(document.activeElement).toBe(subTrigger)
+  })
+})
+
 describe(`Menu — sheet (phones)`, () => {
   it(`becomes a bottom sheet below md, submenus as pages with a back row`, () => {
     setViewport(390)

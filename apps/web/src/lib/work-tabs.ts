@@ -149,8 +149,22 @@ export const PREVIEW_ORIGINS: readonly string[] = [
   `agent:recent`,
 ]
 
+/** The preview SLOT an origin opens into — keyed per LIST, so both Inbox
+ * tabs share ONE slot (the desktop's `inbox_slot`). `null` = not a preview. */
+const PREVIEW_SLOTS: Readonly<Record<string, string>> = {
+  inbox: `inbox`,
+  'inbox:my-issues': `inbox`,
+  'agent:recent': `recent`,
+}
+
+export function previewSlotKey(from: string | null | undefined): string | null {
+  return from != null && Object.hasOwn(PREVIEW_SLOTS, from)
+    ? PREVIEW_SLOTS[from]
+    : null
+}
+
 export function isPreviewOrigin(from: string | null | undefined): boolean {
-  return from != null && PREVIEW_ORIGINS.includes(from)
+  return previewSlotKey(from) !== null
 }
 
 /**
@@ -164,7 +178,8 @@ export function isPreviewOrigin(from: string | null | undefined): boolean {
  * tab's stored origin — it only binds the run under a tab that already
  * exists.
  *
- * EXP-1250: a PREVIEW origin (`PREVIEW_ORIGINS`) has one slot per list: a new
+ * EXP-1250: a PREVIEW origin (`PREVIEW_ORIGINS`) has one slot per list
+ * (`previewSlotKey`: both Inbox tabs = one list): a new
  * item REPLACES the tab that list opened last, in place; an item that already
  * has a tab just focuses it, and that tab keeps its own origin (it is not the
  * slot, so the next list step never replaces it).
@@ -180,7 +195,8 @@ export function upsertFromRoute(
     preview || !creates ? stored : (route.from ?? stored)
   // A new tab takes the list's preview slot when it has one, else the end.
   const place = (tab: WorkTab): WorkTabsState => {
-    const slot = preview ? tabs.findIndex((t) => t.from === route.from) : -1
+    const key = previewSlotKey(route.from)
+    const slot = key ? tabs.findIndex((t) => previewSlotKey(t.from) === key) : -1
     if (slot >= 0) tabs[slot] = tab
     else tabs.push(tab)
     return { ...state, tabs }

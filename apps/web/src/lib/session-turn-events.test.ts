@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { sessionTurns } from "@exp/ui"
 import {
   emptyTurnLog,
+  firstTurnEndKnown,
   recordFeedMessages,
   recordTurnSlot,
   turnEventsOf,
@@ -85,5 +86,40 @@ describe(`session turn events`, () => {
     expect(turns[1]?.startedAt).toBe(5_100)
     expect(turns[1]?.endedAt).toBeNull()
     expect(turns[1]?.items.map((item) => item.kind === `text` && item.text)).toEqual([`second`])
+  })
+
+  it(`knows the first turn's end only when the view watched it run`, () => {
+    // Watched: the first event after the run's start is an observed start.
+    const watched = emptyTurnLog()
+    recordFeedMessages(watched, [], START)
+    recordTurnSlot(watched, `started`, START + 50, START + 50)
+    recordTurnSlot(watched, `ended`, START + 50, 4_000)
+    const feed = [{ id: 1, kind: `user_message`, text: `next`, at: 9_000 }]
+    recordFeedMessages(watched, feed, 9_000)
+    expect(firstTurnEndKnown(turnEventsOf(watched, feed, START), START)).toBe(true)
+
+    // Mounted after the first turn ended: only the next message closes it.
+    const late = emptyTurnLog()
+    recordTurnSlot(late, `ended`, null, 8_000)
+    recordFeedMessages(late, [], 8_000)
+    recordFeedMessages(late, feed, 9_000)
+    const events = turnEventsOf(late, feed, START)
+    expect(firstTurnEndKnown(events, START)).toBe(false)
+    const { turns } = sessionTurns([], events)
+    // sessionTurns still closes it at the message; the row drops the time.
+    expect(turns[0]?.endedAt).toBe(9_000)
+  })
+
+  it(`treats a feed without the run's start as observed`, () => {
+    expect(firstTurnEndKnown([], START)).toBe(true)
+    expect(
+      firstTurnEndKnown(
+        [
+          { kind: `turn`, state: `started`, at: 5_000 },
+          { kind: `turn`, state: `ended`, at: 6_000 },
+        ],
+        null
+      )
+    ).toBe(true)
   })
 })

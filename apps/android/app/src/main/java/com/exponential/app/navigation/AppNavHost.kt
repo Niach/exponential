@@ -623,15 +623,15 @@ private fun AuthenticatedNav(
                 },
                 // EXP-980: a blocked-run row opens the run it is about.
                 onOpenSession = { sessionId -> navController.navigate("steer/$sessionId") },
-                // EXP-933: an agent message's issue row → its Results face.
+                // EXP-933: an agent message's issue row → its Guide face.
                 onOpenIssueGuide = { id -> navController.navigate("issue/$id?face=guide") },
             )
         }
         composable("reviews") {
             // Reviews — its own bottom-bar destination beside My Work
             // (EXP-147; it used to be a PersonalScreen segment). EXP-1154: rows
-            // open the issue's Work screen on its Changes face (the review IS
-            // the issue); the long-press sheet keeps issue access.
+            // open the issue's Work screen on its Guide face (the review IS
+            // the issue); rows carry no long-press.
             ReviewsScreen(
                 onOpenChanges = { id -> navController.navigate("issue/$id?face=guide") },
                 // EXP-1194: an Agent runs row opens the run's own PR in OUR diff UI.
@@ -639,7 +639,7 @@ private fun AuthenticatedNav(
             )
         }
         composable("runChanges/{sessionId}") { entry ->
-            // EXP-1194: the Changes face of a run's own issue-less PR.
+            // EXP-1194: the Guide of a run's own issue-less PR.
             val sessionId = entry.arguments?.getString("sessionId").orEmpty()
             RunChangesScreen(
                 sessionId = sessionId,

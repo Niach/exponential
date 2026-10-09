@@ -199,20 +199,19 @@ class StoreScreenshotsTest {
         flow.settle(longer = true)
         composeRule.onNode(hasContentDescription("Back")).performClick()
 
-        // --- PR review: EXP-1154 — a Reviews row opens the issue's Work
-        // screen on its Changes face (the review IS the issue; the white Merge
-        // capsule sits on the floating bar beside the files circle). The file
-        // list comes from GitHub via issues.prFiles — the seed points APP-14
-        // at a real public PR so there is an actual diff to show.
+        // --- PR review: EXP-1154/1251 — a Reviews row opens the issue's Work
+        // screen on its Guide face (the review IS the issue; the white Merge
+        // capsule, tagged the bare `work-merge-pr` PopRects pops, sits on the
+        // floating bar). The PR comes from GitHub via issues.prFiles — the
+        // seed points APP-14 at a real public PR — and with no report its
+        // whole diff is ONE Changes row, counted once the files load.
         flow.waitFor(hasContentDescription("Reviews"), NAV_TIMEOUT)
         composeRule.onNode(hasContentDescription("Reviews")).performClick()
         flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         composeRule.onAllNodes(hasText(REVIEW_ISSUE_TITLE, substring = true)).onFirst().performClick()
-        flow.waitFor(hasTestTag("changes-file-row"), SYNC_TIMEOUT)
-        // EXP-916: every file starts EXPANDED — wait for the first patch's
-        // "N unchanged lines" divider instead of tapping rows open (a tap
-        // would now fold them).
-        flow.waitFor(hasText("unchanged line", substring = true), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag("work-guide"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag("guide-changes-row"), SYNC_TIMEOUT)
+        flow.waitForOptional(hasTestTag("work-merge-pr"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("5_review", popRects = true)
 

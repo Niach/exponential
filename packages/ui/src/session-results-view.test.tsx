@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { guideFileOpener, SessionResultsView } from "./session-results-view"
+import { SessionResultsView } from "./session-results-view"
 import {
   parseSessionResultGroups,
   type SessionResultEntry,
@@ -303,11 +303,7 @@ describe(`SessionResultsView guide`, () => {
     expect(queryByTestId(`guide-complete-diff`)).toBeNull()
   })
 
-  it(`keeps the pre-Guide file opener working until its callers move`, () => {
-    const open = (_path: string) => {}
-    expect(guideFileOpener(files, open)).toBe(open)
-    expect(guideFileOpener([], open)).toBeUndefined()
-    expect(guideFileOpener(null, open)).toBeUndefined()
+  it(`opens a row's first file without a section opener`, () => {
     const opened: string[] = []
     const { getAllByTestId } = render(
       <SessionResultsView

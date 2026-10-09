@@ -1,9 +1,10 @@
 import type * as React from "react"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { contract } from "@exp/domain-contract"
 import { Button } from "./button"
 import { cn } from "./cn"
 import { ListRow } from "./glass-rows"
+import { Menu } from "./menu"
 import {
   TREE_BASE,
   TREE_INDENT,
@@ -12,6 +13,7 @@ import {
   type TreeGuide,
 } from "./tree-guides"
 import { TreeGuides } from "./tree-guides-view"
+import { useIsMobile } from "./use-mobile"
 
 // EXP-1248: THE pull-request row, x4 (fixture `list-item.json`): ONE line,
 // [ring lead · mono identifier · title · quiet word]. No branch line, no PR
@@ -98,13 +100,21 @@ export function PrRow({
   const base = node === `base`
   const centre = treeGuideCentre(depth)
   const half = PR_NODE / 2
+  const clickable = onClick != null
   return (
+    // The row itself is NOT a control: its open target is the inner
+    // `pr-row-open` element, so a trailing ghost sits BESIDE it, never inside
+    // it. A click anywhere on the row still opens (it bubbles to here).
     <ListRow
-      interactive={onClick != null}
       active={active}
       onClick={onClick}
       data-pr-row={node}
-      className={cn(`relative h-10 gap-2 py-0 pr-3 md:h-9`, className)}
+      className={cn(
+        `relative h-10 gap-2 py-0 pr-3 md:h-9`,
+        clickable &&
+          `cursor-pointer transition-colors duration-fast hover:bg-glass-row has-[[data-slot=pr-row-open]:focus-visible]:ring-[3px] has-[[data-slot=pr-row-open]:focus-visible]:ring-ring/50`,
+        className
+      )}
       style={{ ...style, paddingLeft: `${TREE_BASE + depth * TREE_INDENT}px` }}
       {...props}
     >
@@ -125,25 +135,42 @@ export function PrRow({
           style={{ left: centre - 0.5, top: `calc(50% + ${half}px)` }}
         />
       )}
-      <PrNode state={node} />
-      {identifier && (
-        <span className="min-w-[4.5rem] shrink-0 font-mono text-xs text-muted-foreground">
-          {identifier}
-        </span>
-      )}
-      <span
-        className={cn(
-          `min-w-0 flex-1 truncate`,
-          base ? `font-mono text-xs text-muted-foreground` : `text-sm`
-        )}
+      <div
+        data-slot="pr-row-open"
+        role={clickable ? `button` : undefined}
+        tabIndex={clickable ? 0 : undefined}
+        onKeyDown={
+          clickable
+            ? (event) => {
+                if (event.key === `Enter` || event.key === ` `) {
+                  event.preventDefault()
+                  onClick?.()
+                }
+              }
+            : undefined
+        }
+        className="flex min-w-0 flex-1 items-center gap-2 self-stretch outline-none"
       >
-        {title}
-      </span>
-      {word && (
-        <span data-slot="pr-row-word" className="shrink-0 text-[11.5px] text-muted-foreground">
-          {word}
+        <PrNode state={node} />
+        {identifier && (
+          <span className="min-w-[4.5rem] shrink-0 font-mono text-xs text-muted-foreground">
+            {identifier}
+          </span>
+        )}
+        <span
+          className={cn(
+            `min-w-0 flex-1 truncate`,
+            base ? `font-mono text-xs text-muted-foreground` : `text-sm`
+          )}
+        >
+          {title}
         </span>
-      )}
+        {word && (
+          <span data-slot="pr-row-word" className="shrink-0 text-[11.5px] text-muted-foreground">
+            {word}
+          </span>
+        )}
+      </div>
       {trailing}
     </ListRow>
   )
@@ -201,9 +228,14 @@ export interface StackRailMember {
   current?: boolean
 }
 
+/** A touch press held this long opens a stack row's menu (the natives'). */
+const LONG_PRESS_MS = 500
+const LONG_PRESS_SLOP_PX = 10
+
 /** A STACK, top-first, on one rail down to its base-branch row. Hovering a
- *  member offers a ghost "Merge through here" when `onMergeThrough` is set
- *  (phones reach it from the row's long-press menu instead). */
+ *  member offers a ghost "Merge through here" when `onMergeThrough` is set;
+ *  phones have no hover, so there a long-press (or the context menu) opens a
+ *  sheet with that ONE entry instead, as the natives do. */
 export function StackRail<M extends StackRailMember>({
   members,
   baseBranch,
@@ -212,6 +244,7 @@ export function StackRail<M extends StackRailMember>({
   onMergeThrough,
   mergeThroughLabel = contract.diffUi.mergeThrough,
   defaultHoveredKey = null,
+  mobile,
   className,
 }: {
   /** Top member first. */
@@ -224,11 +257,79 @@ export function StackRail<M extends StackRailMember>({
   mergeThroughLabel?: string
   /** The styleguide pins one row's hover state. */
   defaultHoveredKey?: string | null
+  /** Forces the phone (long-press) or desktop (hover) shape; default = the
+   *  viewport (`useIsMobile`). */
+  mobile?: boolean
   className?: string
 }) {
+  const viewportMobile = useIsMobile()
+  const phone = mobile ?? viewportMobile
   const [hovered, setHovered] = useState<string | null>(defaultHoveredKey)
+  const [menuFor, setMenuFor] = useState<M | null>(null)
+  const press = useRef<{ x: number; y: number; timer: number } | null>(null)
+  // The click a long-press releases into is the gesture's tail, not an open.
+  const swallowClick = useRef(false)
+  useEffect(
+    () => () => {
+      if (press.current) window.clearTimeout(press.current.timer)
+    },
+    []
+  )
   const leave = (key: string) =>
     setHovered((current) => (current === key ? null : current))
+  const cancelPress = () => {
+    if (press.current) window.clearTimeout(press.current.timer)
+    press.current = null
+  }
+  const openMenu = (member: M) => {
+    cancelPress()
+    swallowClick.current = true
+    setMenuFor(member)
+  }
+
+  const phoneHandlers = (member: M): Omit<React.ComponentProps<`div`>, `onClick`> =>
+    phone && onMergeThrough
+      ? {
+          onPointerDown: (event) => {
+            cancelPress()
+            swallowClick.current = false
+            if (event.pointerType === `mouse`) return
+            press.current = {
+              x: event.clientX,
+              y: event.clientY,
+              timer: window.setTimeout(() => openMenu(member), LONG_PRESS_MS),
+            }
+          },
+          onPointerMove: (event) => {
+            const at = press.current
+            if (at && Math.hypot(event.clientX - at.x, event.clientY - at.y) > LONG_PRESS_SLOP_PX) {
+              cancelPress()
+            }
+          },
+          onPointerUp: cancelPress,
+          onPointerCancel: cancelPress,
+          onContextMenu: (event) => {
+            event.preventDefault()
+            openMenu(member)
+          },
+          onClickCapture: (event) => {
+            if (!swallowClick.current) return
+            swallowClick.current = false
+            event.stopPropagation()
+            event.preventDefault()
+          },
+        }
+      : {
+          onMouseEnter: () => setHovered(member.key),
+          onMouseLeave: () => leave(member.key),
+          onFocus: () => setHovered(member.key),
+          onBlur: (event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+              leave(member.key)
+            }
+          },
+        }
+
   return (
     <div data-slot="stack-rail" className={cn(`flex flex-col`, className)}>
       {members.map((member, index) => (
@@ -241,16 +342,9 @@ export function StackRail<M extends StackRailMember>({
           rail={{ above: index > 0, below: true }}
           active={member.current}
           onClick={onOpen ? () => onOpen(member) : undefined}
-          onMouseEnter={() => setHovered(member.key)}
-          onMouseLeave={() => leave(member.key)}
-          onFocus={() => setHovered(member.key)}
-          onBlur={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-              leave(member.key)
-            }
-          }}
+          {...phoneHandlers(member)}
           trailing={
-            onMergeThrough && hovered === member.key ? (
+            !phone && onMergeThrough && hovered === member.key ? (
               <Button
                 variant="ghost"
                 size="xs"
@@ -268,6 +362,27 @@ export function StackRail<M extends StackRailMember>({
         />
       ))}
       <PrRow node="base" title={baseBranch} rail={{ above: members.length > 0 }} />
+      {phone && onMergeThrough && (
+        <Menu
+          mode="sheet"
+          open={menuFor !== null}
+          onOpenChange={(open) => {
+            if (!open) setMenuFor(null)
+          }}
+          aria-label={menuFor?.identifier}
+          data-testid="stack-rail-menu"
+          entries={[
+            {
+              kind: `item`,
+              id: `merge-through`,
+              label: mergeThroughLabel,
+              onSelect: () => {
+                if (menuFor) onMergeThrough(menuFor)
+              },
+            },
+          ]}
+        />
+      )}
     </div>
   )
 }

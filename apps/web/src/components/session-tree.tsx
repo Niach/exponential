@@ -59,14 +59,13 @@ export interface TreeListRow {
   identifier?: string | null
 }
 
+// EXP-1248: lists never fold, every child is always visible.
 const NO_FOLDS: ReadonlySet<string> = new Set<string>()
 
 /** EXP-996: a session tree's rows in draw order, with the EXP-965 connector
  *  geometry: the one model behind every drawn list. */
 export function useSessionTreeRows<T extends TreeListRow>(
-  rows: readonly T[],
-  // Kept for old callers; EXP-1248 lists never fold.
-  _collapsed: ReadonlySet<string> = NO_FOLDS
+  rows: readonly T[]
 ): { flat: SessionTreeFlatRow<CodingSession>; row: T | undefined; guide: TreeGuide }[] {
   return useMemo(() => {
     const byId = new Map(rows.map((row) => [row.session.id, row]))

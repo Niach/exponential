@@ -153,10 +153,10 @@ struct GithubRepoPicker: View {
     // suspended installation lists nothing — say why (REV2-29); the footer
     // renders in every installed state.
     @ViewBuilder private func installedList(_ data: GithubReposResult) -> some View {
-        let trimmed = query.trimmingCharacters(in: .whitespaces)
-        let repos = data.repos.filter {
-            trimmed.isEmpty || $0.fullName.localizedCaseInsensitiveContains(trimmed)
-        }
+        let repos = RepositoryPickerRules.filter(
+            data.repos.map { RepositoryPickerRow(id: $0.fullName, fullName: $0.fullName, isPrivate: $0.`private`) },
+            query: query
+        )
         let suspended = data.installations.filter { $0.isSuspended }
         let empty = data.repos.isEmpty
         VStack(alignment: .leading, spacing: 8) {
@@ -171,15 +171,15 @@ struct GithubRepoPicker: View {
                     .textInputAutocapitalization(.never)
                     .autocorrectionDisabled()
 
-                if repos.isEmpty {
-                    Text(GithubCopy.noMatch)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(.vertical, 8)
-                }
-
-                ForEach(repos) { repo in
-                    repoRow(repo)
+                // THE repository rows (`RepositoryPickerList`); a tap ADDS
+                // the repo, the row spins while it does.
+                RepositoryPickerList(
+                    rows: repos,
+                    busyId: adding,
+                    emptyText: GithubCopy.noMatch
+                ) { row in
+                    guard let repo = data.repos.first(where: { $0.fullName == row.id }) else { return }
+                    Task { await add(repo) }
                 }
             } else if suspended.isEmpty {
                 Text(GithubCopy.nonePushable)
@@ -191,34 +191,6 @@ struct GithubRepoPicker: View {
 
             footer(data)
         }
-    }
-
-    private func repoRow(_ repo: GithubPickerRepo) -> some View {
-        Button {
-            Task { await add(repo) }
-        } label: {
-            HStack(spacing: 10) {
-                AppIcon(AppIcons.uiGithub, size: AppIcon.Size.small)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text(repo.fullName)
-                    .font(.subheadline.monospaced())
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                Spacer()
-                if adding == repo.fullName {
-                    ProgressView().controlSize(.small).tint(.white)
-                } else if repo.`private` {
-                    AppIcon(AppIcons.uiPrivate, size: 11)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .glassRow()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .disabled(adding != nil)
     }
 
     // GitHub-side App suspension (REV2-29): the installation lists no repos

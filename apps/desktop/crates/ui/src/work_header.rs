@@ -498,7 +498,10 @@ fn run_menu(spec: &FaceToggle, on_pick_run: OnPickRun, cx: &App) -> AnyElement {
                 let on_pick_run = on_pick_run.clone();
                 let label = SharedString::from(entry.label.clone());
                 let item = PopupMenuItem::element(move |_window, _cx| {
-                    crate::run_rows::run_entry_row(agent, mark, label.clone())
+                    crate::controls::pointer_fill(
+                        crate::run_rows::run_entry_row(agent, mark, label.clone()),
+                        false,
+                    )
                 })
                 .checked(is_checked);
                 menu = menu.item(

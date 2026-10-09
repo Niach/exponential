@@ -42,6 +42,7 @@ import com.exponential.app.domain.canOfferFixConflicts
 import com.exponential.app.domain.codingTarget
 import com.exponential.app.domain.faceShowsContextMenu
 import com.exponential.app.domain.fallbackFace
+import com.exponential.app.domain.holdSwappedGuide
 import com.exponential.app.domain.isSessionLive
 import com.exponential.app.domain.issueResultsRun
 import com.exponential.app.domain.parseSessionResultGroups
@@ -130,6 +131,9 @@ fun WorkScreen(
     // ── Screen state (survives rotation and process death) ─────────────────
     var faceName by rememberSaveable { mutableStateOf(initialFace?.name) }
     var initialFacePending by rememberSaveable { mutableStateOf(initialFace != null) }
+    // EXP-1251: a Stack card swap is an arrival too: the new member's issue
+    // row loads a frame late, so its Guide is held until that row is in.
+    var swapGuidePending by rememberSaveable { mutableStateOf(false) }
     var shownSessionId by rememberSaveable {
         mutableStateOf((subject as? WorkSubject.Session)?.id)
     }
@@ -363,7 +367,12 @@ fun WorkScreen(
     // EXP-933: an ARRIVAL face (`?face=guide`) waits for its data to sync
     // instead of being overwritten by the fallback on the first empty frame;
     // it settles once it shows, or once the reader picks another face.
-    LaunchedEffect(face, wantedFace) {
+    LaunchedEffect(face, wantedFace, issue?.id) {
+        if (swapGuidePending) {
+            val swappedRowLoaded = issue != null && issue.id == subjectIssueId
+            if (holdSwappedGuide(face, wantedFace, swappedRowLoaded)) return@LaunchedEffect
+            swapGuidePending = false
+        }
         if (initialFacePending) {
             if (face == wantedFace || wantedFace != initialFace) initialFacePending = false
             return@LaunchedEffect
@@ -569,12 +578,14 @@ fun WorkScreen(
     val guideStack = stackView?.let { view ->
         GuideStack(
             view = view,
+            boardDefaultBranch = issueState?.board?.defaultBranch,
             onOpen = { memberId ->
                 subjectIssueId = memberId
                 shownSessionId = null
                 pinnedByUser = false
                 guideSectionName = null
                 faceName = WorkFaceKind.Guide.name
+                swapGuidePending = true
             },
             onMergeThrough = if (mergeControl != null) {
                 { memberId ->

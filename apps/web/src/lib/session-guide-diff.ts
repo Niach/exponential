@@ -41,9 +41,22 @@ export async function loadGuideDiff(
     const prUrl = guideDiffPrUrl(run, topicPrUrl)
     const pr = parsePrUrl(prUrl)
     if (pr) {
-      const { loadPrFiles } = await import(`@/lib/integrations/pr-files`)
-      const answer = await loadPrFiles(prUrl, pr.number)
-      return answer.files.map((file) => ({
+      // FRESH, never the 60s PR-files cache: an agent that fixed its paths
+      // and pushed seconds ago must not be told they are still missing.
+      const [{ fetchPullFiles }, { resolveRepoInstallationTokenInfo }] =
+        await Promise.all([
+          import(`@/lib/integrations/github-pr`),
+          import(`@/lib/integrations/github-app`),
+        ])
+      const resolved = await resolveRepoInstallationTokenInfo(pr.repo)
+      const files = await fetchPullFiles(
+        pr.repo,
+        pr.number,
+        resolved?.token,
+        undefined,
+        { fresh: true }
+      )
+      return files.map((file) => ({
         path: file.filename,
         previousPath: file.previous_filename ?? null,
       }))

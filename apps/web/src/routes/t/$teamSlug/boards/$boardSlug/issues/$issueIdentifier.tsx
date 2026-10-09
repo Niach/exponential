@@ -71,6 +71,7 @@ import {
   guideSectionPage,
   isSessionLive,
   issueResultsRun,
+  resultsCandidateRows,
   parseGuideSearch,
   type GuideSearch,
   type GuideSectionKey,
@@ -163,6 +164,19 @@ function IssueDetailPage() {
         : undefined,
     [issue?.id]
   )
+  // EXP-1251: a run on ANOTHER issue (or a batch run) may tag Guide topics
+  // with this issue's PR (it stacked this PR on its own), so the third step
+  // of `issueResultsRun` reads the team's runs, live only while a PR exists.
+  const issuePrUrl = issue?.prUrl ?? null
+  const { data: teamRunRows } = useLiveQuery(
+    (query) =>
+      team && issuePrUrl
+        ? query
+            .from({ s: codingSessionCollection })
+            .where(({ s }) => eq(s.teamId, team.id))
+        : undefined,
+    [team?.id, issuePrUrl]
+  )
   const { tabs } = useWorkTabs(team?.id)
   const boundRunId = issue
     ? tabs.find((tab) => tab.kind === `issue` && tab.issueId === issue.id)
@@ -240,7 +254,10 @@ function IssueDetailPage() {
     () =>
       issue
         ? issueResultsRun(
-            (runRows ?? []) as CodingSession[],
+            resultsCandidateRows(
+              (runRows ?? []) as CodingSession[],
+              (teamRunRows ?? []) as CodingSession[]
+            ),
             issue.id,
             boundRunId?.kind === `issue` ? boundRunId.runId : undefined,
             currentUserId,
@@ -248,7 +265,7 @@ function IssueDetailPage() {
             issue.prUrl
           )
         : null,
-    [runRows, issue, boundRunId, currentUserId, now]
+    [runRows, teamRunRows, issue, boundRunId, currentUserId, now]
   )
   const resultGroups = useMemo(
     () =>
@@ -267,8 +284,10 @@ function IssueDetailPage() {
   })
   const guideGroups = useMemo(
     () =>
-      hasRunResults ? resultGroups : prDescriptionGroups(prDescriptionState),
-    [hasRunResults, resultGroups, prDescriptionState]
+      hasRunResults
+        ? resultGroups
+        : prDescriptionGroups(prDescriptionState, guideFiles),
+    [hasRunResults, resultGroups, prDescriptionState, guideFiles]
   )
   // EXP-1251: a section page — null while its files load or for a stale
   // section (then the Guide shows).
@@ -332,7 +351,7 @@ function IssueDetailPage() {
   )
   // EXP-1248: a stack member REPLACES the subject in place — the same face,
   // never a new tab.
-  const { stack, memberTarget } = useIssueStack(issue, team?.id)
+  const { stack, memberTarget, defaultBranch } = useIssueStack(issue, team?.id)
   const openStackMember = useCallback(
     (issueId: string) => {
       const target = memberTarget(issueId)
@@ -395,6 +414,7 @@ function IssueDetailPage() {
   const stackCard = stack ? (
     <GuideStackCard
       stack={stack}
+      defaultBranch={defaultBranch}
       onOpen={openStackMember}
       onMergeThrough={canMerge ? mergeThrough.request : undefined}
     />

@@ -137,7 +137,7 @@ fun MarkdownEditor(
     }
 
     val pickImage = rememberMarkdownImagePicker(model, onUploadImage, onUploadMedia)
-    val pickFile = rememberMarkdownFilePicker(model, onUploadImage, onAttachFile, onUploadMedia)
+    val pickFile = rememberMarkdownFilePicker(onAttachFile)
 
     // The formatting toolbar is rendered by a screen-level overlay so it can
     // float above the keyboard (see ProvideMarkdownToolbar). Register this
@@ -283,17 +283,10 @@ fun rememberMarkdownImagePicker(
  * inlines (the image button, paste and drop still do). Web `routeFilePicks`.
  *
  * Returns null when there is nowhere to put a file, which is also the signal
- * that the toolbar should keep its plain image button. [onUploadImage] and
- * [onUploadMedia] stay in the signature for the hosts that pass them.
+ * that the toolbar should keep its plain image button.
  */
 @Composable
-@Suppress("UNUSED_PARAMETER")
-fun rememberMarkdownFilePicker(
-    model: EditorModel,
-    onUploadImage: (suspend (uri: Uri) -> String?)?,
-    onAttachFile: ((Uri) -> Unit)?,
-    onUploadMedia: (suspend (media: PreparedMedia) -> String?)? = null,
-): (() -> Unit)? {
+fun rememberMarkdownFilePicker(onAttachFile: ((Uri) -> Unit)?): (() -> Unit)? {
     val currentAttach by rememberUpdatedState(onAttachFile)
     val launcher = rememberLauncherForActivityResult(
         ActivityResultContracts.OpenDocument(),
@@ -304,44 +297,6 @@ fun rememberMarkdownFilePicker(
     return remember(launcher, onAttachFile) {
         if (onAttachFile == null) null else ({ launcher.launch(arrayOf("*/*")) })
     }
-}
-
-/**
- * Append an already-classified inline image to [model]'s description and run
- * the host [uploader] against the inserted row (EXP-327).
- *
- * Shared by the toolbar's "Files" pick and the issue-detail fallback for an
- * image that reached the attachment path anyway, so both produce the identical
- * end-of-description block with the same preview/retry lifecycle as the photo
- * picker.
- */
-suspend fun appendPickedImage(
-    context: Context,
-    model: EditorModel,
-    uri: Uri,
-    contentType: String,
-    uploader: suspend (Uri) -> String?,
-) {
-    // ALL ContentResolver work rides Dispatchers.IO (same rule as
-    // IssueDetailViewModel.runUpload): callers launch this on the composition's
-    // Main scope, and an OpenDocument pick from a cloud-backed DocumentsProvider
-    // streams the bytes over the network inside openInputStream/readBytes.
-    // Snapshot-state writes stay on the caller's dispatcher.
-    val pending = withContext(Dispatchers.IO) {
-        val bytes = MarkdownMediaUtils.readBytes(context, uri) ?: return@withContext null
-        val name = MarkdownMediaUtils.guessFilename(context, uri)
-        val size = MarkdownMediaUtils.probeSize(context, uri)
-        PendingImage(uri, bytes, name, contentType, size.width, size.height)
-    }
-    if (pending == null) {
-        // No preview bytes — upload first, then insert (nothing to show while
-        // the upload runs).
-        val url = runCatching { uploader(uri) }.getOrNull() ?: return
-        model.appendImageUrl(url, alt = "image")
-        return
-    }
-    val rowId = model.appendImageUrl(draftUrl(), alt = "image", pending = pending)
-    model.runUpload(rowId) { uploader(uri) }
 }
 
 /** The Media3-backed [MediaPreparer] from the Hilt graph (EXP-824). */
@@ -359,11 +314,7 @@ fun rememberMediaPreparer(): MediaPreparer {
  * [uploader] runs under "Uploading…" and the row's URL swaps to what it
  * returns (a real attachment URL, or the create screen's placeholder). A
  * failure keeps the row with a Retry badge; the retry reuses the prepared
- * bytes instead of transcoding again. [atEnd] appends instead of splitting
- * the focused run (the file-picker path, EXP-327 parity with images).
- *
- * Also the issue-detail fallback for a media file that reached the FILE
- * path, so both produce the identical block with the same lifecycle.
+ * bytes instead of transcoding again.
  */
 suspend fun insertPickedMedia(
     context: Context,
@@ -372,18 +323,13 @@ suspend fun insertPickedMedia(
     contentType: String,
     preparer: MediaPreparer,
     uploader: suspend (PreparedMedia) -> String?,
-    atEnd: Boolean = false,
 ) {
     val filename = withContext(Dispatchers.IO) { MarkdownMediaUtils.guessFilename(context, uri) }
     val label = mediaLinkLabel(filename)
     // An empty-bytes placeholder keeps the row out of removeDanglingDrafts
     // until the prepared bytes replace it.
     val placeholder = PendingImage(uri, ByteArray(0), filename, contentType, null, null, isMedia = true)
-    val rowId = if (atEnd) {
-        model.appendMediaUrl(draftUrl(), label, placeholder)
-    } else {
-        model.insertMediaUrl(draftUrl(), label, placeholder)
-    }
+    val rowId = model.insertMediaUrl(draftUrl(), label, placeholder)
     var prepared: PreparedMedia? = null
     model.runUpload(rowId) {
         val ready = prepared ?: run {

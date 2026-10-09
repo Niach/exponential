@@ -396,6 +396,11 @@ struct TabEntry {
     /// the chip's lead says: an issue tab whose run is going wears the run's
     /// mark instead of the issue's status glyph.
     live: bool,
+    /// EXP-1250: the list preview slot this tab IS — set only when a list
+    /// step opened it ([`preview_slot`]), never derived from `origin`, so a
+    /// tab the user opened elsewhere and merely focused from a list is never
+    /// replaced by the next step.
+    slot: Option<PreviewSlot>,
 }
 
 impl TabEntry {
@@ -414,6 +419,7 @@ impl TabEntry {
             issue_id,
             run_id,
             live: false,
+            slot: None,
         }
     }
 
@@ -621,23 +627,71 @@ fn swap_team_tabs(
     next
 }
 
-/// EXP-1250 — the Inbox's ONE reusable tab (a preview slot): a detail opened
-/// FROM the Inbox list (an explicit Inbox origin) replaces the tab another
-/// Inbox pick opened, instead of growing the strip by one chip per step.
-/// `None` = push a new tab. (An existing tab for the SAME work is found
-/// before this and simply focused.) Pure.
-fn inbox_slot(tabs: &[TabEntry], pending: Option<&PendingOrigin>) -> Option<usize> {
+/// EXP-1250 — a list's ONE reusable tab (a preview slot), keyed per LIST
+/// like the web's `previewSlotKey`: both Inbox tabs (notifications, My
+/// Issues) share one, Agent › Recent has its own.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum PreviewSlot {
+    Inbox,
+    Recent,
+}
+
+/// The slot an open lands in: only an EXPLICIT list origin is a list step.
+fn preview_slot_key(pending: Option<&PendingOrigin>) -> Option<PreviewSlot> {
     let Some(PendingOrigin::Explicit(origin)) = pending else {
         return None;
     };
-    if origin.tool != crate::sidebar::ToolWindow::Inbox {
-        return None;
+    match origin.tool {
+        crate::sidebar::ToolWindow::Inbox => Some(PreviewSlot::Inbox),
+        crate::sidebar::ToolWindow::RecentRuns => Some(PreviewSlot::Recent),
+        _ => None,
     }
-    tabs.iter().position(|tab| {
-        tab.origin
-            .as_ref()
-            .is_some_and(|origin| origin.tool == crate::sidebar::ToolWindow::Inbox)
-    })
+}
+
+/// EXP-1250 — the tab a list step REPLACES: the one that list's previous
+/// step opened (its explicit slot marker), instead of growing the strip by
+/// one chip per step. `None` = push a new tab (which becomes the slot). An
+/// existing tab for the SAME work is found before this and simply focused.
+/// Pure.
+fn preview_slot(tabs: &[TabEntry], pending: Option<&PendingOrigin>) -> Option<usize> {
+    let key = preview_slot_key(pending)?;
+    tabs.iter().position(|tab| tab.slot == Some(key))
+}
+
+/// EXP-1250 — a navigation lands on a tab that ALREADY holds the work. A
+/// list step (a preview origin) keeps the tab's own list and slot, mirroring
+/// the web's `nextFrom`: a tab opened from a board and focused from the Inbox
+/// stays a board tab and never becomes the Inbox slot. Any other real
+/// navigation refreshes the list (latest wins); an explicit non-list origin
+/// or a rail open promotes a slot tab to a kept one. Pure.
+fn focus_existing_tab(tab: &mut TabEntry, pending: Option<&PendingOrigin>, derived: Option<TabOrigin>) {
+    if preview_slot_key(pending).is_some() {
+        return;
+    }
+    tab.origin = resolve_tab_origin(pending, tab.origin.as_ref(), derived);
+    if matches!(
+        pending,
+        Some(PendingOrigin::Explicit(_)) | Some(PendingOrigin::Rail)
+    ) {
+        tab.slot = None;
+    }
+}
+
+/// EXP-1248 — the tab a Stack card pick rebinds IN PLACE: the one showing
+/// the screen being replaced. Pure.
+fn replaced_tab(tabs: &[TabEntry], pending: Option<&PendingOrigin>) -> Option<usize> {
+    let Some(PendingOrigin::ReplaceTab(from)) = pending else {
+        return None;
+    };
+    tabs.iter().position(|tab| tab.holds(from))
+}
+
+/// EXP-1248 — point `tab` at `screen` (a fresh issue binding, no run), keeping
+/// its list and slot. Returns the old entry so the caller forgets its state.
+fn rebind_tab(tab: &mut TabEntry, screen: Screen, issue_id: Option<String>) -> TabEntry {
+    let mut fresh = TabEntry::new(screen, tab.origin.clone(), issue_id);
+    fresh.slot = tab.slot;
+    std::mem::replace(tab, fresh)
 }
 
 /// EXP-923 — the tabs a MERGE end takes with it: the ones bound to a run in
@@ -693,7 +747,9 @@ fn resolve_tab_origin(
     match pending {
         None => existing.cloned(),
         Some(PendingOrigin::Explicit(origin)) => Some(origin.clone()),
-        Some(PendingOrigin::Derive) => derived.or_else(|| existing.cloned()),
+        Some(PendingOrigin::Derive) | Some(PendingOrigin::ReplaceTab(_)) => {
+            derived.or_else(|| existing.cloned())
+        }
         // EXP-923: the rail's Running rows lend no list either.
         Some(PendingOrigin::Rail) | Some(PendingOrigin::LiveRail) => None,
     }
@@ -1573,9 +1629,8 @@ impl ScreensPanel {
             // relay socket or an engine drain alive); they rebuild lazily
             // when their tab is activated again.
             self.shutdown_all_sessions(cx);
-            // EXP-894: the per-tab drafts go with their tabs.
-            self.issue_detail
-                .update(cx, |detail, _| detail.clear_tab_states());
+            // EXP-894/EXP-1250: the per-tab drafts stay stashed: their tabs
+            // are parked, not closed, and come back with them.
             // The sidebar selections are team-scoped too (trunk-relative
             // paths / commit hashes of the OLD team's clone).
             self.rail.update(cx, |rail, cx| {
@@ -1656,12 +1711,9 @@ impl ScreensPanel {
         match existing {
             Some(ix) => {
                 // Dedupe keeps ONE tab; a real re-navigation refreshes its
-                // list (LATEST wins), a plain activation keeps it.
-                self.tabs[ix].origin = resolve_tab_origin(
-                    pending_origin.as_ref(),
-                    self.tabs[ix].origin.as_ref(),
-                    derived,
-                );
+                // list (LATEST wins), a plain activation or a list step
+                // keeps it (EXP-1250).
+                focus_existing_tab(&mut self.tabs[ix], pending_origin.as_ref(), derived);
                 self.tabs[ix].screen = screen.clone();
                 if self.tabs[ix].issue_id.is_none() {
                     self.tabs[ix].issue_id = issue_of_screen.clone();
@@ -1672,19 +1724,26 @@ impl ScreensPanel {
             }
             None if opens_no_tab => {}
             None => {
-                let entry = TabEntry::new(
-                    screen.clone(),
-                    resolve_tab_origin(pending_origin.as_ref(), None, derived),
-                    issue_of_screen.clone(),
-                );
-                match inbox_slot(&self.tabs, pending_origin.as_ref()) {
-                    // EXP-1250: the Inbox's preview slot — the step replaces
-                    // the tab the previous Inbox pick opened.
-                    Some(ix) => {
-                        let replaced = std::mem::replace(&mut self.tabs[ix], entry);
-                        self.forget_tab(&replaced, cx);
+                if let Some(ix) = replaced_tab(&self.tabs, pending_origin.as_ref()) {
+                    // EXP-1248: a Stack card pick swaps the tab's issue.
+                    let replaced = rebind_tab(&mut self.tabs[ix], screen.clone(), issue_of_screen.clone());
+                    self.forget_tab(&replaced, cx);
+                } else {
+                    let mut entry = TabEntry::new(
+                        screen.clone(),
+                        resolve_tab_origin(pending_origin.as_ref(), None, derived),
+                        issue_of_screen.clone(),
+                    );
+                    entry.slot = preview_slot_key(pending_origin.as_ref());
+                    match preview_slot(&self.tabs, pending_origin.as_ref()) {
+                        // EXP-1250: the list's preview slot — the step
+                        // replaces the tab the previous step opened.
+                        Some(ix) => {
+                            let replaced = std::mem::replace(&mut self.tabs[ix], entry);
+                            self.forget_tab(&replaced, cx);
+                        }
+                        None => self.tabs.push(entry),
                     }
-                    None => self.tabs.push(entry),
                 }
             }
         }
@@ -4086,8 +4145,9 @@ mod tests {
         assert_eq!(parse_run_face(None), None);
     }
     use super::{
-        inbox_slot, live_tab_plan, opens_no_tab, swap_team_tabs, tabs_closed_by_merge,
-        LivePlanOp, TabEntry, TabLiveView, TablessWork,
+        focus_existing_tab, live_tab_plan, opens_no_tab, preview_slot, preview_slot_key,
+        rebind_tab, replaced_tab, swap_team_tabs, tabs_closed_by_merge, LivePlanOp,
+        PreviewSlot, TabEntry, TabLiveView, TablessWork,
     };
     use std::collections::HashMap;
     use crate::navigation::{PendingOrigin, Screen, TabOrigin};
@@ -4142,6 +4202,38 @@ mod tests {
         assert!(fresh.is_empty());
     }
 
+    /// The `sync_tabs` None-arm for a list step, minus the views: replace the
+    /// list's slot tab or push a new one that becomes the slot.
+    fn open_new(tabs: &mut Vec<TabEntry>, id: &str, pending: &PendingOrigin) {
+        let origin = match pending {
+            PendingOrigin::Explicit(origin) => Some(origin.clone()),
+            _ => None,
+        };
+        let mut entry = issue_tab(id, origin);
+        entry.slot = preview_slot_key(Some(pending));
+        match preview_slot(tabs, Some(pending)) {
+            Some(ix) => tabs[ix] = entry,
+            None => tabs.push(entry),
+        }
+    }
+
+    /// The whole lookup: an existing tab for the work is focused, else a new
+    /// one opens (into a slot when the origin has one).
+    fn open(tabs: &mut Vec<TabEntry>, id: &str, pending: &PendingOrigin) {
+        match tabs.iter().position(|tab| tab.issue_id.as_deref() == Some(id)) {
+            Some(ix) => focus_existing_tab(&mut tabs[ix], Some(pending), None),
+            None => open_new(tabs, id, pending),
+        }
+    }
+
+    fn inbox_tab(tab: crate::sidebar::InboxTab) -> PendingOrigin {
+        PendingOrigin::Explicit(TabOrigin {
+            tool: ToolWindow::Inbox,
+            board_id: None,
+            inbox_tab: Some(tab),
+        })
+    }
+
     /// EXP-1250: N issues opened from the Inbox list = ONE tab (the preview
     /// slot is replaced in place); any other open still pushes its own.
     #[test]
@@ -4149,21 +4241,87 @@ mod tests {
         let inbox = PendingOrigin::Explicit(origin(ToolWindow::Inbox));
         let mut tabs: Vec<TabEntry> = vec![issue_tab("pinned", None)];
         for id in ["i1", "i2", "i3", "i4"] {
-            let entry = issue_tab(id, Some(origin(ToolWindow::Inbox)));
-            match inbox_slot(&tabs, Some(&inbox)) {
-                Some(ix) => tabs[ix] = entry,
-                None => tabs.push(entry),
-            }
+            open(&mut tabs, id, &inbox);
         }
         assert_eq!(tab_ids(&tabs), ["pinned", "i4"]);
-        // A derived or rail open is not an Inbox step: it pushes.
-        assert_eq!(inbox_slot(&tabs, Some(&PendingOrigin::Derive)), None);
-        assert_eq!(inbox_slot(&tabs, Some(&PendingOrigin::Rail)), None);
-        assert_eq!(inbox_slot(&tabs, None), None);
-        assert_eq!(
-            inbox_slot(&tabs, Some(&PendingOrigin::Explicit(origin(ToolWindow::RecentRuns)))),
-            None
-        );
+        // A derived or rail open is not a list step: it pushes.
+        assert_eq!(preview_slot(&tabs, Some(&PendingOrigin::Derive)), None);
+        assert_eq!(preview_slot(&tabs, Some(&PendingOrigin::Rail)), None);
+        assert_eq!(preview_slot(&tabs, None), None);
+        // My Issues is the same LIST slot as the notifications.
+        open(&mut tabs, "m1", &inbox_tab(crate::sidebar::InboxTab::MyIssues));
+        assert_eq!(tab_ids(&tabs), ["pinned", "m1"]);
+        // Agent › Recent has its OWN slot: stepping it keeps one more tab,
+        // and never replaces the Inbox's.
+        let recent = PendingOrigin::Explicit(origin(ToolWindow::RecentRuns));
+        for id in ["r1", "r2", "r3"] {
+            open(&mut tabs, id, &recent);
+        }
+        assert_eq!(tab_ids(&tabs), ["pinned", "m1", "r3"]);
+        assert_eq!(tabs[1].slot, Some(PreviewSlot::Inbox));
+        assert_eq!(tabs[2].slot, Some(PreviewSlot::Recent));
+        open(&mut tabs, "i5", &inbox);
+        assert_eq!(tab_ids(&tabs), ["pinned", "i5", "r3"]);
+    }
+
+    /// EXP-1250 (web: "focuses an existing tab for the issue and keeps its
+    /// origin"): an Inbox pick for work a board tab already shows focuses
+    /// that tab WITHOUT making it the slot, so the next Inbox step opens its
+    /// own tab instead of closing the board one.
+    #[test]
+    fn an_inbox_pick_on_an_open_tab_keeps_its_origin_and_never_makes_it_the_slot() {
+        let inbox = PendingOrigin::Explicit(origin(ToolWindow::Inbox));
+        let board = TabOrigin {
+            tool: ToolWindow::BoardIssues,
+            board_id: Some("b".into()),
+            inbox_tab: None,
+        };
+        let mut tabs = vec![issue_tab("exp-1", Some(board.clone()))];
+        open(&mut tabs, "exp-1", &inbox);
+        assert_eq!(tabs[0].origin, Some(board));
+        assert_eq!(tabs[0].slot, None);
+        open(&mut tabs, "exp-2", &inbox);
+        assert_eq!(tab_ids(&tabs), ["exp-1", "exp-2"]);
+        // A derived Inbox origin is never the slot either: only a tab the
+        // list step itself opened is.
+        let mut derived = vec![issue_tab("d", Some(origin(ToolWindow::Inbox)))];
+        open(&mut derived, "exp-3", &inbox);
+        assert_eq!(tab_ids(&derived), ["d", "exp-3"]);
+        // An explicit non-list open of the slot's work promotes it to a kept
+        // tab: the next step pushes again.
+        open(&mut tabs, "exp-2", &PendingOrigin::Rail);
+        assert_eq!(tabs[1].slot, None);
+        open(&mut tabs, "exp-4", &inbox);
+        assert_eq!(tab_ids(&tabs), ["exp-1", "exp-2", "exp-4"]);
+    }
+
+    /// EXP-1248: stepping through a Stack card rebinds the ONE tab in place
+    /// (its list and slot survive), never a chip per member.
+    #[test]
+    fn a_stack_pick_keeps_one_tab() {
+        let inbox = origin(ToolWindow::Inbox);
+        let mut tabs = vec![issue_tab("other", None), issue_tab("exp-10", Some(inbox.clone()))];
+        tabs[1].run_id = Some("run-10".into());
+        tabs[1].slot = Some(PreviewSlot::Inbox);
+        for (from, to) in [("exp-10", "exp-11"), ("exp-11", "exp-12")] {
+            let pending = PendingOrigin::ReplaceTab(Screen::IssueDetail {
+                issue_id: from.to_string(),
+            });
+            let ix = replaced_tab(&tabs, Some(&pending)).expect("the tab on show");
+            let old = rebind_tab(
+                &mut tabs[ix],
+                Screen::IssueDetail {
+                    issue_id: to.to_string(),
+                },
+                Some(to.to_string()),
+            );
+            assert_eq!(old.issue_id.as_deref(), Some(from));
+        }
+        assert_eq!(tab_ids(&tabs), ["other", "exp-12"]);
+        assert_eq!(tabs[1].origin, Some(inbox));
+        assert_eq!(tabs[1].slot, Some(PreviewSlot::Inbox));
+        assert_eq!(tabs[1].run_id, None, "the old member's run binding goes");
+        assert_eq!(replaced_tab(&tabs, Some(&PendingOrigin::Derive)), None);
     }
 
     /// EXP-851: which list a tab ends up with. A REAL navigation re-derives

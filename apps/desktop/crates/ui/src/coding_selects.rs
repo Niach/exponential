@@ -364,8 +364,8 @@ pub(crate) enum AccountTrigger {
 }
 
 /// EXP-872 — THE account picker, one component per client (web
-/// `@exp/ui` `AccountPicker`, iOS `AccountPickerMenu`, Android
-/// `AccountPickerPill`). It REPLACES the agent picker + the account picker on
+/// `@exp/ui` `AccountPicker`, iOS `AccountPicker` (SharedAccountPicker.swift),
+/// Android `AccountPicker` (picker/AccountPicker.kt)). It REPLACES the agent picker + the account picker on
 /// every launch surface: the list is every signed-in login the target machine
 /// reports ACROSS agents ([`coding::flatten_accounts`]), and picking one
 /// IMPLIES its agent.

@@ -163,10 +163,9 @@ fun Modifier.flatRow(active: Boolean = false): Modifier {
  * (web `GlassSectionHeader`, desktop `surface::glass_section_band`): full
  * width, [GlassTokens.SectionFill], radius Md, with its rows directly under it.
  * It replaced the plain-text header above gapped card rows on every list
- * surface. The ONE caller is `SectionHeader` (components/Scaffolding.kt) — the
- * header composable every list, sheet and settings section already renders —
- * so the band's paint lives here with the other glass rungs and its layout
- * there with the rest of the header.
+ * surface. The ONE caller is `SectionBand` (components/Scaffolding.kt), the
+ * strip `SectionHeader` and every other band draws through; the paint lives
+ * here with the other glass rungs, the layout there.
  */
 fun Modifier.glassSectionBand(): Modifier {
     val shape = RoundedCornerShape(GlassTokens.RowRadius)

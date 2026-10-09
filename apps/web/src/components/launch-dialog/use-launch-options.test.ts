@@ -237,15 +237,49 @@ describe(`useLaunchOptions computer use`, () => {
     launchDefaults: { ...device.launchDefaults, computerUse: true },
   }
 
-  it(`seeds from the device default and sends the per-run value`, () => {
+  it(`shows the device default, omits it untouched, sends a flip`, () => {
     const { result } = renderHook(() =>
       useLaunchOptions({ open: true, devices: [capable] })
     )
     expect(result.current.computerUseAvailable).toBe(true)
     expect(result.current.computerUse).toBe(true)
-    expect(result.current.buildOptions().computerUse).toBe(true)
+    // Untouched: the machine's own default applies, so the key is omitted.
+    expect(`computerUse` in result.current.buildOptions()).toBe(false)
     act(() => result.current.setComputerUse(false))
     expect(result.current.buildOptions().computerUse).toBe(false)
+    // An explicit flip rides out even when it matches the default.
+    act(() => result.current.setComputerUse(true))
+    expect(result.current.buildOptions().computerUse).toBe(true)
+  })
+
+  it(`follows a device default that changes after open, untouched`, () => {
+    const { result, rerender } = renderHook(
+      ({ devices }: { devices: SteerDevice[] }) =>
+        useLaunchOptions({ open: true, devices }),
+      { initialProps: { devices: [capable] } }
+    )
+    expect(result.current.computerUse).toBe(true)
+    rerender({
+      devices: [
+        { ...capable, launchDefaults: { ...capable.launchDefaults, computerUse: false } },
+      ],
+    })
+    // The stale seed never overrides the machine's current setting.
+    expect(result.current.computerUse).toBe(false)
+    expect(`computerUse` in result.current.buildOptions()).toBe(false)
+  })
+
+  it(`a device change drops the person's flip`, () => {
+    const other: SteerDevice = { ...capable, deviceId: `dev-2`, deviceLabel: `other` }
+    const { result } = renderHook(() =>
+      useLaunchOptions({ open: true, devices: [capable, other] })
+    )
+    act(() => result.current.setComputerUse(false))
+    expect(result.current.buildOptions().computerUse).toBe(false)
+    act(() => result.current.setDeviceId(`dev-2`))
+    expect(result.current.deviceId).toBe(`dev-2`)
+    expect(result.current.computerUse).toBe(true)
+    expect(`computerUse` in result.current.buildOptions()).toBe(false)
   })
 
   it(`never sends it to a device without the cap`, () => {
@@ -263,6 +297,7 @@ describe(`useLaunchOptions computer use`, () => {
     const { result } = renderHook(() =>
       useLaunchOptions({ open: true, devices: [capable] })
     )
+    act(() => result.current.setComputerUse(false))
     const keys = Object.keys(result.current.buildOptions({ resume: true }))
     for (const key of keys) {
       expect(contract.codingSession.launchKeys, key).toContain(key)

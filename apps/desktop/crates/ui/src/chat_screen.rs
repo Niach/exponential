@@ -368,75 +368,55 @@ pub(crate) fn fix_conflicts_issue_chip(
 }
 
 /// EXP-1233 — the fix-conflicts card's PR ROW as a ghost [`Button`], so the
-/// composer can hang the `pr` dropdown on it: the open-PR glyph in the
-/// Reviews list's green, `#n` in mono foreground, the branch glyph and
-/// `branch → base` in mono at 70%, the chevron at 50%; nothing picked = the
-/// contract's muted placeholder alone. The glass picker row's 16/12 padding.
+/// composer can hang the `pr` dropdown on it. Its content is THE PR row
+/// ([`crate::pr_rows::pr_row`]: the open-PR node, `#n` as the mono
+/// identifier, `branch → base` as the title) with the dropdown chevron
+/// trailing; nothing picked = the contract's muted placeholder alone.
 pub(crate) fn fix_conflicts_pr_row(
     id: impl Into<gpui::ElementId>,
     pr: Option<&domain::fix_conflicts::FixConflictsPr>,
     cx: &App,
 ) -> Button {
     let theme = cx.theme();
-    let foreground = theme.foreground;
-    let mono = theme.mono_font_family.clone();
-    let mut content = h_flex().w_full().min_w_0().items_center().gap_3().text_sm();
-    match pr {
+    let chevron = Icon::new(registry::UI_CHEVRON_DOWN)
+        .size_3p5()
+        .text_color(theme.foreground.opacity(0.5));
+    let content = match pr {
         Some(pr) => {
-            content = content.child(
-                Icon::new(registry::PR_OPEN)
-                    .size_4()
-                    .flex_shrink_0()
-                    .text_color(theme::tokens::GREEN.to_hsla()),
+            let mut spec = crate::pr_rows::PrRowSpec::open(
+                "chat-fix-conflicts-pr-row",
+                pr.branch_line(),
             );
-            if let Some(number) = pr.pr_number {
-                content = content.child(
-                    div()
-                        .flex_shrink_0()
-                        .font_family(mono.clone())
-                        .text_color(foreground)
-                        .child(SharedString::from(format!("#{number}"))),
-                );
-            }
-            let line = pr.branch_line();
-            if !line.is_empty() {
-                content = content.child(
-                    h_flex()
-                        .min_w_0()
-                        .items_center()
-                        .gap_1p5()
-                        .font_family(mono)
-                        .text_color(foreground.opacity(0.7))
-                        .child(Icon::new(registry::UI_BRANCH).size_3p5().flex_shrink_0())
-                        .child(div().min_w_0().truncate().child(SharedString::from(line))),
-                );
-            }
+            spec.identifier = pr.pr_number.map(|number| SharedString::from(format!("#{number}")));
+            spec.trailing = Some(div().flex_shrink_0().child(chevron).into_any_element());
+            crate::pr_rows::pr_row(spec, cx)
         }
-        None => {
-            content = content.child(
+        None => h_flex()
+            .w_full()
+            .min_w_0()
+            .items_center()
+            .gap_3()
+            .px_3()
+            .py_2()
+            .text_sm()
+            .child(
                 div()
                     .min_w_0()
                     .flex_1()
                     .truncate()
                     .text_color(theme.muted_foreground)
                     .child(domain::contract::COMPOSER_UI_PR_PLACEHOLDER),
-            );
-        }
-    }
-    content = content.child(
-        div().ml_auto().flex_shrink_0().child(
-            Icon::new(registry::UI_CHEVRON_DOWN)
-                .size_3p5()
-                .text_color(foreground.opacity(0.5)),
-        ),
-    );
+            )
+            .child(div().ml_auto().flex_shrink_0().child(chevron))
+            .into_any_element(),
+    };
     Button::new(id)
         .ghost()
         .cursor_pointer()
         .w_full()
         .h_auto()
-        .px_4()
-        .py_3()
+        .px_1()
+        .py_1()
         .rounded_none()
         .child(content)
 }
@@ -2885,7 +2865,7 @@ impl ChatScreenView {
                         let repo = repo.clone();
                         let checked = picked.as_deref() == Some(repo.id.as_str());
                         menu = menu.item(
-                            PopupMenuItem::new(repo.full_name.clone())
+                            crate::controls::pointer_label_item(repo.full_name.clone(), false)
                                 .checked(checked)
                                 .on_click(move |_, _, cx| {
                                     let repo = repo.clone();
@@ -3468,13 +3448,101 @@ struct OpenComposerDialog(gpui::WeakEntity<ChatScreenView>);
 
 impl gpui::Global for OpenComposerDialog {}
 
-/// Register the composer a freshly opened dialog window hosts (called by
-/// [`crate::composer_dialog::open`]) so the rail's pinned action row keeps
-/// lighting up while its run is composed.
-/// EXP-1249 — the "+" menu's rows (web `launch-composer.tsx`'s menu, the
-/// styleguide `menu` entry's composer specimen): the subject pickers and the
-/// attach, then the run's options, then its tools. `options` is `None` until
-/// the launch cluster exists (then only the first group shows).
+/// EXP-1249 — one row of the "+" menu, in `fixtures/composer-menu.json`
+/// `rows` order ([`composer_menu_rows`] decides which render).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ComposerMenuRow {
+    ImplementIssue,
+    RunAction,
+    AddFile,
+    Separator,
+    Effort,
+    Subagents,
+    Ultracode,
+    McpServers,
+    ComputerUse,
+}
+
+impl ComposerMenuRow {
+    /// The row's CONCEPT icon (the fixture's `icon`); a separator has none.
+    pub(crate) fn icon(self) -> Option<crate::icons::ExpIcon> {
+        Some(match self {
+            Self::ImplementIssue => registry::EDITOR_ISSUE_REF,
+            Self::RunAction => registry::ACTION_RUN,
+            Self::AddFile => registry::UI_ATTACH,
+            Self::Separator => return None,
+            Self::Effort => registry::UI_ESTIMATE,
+            Self::Subagents => registry::CODING_SUBAGENT,
+            Self::Ultracode => registry::ACTION_DEFAULT,
+            Self::McpServers => registry::UI_MCP,
+            Self::ComputerUse => registry::NAV_COMPUTER,
+        })
+    }
+
+    fn menu_icon(self) -> Icon {
+        Icon::new(self.icon().unwrap_or(registry::UI_ADD))
+    }
+}
+
+/// The fixture's `conditions`: which `when` rows hold.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct ComposerMenuConditions {
+    pub(crate) subagent_model: bool,
+    pub(crate) ultracode: bool,
+    pub(crate) mcp: bool,
+    pub(crate) computer_use: bool,
+}
+
+impl ComposerMenuConditions {
+    fn of(options: &launch_options::ComposerMenu) -> Self {
+        Self {
+            subagent_model: options.subagent_value().is_some(),
+            ultracode: options.ultracode.is_some(),
+            mcp: !options.mcp_servers.is_empty(),
+            computer_use: options.computer_use.is_some(),
+        }
+    }
+}
+
+/// EXP-1249 — the "+" menu's rows (fixtures/composer-menu.json, ×4): the
+/// subject pickers and the attach, then the run's options, then its tools;
+/// a `when` row only while its condition holds, then the separators TIDIED
+/// (never leading, trailing or doubled). `None` = the launch cluster does
+/// not exist yet: the first group only. Pure.
+pub(crate) fn composer_menu_rows(conditions: Option<ComposerMenuConditions>) -> Vec<ComposerMenuRow> {
+    use ComposerMenuRow::*;
+    let Some(when) = conditions else {
+        return vec![ImplementIssue, RunAction, AddFile];
+    };
+    let all = [
+        (ImplementIssue, true),
+        (RunAction, true),
+        (AddFile, true),
+        (Separator, true),
+        (Effort, true),
+        (Subagents, when.subagent_model),
+        (Ultracode, when.ultracode),
+        (Separator, true),
+        (McpServers, when.mcp),
+        (ComputerUse, when.computer_use),
+    ];
+    let mut rows: Vec<ComposerMenuRow> = Vec::new();
+    for (row, shown) in all {
+        if !shown || (row == Separator && rows.last().is_none_or(|last| *last == Separator)) {
+            continue;
+        }
+        rows.push(row);
+    }
+    if rows.last() == Some(&Separator) {
+        rows.pop();
+    }
+    rows
+}
+
+/// EXP-1249 — the "+" menu (web `launch-composer.tsx`'s menu, the
+/// styleguide `menu` entry's composer specimen), row by row off
+/// [`composer_menu_rows`]. `options` is `None` until the launch cluster
+/// exists (then only the first group shows).
 pub(crate) fn plus_menu(
     mut menu: gpui_component::menu::PopupMenu,
     view: &gpui::WeakEntity<ChatScreenView>,
@@ -3494,153 +3562,159 @@ pub(crate) fn plus_menu(
         }
     };
     let chevron = |cx: &App| Some(menu_row_value(None, true, cx));
-    menu = menu
-        .min_w(px(260.))
-        .item(
-            pointer_menu_item(None, MENU_IMPLEMENT_ISSUE, chevron, open(ComposerPicker::Issues))
-                .icon(Icon::new(registry::UI_ISSUE)),
-        )
-        .item(
-            pointer_menu_item(None, MENU_RUN_ACTION, chevron, open(ComposerPicker::Actions))
-                .icon(Icon::new(registry::ACTION_RUN)),
-        )
-        .item({
-            let view = view.clone();
-            pointer_menu_item(None, MENU_ADD_FILE, |_| None, move |window, cx| {
-                if let Some(view) = view.upgrade() {
-                    view.update(cx, |_, cx| {
-                        composer_images::pick_image_files(window, cx, |this, read, window, cx| {
-                            this.stage_images(read, window, cx)
-                        });
-                    });
-                }
-            })
-            .icon(Icon::new(registry::UI_ATTACH))
-        });
-    let Some(options) = options else {
-        return menu;
-    };
-
-    // The run's options.
-    menu = menu.separator();
-    let effort_title = format!("{} · {}", options.effort_label, options.effort_value());
-    if options.effort_locked {
-        // Ultracode IS the effort level: the row says so and opens nothing.
-        let label = SharedString::from(effort_title);
-        menu = menu.item(
-            gpui_component::menu::PopupMenuItem::element(move |_, cx| {
-                menu_row(None, label.clone(), None, true, cx)
-            })
-            .disabled(true)
-            .icon(Icon::new(registry::UI_USAGE)),
-        );
-    } else {
-        let choices = options.effort_choices;
-        let picked = options.effort_picked.clone();
-        let view = view.clone();
-        menu = menu.submenu_with_icon(
-            Some(Icon::new(registry::UI_USAGE)),
-            effort_title,
-            window,
-            cx,
-            move |mut sub, _, _| {
-                for (label, value) in choices {
-                    let view = view.clone();
-                    let value = (*value).to_string();
-                    sub = sub.item(pointer_check_item(*label, picked == value, move |window, cx| {
-                        if let Some(view) = view.upgrade() {
-                            view.update(cx, |this, cx| {
-                                ChatScreenView::launch_access(this).pick_effort(&value, window, cx);
-                                cx.notify();
-                            });
-                        }
-                    }));
-                }
-                sub
-            },
-        );
-    }
-    if let (Some(picked), Some(value)) = (options.subagent_picked.clone(), options.subagent_value()) {
-        let view = view.clone();
-        menu = menu.submenu_with_icon(
-            Some(Icon::new(registry::SETTINGS_AGENTS)),
-            format!("{MENU_SUBAGENTS} · {value}"),
-            window,
-            cx,
-            move |mut sub, _, _| {
-                for (label, choice) in crate::coding_selects::SUBAGENT_MODEL_CHOICES.iter() {
-                    let view = view.clone();
-                    let choice = (*choice).to_string();
-                    let label = if choice.is_empty() { launch_options::CLI_DEFAULT_LABEL } else { *label };
-                    sub = sub.item(pointer_check_item(label, picked == choice, move |window, cx| {
-                        if let Some(view) = view.upgrade() {
-                            view.update(cx, |this, cx| {
-                                ChatScreenView::launch_access(this)
-                                    .pick_subagent_model(&choice, window, cx);
-                                cx.notify();
-                            });
-                        }
-                    }));
-                }
-                sub
-            },
-        );
-    }
-    if let Some(on) = options.ultracode {
-        let view = view.clone();
-        menu = menu.item(
-            pointer_toggle_item("chat-menu-ultracode", None, MENU_ULTRACODE, on, move |on, _, cx| {
-                if let Some(view) = view.upgrade() {
-                    view.update(cx, |this, cx| {
-                        ChatScreenView::launch_access(this).ultracode = on;
-                        cx.notify();
-                    });
-                }
-            })
-            .icon(Icon::new(registry::ACTION_DEFAULT)),
-        );
-    }
-
-    // The run's tools.
-    let mcp_value = options.mcp_value();
-    if mcp_value.is_some() || options.computer_use.is_some() {
-        menu = menu.separator();
-    }
-    if let Some(value) = mcp_value {
-        let value = SharedString::from(value);
-        menu = menu.item(
-            pointer_menu_item(
-                None,
-                MENU_MCP_SERVERS,
-                move |cx| Some(menu_row_value(Some(value.clone()), true, cx)),
-                open(ComposerPicker::McpServers),
-            )
-            .icon(Icon::new(registry::UI_MCP)),
-        );
-    }
-    if let Some(on) = options.computer_use {
-        let view = view.clone();
-        menu = menu.item(
-            pointer_toggle_item(
-                "chat-menu-computer-use",
-                None,
-                MENU_COMPUTER_USE,
-                on,
-                move |on, _, cx| {
+    menu = menu.min_w(px(260.));
+    for row in composer_menu_rows(options.map(ComposerMenuConditions::of)) {
+        menu = match (row, options) {
+            (ComposerMenuRow::Separator, _) => menu.separator(),
+            (ComposerMenuRow::ImplementIssue, _) => menu.item(
+                pointer_menu_item(None, MENU_IMPLEMENT_ISSUE, chevron, open(ComposerPicker::Issues))
+                    .icon(row.menu_icon()),
+            ),
+            (ComposerMenuRow::RunAction, _) => menu.item(
+                pointer_menu_item(None, MENU_RUN_ACTION, chevron, open(ComposerPicker::Actions))
+                    .icon(row.menu_icon()),
+            ),
+            (ComposerMenuRow::AddFile, _) => menu.item({
+                let view = view.clone();
+                pointer_menu_item(None, MENU_ADD_FILE, |_| None, move |window, cx| {
                     if let Some(view) = view.upgrade() {
-                        view.update(cx, |this, cx| {
-                            ChatScreenView::launch_access(this).set_computer_use(on);
-                            cx.notify();
+                        view.update(cx, |_, cx| {
+                            composer_images::pick_image_files(window, cx, |this, read, window, cx| {
+                                this.stage_images(read, window, cx)
+                            });
                         });
                     }
-                },
-            )
-            .icon(Icon::new(registry::NAV_COMPUTER)),
-        );
+                })
+                .icon(row.menu_icon())
+            }),
+            (_, None) => menu,
+            (ComposerMenuRow::Effort, Some(options)) => {
+                let effort_title = format!("{} · {}", options.effort_label, options.effort_value());
+                if options.effort_locked {
+                    // Ultracode IS the effort level: the row says so and opens nothing.
+                    let label = SharedString::from(effort_title);
+                    menu.item(
+                        PopupMenuItem::element(move |_, cx| menu_row(None, label.clone(), None, true, cx))
+                            .disabled(true)
+                            .icon(row.menu_icon()),
+                    )
+                } else {
+                    let choices = options.effort_choices;
+                    let picked = options.effort_picked.clone();
+                    let view = view.clone();
+                    menu.submenu_with_icon(
+                        Some(row.menu_icon()),
+                        effort_title,
+                        window,
+                        cx,
+                        move |mut sub, _, _| {
+                            for (label, value) in choices {
+                                let view = view.clone();
+                                let value = (*value).to_string();
+                                sub = sub.item(pointer_check_item(*label, picked == value, move |window, cx| {
+                                    if let Some(view) = view.upgrade() {
+                                        view.update(cx, |this, cx| {
+                                            ChatScreenView::launch_access(this).pick_effort(&value, window, cx);
+                                            cx.notify();
+                                        });
+                                    }
+                                }));
+                            }
+                            sub
+                        },
+                    )
+                }
+            }
+            (ComposerMenuRow::Subagents, Some(options)) => {
+                let (Some(picked), Some(value)) = (options.subagent_picked.clone(), options.subagent_value()) else {
+                    continue;
+                };
+                let view = view.clone();
+                menu.submenu_with_icon(
+                    Some(row.menu_icon()),
+                    format!("{MENU_SUBAGENTS} · {value}"),
+                    window,
+                    cx,
+                    move |mut sub, _, _| {
+                        for (label, choice) in crate::coding_selects::SUBAGENT_MODEL_CHOICES.iter() {
+                            let view = view.clone();
+                            let choice = (*choice).to_string();
+                            let label = if choice.is_empty() { launch_options::CLI_DEFAULT_LABEL } else { *label };
+                            sub = sub.item(pointer_check_item(label, picked == choice, move |window, cx| {
+                                if let Some(view) = view.upgrade() {
+                                    view.update(cx, |this, cx| {
+                                        ChatScreenView::launch_access(this)
+                                            .pick_subagent_model(&choice, window, cx);
+                                        cx.notify();
+                                    });
+                                }
+                            }));
+                        }
+                        sub
+                    },
+                )
+            }
+            (ComposerMenuRow::Ultracode, Some(options)) => {
+                let Some(on) = options.ultracode else {
+                    continue;
+                };
+                let view = view.clone();
+                menu.item(
+                    pointer_toggle_item("chat-menu-ultracode", None, MENU_ULTRACODE, on, move |on, _, cx| {
+                        if let Some(view) = view.upgrade() {
+                            view.update(cx, |this, cx| {
+                                ChatScreenView::launch_access(this).ultracode = on;
+                                cx.notify();
+                            });
+                        }
+                    })
+                    .icon(row.menu_icon()),
+                )
+            }
+            (ComposerMenuRow::McpServers, Some(options)) => {
+                // The fixture: the row shows the number picked, no value at zero.
+                let value = options.mcp_value().map(SharedString::from);
+                menu.item(
+                    pointer_menu_item(
+                        None,
+                        MENU_MCP_SERVERS,
+                        move |cx| Some(menu_row_value(value.clone(), true, cx)),
+                        open(ComposerPicker::McpServers),
+                    )
+                    .icon(row.menu_icon()),
+                )
+            }
+            (ComposerMenuRow::ComputerUse, Some(options)) => {
+                let Some(on) = options.computer_use else {
+                    continue;
+                };
+                let view = view.clone();
+                menu.item(
+                    pointer_toggle_item(
+                        "chat-menu-computer-use",
+                        None,
+                        MENU_COMPUTER_USE,
+                        on,
+                        move |on, _, cx| {
+                            if let Some(view) = view.upgrade() {
+                                view.update(cx, |this, cx| {
+                                    ChatScreenView::launch_access(this).set_computer_use(on);
+                                    cx.notify();
+                                });
+                            }
+                        },
+                    )
+                    .icon(row.menu_icon()),
+                )
+            }
+        };
     }
     menu
 }
 
+/// Register the composer a freshly opened dialog window hosts (called by
+/// [`crate::composer_dialog::open`]) so the rail's pinned action row keeps
+/// lighting up while its run is composed.
 pub(crate) fn register_open_dialog(view: &Entity<ChatScreenView>, cx: &mut App) {
     cx.set_global(OpenComposerDialog(view.downgrade()));
     // Escape and the titlebar close drop the window, and the view with it:
@@ -3955,6 +4029,79 @@ impl RemoteSubject<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// EXP-1249 — `fixtures/composer-menu.json` is the "+" menu's ×4 spec:
+    /// the words and concept icons row by row, the Effort row's codex label,
+    /// and every `cases` entry replayed through [`composer_menu_rows`].
+    #[test]
+    fn the_plus_menu_replays_the_composer_menu_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/composer-menu.json"
+        ))
+        .unwrap();
+        assert_eq!(fixture["plusLabel"], PLUS_TOOLTIP);
+        let row_of = |id: &str| match id {
+            "implement-issue" => (ComposerMenuRow::ImplementIssue, MENU_IMPLEMENT_ISSUE),
+            "run-action" => (ComposerMenuRow::RunAction, MENU_RUN_ACTION),
+            "add-file" => (ComposerMenuRow::AddFile, MENU_ADD_FILE),
+            "effort" => (ComposerMenuRow::Effort, coding::CodingAgent::Claude.effort_label()),
+            "subagents" => (ComposerMenuRow::Subagents, MENU_SUBAGENTS),
+            "ultracode" => (ComposerMenuRow::Ultracode, MENU_ULTRACODE),
+            "mcp-servers" => (ComposerMenuRow::McpServers, MENU_MCP_SERVERS),
+            "computer-use" => (ComposerMenuRow::ComputerUse, MENU_COMPUTER_USE),
+            "-" => (ComposerMenuRow::Separator, ""),
+            other => panic!("unknown composer menu row {other}"),
+        };
+        let mut every = Vec::new();
+        for row in fixture["rows"].as_array().unwrap() {
+            if row["kind"] == "separator" {
+                every.push(ComposerMenuRow::Separator);
+                continue;
+            }
+            let id = row["id"].as_str().unwrap();
+            let (menu_row, label) = row_of(id);
+            assert_eq!(row["label"], label, "{id} label");
+            use gpui_component::IconNamed as _;
+            assert_eq!(
+                menu_row.icon().map(|icon| icon.path()),
+                crate::icons::registry::concept_by_name(row["icon"].as_str().unwrap())
+                    .map(|icon| icon.path()),
+                "{id} icon"
+            );
+            if let Some(codex) = row["codexLabel"].as_str() {
+                assert_eq!(coding::CodingAgent::Codex.effort_label(), codex);
+            }
+            every.push(menu_row);
+        }
+        let all = ComposerMenuConditions {
+            subagent_model: true,
+            ultracode: true,
+            mcp: true,
+            computer_use: true,
+        };
+        assert_eq!(composer_menu_rows(Some(all)), every, "rows order");
+        for case in fixture["cases"].as_array().unwrap() {
+            let when = &case["conditions"];
+            let conditions = ComposerMenuConditions {
+                subagent_model: when["subagentModel"].as_bool().unwrap(),
+                ultracode: when["ultracode"].as_bool().unwrap(),
+                mcp: when["mcp"].as_bool().unwrap(),
+                computer_use: when["computerUse"].as_bool().unwrap(),
+            };
+            let expected: Vec<ComposerMenuRow> = case["expected"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|id| row_of(id.as_str().unwrap()).0)
+                .collect();
+            assert_eq!(composer_menu_rows(Some(conditions)), expected, "{}", case["name"]);
+        }
+        // Before the launch cluster exists: the first group, no separator.
+        assert_eq!(
+            composer_menu_rows(None),
+            [ComposerMenuRow::ImplementIssue, ComposerMenuRow::RunAction, ComposerMenuRow::AddFile]
+        );
+    }
 
     /// EXP-790/EXP-820: the pool is the web page's `CHAT_SUGGESTIONS`
     /// (`lib/chat-suggestions.ts`), byte for byte and in the same order.

@@ -141,9 +141,15 @@ import {
   stampRunResultsPrUrl,
   syncRunPrBody,
 } from "@/lib/run-pr-body"
-import { ensureGithubStack, inferBaseBranch } from "@/lib/pr-stacks"
+import {
+  ensureGithubStack,
+  GitHubStackForkError,
+  inferBaseBranch,
+  type InferredBase,
+} from "@/lib/pr-stacks"
 import {
   loadGuardDefaultBranches,
+  openChildPrs,
   stackStopBranches,
 } from "@/lib/pr-merge-guard"
 import { prepareSessionImageBytes } from "@/lib/storage/session-attachment-upload"
@@ -373,7 +379,9 @@ const REUSED_PR_NOTE = (head: string) =>
  * that PR's GitHub stack (creating the line bottom→top when there is none).
  * The lower PR is the issue row's PR when a same-team issue owns the branch,
  * else the open PR GitHub lists on that head. A base that is a default
- * branch is no stack. Returns the stack's `{number, position, size}` or null.
+ * branch is no stack, and neither is a FORK (another open PR already sits on
+ * the lower one: a follow-up tree, never a linear stack), skipped silently.
+ * Returns the stack's `{number, position, size}` or null.
  */
 async function joinGithubStack(opts: {
   repo: string
@@ -396,6 +404,17 @@ async function joinGithubStack(opts: {
     lowerPrNumber = lowerPull?.number ?? null
   }
   if (lowerPrNumber == null) return null
+  // A sibling the team knows of already sits on the same base: a tree.
+  const siblings = await openChildPrs(db, {
+    teamId: opts.teamId,
+    pattern: prUrlPattern(opts.repo),
+    branch: opts.base,
+  })
+  const own = new Set([lowerPrNumber, opts.newPrNumber])
+  for (const url of siblings.keys()) {
+    const number = Number(url.match(/\/pull\/(\d+)/)?.[1])
+    if (Number.isFinite(number) && !own.has(number)) return null
+  }
   let stack: Awaited<ReturnType<typeof ensureGithubStack>>
   try {
     stack = await ensureGithubStack({
@@ -406,6 +425,8 @@ async function joinGithubStack(opts: {
       stopBranches: [...stop],
     })
   } catch (e) {
+    // GitHub's own view of a fork (a sibling opened outside Exponential).
+    if (e instanceof GitHubStackForkError) return null
     throw new Error(
       `PR #${opts.newPrNumber} is open and linked, but joining the GitHub stack of #${lowerPrNumber} failed: ${e instanceof Error ? e.message : String(e)}`
     )
@@ -418,6 +439,63 @@ async function joinGithubStack(opts: {
     position: position >= 0 ? position + 1 : stack.pulls.length,
     size: stack.pulls.length,
   }
+}
+
+/**
+ * EXP-1248 `pr_open` without a `base`: `inferBaseBranch` over the team's OWN
+ * open PR branches (issue + run rows on this repo), skipping every branch
+ * the repo is developed on.
+ */
+async function inferPrBase(opts: {
+  repo: string
+  token: string
+  head: string
+  defaultBranch: string
+  teamIds: readonly string[]
+}): Promise<InferredBase> {
+  const pattern = prUrlPattern(opts.repo)
+  const teamIds = [...new Set(opts.teamIds)]
+  const issueRows = await db
+    .select({ prNumber: issues.prNumber, branch: issues.branch })
+    .from(issues)
+    .where(
+      and(
+        inArray(issues.teamId, teamIds),
+        eq(issues.prState, `open`),
+        like(issues.prUrl, pattern)
+      )
+    )
+  const runRows = await db
+    .select({ prNumber: codingSessions.prNumber, branch: codingSessions.branch })
+    .from(codingSessions)
+    .where(
+      and(
+        inArray(codingSessions.teamId, teamIds),
+        eq(codingSessions.prState, `open`),
+        like(codingSessions.prUrl, pattern)
+      )
+    )
+  const candidates = new Map<number, string>()
+  for (const row of [...issueRows, ...runRows]) {
+    if (row.prNumber != null && row.branch) candidates.set(row.prNumber, row.branch)
+  }
+  const stopBranches = (
+    await Promise.all(
+      teamIds.map((teamId) =>
+        loadGuardDefaultBranches(db, { teamId, repoFullName: opts.repo })
+      )
+    )
+  )
+    .flatMap(stackStopBranches)
+    .filter(Boolean)
+  return inferBaseBranch({
+    repo: opts.repo,
+    token: opts.token,
+    head: opts.head,
+    defaultBranch: opts.defaultBranch,
+    candidates: [...candidates].map(([number, branch]) => ({ number, branch })),
+    stopBranches,
+  })
 }
 
 async function openOrReusePull(
@@ -2621,22 +2699,24 @@ export function registerExponentialTools(
           const callerSession = await loadCallerSession()
           const prBody = await runPrBody(callerSession?.id ?? null, body)
 
-          claimPrOpen(repo.fullName, head!, {
-            userId: user.id,
-            viaAgent: true,
-          })
           // EXP-1248: no 'base' = the nearest open PR below the head, else the
           // default branch; a PR opened on another open PR's branch joins its
           // GitHub stack (no fallback: a failed stack call is the tool's error).
-          const inferredChore = base
-            ? { base, prNumber: null as number | null }
-            : await inferBaseBranch({
+          // Before the claim: a failed inference must not leak it.
+          const inferredChore: InferredBase = base
+            ? { base, prNumber: null }
+            : await inferPrBase({
                 repo: repo.fullName,
                 token: resolvedRepo.token,
                 head: head!,
                 defaultBranch: repo.defaultBranch,
+                teamIds: [repo.teamId],
               })
           const choreBase = inferredChore.base
+          claimPrOpen(repo.fullName, head!, {
+            userId: user.id,
+            viaAgent: true,
+          })
           let createdPr: Awaited<ReturnType<typeof openOrReusePull>>
           try {
             createdPr = await openOrReusePull({
@@ -2766,7 +2846,9 @@ export function registerExponentialTools(
           teamId: string
           prNumber: number | null
         } | null = null
-        const lowerFor = async (baseName: string) => {
+        // `inferred`: the base came from an open PR, never the agent; a
+        // merged row on that branch is history, not a mistake to refuse.
+        const lowerFor = async (baseName: string, inferred = false) => {
           const [candidate] = await db
             .select({
               id: issues.id,
@@ -2784,7 +2866,7 @@ export function registerExponentialTools(
               )
             )
             .limit(1)
-          if (candidate?.prState === `merged`) {
+          if (candidate?.prState === `merged` && !inferred) {
             throw new Error(
               `'${baseName}' is the branch of merged PR #${candidate.prNumber} (${candidate.identifier}). Rebase onto ${repo.defaultBranch} and pass no base.`
             )
@@ -2831,6 +2913,24 @@ export function registerExponentialTools(
           }
         }
 
+        // EXP-1248: no 'base' = the nearest open PR whose head is an ancestor
+        // of ours, else the default branch (`inferPrBase`). Before the claim:
+        // a failed inference must not leak it.
+        if (!base) {
+          const inferred = await inferPrBase({
+            repo: repo.fullName,
+            token,
+            head: headBranch,
+            defaultBranch: repo.defaultBranch,
+            teamIds: [...teamIdByIssue.values()],
+          })
+          baseBranch = inferred.base
+          if (inferred.prNumber != null) {
+            lower = await lowerFor(inferred.base, true)
+            inferredLowerPr = inferred.prNumber
+          }
+        }
+
         // EXP-1154: the run's report IS the PR body ('body' only without one).
         const callerSession = await loadCallerSession()
         const prBody = await runPrBody(callerSession?.id ?? null, body)
@@ -2849,21 +2949,6 @@ export function registerExponentialTools(
         // the `head` GitHub reports back. The issue-keyed record has no such
         // dependency, and it only ever suppresses — never names.
         for (const id of ids) noteAgentIssueActivity(id, user.id)
-        // EXP-1248: no 'base' = the nearest open PR whose head is an ancestor
-        // of ours, else the default branch (`inferBaseBranch`).
-        if (!base) {
-          const inferred = await inferBaseBranch({
-            repo: repo.fullName,
-            token,
-            head: headBranch,
-            defaultBranch: repo.defaultBranch,
-          })
-          baseBranch = inferred.base
-          if (inferred.prNumber != null) {
-            lower = await lowerFor(inferred.base)
-            inferredLowerPr = inferred.prNumber
-          }
-        }
         let created: Awaited<ReturnType<typeof openOrReusePull>>
         try {
           created = await openOrReusePull({

@@ -324,12 +324,10 @@ struct ActionDetailView: View {
 
             // Shown to everyone, switchable by owners (the write is
             // owner-gated server-side).
-            Toggle("", isOn: Binding(
+            GlassToggleRow(nil, isOn: Binding(
                 get: { trigger.enabled },
                 set: { vm.setEnabled(trigger, enabled: $0) }
             ))
-            .labelsHidden()
-            .fixedSize()
             .disabled(!isOwner || busy || locked)
             .accessibilityLabel("Enabled: \(AutomationTriggerDisplay.rowSentence(trigger.when))")
             .accessibilityIdentifier("trigger-enabled")

@@ -9,7 +9,7 @@
 //! over the scrolling body, the large title row, the property tray, the
 //! description, the Files — with only these differences: the collapsed title
 //! reads "New issue" over the typed title (or "Untitled draft"), the bar's
-//! cluster is a primary Create plus an `×` tooltipped "Discard draft", the
+//! cluster is Back + a primary Create, the
 //! tray is the [`IssueDraft`] chip row (no estimate) plus a board chip when
 //! the team has another board, and nothing follows the Files (no relations,
 //! composer, PR row or timeline).

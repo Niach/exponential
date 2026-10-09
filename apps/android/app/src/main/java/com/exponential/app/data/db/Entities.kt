@@ -524,7 +524,7 @@ data class AttachmentEntity(
     @ColumnInfo(name = "poster_storage_key") @SerialName("poster_storage_key") @JsonNames("posterStorageKey") val posterStorageKey: String? = null,
     // EXP-1247: uploaded through a FILE/paperclip path — never inlined, always
     // a Files row, whatever its type (`AttachmentFiles.isFileAttachment`).
-    @ColumnInfo(name = "as_file", defaultValue = "0") @SerialName("as_file") @JsonNames("asFile") val asFile: Boolean = false,
+    @ColumnInfo(name = "as_file", defaultValue = "0") @SerialName("as_file") @JsonNames("asFile") val asFile: PgBool = false,
     @ColumnInfo(name = "created_at") @SerialName("created_at") @JsonNames("createdAt") val createdAt: String,
     @ColumnInfo(name = "updated_at") @SerialName("updated_at") @JsonNames("updatedAt") val updatedAt: String,
 ) {

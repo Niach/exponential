@@ -50,7 +50,7 @@ use gpui::{
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     ActiveTheme as _, Icon, Sizable as _,
 };
 
@@ -894,7 +894,7 @@ impl MachinesSection {
                             )
                             .on_click(click)
                         } else {
-                            PopupMenuItem::new(action.label())
+                            crate::controls::pointer_label_item(action.label(), false)
                                 .icon(Icon::new(action.icon()))
                                 .on_click(click)
                         });

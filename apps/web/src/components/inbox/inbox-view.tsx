@@ -112,6 +112,7 @@ const GROUP_CHUNK = 200
 export function InboxView({
   compact = false,
   activeIssueIdentifier = null,
+  activeSessionId = null,
   from,
 }: {
   /** EXP-851: the SIDEBAR's list nav — the same rows in the 17rem slot, no
@@ -120,6 +121,9 @@ export function InboxView({
   /** The issue the open detail shows, by identifier (the highlighted row) —
    *  the route knows the identifier, never the id. */
   activeIssueIdentifier?: string | null
+  /** The run the open detail shows: a message row that opened it is the
+   *  highlighted row. */
+  activeSessionId?: string | null
   /** The `?from=` token every issue row hands the detail it opens, so the
    *  inbox stays in the sidebar beside it (`lib/detail-origin.ts`). */
   from?: string
@@ -283,6 +287,11 @@ export function InboxView({
                 <ListRow
                   key={`message:${latest.id}`}
                   interactive
+                  active={
+                    g.session != null &&
+                    activeSessionId != null &&
+                    g.session.sessionId === activeSessionId
+                  }
                   density={compact ? `compact` : `list`}
                   className={cn(
                     !compact && PAGE_READING_ROW,

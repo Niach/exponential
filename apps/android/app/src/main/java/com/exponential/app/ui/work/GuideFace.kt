@@ -127,6 +127,8 @@ internal const val STACK_CARD_TITLE = "Stack"
 /** The Stack card's input: the rail plus what a member's tap / long-press does. */
 class GuideStack(
     val view: PrStack.StackView,
+    /** The issue's board default branch: the base row's fallback. */
+    val boardDefaultBranch: String?,
     /** Swap the screen's subject to that member's issue, in place. */
     val onOpen: (issueId: String) -> Unit,
     /** Merge through that member (its confirm first); null = not a member. */
@@ -288,7 +290,7 @@ private fun GuideStackCard(stack: GuideStack) {
         )
         StackRail(
             members = members,
-            baseBranch = stack.view.baseBranch ?: "",
+            baseBranch = PrStack.baseRowLabel(stack.view.baseBranch, stack.boardDefaultBranch),
             onOpen = { member -> if (!member.current) stack.onOpen(member.key) },
             onMergeThrough = stack.onMergeThrough?.let { through -> { member -> through(member.key) } },
         )

@@ -674,7 +674,7 @@ final class StyleguideScreenshots: XCTestCase {
         XCTAssertTrue(reviewsTab.waitForExistence(timeout: 15), "Reviews tab missing")
         reviewsTab.tap()
         XCTAssertTrue(
-            app.staticTexts[Self.reviewTitle].firstMatch.waitForExistence(timeout: 60),
+            reviewRow(app, titled: Self.reviewTitle).waitForExistence(timeout: 60),
             "Reviews tab never showed the seeded open PRs"
         )
         snapshot("sg_reviews", settle: 2)
@@ -695,7 +695,7 @@ final class StyleguideScreenshots: XCTestCase {
         let wantsGuide = ScreenshotShots.isWanted("sg_guide")
         let wantsGuideSection = ScreenshotShots.isWanted("sg_guide-section")
         if wantsGuide || wantsGuideSection {
-            app.staticTexts[Self.guideTitle].firstMatch.tap()
+            reviewRow(app, titled: Self.guideTitle).tap()
             let guideTab = anyElement(app, identified: "work-face-guide")
             if guideTab.waitForExistence(timeout: 20) { guideTab.tap() }
             let changesRow = anyElement(app, identified: "guide-changes-row")
@@ -712,7 +712,7 @@ final class StyleguideScreenshots: XCTestCase {
             _ = changesRow.waitForExistence(timeout: 15)
             goBack(app)
             XCTAssertTrue(
-                app.staticTexts[Self.reviewTitle].firstMatch.waitForExistence(timeout: 30),
+                reviewRow(app, titled: Self.reviewTitle).waitForExistence(timeout: 30),
                 "Back from the Guide did not land on Reviews"
             )
             settle(1)
@@ -720,19 +720,19 @@ final class StyleguideScreenshots: XCTestCase {
 
         // ── sg_run-changes: an issue-less run's PR diff (EXP-1194/1204) ─────
         // The Reviews "Agent runs" band lists Jonas's finished chat run, whose
-        // own pull request is open; its row pushes `RunChangesView`, fed by
-        // `codingSessions.prFiles` — a real public PR the seed points the run
-        // at (SCREENSHOT_RUN_PR_URL), so there are actual files to show.
-        let runRow = app.staticTexts[Self.runChangesTitle].firstMatch
+        // own pull request is open; its row pushes `RunChangesView` (the
+        // run's Guide, EXP-1251), fed by `codingSessions.prFiles` — a real
+        // public PR the seed points the run at (SCREENSHOT_RUN_PR_URL). Its
+        // Changes row opens the section page, where the file cards live.
+        let runRow = reviewRow(app, titled: Self.runChangesTitle)
         XCTAssertTrue(
             runRow.waitForExistence(timeout: 60),
             "Reviews tab never showed the seeded agent run"
         )
         runRow.tap()
-        let runFileRows = app.descendants(matching: .any).matching(identifier: "changes-file-row")
-        XCTAssertTrue(
-            runFileRows.firstMatch.waitForExistence(timeout: 60),
-            "The run's PR diff never loaded — check SCREENSHOT_RUN_PR_URL is a reachable public PR"
+        openGuideDiff(
+            app,
+            failure: "The run's PR diff never loaded — check SCREENSHOT_RUN_PR_URL is a reachable public PR"
         )
         snapshot("sg_run-changes", settle: 2)
         goBack(app)
@@ -908,4 +908,38 @@ final class StyleguideScreenshots: XCTestCase {
         settle(1)
     }
 
+    /// A Reviews row by its title. EXP-1248: a row is a plain Button over
+    /// `PrRow`, which COMBINES its texts into one element, so the title is no
+    /// standalone staticText: match the button whose label contains it.
+    @MainActor
+    private func reviewRow(_ app: XCUIApplication, titled title: String) -> XCUIElement {
+        app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
+    }
+
+    /// EXP-1251: a review lands on the Guide, which draws Changes rows, never
+    /// file cards: open the diff (the first Changes row, else Show complete
+    /// diff) as the section page and wait for its file cards.
+    @MainActor
+    private func openGuideDiff(_ app: XCUIApplication, failure: String) {
+        let changesRow = anyElement(app, identified: "guide-changes-row")
+        let completeDiff = anyElement(app, identified: "guide-show-complete-diff")
+        let deadline = Date().addingTimeInterval(60)
+        while !changesRow.exists && !completeDiff.exists && Date() < deadline {
+            _ = changesRow.waitForExistence(timeout: 2)
+        }
+        if changesRow.exists {
+            changesRow.tap()
+        } else {
+            XCTAssertTrue(completeDiff.exists, failure)
+            completeDiff.tap()
+        }
+        XCTAssertTrue(
+            anyElement(app, identified: "guide-section-page").waitForExistence(timeout: 30),
+            "The Guide section page did not open"
+        )
+        XCTAssertTrue(
+            anyElement(app, identified: "changes-file-row").waitForExistence(timeout: 60),
+            failure
+        )
+    }
 }

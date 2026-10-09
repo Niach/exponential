@@ -52,9 +52,13 @@ export const STACK_CARD_TITLE = `Stack`
 export const GUIDE_NO_CHANGES = `No changes yet. Nothing has been pushed for this issue.`
 
 /** EXP-1154: the GitHub PR body as ONE Guide group (band = the PR title,
- *  else `Pull request`; `No description.` when blank); [] until loaded. */
+ *  else `Pull request`; `No description.` when blank); [] until loaded.
+ *  EXP-1251: no report + a PR = ONE Changes section, so the group claims
+ *  every diff path (its band carries the one Changes row, nothing is left
+ *  for `Other changes`). */
 export function prDescriptionGroups(
-  state: PrDescriptionState
+  state: PrDescriptionState,
+  files?: readonly Pick<DiffFile, `path`>[] | null
 ): SessionResultGroup[] {
   if (state.kind !== `ready`) return []
   return [
@@ -63,7 +67,7 @@ export function prDescriptionGroups(
       text: state.body.trim() || PR_DESCRIPTION_EMPTY,
       entries: [],
       earlier: [],
-      files: [],
+      files: (files ?? []).map((file) => file.path),
     },
   ]
 }
@@ -86,6 +90,8 @@ export function useIssueStack(
 ): {
   stack: StackView | null
   memberTarget: (issueId: string) => { boardSlug: string; identifier: string } | null
+  /** The issue's board's default branch: the Stack card's base fallback. */
+  defaultBranch: string | null
 } {
   const active = Boolean(issue && teamId && issue.prState === `open`)
   const boardIds = useTeamBoardIds(active ? teamId : undefined)
@@ -111,6 +117,7 @@ export function useIssueStack(
     const byId = new Map(open.map((row) => [row.id, row]))
     return {
       stack: active && issue ? stackView(issue, open) : null,
+      defaultBranch: (issue ? boards.get(issue.boardId)?.defaultBranch : null) ?? null,
       memberTarget: (issueId) => {
         const row = byId.get(issueId)
         const board = row ? boards.get(row.boardId) : undefined
@@ -120,16 +127,24 @@ export function useIssueStack(
   }, [active, issue, openRows, boardRows])
 }
 
+/** The base row's word when neither the stack nor the board names one
+ *  (default branches resolve live, never an assumed `main`). */
+export const STACK_BASE_FALLBACK = `default branch`
+
 /** EXP-1248: the Guide's Stack card — the band (`pr-stack` glyph, no count)
  *  over the ONE stack rail (`StackRail`): top first, the current member on
  *  the active wash, the base branch last. A member row REPLACES the subject
- *  in place; hovering one offers `Merge through here`. */
+ *  in place; hovering one offers `Merge through here` (phones: `StackRail`'s
+ *  own long-press menu). */
 export function GuideStackCard({
   stack,
+  defaultBranch = null,
   onOpen,
   onMergeThrough,
 }: {
   stack: StackView
+  /** The board's default branch, the base row's fallback. */
+  defaultBranch?: string | null
   onOpen?: (issueId: string) => void
   onMergeThrough?: (issueId: string) => void
 }) {
@@ -149,7 +164,7 @@ export function GuideStackCard({
       <StackRail
         className="pt-1"
         members={members}
-        baseBranch={stack.baseBranch ?? `main`}
+        baseBranch={stack.baseBranch ?? defaultBranch ?? STACK_BASE_FALLBACK}
         onOpen={
           onOpen
             ? (member) => {

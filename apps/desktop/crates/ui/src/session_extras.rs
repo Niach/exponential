@@ -782,36 +782,6 @@ pub(crate) fn option_chip(config: Option<&steer::SessionConfig>, id: &str) -> Op
 /// The mode id every plan-capable agent advertises.
 pub(crate) const PLAN_MODE_ID: &str = "plan";
 
-/// EXP-772: the plan/build PAIR — exactly two modes, one of them `plan`.
-/// Mirrored ×4 as `planModeToggle` and kept as that mirror (lock-tested
-/// below); EXP-790 retired the mid-session pill that drew it, so no view
-/// reads it any more — plan is a launch-time switch on the chat page.
-#[cfg_attr(not(test), allow(dead_code))]
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct PlanModeToggle {
-    /// The mode to switch to when turning plan ON.
-    pub(crate) plan_id: String,
-    /// The mode to switch back to when turning it OFF.
-    pub(crate) build_id: String,
-    /// Plan mode is in force right now.
-    pub(crate) active: bool,
-}
-
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn plan_mode_toggle(config: Option<&steer::SessionConfig>) -> Option<PlanModeToggle> {
-    let config = config?;
-    if config.modes.len() != 2 {
-        return None;
-    }
-    let plan = config.modes.iter().find(|mode| mode.id == PLAN_MODE_ID)?;
-    let build = config.modes.iter().find(|mode| mode.id != PLAN_MODE_ID)?;
-    Some(PlanModeToggle {
-        plan_id: plan.id.clone(),
-        build_id: build.id.clone(),
-        active: config.current_mode.as_deref() == Some(plan.id.as_str()),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1182,35 +1152,5 @@ mod tests {
         // Nothing published under that id, and no config at all.
         assert!(option_chip(Some(&bare), "effort").is_none());
         assert!(option_chip(None, "model").is_none());
-    }
-
-    /// EXP-772: exactly two modes with `plan` among them is the toggle shape;
-    /// anything else falls back to the chip.
-    #[test]
-    fn a_plan_build_pair_becomes_a_plan_switch() {
-        let claude = config(&[("plan", "Plan"), ("bypassPermissions", "Build")], Some("plan"));
-        let toggle = plan_mode_toggle(Some(&claude)).expect("the claude pair");
-        assert_eq!(toggle.plan_id, "plan");
-        assert_eq!(toggle.build_id, "bypassPermissions");
-        assert!(toggle.active);
-
-        // Off plan, the switch points back at Build.
-        let building = config(
-            &[("plan", "Plan"), ("bypassPermissions", "Build")],
-            Some("bypassPermissions"),
-        );
-        let toggle = plan_mode_toggle(Some(&building)).expect("the claude pair");
-        assert!(!toggle.active);
-
-        // A pair without `plan`, a single mode and a three-mode list are all
-        // chips, not switches.
-        assert!(plan_mode_toggle(Some(&config(&[("a", "A"), ("b", "B")], Some("a")))).is_none());
-        assert!(plan_mode_toggle(Some(&config(&[("plan", "Plan")], Some("plan")))).is_none());
-        assert!(plan_mode_toggle(Some(&config(
-            &[("plan", "Plan"), ("b", "B"), ("c", "C")],
-            Some("plan")
-        )))
-        .is_none());
-        assert!(plan_mode_toggle(None).is_none());
     }
 }

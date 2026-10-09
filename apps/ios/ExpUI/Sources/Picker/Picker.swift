@@ -433,6 +433,61 @@ public struct GlassPicker<Value: Hashable & Sendable, Trigger: View>: View {
     }
 }
 
+/// The picker's sheet BODY alone — the same chrome, rows and selection
+/// language as `GlassPicker`'s sheet — for a host that already presents a
+/// sheet of its own (an issue property child sheet). A pick in `.single`
+/// dismisses that host sheet. Never a second picker surface: it IS the one.
+public struct GlassPickerContent<Value: Hashable & Sendable>: View {
+    let items: [PickerItem<Value>]
+    let mode: PickerMode
+    let value: Set<Value>
+    let onChange: (Set<Value>) -> Void
+    let search: Bool
+    let emptyText: String?
+    let title: String?
+    let searchPlaceholder: String?
+
+    public init(
+        items: [PickerItem<Value>],
+        mode: PickerMode,
+        value: Set<Value>,
+        onChange: @escaping (Set<Value>) -> Void,
+        search: Bool = false,
+        emptyText: String? = nil,
+        title: String? = nil,
+        searchPlaceholder: String? = nil
+    ) {
+        self.items = items
+        self.mode = mode
+        self.value = value
+        self.onChange = onChange
+        self.search = search
+        self.emptyText = emptyText
+        self.title = title
+        self.searchPlaceholder = searchPlaceholder
+    }
+
+    public var body: some View {
+        GlassPickerSheetBody(
+            items: items,
+            mode: mode,
+            value: value,
+            onChange: onChange,
+            search: search,
+            emptyText: emptyText,
+            title: title,
+            searchPlaceholder: searchPlaceholder,
+            query: nil,
+            loading: false,
+            panel: nil,
+            footer: nil,
+            footerReplacesEmpty: true,
+            renderMark: nil,
+            renderItem: nil
+        )
+    }
+}
+
 /// Names the presented sheet for the UI flows pinned to one, and nothing at
 /// all without an identifier — a modifier rather than an inline `if`, which
 /// would fork the sheet's view identity and re-present it.

@@ -5,7 +5,6 @@ import {
   parseGuideSearch,
   parseGuideSection,
   availableFaces,
-  changesFaceCounts,
   codingTarget,
   GUIDE_FACE_LABEL,
   OPEN_RESULTS_LABEL,
@@ -73,16 +72,6 @@ describe(`work faces`, () => {
     expect(OPEN_RESULTS_LABEL).toBe(`Open Guide`)
     expect(STEER_COMPOSER_PLACEHOLDER).toBe(`Type / for commands`)
     expect(PLAN_MODE_LABEL).toBe(`Plan mode`)
-  })
-
-  it(`counts the diff once the files are known`, () => {
-    expect(changesFaceCounts(null)).toBeNull()
-    expect(changesFaceCounts(undefined)).toBeNull()
-    expect(changesFaceCounts({ files: 0, additions: 0, deletions: 0 })).toBeNull()
-    expect(changesFaceCounts({ files: 3, additions: 12, deletions: 2 })).toEqual({
-      additions: 12,
-      deletions: 2,
-    })
   })
 
   it(`targets the bound run when it is mine and live`, () => {
@@ -245,6 +234,49 @@ describe(`issueResultsRun`, () => {
   }
 })
 
+// EXP-1251 (C1): the issue page feeds the issue's runs PLUS the team's runs
+// with results, so a run on ANOTHER issue that stacked this issue's PR wins.
+import { resultsCandidateRows } from "./work-faces"
+
+describe(`resultsCandidateRows`, () => {
+  const now = new Date(`2026-09-29T12:00:00Z`)
+  const prUrl = `https://github.com/o/r/pull/1012`
+  const row = (id: string, issueId: string | null, results: unknown) => ({
+    id,
+    issueId,
+    userId: `u1`,
+    status: `in_review`,
+    startedAt: `2026-09-29T08:00:00Z`,
+    updatedAt: `2026-09-29T11:00:00Z`,
+    results,
+  })
+  const stacker = row(`r1`, `i1`, [
+    { topic: `Summary`, text: `a` },
+    { topic: `Stacked`, text: `b`, prUrl },
+  ])
+
+  it(`reaches a run on another issue that tagged this issue's PR`, () => {
+    // The issue's own live query holds no run: the team rows carry it.
+    expect(issueResultsRun([], `i2`, null, `u1`, now, prUrl)).toBeNull()
+    const rows = resultsCandidateRows([], [stacker, row(`r2`, `i3`, null)])
+    expect(rows.map((r) => r.id)).toEqual([`r1`])
+    expect(issueResultsRun(rows, `i2`, null, `u1`, now, prUrl)?.id).toBe(`r1`)
+  })
+
+  it(`reaches a batch run that tagged this issue's PR`, () => {
+    const batch = row(`b1`, null, [{ topic: `Summary`, text: `x`, prUrl }])
+    const rows = resultsCandidateRows([], [batch])
+    expect(issueResultsRun(rows, `i2`, null, `u1`, now, prUrl)?.id).toBe(`b1`)
+  })
+
+  it(`keeps the issue's own rows first and never duplicates them`, () => {
+    const own = row(`r3`, `i2`, [{ topic: `Summary`, text: `own` }])
+    const rows = resultsCandidateRows([own], [own, stacker])
+    expect(rows.map((r) => r.id)).toEqual([`r3`, `r1`])
+    expect(issueResultsRun(rows, `i2`, null, `u1`, now, prUrl)?.id).toBe(`r3`)
+  })
+})
+
 // EXP-1175: the Run face status row, fixture-locked ×4.
 import runRowFixture from "@exp/domain-contract/fixtures/run-row.json"
 import {
@@ -257,6 +289,23 @@ import {
   turnRowCaption,
   type RunRowState,
 } from "./work-faces"
+
+describe(`turn row without a known end`, () => {
+  it(`drops the duration of a first turn closed only by the next message`, () => {
+    const input = {
+      turn: { startedAt: 1_000, endedAt: 600_000 },
+      state: `done` as RunRowState,
+      device: `MacBook`,
+      runEndedAt: null,
+      now: 700_000,
+    }
+    expect(turnRowCaption({ ...input, endKnown: false })).toEqual({
+      text: `Done on MacBook`,
+      tone: `muted`,
+    })
+    expect(turnRowCaption(input)?.text).toMatch(/^Done on MacBook · /)
+  })
+})
 
 describe(`run row`, () => {
   it(`labels the Show work switch off the fixture`, () => {

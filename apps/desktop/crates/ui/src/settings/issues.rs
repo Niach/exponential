@@ -14,7 +14,7 @@ use gpui::{
 use gpui_component::{
     button::Button,
     h_flex,
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -156,7 +156,7 @@ impl IssuesPane {
                         let pane = pane.clone();
                         let picked = *wire;
                         menu = menu.item(
-                            PopupMenuItem::new(text)
+                            crate::controls::pointer_label_item(text, false)
                                 .checked(current_wire == *wire)
                                 .on_click(move |_, _window, cx| {
                                     set_estimation(pane.clone(), team_id.clone(), picked, cx);

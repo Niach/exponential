@@ -87,6 +87,11 @@ pub fn install(cx: &mut App) {
             return;
         }
     }
+    // EXP-1249: every gpui_linux portal (file prompts, open/reveal) rides
+    // zbus on tokio — the main thread holds this runtime's context for life.
+    if crate::file_picker::needs_tokio_context() {
+        crate::file_picker::enter_tokio_context(cx);
+    }
 
     // §8.8 own-row Electric kill-switch: install the watch over the shared
     // `coding_sessions` collection.

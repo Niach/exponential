@@ -324,24 +324,6 @@ pub(crate) fn inbox_data_key(cx: &App) -> InboxDataKey {
     }
 }
 
-/// Every input [`review_groups`] reads (EXP-915): the team plus the two
-/// collections it joins.
-#[derive(PartialEq, Eq)]
-pub(crate) struct ReviewGroupsKey {
-    team_id: String,
-    issues: u64,
-    boards: u64,
-}
-
-pub(crate) fn review_groups_key(cx: &App, team_id: &str) -> ReviewGroupsKey {
-    let collections = Store::global(cx).collections();
-    ReviewGroupsKey {
-        team_id: team_id.to_string(),
-        issues: collections.issues.read(cx).revision(),
-        boards: collections.boards.read(cx).revision(),
-    }
-}
-
 /// Today as `YYYY-MM-DD` for the overdue boundary. Device-LOCAL date — the
 /// EXP-38 boundary every client uses: web `formatDateForMutation(new Date())`,
 /// iOS `Calendar.current`, Android `LocalDate.now()`.
@@ -1101,8 +1083,7 @@ pub(crate) fn reviews_count_key(cx: &App, team_id: &str, pulls_revision: u64) ->
     }
 }
 
-/// The board groups alone (the Reviews second sidebar, the `pr` pick). Reads
-/// only boards + issues, so [`review_groups_key`] stays its whole memo key.
+/// The board groups alone (the `pr` pick). Reads only boards + issues.
 pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
     let collections = Store::global(cx).collections();
     reviews_queue_from(
@@ -1113,26 +1094,6 @@ pub fn review_groups(cx: &App, team_id: &str) -> Vec<ReviewGroup> {
         &[],
     )
     .groups
-}
-
-/// EXP-734: the "Agent runs" block alone — issue-less runs with an open PR of
-/// their OWN that no issue carries, newest per PR (the shared queue's runs).
-pub fn review_runs(cx: &App, team_id: &str) -> Vec<domain::rows::CodingSession> {
-    reviews_queue(cx, team_id, &[]).runs
-}
-
-/// Drop a pull from the fetched `repositories.openPulls` state after a
-/// successful merge — the mutation has no Electric echo, so removal is local.
-pub fn remove_merged_pull(
-    repos: &mut [api::repositories::OpenPullsRepo],
-    repository_id: &str,
-    number: u64,
-) {
-    for repo in repos.iter_mut() {
-        if repo.repository_id == repository_id {
-            repo.pulls.retain(|pull| pull.number != number);
-        }
-    }
 }
 
 /// EXP-153: a `running` (or `in_review` — EXP-194: PR open, terminal still
@@ -2968,23 +2929,6 @@ mod tests {
             .as_deref(),
             Some("Danny's MacBook")
         );
-    }
-
-    #[test]
-    fn remove_merged_pull_drops_only_the_matching_row() {
-        let mut repos = vec![pull_repo("repo-1", &[1, 2]), pull_repo("repo-2", &[1])];
-        remove_merged_pull(&mut repos, "repo-1", 1);
-        assert_eq!(
-            repos[0].pulls.iter().map(|p| p.number).collect::<Vec<_>>(),
-            [2]
-        );
-        // Same PR number in another repo is untouched.
-        assert_eq!(repos[1].pulls.len(), 1);
-        // Unknown targets are a no-op.
-        remove_merged_pull(&mut repos, "repo-9", 1);
-        remove_merged_pull(&mut repos, "repo-1", 99);
-        assert_eq!(repos[0].pulls.len(), 1);
-        assert_eq!(repos[1].pulls.len(), 1);
     }
 
     fn queue_board(id: &str, team: &str) -> domain::rows::Board {

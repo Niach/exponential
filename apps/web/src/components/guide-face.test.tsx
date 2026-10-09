@@ -8,6 +8,7 @@ import {
   PR_DESCRIPTION_EMPTY,
   PR_DESCRIPTION_FALLBACK_TOPIC,
   prDescriptionGroups,
+  STACK_BASE_FALLBACK,
   STACK_CARD_TITLE,
 } from "@/components/guide-face"
 import type { StackView } from "@/lib/pr-stack"
@@ -44,6 +45,18 @@ describe(`prDescriptionGroups`, () => {
     expect(one?.topic).toBe(PR_DESCRIPTION_FALLBACK_TOPIC)
     expect(one?.text).toBe(PR_DESCRIPTION_EMPTY)
   })
+
+  it(`claims every diff path, so no report + a PR = ONE Changes section`, () => {
+    const ready = { kind: `ready` as const, title: `Fix it`, body: `Body.`, state: `open` }
+    const files = [diffFile(`a.ts`, 1, 0), diffFile(`b.ts`, 2, 1)]
+    const groups = prDescriptionGroups(ready, files)
+    expect(groups[0]?.files).toEqual([`a.ts`, `b.ts`])
+    render(<GuideBody groups={groups} files={files} numbered={false} />)
+    const rows = screen.getAllByTestId(`guide-changes-row`)
+    expect(rows).toHaveLength(1)
+    expect(rows[0]?.textContent).toContain(`2 files`)
+    expect(screen.queryByTestId(`guide-other-changes`)).toBeNull()
+  })
 })
 
 describe(`GuideStackCard`, () => {
@@ -65,6 +78,16 @@ describe(`GuideStackCard`, () => {
     onOpen.mockClear()
     fireEvent.click(screen.getByText(`SwiftUI parity`))
     expect(onOpen).not.toHaveBeenCalled()
+  })
+
+  it(`falls back to the board's default branch, never an assumed main`, () => {
+    const noBase = { ...stack, baseBranch: null }
+    const { rerender } = render(<GuideStackCard stack={noBase} defaultBranch="develop" />)
+    expect(screen.getByTestId(`guide-stack-card`).textContent).toContain(`develop`)
+    rerender(<GuideStackCard stack={noBase} />)
+    const text = screen.getByTestId(`guide-stack-card`).textContent ?? ``
+    expect(text).toContain(STACK_BASE_FALLBACK)
+    expect(text).not.toContain(`main`)
   })
 
   it(`hovering a member offers Merge through here`, () => {

@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 
 // EXP-1248: `issues.mergePr({mergeStack: true})` on an open-stack member is
 // ONE merge-async on it (GitHub lands it and everything beneath it), after
-// making the line a GitHub stack; a plain merge on any member is refused.
+// making the line a GitHub stack; a plain merge on a member with PRs open
+// beneath it is refused, the bottom (a landing of one) merges plainly.
 // Plus the chain walk (`openStackThrough`) and the membership rule
 // (`openStackMember`).
 
@@ -351,25 +352,24 @@ describe(`issues.mergePr({mergeStack: true}) (EXP-1248)`, () => {
     expect(h.applyPrMergeState).toHaveBeenCalledTimes(2)
   })
 
-  it(`merges the bottom alone with no stack call`, async () => {
+  it.each([
+    [`with mergeStack`, true],
+    [`without mergeStack`, undefined],
+  ])(`merges a stack bottom (a landing of one) plainly %s`, async (_label, mergeStack) => {
     h.openStackMember.mockResolvedValue(stackOf(1))
-    queueRow(1)
-    // No OPEN/MERGED PR on its base `master` (the heal guard), then its issue.
-    h.selectQueue.push([], [], [], [], [{ id: ID(1) }])
+    queueMemberMerge(1)
 
     await expect(
-      caller.mergePr({ issueId: ID(1), mergeStack: true })
-    ).resolves.toEqual({
-      merged: true,
-      stack: [{ identifier: `EXP-11`, prNumber: 241 }],
-    })
+      caller.mergePr({ issueId: ID(1), mergeStack })
+    ).resolves.toEqual({ merged: true })
     expect(h.ensureGithubStack).not.toHaveBeenCalled()
-    expect(h.log).toEqual([`merge through #241`])
+    expect(h.mergeThrough).not.toHaveBeenCalled()
+    expect(h.mergePullRequestSmart).toHaveBeenCalledTimes(1)
   })
 
   it.each([
     [`the top`, 3, [1, 2, 3], `EXP-11 (#241), EXP-12 (#242), EXP-13 (#243)`],
-    [`the bottom`, 1, [1], `EXP-11 (#241)`],
+    [`the middle`, 2, [1, 2], `EXP-11 (#241), EXP-12 (#242)`],
   ])(`refuses a plain merge of %s, naming what a merge through it lands`, async (_label, n, landing, names) => {
     h.openStackMember.mockResolvedValue(stackOf(...landing))
     queueRow(n)
@@ -581,6 +581,7 @@ describe(`openStackMember (EXP-1248)`, () => {
     }
   }
   const url = (n: number) => ({ prUrl: member(n).prUrl })
+  const link = (n: number) => ({ prUrl: member(n).prUrl, branch: member(n).branch })
 
   it(`a linear line below is a stack landing bottom-first`, async () => {
     const { db: fake } = fakeDb([
@@ -599,16 +600,81 @@ describe(`openStackMember (EXP-1248)`, () => {
     expect(membership?.landing.map((m) => m.identifier)).toEqual([`EXP-11`, `EXP-12`])
   })
 
-  it(`the bottom with one PR on its branch is a stack member landing alone`, async () => {
+  it(`the bottom with one PR on its branch lands alone: no member`, async () => {
     const { db: fake } = fakeDb([
       [row(1)], // the start, base master
       [], // nobody's open PR on master
       [], // the repo row
-      [url(2)], // its children: issue rows
+      [link(2)], // its children: issue rows
+      [], //                     run rows
+      [], // EXP-12's children: issue rows
       [], //                     run rows
     ])
-    const membership = await openStackMember(fake, { issueId: ID(1), teamId: `ws-1` })
-    expect(membership).toEqual({ kind: `stack`, landing: [member(1)] })
+    await expect(
+      openStackMember(fake, { issueId: ID(1), teamId: `ws-1` })
+    ).resolves.toBeNull()
+  })
+
+  // A ← B ← {C, D}: the clients' `prGraphShape` calls it a tree, so the
+  // root's plain merge must pass and B waits for A.
+  it(`a fork above the root's only child makes the root a tree root`, async () => {
+    const { db: fake } = fakeDb([
+      [row(1)], // A, base master
+      [], // nobody's open PR on master
+      [], // the repo row
+      [link(2)], // A's children: B (issue rows)
+      [], //                       (run rows)
+      [link(3), link(4)], // B's children: C, D (issue rows)
+      [], //                                    (run rows)
+    ])
+    await expect(
+      openStackMember(fake, { issueId: ID(1), teamId: `ws-1` })
+    ).resolves.toMatchObject({ kind: `tree`, parent: null })
+  })
+
+  it(`a fork above makes the middle a tree child naming its parent`, async () => {
+    const { db: fake } = fakeDb([
+      [row(2)], // B
+      [row(1)], // A below it
+      [], // openStackThrough's repo row
+      [], // nobody's open PR on master below A
+      [], // openStackMember's repo row
+      [link(2)], // A's children: B only (issue rows)
+      [], //                               (run rows)
+      [link(3), link(4)], // B's children: C, D
+      [],
+    ])
+    await expect(
+      openStackMember(fake, { issueId: ID(2), teamId: `ws-1` })
+    ).resolves.toMatchObject({ kind: `tree`, parent: `EXP-11` })
+  })
+
+  it(`a run PR forking above counts like an issue PR`, async () => {
+    const { db: fake } = fakeDb([
+      [row(1)],
+      [],
+      [],
+      [link(2)],
+      [],
+      [link(3)], // B's children: C (issue rows)
+      [{ prUrl: `https://github.com/owner/repo/pull/300`, branch: `exp/chat-1a2b3c4d` }], // a run PR
+    ])
+    await expect(
+      openStackMember(fake, { issueId: ID(1), teamId: `ws-1` })
+    ).resolves.toMatchObject({ kind: `tree`, parent: null })
+  })
+
+  it(`a batch PR's rows count once`, async () => {
+    const { db: fake } = fakeDb([
+      [row(1)],
+      [],
+      [],
+      [link(2), link(2)], // one PR, two issue rows
+      [],
+    ])
+    await expect(
+      openStackMember(fake, { issueId: ID(1), teamId: `ws-1` })
+    ).resolves.toBeNull()
   })
 
   it(`a lone PR is no member`, async () => {
@@ -619,7 +685,7 @@ describe(`openStackMember (EXP-1248)`, () => {
   })
 
   it(`two PRs on the root's branch make it a tree root`, async () => {
-    const { db: fake } = fakeDb([[row(1)], [], [], [url(2)], [url(3)]])
+    const { db: fake } = fakeDb([[row(1)], [], [], [link(2)], [link(3)]])
     await expect(
       openStackMember(fake, { issueId: ID(1), teamId: `ws-1` })
     ).resolves.toMatchObject({ kind: `tree`, parent: null })

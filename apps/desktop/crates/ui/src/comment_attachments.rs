@@ -469,7 +469,7 @@ pub(crate) fn save_attachment_as(
         return;
     };
     let directory = dirs::download_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    let receiver = cx.prompt_for_new_path(&directory, Some(&label));
+    let receiver = crate::file_picker::prompt_for_new_path(cx, &directory, Some(&label));
     let url = format!("/api/attachments/{attachment_id}");
     let handle = window.window_handle();
     cx.spawn(async move |cx| {

@@ -18,9 +18,10 @@ import UniformTypeIdentifiers
 /// belong to `WorkScreen`; this view reports what they need through
 /// `RunChrome` and takes the screen's requests (`RunRequest`) and its Start
 /// coding offer (`startReadiness`).
-/// EXP-1152: the Run face ONLY — the run's live diff is `RunChangesFace`, its
-/// own page beside this one in the Work screen's pager (both pages are up at
-/// once, and ONE view must consume `request` and report `RunChrome`).
+/// EXP-1152/1251: the Run face ONLY — the run's live diff is on the Guide
+/// face (`GuideFace`), its own page beside this one in the Work screen's
+/// pager (both pages are up at once, and ONE view must consume `request` and
+/// report `RunChrome`).
 /// The feed's scroll constants — outside the view (EXP-893: it used to be
 /// generic, and a generic type cannot hold stored statics).
 enum AgentSessionLayout {

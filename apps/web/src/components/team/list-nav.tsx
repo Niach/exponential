@@ -169,13 +169,15 @@ export function InboxListNav({
 }
 
 function InboxNavRows() {
-  const { issueIdentifier } = useActiveDetail()
+  const { issueIdentifier, sessionId } = useActiveDetail()
   // The stream groups by ISSUE, and the route knows only the identifier — the
   // pane highlights by id, so the match rides the row's own identifier below.
+  // A message row that opened a run highlights off the run's id.
   return (
     <InboxView
       compact
       activeIssueIdentifier={issueIdentifier}
+      activeSessionId={sessionId}
       from="inbox"
     />
   )

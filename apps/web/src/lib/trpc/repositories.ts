@@ -41,10 +41,8 @@ import {
   awaitRebaseOffMergedBranch,
   basedOnMergedPr,
   loadGuardDefaultBranches,
-  openChildPrUrls,
   openStackMember,
-  openStackMessage,
-  repoPrUrlLike,
+  stackLanding,
   squashCommitTitle,
   stackedOnMessage,
   stackedOnOpenPr,
@@ -544,17 +542,12 @@ export async function mergeRepositoryPull(opts: {
   // records its base on the issue; an issue-less one (a chat or action run's
   // PR) on the run row that opened it (EXP-1165).
   let based: { id: string | null; prBaseBranch: string } | null = null
-  // The run row that opened an issue-less PR: its base and its own branch.
-  let runBranch: string | null = null
   const issueBased = onPr.find((issue) => issue.prBaseBranch)
   if (issueBased?.prBaseBranch) {
     based = { id: issueBased.id, prBaseBranch: issueBased.prBaseBranch }
   } else if (onPr.length === 0) {
     const [run] = await db
-      .select({
-        prBaseBranch: codingSessions.prBaseBranch,
-        branch: codingSessions.branch,
-      })
+      .select({ prBaseBranch: codingSessions.prBaseBranch })
       .from(codingSessions)
       .where(
         and(
@@ -564,41 +557,21 @@ export async function mergeRepositoryPull(opts: {
       )
       .limit(1)
     if (run?.prBaseBranch) based = { id: null, prBaseBranch: run.prBaseBranch }
-    runBranch = run?.branch ?? null
   }
-  // EXP-1248: an open-stack member never merges plainly (issues.mergePr's
-  // rule); an issue-less run PR is a stack BOTTOM when PRs sit on its branch.
+  // EXP-1248: an open-stack member with PRs open beneath it never merges
+  // plainly (issues.mergePr's rule). An issue-less run PR is at most a stack
+  // BOTTOM or a tree root (nothing issue-backed walks below it): it lands
+  // alone, so it merges plainly.
   let landing: Array<{
     identifier: string | null
     prNumber: number
     prUrl: string
   }> | null = null
   if (onPr[0]) {
-    const membership = await openStackMember(db, {
-      issueId: onPr[0].id,
-      teamId: repo.teamId,
-    })
-    if (membership?.kind === `tree` && membership.parent) {
-      throw new TRPCError({
-        code: `PRECONDITION_FAILED`,
-        message: stackedOnMessage(membership.parent),
-      })
-    }
-    if (membership?.kind === `stack`) landing = membership.landing
-  } else if (runBranch && runBranch !== effectiveDefaultBranch(repo)) {
-    const children = await openChildPrUrls(db, {
-      teamId: repo.teamId,
-      pattern: repoPrUrlLike(repo.fullName),
-      branch: runBranch,
-    })
-    children.delete(prUrl)
-    if (children.size > 0) landing = [{ identifier: null, prNumber, prUrl }]
-  }
-  if (landing && !opts.mergeStack) {
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: openStackMessage(landing),
-    })
+    landing = stackLanding(
+      await openStackMember(db, { issueId: onPr[0].id, teamId: repo.teamId }),
+      opts.mergeStack
+    )
   }
   if (based && !landing) {
     const parent = await stackedOnOpenPr(db, {

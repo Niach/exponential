@@ -47,7 +47,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
+    menu::{ContextMenuExt as _, PopupMenuItem},
     spinner::Spinner,
     v_flex, v_virtual_list, ActiveTheme as _, Icon, Selectable as _, Sizable as _,
     VirtualListScrollHandle,
@@ -1273,13 +1273,13 @@ impl RailView {
                          _window: &mut Window,
                          _cx: &mut gpui::Context<gpui_component::menu::PopupMenu>| {
             menu = menu.item(
-                PopupMenuItem::new("Terminal")
+                crate::controls::pointer_label_item("Terminal", false)
                     .icon(Icon::from(registry::NAV_TERMINAL))
                     .on_click(|_, window, cx| crate::session_bar::open_new_shell(window, cx)),
             );
             if files {
                 menu = menu.item(
-                    PopupMenuItem::new("Files")
+                    crate::controls::pointer_label_item("Files", false)
                         .icon(Icon::new(registry::NAV_FILES))
                         .on_click(|_, window, cx| activate_tool(window, cx, ToolWindow::Files)),
                 );
@@ -1307,14 +1307,16 @@ impl RailView {
         // The footer's small ghost square (the settings gear's shape), the
         // failure badge in its top-right corner. It opens upward: the
         // button sits at the window's bottom edge.
-        let button = Button::new("rail-computer")
+        let button = crate::controls::PointerMenu::for_button(Button::new("rail-computer")
             .ghost()
             .cursor_pointer()
             .small()
             .icon(registry::NAV_COMPUTER)
             .selected(active)
-            .tooltip(tooltip)
-            .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, menu);
+            .tooltip(tooltip),
+            menu,
+        )
+        .anchor(gpui::Anchor::BottomLeft);
         div()
             .relative()
             .flex_shrink_0()
@@ -1469,7 +1471,7 @@ impl RailView {
             }
         };
 
-        Button::new("rail-account")
+        crate::controls::PointerMenu::for_button(Button::new("rail-account")
             .ghost().cursor_pointer()
             .small()
             // The trigger is a full-width row — the Button's own inner layout
@@ -1501,8 +1503,8 @@ impl RailView {
                     ),
                 )
             })
-            .tooltip(full_name.clone())
-            .dropdown_menu_with_anchor(gpui::Anchor::BottomLeft, move |menu, _window, _cx| {
+            .tooltip(full_name.clone()),
+            move |menu, _window, _cx| {
                 // EXP-723: the WEB account menu, item for item. No "Settings"
                 // (the gear beside this button is the single settings entry),
                 // no "Account" (it is a settings section), no identity header
@@ -1522,7 +1524,7 @@ impl RailView {
                 .menu_with_icon("About", registry::SETTINGS_ABOUT, Box::new(OpenAbout))
                 .separator()
                 .menu_with_icon("Sign out", registry::NAV_SIGN_OUT, Box::new(SignOut))
-            })
+            }).anchor(gpui::Anchor::BottomLeft)
     }
 
     /// One Projects board icon: the board's glyph tinted with its color,
@@ -1711,7 +1713,7 @@ pub(crate) fn render_left_column_header(
     // this is `None` only when nothing is in scope at all.
     let board_id = active_board_id(nav, cx);
 
-    let switcher = Button::new("rail-team-switcher")
+    let switcher = crate::controls::PointerMenu::for_button(Button::new("rail-team-switcher")
         .ghost().cursor_pointer()
         .small()
         .w_full()
@@ -1761,8 +1763,8 @@ pub(crate) fn render_left_column_header(
                             )
                         }),
                 ),
-        )
-        .dropdown_menu_with_anchor(gpui::Anchor::TopLeft, move |menu, _window, _cx| {
+        ),
+        move |menu, _window, _cx| {
             // Flat checked rows (the menu builder has no submenus); always
             // shown, even with a single team (EXP-434: no teams=1 special
             // case anywhere).
@@ -1800,7 +1802,7 @@ pub(crate) fn render_left_column_header(
             menu.separator()
                 .menu_with_icon("New team", registry::UI_ADD, Box::new(CreateTeam))
                 .menu_with_icon("Join team", registry::UI_INVITE, Box::new(JoinTeam))
-        });
+        }).anchor(gpui::Anchor::TopLeft);
 
     h_flex()
         .w_full()
@@ -3750,20 +3752,6 @@ impl ListPanel {
                 cx,
             )
         })
-        .into_any_element()
-    }
-
-    /// The side list's plain scroll body.
-    fn nav_scroll(
-        &self,
-        id: &'static str,
-        rows: Vec<gpui::AnyElement>,
-        _cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        crate::scroll_pane::SidebarScrollArea::new(
-            id,
-            v_flex().w_full().min_w_0().px_2().gap_0p5().children(rows),
-        )
         .into_any_element()
     }
 

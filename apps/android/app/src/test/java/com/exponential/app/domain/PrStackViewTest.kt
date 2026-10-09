@@ -94,6 +94,15 @@ class PrStackViewTest {
         createdAt = "2026-10-09T10:00:00Z",
         updatedAt = "2026-10-09T10:00:00Z",
     )
+
+    @Test
+    fun `the base row falls back to the board default branch, then the literal`() {
+        assertEquals("release", PrStack.baseRowLabel("release", "master"))
+        assertEquals("master", PrStack.baseRowLabel(null, "master"))
+        assertEquals("master", PrStack.baseRowLabel("", "master"))
+        assertEquals("default branch", PrStack.baseRowLabel(null, null))
+        assertEquals("default branch", PrStack.baseRowLabel(null, " "))
+    }
 }
 
 /** One fixture issue row of `pr-stack-view.json` / `stack-merge-choice.json`. */
@@ -116,4 +125,5 @@ internal fun stackFixtureIssue(json: JsonObject): IssueEntity {
         createdAt = "2026-10-09T10:00:00Z",
         updatedAt = "2026-10-09T10:00:00Z",
     )
+
 }

@@ -1,5 +1,7 @@
 package com.exponential.app.ui.issue
 
+import androidx.compose.foundation.layout.PaddingValues
+import com.exponential.app.ui.components.SectionBand
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
@@ -61,7 +63,6 @@ import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.flatRow
-import com.exponential.app.ui.theme.glassSectionBand
 import com.exponential.app.ui.theme.resolvedStatusColor
 import com.exponential.app.ui.theme.statusColor
 
@@ -156,15 +157,10 @@ fun SubIssuesSection(
 ) {
     if (subIssues.rows.isEmpty()) {
         if (onAdd == null) return
-        Row(
-            modifier = modifier
-                .fillMaxWidth()
-                .glassSectionBand()
-                .clickable(onClick = onAdd)
-                .heightIn(min = 44.dp)
-                .padding(horizontal = 12.dp)
-                .testTag("add-sub-issues"),
-            verticalAlignment = Alignment.CenterVertically,
+        SectionBand(
+            modifier = modifier.heightIn(min = 44.dp).testTag("add-sub-issues"),
+            onClick = onAdd,
+            contentPadding = PaddingValues(horizontal = 12.dp),
         ) {
             val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
             Icon(ExpIcons.uiAdd, contentDescription = null, modifier = Modifier.size(16.dp), tint = muted)

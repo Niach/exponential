@@ -24,6 +24,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.BoardEntity
+import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.ReviewsQueue
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
@@ -112,7 +113,7 @@ private fun ReviewsListContent(
                         is ReviewBlock.Stack -> item(key = "stack-${block.entries.firstOrNull()?.groupKey ?: index}") {
                             StackRail(
                                 members = block.entries.map { ReviewStackMember(it, reviewRowLabel(it)) },
-                                baseBranch = block.baseBranch ?: group.board.defaultBranch ?: "default branch",
+                                baseBranch = PrStack.baseRowLabel(block.baseBranch, group.board.defaultBranch),
                                 word = STACK_WORD,
                                 onOpen = { member -> onOpenIssueGuide(member.entry.representative.id) },
                                 modifier = gap,

@@ -70,15 +70,6 @@ final class WorkFacesTests: XCTestCase {
         XCTAssertEqual(AgentFeed.planModeFooterLabel, WorkFaces.planModeLabel)
     }
 
-    func testCountsTheDiffOnceTheFilesAreKnown() {
-        XCTAssertNil(WorkFaces.changesFaceCounts(nil))
-        XCTAssertNil(WorkFaces.changesFaceCounts(Diff.Totals(files: 0, additions: 0, deletions: 0)))
-        XCTAssertEqual(
-            WorkFaces.changesFaceCounts(Diff.Totals(files: 3, additions: 12, deletions: 2)),
-            WorkFaces.ChangesFaceCounts(additions: 12, deletions: 2)
-        )
-    }
-
     func testTargetsTheBoundRunWhenItIsMineAndLive() {
         let rows = [
             run("a", startedAt: "2026-09-15T10:00:00Z"),

@@ -876,7 +876,8 @@ type Caller = ReturnType<
   Awaited<typeof import("@/routes/api/trpc/$")>[`appRouter`][`createCaller`]
 >
 
-function defaultDeps(): YoloDeps {
+/** The live deps (exported for the guard-backed test). */
+export function defaultDeps(): YoloDeps {
   const tokens = new Map<string, Promise<string | null>>()
   const tokenFor = (repo: string) => {
     let pending = tokens.get(repo)
@@ -928,7 +929,9 @@ function defaultDeps(): YoloDeps {
     retarget: (opts) => retargetChildrenOfMergedPr(opts),
     mergeIssuePr: async (run, issueId) => {
       const caller = await callerFor(run.userId)
-      const result = await caller.issues.mergePr({ issueId })
+      // Root first: each merge lands its own PR (a 1-PR landing), which the
+      // guard merges plainly; mergeStack keeps that true if the rule moves.
+      const result = await caller.issues.mergePr({ issueId, mergeStack: true })
       return { merged: result.merged, queued: result.queued === true }
     },
     mergeChorePr: async (run, repo, prNumber, teamId) => {
@@ -946,6 +949,7 @@ function defaultDeps(): YoloDeps {
       const result = await caller.repositories.mergePull({
         repositoryId: repository.id,
         prNumber,
+        mergeStack: true,
       })
       return { merged: result.merged, queued: result.queued === true }
     },

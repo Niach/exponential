@@ -288,7 +288,11 @@ public struct StackRail: View {
     public var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(members.enumerated()), id: \.element.id) { index, member in
-                PrTapTarget(onOpen: onOpen.map { open in { open(member) } }) {
+                StackMemberTarget(
+                    onOpen: onOpen.map { open in { open(member) } },
+                    mergeThroughLabel: mergeThroughLabel,
+                    onMergeThrough: onMergeThrough.map { merge in { merge(member) } }
+                ) {
                     PrRow(
                         node: member.current ? .current : .open,
                         identifier: member.identifier,
@@ -298,7 +302,6 @@ public struct StackRail: View {
                         active: member.current
                     )
                 }
-                .modifier(MergeThroughMenu(label: mergeThroughLabel, action: onMergeThrough.map { merge in { merge(member) } }))
                 .accessibilityIdentifier(rowIdentifier)
             }
             PrRow(node: .base, title: baseBranch, rail: PrRailSegments(above: !members.isEmpty))
@@ -307,21 +310,25 @@ public struct StackRail: View {
     }
 }
 
-/// The long-press "Merge through here" on a stack member (phones; desktop and
-/// web show it as a hover ghost).
-private struct MergeThroughMenu: ViewModifier {
-    let label: String
-    let action: (() -> Void)?
+/// A stack member's tap + its hold: "Merge through here" floats THE glass
+/// menu from the row on a long press (phones have no hover; desktop and web
+/// show it as a hover ghost). Without a merge action it is a plain tap
+/// target like every other PR row.
+private struct StackMemberTarget<Content: View>: View {
+    let onOpen: (() -> Void)?
+    let mergeThroughLabel: String
+    let onMergeThrough: (() -> Void)?
+    @ViewBuilder let content: () -> Content
 
-    func body(content: Content) -> some View {
-        if let action {
-            content.contextMenu {
-                Button(action: action) {
-                    Label(label, appIcon: AppIcons.prMerged)
+    var body: some View {
+        if let onMergeThrough {
+            content()
+                .glassLongPressMenu(onTap: onOpen) {
+                    GlassMenuItem(mergeThroughLabel, icon: AppIcons.prMerged, action: onMergeThrough)
                 }
-            }
+                .accessibilityAction(named: mergeThroughLabel, onMergeThrough)
         } else {
-            content
+            PrTapTarget(onOpen: onOpen, content: content)
         }
     }
 }

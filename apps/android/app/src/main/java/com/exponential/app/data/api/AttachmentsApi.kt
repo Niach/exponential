@@ -48,16 +48,6 @@ data class UploadedAttachment(
 private data class AttachmentIdInput(@SerialName("id") val id: String)
 
 /**
- * Any-content-type issue attachments (EXP-297): upload to the `/files` route,
- * authenticated download of the stored bytes, and the member-level
- * `attachments.delete` mutation.
- *
- * The image pipeline keeps its own [IssueImagesApi] (frozen `/images`
- * contract); only the hand-rolled multipart body is shared — see
- * [buildImageUploadBody] for why Ktor's own encoder can't be used.
- */
-@Singleton
-/**
  * The multipart fields beside a Files upload's bytes: the media probe
  * ([mediaUploadFields]) plus EXP-1247's `asFile=1` part when the pick came
  * through a FILE/paperclip path (the server stores `as_file`, the row never
@@ -74,6 +64,16 @@ internal fun attachmentUploadFields(
     return out
 }
 
+/**
+ * Any-content-type issue attachments (EXP-297): upload to the `/files` route,
+ * authenticated download of the stored bytes, and the member-level
+ * `attachments.delete` mutation.
+ *
+ * The image pipeline keeps its own [IssueImagesApi] (frozen `/images`
+ * contract); only the hand-rolled multipart body is shared — see
+ * [buildImageUploadBody] for why Ktor's own encoder can't be used.
+ */
+@Singleton
 class AttachmentsApi @Inject constructor(
     private val client: HttpClient,
     private val auth: AuthRepository,

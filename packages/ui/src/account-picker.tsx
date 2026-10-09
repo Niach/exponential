@@ -13,8 +13,8 @@ import { useIsMobile } from "./use-mobile"
 import { UsageWindows, usageTone, type UsageWindow } from "./usage-windows"
 
 // EXP-872: ONE account picker per platform (web here, desktop
-// `coding_selects::account_picker`, iOS `AccountPickerMenu`, Android
-// `AccountPickerPill`). It REPLACES the agent picker + the account picker on
+// `coding_selects::account_picker`, iOS `AccountPicker` in
+// SharedAccountPicker.swift, Android `AccountPicker` in picker/AccountPicker.kt). It REPLACES the agent picker + the account picker on
 // every launch surface: there is no separate agent pick any more — the list
 // is every signed-in login the machine reports, across both agents, and
 // picking one implies its agent (`lib/accounts/account-option.ts`

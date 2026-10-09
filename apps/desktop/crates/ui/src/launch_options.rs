@@ -38,7 +38,7 @@ use gpui_component::{h_flex, select::Select, ActiveTheme as _, Icon};
 use coding::{CodingAgent, LaunchOptions};
 
 use crate::coding_selects::{
-    agent_icon, choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
+    choice_select, effort_choices_for, model_choices_for, selected, ChoiceSelect,
     SUBAGENT_MODEL_CHOICES,
 };
 use crate::icons::ExpIcon;
@@ -242,34 +242,6 @@ pub(crate) fn agent_defaults(settings: &coding::Settings, agent: CodingAgent) ->
 /// agent missing from the list cannot start a run there.
 pub(crate) fn cannot_run_session(acp_agents: &[CodingAgent], agent: CodingAgent) -> bool {
     !acp_agents.contains(&agent)
-}
-
-/// The AUTOMATION strip's pills: the agent ids the BOUND device advertises.
-pub(crate) fn agent_id_pills(agent_ids: &[String]) -> Vec<AgentPill> {
-    agent_ids
-        .iter()
-        .map(|id| AgentPill {
-            label: SharedString::from(agent_label(id)),
-            icon: CodingAgent::parse(id).map(agent_icon),
-            dimmed: false,
-            note: None,
-        })
-        .collect()
-}
-
-/// An agent id's display name — the brand casing every picker shows.
-pub(crate) fn agent_label(id: &str) -> String {
-    match CodingAgent::parse(id) {
-        Some(agent) => agent.label().to_string(),
-        // A newer contract value still renders readably.
-        None => {
-            let mut chars = id.chars();
-            match chars.next() {
-                Some(first) => format!("{}{}", first.to_uppercase(), chars.as_str()),
-                None => String::new(),
-            }
-        }
-    }
 }
 
 /// The segments of an agent strip — the pills themselves, container-free, so
@@ -1381,10 +1353,11 @@ impl ComposerMenu {
         })
     }
 
-    /// The MCP servers row's trailing value: how many are picked (`None` =
-    /// no row).
+    /// The MCP servers row's trailing value: how many are picked, `None` at
+    /// zero (composer-menu.json: no value at zero; the row itself shows
+    /// whenever the team has a server).
     pub(crate) fn mcp_value(&self) -> Option<String> {
-        (!self.mcp_servers.is_empty()).then(|| self.mcp_selected.len().to_string())
+        (!self.mcp_selected.is_empty()).then(|| self.mcp_selected.len().to_string())
     }
 }
 
@@ -1462,8 +1435,9 @@ mod tests {
         assert_eq!(menu.mcp_value().as_deref(), Some("1"));
         let locked = ComposerMenu { effort_locked: true, ..menu.clone() };
         assert_eq!(locked.effort_value(), "Ultracode");
+        let none_picked = ComposerMenu { mcp_selected: Vec::new(), ..menu.clone() };
+        assert_eq!(none_picked.mcp_value(), None, "no value at zero");
         let bare = ComposerMenu { mcp_servers: Vec::new(), subagent_picked: None, ..menu };
-        assert_eq!(bare.mcp_value(), None);
         assert_eq!(bare.subagent_value(), None);
     }
 

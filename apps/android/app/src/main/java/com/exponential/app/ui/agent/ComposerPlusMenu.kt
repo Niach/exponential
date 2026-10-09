@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -14,12 +13,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -32,10 +29,10 @@ import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.ComposerMenuEntry
 import com.exponential.app.domain.ComposerMenuRowId
 import com.exponential.app.domain.ComposerMenuRowKind
+import com.exponential.app.ui.components.GlassSwitch
+import com.exponential.app.ui.components.GlassSwitchSize
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetRow
-import com.exponential.app.ui.components.SwitchThumb
-import com.exponential.app.ui.components.glassSwitchColors
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -102,7 +99,9 @@ internal fun ComposerPlusMenuSheet(
                                         label = label,
                                         onClick = { onChange(!checked) },
                                         leading = { RowGlyph(composerMenuGlyph(entry.id)) },
-                                        trailing = { MenuSwitch(checked) },
+                                        trailing = {
+                                            GlassSwitch(checked = checked, onCheckedChange = null, size = GlassSwitchSize.Menu)
+                                        },
                                     )
                                 }
                             }
@@ -172,19 +171,5 @@ private fun SubmenuTrailing(value: String?) {
             Spacer(Modifier.width(6.dp))
         }
         Icon(ExpIcons.uiChevronRight, contentDescription = null, modifier = Modifier.size(16.dp), tint = muted)
-    }
-}
-
-/** The toggle row's switch: an indicator only (the row is the tap target). */
-@Composable
-private fun MenuSwitch(checked: Boolean) {
-    Box(modifier = Modifier.size(width = 44.dp, height = 26.dp), contentAlignment = Alignment.Center) {
-        Switch(
-            checked = checked,
-            onCheckedChange = null,
-            colors = glassSwitchColors(),
-            thumbContent = SwitchThumb,
-            modifier = Modifier.requiredSize(width = 52.dp, height = 32.dp).scale(0.8f),
-        )
     }
 }

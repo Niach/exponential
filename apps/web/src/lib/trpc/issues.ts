@@ -111,7 +111,7 @@ import {
   basedOnMergedPr,
   loadGuardDefaultBranches,
   openStackMember,
-  openStackMessage,
+  stackLanding,
   squashCommitTitle,
   stackedOnMessage,
   stackedOnOpenPr,
@@ -438,26 +438,14 @@ async function mergeOneIssuePr(
       message: `The linked pull request URL is not a GitHub PR URL`,
     })
   }
-  // EXP-1248: an open-stack member (bottom included) never merges plainly;
-  // `mergeStack` lands it and everything beneath it. A tree's child waits
-  // for its parent (EXP-1145). Both before any claim or GitHub call.
-  const membership = await openStackMember(ctx.db, {
-    issueId: input.issueId,
-    teamId,
-  })
-  if (membership?.kind === `tree` && membership.parent) {
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: stackedOnMessage(membership.parent),
-    })
-  }
-  if (membership?.kind === `stack` && !input.mergeStack) {
-    throw new TRPCError({
-      code: `PRECONDITION_FAILED`,
-      message: openStackMessage(membership.landing),
-    })
-  }
-  const landing = membership?.kind === `stack` ? membership.landing : null
+  // EXP-1248: an open-stack member with PRs open beneath it never merges
+  // plainly; `mergeStack` lands it and everything beneath it (a bottom lands
+  // alone: plain). A tree's child waits for its parent (EXP-1145). Both
+  // before any claim or GitHub call.
+  const landing = stackLanding(
+    await openStackMember(ctx.db, { issueId: input.issueId, teamId }),
+    input.mergeStack
+  )
   if (!landing) {
     // EXP-1145: based on an issue-LESS run's open PR (no issue row to walk).
     const parent = await stackedOnOpenPr(ctx.db, {

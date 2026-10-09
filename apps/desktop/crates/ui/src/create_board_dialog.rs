@@ -33,7 +33,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     scroll::{Scrollbar, ScrollbarAxis},
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -666,7 +666,7 @@ impl CreateBoardDialogView {
                 {
                     let view = view.clone();
                     menu = menu.item(
-                        PopupMenuItem::new(crate::board_form::NO_REPOSITORY)
+                        crate::controls::pointer_label_item(crate::board_form::NO_REPOSITORY, false)
                             .checked(selected_full.is_none())
                             .on_click(move |_, _, cx| {
                                 view.update(cx, |this, cx| this.pick_repo(None, cx));
@@ -681,7 +681,7 @@ impl CreateBoardDialogView {
                     };
                     let checked = selected_full.as_deref() == Some(repo.full_name.as_str());
                     menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(repo.full_name.clone()))
+                        crate::controls::pointer_label_item(SharedString::from(repo.full_name.clone()), false)
                             .icon(Icon::new(registry::UI_GITHUB))
                             .checked(checked)
                             .on_click(move |_, _, cx| {
@@ -692,14 +692,14 @@ impl CreateBoardDialogView {
                 }
                 if let Some(repo) = &inline_choice {
                     menu = menu.item(
-                        PopupMenuItem::new(SharedString::from(repo.full_name.clone()))
+                        crate::controls::pointer_label_item(SharedString::from(repo.full_name.clone()), false)
                             .icon(Icon::new(registry::UI_GITHUB))
                             .checked(true),
                     );
                 }
                 let view = view.clone();
                 menu.item(
-                    PopupMenuItem::new(connect_label)
+                    crate::controls::pointer_label_item(connect_label, false)
                         .icon(Icon::new(registry::UI_ADD))
                         .on_click(move |_, _, cx| {
                             view.update(cx, |this, cx| {
@@ -885,7 +885,7 @@ impl CreateBoardDialogView {
                                 repo.full_name.clone()
                             };
                             menu = menu.item(
-                                PopupMenuItem::new(SharedString::from(title))
+                                crate::controls::pointer_label_item(SharedString::from(title), false)
                                     .icon(Icon::new(registry::UI_GITHUB))
                                     .on_click(move |_, _, cx| {
                                         let choice = RepoChoice::Inline(repo.clone());

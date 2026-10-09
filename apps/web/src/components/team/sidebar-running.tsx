@@ -48,7 +48,6 @@ export interface RunningSessionEntry {
   /** `sessionTreeNodeKey`. */
   key: string
   depth: number
-  hasChildren: boolean
   guide: TreeGuide
   row: SessionListRow
   /** The device row behind `session.device_id`, for its icon. */
@@ -87,7 +86,6 @@ export function useMyRunningRows(
         {
           key: flat.key,
           depth: flat.depth,
-          hasChildren: flat.hasChildren,
           guide,
           row,
           device: deviceOf(row.session),

@@ -81,20 +81,35 @@ struct AgentOptionsRow: View {
     /// EXP-849: a login the agent REFUSED stays on offer wearing its badge, or
     /// a run starts and dies on an expired credential.
     ///
-    /// EXP-1030: `AccountPickerMenu` is the trigger + the lone-login rule over
-    /// the SHARED `AccountPicker` (`ExpUI`) — the pill opens the one picker
-    /// sheet now, brand mark + email per row with the EXP-992 limit bars under
-    /// each, instead of a menu of its own.
+    /// EXP-1030: the SHARED `AccountPicker` (`ExpUI`) — the pill opens the one
+    /// picker sheet, brand mark + email per row with the EXP-992 limit bars
+    /// under each. A lone login is not a choice: the picker disables itself
+    /// and the trigger drops its chevron.
     ///
     /// EXP-642: the store slide's pop-out rect is measured off the agent
     /// control, so the identifier stays on this one.
     private var accountPill: some View {
         let options = launch.accountOptions(on: model.device)
-        return AccountPickerMenu(
+        // The trigger always names a login: the pick, else the first option
+        // (the last used one).
+        let current = launch.selectedAccount(in: options) ?? options.first
+        return AccountPicker(
             options: options,
-            selection: launch.selectedAccount(in: options),
+            // Keyed by `<agent>:<profileId>`: the ambient `system` login
+            // repeats across agents, so a profile id alone is not one row.
+            value: current?.key,
+            onChange: { key in
+                guard let picked = options.first(where: { $0.key == key }) else { return }
+                model.selectAccount(picked)
+            },
             mark: { AgentBrandMark.image($0) },
-            onSelect: { model.selectAccount($0) }
+            trigger: {
+                AccountPickerTriggerLabel(
+                    option: current,
+                    mark: current.flatMap { AgentBrandMark.image($0.agent) },
+                    chevron: options.count > 1
+                )
+            }
         )
         .accessibilityLabel("Account")
         .accessibilityIdentifier("start-coding-agent-picker")
@@ -119,19 +134,13 @@ struct AgentOptionsRow: View {
     /// not a lit select pill. EXP-859 rebuilt it without `.fixedSize()` and
     /// without scaling the app-wide toggle down: a scaled switch reported its
     /// UNSCALED size, which pushed the caption out of the pill and clipped the
-    /// track. One caption, a plain toggle, both inside the capsule.
+    /// track. The shared `GlassToggleRow` `.pill` arm draws it at row scale.
     @ViewBuilder
     private var planPill: some View {
         if LaunchVocabulary.supportsPlanMode(launch.agent), !model.resumeActive {
             @Bindable var launch = model.launch
-            Toggle(isOn: $launch.planMode) {
-                Text("Plan")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .lineLimit(1)
-            }
-            .toggleStyle(OptionPillToggleStyle())
-            .accessibilityLabel("Plan mode")
+            GlassToggleRow("Plan", isOn: $launch.planMode, style: .pill)
+                .accessibilityLabel("Plan mode")
         }
     }
 
@@ -181,58 +190,5 @@ struct OptionPillLabel: View {
         .background(GlassTokens.fillRow, in: Capsule())
         .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
         .contentShape(Capsule())
-    }
-}
-
-/// EXP-859: the options row's switch — the pill IS the toggle. The app-wide
-/// glass switch is UISwitch-sized (51×31) and too tall for the 28pt row, and
-/// scaling it down left SwiftUI laying out the unscaled size, which is what
-/// clipped the track and shoved the caption out of the capsule. This draws the
-/// track at the row's own scale instead, so nothing is transformed.
-struct OptionPillToggleStyle: ToggleStyle {
-    @Environment(\.motion) private var motion
-
-    func makeBody(configuration: Configuration) -> some View {
-        Button {
-            withAnimation(motion.fast) { configuration.isOn.toggle() }
-        } label: {
-            HStack(spacing: 6) {
-                configuration.label
-                track(isOn: configuration.isOn)
-            }
-            .padding(.leading, 10)
-            .padding(.trailing, 5)
-            .frame(height: 28)
-            .background(GlassTokens.fillRow, in: Capsule())
-            .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityAddTraits(.isToggle)
-        .accessibilityValue(configuration.isOn ? "On" : "Off")
-    }
-
-    /// The glass switch at row scale: same colours and the same 2pt thumb
-    /// inset, 34×20 instead of 51×31.
-    private func track(isOn: Bool) -> some View {
-        Capsule()
-            .fill(isOn ? DesignTokens.Palette.primary : GlassTokens.fillCard)
-            .overlay(
-                Capsule().stroke(
-                    isOn ? Color.clear : GlassTokens.strokeCard,
-                    lineWidth: GlassTokens.hairline
-                )
-            )
-            .overlay(alignment: isOn ? .trailing : .leading) {
-                Circle()
-                    .fill(
-                        isOn
-                            ? DesignTokens.Palette.primaryForeground
-                            : DesignTokens.Palette.mutedForeground
-                    )
-                    .frame(width: 16, height: 16)
-                    .padding(2)
-            }
-            .frame(width: 34, height: 20)
     }
 }

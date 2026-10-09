@@ -43,7 +43,11 @@ import { sessionDescendantIds, sessionTree } from "@/lib/sessions/session-tree"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
 import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useOpenSession } from "@/hooks/use-open-session"
-import { useReviewFiles, useSessionPrFiles } from "@/hooks/use-review-files"
+import {
+  useReviewFiles,
+  useSessionPrFiles,
+  type ReviewFilesState,
+} from "@/hooks/use-review-files"
 import type { Board, CodingSession, Issue, Team } from "@/db/schema"
 import {
   rowPrState,
@@ -103,6 +107,8 @@ export const Route = createFileRoute(`/t/$teamSlug/sessions/$sessionId`)({
   },
   component: SessionPage,
 })
+
+const NO_PR_FILES: ReviewFilesState = { kind: `none` }
 
 function SessionPage() {
   const { teamSlug, sessionId } = Route.useParams()
@@ -345,27 +351,35 @@ function OwnSessionPage({
       (covered) => covered.prUrl != null && covered.prUrl === session.prUrl
     ) ??
     null
-  const { state: prFilesState } = useReviewFiles(prIssue, {
+  const { state: prFilesState, reload: reloadPrFiles } = useReviewFiles(prIssue, {
     enabled: face === `guide`,
   })
   // EXP-1194: a run with no issue to key its PR on (a chat or action run's
   // chore PR) reads it by the run (Reviews opens its Guide here).
-  const { state: runPrFilesState } = useSessionPrFiles(
+  const { state: runPrFilesState, reload: reloadRunPrFiles } = useSessionPrFiles(
     prIssue ? null : session,
     { enabled: face === `guide` }
   )
-  const shownPrFilesState = prIssue ? prFilesState : runPrFilesState
+  // A run with neither an issue nor a PR never fetches: `none`, not a
+  // spinner that never settles.
+  const shownPrFilesState: ReviewFilesState = prIssue
+    ? prFilesState
+    : session.prUrl
+      ? runPrFilesState
+      : NO_PR_FILES
+  const reloadShownPrFiles = prIssue ? reloadPrFiles : reloadRunPrFiles
   const prFiles =
     shownPrFilesState.kind === `files` ? shownPrFilesState.files : null
   const prUrl = prIssue?.prUrl ?? session.prUrl ?? null
 
   // EXP-1248: the Guide's Stack card — the PR's stack, a member REPLACES the
   // subject in place (its issue's Guide); hovering one merges through it.
-  const { stack, memberTarget } = useIssueStack(prIssue, team.id)
+  const { stack, memberTarget, defaultBranch } = useIssueStack(prIssue, team.id)
   const mergeThrough = useMergeThrough()
   const guideStack = stack ? (
     <GuideStackCard
       stack={stack}
+      defaultBranch={defaultBranch}
       onOpen={(issueId) => {
         const target = memberTarget(issueId)
         if (!target) return
@@ -527,6 +541,8 @@ function OwnSessionPage({
         onOpenRun={openRun}
         onStart={onStart}
         prFiles={prFiles}
+        prFilesState={shownPrFilesState}
+        onRetryPrFiles={() => void reloadShownPrFiles()}
         prUrl={prUrl}
         graphBadge={
           /* EXP-1079: the ONE node feeds the phone's bar and the md+ work

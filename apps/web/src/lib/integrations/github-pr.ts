@@ -796,14 +796,18 @@ const pullFilesCache = new TtlPromiseCache<PullFile[]>({
   maxEntries: 200,
 })
 
+/** `fresh` skips (and refreshes) the 60s cache: a reader that must see a
+ *  push from seconds ago (the Guide's diff check, EXP-1251). */
 export async function fetchPullFiles(
   repo: string,
   prNumber: number,
   token?: string | null,
-  fetchImpl?: GitHubFetch
+  fetchImpl?: GitHubFetch,
+  opts?: { fresh?: boolean }
 ): Promise<PullFile[]> {
   const authToken = token || process.env.GITHUB_TOKEN
   const key = `${repo}#${prNumber}#${authToken ? `auth` : `anon`}`
+  if (opts?.fresh) pullFilesCache.delete(key)
   return pullFilesCache.get(key, async () => {
     const doFetch = fetchImpl ?? (globalThis.fetch as unknown as GitHubFetch)
     const res = await doFetch(
@@ -1400,18 +1404,6 @@ export async function addToStack(opts: {
   return parseStack((data ?? {}) as RawStack)
 }
 
-/** Dissolve stack `stackNumber` (its PRs stay open, plainly base-chained). */
-export async function unstack(opts: {
-  repo: string
-  stackNumber: number
-  token: string
-  fetchImpl?: GitHubFetch
-}): Promise<void> {
-  await stackRequest(opts, `/${opts.stackNumber}/unstack`, `unstack stack ${opts.stackNumber}`, {
-    method: `POST`,
-  })
-}
-
 /** The PR's `stack` field (null = in no native stack), read with the API
  *  version that carries it. */
 export async function fetchPullStack(opts: {
@@ -1454,6 +1446,17 @@ export interface RefComparison {
   behindBy: number
 }
 
+
+/** A failed compare, with GitHub's status (a 5xx is GitHub's hiccup). */
+export class GitHubCompareError extends Error {
+  constructor(
+    public status: number,
+    message: string
+  ) {
+    super(message)
+  }
+}
+
 /** `GET /compare/{base}...{head}`; null when either ref is gone (404). */
 export async function compareRefs(opts: {
   repo: string
@@ -1469,7 +1472,8 @@ export async function compareRefs(opts: {
   )
   if (res.status === 404) return null
   if (!res.ok) {
-    throw new Error(
+    throw new GitHubCompareError(
+      res.status,
       `GitHub returned ${res.status} comparing ${opts.base}...${opts.head} in ${opts.repo}: ${await githubErrorMessage(res)}`
     )
   }

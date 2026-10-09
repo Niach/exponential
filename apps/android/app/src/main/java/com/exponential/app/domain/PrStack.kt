@@ -235,6 +235,19 @@ object PrStack {
         )
     }
 
+    /** The base row's literal when neither the PR nor the board names a branch. */
+    const val DEFAULT_BRANCH_FALLBACK = "default branch"
+
+    /**
+     * The stack rail's trailing base row (Guide Stack card + Reviews, x4): the
+     * bottom PR's base, else the board's default branch, else the literal
+     * "default branch" (never a guessed `main`).
+     */
+    fun baseRowLabel(baseBranch: String?, boardDefaultBranch: String?): String =
+        baseBranch?.takeIf { it.isNotBlank() }
+            ?: boardDefaultBranch?.takeIf { it.isNotBlank() }
+            ?: DEFAULT_BRANCH_FALLBACK
+
     /** [Stack] = the merge control (the whole open chain, through its top);
      *  [Through] = Merge through here on this member. */
     enum class StackConfirmMode(val wire: String) { Stack("stack"), Through("through") }

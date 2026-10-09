@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
-import { ensureGithubStack, inferBaseBranch, mergeThrough } from "@/lib/pr-stacks"
+import {
+  ensureGithubStack,
+  GitHubStackForkError,
+  inferBaseBranch,
+  MAX_BASE_CANDIDATES,
+  mergeThrough,
+} from "@/lib/pr-stacks"
 import { GitHubStackError } from "@/lib/integrations/github-pr"
 
 // EXP-1248: native GitHub stacks. Routes match on METHOD + exact PATH (the
@@ -118,8 +124,26 @@ describe(`ensureGithubStack`, () => {
       newPrNumber: 1020,
       fetchImpl: impl,
     }).catch((err: unknown) => err)
-    expect(error).toBeInstanceOf(GitHubStackError)
+    expect(error).toBeInstanceOf(GitHubStackForkError)
+    expect((error as GitHubStackForkError).status).toBe(409)
     expect((error as Error).message).toContain(`linear`)
+  })
+
+  it(`calls a PR below that is mid-stack a fork too`, async () => {
+    const { impl } = github([
+      { path: `/stacks`, status: 200, body: [] }, // #1008
+      { path: `/pulls/1008`, status: 200, body: pull(1008, `exp/1006`) },
+      { path: `/pulls`, status: 200, body: [{ number: 1006, html_url: `u`, base: { ref: `master` } }] },
+      { path: `/stacks`, status: 200, body: [stack(7, [1006, 1007])] }, // #1006 carries #1007
+    ])
+    const error = await ensureGithubStack({
+      repo: `o/r`,
+      token: `tok`,
+      lowerPrNumber: 1008,
+      newPrNumber: 1009,
+      fetchImpl: impl,
+    }).catch((err: unknown) => err)
+    expect(error).toBeInstanceOf(GitHubStackForkError)
   })
 
   it(`recurses down an unstacked chain and stacks the whole line in one call`, async () => {
@@ -220,6 +244,62 @@ describe(`inferBaseBranch`, () => {
       fetchImpl: impl,
     })
     expect(result).toEqual({ base: `master`, prNumber: null })
+  })
+
+  it(`skips the repo's development branches and a compare GitHub fails with a 5xx`, async () => {
+    const { impl, calls } = github([
+      { path: `/compare/exp%2Fflaky...exp%2Fnew`, status: 502, body: { message: `Bad Gateway` } },
+      { path: `/compare/exp%2Fa...exp%2Fnew`, status: 200, body: { status: `ahead`, ahead_by: 3 } },
+    ])
+    const result = await inferBaseBranch({
+      repo: `o/r`,
+      token: `tok`,
+      head: `exp/new`,
+      defaultBranch: `main`,
+      stopBranches: [`develop`, `release/1.x`],
+      candidates: [
+        { number: 1, branch: `exp/flaky` },
+        { number: 2, branch: `exp/a` },
+        { number: 3, branch: `develop` }, // the team's pin: a release PR
+        { number: 4, branch: `release/1.x` }, // a board's pin
+      ],
+      fetchImpl: impl,
+    })
+    expect(result).toEqual({ base: `exp/a`, prNumber: 2 })
+    expect(calls).toHaveLength(2)
+  })
+
+  it(`throws any other compare failure`, async () => {
+    const { impl } = github([
+      { path: `/compare/exp%2Fa...exp%2Fnew`, status: 403, body: { message: `Forbidden` } },
+    ])
+    await expect(
+      inferBaseBranch({
+        repo: `o/r`,
+        token: `tok`,
+        head: `exp/new`,
+        defaultBranch: `main`,
+        candidates: [{ number: 1, branch: `exp/a` }],
+        fetchImpl: impl,
+      })
+    ).rejects.toThrow(/403/)
+  })
+
+  it(`compares only the newest candidates`, async () => {
+    const candidates = Array.from({ length: MAX_BASE_CANDIDATES + 5 }, (_, i) => ({
+      number: i + 1,
+      branch: `exp/c${i + 1}`,
+    }))
+    const { impl, calls } = github(
+      candidates.map((c) => ({
+        path: `/compare/exp%2Fc${c.number}...exp%2Fnew`,
+        status: 200,
+        body: { status: `diverged`, ahead_by: 1, behind_by: 1 },
+      }))
+    )
+    await inferBaseBranch({ repo: `o/r`, token: `tok`, head: `exp/new`, defaultBranch: `main`, candidates, fetchImpl: impl })
+    expect(calls).toHaveLength(MAX_BASE_CANDIDATES)
+    expect(calls.some((call) => call.path.startsWith(`/compare/exp%2Fc1...`))).toBe(false)
   })
 
   it(`lists the repo's open PRs when no candidates are given`, async () => {

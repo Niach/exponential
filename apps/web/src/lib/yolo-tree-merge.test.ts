@@ -5,7 +5,30 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 // below model GitHub (a PR's base moves onto the default branch when the
 // EXP-324 heal runs for its parent) and record every call in order.
 
-vi.mock(`@/db/connection`, () => ({ db: {} }))
+// The live deps' user read (the guard-backed suite at the bottom).
+const live = vi.hoisted(() => ({
+  mergeIssuePr: null as null | ((input: { issueId: string; mergeStack?: boolean }) => Promise<unknown>),
+}))
+vi.mock(`@/db/connection`, () => {
+  const rows = [{ id: `user-1`, email: `o@x.dev`, name: `Owner`, image: null }]
+  const builder = {
+    select: () => builder,
+    from: () => builder,
+    where: () => builder,
+    limit: async () => rows,
+  }
+  return { db: builder }
+})
+vi.mock(`@/routes/api/trpc/$`, () => ({
+  appRouter: {
+    createCaller: () => ({
+      issues: {
+        mergePr: (input: { issueId: string; mergeStack?: boolean }) =>
+          live.mergeIssuePr!(input),
+      },
+    }),
+  },
+}))
 vi.mock(`@/lib/integrations/github-app`, () => ({
   resolveRepoInstallationTokenInfo: vi.fn(),
 }))
@@ -30,8 +53,10 @@ vi.mock(`@/lib/trpc/synthetic-context`, () => ({
   buildServerActorContext: vi.fn(),
 }))
 
+import { openStackMember, stackLanding } from "@/lib/pr-merge-guard"
 import {
   assembleYoloTree,
+  defaultDeps,
   executeYoloTree,
   maybeMergeYoloTree,
   planYoloTree,
@@ -600,5 +625,115 @@ describe(`maybeMergeYoloTree`, () => {
     }
     const result = await maybeMergeYoloTree(`root`, deps)
     expect(result).toEqual({ status: `error`, error: `boom` })
+  })
+})
+
+// C6: the live deps against the REAL stack guard. The fake router runs
+// `openStackMember` + `stackLanding` over the fake GitHub state, as
+// `issues.mergePr` does: root(#1) ← c1(#2) is a linear stack whose bottom
+// lands alone, so the root's merge must pass.
+describe(`executeYoloTree with the live merge deps and the real guard`, () => {
+  /** The guard's reads for one PR (base = the default branch: nothing open
+   *  below it), in call order: the start row, the walk below, the repo row,
+   *  then issue + run rows of each open PR above it, breadth first. */
+  function guardDb(state: FakeState, n: number) {
+    const self = state.pulls.get(n)!
+    const answers: unknown[][] = [
+      [
+        {
+          issueId: `issue-${n}`,
+          identifier: `EXP-${n}`,
+          boardId: `board-1`,
+          prNumber: n,
+          prUrl: PR(n),
+          prState: self.state === `open` ? `open` : `merged`,
+          branch: self.headRef,
+          prBaseBranch: self.baseRef,
+        },
+      ],
+      [],
+      [],
+    ]
+    const queue = [self.headRef]
+    while (queue.length > 0) {
+      const branch = queue.shift()!
+      const children = [...state.pulls.values()].filter(
+        (p) => p.state === `open` && p.baseRef === branch
+      )
+      answers.push(children.map((p) => ({ prUrl: PR(p.number), branch: p.headRef })), [])
+      queue.push(...children.map((p) => p.headRef))
+    }
+    const select = () => {
+      const rows = answers.shift() ?? []
+      const p = Promise.resolve(rows) as Promise<unknown[]> &
+        Record<string, (arg?: unknown) => unknown>
+      for (const m of [`from`, `limit`, `where`]) p[m] = () => p
+      return p
+    }
+    return { select } as never
+  }
+
+  it(`merges a root with one follow-up child, root first, through issues.mergePr`, async () => {
+    const state = freshState()
+    const rows = [
+      issueRun(`root`, 1, { status: `in_review` }),
+      issueRun(`c1`, 2, { parentSessionId: `root` }),
+    ]
+    state.pulls.set(1, pull(1, `exp/EXP-1`, `master`))
+    state.pulls.set(2, pull(2, `exp/EXP-2`, `exp/EXP-1`))
+    const tree = assembleYoloTree(rows, [`root`], TEAM)!
+    const inputs: Array<{ issueId: string; mergeStack?: boolean }> = []
+    live.mergeIssuePr = async (input) => {
+      inputs.push(input)
+      const n = Number(input.issueId.replace(`issue-`, ``))
+      stackLanding(
+        await openStackMember(guardDb(state, n), { issueId: input.issueId, teamId: TEAM }),
+        input.mergeStack
+      )
+      state.events.push(`merge:#${n}`)
+      state.pulls.get(n)!.merged = true
+      state.pulls.get(n)!.state = `closed`
+      return { merged: true }
+    }
+    const fakes = fakeDeps(state)
+    const deps: YoloDeps = { ...fakes, mergeIssuePr: defaultDeps().mergeIssuePr }
+
+    const result = await executeYoloTree(tree, planYoloTree(tree), deps)
+
+    expect(result.outcomes.get(`root`)).toEqual({ kind: `merged` })
+    expect(result.outcomes.get(`c1`)).toEqual({ kind: `merged` })
+    expect(state.events.filter((e) => e.startsWith(`merge:`))).toEqual([`merge:#1`, `merge:#2`])
+    expect(inputs).toEqual([
+      { issueId: `issue-1`, mergeStack: true },
+      { issueId: `issue-2`, mergeStack: true },
+    ])
+  })
+
+  it(`the real guard refuses the child before the root lands`, async () => {
+    const state = freshState()
+    state.pulls.set(1, pull(1, `exp/EXP-1`, `master`))
+    state.pulls.set(2, pull(2, `exp/EXP-2`, `exp/EXP-1`))
+    // The child's own walk finds the root open below it: a 2-PR landing.
+    const answers: unknown[][] = [
+      [{ issueId: `issue-2`, identifier: `EXP-2`, boardId: `b`, prNumber: 2, prUrl: PR(2), prState: `open`, branch: `exp/EXP-2`, prBaseBranch: `exp/EXP-1` }],
+      [{ issueId: `issue-1`, identifier: `EXP-1`, boardId: `b`, prNumber: 1, prUrl: PR(1), prState: `open`, branch: `exp/EXP-1`, prBaseBranch: `master` }],
+      [],
+      [],
+      [],
+      [{ prUrl: PR(2), branch: `exp/EXP-2` }],
+      [],
+      [],
+      [],
+    ]
+    const select = () => {
+      const rows = answers.shift() ?? []
+      const p = Promise.resolve(rows) as Promise<unknown[]> &
+        Record<string, (arg?: unknown) => unknown>
+      for (const m of [`from`, `limit`, `where`]) p[m] = () => p
+      return p
+    }
+    const membership = await openStackMember({ select } as never, { issueId: `issue-2`, teamId: TEAM })
+    expect(() => stackLanding(membership, undefined)).toThrow(/part of an open stack/)
+    expect(stackLanding(membership, true)?.map((m) => m.prNumber)).toEqual([1, 2])
   })
 })

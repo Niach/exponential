@@ -23,7 +23,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
-    menu::{DropdownMenu as _, PopupMenuItem},
+    menu::DropdownMenu as _,
     v_flex, ActiveTheme as _, Icon,
 };
 use sync::Store;
@@ -423,7 +423,7 @@ impl BoardDetailPane {
                     let pane = pane.clone();
                     let board_id = board_id.clone();
                     menu = menu.item(
-                        PopupMenuItem::new(crate::board_form::NO_REPOSITORY)
+                        crate::controls::pointer_label_item(crate::board_form::NO_REPOSITORY, false)
                             .checked(current.is_none())
                             .on_click(move |_, _, cx| {
                                 let board_id = board_id.clone();
@@ -450,7 +450,7 @@ impl BoardDetailPane {
                             let board_id = board_id.clone();
                             let repo_id = repo.id.clone();
                             menu = menu.item(
-                                PopupMenuItem::new(SharedString::from(repo.full_name.clone()))
+                                crate::controls::pointer_label_item(SharedString::from(repo.full_name.clone()), false)
                                     .icon(Icon::new(registry::UI_GITHUB))
                                     .checked(current.as_deref() == Some(repo.id.as_str()))
                                     .on_click(move |_, _, cx| {
@@ -469,7 +469,7 @@ impl BoardDetailPane {
                 // repo connected on another client needs).
                 let pane = pane.clone();
                 menu.item(
-                    PopupMenuItem::new(crate::board_form::connect_repository_label(has_repos))
+                    crate::controls::pointer_label_item(crate::board_form::connect_repository_label(has_repos), false)
                         .icon(Icon::new(registry::UI_ADD))
                         .on_click(move |_, window, cx| {
                             pane.update(cx, |this, cx| {

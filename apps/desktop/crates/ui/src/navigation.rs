@@ -281,6 +281,10 @@ pub(crate) enum PendingOrigin {
     /// sidebar for as long as it runs, so a chip for it would be a second
     /// copy of the same row that the run's end then leaves behind.
     LiveRail,
+    /// EXP-1248: an in-place swap of the tab showing `0` (the screen being
+    /// replaced) — a Stack card pick rebinds that tab to the picked member
+    /// instead of growing the strip by one chip per step.
+    ReplaceTab(Screen),
 }
 
 /// EXP-851: the ONE rule for which LIST a freshly opened detail carries —
@@ -1484,6 +1488,16 @@ fn navigate_inner(window: &Window, cx: &mut App, screen: Screen, origin: Pending
 /// new screen derives from the back stack's top, the screen the replaced one
 /// was opened from.
 pub(crate) fn navigate_replace(window: &Window, cx: &mut App, screen: Screen) {
+    navigate_replace_inner(window, cx, screen, false);
+}
+
+/// EXP-1248: [`navigate_replace`] that also REBINDS the tab showing the
+/// current screen to `screen` (a Stack card pick): one tab, never a new one.
+pub(crate) fn navigate_replace_tab(window: &Window, cx: &mut App, screen: Screen) {
+    navigate_replace_inner(window, cx, screen, true);
+}
+
+fn navigate_replace_inner(window: &Window, cx: &mut App, screen: Screen, in_place: bool) {
     if forward_to_owner_shell(window, cx, &screen) {
         return;
     }
@@ -1491,7 +1505,7 @@ pub(crate) fn navigate_replace(window: &Window, cx: &mut App, screen: Screen) {
         hold(
             window,
             cx,
-            Box::new(move |window, cx| navigate_replace(window, cx, screen)),
+            Box::new(move |window, cx| navigate_replace_inner(window, cx, screen, in_place)),
         );
         return;
     }
@@ -1499,7 +1513,11 @@ pub(crate) fn navigate_replace(window: &Window, cx: &mut App, screen: Screen) {
         return;
     };
     nav.update(cx, |nav, cx| {
-        nav.replace(screen, PendingOrigin::Derive);
+        let origin = match (in_place, nav.screen.clone()) {
+            (true, Some(current)) => PendingOrigin::ReplaceTab(current),
+            _ => PendingOrigin::Derive,
+        };
+        nav.replace(screen, origin);
         cx.notify();
     });
 }

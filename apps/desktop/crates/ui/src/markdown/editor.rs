@@ -429,7 +429,7 @@ pub(crate) fn download_image(
     };
     let filename = attachment_download_filename(&url, cx);
     let directory = dirs::download_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
-    let receiver = cx.prompt_for_new_path(&directory, Some(&filename));
+    let receiver = crate::file_picker::prompt_for_new_path(cx, &directory, Some(&filename));
     let handle = window.window_handle();
     cx.spawn(async move |cx| {
         // Receiver error = dialog dismissed/unsupported; None = cancelled.

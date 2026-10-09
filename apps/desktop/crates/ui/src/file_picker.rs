@@ -1,7 +1,10 @@
-//! EXP-1249 — THE native file prompt. Every IDE file picker (the composer's
+//! EXP-1249 — THE native file prompts. Every IDE file picker (the composer's
 //! "+", the steer reply's attach, the description editors, the timeline and
-//! the issue Files rails) goes through [`prompt_for_paths`], never
-//! `cx.prompt_for_paths` directly.
+//! the issue Files rails) goes through [`prompt_for_paths`], every Save-as
+//! (attachment Save as…, the editor's image Download) through
+//! [`prompt_for_new_path`], never the `cx.` calls directly. The steer
+//! bootstrap also enters the context at startup ([`enter_tokio_context`]),
+//! so the other portal users (open/reveal) are covered too.
 //!
 //! Why (the Linux "+" crash): gpui_linux runs the xdg-desktop-portal
 //! FileChooser through ashpd → zbus, spawned on gpui's FOREGROUND executor.
@@ -32,6 +35,21 @@ pub(crate) fn prompt_for_paths(
     cx.prompt_for_paths(options)
 }
 
+/// The `cx.prompt_for_new_path` every IDE Save-as dialog calls (the same
+/// ashpd/zbus portal as [`prompt_for_paths`] on Linux).
+pub(crate) fn prompt_for_new_path(
+    cx: &mut App,
+    directory: &std::path::Path,
+    suggested_name: Option<&str>,
+) -> impl std::future::Future<
+    Output = Result<anyhow::Result<Option<std::path::PathBuf>>, impl std::fmt::Debug>,
+> + 'static {
+    if needs_tokio_context() {
+        enter_tokio_context(cx);
+    }
+    cx.prompt_for_new_path(directory, suggested_name)
+}
+
 /// Whether this platform's file portal rides zbus (and so tokio): Linux and
 /// the BSDs gpui_linux serves. macOS and Windows prompt natively.
 pub(crate) const fn needs_tokio_context() -> bool {
@@ -54,7 +72,7 @@ thread_local! {
 /// a later `block_on` on this thread is unaffected. A build whose steer
 /// runtime failed to start has nothing to enter: the prompt then behaves as
 /// before.
-fn enter_tokio_context(cx: &App) {
+pub(crate) fn enter_tokio_context(cx: &App) {
     if ENTERED.with(|entered| entered.get()) {
         return;
     }

@@ -298,8 +298,7 @@ export function isIsland(
  * markup, so an island of any of them would be an empty box. Anything else
  * under `packages/ui/` must be an island — `components.test.tsx` gates both
  * directions, and exempts only these and the Style entries, which document a
- * VALUE rather than a control. (The menu left this list with EXP-1074: its
- * `menu` entry draws the real row recipe at rest through `MenuSpecimen`.)
+ * VALUE rather than a control.
  */
 export const PORTAL_ONLY_IDS: readonly string[] = [`sheet`, `dialog`, `tooltip`, `hover-card`]
 
@@ -1182,7 +1181,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tree-guides`,
     title: `Tree guides`,
     kind: `Lists & rows`,
-    blurb: `EXP-965: the connector every NESTED list draws instead of bare indentation. A row used to hang under its parent by left padding alone, so three levels of runs read as three arbitrary margins. The indent stays 14px per level; on top of it a row at depth d draws, in its PARENT's 14px gutter, a 1px vertical from its top edge to its vertical centre, a rounded elbow (radius 5) and a stub out to the gutter's right edge — and the vertical carries on to the bottom edge when a sibling follows (a tee). Every ancestor level whose subtree continues below draws a straight full-height line, so a deep child stays attached to every level above it. One hairline weight throughout (the strong glass stroke); a parent draws nothing of its own, and a folded subtree draws nothing at all. The RULE is pure and shared ×4 — it reads nothing but the visible rows' depths — so only the painting is per-platform.`,
+    blurb: `EXP-965: the connector every NESTED list draws instead of bare indentation. A row used to hang under its parent by left padding alone, so three levels of runs read as three arbitrary margins. The indent stays 14px per level; on top of it a row at depth d draws, in its PARENT's 14px gutter, a 1px vertical from its top edge to its vertical centre, a rounded elbow (radius 5) and a stub out to the gutter's right edge — and the vertical carries on to the bottom edge when a sibling follows (a tee). Every ancestor level whose subtree continues below draws a straight full-height line, so a deep child stays attached to every level above it. One hairline weight throughout (the strong glass stroke); a parent draws nothing of its own. The RULE is pure and shared ×4 — it reads nothing but the visible rows' depths — so only the painting is per-platform.`,
     status: {
       web: ok(
         `TreeGuides / treeGuides`,
@@ -3483,10 +3482,10 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `apps/desktop/crates/ui/src/picker/mod.rs`,
         `EXP-1021 retired searchable_picker; the primitive owns its query + cursor, so a host holds no picker entities`
       ),
-      ios: leftover(
-        `GlassPickerSheet`,
-        `apps/ios/ExpUI/Sources/GlassSheet.swift`,
-        `EXP-1021 built the generic picker (GlassPicker, its own entry); this keeps the picks outside the ten typed subjects`
+      ios: ok(
+        `GlassPicker`,
+        `apps/ios/ExpUI/Sources/Picker/Picker.swift`,
+        `EXP-1249 retired GlassPickerSheet: every pick outside the typed subjects goes through GlassPicker`
       ),
       android: leftover(
         `GlassSheetRow`,
@@ -3727,11 +3726,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `default and destructive on the glass tokens, a glyph column only when one is passed; the repository dialog banner is one`
       ),
       ios: na(`no boxed banner: an error renders as a red Text line on DesignTokens.Semantic.red`),
-      android: leftover(
-        `GlassNotice`,
-        `${ANDROID_COMPONENTS}/GlassNotice.kt`,
-        `the boxed inline message, but with no title slot and no destructive variant — callers pass the red themselves`
-      ),
+      android: na(`no boxed banner: EXP-1249 deleted the caller-less GlassNotice; an error renders as a red Text line`),
     },
     island: () => (
       <div className="grid gap-3">
@@ -4321,14 +4316,14 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `the hover preview is an anchored overlay right of the menu row`
       ),
       ios: ok(
-        `AccountPickerMenu`,
-        `apps/ios/ExpUI/Sources/AccountPicker.swift`,
-        `touch: the three bars sit inline in the menu row`
+        `AccountPicker`,
+        `apps/ios/ExpUI/Sources/Picker/SharedAccountPicker.swift`,
+        `EXP-1249: the Picker family, bars inline in the sheet row; AccountPickerMenu is gone`
       ),
       android: ok(
-        `AccountPickerPill`,
-        `apps/android/app/src/main/java/com/exponential/app/ui/components/AccountPickerPill.kt`,
-        `touch: the three bars sit inline in the menu row`
+        `AccountPicker + AccountPickerPillTrigger`,
+        `apps/android/app/src/main/java/com/exponential/app/ui/components/picker/AccountPicker.kt`,
+        `EXP-1249: the Picker family, bars inline in the sheet row; AccountPickerPill is gone`
       ),
     },
     island: () => (

@@ -801,9 +801,9 @@ describe(`digestItemPath`, () => {
     )
   })
 
-  it(`links an agent message about an issue to its Results face`, () => {
+  it(`links an agent message about an issue to its Guide face`, () => {
     expect(digestItemPath({ ...issueRow, type: `agent_message` })).toBe(
-      `/t/metric/boards/web/issues/MET-12?view=results`
+      `/t/metric/boards/web/issues/MET-12?view=guide`
     )
   })
 

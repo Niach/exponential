@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react"
+import { act, fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 import { contract } from "@exp/domain-contract"
 import listItem from "@exp/domain-contract/fixtures/list-item.json"
@@ -98,6 +98,105 @@ describe(`StackRail`, () => {
     const base = container.querySelector(`[data-pr-row="base"]`)!
     fireEvent.mouseEnter(base)
     expect(screen.queryByText(contract.diffUi.mergeThrough)).toBeNull()
+  })
+
+  // M2: the ghost is a SIBLING of the row's open control, never inside it.
+  it(`never nests the ghost inside the row's open control`, () => {
+    const { container } = render(
+      <StackRail
+        members={members}
+        baseBranch="master"
+        onMergeThrough={() => {}}
+        onOpen={() => {}}
+        defaultHoveredKey="98"
+        mobile={false}
+      />
+    )
+    const ghost = container.querySelector(`[data-slot="stack-merge-through"]`)!
+    expect(ghost).not.toBeNull()
+    for (const control of container.querySelectorAll(`[role="button"], button`)) {
+      expect(control.querySelector(`[role="button"], button, a, [tabindex]`)).toBeNull()
+    }
+    expect(ghost.closest(`[data-slot="pr-row-open"]`)).toBeNull()
+    for (const row of container.querySelectorAll(`[data-pr-row]`)) {
+      expect(row.getAttribute(`role`)).toBeNull()
+      expect(row.getAttribute(`tabindex`)).toBeNull()
+    }
+  })
+
+  it(`opens a member from the keyboard on its open control`, () => {
+    const onOpen = vi.fn()
+    render(<StackRail members={members} baseBranch="master" onOpen={onOpen} mobile={false} />)
+    const open = screen.getByRole(`button`, { name: /VAPP-98/ })
+    fireEvent.keyDown(open, { key: `Enter` })
+    expect(onOpen).toHaveBeenCalledWith(members[1])
+  })
+
+  // M7: phones have no hover; a long-press opens the ONE-entry menu.
+  describe(`on a phone`, () => {
+    it(`shows no hover ghost`, () => {
+      const { container } = render(
+        <StackRail members={members} baseBranch="master" onMergeThrough={() => {}} mobile />
+      )
+      fireEvent.mouseEnter(container.querySelectorAll(`[data-pr-row]`)[1]!)
+      expect(screen.queryByText(contract.diffUi.mergeThrough)).toBeNull()
+    })
+
+    it(`long-press opens Merge through here, and the release never opens the row`, () => {
+      vi.useFakeTimers()
+      try {
+        const onMerge = vi.fn()
+        const onOpen = vi.fn()
+        const { container } = render(
+          <StackRail members={members} baseBranch="master" onMergeThrough={onMerge} onOpen={onOpen} mobile />
+        )
+        const row = container.querySelectorAll(`[data-pr-row]`)[1]!
+        fireEvent.pointerDown(row, { pointerType: `touch`, clientX: 10, clientY: 10 })
+        act(() => {
+          vi.advanceTimersByTime(600)
+        })
+        fireEvent.pointerUp(row, { pointerType: `touch` })
+        fireEvent.click(row)
+        expect(onOpen).not.toHaveBeenCalled()
+        const menu = screen.getByTestId(`stack-rail-menu`)
+        const items = menu.querySelectorAll(`[role="menuitem"], [role="menuitemradio"]`)
+        expect(items.length).toBe(1)
+        expect(items[0]!.textContent).toContain(contract.diffUi.mergeThrough)
+        fireEvent.click(items[0]!)
+        expect(onMerge).toHaveBeenCalledWith(members[1])
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it(`a short tap still opens the member`, () => {
+      vi.useFakeTimers()
+      try {
+        const onOpen = vi.fn()
+        const { container } = render(
+          <StackRail members={members} baseBranch="master" onMergeThrough={() => {}} onOpen={onOpen} mobile />
+        )
+        const row = container.querySelectorAll(`[data-pr-row]`)[2]!
+        fireEvent.pointerDown(row, { pointerType: `touch`, clientX: 10, clientY: 10 })
+        act(() => {
+          vi.advanceTimersByTime(100)
+        })
+        fireEvent.pointerUp(row, { pointerType: `touch` })
+        fireEvent.click(row)
+        expect(onOpen).toHaveBeenCalledWith(members[2])
+        expect(screen.queryByTestId(`stack-rail-menu`)).toBeNull()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it(`the context menu opens it too`, () => {
+      const { container } = render(
+        <StackRail members={members} baseBranch="master" onMergeThrough={() => {}} mobile />
+      )
+      fireEvent.contextMenu(container.querySelectorAll(`[data-pr-row]`)[0]!)
+      expect(screen.getByTestId(`stack-rail-menu`).textContent).toContain(contract.diffUi.mergeThrough)
+    })
   })
 
   it(`opens a member on click`, () => {

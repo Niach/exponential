@@ -140,22 +140,6 @@ extension FloatingBarCircle where Badge == EmptyView {
     }
 }
 
-/// The badge disc a circle wears at its corner — a session state, an
-/// unread mark. Static: a pulsing variant is the caller's own.
-public struct FloatingBarBadgeDot: View {
-    let color: Color
-
-    public init(color: Color) {
-        self.color = color
-    }
-
-    public var body: some View {
-        Circle()
-            .fill(color)
-            .frame(width: FloatingBarTokens.badgeSize, height: FloatingBarTokens.badgeSize)
-    }
-}
-
 /// The centre capsule: a full-width glass pill whose content reads as the
 /// prompt it expands into (`+ Comment`, `Type / for commands`). A VERB never
 /// rides it — Merge is the solid pill below, in a cluster.

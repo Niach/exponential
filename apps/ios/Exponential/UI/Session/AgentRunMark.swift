@@ -61,7 +61,8 @@ let runMarkEndedOpacity: Double = 0.5
 
 /// EXP-1208: a session list row's run mark is one indent level square (its
 /// centre IS the gutter centre a child's connector hangs off), its badge 6,
-/// and 8 separates the mark, the fold chevron and the text — ×4.
+/// and 8 separates the mark and the text — ×4 (no fold chevron since
+/// EXP-1248).
 enum SessionRowLead {
     static let markSize: CGFloat = TreeGuides.indentPerLevel
     static let badgeSize: CGFloat = 6
