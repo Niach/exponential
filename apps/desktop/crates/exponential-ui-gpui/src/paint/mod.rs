@@ -127,6 +127,16 @@ pub struct PaintStyle {
     pub native: bool,
     /// A Chart's resolved series colours.
     pub series: Vec<Hsla>,
+    /// Round 2: the node's own resolved direction (`Some(true)` = rtl): a
+    /// leaf's text shapes with it as the bidi paragraph direction.
+    pub rtl: Option<bool>,
+    /// Round 2: `backdropBlur` (px). The pinned gpui samples nothing behind
+    /// a box, so it paints the (translucent) background alone (§2 fallback).
+    pub backdrop_blur: Option<f32>,
+    /// Round 2: a keyframe `animation` with its resolved timing.
+    pub animation: Option<exponential_ui::style::VisualAnimation>,
+    /// Round 2: `position: sticky` (pinned by the core's sticky offsets).
+    pub sticky: bool,
 }
 
 fn overflow_clips(v: Option<&str>) -> (bool, bool) {
@@ -212,6 +222,10 @@ impl PaintStyle {
             no_select: v.user_select.as_deref() == Some("none"),
             native: v.native,
             series: v.series_colors.as_deref().map(|c| c.iter().filter_map(|s| color_of(Some(s))).collect()).unwrap_or_default(),
+            rtl: v.direction.as_deref().map(|d| d == "rtl"),
+            backdrop_blur: v.backdrop_blur.filter(|b| *b > 0.0),
+            animation: v.animation.clone(),
+            sticky: v.sticky,
         }
     }
 

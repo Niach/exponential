@@ -89,6 +89,9 @@ pub struct HostOptions {
     /// Every surface's theme (`None` = geometry mode) and mode.
     pub theme: Option<Arc<ResolvedTheme>>,
     pub mode: Mode,
+    /// Round 2 §3: every surface's number / date formatter (`None` = the
+    /// core's English one).
+    pub formatter: Option<Arc<dyn exponential_ui::format::Formatter>>,
     /// The rest of the painter callbacks (icons, inputs, markdown, fonts…);
     /// actions, function calls, urls and media route through the host.
     pub plugin: Rc<dyn HostPlugin>,
@@ -110,6 +113,7 @@ impl Default for HostOptions {
             policy: HostPolicy::default(),
             theme: Some(default_theme()),
             mode: Mode::Dark,
+            formatter: None,
             plugin: Rc::new(NoHost),
             on_send: None,
             on_op: None,
@@ -164,6 +168,7 @@ pub struct ExponentialHost {
     media: Rc<RefCell<MediaOptions>>,
     theme: Option<Arc<ResolvedTheme>>,
     mode: Mode,
+    formatter: Option<Arc<dyn exponential_ui::format::Formatter>>,
     base: Rc<dyn HostPlugin>,
     on_send: Option<ValueObserver>,
     on_op: Option<ValueObserver>,
@@ -200,6 +205,7 @@ impl ExponentialHost {
             policy: options.policy,
             theme: options.theme,
             mode: options.mode,
+            formatter: options.formatter,
             base: options.plugin,
             on_send: options.on_send,
             on_op: options.on_op,
@@ -447,6 +453,7 @@ impl ExponentialHost {
                     extensions: self.extensions.clone(),
                     host: plugin,
                     rounding: false,
+                    formatter: self.formatter.clone(),
                     ..Default::default()
                 };
                 let painters = self.painters.clone();
@@ -708,6 +715,22 @@ impl HostPlugin for HostAdapter {
 
     fn markdown(&self, text: &str, text_style: &TextStyle, width: f32, window: &mut gpui::Window, cx: &mut App) -> Option<gpui::AnyElement> {
         self.base.markdown(text, text_style, width, window, cx)
+    }
+
+    fn announce(&self, text: &str, live: &str, cx: &mut App) {
+        self.base.announce(text, live, cx)
+    }
+
+    fn pick_files(&self, request: &crate::host::FilePickRequest, cx: &mut App) -> bool {
+        self.base.pick_files(request, cx)
+    }
+
+    fn on_upload(&self, event: &crate::host::UploadEvent, cx: &mut App) {
+        self.base.on_upload(event, cx)
+    }
+
+    fn scroll_surface(&self, x: f32, y: f32, cx: &mut App) {
+        self.base.scroll_surface(x, y, cx)
     }
 }
 

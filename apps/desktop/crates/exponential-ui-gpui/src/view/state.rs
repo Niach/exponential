@@ -46,7 +46,9 @@ pub(crate) struct NodeCache {
     /// Extension node id → its kind (the measurer's painter lookup).
     pub kinds: HashMap<String, String>,
     pub ids: Vec<SharedString>,
-    /// The node's style has a `:hover` block (it restyles on hover).
+    /// The node restyles on hover (`Surface::hover_styled`: a `:hover`
+    /// block or a hover recipe rule; theme-dependent, rebuilt on a theme
+    /// switch).
     pub hover_styled: Vec<bool>,
     /// Macro roots by slot (sparse).
     pub macros: HashMap<u32, MacroRoot>,
@@ -157,7 +159,7 @@ impl NodeCache {
         }
         self.ids[i] = SharedString::from(n.id.clone());
         let layout = surface.layout_node(n.index);
-        self.hover_styled[i] = layout.is_some_and(|l| l.base_style.keys().any(|k| k == ":hover"));
+        self.hover_styled[i] = !n.removed && surface.hover_styled(n.index);
         let root = layout.filter(|l| l.owner.is_none() && !n.removed).and_then(|l| l.part_query.as_ref()).filter(|q| q.part == "root" && matches!(q.component.as_str(), "Card" | "Group" | "Alert"));
         match root {
             Some(q) => {
@@ -202,7 +204,7 @@ impl NodeCache {
             for c in level {
                 let Some(n) = self.node(c) else { continue };
                 if n.id.starts_with(&root.id) && n.id.ends_with(&suffix) {
-                    return n.props.get("text").and_then(Value::as_str).filter(|t| !t.is_empty()).map(|t| SharedString::from(t.to_string()));
+                    return Some(crate::measure::display_text(n.props.get("text"))).filter(|t| !t.is_empty()).map(SharedString::from);
                 }
                 next.extend(n.children.iter().copied());
             }
@@ -402,6 +404,9 @@ pub fn role_of(n: &PlacedNode, parent_component: Option<&str>, macro_root: Optio
         ("Radio", None) => Role::RadioGroup,
         ("Radio", Some("dot")) => Role::RadioButton,
         ("Slider", Some("track")) => Role::Slider,
+        ("Box", Some("handle")) if owner == "Resizable" => Role::Splitter,
+        ("Resizable", None) => Role::Group,
+        ("Box", Some("section")) if owner == "List" => Role::Heading,
         ("Image" | "Avatar" | "Video" | "Chart", _) => Role::Image,
         ("Icon", _) if str_of(n, "label").is_some() => Role::Image,
         ("Ring" | "Spinner", _) => Role::ProgressIndicator,

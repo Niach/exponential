@@ -285,10 +285,30 @@ Open layers (`LayoutOutput::layers`, in order) paint ABOVE the tree as gpui
   overflows. Nested containers compose.
 - The wheel / trackpad moves the core's offset (`scroll_to`); a scroll that
   hits an edge is not consumed, so it chains to the host.
-- A windowed List or Table WITH a bounded height scrolls itself; one without
-  is windowed by the host's scroll: prepaint reports the visible offset
-  (`surface.scroll`) and lays out again in the same frame when the window
-  moved by at least 1 px.
+- A windowed List or Table WITH a bounded size scrolls itself; one without
+  windows against its nearest scrolling ancestor, else the host's scroller:
+  prepaint reports the visible offset (`Surface::set_surface_scroll`) and lays
+  out again in the same frame when it moved by at least 1 px.
+- Round 2: horizontal lists window on x; `sectionBy` + the `section` slot
+  build section headers (level-3 headings), `stickyHeaders` pins the current
+  one; `position: sticky` nodes paint at the core's sticky offsets, on top of
+  their siblings, but keep their DOM place in the element (AccessKit) order;
+  the siblings' hit areas stop at a pinned box. A windowed item carries its
+  place in the whole list (`posInSet` / `setSize`). `scroll_to_index` (or `command(ScrollToIndex)`) moves the list's,
+  its ancestor's or the host's offset; for the host's it calls
+  `HostPlugin::scroll_surface(x, y)`.
+
+## Round 2
+
+| feature | gpui |
+|---|---|
+| Resizable | handles are hairlines with an 8 px hit area (`resizeHandleHit`); a drag sends `drag {phase, delta}` from the start, arrows / Home / End / Enter send `key`; handles are `Splitter` nodes with value, range and orientation |
+| `position: sticky` | painted at `LayoutOutput.sticky` offsets, last (on top), in DOM order for AccessKit |
+| `backdropBlur` | gpui samples nothing behind a box: the translucent background paints alone |
+| `animation` | the core's frames (`frame_with_timing`) from the node's first paint: opacity, translate, a leaf's scale, an Icon's rotation, the shimmer band; reduced motion = the rest frame |
+| formatting | `SurfaceViewOptions::formatter` / `set_formatter` (else the core's English one), also for chart ticks, values and tooltips; a view re-binds once a minute only while it shows a relative time (`ticks_minutely`); `set_clock` pins `now` |
+| direction | a leaf's text aligns by the core's physical `text_align` and shapes with the node's direction as its bidi paragraph direction (a leading RLM / LRM when the first strong character disagrees) |
+| strings | every built-in label a surface paints comes from the strings table (`controls::*` are IDE chrome, English) |
 
 ## Motion
 
@@ -304,7 +324,8 @@ animation and the Skeleton stops pulsing. The Skeleton pulses like the web's
 
 `Chart` draws bar, stackedBar, line, area, pie, donut and sparkline with
 gpui paths from the core's `props.chart` numbers: grid lines and y labels at
-the nice ticks, category labels, `xLabel` / `yLabel`, `showValues` labels,
+the nice ticks, category labels, `xLabel` / `yLabel`, `showValues` labels
+(ticks, values and tooltips through the surface's formatter),
 the series colours the core resolved into the visual, the donut hole, a
 legend for 2+ series or slices, and a tooltip (the `tooltip` recipe) for the
 category or slice under the pointer (or the keyboard's). The plot fills the leaf's frame (its
@@ -399,8 +420,9 @@ host.update(cx, |h, cx| h.connect(cx));
 
 ## Conformance
 
-`cargo test -p exponential-ui-gpui --test suites` runs all 15 suites of
-`packages/exponential-ui/conformance/manifest.json` (1367 cases) and writes
+`cargo test -p exponential-ui-gpui --test suites` runs all 24 suites of
+`packages/exponential-ui/conformance/manifest.json` (every case; the round-2
+pure suites through the core's shared cases) and writes a pass/fail report,
 `<repo>/.conformance/exponential-ui-gpui.json` (or
 `$EXPONENTIAL_UI_CONFORMANCE_REPORT`). Check it with `bun run --filter
 @exponential-at/ui conformance:check <abs path>`.
@@ -423,7 +445,14 @@ out every case of `fixtures/conformance-cases.json` with gpui's Linux text
 system holding ONLY the conformance fonts (`examples/conformance_dump.rs`)
 and compares the frames with the committed web baseline
 (`fixtures/conformance-baseline.json`). It is a ratchet over
-`fixtures/conformance-known.json`: a case that gets worse fails.
+`fixtures/conformance-known.json`: a case that gets worse fails, and so does
+an origin not listed in the test's `SURVIVORS` (each with a reason). The
+writer (`EXP_UI_WRITE_FIXTURES=1`) keeps `causes` and `rules` and rewrites
+`renderer`, `survivors`, `coverageGaps` and `cases`. A node only one side
+places fails unless the test's `COVERAGE_GAPS` lists it with a reason.
+Today: 48 cases, 0 size / position / wrap divergences, 0 origins, 0
+survivors; 9 coverage gaps (8 parts gpui paints inside a leaf, the
+Resizable grip the DOM does not tag).
 
 ## Public API
 
@@ -460,12 +489,16 @@ and compares the frames with the committed web baseline
     line's painted glyph extent. VAPP-91: `without_window` (a host creating
     views outside a window update), `set_components`,
     `register_painter_rc`, `set_measure`, `placed_nodes`, `frame`,
-    `surface_height`, `trace_paint` / `paint_trace`.
+    `surface_height`, `trace_paint` / `paint_trace`. Round 2: `command`,
+    `scroll_to_index`, `set_formatter`, `set_clock`, `painted_lines` (the
+    lines a Text paints: the conformance dump's count);
+    `SurfaceViewOptions::formatter`, `HostOptions::formatter`,
+    `HostPlugin::scroll_surface`.
 - `measure`: `GpuiMeasure`, `tracking_width` and unit-free helpers: `border_box`,
   `inner_wrap`, `insets`, `top_inset`, `len_of`, `text_chrome`,
-  `select_label`, `date_label`, `chart_legend`, `display_text`.
+  `chart_legend`, `display_text`.
 - `text`: `segments`, `wrap`, `min_content`, `max_content`, `hard_lines`,
-  `transform`, `hang`.
+  `transform`, `hang`, `with_paragraph_direction`.
 - `paint`: `PaintStyle`, `Affine`, `GradientPaint`, `cubic_bezier`,
   `color::{parse_hex, mix}`, `parts::part_visual` / `part_props`, `chart`,
   the `markdown` parser, layout and selection (`MdSelection`, `MdUnits`,
@@ -492,6 +525,19 @@ painter, not real shaping.
 
 Almost all of the cold pass is the core's own rebuild, restyle and taffy.
 
+The round-2 list bench (`fixtures/bench-list.json`: 100,000 `ListRow`s,
+390 × 800, neutral), headless with gpui's Linux text system and the
+conformance fonts, every step a full frame (core pass + gpui layout and
+paint): `RUSTUP_TOOLCHAIN=1.96.0 cargo run --release -p exponential-ui-gpui
+--example bench_list` on an i9-13900K, Linux (2026-10-08).
+
+| metric | release |
+|---|---|
+| firstPaintMs | 87.2 |
+| scrollStepMs (100 viewport steps) | 6.52 |
+| scrollToIndexMs (index 50000, start) | 9.25 |
+| renderedItems | 30 |
+
 ## Tests
 
 - `tests/render.rs`: every catalog component and macro case in every
@@ -517,6 +563,14 @@ Almost all of the cold pass is the core's own rebuild, restyle and taffy.
   blur, sparklines no tab stop), macro roles (Card/Group = group, Alert =
   alert/status), built-in labels from the strings table, Markdown
   drag-select + copy and a selection dropped when its text changes.
+- `tests/round2.rs`: Resizable drag from the start sizes, keys, hover on
+  the hit area and the splitter node, in ltr and rtl; a sticky box and a
+  pinned section header (element order, presses, heading level); a slide-in
+  animation and its rest frame under reduced motion; `scroll_to_index` on
+  the list's scroller and the host's (`HostPlugin::scroll_surface`); a
+  windowed row's place in set; horizontal windowing in ltr and rtl; the
+  minute tick; the §7 sizes (Video 16:9, Image ratio, Badge,
+  ToggleGroup, Radio gap, Slider row); the Accordion count.
 - Unit tests for text breaking, paint styles, transforms, easing, motion,
   rounded clips, scrollbar geometry, RTL natives, data URIs, image focal
   bounds, Markdown selection ranges and highlighted runs, icons (every
@@ -539,8 +593,17 @@ Almost all of the cold pass is the core's own rebuild, restyle and taffy.
   leaves (scale) and icons (rotation). gpui transforms only sprites.
 - Images: `loading: lazy` loads at once. Video and AudioPlayer are static
   placeholders: nothing plays.
-- Number and date text in Table cells and calendars are the core's English
-  formatting (the core has no locale formatter yet).
+- Numbers and dates use the core's English formatter unless the host passes
+  one (`SurfaceViewOptions::formatter`).
+- `backdropBlur` paints the background alone (no backdrop sampling in gpui).
+- Animations: containers translate and fade but do not scale or rotate;
+  `spin` turns Icons only.
+- The Accordion count paints inside its trigger (measured as its own muted
+  run) but is not a laid-out node, so the dump has no `accordion.count.<i>`;
+  likewise Image/fallback, Ring/label, Video/controls and AudioPlayer
+  track/controls are painted, not placed.
+- Textarea keeps gpui-component's inner padding (single-line fields start at
+  border + `paddingHorizontal`).
 - Charts are not mirrored in RTL (neither are React's SVG charts); their
   arrow keys are.
 - Two paths cannot be exercised headless: OS file drops (the drop handler
