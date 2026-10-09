@@ -7,6 +7,10 @@ name: record-compose-fixtures
 # `compose` job. This workflow re-records them on ubuntu, verifies the
 # re-recorded set passes, and uploads it as the `compose-fixtures` artifact
 # to commit by hand (`workflow_dispatch`, or a push that edits this file).
+# The `gpui` job (VAPP-102) does the same for the gpui conformance RATCHET
+# (`packages/exponential-ui/fixtures/conformance-known.json`): its test only
+# builds on Linux, so after a web baseline rewrite the budget is re-recorded
+# here and uploaded as `gpui-ratchet`.
 
 on:
   workflow_dispatch: {}
@@ -61,3 +65,33 @@ jobs:
             packages/exponential-ui-compose/ui-compose/conformance/
             .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default
+
+  gpui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Linux system deps (wgpu/gpui)
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libxkbcommon-dev libxkbcommon-x11-dev libwayland-dev libxcb1-dev \
+            libssl-dev libfontconfig1-dev pkg-config \
+            libx11-dev libxi-dev libxtst-dev libpipewire-0.3-dev clang
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop
+      - name: Re-record the gpui ratchet
+        working-directory: apps/desktop
+        env:
+          EXP_UI_WRITE_FIXTURES: '1'
+        run: cargo test --locked -p exponential-ui-gpui --test conformance
+      - name: Verify the re-recorded ratchet passes
+        working-directory: apps/desktop
+        run: cargo test --locked -p exponential-ui-gpui --test conformance
+      - name: What changed
+        run: git status --short
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gpui-ratchet
+          path: packages/exponential-ui/fixtures/conformance-known.json
