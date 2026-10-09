@@ -38,7 +38,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     list::ListItem,
-    menu::{DropdownMenu as _, PopupMenu, PopupMenuItem},
+    menu::{PopupMenu, PopupMenuItem},
     tree::{tree, TreeEntry, TreeEvent, TreeItem, TreeState},
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
@@ -687,19 +687,19 @@ impl FileTreeView {
             crate::sidebar::select_file(window, cx, None);
             view.update(cx, |tree, cx| tree.select_worktree(target, cx));
         };
+        let trigger = Button::new("file-tree-root")
+            .ghost()
+            .cursor_pointer()
+            .xsmall()
+            .icon(Icon::new(registry::UI_BRANCH))
+            .label(label)
+            .dropdown_caret(true)
+            .tooltip("Browse another worktree");
         Some(
-            Button::new("file-tree-root")
-                .ghost()
-                .cursor_pointer()
-                .xsmall()
-                .icon(Icon::new(registry::UI_BRANCH))
-                .label(label)
-                .dropdown_caret(true)
-                .tooltip("Browse another worktree")
-                .dropdown_menu(move |mut menu, _window, _cx| {
+            crate::controls::PointerMenu::for_button(trigger, move |mut menu, _window, _cx| {
                     let view = view.clone();
                     menu = menu.item(PopupMenuItem::label("Trunk")).item(
-                        PopupMenuItem::new(trunk_label.clone())
+                        crate::controls::pointer_label_item(trunk_label.clone(), false)
                             .checked(selected.is_none())
                             .on_click({
                                 let view = view.clone();
@@ -715,7 +715,7 @@ impl FileTreeView {
                         let view = view.clone();
                         let path = path.clone();
                         menu = menu.item(
-                            PopupMenuItem::new(label.clone())
+                            crate::controls::pointer_label_item(label.clone(), false)
                                 .checked(selected.as_ref() == Some(&path))
                                 .on_click(move |_, window, cx| {
                                     pick(&view, Some(path.clone()), window, cx)
@@ -1000,15 +1000,21 @@ fn build_context_menu(
             .unwrap_or_else(|| trunk.to_string_lossy().into_owned())
     };
 
-    menu.menu_with_icon(
-        "Reveal in file manager",
-        registry::UI_EXTERNAL_LINK,
-        Box::new(RevealInFileManager { path: abs_str }),
+    // EXP-1249: pointer rows; the actions are app-global, so a dispatch from
+    // the window reaches them whatever holds focus.
+    menu.item(
+        crate::controls::pointer_label_item("Reveal in file manager", false)
+            .icon(Icon::new(registry::UI_EXTERNAL_LINK))
+            .on_click(move |_, window, cx| {
+                window.dispatch_action(Box::new(RevealInFileManager { path: abs_str.clone() }), cx);
+            }),
     )
-    .menu_with_icon(
-        "Open terminal here",
-        registry::NAV_TERMINAL,
-        Box::new(OpenTerminalHere { path: terminal_dir }),
+    .item(
+        crate::controls::pointer_label_item("Open terminal here", false)
+            .icon(Icon::new(registry::NAV_TERMINAL))
+            .on_click(move |_, window, cx| {
+                window.dispatch_action(Box::new(OpenTerminalHere { path: terminal_dir.clone() }), cx);
+            }),
     )
 }
 

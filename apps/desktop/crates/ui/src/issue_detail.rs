@@ -691,26 +691,6 @@ impl IssueDetailView {
         cx.notify();
     }
 
-    /// EXP-889/EXP-1154 alias (the Reviews rows, the PR row, the screens
-    /// panel's `RunFace::Diff`): the Changes face IS the Guide now.
-    pub(crate) fn set_changes_open_for(
-        &mut self,
-        issue_id: Option<String>,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        self.set_guide_open_for(issue_id, cx);
-    }
-
-    /// EXP-933 alias (deep links, `RunFace::Results`): the Results face IS
-    /// the Guide now.
-    pub(crate) fn set_results_open_for(
-        &mut self,
-        issue_id: Option<String>,
-        cx: &mut gpui::Context<Self>,
-    ) {
-        self.set_guide_open_for(issue_id, cx);
-    }
-
     /// Whether the Guide is up on `issue_id`.
     fn guide_open_on(&self, issue_id: &str) -> bool {
         self.guide_open_for.as_deref() == Some(issue_id)
@@ -1587,7 +1567,7 @@ impl IssueDetailView {
                     if is_open {
                         // EXP-1154: the review of the PR is this tab's
                         // Changes face — opened in place.
-                        this.set_changes_open_for(Some(issue_id.clone()), cx);
+                        this.set_guide_open_for(Some(issue_id.clone()), cx);
                     } else if let Err(error) = api::opener::open_in_browser(&pr_url) {
                         log::warn!("[ui] issue detail: open PR link failed: {error}");
                     }
@@ -2360,7 +2340,7 @@ impl IssueDetailView {
     /// EXP-889: the toggle's CHANGES item is offered whenever there is a
     /// diff to read — my run's worktree diff (which opens the run's Changes
     /// face, as before) or, with no such diff, the issue's own OPEN pull
-    /// request, which opens right here ([`Self::set_changes_open_for`]). The web
+    /// request, which opens right here ([`Self::set_guide_open_for`]). The web
     /// rule verbatim (`lib/work-faces.ts`): `hasChanges = diffStats.fileCount
     /// > 0 || issue.prState === 'open'`, and `availableFaces` pushes
     /// `changes` outside the `hasRun` branch.
@@ -2469,7 +2449,7 @@ impl IssueDetailView {
                         // through the panel (the face flip only notifies the
                         // navigation; the view may not exist yet, EXP-877).
                         let run_face = if face == Face::Guide {
-                            crate::screens::RunFace::Results
+                            crate::screens::RunFace::Guide
                         } else {
                             crate::screens::RunFace::Run
                         };

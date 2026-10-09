@@ -38,7 +38,7 @@ use gpui_component::{scroll::ScrollableElement as _, v_flex, ActiveTheme as _};
 use crate::coding_flow::{LocalSessionHost, LocalSessions};
 use crate::navigation::{active_team_id, nav_for_window, Navigation, Screen};
 use crate::queries;
-use crate::run_rows::{self, PastRunFacts, RunRowFold, RunRowSize};
+use crate::run_rows::{self, PastRunFacts, RunRowSize};
 use crate::surface::glass_section_header;
 
 /// EXP-862 — how often a list re-derives itself on the CLOCK. Both lists
@@ -98,13 +98,10 @@ pub(crate) struct RailRunRow {
     pub(crate) paused: bool,
 }
 
-/// EXP-996 — one flattened row of a session TREE: a built run row. `key` is
-/// [`domain::session_tree::session_tree_node_key`]'s, which is what
-/// [`drop_collapsed`] and [`fold_for`] are keyed by.
+/// EXP-996 — one flattened row of a session TREE: a built run row at its
+/// depth.
 pub(crate) struct SessionTreeRow<T> {
-    pub(crate) key: String,
     pub(crate) depth: usize,
-    pub(crate) has_children: bool,
     pub(crate) run: T,
 }
 
@@ -201,8 +198,7 @@ fn live_run_tree<T>(
 
 /// EXP-996 — the shared half of every session list: the rows as a TREE
 /// ([`domain::session_tree::session_tree`]), flattened with their depths, each
-/// row turned into whatever the list draws. The collapsed set is applied
-/// LATER, in the render ([`drop_collapsed`]), so folding costs no re-derive.
+/// row turned into whatever the list draws (EXP-1248: children always show).
 pub(crate) fn flatten_session_tree<T>(
     rows: Vec<&domain::rows::CodingSession>,
     mut build_run: impl FnMut(&domain::session_tree::SessionNode<&domain::rows::CodingSession>) -> T,
@@ -214,9 +210,7 @@ pub(crate) fn flatten_session_tree<T>(
     domain::session_tree::visible_session_tree_rows(&tree, &HashSet::new())
         .into_iter()
         .map(|flat| SessionTreeRow {
-            key: flat.key,
             depth: flat.depth,
-            has_children: flat.has_children,
             run: build_run(flat.node),
         })
         .collect()
@@ -503,57 +497,6 @@ fn open_session_id(window: &Window, cx: &mut App) -> Option<String> {
     }
 }
 
-/// EXP-827: the rows a nested list actually DRAWS — everything under a
-/// collapsed parent is dropped, at any depth (the rail's `hidden_below` walk).
-/// The sequence is already in tree order, so one pass over the depths is the
-/// whole rule. Pure, so the folding is unit-tested without a window.
-pub(crate) fn drop_collapsed<R>(
-    rows: Vec<R>,
-    collapsed: &HashSet<String>,
-    id: impl Fn(&R) -> &str,
-    depth: impl Fn(&R) -> usize,
-) -> Vec<R> {
-    let mut out = Vec::with_capacity(rows.len());
-    let mut hidden_below: Option<usize> = None;
-    for row in rows {
-        if let Some(at) = hidden_below {
-            if depth(&row) > at {
-                continue;
-            }
-            hidden_below = None;
-        }
-        if collapsed.contains(id(&row)) {
-            hidden_below = Some(depth(&row));
-        }
-        out.push(row);
-    }
-    out
-}
-
-/// EXP-827's fold control, RETIRED by EXP-1248 (children always show): it
-/// answers `None` for every row, so nothing ever lands in a collapsed set.
-/// Kept only while `action_view.rs` still calls it.
-pub(crate) fn fold_for<V: Collapsible + 'static>(
-    _key: String,
-    _has_children: bool,
-    _collapsed: &HashSet<String>,
-    _cx: &mut gpui::Context<V>,
-) -> Option<RunRowFold> {
-    None
-}
-
-/// A section that folds its nested rows away ([`fold_for`]).
-pub(crate) trait Collapsible {
-    fn collapsed_mut(&mut self) -> &mut HashSet<String>;
-}
-
-// An action page's Runs fold exactly like the Recent list.
-impl Collapsible for crate::action_view::ActionView {
-    fn collapsed_mut(&mut self) -> &mut HashSet<String> {
-        self.collapsed_runs_mut()
-    }
-}
-
 /// The Recent list joins `coding_sessions` with the issues it names and the
 /// devices they ran on, so all three deltas RE-DERIVE it (EXP-862: the rows
 /// are computed here and in the tick, never in `render`).
@@ -587,38 +530,5 @@ mod tests {
     fn the_empty_running_band_copy_is_locked() {
         assert_eq!(NO_RUNNING_COPY, "No agents running right now.");
         assert_eq!(NO_RECENT_COPY, "No recent runs.");
-    }
-
-    /// EXP-827: a collapsed parent takes its WHOLE subtree off the list — its
-    /// grandchildren included — and nothing else.
-    #[test]
-    fn a_collapsed_parent_hides_its_subtree() {
-        // root-a ├ child-a1 │ └ grandchild, └ child-a2 ; root-b
-        let rows: Vec<(&str, usize)> = vec![
-            ("root-a", 0),
-            ("child-a1", 1),
-            ("grandchild", 2),
-            ("child-a2", 1),
-            ("root-b", 0),
-        ];
-        let visible = |collapsed: &[&str]| -> Vec<String> {
-            let collapsed: HashSet<String> =
-                collapsed.iter().map(|id| id.to_string()).collect();
-            drop_collapsed(rows.clone(), &collapsed, |row| row.0, |row| row.1)
-                .into_iter()
-                .map(|(id, _)| id.to_string())
-                .collect()
-        };
-        assert_eq!(
-            visible(&[]),
-            vec!["root-a", "child-a1", "grandchild", "child-a2", "root-b"]
-        );
-        assert_eq!(visible(&["root-a"]), vec!["root-a", "root-b"]);
-        assert_eq!(
-            visible(&["child-a1"]),
-            vec!["root-a", "child-a1", "child-a2", "root-b"]
-        );
-        // A collapsed id that is not in the list changes nothing.
-        assert_eq!(visible(&["gone"]).len(), rows.len());
     }
 }

@@ -35,7 +35,7 @@ use gpui::{
     ParentElement as _, SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
 use gpui_component::{
-    button::ButtonVariants as _, h_flex, menu::PopupMenuItem, progress::ProgressCircle, v_flex,
+    button::ButtonVariants as _, h_flex, progress::ProgressCircle, v_flex,
     ActiveTheme as _, ElementExt as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -785,7 +785,7 @@ pub(crate) fn add_relation_submenu(
     for pick in RELATION_PICKS {
         let issue_id = issue_id.to_string();
         menu = menu.item(
-            PopupMenuItem::new(pick.label)
+            crate::controls::pointer_label_item(pick.label, false)
                 .icon(Icon::new(pick_icon(&pick)))
                 .on_click(move |_, window, cx| {
                     open_relation_target_picker(issue_id.clone(), pick, window, cx);

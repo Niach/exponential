@@ -3,13 +3,13 @@ import { describe, expect, it, vi } from "vitest"
 
 import {
   ACCOUNT_LIMIT_LABELS,
-  AccountLimitBars,
   AccountPicker,
   accountLimitBars,
   accountLimitWindows,
   limitTone,
   type AccountPickerOption,
 } from "./account-picker"
+import { UsageWindows } from "./usage-windows"
 
 // Radix positions popovers with ResizeObserver, which jsdom lacks.
 class ResizeObserverStub {
@@ -160,8 +160,13 @@ describe(`account limit bars`, () => {
 
   it(`renders one meter per bar`, () => {
     const { container } = render(
-      <AccountLimitBars
-        limits={{ fiveHour: 0.4, week: 0.85, model: { label: `Fable`, used: 0.97 } }}
+      <UsageWindows
+        windows={accountLimitWindows({
+          fiveHour: 0.4,
+          week: 0.85,
+          model: { label: `Fable`, used: 0.97 },
+        })}
+        density="hover"
       />
     )
     const meters = container.querySelectorAll(`[data-slot=meter]`)

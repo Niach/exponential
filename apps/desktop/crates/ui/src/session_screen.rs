@@ -476,8 +476,13 @@ impl SessionScreenView {
         self.inner.read(cx).run_face()
     }
 
-    /// Put the run on one of its sub-faces — the toggle's Run / Changes /
-    /// Results picks, and the detail's pick after it flips the tab to this
+    /// EXP-1251: one of the Guide's diff pages is up (not the Guide itself).
+    fn guide_page_open(&self, cx: &App) -> bool {
+        self.inner.read(cx).guide_page_open()
+    }
+
+    /// Put the run on one of its sub-faces — the toggle's Run / Guide
+    /// picks, and the detail's pick after it flips the tab to this
     /// face.
     pub(crate) fn set_run_face(
         &mut self,
@@ -570,7 +575,7 @@ impl SessionScreenView {
             run: Some(self.session_id.clone()),
             guide,
             active: match self.run_face(cx) {
-                RunFace::Diff | RunFace::Results if has_guide => Face::Guide,
+                RunFace::Guide if has_guide => Face::Guide,
                 _ => Face::Run,
             },
             runs,
@@ -605,7 +610,7 @@ impl SessionScreenView {
                             cx,
                         );
                     }
-                    None => inner.update(cx, |view, cx| view.set_run_face(RunFace::Results, cx)),
+                    None => inner.update(cx, |view, cx| view.set_run_face(RunFace::Guide, cx)),
                 },
             }),
             // EXP-950: picking a run flips this tab's Run face to it — the
@@ -675,7 +680,7 @@ impl SessionScreenView {
             let header = self.ensure_header(&issue.id, window, cx);
             // EXP-895: while the Changes face is up its BAR owns the merge
             // control — the tray must not offer a second one.
-            let diff_open = self.run_face(cx) == crate::screens::RunFace::Diff;
+            let diff_open = self.guide_page_open(cx);
             // The header entity's rows are built through `entity.update` from
             // this render (the detail view's precedent) — they never call
             // back into this view synchronously.
@@ -740,7 +745,7 @@ impl SessionScreenView {
         // EXP-916: the run's own PR (EXP-626/EXP-734) reaches GitHub from the
         // header, exactly as an issue's does — EXP-949: on the Changes face
         // alone, where the diff it opens is on show.
-        if self.run_face(cx) == crate::screens::RunFace::Diff {
+        if self.guide_page_open(cx) {
             right.extend(crate::work_header::github_button(
                 "work-github",
                 row.as_ref().and_then(|row| row.pr_url.as_deref()),

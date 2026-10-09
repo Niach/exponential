@@ -86,23 +86,6 @@ export function accountLimitWindows(limits: AccountLimits): UsageWindow[] {
   }))
 }
 
-/** @deprecated `UsageWindows density="hover"` over `accountLimitWindows`. */
-export function AccountLimitBars({
-  limits,
-  className,
-}: {
-  limits: AccountLimits
-  className?: string
-}) {
-  return (
-    <UsageWindows
-      windows={accountLimitWindows(limits)}
-      density="hover"
-      className={className}
-    />
-  )
-}
-
 /** Brand mark + email (+ hint): what the chip and every row say. */
 export function AccountOptionLabel({
   option,

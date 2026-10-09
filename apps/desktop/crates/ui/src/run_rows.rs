@@ -35,13 +35,6 @@ pub(crate) struct RunRowKill {
     pub(crate) on_kill: RunRowAction,
 }
 
-/// EXP-827's fold, RETIRED by EXP-1248 (children always show): only
-/// `action_view.rs` still builds one, and [`render_run_list_row`] ignores it.
-pub(crate) struct RunRowFold {
-    pub(crate) collapsed: bool,
-    pub(crate) on_toggle: RunRowAction,
-}
-
 // ---------------------------------------------------------------------------
 // Facts
 // ---------------------------------------------------------------------------
@@ -857,26 +850,6 @@ impl PastRunFacts {
         }
     }
 }
-
-/// EXP-1248 — a mixed list's row (an action's Runs) through [`run_row`],
-/// BIG, never killable. `_fold` is retired (children always show) and stays
-/// in the signature only until `action_view.rs` drops its fold plumbing.
-pub(crate) fn render_run_list_row(
-    id_prefix: &'static str,
-    index: usize,
-    guides: domain::tree_guides::Guides,
-    _fold: Option<RunRowFold>,
-    facts: RunListFacts,
-    active: bool,
-    on_open: RunRowAction,
-    cx: &App,
-) -> gpui::AnyElement {
-    run_row(
-        facts.row_spec(id_prefix, index, RunRowSize::Big, guides, active, on_open),
-        cx,
-    )
-}
-
 
 // ---------------------------------------------------------------------------
 // Shared run vocabulary

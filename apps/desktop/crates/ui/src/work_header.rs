@@ -710,7 +710,7 @@ pub(crate) fn open_issue_results(
             window,
             cx,
         );
-        crate::screens::set_run_face(&run_id, crate::screens::RunFace::Results, window, cx);
+        crate::screens::set_run_face(&run_id, crate::screens::RunFace::Guide, window, cx);
     }
 }
 
@@ -982,7 +982,7 @@ pub(crate) fn merge_pill(
             }
             MergeTarget::Session { .. } => None,
         };
-        crate::pr_merge::two_click(target.op(), on_failure, None, cx);
+        crate::pr_merge::two_click(target.op(), on_failure, cx);
     });
     if merging {
         button = button.disabled(true);

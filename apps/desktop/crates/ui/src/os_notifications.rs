@@ -593,9 +593,10 @@ fn route_to(route: Route, cx: &mut App) {
     .detach();
 }
 
-/// Land a route in `window` — the rail Inbox rows' own paths. EXP-1212: a
-/// route may switch the team first, then open its screen: on a New issue page
-/// the whole landing is ONE held move (`navigation::leave_held`).
+/// Land a route in `window` — the rail Inbox rows' own paths: a target in
+/// another team opens WITHOUT switching the window's team (the Inbox rule).
+/// EXP-1212: on a New issue page the landing is ONE held move
+/// (`navigation::leave_held`).
 fn land(route: Route, window: &mut Window, cx: &mut App) {
     navigation::leave_held(window, cx, None, move |window, cx| land_now(route, window, cx));
 }
@@ -606,53 +607,44 @@ fn land_now(route: Route, window: &mut Window, cx: &mut App) {
         Route::IssueResults { issue_id } => land_issue(issue_id, true, window, cx),
         Route::Inbox => sidebar::open_inbox_tab(window, cx, InboxTab::Inbox),
         Route::Session { session_id } => {
-            // EXP-1075: a live run belongs to ONE team's rail now, so land in
-            // its team first — otherwise the run opens with another team's
-            // board behind it and its own rail row nowhere. A row that has not
-            // synced yet (or whose `team_id` did not decode) still opens, on
-            // whatever team is active.
-            let team_id = match Store::try_global(cx) {
-                Some(store) => {
-                    let sessions = store.collections().coding_sessions.clone();
-                    let row = sessions.read(cx).get(&session_id).cloned();
-                    row.and_then(|row| row.team_id)
-                }
-                None => None,
-            };
-            switch_team_if_needed(team_id, window, cx);
             crate::session_screen::open_session(&session_id, window, cx)
         }
     }
 }
 
-/// An issue route, scoped on the issue's board; `results` = open it on its
-/// Results (EXP-933). An issue that has not synced yet opens the Inbox.
+/// An issue route, scoped on the issue's board when that board is in the
+/// window's team (another team's issue opens as an Inbox row does, with the
+/// window's team and board untouched); `results` = open it on its Guide
+/// (EXP-933). An issue that has not synced yet opens the Inbox.
 fn land_issue(issue_id: String, results: bool, window: &mut Window, cx: &mut App) {
     let target = {
         let collections = Store::global(cx).collections();
         let issues = collections.issues.read(cx);
         let boards = collections.boards.read(cx);
         issues.get(&issue_id).map(|issue| {
-            let team_id = boards
-                .get(&issue.board_id)
-                .map(|board| board.team_id.clone());
+            let team_id = boards.get(&issue.board_id).map(|board| board.team_id.clone());
             (issue.board_id.clone(), team_id)
         })
     };
-    match target {
-        Some((board_id, team_id)) => {
-            switch_team_if_needed(team_id, window, cx);
-            if results {
-                let id = issue_id.clone();
-                crate::work_header::open_issue_results(&id, window, cx, move |window, cx| {
-                    navigation::open_issue_scoped(window, cx, issue_id, board_id, inbox_origin());
-                });
-            } else {
-                navigation::open_issue_scoped(window, cx, issue_id, board_id, inbox_origin());
-            }
-        }
+    let Some((board_id, team_id)) = target else {
         // Not synced (yet) — the Inbox row will resolve it later.
-        None => sidebar::open_inbox_tab(window, cx, InboxTab::Inbox),
+        sidebar::open_inbox_tab(window, cx, InboxTab::Inbox);
+        return;
+    };
+    let nav = navigation::nav_for_window(window, cx);
+    let same_team = team_id.is_some() && navigation::active_team_id(&nav, cx) == team_id;
+    let id = issue_id.clone();
+    let open = move |window: &mut Window, cx: &mut App| {
+        if same_team {
+            navigation::open_issue_scoped(window, cx, issue_id, board_id, inbox_origin());
+        } else {
+            crate::issue_list::open_issue_from_list(window, cx, issue_id, inbox_origin());
+        }
+    };
+    if results {
+        crate::work_header::open_issue_results(&id, window, cx, open);
+    } else {
+        open(window, cx);
     }
 }
 
@@ -694,18 +686,6 @@ pub(crate) fn raise_duplicate_agent(session_id: &str, detail: &str, cx: &mut App
 
 /// The duplicate toast's title (the body is the wire's own sentence).
 pub(crate) const DUPLICATE_AGENT_TITLE: &str = "Duplicate agent";
-
-/// The `OpenBoard` cross-team rule: a target in another team switches the
-/// window's team first (screen + back stack reset).
-fn switch_team_if_needed(team_id: Option<String>, window: &mut Window, cx: &mut App) {
-    let Some(team_id) = team_id else {
-        return;
-    };
-    let nav = navigation::nav_for_window(window, cx);
-    if navigation::active_team_id(&nav, cx).as_deref() != Some(team_id.as_str()) {
-        navigation::switch_team(window, cx, team_id);
-    }
-}
 
 #[cfg(test)]
 mod tests {

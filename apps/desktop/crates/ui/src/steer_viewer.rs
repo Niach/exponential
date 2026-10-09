@@ -464,9 +464,9 @@ pub(crate) struct SteerSessionView {
     /// EXP-1154: a Guide file pick made before the Changes files landed (the
     /// PR-files fallback arrives after the face opens), applied when they do.
     pending_diff_path: Option<String>,
-    /// EXP-1251: the Guide's diff page `RunFace::Diff` shows (a section's
-    /// files; `All` = the complete diff, what an outside `Diff` ask opens).
-    guide_page: crate::session_results::GuidePage,
+    /// EXP-1251: the Guide's diff page on show (a section's files; `All` =
+    /// the complete diff); `None` = the Guide itself.
+    guide_page: Option<crate::session_results::GuidePage>,
     /// EXP-1248: the Stack card's hovered member (its ghost merge-through).
     stack_hovered: Option<String>,
     /// EXP-895: the file tree's `Filter files` field.
@@ -768,7 +768,7 @@ impl SteerSessionView {
             run_face: RunFace::Run,
             diff_selected: 0,
             pending_diff_path: None,
-            guide_page: crate::session_results::GuidePage::All,
+            guide_page: None,
             stack_hovered: None,
             diff_filter,
             folded_dirs: HashSet::new(),
@@ -2686,7 +2686,7 @@ impl SteerSessionView {
         if self.diff_selected >= files {
             self.diff_selected = 0;
         }
-        if self.run_face == RunFace::Diff {
+        if self.guide_page_open() {
             self.rebuild_changes_diff(cx);
         }
         // EXP-895: a published diff retires the fallback; its absence asks
@@ -2778,7 +2778,7 @@ impl SteerSessionView {
                     key,
                     files: crate::diff::files_from_pull(&files),
                 });
-                if this.run_face == RunFace::Diff {
+                if this.guide_page_open() {
                     this.rebuild_changes_diff(cx);
                 }
                 cx.notify();
@@ -2867,36 +2867,32 @@ impl SteerSessionView {
         )
     }
 
+    /// EXP-1251 — one of the Guide's diff pages is up.
+    pub(crate) fn guide_page_open(&self) -> bool {
+        self.run_face == RunFace::Guide && self.guide_page.is_some()
+    }
+
     /// EXP-1251 — the run's faces are Run and GUIDE (the work header's
-    /// `Issue | Run | Guide`): `RunFace::Results` IS the Guide, and
-    /// `RunFace::Diff` its diff page ([`Self::guide_page`]; an outside ask
-    /// opens the complete diff). The host SETS the face. Opening the diff
-    /// builds its rows — they are only worth rendering when visible. A Guide
-    /// asked for on a run with neither a report nor a diff falls back to the
-    /// transcript rather than to a blank page.
+    /// `Issue | Run | Guide`); the Guide's diff pages are its own state
+    /// ([`Self::open_guide_page`]), so asking for the Guide always lands on
+    /// the Guide itself. The host SETS the face. A Guide asked for on a run
+    /// with neither a report nor a diff falls back to the transcript rather
+    /// than to a blank page.
     pub(crate) fn set_run_face(&mut self, face: RunFace, cx: &mut gpui::Context<Self>) {
         let face = match face {
-            RunFace::Results if !self.has_guide() => RunFace::Run,
+            RunFace::Guide if !self.has_guide() => RunFace::Run,
             face => face,
         };
-        if face == RunFace::Diff && self.run_face != RunFace::Results {
-            // Straight into the diff (a Reviews row, a deep link): the
-            // complete diff; a Guide row sets its own page first.
-            self.guide_page = crate::session_results::GuidePage::All;
-        }
-        if self.run_face == face {
+        let left_page = self.guide_page.take().is_some();
+        if self.run_face == face && !left_page {
             return;
         }
         self.run_face = face;
-        // A pick held for the face being left must not land later.
+        // A pick held for the page being left must not land later.
         self.pending_diff_path = None;
         // EXP-895: the Guide may be reading the FALLBACK files.
-        if face != RunFace::Run {
+        if face == RunFace::Guide {
             self.load_pr_changes(cx);
-        }
-        if face == RunFace::Diff {
-            self.diff_selected = 0;
-            self.rebuild_changes_diff(cx);
         }
         cx.notify();
     }
@@ -2906,20 +2902,27 @@ impl SteerSessionView {
         !self.results_groups().is_empty() || self.diff_totals().is_some()
     }
 
-    /// EXP-1251 — open one of the Guide's diff pages.
+    /// EXP-1251 — open one of the Guide's diff pages. Opening it builds the
+    /// diff rows — they are only worth rendering when visible.
     pub(crate) fn open_guide_page(
         &mut self,
         page: crate::session_results::GuidePage,
         cx: &mut gpui::Context<Self>,
     ) {
-        self.guide_page = page;
+        let was_open = self.guide_page_open();
+        self.guide_page = Some(page);
         self.diff_selected = 0;
-        if self.run_face == RunFace::Diff {
+        if was_open {
             cx.notify();
             return;
         }
-        self.run_face = RunFace::Results;
-        self.set_run_face(RunFace::Diff, cx);
+        if self.run_face != RunFace::Guide {
+            self.run_face = RunFace::Guide;
+            self.pending_diff_path = None;
+        }
+        self.load_pr_changes(cx);
+        self.rebuild_changes_diff(cx);
+        cx.notify();
     }
 
     /// Name `index` in the header and scroll the diff to it (§11).
@@ -2973,9 +2976,7 @@ impl SteerSessionView {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> Option<AnyElement> {
-        if self.run_face != RunFace::Diff {
-            return None;
-        }
+        let page = self.guide_page.filter(|_| self.run_face == RunFace::Guide)?;
         let scoped = self.changes_files_ref();
         if scoped.is_empty() {
             return None;
@@ -2988,7 +2989,7 @@ impl SteerSessionView {
         let view = crate::session_results::guide_page_view(
             &groups,
             &crate::session_results::guide_diff_files(&all),
-            self.guide_page,
+            page,
         )
         .or_else(|| {
             crate::session_results::guide_page_view(
@@ -2997,7 +2998,7 @@ impl SteerSessionView {
                 crate::session_results::GuidePage::All,
             )
         })?;
-        let filtered = self.guide_page != crate::session_results::GuidePage::All;
+        let filtered = page != crate::session_results::GuidePage::All;
         let shown: Vec<usize> = crate::pr_diff::shown_indices(
             all.iter().map(|file| file.path.as_ref()),
             filtered.then_some(view.paths.as_slice()),
@@ -3012,7 +3013,7 @@ impl SteerSessionView {
         let back = crate::session_results::guide_page_header(
             &view,
             std::rc::Rc::new(move |_window, cx| {
-                let _ = this.update(cx, |this, cx| this.set_run_face(RunFace::Results, cx));
+                let _ = this.update(cx, |this, cx| this.set_run_face(RunFace::Guide, cx));
             }),
             cx,
         );
@@ -3061,7 +3062,7 @@ impl SteerSessionView {
         window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> Option<AnyElement> {
-        if self.run_face != RunFace::Results {
+        if self.run_face != RunFace::Guide || self.guide_page.is_some() {
             return None;
         }
         let groups = self.results_groups();
@@ -3827,45 +3828,6 @@ pub(crate) fn is_working(facts: &WorkingFacts) -> bool {
         && !facts.staging
         && !facts.blocked
         && !facts.compacting
-}
-
-/// The header/tooltip caption for a phase, mirroring the web `phaseLabel`.
-///
-/// FEED-26: `stale_minutes` is the whole minutes a LIVE run's feed has been
-/// quiet past [`STALE_ACTIVITY_AFTER`] — `None` for every other state, so
-/// the caller owns the "is this quiet meaningful?" question (not live,
-/// paused, awaiting an answer or compacting all answer no) and this stays a
-/// pure formatter.
-pub(crate) fn phase_label(
-    phase: &ViewerPhase,
-    device: Option<&str>,
-    awaiting_input: bool,
-    paused: bool,
-    stale_minutes: Option<u64>,
-) -> String {
-    if paused {
-        return format!("Paused · {} is offline", device.unwrap_or("device"));
-    }
-    match phase {
-        ViewerPhase::Live => {
-            let head = if awaiting_input {
-                "Needs your input".to_string()
-            } else if let Some(minutes) = stale_minutes {
-                format!("No activity for {minutes} min")
-            } else {
-                "Live".to_string()
-            };
-            match device {
-                Some(device) => format!("{head} · {device}"),
-                None => head,
-            }
-        }
-        ViewerPhase::Starting => "Agent starting…".to_string(),
-        ViewerPhase::Connecting => "Connecting…".to_string(),
-        ViewerPhase::Reconnecting => "Reconnecting…".to_string(),
-        ViewerPhase::Ended { .. } => "Session ended".to_string(),
-        ViewerPhase::Unauthorized { .. } => "Disconnected".to_string(),
-    }
 }
 
 /// "2 of 3" / "3 questions" — the ask stepper's counter (web `askStepperView`).
@@ -8430,7 +8392,7 @@ fn exp_open_results_button(id: FeedItemId, run_id: &str, cx: &App) -> AnyElement
                     cx.stop_propagation();
                     crate::screens::set_run_face(
                         &run_id,
-                        crate::screens::RunFace::Results,
+                        crate::screens::RunFace::Guide,
                         window,
                         cx,
                     );
@@ -9074,59 +9036,6 @@ mod tests {
         // Quiet with no turn in flight is the real FEED-26 case, and the
         // caption is free to name it.
         assert!(!is_working(&WorkingFacts { turn_working: false, ..mid_turn }));
-        assert_eq!(
-            phase_label(&ViewerPhase::Live, Some("macbook"), false, false, Some(27)),
-            "No activity for 27 min · macbook"
-        );
-    }
-
-    #[test]
-    fn the_phase_caption_mirrors_the_web_labels() {
-        assert_eq!(
-            phase_label(&ViewerPhase::Live, Some("macbook"), false, false, None),
-            "Live · macbook"
-        );
-        assert_eq!(
-            phase_label(&ViewerPhase::Live, None, false, false, None),
-            "Live"
-        );
-        assert_eq!(
-            phase_label(&ViewerPhase::Live, Some("macbook"), true, false, None),
-            "Needs your input · macbook"
-        );
-        assert_eq!(
-            phase_label(&ViewerPhase::Starting, Some("macbook"), false, false, None),
-            "Agent starting…"
-        );
-        assert_eq!(
-            phase_label(&ViewerPhase::Ended { outcome: None }, None, false, false, None),
-            "Session ended"
-        );
-        // FEED-26: a live run whose feed has gone quiet says so, with the
-        // same ` · {device}` suffix every other live caption carries.
-        assert_eq!(
-            phase_label(&ViewerPhase::Live, Some("macbook"), false, false, Some(27)),
-            "No activity for 27 min · macbook"
-        );
-        assert_eq!(
-            phase_label(&ViewerPhase::Live, None, false, false, Some(10)),
-            "No activity for 10 min"
-        );
-        // …and a card waiting for an answer still wins: the run is not stuck,
-        // the reader is.
-        assert_eq!(
-            phase_label(&ViewerPhase::Live, Some("macbook"), true, false, Some(27)),
-            "Needs your input · macbook"
-        );
-        // Quiet only means anything while LIVE.
-        assert_eq!(
-            phase_label(&ViewerPhase::Starting, None, false, false, Some(27)),
-            "Agent starting…"
-        );
-        assert_eq!(
-            phase_label(&ViewerPhase::Live, Some("macbook"), false, true, Some(27)),
-            "Paused · macbook is offline"
-        );
     }
 
     /// FEED-26: the threshold is shared byte-for-byte with the other three
@@ -9135,20 +9044,6 @@ mod tests {
     fn the_stale_activity_window_is_ten_minutes() {
         assert_eq!(STALE_ACTIVITY_AFTER, Duration::from_secs(600));
         assert!(STALE_TICK < STALE_ACTIVITY_AFTER);
-    }
-
-    /// A paused host wins over every other phase — the run is not gone, the
-    /// machine is (EXP-550).
-    #[test]
-    fn a_paused_host_beats_the_phase() {
-        assert_eq!(
-            phase_label(&ViewerPhase::Live, Some("macbook"), true, true, None),
-            "Paused · macbook is offline"
-        );
-        assert_eq!(
-            phase_label(&ViewerPhase::Live, None, false, true, None),
-            "Paused · device is offline"
-        );
     }
 
     // ── EXP-820: ask completion, the card keyboard, inline rows ────────────

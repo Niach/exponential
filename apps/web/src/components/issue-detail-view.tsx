@@ -108,7 +108,7 @@ interface IssueDetailViewProps {
     merge?: React.ReactNode
   }
   /** EXP-1154: md+ — the work header's face action after the toggle (GitHub
-   *  while the Changes face shows). */
+   *  while the Guide shows). */
   headerAction?: React.ReactNode
 }
 
@@ -656,8 +656,8 @@ export function IssueDetailView({
     <IssueFilesSection issueId={issue.id} readOnly={readOnly} />
   )
 
-  // PR / pushed-branch link to the issue's Changes face (EXP-106; EXP-1154:
-  // the review of the PR) — stays in the main column on every layout.
+  // PR / pushed-branch link to the issue's Guide (EXP-106; EXP-1251: the
+  // review of the PR) — stays in the main column on every layout.
   const prRow = currentUserId ? (
     <IssuePrRow
       issue={issue}
@@ -820,7 +820,7 @@ export function IssueDetailView({
                     issue={issue}
                   />
                   {faceToggle}
-                  {/* EXP-949/1154: GitHub only while the Changes face shows
+                  {/* EXP-949/1154: GitHub only while the Guide shows
                       (the route passes it), never beside the issue itself. */}
                   {headerAction}
                   {pinToggle}

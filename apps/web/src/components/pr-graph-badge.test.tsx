@@ -245,7 +245,7 @@ describe(`PrGraphOverlay`, () => {
   })
 
   // EXP-1154: a PR row opens the issue on its Changes face.
-  it(`draws a stack row as #n, the pr glyph and its state pill, opening the changes face`, () => {
+  it(`draws a stack row as #n, the pr glyph and its state pill, opening the Guide`, () => {
     const onClose = vi.fn()
     overlay({ issue: upper, issues: [lower, upper] }, onClose)
     const row = screen.getByTestId(`relation-row-LOWER`)
@@ -258,7 +258,7 @@ describe(`PrGraphOverlay`, () => {
       `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
     )
     expect(link.getAttribute(`data-issue`)).toBe(`LOWER`)
-    expect(link.getAttribute(`data-view`)).toBe(`diff`)
+    expect(link.getAttribute(`data-view`)).toBe(`guide`)
     fireEvent.click(link)
     expect(onClose).toHaveBeenCalled()
   })

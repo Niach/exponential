@@ -976,10 +976,10 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
 }
 
 /// EXP-1154 (DEV-ONLY): the face an `issue:<uuid>?face=<face>` spec opens
-/// the issue tab on — `changes`/`diff` = the Changes face (the review of its
-/// PR), `results` = the Results face (the shared
-/// [`crate::screens::parse_run_face`] vocabulary). `None` for any other spec,
-/// no `face`, or `run`/`transcript` (an issue tab's own face is the issue).
+/// the issue tab on — `guide` (legacy `changes`/`diff`/`results`) = the
+/// Guide, the review of its PR (the shared [`crate::screens::parse_run_face`]
+/// vocabulary). `None` for any other spec, no `face`, or `run`/`transcript`
+/// (an issue tab's own face is the issue).
 pub(crate) fn parse_dev_issue_face(spec: &str) -> Option<crate::screens::RunFace> {
     let (_, query) = spec.strip_prefix("issue:")?.split_once('?')?;
     let face = query
@@ -991,13 +991,13 @@ pub(crate) fn parse_dev_issue_face(spec: &str) -> Option<crate::screens::RunFace
     }
 }
 
-/// EXP-1154 (DEV-ONLY): [`parse_dev_issue_face`] over `EXP_DEV_SCREEN`, with
-/// the issue id it applies to.
-pub(crate) fn dev_issue_face() -> Option<(String, crate::screens::RunFace)> {
+/// EXP-1154 (DEV-ONLY): the issue whose Guide [`parse_dev_issue_face`] over
+/// `EXP_DEV_SCREEN` opens.
+pub(crate) fn dev_issue_face() -> Option<String> {
     let spec = std::env::var("EXP_DEV_SCREEN").ok()?;
-    let face = parse_dev_issue_face(spec.trim())?;
+    parse_dev_issue_face(spec.trim())?;
     match parse_dev_screen(spec.trim())? {
-        Screen::IssueDetail { issue_id } => Some((issue_id, face)),
+        Screen::IssueDetail { issue_id } => Some(issue_id),
         _ => None,
     }
 }
@@ -2484,10 +2484,11 @@ mod tests {
     #[test]
     fn parse_dev_issue_face_reads_the_face_query() {
         use crate::screens::RunFace;
-        assert_eq!(parse_dev_issue_face("issue:i1?face=changes"), Some(RunFace::Diff));
-        assert_eq!(parse_dev_issue_face("issue:i1?face=diff"), Some(RunFace::Diff));
-        assert_eq!(parse_dev_issue_face("issue:i1?face=results"), Some(RunFace::Results));
-        assert_eq!(parse_dev_issue_face("issue:i1?x=1&face=results"), Some(RunFace::Results));
+        assert_eq!(parse_dev_issue_face("issue:i1?face=guide"), Some(RunFace::Guide));
+        assert_eq!(parse_dev_issue_face("issue:i1?face=changes"), Some(RunFace::Guide));
+        assert_eq!(parse_dev_issue_face("issue:i1?face=diff"), Some(RunFace::Guide));
+        assert_eq!(parse_dev_issue_face("issue:i1?face=results"), Some(RunFace::Guide));
+        assert_eq!(parse_dev_issue_face("issue:i1?x=1&face=results"), Some(RunFace::Guide));
         assert_eq!(parse_dev_issue_face("issue:i1?face=run"), None);
         assert_eq!(parse_dev_issue_face("issue:i1?face=nonsense"), None);
         assert_eq!(parse_dev_issue_face("issue:i1"), None);

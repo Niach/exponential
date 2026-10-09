@@ -224,17 +224,39 @@ const MENU_ROW_INSET: f32 = 8.;
 /// Wrap an element row's body so it fills its item (over the crate's 8px
 /// side padding) and points — the arrow stays on a `disabled` row.
 pub(crate) fn pointer_row_fill(body: impl IntoElement, disabled: bool) -> Div {
+    pointer_fill(body, disabled).min_h(px(MENU_ROW_H))
+}
+
+/// [`pointer_row_fill`] at the crate's own row height.
+pub(crate) fn pointer_fill(body: impl IntoElement, disabled: bool) -> Div {
     use gpui::prelude::FluentBuilder as _;
     gpui_component::h_flex()
         .flex_1()
         .min_w_0()
-        .min_h(px(MENU_ROW_H))
         .mx(px(-MENU_ROW_INSET))
         .px(px(MENU_ROW_INSET))
         .items_center()
         .when(!disabled, |row| row.cursor_pointer())
         .when(disabled, |row| row.cursor_default())
         .child(body)
+}
+
+/// The drop-in for `PopupMenuItem::new(label)` that POINTS (half 1 of the
+/// section note) in a menu that mixes in `submenu` rows or crate-slot icons:
+/// the crate keeps its icon slot, its check and its own row height, so the
+/// rows of one menu stay one height. Chain `.icon` / `.checked` /
+/// `.on_click` exactly as on a plain row.
+pub(crate) fn pointer_label_item(label: impl Into<SharedString>, disabled: bool) -> PopupMenuItem {
+    let label = label.into();
+    PopupMenuItem::element(move |_, cx| {
+        let color = if disabled {
+            cx.theme().muted_foreground
+        } else {
+            cx.theme().popover_foreground
+        };
+        pointer_fill(div().text_color(color).child(label.clone()), disabled)
+    })
+    .disabled(disabled)
 }
 
 /// One pointer-menu row: an optional leading glyph, the label, and an

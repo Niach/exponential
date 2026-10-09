@@ -259,8 +259,19 @@ const DIALOG_PAD: f32 = 16.;
 const DIALOG_MIN_H: f32 = 160.;
 /// Height estimates the fitted height sums (the dialog scrolls past them).
 const BAND_H: f32 = 36.;
+/// An issue row's height (the Blocked by and Same PR bands).
 const ROW_H: f32 = 30.;
 const SECTION_GAP: f32 = 12.;
+
+/// One band's row height: the Stack band draws THE pull-request row
+/// ([`crate::pr_rows::pr_list`], [`domain::list_item::PR_ROW`]), the others
+/// the relations card's issue rows.
+fn band_row_h(section: OverlaySection) -> f32 {
+    match section {
+        OverlaySection::Stack => domain::list_item::PR_ROW,
+        OverlaySection::Blocked | OverlaySection::Batch => ROW_H,
+    }
+}
 
 /// SLOP-16 round 3: open "Related work": the platform's standard modal,
 /// 560 wide, as tall as its content (capped at 85% of the opener).
@@ -300,7 +311,8 @@ fn content_height(graph: &PrGraph) -> f32 {
     let mut height = 2. * DIALOG_PAD + SECTION_GAP * (sections.len() - 1) as f32;
     for section in sections {
         let (shown, footer) = band_window(section_len(graph, section), true, false);
-        height += BAND_H + (shown + usize::from(footer.is_some())) as f32 * ROW_H;
+        // The "Show N more" footer is an issue-height row in every band.
+        height += BAND_H + shown as f32 * band_row_h(section) + footer.map_or(0., |_| ROW_H);
     }
     height
 }
@@ -415,11 +427,14 @@ fn section_rows(graph: &PrGraph, section: OverlaySection, shown: usize, cx: &mut
         OverlaySection::Batch => {
             issue_rows(pr_graph::batch_partners(graph), "related-work-partner", cx)
         }
-        OverlaySection::Stack => pr_graph::stack_others(graph)
-            .into_iter()
-            .take(shown)
-            .map(|entry| stack_row(entry, cx))
-            .collect(),
+        OverlaySection::Stack => {
+            let rows = pr_graph::stack_others(graph)
+                .into_iter()
+                .take(shown)
+                .map(|entry| stack_list_row(entry, cx))
+                .collect();
+            vec![crate::pr_rows::pr_list("related-work-pr", rows, cx)]
+        }
     }
 }
 
@@ -433,59 +448,40 @@ fn stack_row_label(entry: &PrEntry) -> String {
     }
 }
 
-/// One OTHER pull request of the stack, in the relations row's shape: PR
-/// glyph · mono `#n` · the representative issue's title · the PR state chip.
-/// A click closes the dialog and opens that pull request's diff.
-fn stack_row(entry: &PrEntry, cx: &mut App) -> AnyElement {
+/// One OTHER pull request of the stack as THE pull-request row: ring lead
+/// (emerald while open, muted once merged or closed) · mono `#n` · the
+/// representative issue's title · the PR state chip. A click closes the
+/// dialog and opens that pull request's review.
+fn stack_list_row(entry: &PrEntry, cx: &mut App) -> crate::pr_rows::PrListRow {
     let representative = entry.representative();
     let state = representative
         .pr_state
         .clone()
         .unwrap_or_else(|| domain::contract::PR_STATE_OPEN.to_string());
-    let glyph = match state.as_str() {
-        "merged" => registry::PR_MERGED,
-        "closed" => registry::PR_CLOSED,
-        _ => registry::PR_OPEN,
+    let node = if state == domain::contract::PR_STATE_OPEN {
+        domain::list_item::PrNodeState::Open
+    } else {
+        domain::list_item::PrNodeState::Base
     };
     let issue_id = representative.id.clone();
-    let muted = cx.theme().muted_foreground;
-    crate::surface::flat_row()
-        .id(SharedString::from(format!("related-work-pr-{issue_id}")))
-        .flex()
-        .w_full()
-        .min_w_0()
-        .items_center()
-        .gap_2()
-        .px_3()
-        .py_1()
-        .cursor_pointer()
-        .hover(|style| style.bg(theme::tokens::glass::FILL_ROW.to_hsla()))
-        .on_click(move |_: &ClickEvent, window, cx| {
-            // EXP-1154: the PR's review = its issue's Changes face.
-            let issue_id = issue_id.clone();
+    let open_id = issue_id.clone();
+    crate::pr_rows::PrListRow {
+        key: issue_id,
+        identifier: Some(SharedString::from(stack_row_label(entry))),
+        title: SharedString::from(representative.title.clone()),
+        depth: 0,
+        node,
+        word: None,
+        active: false,
+        on_open: Some(Box::new(move |_: &ClickEvent, window, cx| {
+            // EXP-1251: the PR's review = its issue's Guide.
+            let issue_id = open_id.clone();
             crate::native_dialog::close_then(window, cx, move |window, cx| {
                 crate::screens::open_issue_changes(&issue_id, None, window, cx);
             });
-        })
-        .child(Icon::new(glyph).small().flex_shrink_0().text_color(muted))
-        .child(
-            div()
-                .flex_shrink_0()
-                .text_xs()
-                .text_color(muted)
-                .font_family(theme::terminal::FONT_FAMILY)
-                .child(SharedString::from(stack_row_label(entry))),
-        )
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_sm()
-                .truncate()
-                .child(SharedString::from(representative.title.clone())),
-        )
-        .child(crate::issue_detail::pr_state_chip(&state, cx))
-        .into_any_element()
+        })),
+        trailing: Some(crate::issue_detail::pr_state_chip(&state, cx)),
+    }
 }
 
 #[cfg(test)]
@@ -573,14 +569,16 @@ mod tests {
             pr_graph::stack_others(&graph).into_iter().map(stack_row_label).collect();
         assert_eq!(labels, vec!["#41".to_string()]);
         assert_eq!(section_len(&graph, OverlaySection::Stack), 1);
-        // One band, one row.
-        assert_eq!(content_height(&graph), 2. * DIALOG_PAD + BAND_H + ROW_H);
+        // One band, one pull-request row (its own height, per band).
+        let pr_row = domain::list_item::PR_ROW;
+        assert_eq!(content_height(&graph), 2. * DIALOG_PAD + BAND_H + pr_row);
         let mut blocked = graph.clone();
         blocked.blocked_by = (1..=5).map(|n| issue(&format!("EXP-{n}"), None, None)).collect();
-        // Blocked by: 3 capped rows + "Show 2 more", then the stack band.
+        // Blocked by: 3 capped issue rows + "Show 2 more", then the stack
+        // band's one pull-request row.
         assert_eq!(
             content_height(&blocked),
-            2. * DIALOG_PAD + SECTION_GAP + BAND_H * 2. + ROW_H * 5.
+            2. * DIALOG_PAD + SECTION_GAP + BAND_H * 2. + ROW_H * 4. + pr_row
         );
     }
 

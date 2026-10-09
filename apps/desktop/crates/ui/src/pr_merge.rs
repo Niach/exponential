@@ -15,10 +15,8 @@
 //! Keys share one namespace: an issue UUID for `issues.mergePr`,
 //! [`close_pr_key`] (`close:<uuid>`) for `issues.closePr`,
 //! [`session_merge_key`] (`session:<uuid>`) for a RUN's own chore PR
-//! (`codingSessions.mergePr`, EXP-734), and [`pull_merge_key`]
-//! (`<repo-uuid>#<number>`) for unlinked pulls — the prefixes/`#` can never
-//! collide. Error captions always key on the ROW
-//! (the issue id / pull key), so a failed close renders under the same row
+//! (`codingSessions.mergePr`, EXP-734) — the prefixes can never collide.
+//! Error captions always key on the ROW (the issue id / session key), so a failed close renders under the same row
 //! as a failed merge — the caption carries a [`FailedOp`] so the surfaces can
 //! still tell the two apart (only a failed merge may open the fix-conflicts
 //! composer).
@@ -39,21 +37,15 @@ use sync::Store;
 
 use crate::queries;
 
-/// Merge-state key for an unlinked pull. Shares the namespace with issue
-/// UUID keys — `repo-uuid#number` can never collide with those.
-pub fn pull_merge_key(repository_id: &str, number: u64) -> String {
-    format!("{repository_id}#{number}")
-}
-
 /// Arm/in-flight key for an issue row's close-without-merge action (EXP-100).
-/// The `close:` prefix can never collide with an issue UUID or a pull key.
+/// The `close:` prefix can never collide with an issue UUID.
 pub fn close_pr_key(issue_id: &str) -> String {
     format!("close:{issue_id}")
 }
 
 /// EXP-734: arm/in-flight key for a RUN's own chore PR (`codingSessions
 /// .mergePr`). The `session:` prefix can never collide with an issue UUID,
-/// a `close:` key or a pull key.
+/// or a `close:` key.
 pub fn session_merge_key(session_id: &str) -> String {
     format!("session:{session_id}")
 }
@@ -101,13 +93,6 @@ pub enum MergeOp {
     /// it). Echo-settled on the SESSION row: the spinner holds until the
     /// synced `pr_state` leaves `open`.
     MergeSessionPr { session_id: String },
-    /// `repositories.mergePull` — an issue-unlinked PR. No Electric echo:
-    /// completion clears in-flight immediately and the caller's `on_success`
-    /// drops the row from its local state.
-    MergePull {
-        repository_id: String,
-        number: u64,
-    },
 }
 
 impl MergeOp {
@@ -117,10 +102,6 @@ impl MergeOp {
             MergeOp::MergeIssuePr { issue_id, .. } => issue_id.clone(),
             MergeOp::CloseIssuePr { issue_id } => close_pr_key(issue_id),
             MergeOp::MergeSessionPr { session_id } => session_merge_key(session_id),
-            MergeOp::MergePull {
-                repository_id,
-                number,
-            } => pull_merge_key(repository_id, *number),
         }
     }
 
@@ -131,8 +112,7 @@ impl MergeOp {
             MergeOp::MergeIssuePr { issue_id, .. } | MergeOp::CloseIssuePr { issue_id } => {
                 issue_id.clone()
             }
-            MergeOp::MergeSessionPr { .. }
-            | MergeOp::MergePull { .. } => self.key(),
+            MergeOp::MergeSessionPr { .. } => self.key(),
         }
     }
 
@@ -141,9 +121,7 @@ impl MergeOp {
     fn failed_op(&self) -> FailedOp {
         match self {
             MergeOp::CloseIssuePr { .. } => FailedOp::Close,
-            MergeOp::MergeIssuePr { .. }
-            | MergeOp::MergeSessionPr { .. }
-            | MergeOp::MergePull { .. } => FailedOp::Merge,
+            MergeOp::MergeIssuePr { .. } | MergeOp::MergeSessionPr { .. } => FailedOp::Merge,
         }
     }
 
@@ -154,15 +132,8 @@ impl MergeOp {
             MergeOp::MergeIssuePr { issue_id, .. } | MergeOp::CloseIssuePr { issue_id } => {
                 vec![issue_id.clone(), close_pr_key(issue_id)]
             }
-            MergeOp::MergeSessionPr { .. }
-            | MergeOp::MergePull { .. } => vec![self.key()],
+            MergeOp::MergeSessionPr { .. } => vec![self.key()],
         }
-    }
-
-    /// Whether success is settled by the Electric echo (issue rows) rather
-    /// than immediately on completion (unlinked pulls).
-    fn echo_settled(&self) -> bool {
-        !matches!(self, MergeOp::MergePull { .. })
     }
 
     fn describe(&self) -> String {
@@ -178,10 +149,6 @@ impl MergeOp {
             MergeOp::MergeSessionPr { session_id } => {
                 format!("codingSessions.mergePr({session_id})")
             }
-            MergeOp::MergePull {
-                repository_id,
-                number,
-            } => format!("repositories.mergePull({repository_id}#{number})"),
         }
     }
 
@@ -203,10 +170,6 @@ impl MergeOp {
             MergeOp::MergeSessionPr { session_id } => {
                 api::coding_sessions::merge_pr(trpc, session_id).map(|r| r.landed())
             }
-            MergeOp::MergePull {
-                repository_id,
-                number,
-            } => api::repositories::merge_pull(trpc, repository_id, *number).map(|r| r.landed()),
         }
     }
 }
@@ -221,8 +184,7 @@ pub struct MergeState {
     /// clearing so it never cancels a newer arm.
     arm_seq: u64,
     /// Keys with an in-flight call. Echo-settled ops keep the key until the
-    /// issues-collection observer sees `pr_state` leave `open`; pull ops
-    /// clear on completion.
+    /// issues-collection observer sees `pr_state` leave `open`.
     merging: HashSet<String>,
     /// The last failure — one caption at a time, cleared on the next
     /// confirmed attempt anywhere (the pre-EXP-325 reviews-rail semantic).
@@ -234,7 +196,7 @@ pub struct MergeState {
 /// decide whether to offer the recovery run.
 #[derive(Clone, Debug)]
 pub struct MergeFailure {
-    /// The ROW the caption renders under (an issue id or a pull key).
+    /// The ROW the caption renders under (an issue id or a session key).
     pub row_key: String,
     pub message: SharedString,
     /// Whether MERGE or CLOSE produced it — the recovery run ends in a merge,
@@ -306,12 +268,12 @@ impl MergeState {
     }
 
     /// This ROW key's failure, if the last one was its (an issue id or a
-    /// pull key).
+    /// session key).
     pub fn failure(&self, row_key: &str) -> Option<&MergeFailure> {
         self.error.as_ref().filter(|f| f.row_key == row_key)
     }
 
-    /// The failure caption for a ROW key (an issue id or a pull key).
+    /// The failure caption for a ROW key (an issue id or a session key).
     pub fn error(&self, row_key: &str) -> Option<SharedString> {
         self.failure(row_key).map(|f| f.message.clone())
     }
@@ -359,30 +321,6 @@ impl MergeState {
         });
     }
 
-    /// Drop transient state for PULL keys (`repo#n`) no longer in `live` —
-    /// the Reviews render calls this over the fetched pull list (a pull
-    /// merged elsewhere has no Electric echo to settle it). Issue keys are
-    /// echo-settled by the collection observer and stay untouched here.
-    pub fn retain_pull_keys(&mut self, live: &HashSet<String>, cx: &mut gpui::Context<Self>) {
-        let dead = |key: &str| key.contains('#') && !live.contains(key);
-        let mut changed = false;
-        let before = self.merging.len();
-        self.merging.retain(|key| !dead(key));
-        changed |= self.merging.len() != before;
-        if self.arm.as_deref().is_some_and(dead) {
-            self.arm = None;
-            self.arm_seq += 1;
-            changed = true;
-        }
-        if self.error.as_ref().is_some_and(|f| dead(&f.row_key)) {
-            self.error = None;
-            changed = true;
-        }
-        if changed {
-            cx.notify();
-        }
-    }
-
     /// Collect keys whose issue's PR is no longer open (the Electric echo
     /// after a merge/close — also covers a PR closed from GitHub itself).
     fn prune_settled(&mut self, cx: &mut gpui::Context<Self>) {
@@ -402,10 +340,6 @@ impl MergeState {
                     };
                 }
                 let id = key.strip_prefix("close:").unwrap_or(key);
-                if id.contains('#') {
-                    // Pull keys are not issue-keyed — `retain_pull_keys` owns them.
-                    return false;
-                }
                 match issues.get(id) {
                     Some(issue) => issue.pr_state.as_deref() != Some("open"),
                     // Unknown row (unsynced/out of scope) — leave it alone.
@@ -449,7 +383,7 @@ pub enum TwoClick {
 pub fn fire_confirmed(op: MergeOp, cx: &mut App) -> TwoClick {
     let key = op.key();
     MergeState::global(cx).update(cx, |this, cx| this.arm_key(key, cx));
-    two_click(op, None, None, cx)
+    two_click(op, None, cx)
 }
 
 /// EXP-1248: the ONE stack confirm for merging `issue_id`'s pull request in
@@ -557,12 +491,10 @@ pub(crate) fn ask_stack_merge(issue_id: &str, window: &mut gpui::Window, cx: &mu
 /// fires the op on the background executor. Failures land in the shared
 /// error slot and then run `on_failure` ([`OnMergeFailure`]: answering
 /// `true` drops the failure again — EXP-1233's conflict → composer);
-/// echo-settled successes hold the in-flight spinner until the Electric
-/// echo, pull successes clear it and run `on_success`.
+/// successes hold the in-flight spinner until the Electric echo.
 pub fn two_click(
     op: MergeOp,
     on_failure: Option<OnMergeFailure>,
-    on_success: Option<Box<dyn FnOnce(&mut App)>>,
     cx: &mut App,
 ) -> TwoClick {
     let state = MergeState::global(cx);
@@ -607,19 +539,9 @@ pub fn two_click(
                         cx.notify();
                         None
                     }
-                    Ok(true) => {
-                        if call_op.echo_settled() {
-                            // The issues-collection observer clears the key
-                            // when the echo flips `pr_state`.
-                        } else {
-                            this.merging.remove(&key);
-                            cx.notify();
-                            if let Some(on_success) = on_success {
-                                on_success(cx);
-                            }
-                        }
-                        None
-                    }
+                    // The issues-collection observer clears the key when
+                    // the echo flips `pr_state`.
+                    Ok(true) => None,
                     Err(err) => {
                         log::warn!("[ui] {} failed: {err}", call_op.describe());
                         this.merging.remove(&key);
@@ -662,11 +584,10 @@ pub fn two_click(
 mod tests {
     use super::*;
 
-    /// One namespace, three collision-free key shapes; merge/close of the
+    /// One namespace, collision-free key shapes; merge/close of the
     /// same issue guard each other and caption the same ROW.
     #[test]
     fn keys_share_one_collision_free_namespace() {
-        assert_eq!(pull_merge_key("repo-1", 7), "repo-1#7");
         assert_eq!(close_pr_key("issue-1"), "close:issue-1");
         let merge = MergeOp::MergeIssuePr {
             issue_id: "i1".to_string(),
@@ -675,44 +596,30 @@ mod tests {
         let close = MergeOp::CloseIssuePr {
             issue_id: "i1".to_string(),
         };
-        let pull = MergeOp::MergePull {
-            repository_id: "r1".to_string(),
-            number: 3,
-        };
         // EXP-734: a run's own chore PR, keyed by SESSION id.
         let session = MergeOp::MergeSessionPr {
             session_id: "s1".to_string(),
         };
         assert_eq!(merge.key(), "i1");
         assert_eq!(close.key(), "close:i1");
-        assert_eq!(pull.key(), "r1#3");
         assert_eq!(session.key(), "session:s1");
         assert_eq!(merge.row_key(), "i1");
         assert_eq!(close.row_key(), "i1");
-        assert_eq!(pull.row_key(), "r1#3");
         // A session row captions under its own key — no issue exists to
         // caption on, and it must never land on an issue whose id it shares.
         assert_eq!(session.row_key(), "session:s1");
         assert_eq!(merge.guard_keys(), close.guard_keys());
-        assert_eq!(pull.guard_keys(), vec!["r1#3".to_string()]);
         assert_eq!(session.guard_keys(), vec!["session:s1".to_string()]);
         // Every key shape stays distinct: none is a prefix-free collision of
         // another, and a bare uuid is never confused for a prefixed one.
-        let keys = [merge.key(), close.key(), pull.key(), session.key()];
+        let keys = [merge.key(), close.key(), session.key()];
         assert_eq!(keys.iter().collect::<HashSet<_>>().len(), keys.len());
         assert_eq!(session_merge_key("s1"), "session:s1");
-        // Issue and session ops settle on the Electric echo; pulls settle
-        // immediately.
-        assert!(merge.echo_settled());
-        assert!(close.echo_settled());
-        assert!(session.echo_settled());
-        assert!(!pull.echo_settled());
         assert_eq!(session.describe(), "codingSessions.mergePr(s1)");
         // …but the caption still says WHICH op failed: the fix run ends
         // in a merge, so a failed close must never be offered it.
         assert_eq!(merge.failed_op(), FailedOp::Merge);
         assert_eq!(close.failed_op(), FailedOp::Close);
-        assert_eq!(pull.failed_op(), FailedOp::Merge);
         assert_eq!(session.failed_op(), FailedOp::Merge);
     }
 

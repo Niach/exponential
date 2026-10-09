@@ -184,7 +184,7 @@ impl ReviewsView {
                 identifier: number.map(SharedString::from),
                 on_click: Some(Box::new(move |_: &ClickEvent, window: &mut Window, cx: &mut App| {
                     crate::session_screen::open_session(&run_id, window, cx);
-                    crate::screens::set_run_face(&run_id, crate::screens::RunFace::Diff, window, cx);
+                    crate::screens::set_run_face(&run_id, crate::screens::RunFace::Guide, window, cx);
                 })),
                 ..PrRowSpec::open(format!("review-run-{}", run.id), title)
             },

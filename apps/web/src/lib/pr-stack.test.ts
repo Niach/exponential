@@ -13,11 +13,7 @@ import {
   type StackConfirmMode,
   type StackViewNode,
   MERGE_STACK_LABEL,
-  MERGE_THIS_PR_LABEL,
-  STACK_MERGE_CANCEL_LABEL,
-  STACK_MERGE_CHOICE_TITLE,
   stackChain,
-  stackMergeChoice,
   type StackMergeNode,
 } from "./pr-stack"
 
@@ -70,35 +66,6 @@ describe(`stackChain`, () => {
       `bottom`,
       `left`,
     ])
-  })
-})
-
-// EXP-1145: a Merge on a stack member asks first. Replayed off the ONE
-// contract fixture ×4 (desktop `stack_merge_choice_matches_the_fixture`, iOS
-// `StackMergeChoiceTests`, Android `StackMergeChoiceTest`).
-describe(`stackMergeChoice (contract fixture)`, () => {
-  it(`locks the words`, () => {
-    expect(STACK_MERGE_CHOICE_TITLE).toBe(stackMergeFixture.labels.title)
-    expect(MERGE_STACK_LABEL).toBe(stackMergeFixture.labels.mergeStack)
-    expect(MERGE_THIS_PR_LABEL).toBe(stackMergeFixture.labels.mergeThis)
-    expect(STACK_MERGE_CANCEL_LABEL).toBe(stackMergeFixture.labels.cancel)
-  })
-
-  for (const entry of stackMergeFixture.cases) {
-    it(entry.name, () => {
-      const issues = entry.issues as StackMergeNode[]
-      const issue = issues.find((row) => row.id === entry.issue)!
-      expect(stackMergeChoice(issue, issues)).toEqual(entry.choice)
-    })
-  }
-
-  it(`is order-independent: the caller's row order never changes the answer`, () => {
-    const three = stackMergeFixture.cases.find(
-      (entry) => entry.name === `the middle of a three-stack`
-    )!
-    const issues = three.issues as StackMergeNode[]
-    const issue = issues.find((row) => row.id === three.issue)!
-    expect(stackMergeChoice(issue, [...issues].reverse())).toEqual(three.choice)
   })
 })
 

@@ -3938,7 +3938,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-bar`,
     title: `Work bar`,
     kind: `Surfaces`,
-    blurb: `EXP-893: the phone's ONE floating bottom bar, \`[circle] [capsule] [circle]\` in the floating-glass recipe, shared by every face of the Work screen — the issue (Properties · Comment · Start), the run (usage ring · composer · Start once the run ended for good), the changes (the file sheet + the white Merge capsule, a centred cluster) and the results (the Merge capsule alone). EXP-1150: the face SWITCHER circle is gone — the faces are the segmented tabs INSIDE the header band (the Work header's own \`WorkFaceToggle\`, iOS/Android \`GlassSegmentedControl\`), and the body swipes between them. EXP-1154: the ONE merge is the SOLID white capsule on this bar again on all four faces: in the cluster on Changes and Results, floating centred 10px above the composer bar on Issue and Run (hidden while the composer is open). EXP-916 locked the geometry to Android's: a 20px screen inset, 10px between the slots, 52px circles with 20px glyphs, a capsule padded 18px. Expanding the composer replaces the left circle and the capsule while the trailing circle stays MOUNTED. EXP-1162: the last rows pass BEHIND the bar through the bottom edge layer (contract \`detail-chrome.json\`: a blurred scrim fading upwards from the screen edge to 32px above the bar) instead of ending hard under the slots. The real bar is \`fixed … md:hidden\`, so the specimen is its SLOTS in a row.`,
+    blurb: `EXP-893: the phone's ONE floating bottom bar, \`[circle] [capsule] [circle]\` in the floating-glass recipe, shared by every face of the Work screen — the issue (Properties · Comment · Start), the run (usage ring · composer · Start once the run ended for good) and the Guide (the white Merge capsule, a centred cluster; a section page adds the file sheet). EXP-1150: the face SWITCHER circle is gone — the faces are the segmented tabs INSIDE the header band (the Work header's own \`WorkFaceToggle\`, iOS/Android \`GlassSegmentedControl\`), and the body swipes between them. EXP-1154: the ONE merge is the SOLID white capsule on this bar again on every face: in the cluster on the Guide, floating centred 10px above the composer bar on Issue and Run (hidden while the composer is open). EXP-916 locked the geometry to Android's: a 20px screen inset, 10px between the slots, 52px circles with 20px glyphs, a capsule padded 18px. Expanding the composer replaces the left circle and the capsule while the trailing circle stays MOUNTED. EXP-1162: the last rows pass BEHIND the bar through the bottom edge layer (contract \`detail-chrome.json\`: a blurred scrim fading upwards from the screen edge to 32px above the bar) instead of ending hard under the slots. The real bar is \`fixed … md:hidden\`, so the specimen is its SLOTS in a row.`,
     status: {
       web: ok(
         `MobileWorkBar / MobileWorkCapsule`,
@@ -3949,7 +3949,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ios: ok(
         `FloatingBottomBar / FloatingBarCircle / FloatingBarCapsule`,
         `apps/ios/ExpUI/Sources/FloatingBottomBar.swift`,
-        `FloatingBarCluster is the Changes/Results layout, where the slots hug their content`
+        `FloatingBarCluster is the Guide layout, where the slots hug their content`
       ),
       android: ok(
         `FloatingBottomBar / BarCircle / BarCapsule`,
@@ -4067,7 +4067,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `the sheet holds the same FileDiffTree the md+ column does; the title is contract.diffUi.changedFilesTitle`
       ),
       desktop: na(
-        `no sheet: the IDE has room for the column, so the file tree is the ReviewFilesNav panel (review_files_nav.rs)`
+        `no sheet: the IDE has room for the column, so the Guide section page draws the file tree beside the diff (pr_diff.rs)`
       ),
       ios: ok(
         `DiffFileListSheet`,

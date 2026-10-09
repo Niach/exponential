@@ -496,8 +496,10 @@ pub(crate) struct CreateJob {
     /// identical skips the follow-up update.
     pub(crate) stripped_description: String,
     pub(crate) staged_images: Vec<StagedImage>,
-    /// EXP-335: queued non-image draft files, uploaded post-create.
-    pub(crate) staged_files: Vec<(String, String, Arc<Vec<u8>>)>,
+    /// EXP-335: queued draft files, uploaded post-create: `(filename,
+    /// content type, bytes, as_file)`; EXP-1247: `as_file` = picked through
+    /// the FILE button, stamped so an image stays a Files row.
+    pub(crate) staged_files: Vec<(String, String, Arc<Vec<u8>>, bool)>,
 }
 
 /// Create the issue, then resolve its staged content, then wait for the row
@@ -599,10 +601,13 @@ pub(crate) fn spawn_create(
                 window
                     .background_executor()
                     .spawn(async move {
-                        for (filename, content_type, bytes) in &staged_files {
-                            if let Err(err) =
+                        for (filename, content_type, bytes, as_file) in &staged_files {
+                            let uploaded = if *as_file {
+                                transport.upload_as_file(&upload_issue, filename, content_type, bytes)
+                            } else {
                                 transport.upload(&upload_issue, filename, content_type, bytes)
-                            {
+                            };
+                            if let Err(err) = uploaded {
                                 log::warn!("[ui] draft file upload failed: {err}");
                             }
                         }

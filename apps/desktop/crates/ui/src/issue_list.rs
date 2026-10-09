@@ -1922,7 +1922,7 @@ fn assignee_menu(
     if current.is_some() {
         let issue_id = issue_id.to_string();
         menu = menu.item(
-            PopupMenuItem::new("Unassign")
+            crate::controls::pointer_label_item("Unassign", false)
                 .icon(Icon::new(registry::UI_CLOSE))
                 .on_click(move |_, _, cx| {
                     let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
@@ -2014,7 +2014,7 @@ pub(crate) fn build_row_context_menu(
     {
         let issue_id = issue.id.clone();
         menu = menu.item(
-            PopupMenuItem::new("Open issue")
+            crate::controls::pointer_label_item("Open issue", false)
                 .icon(Icon::from(ExpIcon::Pencil))
                 .on_click(move |_, window, cx| {
                     open_issue_from_list(window, cx, issue_id.clone(), origin.clone());
@@ -2035,7 +2035,7 @@ pub(crate) fn build_row_context_menu(
             ("Mark as done", ExpIcon::CircleCheck)
         };
         let issue_id = issue.id.clone();
-        menu = menu.item(PopupMenuItem::new(label).icon(Icon::from(icon)).on_click(
+        menu = menu.item(crate::controls::pointer_label_item(label, false).icon(Icon::from(icon)).on_click(
             move |_, _, cx| {
                 let mut input = api::issues::IssuesUpdateInput::new(issue_id.clone());
                 input.status = Some(if is_done {
@@ -2052,7 +2052,7 @@ pub(crate) fn build_row_context_menu(
     {
         let identifier = issue.identifier.clone();
         menu = menu.item(
-            PopupMenuItem::new("Copy issue ID")
+            crate::controls::pointer_label_item("Copy issue ID", false)
                 .icon(Icon::from(ExpIcon::Copy))
                 .on_click(move |_, _, cx| {
                     cx.write_to_clipboard(ClipboardItem::new_string(identifier.clone()));
@@ -2067,7 +2067,7 @@ pub(crate) fn build_row_context_menu(
     if issue.duplicate_of_id.is_some() {
         let issue_id = issue.id.clone();
         menu = menu.item(
-            PopupMenuItem::new("Unmark duplicate")
+            crate::controls::pointer_label_item("Unmark duplicate", false)
                 .icon(Icon::new(registry::UI_UNDO))
                 .on_click(move |_, _, cx| {
                     // Server restores the prior status and clears the link.
@@ -2195,15 +2195,18 @@ pub(crate) fn build_row_context_menu(
                 let label_id = label.id.clone();
                 menu = menu.item(
                     PopupMenuItem::element(move |_, cx| {
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child(div().size_2().rounded_full().flex_shrink_0().bg(dot))
-                            .child(
-                                div()
-                                    .text_color(cx.theme().popover_foreground)
-                                    .child(name.clone()),
-                            )
+                        crate::controls::pointer_fill(
+                            h_flex()
+                                .gap_2()
+                                .items_center()
+                                .child(div().size_2().rounded_full().flex_shrink_0().bg(dot))
+                                .child(
+                                    div()
+                                        .text_color(cx.theme().popover_foreground)
+                                        .child(name.clone()),
+                                ),
+                            false,
+                        )
                     })
                     .checked(checked)
                     .on_click(move |_, _, cx| {
@@ -2241,7 +2244,7 @@ pub(crate) fn build_row_context_menu(
                 let checked = due.as_deref() == Some(formatted.as_str());
                 let issue_id = issue_id.clone();
                 menu = menu.item(
-                    PopupMenuItem::new(label)
+                    crate::controls::pointer_label_item(label, false)
                         .icon(Icon::from(ExpIcon::CalendarDays))
                         .checked(checked)
                         .on_click(move |_, _, cx| {
@@ -2256,7 +2259,7 @@ pub(crate) fn build_row_context_menu(
                 let issue_id = issue_id.clone();
                 // EXP-697: no dividers in menus.
                 menu = menu.item(
-                    PopupMenuItem::new("Clear due date")
+                    crate::controls::pointer_label_item("Clear due date", false)
                         .icon(Icon::new(registry::UI_CLOSE))
                         .on_click(move |_, _, cx| {
                             let mut input =
@@ -2414,15 +2417,18 @@ pub(crate) fn move_to_board_menu(
         let target_name = board.name.clone();
         menu = menu.item(
             PopupMenuItem::element(move |_, cx| {
-                h_flex()
-                    .gap_2()
-                    .items_center()
-                    .child(icon.clone().xsmall())
-                    .child(
-                        div()
-                            .text_color(cx.theme().popover_foreground)
-                            .child(name.clone()),
-                    )
+                crate::controls::pointer_fill(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(icon.clone().xsmall())
+                        .child(
+                            div()
+                                .text_color(cx.theme().popover_foreground)
+                                .child(name.clone()),
+                        ),
+                    is_current,
+                )
             })
             .checked(is_current)
             .disabled(is_current)

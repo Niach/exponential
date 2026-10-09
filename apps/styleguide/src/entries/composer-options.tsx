@@ -1,15 +1,10 @@
 import {
   AccountPicker,
-  Button,
   DevicePicker,
-  EffortPicker,
-  GlassGroup,
-  GlassToggleRow,
   Label,
   ModelPicker,
   RepositoryPicker,
   Switch,
-  conceptIcon,
 } from "@exp/ui"
 
 import type { StyleguideEntry } from "./types.ts"
@@ -17,12 +12,10 @@ import type { StyleguideEntry } from "./types.ts"
 // UI cleanup batch — the composer's options line, drawn by the REAL words it
 // is made of (apps/web/src/components/launch-dialog/launch-options-line.tsx):
 // every word is a typed picker in its `inline` variant — Device, Account,
-// Model, Repository — then the Plan switch and the `⋯` for the rest, whose
-// body is the same typed pickers as rows (Effort, Subagent model) plus the
-// Ultracode switch. Wave B moves that overflow into the "+" menu (EXP-1249).
+// Model, Repository — then the Plan switch. Effort, Subagents and Ultracode
+// live in the composer's "+" menu (EXP-1249, the `menu` entry).
 
 const noop = (): void => {}
-const MoreIcon = conceptIcon(`ui-more`)
 
 const DEVICES = [
   { id: `mint`, name: `mint — This device`, kind: `desktop` },
@@ -41,17 +34,13 @@ const REPOS = [
   { id: `exp`, fullName: `Niach/exponential` },
   { id: `site`, fullName: `Niach/website` },
 ]
-const EFFORTS = [
-  { value: `default`, label: `CLI default` },
-  { value: `high`, label: `High` },
-]
 
 export const entry: StyleguideEntry = {
   id: `composer-options`,
   section: `special`,
   owner: `EXP-1249`,
   title: `Composer options`,
-  blurb: `The muted line under the composer card, as the real components it is made of: every word is a TYPED picker in its inline variant (DevicePicker, AccountPicker, ModelPicker, RepositoryPicker — the repository only while a chat has several to choose from), each collapsing to plain text once there is one thing it could say; then the Plan switch and the ⋯ whose body is the same pickers as glass rows (EffortPicker, ModelPicker for the subagents) and the Ultracode switch. A pick opens the picker's popover (a bottom sheet on a phone) with the one selection language.`,
+  blurb: `The muted line under the composer card, as the real components it is made of: every word is a TYPED picker in its inline variant (DevicePicker, AccountPicker, ModelPicker, RepositoryPicker — the repository only while a chat has several to choose from), each collapsing to plain text once there is one thing it could say; then the Plan switch, and nothing else: Effort, Subagents and Ultracode are rows of the composer's "+" menu (composer-menu.json ×4). A pick opens the picker's popover (a bottom sheet on a phone) with the one selection language.`,
   status: {
     web: {
       state: `ok`,
@@ -63,7 +52,7 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `ChatScreenView::render_options_row`,
       file: `apps/desktop/crates/ui/src/chat_screen.rs`,
-      note: `the ⋯ is launch_options::more_options_popover`,
+      note: `Effort / Subagents / Ultracode moved into the "+" menu (chat_screen::plus_menu)`,
     },
     ios: {
       state: `ok`,
@@ -101,36 +90,9 @@ export const entry: StyleguideEntry = {
           value="exp"
           onChange={noop}
         />
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon-xs"
-          className="-my-0.5 text-muted-foreground"
-          aria-label="More options"
-        >
-          <MoreIcon className="size-3.5" />
-        </Button>
-      </div>
-      <div className="w-[20rem] overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card-opaque">
-        <GlassGroup bare>
-          <EffortPicker efforts={EFFORTS} value="high" onChange={noop} />
-          <ModelPicker
-            triggerVariant="row"
-            mobileTitle="Subagent model"
-            models={MODELS}
-            value="default"
-            onChange={noop}
-          />
-          <GlassToggleRow
-            id="styleguide-composer-ultracode"
-            label="Ultracode"
-            checked={false}
-            onCheckedChange={noop}
-          />
-        </GlassGroup>
       </div>
       <p className="text-xs text-muted-foreground">
-        The line (one machine would read as plain text) and the ⋯ body.
+        The line (one machine would read as plain text).
       </p>
     </div>
   ),

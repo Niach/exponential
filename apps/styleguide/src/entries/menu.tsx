@@ -1,4 +1,6 @@
 import { designTokens } from "@exp/design-tokens"
+import composerMenu from "@exp/domain-contract/fixtures/composer-menu.json"
+import type { IconConcept } from "@exp/icons"
 import {
   MenuPanel,
   PickerMenuRows,
@@ -24,36 +26,46 @@ const ACTION_MENU: MenuEntry[] = [
   { kind: `item`, label: `Delete`, icon: conceptIcon(`ui-delete`), destructive: true, onSelect: noop },
 ]
 
-/** The composer's "+" (EXP-1249): the subject pickers, the attach, the run
- *  options and the run's tools, as ONE menu. */
-const COMPOSER_MENU: MenuEntry[] = [
-  { kind: `submenu`, label: `Implement issue`, icon: conceptIcon(`ui-issue`), entries: [] },
-  { kind: `submenu`, label: `Run action`, icon: conceptIcon(`action-run`), entries: [] },
-  { kind: `item`, label: `Add file or image`, icon: conceptIcon(`ui-attach`), shortcut: `⌘U`, onSelect: noop },
-  { kind: `separator` },
-  {
-    kind: `submenu`,
-    label: `Effort`,
-    icon: conceptIcon(`ui-usage`),
-    value: `High`,
-    body: (
-      <PickerMenuRows
-        mode="single"
-        items={[
-          { value: `low`, label: `Low` },
-          { value: `high`, label: `High` },
-        ]}
-        value="high"
-        onChange={noop}
-      />
-    ),
-  },
-  { kind: `submenu`, label: `Subagents`, icon: conceptIcon(`settings-agents`), value: `Opus`, entries: [] },
-  { kind: `toggle`, label: `Ultracode`, icon: conceptIcon(`action-default`), checked: false, onChange: noop },
-  { kind: `separator` },
-  { kind: `submenu`, label: `MCP servers`, icon: conceptIcon(`ui-mcp`), value: `2`, entries: [] },
-  { kind: `toggle`, label: `Computer use`, icon: conceptIcon(`nav-computer`), checked: true, onChange: noop },
-]
+/** The composer's "+" (EXP-1249), straight from `composer-menu.json` (the
+ *  fixture the four clients replay), every condition met; Effort opens its
+ *  picker body to show the PickerMenuRows language. */
+const SAMPLE_VALUES: Record<string, string> = {
+  effort: `High`,
+  subagents: `Opus`,
+  "mcp-servers": `2`,
+}
+const SAMPLE_CHECKED: Record<string, boolean> = { "computer-use": true }
+
+const COMPOSER_MENU: MenuEntry[] = composerMenu.rows.map((row): MenuEntry => {
+  if (row.kind === `separator`) return { kind: `separator` }
+  const id = row.id ?? ``
+  const base = { id, label: row.label ?? ``, icon: conceptIcon(row.icon as IconConcept) }
+  if (row.kind === `toggle`) {
+    return { ...base, kind: `toggle`, checked: SAMPLE_CHECKED[id] ?? false, onChange: noop }
+  }
+  if (row.kind === `submenu` && id === `effort`) {
+    return {
+      ...base,
+      kind: `submenu`,
+      value: SAMPLE_VALUES[id],
+      body: (
+        <PickerMenuRows
+          mode="single"
+          items={[
+            { value: `low`, label: `Low` },
+            { value: `high`, label: `High` },
+          ]}
+          value="high"
+          onChange={noop}
+        />
+      ),
+    }
+  }
+  if (row.kind === `submenu`) {
+    return { ...base, kind: `submenu`, value: SAMPLE_VALUES[id], entries: [] }
+  }
+  return { ...base, kind: `item`, onSelect: noop }
+})
 
 const ISSUE_MENU = issueMenuSampleEntries(new Set([`estimation`, `boards`]), {
   identifier: `EXP-1239`,
@@ -83,9 +95,9 @@ export const entry: StyleguideEntry = {
     },
     desktop: {
       state: `leftover`,
-      symbol: `PopupMenu`,
+      symbol: `PopupMenu + controls::PointerMenu`,
       file: `apps/desktop/crates/ui/src/styleguide/entries/menu.rs`,
-      note: `gpui-component's PopupMenu: 26px rows from the crate against the 36px token, and no pointer cursor on items yet`,
+      note: `pointer rows (controls::pointer_menu_item) are 32px with the pointer cursor against the 36px token; the pickers' option rows are still the crate's 26px`,
     },
     ios: {
       state: `ok`,

@@ -1,7 +1,7 @@
 //! EXP-771 — the inline "New sub-issue" composer: a card under the parent's
 //! description holding the borderless title input (Tab jumps to the
 //! description, Enter submits), the §4.5 WYSIWYG editor in staging mode with
-//! its attach handler and non-image file rail, the shared
+//! its attach handlers and file rail, the shared
 //! [`crate::issue_draft::IssueDraft`] chip row, the error line, the capsule
 //! submit and the create pipeline (`IssueDraft::spawn_create`: create with
 //! the `draft://` images STRIPPED, upload them, rewrite the URLs, then wait
@@ -58,6 +58,9 @@ struct StagedDraftFile {
     filename: String,
     content_type: String,
     bytes: std::sync::Arc<Vec<u8>>,
+    /// EXP-1247: picked through the rail's "Attach file" (an image included):
+    /// uploaded `as_file`, so it stays a Files row and never inlines.
+    as_file: bool,
 }
 
 pub(crate) struct IssueComposer {
@@ -113,17 +116,25 @@ impl IssueComposer {
             window,
             cx,
         );
-        // EXP-335: the rail's attach button — image picks embed inline via
-        // the editor itself; non-image picks land here and queue for the
-        // post-create upload (web draftFiles parity).
+        // EXP-335/EXP-1247: the rail's "Attach file" queues EVERY pick (an
+        // image included) as a FILE for the post-create upload (web
+        // draftFiles parity); a drop's non-image files queue plainly, its
+        // images embed inline via the editor itself.
         {
             let composer = cx.entity().downgrade();
+            let composer_file = composer.clone();
             description.update(cx, |description, _| {
                 description.set_attach_handler(Rc::new(move |paths, window, cx| {
                     let Some(composer) = composer.upgrade() else {
                         return;
                     };
-                    composer.update(cx, |this, cx| this.stage_files(paths, window, cx));
+                    composer.update(cx, |this, cx| this.stage_files(paths, false, window, cx));
+                }));
+                description.set_attach_as_file_handler(Rc::new(move |paths, window, cx| {
+                    let Some(composer) = composer_file.upgrade() else {
+                        return;
+                    };
+                    composer.update(cx, |this, cx| this.stage_files(paths, true, window, cx));
                 }));
             });
         }
@@ -186,6 +197,7 @@ impl IssueComposer {
     fn stage_files(
         &mut self,
         paths: Vec<std::path::PathBuf>,
+        as_file: bool,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -205,6 +217,7 @@ impl IssueComposer {
                                 filename,
                                 content_type,
                                 bytes: std::sync::Arc::new(bytes),
+                                as_file,
                             });
                         }
                         Err(error) => {
@@ -247,7 +260,7 @@ impl IssueComposer {
         let staged_images = self.description.read(cx).staged_images(cx);
         // EXP-335: queued non-image files ride the same post-create window
         // (cheap Arc clones — the bytes are shared, not copied).
-        let staged_files: Vec<(String, String, std::sync::Arc<Vec<u8>>)> = self
+        let staged_files: Vec<(String, String, std::sync::Arc<Vec<u8>>, bool)> = self
             .staged_files
             .iter()
             .map(|file| {
@@ -255,6 +268,7 @@ impl IssueComposer {
                     file.filename.clone(),
                     file.content_type.clone(),
                     file.bytes.clone(),
+                    file.as_file,
                 )
             })
             .collect();
@@ -320,9 +334,9 @@ impl IssueComposer {
     // -- pieces ----------------------------------------------------------------
 
     /// Web `IssueEditorAttachmentRail` (EXP-586 shape): one chip per queued
-    /// non-image file (web `issue-attachment-file-chip-*` parity). Images are
-    /// NOT listed — they render inline in the description and are removed
-    /// there.
+    /// file (web `issue-attachment-file-chip-*` parity), an image picked
+    /// through "Attach file" included. Inline images are NOT listed — they
+    /// render in the description and are removed there.
     fn attachment_rail(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let removable = !self.submitting;
         h_flex()

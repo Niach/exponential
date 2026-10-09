@@ -28,7 +28,7 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     dock::{Panel, PanelControl, PanelEvent},
     h_flex,
-    menu::{ContextMenuExt as _, DropdownMenu as _, PopupMenuItem},
+    menu::ContextMenuExt as _,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -220,7 +220,7 @@ pub(crate) fn request_issue_results(issue_id: &str, window: &mut Window, cx: &mu
     };
     let detail = panel.read(cx).issue_detail.clone();
     let wanted = issue_id.to_string();
-    detail.update(cx, |detail, cx| detail.set_results_open_for(Some(wanted), cx));
+    detail.update(cx, |detail, cx| detail.set_guide_open_for(Some(wanted), cx));
 }
 
 /// EXP-1154 — ask this window's issue detail to open `issue_id` on its
@@ -242,7 +242,7 @@ pub(crate) fn request_issue_changes(
     let detail = panel.read(cx).issue_detail.clone();
     let wanted = issue_id.to_string();
     detail.update(cx, |detail, cx| {
-        detail.set_changes_open_for(Some(wanted), cx);
+        detail.set_guide_open_for(Some(wanted), cx);
         if let Some(path) = path {
             detail.select_changes_path(path, cx);
         }
@@ -1262,23 +1262,22 @@ pub struct ScreensPanel {
 /// than beside [`TabFace`].
 ///
 /// Doubles as the `EXP_DEV_RUN_FACE` dev hook (§11.4 headless verification,
-/// the `EXP_DEV_*` family): `diff`/`changes` opens a run on its Changes face
-/// and `results` on its Results face, so the capture lane photographs either
+/// the `EXP_DEV_*` family): `guide` (and the legacy `results`/`diff`/
+/// `changes`) opens a run on its Guide, so the capture lane photographs it
 /// without synthetic input; anything else, and the absence of the var, is
-/// the transcript.
+/// the transcript. EXP-1251: the Guide's diff pages are the Guide's own
+/// state ([`crate::steer_viewer::SteerSessionView::open_guide_page`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RunFace {
     Run,
-    Diff,
-    Results,
+    Guide,
 }
 
 /// Pure over the env value, so the mapping is a unit test rather than a
 /// capture run.
 pub(crate) fn parse_run_face(value: Option<&str>) -> Option<RunFace> {
     match value.map(str::trim) {
-        Some("diff") | Some("changes") => Some(RunFace::Diff),
-        Some("results") => Some(RunFace::Results),
+        Some("guide") | Some("results") | Some("diff") | Some("changes") => Some(RunFace::Guide),
         Some("run") | Some("transcript") => Some(RunFace::Run),
         _ => None,
     }
@@ -1448,15 +1447,12 @@ impl ScreensPanel {
         // opens straight onto the Inbox shows no entry animation (the shell
         // does the same for a window opening into Settings).
         this.side_anim = SwapAnim::new(this.current_side(window, cx));
-        // DEV-ONLY (EXP-1154): `EXP_DEV_SCREEN=issue:<uuid>?face=changes|
-        // results` opens the issue tab on that face, so a capture run reaches
-        // the review of a PR (its Changes face) without synthetic input.
-        if let Some((issue_id, face)) = crate::navigation::dev_issue_face() {
-            this.issue_detail.update(cx, |detail, cx| match face {
-                RunFace::Diff => detail.set_changes_open_for(Some(issue_id), cx),
-                RunFace::Results => detail.set_results_open_for(Some(issue_id), cx),
-                RunFace::Run => {}
-            });
+        // DEV-ONLY (EXP-1154): `EXP_DEV_SCREEN=issue:<uuid>?face=guide`
+        // opens the issue tab on its Guide, so a capture run reaches the
+        // review of a PR without synthetic input.
+        if let Some(issue_id) = crate::navigation::dev_issue_face() {
+            this.issue_detail
+                .update(cx, |detail, cx| detail.set_guide_open_for(Some(issue_id), cx));
         }
         this
     }
@@ -2631,7 +2627,7 @@ impl ScreensPanel {
                     let close = panel.clone();
                     let close_others = panel.clone();
                     let close_all = panel.clone();
-                    let menu = menu.item(PopupMenuItem::new("Close").on_click(
+                    let menu = menu.item(crate::controls::pointer_label_item("Close", false).on_click(
                         move |_, window, cx| {
                             let _ = close.update(cx, |this, cx| {
                                 this.close_tab(ix, window, cx);
@@ -2639,15 +2635,14 @@ impl ScreensPanel {
                         },
                     ));
                     menu.item(
-                        PopupMenuItem::new("Close others")
-                            .disabled(tab_count <= 1)
+                        crate::controls::pointer_label_item("Close others", tab_count <= 1)
                             .on_click(move |_, window, cx| {
                                 let _ = close_others.update(cx, |this, cx| {
                                     this.close_other_tabs(ix, window, cx);
                                 });
                             }),
                     )
-                    .item(PopupMenuItem::new("Close all").on_click(move |_, window, cx| {
+                    .item(crate::controls::pointer_label_item("Close all", false).on_click(move |_, window, cx| {
                         let _ = close_all.update(cx, |this, cx| {
                             this.close_all_tabs(window, cx);
                         });
@@ -2731,17 +2726,17 @@ impl ScreensPanel {
             })
             .collect();
         let panel = cx.entity().downgrade();
-        Button::new(id)
+        let trigger = Button::new(id)
             .ghost().cursor_pointer()
             .xsmall()
             .label(format!("+{}", hidden_entries.len()))
-            .tooltip("More tabs")
-            .dropdown_menu(move |mut menu, _window, cx| {
+            .tooltip("More tabs");
+        crate::controls::PointerMenu::for_button(trigger, move |mut menu, _window, cx| {
                 menu = menu.scrollable(true).max_h(px(320.));
                 for (screen, lead, title) in &hidden_entries {
                     let panel = panel.clone();
                     let screen = screen.clone();
-                    let mut item = PopupMenuItem::new(title.clone());
+                    let mut item = crate::controls::pointer_label_item(title.clone(), false);
                     if let Some(icon) = lead.icon(cx) {
                         item = item.icon(icon);
                     }
@@ -2869,7 +2864,7 @@ impl ScreensPanel {
                         let undock_screen = terminal.clone();
                         let close = panel.clone();
                         let close_screen = terminal.clone();
-                        menu.item(PopupMenuItem::new("Open in new window").on_click(
+                        menu.item(crate::controls::pointer_label_item("Open in new window", false).on_click(
                             move |_, window, cx| {
                                 let _ = undock.update(cx, |this, cx| {
                                     if let Some(ix) = this
@@ -2882,7 +2877,7 @@ impl ScreensPanel {
                                 });
                             },
                         ))
-                        .item(PopupMenuItem::new("Close").on_click(move |_, window, cx| {
+                        .item(crate::controls::pointer_label_item("Close", false).on_click(move |_, window, cx| {
                             let _ = close.update(cx, |this, cx| {
                                 this.close_screen_tab_killing(&close_screen, window, cx);
                             });
@@ -4073,16 +4068,17 @@ mod tests {
         assert!(!DEV_DIALOG_SPECS.contains("create-issue"));
     }
 
-    /// EXP-895/EXP-879 (dev): `EXP_DEV_RUN_FACE` opens a run on its Changes
-    /// or its Results face, so the capture lane photographs either without
-    /// synthetic input. Unset — and anything unrecognised — leaves the
-    /// transcript up.
+    /// EXP-895/EXP-879/EXP-1251 (dev): `EXP_DEV_RUN_FACE` opens a run on its
+    /// Guide (the legacy Changes/Results words included), so the capture
+    /// lane photographs it without synthetic input. Unset — and anything
+    /// unrecognised — leaves the transcript up.
     #[test]
-    fn the_dev_run_face_opens_the_diff() {
-        assert_eq!(parse_run_face(Some("diff")), Some(RunFace::Diff));
-        assert_eq!(parse_run_face(Some(" changes ")), Some(RunFace::Diff));
-        assert_eq!(parse_run_face(Some("results")), Some(RunFace::Results));
-        assert_eq!(parse_run_face(Some(" results ")), Some(RunFace::Results));
+    fn the_dev_run_face_opens_the_guide() {
+        assert_eq!(parse_run_face(Some("guide")), Some(RunFace::Guide));
+        assert_eq!(parse_run_face(Some("diff")), Some(RunFace::Guide));
+        assert_eq!(parse_run_face(Some(" changes ")), Some(RunFace::Guide));
+        assert_eq!(parse_run_face(Some("results")), Some(RunFace::Guide));
+        assert_eq!(parse_run_face(Some(" results ")), Some(RunFace::Guide));
         assert_eq!(parse_run_face(Some("run")), Some(RunFace::Run));
         assert_eq!(parse_run_face(Some("transcript")), Some(RunFace::Run));
         assert_eq!(parse_run_face(Some("")), None);

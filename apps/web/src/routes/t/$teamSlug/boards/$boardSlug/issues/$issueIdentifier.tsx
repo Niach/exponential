@@ -79,12 +79,7 @@ import {
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { runFaceMark } from "@/lib/coding-session-display"
 
-/** `view` also admits the legacy `diff` / `results` so old links (and
- *  writers not yet moved) type-check; `parseGuideSearch` always answers
- *  `guide`. */
-type IssueSearch = { from?: string } & Omit<GuideSearch, `view`> & {
-  view?: GuideSearch[`view`] | `diff` | `results`
-}
+type IssueSearch = { from?: string } & GuideSearch
 
 export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
