@@ -27,6 +27,7 @@
  * no orphan relay stub or desktop window behind.
  */
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs"
+import { homedir } from "node:os"
 import { dirname, join } from "node:path"
 import {
   PLATFORMS,
@@ -35,6 +36,16 @@ import {
   type NativeCapture,
   type Platform,
 } from "@exp/view-catalog"
+import {
+  FFI_ABIS,
+  apkLibPath,
+  apkListingHasFfi,
+  appOnScreen,
+  deviceFfiAbi,
+  resolveAndroidSdk,
+  specimenState,
+  type AndroidSdk,
+} from "./android.ts"
 import { baselineSkipNote, scopeSince, storeBaseline, type AffectedScope } from "./affected.ts"
 import {
   captureDesktop,
@@ -524,6 +535,28 @@ async function preflight(options: Options, scope: Scope): Promise<Check[]> {
       ok,
       detail: ok ? undefined : `missing — the Compose painter's example app has not landed`,
     })
+    // EXP-1264: the lane builds the mobile FFI and the example with gradle; both
+    // need the SDK (+ its NDK) and cargo.
+    const sdk = androidSdk()
+    checks.push({
+      label: `Android SDK`,
+      ok: sdk !== undefined,
+      detail: sdk
+        ? `${sdk.path} (${sdk.source}, exported as ANDROID_HOME)`
+        : `not found — set sdk.dir in apps/android/local.properties, or ANDROID_HOME`,
+    })
+    const ndk = sdk !== undefined && (process.env.ANDROID_NDK_HOME !== undefined || existsSync(join(sdk.path, `ndk`)))
+    checks.push({
+      label: `Android NDK`,
+      ok: ndk,
+      detail: ndk ? undefined : `no ndk/ under the SDK — install one (SDK Manager → NDK) or set ANDROID_NDK_HOME`,
+    })
+    const cargo = await hasCommand(`cargo`)
+    checks.push({
+      label: `cargo (mobile FFI build)`,
+      ok: cargo,
+      detail: cargo ? undefined : `not on PATH — install rustup; the lane runs ${PACKAGE_ANDROID.ffiScript}`,
+    })
   }
 
   if (laneViews(scope, `android`).length > 0) {
@@ -570,6 +603,11 @@ interface LaneOutcome {
   platform: Platform | `native-import`
   ok: boolean
   detail?: string
+  /**
+   * EXP-1264: views this lane refused to photograph. The store counts them as
+   * `failed` (not `missing`) so a crashed app is visible in the table.
+   */
+  failedViews?: string[]
 }
 
 async function captureWeb(
@@ -764,7 +802,7 @@ async function capturePackageIOS(views: string[], outcomes: LaneOutcome[]): Prom
   if (views.length === 0) return
   console.log(`\n── ios: package example (${views.length} view(s)) ──────────────`)
   const root = repoRoot()
-  const fail = (detail: string) => outcomes.push({ platform: `ios`, ok: false, detail })
+  const fail = (detail: string) => outcomes.push({ platform: `ios`, ok: false, detail, failedViews: views })
 
   const build = await run({
     cmd: [
@@ -819,7 +857,7 @@ async function capturePackageIOS(views: string[], outcomes: LaneOutcome[]): Prom
   const installed = await simctl([`install`, udid, app], 5 * 60_000)
   if (installed.code !== 0) return void fail(`simctl install exited ${installed.code}`)
 
-  let failures = 0
+  const failed: string[] = []
   for (const viewId of views) {
     const png = rawShotPath(`ios`, viewId)
     // A stale raw file would be stored as if this run had produced it.
@@ -828,14 +866,14 @@ async function capturePackageIOS(views: string[], outcomes: LaneOutcome[]): Prom
     await simctl([`terminate`, udid, PACKAGE_IOS.bundleId])
     const launched = await simctl([`launch`, udid, PACKAGE_IOS.bundleId, `-shot`, viewId])
     if (launched.code !== 0) {
-      failures++
+      failed.push(viewId)
       console.log(`  fail  ${viewId} — simctl launch exited ${launched.code}`)
       continue
     }
     await sleep(PACKAGE_IOS.settleMs)
     const shot = await simctl([`io`, udid, `screenshot`, png])
     if (shot.code !== 0 || !existsSync(png)) {
-      failures++
+      failed.push(viewId)
       console.log(`  fail  ${viewId} — simctl io screenshot exited ${shot.code}`)
       continue
     }
@@ -844,8 +882,9 @@ async function capturePackageIOS(views: string[], outcomes: LaneOutcome[]): Prom
   await simctl([`terminate`, udid, PACKAGE_IOS.bundleId])
   outcomes.push({
     platform: `ios`,
-    ok: failures === 0,
-    detail: failures === 0 ? undefined : `${failures} package view(s) failed`,
+    ok: failed.length === 0,
+    detail: failed.length === 0 ? undefined : `${failed.length} package view(s) failed: ${failed.join(`, `)}`,
+    failedViews: failed,
   })
 }
 
@@ -866,8 +905,24 @@ const PACKAGE_ANDROID = {
   apk: `packages/exponential-ui-compose/example/build/outputs/apk/release/example-release.apk`,
   appId: `at.exponential.ui.kitchensink`,
   activity: `at.exponential.ui.kitchensink/.MainActivity`,
+  /** EXP-1264: the FFI the AAR bundles, built per run for the device's ABI. */
+  ffiScript: `apps/desktop/crates/exponential-ui-ffi/build-android.sh`,
+  ffiJniLibs: `apps/desktop/crates/exponential-ui-ffi/out/jniLibs`,
+  /** How long a launch may take to log its first layout pass. */
+  readyTimeoutMs: 20_000,
   settleMs: 3_000,
 } as const
+
+/** The Android SDK the app lane's gradle sees (`apps/android/local.properties` first). */
+function androidSdk(): AndroidSdk | undefined {
+  const props = join(repoRoot(), `apps/android/local.properties`)
+  return resolveAndroidSdk({
+    localProperties: existsSync(props) ? readFileSync(props, `utf8`) : undefined,
+    env: process.env,
+    home: homedir(),
+    exists: existsSync,
+  })
+}
 
 /** Serials of the attached, booted adb devices. */
 async function adbDevices(): Promise<string[]> {
@@ -882,17 +937,29 @@ async function adbDevices(): Promise<string[]> {
 }
 
 /**
- * Capture the android `package` views from the Compose example app: build the
- * release apk once, install it on the booted emulator, then per view launch
- * `--es shot <id>` and `adb exec-out screencap -p` STRAIGHT into
- * `.shots-raw/android/<view-id>.png` — no fastlane dir, so the native importer
- * never sees these. The caller pins the status bar (demo mode) around it.
+ * Capture the android `package` views from the Compose example app:
+ *
+ * 1. resolve the Android SDK like the app lane (`apps/android/local.properties`
+ *    `sdk.dir`, else `ANDROID_HOME`, else `~/Library/Android/sdk`) and export
+ *    it as `ANDROID_HOME` — the example project has no `local.properties`;
+ * 2. build the mobile FFI (`build-android.sh`, only the device's ABI, the
+ *    committed Kotlin binding kept) into `$CARGO_TARGET_DIR`, and check the
+ *    `.so` landed in the crate's `out/jniLibs/<abi>`;
+ * 3. build the release apk once and check it CARRIES `lib/<abi>/libexponential_ui_ffi.so`
+ *    (without it the app dies in `dlopen` on start);
+ * 4. per view: launch `--es shot <id>`, wait for the app's first-layout log
+ *    line, then require the app alive AND focused before and after
+ *    `adb exec-out screencap -p` writes `.shots-raw/android/<view-id>.png`.
+ *
+ * Any refusal is a FAILED view (the store table's `failed`), never a stored
+ * shot: the launcher behind a crashed app looks like a real change. The caller
+ * pins the status bar (demo mode) around it.
  */
 async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[]): Promise<void> {
   if (views.length === 0) return
   console.log(`\n── android: package example (${views.length} view(s)) ──────────`)
   const root = repoRoot()
-  const fail = (detail: string) => outcomes.push({ platform: `android`, ok: false, detail })
+  const fail = (detail: string) => outcomes.push({ platform: `android`, ok: false, detail, failedViews: views })
 
   const devices = await adbDevices()
   if (devices.length === 0) {
@@ -900,9 +967,37 @@ async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[]): 
   }
   if (devices.length > 1) return void fail(`${devices.length} devices attached — the package lane needs exactly one`)
 
+  const adb = (args: string[], timeoutMs = 120_000) => run({ cmd: [`adb`, ...args], cwd: root, timeoutMs })
+
+  const sdk = androidSdk()
+  if (!sdk) {
+    return void fail(`no Android SDK — set sdk.dir in apps/android/local.properties or ANDROID_HOME`)
+  }
+  console.log(`  Android SDK: ${sdk.path} (${sdk.source})`)
+
+  const abilist = await adb([`shell`, `getprop`, `ro.product.cpu.abilist`])
+  const abi = deviceFfiAbi(abilist.stdout) ?? deviceFfiAbi((await adb([`shell`, `getprop`, `ro.product.cpu.abi`])).stdout)
+  if (!abi) return void fail(`the device's ABIs (${abilist.stdout.trim() || `unknown`}) are none of ${FFI_ABIS.join(`, `)}`)
+
+  const env = { ANDROID_HOME: sdk.path }
+  const ffi = await run({
+    cmd: [`bash`, PACKAGE_ANDROID.ffiScript],
+    cwd: root,
+    env: { ...env, ABIS: abi, SKIP_BINDINGS: `1` },
+    stream: true,
+    label: `[android:ffi]`,
+    timeoutMs: 45 * 60_000,
+  })
+  if (ffi.code !== 0) return void fail(`mobile FFI build (${PACKAGE_ANDROID.ffiScript}) exited ${ffi.code}`)
+  const so = join(root, PACKAGE_ANDROID.ffiJniLibs, abi, `libexponential_ui_ffi.so`)
+  if (!existsSync(so) || statSync(so).size === 0) {
+    return void fail(`mobile FFI built, but ${PACKAGE_ANDROID.ffiJniLibs}/${abi}/libexponential_ui_ffi.so is missing`)
+  }
+
   const build = await run({
     cmd: [`./gradlew`, PACKAGE_ANDROID.task],
     cwd: join(root, PACKAGE_ANDROID.project),
+    env,
     stream: true,
     label: `[android:package]`,
     timeoutMs: 45 * 60_000,
@@ -910,29 +1005,78 @@ async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[]): 
   if (build.code !== 0) return void fail(`package example build exited ${build.code}`)
   const apk = join(root, PACKAGE_ANDROID.apk)
   if (!existsSync(apk)) return void fail(`package example built, but ${PACKAGE_ANDROID.apk} is missing`)
+  const listing = await run({ cmd: [`unzip`, `-l`, apk], timeoutMs: 60_000 })
+  if (!apkListingHasFfi(listing.stdout, abi)) {
+    return void fail(`${PACKAGE_ANDROID.apk} carries no ${apkLibPath(abi)} — the app would crash on start`)
+  }
 
-  const adb = (args: string[], timeoutMs = 120_000) => run({ cmd: [`adb`, ...args], cwd: root, timeoutMs })
   const installed = await adb([`install`, `-r`, apk], 5 * 60_000)
   if (installed.code !== 0) return void fail(`adb install exited ${installed.code}`)
 
-  let failures = 0
+  const onScreen = async () =>
+    appOnScreen(PACKAGE_ANDROID.appId, {
+      pidof: (await adb([`shell`, `pidof`, PACKAGE_ANDROID.appId], 30_000)).stdout,
+      dumpsys: (await adb([`shell`, `dumpsys`, `window`], 30_000)).stdout,
+    })
+
+  const failed: string[] = []
+  const refuse = (viewId: string, png: string, why: string) => {
+    failed.push(viewId)
+    rmSync(png, { force: true })
+    console.log(`  fail  ${viewId} — ${why}`)
+  }
   for (const viewId of views) {
     const png = rawShotPath(`android`, viewId)
     // A stale raw file would be stored as if this run had produced it.
     rmSync(png, { force: true })
     mkdirSync(dirname(png), { recursive: true })
     await adb([`shell`, `am`, `force-stop`, PACKAGE_ANDROID.appId])
+    // The ready marker is read off logcat: the previous view's must not count.
+    await adb([`logcat`, `-c`], 30_000)
     const launched = await adb([
       `shell`, `am`, `start`, `-W`, `-n`, PACKAGE_ANDROID.activity,
       `--es`, `shot`, viewId, `--es`, `theme`, `exponential`, `--es`, `mode`, `dark`,
     ])
     // `am start` exits 0 even when it cannot resolve the activity.
     if (launched.code !== 0 || /Error/.test(launched.stdout + launched.stderr)) {
-      failures++
-      console.log(`  fail  ${viewId} — am start: ${(launched.stdout + launched.stderr).trim()}`)
+      refuse(viewId, png, `am start: ${(launched.stdout + launched.stderr).trim()}`)
+      continue
+    }
+    // EXP-1264: wait for the first layout pass (the `.so` loaded, the specimen
+    // resolved); a dead process ends the wait early.
+    let ready: { ready: boolean; error?: string } = { ready: false }
+    let alive = true
+    const deadline = Date.now() + PACKAGE_ANDROID.readyTimeoutMs
+    while (Date.now() < deadline) {
+      const log = await adb([`logcat`, `-d`, `-s`, `ExponentialUI:*`], 30_000)
+      ready = specimenState(log.stdout, viewId)
+      if (ready.ready || ready.error) break
+      alive = (await adb([`shell`, `pidof`, PACKAGE_ANDROID.appId], 30_000)).stdout.trim() !== ``
+      if (!alive) break
+      await sleep(500)
+    }
+    if (ready.error) {
+      refuse(viewId, png, ready.error)
+      continue
+    }
+    if (!ready.ready) {
+      const crash = await adb([`logcat`, `-d`, `-b`, `crash`], 30_000)
+      const cause = /UnsatisfiedLinkError[^\n]*|dlopen failed[^\n]*/.exec(crash.stdout)?.[0]
+      refuse(
+        viewId,
+        png,
+        alive
+          ? `no first-layout log line within ${PACKAGE_ANDROID.readyTimeoutMs / 1000}s`
+          : `the app died on start${cause ? `: ${cause.trim()}` : ``}`
+      )
       continue
     }
     await sleep(PACKAGE_ANDROID.settleMs)
+    const before = await onScreen()
+    if (!before.ok) {
+      refuse(viewId, png, before.reason)
+      continue
+    }
     // Binary PNG on stdout: `run()` decodes text, so pipe straight into the file.
     const shot = Bun.spawn({
       cmd: [`adb`, `exec-out`, `screencap`, `-p`],
@@ -943,9 +1087,13 @@ async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[]): 
     })
     const code = await shot.exited
     if (code !== 0 || !existsSync(png) || statSync(png).size === 0) {
-      failures++
-      rmSync(png, { force: true })
-      console.log(`  fail  ${viewId} — adb exec-out screencap exited ${code}`)
+      refuse(viewId, png, `adb exec-out screencap exited ${code}`)
+      continue
+    }
+    // A crash DURING the screencap would have photographed the launcher too.
+    const after = await onScreen()
+    if (!after.ok) {
+      refuse(viewId, png, `after the screenshot: ${after.reason}`)
       continue
     }
     console.log(`  ok    ${viewId} → ${png}`)
@@ -953,8 +1101,9 @@ async function capturePackageAndroid(views: string[], outcomes: LaneOutcome[]): 
   await adb([`shell`, `am`, `force-stop`, PACKAGE_ANDROID.appId])
   outcomes.push({
     platform: `android`,
-    ok: failures === 0,
-    detail: failures === 0 ? undefined : `${failures} package view(s) failed`,
+    ok: failed.length === 0,
+    detail: failed.length === 0 ? undefined : `${failed.length} package view(s) failed: ${failed.join(`, `)}`,
+    failedViews: failed,
   })
 }
 
@@ -1318,7 +1467,8 @@ function emptyTally(): PlatformTally {
  */
 async function writeStore(
   options: Options,
-  scope: Scope
+  scope: Scope,
+  outcomes: LaneOutcome[] = []
 ): Promise<{
   tallies: Map<Platform, PlatformTally>
   failures: string[]
@@ -1327,6 +1477,11 @@ async function writeStore(
   const tallies = new Map<Platform, PlatformTally>()
   const failures: string[] = []
   const reports: ShotDiffReport[] = []
+  // EXP-1264: a view a lane REFUSED (crashed app, not on screen) is a failure,
+  // not merely a hole in the raw dir.
+  const refused = new Set(
+    outcomes.flatMap((outcome) => (outcome.failedViews ?? []).map((id) => `${outcome.platform}/${id}`))
+  )
 
   for (const platform of options.platforms) {
     const tally = emptyTally()
@@ -1335,7 +1490,8 @@ async function writeStore(
       if (!scope.get(platform)?.has(view.id)) continue
       const raw = join(rawDir(), platform, `${view.id}.png`)
       if (!existsSync(raw)) {
-        tally.missing++
+        if (refused.has(`${platform}/${view.id}`)) tally.failed++
+        else tally.missing++
         continue
       }
       try {
@@ -1639,7 +1795,7 @@ async function main(): Promise<number> {
     }
 
     console.log(`\n── store ─────────────────────────────────────────────`)
-    const { tallies, failures, reports } = await writeStore(options, scope)
+    const { tallies, failures, reports } = await writeStore(options, scope, outcomes)
     const index = await indexStore({ prune: options.prune, dryRun: options.dryRun })
     const delta = printTable(tallies)
     const diffLines = formatDiffReport(reports)

@@ -135,6 +135,34 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
   notification icons, which is what iOS has had from `override_status_bar` all
   along. Without it the device's own clock is inside every android frame, and a
   lane run at a different hour rewrites the whole platform for nothing.
+- Android `package` views (the 84 `exponential-ui-*` specimens, from the
+  Compose KitchenSink in `packages/exponential-ui-compose/example`) need no
+  backend, but two things the app lane does not (EXP-1264):
+  - **The mobile FFI.** The example's apk bundles `libexponential_ui_ffi.so`
+    from `apps/desktop/crates/exponential-ui-ffi/out/jniLibs/<abi>`
+    (gitignored); without it the app dies in `dlopen` on start. The lane runs
+    `build-android.sh` itself with `ABIS=<the device's ABI>` (`arm64-v8a` on an
+    Apple-silicon emulator) and `SKIP_BINDINGS=1` (the committed Kotlin binding
+    stays), into `$CARGO_TARGET_DIR`, then checks the `.so` landed and that
+    the built apk carries `lib/<abi>/libexponential_ui_ffi.so`. Needs `cargo`,
+    `cargo-ndk` (auto-installed) and an NDK under the SDK (or
+    `ANDROID_NDK_HOME`).
+  - **The SDK.** The example project has no `local.properties`, so the lane
+    resolves the SDK like the app lane's gradle does
+    (`apps/android/local.properties` `sdk.dir`, else `ANDROID_HOME` /
+    `ANDROID_SDK_ROOT`, else `~/Library/Android/sdk`) and exports it as
+    `ANDROID_HOME` for the FFI build and `./gradlew`. Preflight prints which.
+
+  Before every screenshot the lane requires the app on screen: it clears
+  logcat, launches `--es shot <view-id>`, waits (≤20s) for the example's
+  first-layout line (`ExponentialUI: exponential-ui: surface=… phase=cold`),
+  then checks `adb shell pidof` and that `dumpsys window`'s `mCurrentFocus` is
+  the example app, before AND after `screencap`. A dead app, the launcher, a
+  crash dialog or an unknown specimen = that view FAILS (the store table's
+  `failed` column, the `dlopen` cause from the crash buffer in the log) and no
+  raw PNG is left behind, so nothing reaches the store. The fastlane app lane
+  needs no such gate: its shots are taken by instrumentation, which fails on a
+  dead app by itself.
 - Desktop: for the repo-backed views (`files`, `source-control`, `terminal`,
   `start-coding`, `settings-worktrees`) the machine needs the demo board's
   repository actually cloned, plus `git` and a signed-in agent CLI on PATH —
@@ -160,6 +188,8 @@ which is also how you find a rule that needs teaching (`IGNORED`, `BROAD`).
 | desktop    | `packages/shots/src/capture-desktop.ts` — launches the gpui app per view via the `EXP_DEV_*` overrides and `screencapture`s the window; views marked `manual` in the catalog are skipped (`chat` is the only one left — fill it with `--manual chat` while the wanted state is on screen), and `--skip-relay` additionally skips the steering-dependent views rather than photographing a Reconnecting tab |
 | ios        | `cd apps/ios && bundle exec fastlane screenshots && bundle exec fastlane styleguide_screenshots` |
 | android    | `cd apps/android && bundle exec fastlane screenshots && bundle exec fastlane styleguide_screenshots` |
+| ios `package` | `packages/exponential-ui-swift/Example` KitchenSink: `xcodebuild` once, then `simctl launch … -shot <view-id>` + `simctl io screenshot` per view |
+| android `package` | `build-android.sh` (device ABI) → `./gradlew :example:assembleRelease` in `packages/exponential-ui-compose` → per view `am start --es shot <view-id>`, the on-screen gate above, `adb exec-out screencap -p` |
 
 Both native lanes take a `shots:<id,id,…>` option (`bundle exec fastlane
 styleguide_screenshots shots:sg_board,sg_reviews`). Navigation still runs; a
@@ -371,5 +401,12 @@ review, not of the tooling.
   `cd apps/web && bun run build && PORT=5173 bun --env-file=.env .output/server/index.mjs`.
   The run also checks this in one request before opening a window, rather than
   photographing forty empty shells and exiting 0.
+- **Every android `exponential-ui-*` shot is the home screen / `failed` with
+  "the app died on start: dlopen failed"** — the example apk was built
+  without `libexponential_ui_ffi.so`. The lane builds it now; if that step
+  fails, run `ABIS=arm64-v8a SKIP_BINDINGS=1 bash
+  apps/desktop/crates/exponential-ui-ffi/build-android.sh` by hand to see why
+  (usually no NDK). "SDK location not found" from the example's gradle = no
+  SDK resolved (see Prerequisites).
 - **`screencapture` permission errors** — grant Screen Recording to the
   terminal app in System Settings → Privacy & Security, then rerun.
