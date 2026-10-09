@@ -285,7 +285,7 @@ fn scroll_to_index_on_a_windowed_list_renders_the_item() {
 fn position_sticky_pins_inside_the_nearest_scroller_while_its_parent_is_in_view() {
     let mut s = surface(json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "height": 300, "overflowY": "auto"},
         "children": [{"id": "sec", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "flexShrink": 0}, "children": [
-            {"id": "bar", "component": "Box", "style": {"position": "sticky", "top": 0, "height": 20, "backdropBlur": "$blur.md", "backgroundColor": "#ffffff80"}},
+            {"id": "bar", "component": "Box", "style": {"position": "sticky", "top": 0, "height": 20, "backdropBlur": "$blur.md", "backgroundColor": "$color.background"}},
             {"id": "body", "component": "Box", "style": {"height": 400, "flexShrink": 0}}]},
             {"id": "tail", "component": "Box", "style": {"height": 1000, "flexShrink": 0}}]}));
     s.set_viewport(390.0, 300.0, None);

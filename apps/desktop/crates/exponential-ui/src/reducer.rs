@@ -296,6 +296,9 @@ fn validate_node(node: &UiNode, id: &str, options: &ReduceOptions, skip_unknown:
             issues.push(ReduceIssue { id: id.to_string(), message: format!("slots.{slot}: {} has no such slot", node.component) });
         }
     }
+    for issue in crate::validate::validate_node(node) {
+        issues.push(ReduceIssue { id: id.to_string(), message: format!("{}: {}", issue.path, issue.message) });
+    }
 }
 
 fn expand(node: UiNode, issues: &mut Vec<ReduceIssue>, options: &ReduceOptions) -> UiNode {

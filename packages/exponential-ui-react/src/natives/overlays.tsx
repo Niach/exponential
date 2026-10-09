@@ -19,6 +19,7 @@ import { isBinding } from "../data"
 import { absolutePath } from "../data"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
+import { CloseOnSubmitContext } from "../form"
 import { useBoundState } from "./bound"
 import { arr, bool, BuiltinIcon, num, str, useParts, type PartFn } from "./shared"
 
@@ -117,6 +118,7 @@ function ModalNative({ node, props, rootProps, emit, children, slots, scope, kin
   const title = str(props.title)
   const description = str(props.description)
   const drag = useDragToDismiss(side, kind === `Drawer` && props.dragToDismiss !== false && dismissible, () => setOpen(false), ctx.reducedMotion)
+  const close = useCallback(() => setOpen(false), [setOpen])
   return (
     <DialogPrimitive.Root open={open} onOpenChange={(next) => (next || dismissible ? setOpen(next) : undefined)}>
       <div {...overlayRootProps(rootProps, slots.trigger, node.slots?.trigger)}>
@@ -160,8 +162,10 @@ function ModalNative({ node, props, rootProps, emit, children, slots, scope, kin
           ) : (
             <DialogPrimitive.Title className="xui-sr-only">{ctx.t(`dialog`)}</DialogPrimitive.Title>
           )}
-          <div className="xui-overlay-body">{children}</div>
-          {slots.footer ? <div {...(part(`footer`) as Record<string, string>)}>{slots.footer}</div> : null}
+          <CloseOnSubmitContext.Provider value={close}>
+            <div className="xui-overlay-body">{children}</div>
+            {slots.footer ? <div {...(part(`footer`) as Record<string, string>)}>{slots.footer}</div> : null}
+          </CloseOnSubmitContext.Provider>
           {kind === `Dialog` && dismissible ? (
             <DialogPrimitive.Close {...(part(`close`) as Record<string, string>)} aria-label={ctx.t(`close`)}>
               <BuiltinIcon slot="Dialog.close" />
