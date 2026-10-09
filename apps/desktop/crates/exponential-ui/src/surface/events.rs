@@ -261,7 +261,10 @@ impl Surface {
                 if self.get_data(&path) == Some(value) {
                     continue;
                 }
-                set_pointer(&mut self.data, &path, Some(value.clone()));
+                // A refused write (pointer limits, index rules) changes nothing.
+                if set_pointer(&mut self.data, &path, Some(value.clone())).is_err() {
+                    continue;
+                }
                 self.data_version += 1;
                 self.needs_build = true;
                 out.push(OutEvent::DataChanged { path, value: value.clone() });

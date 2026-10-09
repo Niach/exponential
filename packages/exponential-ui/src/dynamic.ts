@@ -251,7 +251,8 @@ export function withOwnWrites(data: unknown, props: Record<string, unknown>, pay
     const bound = props[key]
     if (!isBinding(bound)) continue
     if (!bound.path.startsWith(`/`) && hasItem(scope)) continue
-    out = writePointer(out, absolutePath(bound.path, scope), value)
+    // A refused write (limits, index rules) leaves the data as it is.
+    out = writePointer(out, absolutePath(bound.path, scope), value).data
   }
   return out
 }

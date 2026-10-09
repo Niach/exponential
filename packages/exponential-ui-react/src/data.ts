@@ -8,7 +8,7 @@
 // functions run through the SURFACE Formatter (round 2 §3: Intl in the
 // surface locale + time zone). Pure, so the host can run it too.
 
-import { CORE_FUNCTIONS, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, catalogView, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, truthy } from "@exponential-at/ui"
+import { CORE_FUNCTIONS, DEFAULT_LOCALE, FORMAT_FUNCTION_NAMES, catalogView, displayString, formatFunctions, hasRowSlots, intlFormatter, isDataSchema, resolveString, truthy, writePointer } from "@exponential-at/ui"
 import type { CatalogView, ExtensionDef, Formatter } from "@exponential-at/ui"
 
 export type DataModel = Record<string, unknown> | unknown[]
@@ -54,31 +54,12 @@ export function getPointer(data: unknown, pointer: string): unknown {
 }
 
 /** A copy of `data` with the value at `pointer` replaced (or removed when
- *  `value` is undefined); intermediate objects are created. */
+ *  `value` is undefined): the core's `writePointer` (missing containers are
+ *  OBJECTS, an array index up to its length, `-` appends). A refused write
+ *  (pointer limits, a non-index token, an index past the end) leaves the
+ *  data as it is. */
 export function setPointer<T extends DataModel>(data: T, pointer: string, value: unknown): T {
-  const tokens = pointerTokens(pointer)
-  if (tokens.length === 0) return (value === undefined ? {} : value) as T
-  const put = (cur: unknown, i: number): unknown => {
-    const token = tokens[i]
-    const last = i === tokens.length - 1
-    const base: unknown = cur !== null && typeof cur === `object` ? cur : /^\d+$/.test(token) ? [] : {}
-    if (Array.isArray(base)) {
-      const next = [...base]
-      const idx = token === `-` ? next.length : Number(token)
-      if (last) {
-        if (value === undefined) next.splice(idx, 1)
-        else next[idx] = value
-      } else next[idx] = put(next[idx], i + 1)
-      return next
-    }
-    const next = { ...(base as Record<string, unknown>) }
-    if (last) {
-      if (value === undefined) delete next[token]
-      else next[token] = value
-    } else next[token] = put(next[token], i + 1)
-    return next
-  }
-  return put(data, 0) as T
+  return writePointer(data, pointer, value).data as T
 }
 
 // ---------------------------------------------------------------------------

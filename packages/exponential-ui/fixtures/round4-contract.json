@@ -808,13 +808,12 @@
       },
       "expected": {
         "data": {
-          "data": {
-            "query": "ship"
-          }
+          "query": "ship"
         },
         "action": {
           "name": "search",
           "context": {
+            "query": "ship",
             "value": "ship"
           }
         }
@@ -903,40 +902,38 @@
       },
       "expected": {
         "data": {
-          "data": {
-            "query": "ship",
-            "issues": [
-              {
-                "id": "i1",
-                "title": "Ship the release",
-                "status": "open",
-                "points": 3
-              },
-              {
-                "id": "i2",
-                "title": "Fix the shipping form",
-                "status": "done",
-                "points": 5
-              },
-              {
-                "id": "i3",
-                "title": "Write the changelog",
-                "status": "open",
-                "points": 1
-              },
-              {
-                "id": "i4",
-                "title": "Release notes",
-                "status": "open",
-                "points": 15
-              }
-            ]
-          }
+          "query": "ship",
+          "issues": [
+            {
+              "id": "i1",
+              "title": "Ship the release",
+              "status": "open",
+              "points": 3
+            },
+            {
+              "id": "i2",
+              "title": "Fix the shipping form",
+              "status": "done",
+              "points": 5
+            },
+            {
+              "id": "i3",
+              "title": "Write the changelog",
+              "status": "open",
+              "points": 1
+            },
+            {
+              "id": "i4",
+              "title": "Release notes",
+              "status": "open",
+              "points": 15
+            }
+          ]
         },
         "action": {
           "name": "search",
           "context": {
-            "hits": 0,
+            "hits": 2,
             "value": "ship"
           }
         }
@@ -983,13 +980,12 @@
       },
       "expected": {
         "data": {
-          "data": {
-            "notify": true
-          }
+          "notify": true
         },
         "action": {
           "name": "toggled",
           "context": {
+            "notify": true,
             "checked": true
           }
         }
@@ -1071,10 +1067,8 @@
       "expected": {
         "overlay": "dlg",
         "data": {
-          "data": {
-            "open": false,
-            "draft": "Ship it"
-          }
+          "open": false,
+          "draft": "Ship it"
         }
       }
     },
@@ -1145,10 +1139,8 @@
       "expected": {
         "overlay": "drw",
         "data": {
-          "data": {
-            "panel": false,
-            "draft": "x"
-          }
+          "panel": false,
+          "draft": "x"
         }
       }
     },

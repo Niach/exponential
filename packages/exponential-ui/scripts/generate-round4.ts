@@ -213,7 +213,7 @@ export function round4Fixture() {
       if (issues.length) throw new Error(`round4 closeOnSubmit "${c.name}": ${JSON.stringify(issues)}`)
       const overlay = submitClosesOverlay(root, c.form)
       const open = overlay ? byId(root, overlay)!.props.open : undefined
-      const data = isBinding(open) ? writePointer(c.data, absolutePath(open.path), false) : c.data
+      const data = isBinding(open) ? writePointer(c.data, absolutePath(open.path), false).data : c.data
       return { ...c, expected: { overlay, data } }
     }),
   }

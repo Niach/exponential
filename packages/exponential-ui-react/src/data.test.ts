@@ -12,12 +12,18 @@ describe(`JSON pointers`, () => {
     expect(getPointer(data, `/nope/deeper`)).toBeUndefined()
     expect(getPointer(data, ``)).toBe(data)
   })
-  it(`writes immutably, creating intermediates and arrays`, () => {
+  it(`writes immutably, creating OBJECT intermediates (the core's JSON-Pointer rules)`, () => {
     const next = setPointer(data, `/user/name`, `Bob`)
     expect(next.user.name).toBe(`Bob`)
     expect(data.user.name).toBe(`Ada`)
     expect(next.items).toBe(data.items)
-    expect(setPointer({}, `/list/0/x`, 1)).toEqual({ list: [{ x: 1 }] })
+    expect(setPointer({}, `/list/0/x`, 1)).toEqual({ list: { 0: { x: 1 } } })
+    expect(setPointer({ list: [1] }, `/list/-`, 2)).toEqual({ list: [1, 2] })
+    expect(setPointer({ list: [1] }, `/list/1`, 2)).toEqual({ list: [1, 2] })
+    // Refused (an index past the end, a key on an array): data unchanged.
+    const list = { list: [1] }
+    expect(setPointer(list, `/list/3`, 2)).toBe(list)
+    expect(setPointer(list, `/list/x`, 2)).toBe(list)
     expect(setPointer({ a: 1, b: 2 }, `/a`, undefined)).toEqual({ b: 2 })
     expect(setPointer({}, ``, { whole: true })).toEqual({ whole: true })
   })
