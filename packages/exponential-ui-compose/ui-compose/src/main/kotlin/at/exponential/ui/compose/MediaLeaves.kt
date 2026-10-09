@@ -48,7 +48,6 @@ import at.exponential.ui.json.list
 import at.exponential.ui.json.num
 import at.exponential.ui.json.str
 import at.exponential.ui.model.carouselPage
-import at.exponential.ui.paint.ChartModel
 import at.exponential.ui.paint.DateModel
 import at.exponential.ui.primitives.AvatarFallback
 import at.exponential.ui.primitives.AvatarView
@@ -155,7 +154,7 @@ internal fun IconLeaf(cx: LeafContext) {
     val color = if (tone.isEmpty()) cx.ink else cx.tone(tone) ?: cx.ink
     val r = cx.inner
     LeafFrame {
-        IconView(name, max(1f, min(r.width, r.height)), color, cx.model, Modifier.align(Alignment.Center))
+        IconView(name, max(1f, min(r.width, r.height)), color, cx.model, Modifier.align(Alignment.Center), rtl = cx.rtl)
     }
 }
 
@@ -315,114 +314,6 @@ internal fun RingLeaf(cx: LeafContext) {
     }
 }
 
-/** The palette colour of chart series / slice `i` (tone wins, then `chart1..5`, then a seeded hue). */
-private fun seriesColor(cx: LeafContext, i: Int, chart: ChartModel): Color {
-    val tone = if (chart.kind == "pie") null else chart.series.getOrNull(i)?.tone
-    if (tone != null) cx.tone(tone)?.let { return it }
-    cx.themeColor("chart${i % 5 + 1}")?.let { return it }
-    return Rgba.hsl(AvatarFallback.seedHue(i.toString()) * 7, 0.6, 0.55).color
-}
-
-/**
- * `Chart`: a title line, the plot (bar / line / area / pie on a Canvas,
- * a 4-line grid from the `Chart/grid` recipe) and the legend (`Chart/legend`).
- */
-@Composable
-internal fun ChartLeaf(cx: LeafContext) {
-    val chart = ChartModel(cx.props)
-    val gap = cx.spacing("xs")
-    val legend = ChartModel.legend(cx.props)
-    val legendPart = cx.part("Chart", "legend")
-    val gridPart = cx.part("Chart", "grid")
-    val muted = legendPart.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = 0.6f)
-    val grid = gridPart.color ?: gridPart.style.borderColor ?: gridPart.style.background ?: cx.themeColor("border") ?: cx.ink.copy(alpha = 0.15f)
-    val gridWidth = gridPart.px("borderWidth") ?: 1f
-    val colors = (0 until max(1, max(chart.series.size, chart.series.firstOrNull()?.values?.size ?: 0))).map { seriesColor(cx, it, chart) }
-    InnerBox(cx) {
-        Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap.dp)) {
-            if (chart.title.isNotEmpty()) {
-                Box(Modifier.height(cx.textStyle.lineHeight.dp)) { LeafLine(cx, chart.title) }
-            }
-            ChartCanvas(chart, cx.ink, grid, gridWidth, colors, Modifier.fillMaxWidth().height(chart.height.dp))
-            if (legend.isNotEmpty()) {
-                val lts = ResolvedTextStyle(legendPart.px("fontSize") ?: 12f, 400, legendPart.px("lineHeight") ?: 16f, cx.textStyle.fontFamily)
-                Row(Modifier.height(lts.lineHeight.dp), horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
-                    legend.forEachIndexed { i, name ->
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Box(Modifier.size(8.dp).background(colors.getOrElse(i) { seriesColor(cx, i, chart) }, CircleShape))
-                            LeafLine(cx, name, color = muted, ts = lts)
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun ChartCanvas(chart: ChartModel, ink: Color, grid: Color, gridWidth: Float, colors: List<Color>, modifier: Modifier) {
-    Canvas(modifier) {
-        val w = size.width
-        val h = size.height
-        val n = max(chart.categories.size, chart.series.maxOfOrNull { it.values.size } ?: 0)
-        val maxV = chart.maxValue
-        fun color(i: Int) = colors.getOrNull(i % max(colors.size, 1)) ?: ink
-        if (chart.kind == "pie") {
-            val values = chart.series.firstOrNull()?.values ?: emptyList()
-            val total = values.sum()
-            if (total <= 0) return@Canvas
-            val r = min(w, h) / 2f - 2.dp.toPx()
-            val c = Offset(w / 2f, h / 2f)
-            var start = -90f
-            values.forEachIndexed { i, v ->
-                val sweep = (v / total * 360.0).toFloat()
-                drawArc(color(i), start, sweep, useCenter = true, topLeft = Offset(c.x - r, c.y - r), size = Size(2 * r, 2 * r))
-                start += sweep
-            }
-            return@Canvas
-        }
-        val gw = gridWidth.dp.toPx()
-        for (i in 0..4) {
-            val y = h * i / 4f
-            drawLine(grid, Offset(0f, y), Offset(w, y), gw)
-        }
-        if (n <= 0) return@Canvas
-        val slot = w / n
-        if (chart.kind == "bar") {
-            val bars = max(chart.series.size, 1)
-            val bw = max(2.dp.toPx(), (slot * 0.6f) / bars)
-            chart.series.forEachIndexed { si, s ->
-                s.values.forEachIndexed { i, v ->
-                    val bh = (h * (v / maxV)).toFloat()
-                    val x = slot * i + slot * 0.2f + bw * si
-                    drawRoundRect(color(si), Offset(x, h - bh), Size(bw - 1.dp.toPx(), bh), androidx.compose.ui.geometry.CornerRadius(2.dp.toPx()))
-                }
-            }
-        } else {
-            chart.series.forEachIndexed { si, s ->
-                if (s.values.isEmpty()) return@forEachIndexed
-                val path = Path()
-                s.values.forEachIndexed { i, v ->
-                    val x = slot * (i + 0.5f)
-                    val y = (h - h * (v / maxV)).toFloat()
-                    if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
-                }
-                val c = color(si)
-                if (chart.kind == "area") {
-                    val area = Path().apply {
-                        addPath(path)
-                        lineTo(slot * (s.values.size - 1 + 0.5f), h)
-                        lineTo(slot * 0.5f, h)
-                        close()
-                    }
-                    drawPath(area, c.copy(alpha = c.alpha * 0.2f))
-                }
-                drawPath(path, c, style = Stroke(width = 2.dp.toPx()))
-            }
-        }
-    }
-}
-
 /**
  * `TreeGuides`: 16 dp columns, a 1 dp line (`TreeGuides/line`) at x = 7 per
  * pass-through column, the elbow at mid-height (`tee` = the line runs on).
@@ -471,7 +362,7 @@ internal fun CarouselIndicatorLeaf(cx: LeafContext) {
                         .background(if (i == page) base else base.copy(alpha = base.alpha * 0.35f), CircleShape)
                         .clickable(role = Role.Tab) { model.carouselPage(index, i) }
                         .semantics {
-                            contentDescription = "Page ${i + 1}"
+                            contentDescription = cx.string("pageOf", mapOf("page" to i + 1, "total" to count))
                             selected = i == page
                         },
                 )

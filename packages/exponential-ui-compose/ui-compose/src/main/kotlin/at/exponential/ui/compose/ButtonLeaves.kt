@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.dp
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.flag
 import at.exponential.ui.json.list
+import at.exponential.ui.json.shownText
 import at.exponential.ui.json.str
 import at.exponential.ui.model.toggleGroupSelect
 import at.exponential.ui.model.toggleGroupValues
@@ -28,7 +29,7 @@ import at.exponential.ui.theme.ResolvedTextStyle
  */
 @Composable
 internal fun ButtonLeaf(cx: LeafContext) {
-    val label = cx.props.str("label")
+    val label = cx.props.shownText("label")
     val icon = cx.props.str("icon")
     val loading = cx.props.flag("loading")
     val iconOnly = cx.props.str("size") == "icon"
@@ -60,6 +61,8 @@ internal fun ToggleGroupLeaf(cx: LeafContext) {
     val item = cx.part("ToggleGroup", "item")
     val pad = item.px("paddingHorizontal") ?: item.px("padding") ?: 12f
     val h = item.height ?: 36f
+    // Icon ↔ label: the recipe's gap (none = 0, as the web and gpui).
+    val itemGap = item.px("gap") ?: 0f
     val ts = ResolvedTextStyle(
         item.px("fontSize") ?: cx.textStyle.fontSize,
         (item.props["fontWeight"]?.number ?: 500.0).toInt(),
@@ -92,7 +95,7 @@ internal fun ToggleGroupLeaf(cx: LeafContext) {
                         .padding(horizontal = pad.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(itemGap.dp), verticalAlignment = Alignment.CenterVertically) {
                         it["icon"]?.string?.let { name -> IconView(name, 16f, ink, model) }
                         if (label.isNotEmpty()) LeafLine(cx, label, color = ink, ts = ts)
                     }

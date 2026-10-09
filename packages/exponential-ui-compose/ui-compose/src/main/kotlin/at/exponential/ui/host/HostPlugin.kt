@@ -6,6 +6,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.text.font.FontFamily
 import at.exponential.ui.ExponentialUi
 import at.exponential.ui.json.JsonValue
+import at.exponential.ui.model.filesPicked
 
 /** A user action: a node's `on.<event>` with an `event` action, resolved. */
 data class SurfaceActionEvent(
@@ -56,6 +57,34 @@ data class SurfaceInputEvent(
     val revision: Int,
     val kind: InputKind,
 )
+
+/** A file the host picked for a FileUpload (the bytes stay with the host). */
+data class PickedFile(val name: String, val size: Long, val type: String)
+
+/**
+ * A FileUpload asked for files (its drop zone or Browse was pressed):
+ * `accept` = the MIME / extension list, `multiple` = more than one. The
+ * host shows its picker, keeps the bytes and answers [done] with what was
+ * picked (the surface fires `upload {files}`).
+ */
+class FilePickRequest(
+    private val model: at.exponential.ui.model.SurfaceModel,
+    val componentId: String,
+    val accept: String?,
+    val multiple: Boolean,
+) {
+    /** The picked files (main thread). */
+    fun done(files: List<PickedFile>) = model.filesPicked(componentId, files)
+}
+
+/** Put `text` on the clipboard through [ExponentialUi.appContext]; a no-op without a context. */
+internal fun systemCopy(text: String) {
+    val ctx = ExponentialUi.appContext ?: return
+    runCatching {
+        val cm = ctx.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+        cm.setPrimaryClip(android.content.ClipData.newPlainText("code", text))
+    }
+}
 
 /** Open `url` through the system (ACTION_VIEW on [ExponentialUi.appContext]); a no-op without a context. */
 internal fun systemOpenUrl(url: String) {
@@ -116,6 +145,15 @@ interface HostPlugin {
 
     /** A richer markdown renderer than the built-in one (null = built-in). */
     fun markdown(text: String, width: Float): (@Composable () -> Unit)? = null
+
+    /** Put text on the clipboard (CodeBlock copy). Default: the system clipboard. */
+    fun copy(text: String) = systemCopy(text)
+
+    /**
+     * A FileUpload wants files: show a picker, then `request.done(files)`.
+     * Default: nothing (the SDK has no file access of its own).
+     */
+    fun pickFiles(request: FilePickRequest) {}
 }
 
 /** The host that does nothing (previews, tests). */

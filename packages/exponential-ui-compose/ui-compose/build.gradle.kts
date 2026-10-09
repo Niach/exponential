@@ -88,6 +88,40 @@ kotlin {
     }
 }
 
+/**
+ * The generated catalog object (`packages/exponential-ui/generated/
+ * ExponentialUICatalog.generated.kt`, `at.exponential.ui.ExponentialUICatalog`)
+ * compiled into the painter: ONE file of that folder (it also holds the
+ * themes table and the Swift and Rust outputs), copied into a source dir.
+ */
+abstract class CatalogSource : DefaultTask() {
+    @get:InputFile
+    abstract val source: RegularFileProperty
+
+    @get:OutputDirectory
+    abstract val output: DirectoryProperty
+
+    @TaskAction
+    fun copy() {
+        val from = source.get().asFile
+        val dir = output.get().asFile
+        dir.deleteRecursively()
+        dir.mkdirs()
+        from.copyTo(File(dir, from.name))
+    }
+}
+
+val catalogSource = tasks.register<CatalogSource>("exponentialUiCatalogSource") {
+    source.set(File(repoRoot, "packages/exponential-ui/generated/ExponentialUICatalog.generated.kt"))
+    output.set(layout.buildDirectory.dir("generated/source/exponentialUiCatalog"))
+}
+
+androidComponents {
+    // `java`: the Kotlin compile reads the variant's java source dirs (AGP
+    // leaves `sources.kotlin` null under the kotlin-android plugin).
+    onVariants { variant -> variant.sources.java?.addGeneratedSourceDirectory(catalogSource, CatalogSource::output) }
+}
+
 dependencies {
     api(project(":ui-compose-primitives"))
     implementation(platform(libs.compose.bom))

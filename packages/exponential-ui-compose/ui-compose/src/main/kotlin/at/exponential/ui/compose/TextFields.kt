@@ -25,11 +25,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
 import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -56,6 +60,7 @@ import at.exponential.ui.model.field
 import at.exponential.ui.model.fieldCommitted
 import at.exponential.ui.model.fieldEdited
 import at.exponential.ui.model.fieldFocused
+import at.exponential.ui.model.fieldSubmitted
 import at.exponential.ui.theme.ResolvedTextStyle
 
 /**
@@ -99,6 +104,14 @@ fun OwnedTextField(
         if (t != value.text) value = TextFieldValue(t, TextRange(t.length))
     }
     val focusManager = LocalFocusManager.current
+    val requester = remember(id) { FocusRequester() }
+    val request = model.focusRequest
+    LaunchedEffect(request) {
+        if (request == id) {
+            runCatching { requester.requestFocus() }
+            model.focusRequest = null
+        }
+    }
     val imeAction = when {
         submitsOnReturn -> ImeAction.Send
         multiline -> ImeAction.Default
@@ -117,6 +130,7 @@ fun OwnedTextField(
             if (next.text != prev.text) model.fieldEdited(index, next.text)
         },
         modifier = modifier
+            .focusRequester(requester)
             .onFocusChanged {
                 if (it.isFocused != focused) {
                     focused = it.isFocused
@@ -124,15 +138,27 @@ fun OwnedTextField(
                 }
             }
             .onPreviewKeyEvent { e ->
-                if (submitsOnReturn && e.type == KeyEventType.KeyDown && (e.key == Key.Enter || e.key == Key.NumPadEnter) && !e.isShiftPressed) {
-                    model.composerSubmit(index)
-                    true
-                } else {
-                    false
+                when {
+                    submitsOnReturn && e.type == KeyEventType.KeyDown && (e.key == Key.Enter || e.key == Key.NumPadEnter) && !e.isShiftPressed -> {
+                        model.composerSubmit(index)
+                        true
+                    }
+                    // A hardware Enter in a single-line field submits (the IME's Done does too).
+                    !multiline && !submitsOnReturn && e.type == KeyEventType.KeyDown && (e.key == Key.Enter || e.key == Key.NumPadEnter) -> {
+                        model.fieldSubmitted(index)
+                        true
+                    }
+                    // Tab leaves a field (a multi-line one too), like the web's.
+                    e.key == Key.Tab && !e.isCtrlPressed -> {
+                        if (e.type == KeyEventType.KeyDown) focusManager.moveFocus(if (e.isShiftPressed) FocusDirection.Previous else FocusDirection.Next)
+                        true
+                    }
+                    else -> false
                 }
             }
             .semantics { contentDescription = accessibilityLabel },
-        enabled = !disabled,
+        // `visibility: hidden` (an ancestor's too) takes no focus and no taps.
+        enabled = !disabled && !LocalInvisible.current,
         textStyle = textStyle,
         singleLine = !multiline,
         maxLines = if (multiline) Int.MAX_VALUE else 1,
@@ -143,8 +169,9 @@ fun OwnedTextField(
         ),
         keyboardActions = KeyboardActions(
             onDone = {
-                model.fieldCommitted(index)
-                focusManager.clearFocus()
+                // Enter in a single-line field submits (a Form, a ChipInput's chip).
+                if (!multiline) model.fieldSubmitted(index) else model.fieldCommitted(index)
+                if (model.node(index)?.component != "ChipInput") focusManager.clearFocus()
             },
             onSend = { model.composerSubmit(index) },
         ),
@@ -256,8 +283,9 @@ internal fun ComposerLeaf(cx: LeafContext) {
         field.px("lineHeight") ?: cx.textStyle.lineHeight,
         field.fontFamily ?: cx.textStyle.fontFamily,
     )
-    val prompt = cx.props.str("placeholder").ifEmpty { "Message" }
-    val sendLabel = if (busy) "Stop" else cx.props.str("submitLabel").ifEmpty { "Send" }
+    val prompt = cx.props.str("placeholder")
+    val name = cx.props["accessibility"]?.get("label")?.string ?: cx.node.accessibility?.get("label")?.string ?: cx.string("message")
+    val sendLabel = if (busy) cx.string("stop") else cx.props.str("submitLabel").ifEmpty { cx.string("send") }
     val chipInk = chip.color ?: cx.ink
     InnerBox(cx) {
         Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(gap.dp)) {
@@ -270,7 +298,7 @@ internal fun ComposerLeaf(cx: LeafContext) {
                 placeholderColor = placeholder.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.5f),
                 disabled = model.isDisabled(index),
                 submitsOnReturn = true,
-                accessibilityLabel = prompt,
+                accessibilityLabel = name,
                 modifier = Modifier.fillMaxWidth().weight(1f),
             )
             Row(Modifier.fillMaxWidth().height(sendSize.dp), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {

@@ -74,6 +74,9 @@ class ComponentSnapshotImagesTest {
     companion object {
         /** Root components (after macros: a Sheet is a Drawer) whose content is a layer (a Toast: the toast layer). */
         val OVERLAYS = setOf("Dialog", "Drawer", "Popover", "Tooltip", "DropdownMenu", "Toast")
+
+        /** Components that stretch to their ROW (round 2 §7): alone they are 0 tall. */
+        val ROW_STRETCHED = setOf("TreeGuides")
     }
 
     private fun model(id: String, theme: String, overlays: OverlayPresentation = OverlayPresentation.Native): SurfaceModel {
@@ -130,7 +133,7 @@ class ComponentSnapshotImagesTest {
             assertTrue("$component laid out", m.passCount > 0)
             if (overlay) {
                 assertEquals("$component: one open layer", 1, m.layers.size)
-            } else {
+            } else if (component !in ROW_STRETCHED) {
                 assertTrue("$component height ${m.surfaceSize.height}", m.surfaceSize.height > 0f)
             }
             assertEquals("$component: the surface got its width", 366f, m.width, 0.5f)

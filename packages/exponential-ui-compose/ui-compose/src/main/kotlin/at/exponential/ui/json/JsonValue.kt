@@ -259,6 +259,16 @@ typealias Props = Map<String, JsonValue>
 /** The string at `key` ("" otherwise). */
 fun Props.str(key: String): String = this[key]?.string ?: ""
 
+/**
+ * A text prop as shown: a string, or a number / boolean as its display
+ * string (`412`, the core's `display_string`); "" otherwise.
+ */
+fun Props.shownText(key: String): String = when (val v = this[key]) {
+    is JsonValue.Str -> v.v
+    is JsonValue.Num, is JsonValue.Bool -> v.displayText
+    else -> ""
+}
+
 /** The scalar at `key` as display text ("" otherwise). */
 fun Props.text(key: String): String = this[key]?.displayText ?: ""
 

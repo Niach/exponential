@@ -29,6 +29,8 @@ import androidx.compose.ui.graphics.vector.addPathNodes
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.graphicsLayer
+import at.exponential.ui.catalog.CatalogConstants
 import at.exponential.ui.model.SurfaceModel
 import kotlin.math.max
 
@@ -152,10 +154,12 @@ fun GlyphView(glyph: Glyph, size: Float, color: Color, modifier: Modifier = Modi
  * ring at 80 %, half alpha) when the host has none.
  */
 @Composable
-fun IconView(name: String, size: Float, color: Color, model: SurfaceModel, modifier: Modifier = Modifier) {
+fun IconView(name: String, size: Float, color: Color, model: SurfaceModel, modifier: Modifier = Modifier, rtl: Boolean = false) {
     val s = max(size, 0f)
     val icon = model.host.icon(name, s)
-    Box(modifier.size(s.dp), contentAlignment = Alignment.Center) {
+    // Round 1 §4: under rtl ONLY the directional glyphs mirror, outermost.
+    val mirror = rtl && name in CatalogConstants.rtlMirroredIcons
+    Box(modifier.then(if (mirror) Modifier.graphicsLayer { scaleX = -1f } else Modifier).size(s.dp), contentAlignment = Alignment.Center) {
         if (icon != null) {
             CompositionLocalProvider(LocalContentColor provides color) { icon() }
         } else {

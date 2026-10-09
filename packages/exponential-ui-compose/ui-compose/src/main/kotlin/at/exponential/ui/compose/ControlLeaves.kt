@@ -60,6 +60,7 @@ import at.exponential.ui.json.Props
 import at.exponential.ui.json.flag
 import at.exponential.ui.json.list
 import at.exponential.ui.json.num
+import at.exponential.ui.json.shownText
 import at.exponential.ui.json.str
 import at.exponential.ui.model.SurfaceModel
 import at.exponential.ui.model.checked
@@ -290,7 +291,7 @@ internal fun TriggerContent(cx: LeafContext, modifier: Modifier = Modifier) {
             horizontalArrangement = Arrangement.spacedBy(max(cx.spacing("sm"), 0f).dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            LeafLine(cx, cx.props.str("text"), Modifier.weight(1f), color = if (placeholder) muted else cx.ink)
+            LeafLine(cx, cx.props.shownText("text"), Modifier.weight(1f), color = if (placeholder) muted else cx.ink)
             GlyphView(glyph, 16f, cx.ink.copy(alpha = cx.ink.alpha * 0.6f))
         }
     }
@@ -385,7 +386,7 @@ private fun SelectMenu(cx: LeafContext) {
                     modifier = Modifier.weight(1f),
                     decorationBox = { inner ->
                         Box(contentAlignment = Alignment.CenterStart) {
-                            if (query.isEmpty()) BasicText("Search…", style = ts.copy(color = muted), maxLines = 1)
+                            if (query.isEmpty()) BasicText(cx.string("search"), style = ts.copy(color = muted), maxLines = 1)
                             inner()
                         }
                     },
