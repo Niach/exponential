@@ -49,7 +49,7 @@ fn nested_templates_accumulate_instance_suffixes_and_render_only_per_item() {
             {"id": "issue", "component": "Text", "props": {"text": {"path": "t"}}}
         ]
     }));
-    s.set_data("", Some(json!({"boards": [{"id": "ops", "issues": [{"id": "1", "t": "Ship"}, {"id": "2", "t": "Test"}]}, {"id": "web", "issues": [{"id": "1", "t": "Fix"}]}]})));
+    s.set_data("", Some(json!({"boards": [{"id": "ops", "issues": [{"id": "1", "t": "Ship"}, {"id": "2", "t": "Test"}]}, {"id": "web", "issues": [{"id": "1", "t": "Fix"}]}]}))).unwrap();
     s.set_viewport(400.0, 0.0, None);
     s.layout(&mut fixed());
     let ids: Vec<String> = s.nodes().into_iter().map(|n| n.id).collect();
@@ -70,7 +70,7 @@ fn layout_props_resolve_along_the_schema_and_numbers_show_as_display_strings() {
             {"id": "t", "component": "Table", "props": {"columns": [{"key": "name", "label": "Name"}], "rows": [{"id": "a", "name": {"path": "/n"}}]}}
         ]
     }));
-    s.set_data("", Some(json!({"n": 412, "ok": true})));
+    s.set_data("", Some(json!({"n": 412, "ok": true}))).unwrap();
     s.set_viewport(400.0, 0.0, None);
     s.layout(&mut fixed());
     assert_eq!(prop(&mut s, "count", "text"), json!("412"));
@@ -131,7 +131,7 @@ fn resizable_panels_share_the_axis_minus_the_handles_and_follow_drags_and_keys()
         "children": [{"id": "split", "component": "Resizable", "props": {"sizes": {"path": "/ui/split"}, "panels": [{"min": 20}, {"min": 30}], "handle": true}, "style": {"height": 200},
             "children": [{"id": "a", "component": "Box"}, {"id": "b", "component": "Box"}]}]
     }));
-    s.set_data("", Some(json!({"ui": {"split": [30, 70]}})));
+    s.set_data("", Some(json!({"ui": {"split": [30, 70]}}))).unwrap();
     s.set_viewport(401.0, 0.0, None);
     let out = s.layout(&mut fixed());
     let (a, b, h) = (frame(&s, &out, "split.panel.0"), frame(&s, &out, "split.panel.1"), frame(&s, &out, "split.handle.0"));
@@ -169,7 +169,7 @@ fn resizable_commits_nothing_when_the_sizes_do_not_change() {
         "children": [{"id": "split", "component": "Resizable", "props": {"sizes": {"path": "/ui/split"}, "panels": [{"min": 30}, {}], "handle": true}, "on": {"change": {"event": {"name": "resized"}}}, "style": {"height": 200},
             "children": [{"id": "a", "component": "Box"}, {"id": "b", "component": "Box"}]}]
     }));
-    s.set_data("", Some(json!({"ui": {"split": [30, 70]}})));
+    s.set_data("", Some(json!({"ui": {"split": [30, 70]}}))).unwrap();
     s.set_viewport(401.0, 0.0, None);
     s.layout(&mut fixed());
     let handle = s.index_of("split.handle.0").unwrap();
@@ -243,7 +243,7 @@ fn sections_get_headers_and_the_sticky_one_pins() {
              "slots": {"section": {"id": "hdr", "component": "Text", "props": {"text": {"call": "concat", "args": {"values": [{"path": "value"}, " (", {"path": "count"}, ")"]}}}}}},
             {"id": "row", "component": "Box", "style": {"height": 40, "flexShrink": 0}}
         ]}));
-    s.set_data("", Some(json!({"items": items})));
+    s.set_data("", Some(json!({"items": items}))).unwrap();
     s.set_viewport(390.0, 800.0, None);
     s.layout(&mut fixed());
     let out = s.layout(&mut fixed());
@@ -349,7 +349,7 @@ fn a_divided_sectioned_list_spaces_every_boundary_like_its_offsets() {
              "slots": {"section": {"id": "hdr", "component": "Box", "style": {"height": 24}}}},
             {"id": "row", "component": "Box", "style": {"height": 40, "flexShrink": 0}}
         ]}));
-    s.set_data("", Some(json!({"items": items})));
+    s.set_data("", Some(json!({"items": items}))).unwrap();
     s.set_viewport(390.0, 0.0, Some(800.0));
     s.layout(&mut fixed());
     let out = s.layout(&mut fixed());
@@ -391,7 +391,7 @@ fn position_sticky_pins_against_a_host_scrolled_auto_height_surface() {
 fn a_number_field_parses_text_in_the_host_formatters_separators() {
     let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "NumberField", "props": {"label": "N", "name": "n", "value": {"path": "/v"}, "step": 0.01}}]}));
     s.set_formatter(Arc::new(German));
-    s.set_data("/v", Some(json!(1)));
+    s.set_data("/v", Some(json!(1))).unwrap();
     s.set_viewport(400.0, 0.0, None);
     s.layout(&mut fixed());
     assert_eq!(prop(&mut s, "n.input", "text"), json!("1,00"), "shown in the host's separators");
@@ -452,7 +452,7 @@ fn every_list_item_carries_its_place_in_the_whole_list_windowed_or_not() {
             {"id": "l", "component": "List", "props": props, "children": [{"id": "lead", "component": "Box", "style": {"height": 40}}], "template": {"component": "row", "path": "/items", "key": "id"}},
             {"id": "row", "component": "Box", "style": {"height": 40, "flexShrink": 0}}
         ]}));
-        s.set_data("", Some(json!({"items": items})));
+        s.set_data("", Some(json!({"items": items}))).unwrap();
         s.layout(&mut fixed());
         assert_eq!(position(&mut s, "lead"), (json!(1), json!(5)), "{props}");
         assert_eq!(position(&mut s, "row.i0"), (json!(2), json!(5)), "{props}");
@@ -462,7 +462,7 @@ fn every_list_item_carries_its_place_in_the_whole_list_windowed_or_not() {
         {"id": "l", "component": "List", "props": {"sectionBy": "day"}, "template": {"component": "row", "path": "/items", "key": "id"}},
         {"id": "row", "component": "Box", "style": {"height": 40, "flexShrink": 0}}
     ]}));
-    s.set_data("", Some(json!({"items": items})));
+    s.set_data("", Some(json!({"items": items}))).unwrap();
     s.layout(&mut fixed());
     assert_eq!(position(&mut s, "l.section.1"), (Value::Null, Value::Null), "a header is not counted");
 }

@@ -61,5 +61,7 @@ public enum ExponentialUICatalog {
     public static let formatFunctionNames: [String] = ["formatNumber", "formatCurrency", "formatPercent", "formatDate", "formatRelativeTime", "pluralize"]
     public static let layoutConstantNames: [String] = ["windowThreshold", "windowOverscan", "resizeStep", "panelMin", "resizeHandleHit", "fieldIntrinsicWidth", "mediaIntrinsicWidth", "mediaAspectRatio", "treeGuideColumn", "treeGuideRadius", "treeGuideBridge"]
     public static let layoutConstantValues: [String] = ["50", "5", "10", "10", "8", "160", "320", "1.7777778", "14", "3", "1"]
+    public static let limitNames: [String] = ["maxComponents", "maxDepth", "maxMessageBytes", "maxTemplateItems", "maxPointerBytes", "maxPointerSegments"]
+    public static let limitValues: [String] = ["20000", "48", "4194304", "10000", "1024", "64"]
     public static let componentLite: [Bool] = [true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, true, false, true, false, false, true, false, true, true, false, true, false, true, true, false, false, false, false, false, false, false, true, true, true, true, true, true, true, false, true, false, false, false, true, true, false, true, true, true, true, true, false, true, false, true, true, true, true, true, true, true, true, true, false, false]
 }

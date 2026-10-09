@@ -18,8 +18,8 @@ fn fixture() -> Value {
 }
 
 fn surface(tree: Value) -> Surface {
-    let s = surface_with_issues(tree);
-    assert!(s.issues.is_empty(), "{:?}", s.issues);
+    let mut s = surface_with_issues(tree);
+    assert!(s.issues().is_empty(), "{:?}", s.issues());
     s
 }
 
@@ -52,7 +52,7 @@ fn number_field_cases_step_round_and_show_like_the_reference() {
         props.insert("value".into(), json!({"path": "/v"}));
         let mut s = surface(json!({"id": "root", "component": "Box", "children": [{"id": "n", "component": "NumberField", "props": props, "on": {"change": {"event": {"name": "change"}}}}]}));
         if !c["value"].is_null() {
-            s.set_data("/v", Some(c["value"].clone()));
+            s.set_data("/v", Some(c["value"].clone())).unwrap();
         }
         let mut m = fixed();
         s.layout(&mut m);
@@ -91,7 +91,7 @@ fn check_cases_fail_and_pass_like_the_reference() {
                 {"id": "agree", "component": "Checkbox", "props": {"label": "I agree", "name": "agree", "checked": {"path": "/agreed"}, "checks": c["checks"]}},
                 {"id": "go", "component": "Button", "props": {"label": "Send", "submit": true}}
             ]}));
-        s.set_data("", Some(c["data"].clone()));
+        s.set_data("", Some(c["data"].clone())).unwrap();
         let mut m = fixed();
         s.layout(&mut m);
         let failing: Vec<String> = s.failing_checks("agree");

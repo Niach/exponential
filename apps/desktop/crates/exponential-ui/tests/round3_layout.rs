@@ -90,7 +90,7 @@ fn a_submenu_bound_to_a_source_lists_its_rows() {
             {"kind": "submenu", "label": "Status", "items": {"path": "/statuses"}}]},
          "on": {"select": {"event": {"name": "pick"}}}}
     ])));
-    s.set_data("", Some(json!({"statuses": [{"label": "Backlog", "value": "backlog"}, {"label": "Done", "value": "done"}]})));
+    s.set_data("", Some(json!({"statuses": [{"label": "Backlog", "value": "backlog"}, {"label": "Done", "value": "done"}]}))).unwrap();
     s.set_viewport(600.0, 600.0, None);
     let mut m = fixed();
     s.layout(&mut m);

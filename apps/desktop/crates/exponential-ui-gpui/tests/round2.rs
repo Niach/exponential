@@ -201,7 +201,7 @@ fn a_pinned_section_header_paints_at_the_lists_top_as_a_heading(cx: &mut TestApp
         {"id": "row", "component": "Box", "style": {"height": 40, "flexShrink": 0}}
     ]});
     let (view, _log, cx) = surface(cx, tree);
-    view.update(cx, |v, cx| v.set_data("/items", Some(Value::Array(items)), cx));
+    view.update(cx, |v, cx| v.set_data("/items", Some(Value::Array(items)), cx)).unwrap();
     draw(cx);
     draw(cx);
     let info = view.read_with(cx, |v, _| v.accessible_info("l.section.0")).expect("a11y");
@@ -259,7 +259,7 @@ fn scroll_to_index_moves_the_own_scroller(cx: &mut TestAppContext) {
         {"id": "row", "component": "Box", "style": {"height": 40}, "children": [{"id": "row-label", "component": "Text", "props": {"text": {"path": "label"}}}]}
     ]});
     let (view, log, cx) = surface(cx, tree);
-    view.update(cx, |v, cx| v.set_data("/rows", Some(Value::Array(rows)), cx));
+    view.update(cx, |v, cx| v.set_data("/rows", Some(Value::Array(rows)), cx)).unwrap();
     draw(cx);
     draw(cx);
     let live = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext, id: &str| view.read_with(cx, |v, _| v.index_of(id).is_some_and(|i| v.surface().layout_node(i).is_some()));
@@ -285,7 +285,7 @@ fn scroll_to_index_asks_the_host_to_scroll_an_unbounded_list(cx: &mut TestAppCon
         {"id": "row", "component": "Box", "style": {"height": 40, "flexShrink": 0}, "children": [{"id": "row-label", "component": "Text", "props": {"text": {"path": "label"}}}]}
     ]});
     let (view, log, cx) = surface(cx, tree);
-    view.update(cx, |v, cx| v.set_data("/rows", Some(Value::Array(rows)), cx));
+    view.update(cx, |v, cx| v.set_data("/rows", Some(Value::Array(rows)), cx)).unwrap();
     draw(cx);
     draw(cx);
     let list = frame(&view, cx, "feed");
@@ -305,7 +305,7 @@ fn a_horizontal_list_windows_on_x(cx: &mut TestAppContext) {
         {"id": "cell", "component": "Box", "style": {"width": 50, "height": 30, "flexShrink": 0}}
     ]});
     let (view, _log, cx) = surface(cx, tree);
-    view.update(cx, |v, cx| v.set_data("/cells", Some(Value::Array(rows)), cx));
+    view.update(cx, |v, cx| v.set_data("/cells", Some(Value::Array(rows)), cx)).unwrap();
     draw(cx);
     draw(cx);
     let live = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext, id: &str| view.read_with(cx, |v, _| v.index_of(id).is_some_and(|i| v.surface().layout_node(i).is_some()));
@@ -331,7 +331,7 @@ fn a_horizontal_list_windows_from_the_inline_start_in_rtl(cx: &mut TestAppContex
         {"id": "cell", "component": "Box", "style": {"width": 50, "height": 30, "flexShrink": 0}}
     ]});
     let (view, _log, cx) = surface(cx, tree);
-    view.update(cx, |v, cx| v.set_data("/cells", Some(Value::Array(rows)), cx));
+    view.update(cx, |v, cx| v.set_data("/cells", Some(Value::Array(rows)), cx)).unwrap();
     draw(cx);
     draw(cx);
     let live = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext, id: &str| view.read_with(cx, |v, _| v.index_of(id).is_some_and(|i| v.surface().layout_node(i).is_some()));

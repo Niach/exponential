@@ -14,6 +14,7 @@ import { mapBasicComponent } from "./basic-map"
 import { isDynamic } from "./expr"
 import { expandMacros } from "./macros"
 import { validateNode, validateProps } from "./validate"
+import { LIMIT_ISSUES, MAX_COMPONENTS, MAX_DEPTH } from "./limits"
 import type {
   ChildTemplate,
   ExtensionDef,
@@ -212,7 +213,10 @@ export function childTemplate(value: WireChildTemplate): ChildTemplate {
 /** Reduce a flat component list. Children are resolved from the root down, so
  *  components nothing references (a basic Button's consumed Text child) do
  *  not appear. A missing or cyclic reference becomes an Unknown placeholder
- *  plus an issue. */
+ *  plus an issue. VAPP-103: an id placed a second time (two parents, or one
+ *  parent twice) renders at its first place only (`id used twice`), a node
+ *  deeper than `maxDepth` is an Unknown placeholder, and past
+ *  `maxComponents` nodes the rest is dropped (catalog/limits.json). */
 export function reduceSurface(components: readonly FlatComponent[], options: ReduceOptions): ReduceResult {
   const extensions = options.extensions ?? []
   const view = catalogView(extensions)
@@ -227,8 +231,10 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
   if (!knownCatalog(options.catalogId, extensions))
     issues.push({ id: options.rootId ?? `root`, message: `unsupported catalog ${options.catalogId}` })
   const visiting = new Set<string>()
+  const placed = new Set<string>()
+  const budget = { left: MAX_COMPONENTS, reported: false }
 
-  const build = (id: string): UiNode => {
+  const build = (id: string, depth: number): UiNode | undefined => {
     const flat = byId.get(id)
     if (!flat) {
       issues.push({ id, message: `no component with this id` })
@@ -238,6 +244,18 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
       issues.push({ id, message: `cycle through this id` })
       return unknown(id, flat.component, options.catalogId)
     }
+    if (placed.has(id)) {
+      issues.push({ id, message: LIMIT_ISSUES.usedTwice })
+      return undefined
+    }
+    if (!spend(budget, id, issues)) return undefined
+    placed.add(id)
+    if (depth > MAX_DEPTH) {
+      issues.push({ id, message: LIMIT_ISSUES.depth })
+      return unknown(id, flat.component, options.catalogId)
+    }
+    const child = (childId: string) => build(childId, depth + 1)
+    const children = (ids: readonly string[]) => ids.map(child).filter((n): n is UiNode => n !== undefined)
     visiting.add(id)
     let node: UiNode
     if (basic) {
@@ -246,11 +264,14 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
         issues.push({ id, message: `basic component ${flat.component} has no mapping` })
         node = unknown(id, flat.component, options.catalogId)
       } else {
-        node = { id, component: mapped.component, props: mapped.props, children: mapped.childrenIds.map(build) }
+        node = { id, component: mapped.component, props: mapped.props, children: children(mapped.childrenIds) }
         if (mapped.template) node.template = mapped.template
         if (mapped.style) node.style = mapped.style
         if (mapped.on) node.on = mapped.on
-        for (const [slot, childId] of Object.entries(mapped.slots)) (node.slots ??= {})[slot] = build(childId)
+        for (const [slot, childId] of Object.entries(mapped.slots)) {
+          const built = child(childId)
+          if (built) (node.slots ??= {})[slot] = built
+        }
       }
     } else {
       const def = view.components[flat.component]
@@ -259,11 +280,14 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
         node = unknown(id, flat.component, options.catalogId)
       } else {
         node = { id, component: flat.component, props: ownProps(flat), children: [] }
-        if (Array.isArray(flat.children)) node.children = flat.children.map(build)
+        if (Array.isArray(flat.children)) node.children = children(flat.children)
         else if (flat.children && typeof flat.children === `object`) node.template = childTemplate(flat.children)
         if (flat.style) node.style = flat.style
         if (flat.on) node.on = flat.on
-        for (const [slot, childId] of Object.entries(flat.slots ?? {})) (node.slots ??= {})[slot] = build(childId)
+        for (const [slot, childId] of Object.entries(flat.slots ?? {})) {
+          const built = child(childId)
+          if (built) (node.slots ??= {})[slot] = built
+        }
       }
     }
     // `visible` and `accessibility` hold on EVERY component, basic or core.
@@ -288,11 +312,23 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
     return node
   }
 
-  let root = build(options.rootId ?? `root`)
-  const lifted = liftTemplates(root, issues, (id) => (byId.has(id) ? build(id) : undefined))
+  const rootId = options.rootId ?? `root`
+  let root = build(rootId, 1) ?? unknown(rootId, `#${rootId}`, options.catalogId)
+  const lifted = liftTemplates(root, issues, (id) => (byId.has(id) && !placed.has(id) ? build(id, 1) : undefined))
   if (options.expand !== false) root = expandMacros(root, { extensions, issues })
   const templates = finishTemplates(lifted, options.expand !== false, extensions, issues)
   return templates ? { root, issues, templates } : { root, issues }
+}
+
+/** Take one node from the surface's budget; the first refusal is an issue. */
+function spend(budget: { left: number; reported: boolean }, id: string, issues: ReduceIssue[]): boolean {
+  if (budget.left > 0) {
+    budget.left -= 1
+    return true
+  }
+  if (!budget.reported) issues.push({ id, message: LIMIT_ISSUES.components })
+  budget.reported = true
+  return false
 }
 
 /** A component's slot list admits a name when it lists it or lists `*`. */
@@ -306,13 +342,20 @@ export function reduceNested(tree: NestedNode, options: Omit<ReduceOptions, `roo
   const extensions = options.extensions ?? []
   const view = catalogView(extensions)
   const issues: ReduceIssue[] = []
-  const walk = (n: NestedNode): UiNode => {
+  const budget = { left: MAX_COMPONENTS, reported: false }
+  const walk = (n: NestedNode, depth: number): UiNode | undefined => {
+    if (!spend(budget, n.id, issues)) return undefined
+    if (depth > MAX_DEPTH) {
+      issues.push({ id: n.id, message: LIMIT_ISSUES.depth })
+      return unknown(n.id, n.component, options.catalogId)
+    }
     const def = view.components[n.component]
     if (!def) {
       issues.push({ id: n.id, message: `unknown component ${n.component}` })
       return unknown(n.id, n.component, options.catalogId)
     }
-    const node: UiNode = { id: n.id, component: n.component, props: { ...(n.props ?? {}) }, children: (n.children ?? []).map(walk) }
+    const children = (n.children ?? []).map((c) => walk(c, depth + 1)).filter((c): c is UiNode => c !== undefined)
+    const node: UiNode = { id: n.id, component: n.component, props: { ...(n.props ?? {}) }, children }
     if (n.style) node.style = n.style
     if (n.visible !== undefined) {
       if (validVisible(n.visible)) node.visible = n.visible
@@ -323,7 +366,10 @@ export function reduceNested(tree: NestedNode, options: Omit<ReduceOptions, `roo
     if (n.template) node.template = n.template
     if (n.slots) {
       node.slots = {}
-      for (const [slot, child] of Object.entries(n.slots)) node.slots[slot] = walk(child)
+      for (const [slot, child] of Object.entries(n.slots)) {
+        const built = walk(child, depth + 1)
+        if (built) node.slots[slot] = built
+      }
     }
     if (options.validate !== false) {
       for (const issue of validateProps(def, node.props, { path: `props`, extensions }))
@@ -336,7 +382,7 @@ export function reduceNested(tree: NestedNode, options: Omit<ReduceOptions, `roo
     }
     return node
   }
-  let root = walk(tree)
+  let root = walk(tree, 1)!
   const lifted = liftTemplates(root, issues)
   if (options.expand !== false) root = expandMacros(root, { extensions, issues })
   const templates = finishTemplates(lifted, options.expand !== false, extensions, issues)

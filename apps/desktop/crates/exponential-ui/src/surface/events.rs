@@ -126,6 +126,7 @@ impl Surface {
     /// Open or close an overlay or popup (Dialog, Drawer, Popover, Tooltip,
     /// Menu, Select, the pickers, Toast).
     pub fn set_open(&mut self, id: &str, open: bool) -> Vec<OutEvent> {
+        self.ensure_reduced();
         self.local.open.insert(id.to_string(), open);
         if !open {
             self.local.submenu.remove(id);
@@ -147,6 +148,7 @@ impl Surface {
     /// A Toast's timeout (or its close button): `open: false`, `dismiss` +
     /// `change`.
     pub fn dismiss_toast(&mut self, id: &str) -> Vec<OutEvent> {
+        self.ensure_reduced();
         let mut out = self.fire(id, "dismiss", None);
         out.extend(self.set_open(id, false));
         out
@@ -221,7 +223,10 @@ impl Surface {
     /// If `prop` on `id` is bound, write `value` to the data model.
     fn write_through(&mut self, id: &str, prop: &str, value: Value) -> Vec<OutEvent> {
         let Some(path) = self.binding_path(id, prop) else { return vec![] };
-        set_pointer(&mut self.data, &path, Some(value.clone()));
+        // A refused write (VAPP-103 pointer limits) keeps the value locally.
+        if set_pointer(&mut self.data, &path, Some(value.clone())).is_err() {
+            return vec![];
+        }
         self.data_version += 1;
         self.needs_build = true;
         vec![OutEvent::DataChanged { path, value }]
@@ -308,6 +313,7 @@ impl Surface {
     /// `commit`, `dismiss`, `contextmenu {x, y}`, `upload {files}`. Local UI
     /// state is updated here; bound props write through; `on` handlers fire.
     pub fn event(&mut self, index: u32, event: &str, payload: Option<Value>) -> Vec<OutEvent> {
+        self.ensure_reduced();
         if !self.live.get(index as usize).copied().unwrap_or(false) {
             return vec![];
         }
@@ -641,10 +647,11 @@ impl Surface {
                 }
                 if let Some(binding) = item.and_then(|i| i.get("checked")).filter(|b| is_binding(b)) {
                     let p = absolute_path(binding["path"].as_str().unwrap_or(""), &self.scope_of(owner_id));
-                    set_pointer(&mut self.data, &p, Some(Value::Bool(checked)));
-                    self.data_version += 1;
-                    self.needs_build = true;
-                    out.push(OutEvent::DataChanged { path: p, value: Value::Bool(checked) });
+                    if set_pointer(&mut self.data, &p, Some(Value::Bool(checked))).is_ok() {
+                        self.data_version += 1;
+                        self.needs_build = true;
+                        out.push(OutEvent::DataChanged { path: p, value: Value::Bool(checked) });
+                    }
                 }
             }
             out.extend(self.fire(owner_id, "select", Some(json!({"value": value, "checked": checked}))));
@@ -1104,6 +1111,7 @@ impl Surface {
     /// moves to the first and `invalidFields` is announced. A busy form
     /// refuses.
     pub fn submit_form(&mut self, form_id: &str) -> Vec<OutEvent> {
+        self.ensure_reduced();
         let Some(form) = self.source_node(form_id) else { return vec![] };
         if self.node_by_id(form_id).and_then(|n| n.props.get("busy")).and_then(Value::as_bool) == Some(true) {
             return vec![];
@@ -1201,6 +1209,7 @@ impl Surface {
 
     /// `focus {id}`, `announce {text, live}`, `scrollIntoView {id}`.
     pub fn command(&mut self, command: &SurfaceCommand) -> Vec<OutEvent> {
+        self.ensure_reduced();
         match command {
             SurfaceCommand::Announce { text, live } => vec![OutEvent::Announce { text: text.clone(), live: live.clone().unwrap_or_else(|| "polite".into()) }],
             SurfaceCommand::Focus { id } => {
@@ -1230,6 +1239,7 @@ impl Surface {
     /// offset moves (the host's: [`OutEvent::ScrollSurface`]); a windowed
     /// list renders the item on the next pass.
     pub fn scroll_to_index(&mut self, id: &str, index: usize, align: crate::list::ScrollAlign) -> Vec<OutEvent> {
+        self.ensure_reduced();
         use crate::layout_tree::ListViewSource;
         let Some(spec) = self.lists.iter().find(|l| l.id == id).cloned() else { return vec![] };
         let pos = match &spec.data_index {
@@ -1298,6 +1308,7 @@ impl Surface {
     /// Scroll every scroll container above `id` so the node is in view (a
     /// windowed row that is not rendered scrolls by its key's offset).
     pub fn scroll_into_view(&mut self, id: &str) -> Vec<OutEvent> {
+        self.ensure_reduced();
         let mut out = vec![];
         if let Some(&slot) = self.slot_of.get(id) {
             let target = self.last_frames.get(slot as usize).copied().unwrap_or_default();

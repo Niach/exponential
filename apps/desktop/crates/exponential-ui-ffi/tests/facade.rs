@@ -1052,3 +1052,18 @@ fn contract_heights_and_a_loaded_markdown_cross_the_facade() {
     assert!(s.mark_dirty(s.index_of("md".into()).unwrap()));
     assert_eq!(frame_of(&s, &s.layout(loaded), "md").h, md + 80.0);
 }
+
+/// VAPP-103: the facade refuses an oversized message BEFORE parsing it, and a
+/// refused data write is an error, never a silent gap.
+#[test]
+fn the_facade_refuses_oversized_messages_and_bad_writes() {
+    let router = HostRouter::new(vec![]);
+    let big = format!(r#"{{"version":"v0.9","updateComponents":{{"surfaceId":"s","components":[{{"id":"root","component":"Text","text":"{}"}}]}}}}"#, "x".repeat(4_194_304));
+    let ops: Value = serde_json::from_str(&router.route(big)).unwrap();
+    assert_eq!(ops[0]["message"]["error"]["code"], "INVALID_MESSAGE");
+    assert_eq!(ops[0]["message"]["error"]["message"], "message larger than 4194304 bytes");
+    let surface = Surface::new("s".into(), core_catalog_id(), None, "light".into()).unwrap();
+    surface.set_data("/a".into(), Some("[]".into())).unwrap();
+    assert!(surface.set_data("/a/4000000000".into(), Some("1".into())).is_err());
+    assert_eq!(surface.data_json(), r#"{"a":[]}"#);
+}

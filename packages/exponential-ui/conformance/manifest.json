@@ -181,7 +181,7 @@
         "fixtures/template-items.json"
       ],
       "unit": "case",
-      "cases": 22,
+      "cases": 26,
       "check": "Key the items / rows, list the template instances (path, key, accumulated suffix), reduce the surfaces (templates lifted): equal to `expected`."
     },
     {

@@ -802,7 +802,7 @@ mod tests {
         cx.run_until_parked();
         let view = host.read_with(cx, |h, _| h.surface("devices")).expect("the surface");
         let row = device(json!({"id": "d1", "label": "Mac", "kind": "desktop"}));
-        view.update(cx, |v, cx| v.set_data("/devices", Some(devices_value([&row], NOW)), cx));
+        view.update(cx, |v, cx| v.set_data("/devices", Some(devices_value([&row], NOW)), cx)).unwrap();
         let v2 = view.clone();
         let (_, vcx) = cx.add_window_view(move |_, _| Holder(v2));
         vcx.update(|window, cx| window.draw(cx).clear(cx));

@@ -9,7 +9,15 @@ fixtures byte for byte. The mobile facade is the sibling crate
 
 Standalone and publishable (VAPP-91): it depends on `taffy`, `serde`,
 `serde_json` (with `preserve_order`: JSON objects keep source order like the
-TS reference) and `indexmap`, nothing from the Exponential app.
+TS reference), `indexmap`, `url` and `stacker` (VAPP-103: the recursive
+passes grow the stack on the heap when a host thread runs low), nothing from
+the Exponential app.
+
+Hostile or huge input is refused with an issue, never worked on (VAPP-103,
+`catalog/limits.json` → `limits`): nodes per surface, nesting depth, message
+bytes (the host router), template items per surface, data-pointer length; an
+id placed twice renders at its first place only; a data write past the end of
+an array is refused (JSON Pointer).
 `cargo publish --dry-run` is clean.
 
 ## What a painter gets

@@ -560,7 +560,7 @@ fn a_windowed_list_follows_the_host_scroller(cx: &mut TestAppContext) {
         let view = cx.new(|cx| SurfaceView::new(SurfaceViewOptions::default(), window, cx));
         view.update(cx, |v, cx| {
             v.set_nested(serde_json::from_value::<NestedNode>(tree).unwrap(), cx);
-            v.set_data("/rows", Some(Value::Array(rows)), cx);
+            v.set_data("/rows", Some(Value::Array(rows)), cx).unwrap();
         });
         Scroller { view, handle: h2 }
     });
@@ -814,7 +814,7 @@ fn a_markdown_selection_drops_when_its_text_changes(cx: &mut TestAppContext) {
     let (view, cx) = cx.add_window_view(move |window, cx| SurfaceView::new(options, window, cx));
     view.update(cx, |v, cx| {
         v.set_nested(serde_json::from_value::<NestedNode>(tree).unwrap(), cx);
-        v.set_data("/reply", Some(json!("The first sentence.")), cx);
+        v.set_data("/reply", Some(json!("The first sentence.")), cx).unwrap();
     });
     draw(cx);
     draw(cx);
@@ -822,12 +822,12 @@ fn a_markdown_selection_drops_when_its_text_changes(cx: &mut TestAppContext) {
     draw(cx);
     assert_eq!(view.read_with(cx, |v, _| v.selected_text()), "The first sentence.");
     // A streamed chunk lands: the old byte range means nothing now.
-    view.update(cx, |v, cx| v.set_data("/reply", Some(json!("The first sentence. And a second one.")), cx));
+    view.update(cx, |v, cx| v.set_data("/reply", Some(json!("The first sentence. And a second one.")), cx)).unwrap();
     draw(cx);
     assert_eq!(view.read_with(cx, |v, _| v.selected_text()), "", "the selection does not jump onto other text");
     // An unrelated change keeps it.
     assert!(view.update(cx, |v, cx| v.select_all_markdown("md", cx)));
-    view.update(cx, |v, cx| v.set_data("/other", Some(json!(1)), cx));
+    view.update(cx, |v, cx| v.set_data("/other", Some(json!(1)), cx)).unwrap();
     draw(cx);
     assert_eq!(view.read_with(cx, |v, _| v.selected_text()), "The first sentence. And a second one.");
 }

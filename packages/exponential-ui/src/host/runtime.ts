@@ -4,6 +4,7 @@
 // renderer (React: `@exponential-at/ui-react` `<HostSurface>`) paints a
 // store and hands its interactions back through `dispatch`.
 
+import { writePointer } from "../dynamic"
 import { reduceSurface } from "../reducer"
 import { tryLoadTheme } from "../theme"
 import type { ResolvedTheme } from "../theme-types"
@@ -117,6 +118,7 @@ export class SurfaceStore {
   packageId?: string
   sendDataModel = false
   components: FlatComponent[] = []
+  private positions = new Map<string, number>()
   data: Record<string, unknown> = {}
   /** The server's `createSurface.theme`, resolved (undefined = the
    *  renderer's own theme). */
@@ -149,10 +151,16 @@ export class SurfaceStore {
     return this.reduced
   }
 
+  /** A2UI: a later update replaces components BY ID and keeps the rest
+   *  (an id → position map: a streamed surface costs linear, VAPP-103). */
   setComponents(components: readonly FlatComponent[]): void {
-    const byId = new Map(this.components.map((c) => [c.id, c]))
-    for (const c of components) byId.set(c.id, c)
-    this.components = [...byId.values()]
+    for (const c of components) {
+      const at = this.positions.get(c.id)
+      if (at === undefined) {
+        this.positions.set(c.id, this.components.length)
+        this.components.push(c)
+      } else this.components[at] = c
+    }
     this.reduced = null
     this.notify()
   }
@@ -163,9 +171,14 @@ export class SurfaceStore {
     this.notify()
   }
 
-  setData(pointer: string, value: unknown): void {
-    this.data = setPointerImmutable(this.data, pointer, value) as Record<string, unknown>
+  /** Write the data model at `pointer` (`undefined` removes); a refused
+   *  write (writePointer) changes nothing and returns the reason. */
+  setData(pointer: string, value: unknown): string | undefined {
+    const written = writePointer(this.data, pointer, value)
+    if (written.error) return written.error
+    this.data = written.data as Record<string, unknown>
     this.notify()
+    return undefined
   }
 
   subscribe(listener: Listener): () => void {
@@ -177,42 +190,6 @@ export class SurfaceStore {
     this.version += 1
     for (const l of [...this.listeners]) l()
   }
-}
-
-function tokensOf(pointer: string): string[] {
-  if (!pointer) return []
-  return pointer
-    .replace(/^\//, ``)
-    .split(`/`)
-    .map((t) => t.replace(/~1/g, `/`).replace(/~0/g, `~`))
-}
-
-/** The same pointer write every renderer's data model does (absent value =
- *  remove), returning a new object. */
-export function setPointerImmutable(data: unknown, pointer: string, value: unknown): unknown {
-  const tokens = tokensOf(pointer)
-  if (!tokens.length) return value === undefined ? {} : value
-  const put = (cur: unknown, i: number): unknown => {
-    const token = tokens[i]!
-    const last = i === tokens.length - 1
-    const base: unknown = cur !== null && typeof cur === `object` ? cur : /^\d+$/.test(token) ? [] : {}
-    if (Array.isArray(base)) {
-      const next = [...base]
-      const idx = token === `-` ? next.length : Number(token)
-      if (last) {
-        if (value === undefined) next.splice(idx, 1)
-        else next[idx] = value
-      } else next[idx] = put(next[idx], i + 1)
-      return next
-    }
-    const next = { ...(base as Record<string, unknown>) }
-    if (last) {
-      if (value === undefined) delete next[token]
-      else next[token] = value
-    } else next[token] = put(next[token], i + 1)
-    return next
-  }
-  return put(data, 0)
 }
 
 export class ExponentialHost {
@@ -371,9 +348,11 @@ export class ExponentialHost {
         this.forgetPaintErrors(op.surfaceId)
         this.stores.get(op.surfaceId)?.setComponents(op.components)
         return
-      case `data`:
-        this.stores.get(op.surfaceId)?.setData(op.path, op.value)
+      case `data`: {
+        const error = this.stores.get(op.surfaceId)?.setData(op.path, op.value)
+        if (error) this.send(errorMessage(`VALIDATION_FAILED`, op.surfaceId, error, op.path || `/`))
         return
+      }
       case `bind`: {
         const store = this.stores.get(op.surfaceId)
         const source = parseSource(op.source)

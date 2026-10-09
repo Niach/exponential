@@ -16,6 +16,10 @@ const COMPACT_MIN_DEAD: usize = 64;
 impl Surface {
     /// Rebuild the layout tree and reconcile it onto the slots.
     pub(super) fn rebuild(&mut self) {
+        crate::roomy(|| self.rebuild_now())
+    }
+
+    fn rebuild_now(&mut self) {
         self.needs_build = false;
         self.rebuilt = true;
         // The tree is borrowed for the build, never cloned (a 2,000-row
@@ -31,6 +35,7 @@ impl Surface {
         let breakpoint = self.active_breakpoint();
         let built = self.with_build_context(breakpoint.clone(), |ctx| layout_tree::build(&root, ctx));
         self.root = Some(root);
+        self.note_build_issues(&built.issues);
         self.built_nodes += built.nodes.len() as u32;
         self.responsive = built.responsive;
         self.breakpoint = breakpoint;
@@ -38,6 +43,15 @@ impl Surface {
         let dead = self.live.iter().filter(|l| !**l).count();
         if dead >= COMPACT_MIN_DEAD && dead > self.live.len() - dead {
             self.compact();
+        }
+    }
+
+    /// The build's refusals join the surface issues (once each).
+    fn note_build_issues(&mut self, issues: &[crate::types::ReduceIssue]) {
+        for issue in issues {
+            if !self.issues.contains(issue) {
+                self.issues.push(issue.clone());
+            }
         }
     }
 
@@ -89,6 +103,10 @@ impl Surface {
     /// or a toast lives inside, the node is the root or a template item):
     /// the caller rebuilds fully.
     pub(super) fn rebuild_subtree(&mut self, list_id: &str) -> bool {
+        crate::roomy(|| self.rebuild_subtree_now(list_id))
+    }
+
+    fn rebuild_subtree_now(&mut self, list_id: &str) -> bool {
         let Some(&slot) = self.slot_of.get(list_id) else { return false };
         let Some(parent) = self.nodes[slot as usize].parent else { return false };
         let old = self.subtree(slot);
@@ -107,6 +125,7 @@ impl Surface {
         let seed = std::mem::take(&mut self.seed);
         let mut built = self.with_build_context(breakpoint, |ctx| layout_tree::build_subtree(node, &parent_node, &scope, seed, ctx));
         self.root = Some(root);
+        self.note_build_issues(&built.issues);
         self.seed = layout_tree::BuildSeed { row_scopes: std::mem::take(&mut built.row_scopes), forms: std::mem::take(&mut built.forms) };
         if !built.layers.is_empty() || !built.toasts.is_empty() {
             return false;

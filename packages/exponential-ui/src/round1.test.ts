@@ -166,7 +166,7 @@ describe(`the bind pass (§1)`, () => {
     expect(readPointer(data, `/a/b~1c/1/d`)).toBe(2)
     expect(absolutePath(`d`, { base: `/a/b~1c/1` })).toBe(`/a/b~1c/1/d`)
     expect(resolveDynamic({ path: `d` }, data, { scope: { base: `/a/b~1c/1` } })).toBe(2)
-    const written = writePointer(data, `/a/x/y`, 3) as Record<string, Record<string, unknown>>
+    const written = writePointer(data, `/a/x/y`, 3).data as Record<string, Record<string, unknown>>
     expect(written.a.x).toEqual({ y: 3 })
     expect((data.a as Record<string, unknown>).x).toBeUndefined()
   })
@@ -346,7 +346,8 @@ describe(`reducer and schema additions`, () => {
       { id: `row`, component: `Row`, title: { path: `name` } },
       { id: `t`, component: `Table`, columns: [{ key: `s`, label: `S`, type: `slot`, slot: `status` }], rows: [], slots: { status: `cell` }, accessibility: { label: `Members` } },
       { id: `cell`, component: `Badge`, text: { path: `s` } },
-      { id: `x`, component: `Text`, text: `x`, visible: `yes` as unknown as boolean, slots: { nope: `cell` } },
+      { id: `x`, component: `Text`, text: `x`, visible: `yes` as unknown as boolean, slots: { nope: `cell2` } },
+      { id: `cell2`, component: `Badge`, text: `x` },
     ]
     const { root, issues } = reduceSurface(flat, { catalogId: CORE_CATALOG_ID })
     const list = root.children[0]

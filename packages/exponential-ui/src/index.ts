@@ -45,7 +45,7 @@ export { evalValue, evalExpr, evalCondition, evalConditionValue, truthy, isBindi
 export type { ExprContext, Dynamic } from "./expr"
 export { expandMacros, isResponsiveValue, responsiveAt, propsAt, BREAKPOINTS } from "./macros"
 // Round 1: bind-time evaluation, built-in strings, locale, the CodeBlock tokenizer.
-export { resolveDynamic, isVisible, runAction, withOwnWrites, submitClosesOverlay, bindTree, readPointer, writePointer, absolutePath, readPath, hasItem, isDataSchema, resolveProp, resolveNodeProps, hasRowSlots, rowScope, bindRowSlot, sectionScope, bindSectionHeader, BIND_FUNCTIONS, BIND_FUNCTION_NAMES } from "./dynamic"
+export { resolveDynamic, isVisible, runAction, withOwnWrites, submitClosesOverlay, bindTree, readPointer, writePointer, writeTokens, POINTER_ISSUES, absolutePath, readPath, hasItem, isDataSchema, resolveProp, resolveNodeProps, hasRowSlots, rowScope, bindRowSlot, sectionScope, bindSectionHeader, BIND_FUNCTIONS, BIND_FUNCTION_NAMES } from "./dynamic"
 // Round 2 (docs/round-2-contract.md): formatting, lists, panels, direction, animation.
 export { displayString, englishFormatter, intlFormatter, formatFunctions, formatPattern, parseDateValue, relativeTimeUnit, currencyDigits, FORMAT_FUNCTION_NAMES, ENGLISH_FORMAT_FUNCTIONS, ENGLISH_DATE_PATTERNS, ENGLISH_TIME_PATTERN, ENGLISH_DATE_TIME_JOIN, fixedOffset, intlZoneOffset } from "./format"
 export type { Formatter, NumberOptions, DateOptions, DateStyle, PluralCategory, RelativeUnit, ZoneOffset } from "./format"
@@ -55,12 +55,13 @@ export { normalizeSizes, resizePanels, keyboardResize, panelExtents, dragDelta, 
 export type { PanelLimits, ResizeKey } from "./resizable"
 export { nodeDirections, physicalTextAlign, nodeTextAlign } from "./direction"
 export type { Direction, PhysicalAlign } from "./direction"
+export { LIMITS, MAX_COMPONENTS, MAX_DEPTH, MAX_MESSAGE_BYTES, MAX_TEMPLATE_ITEMS, MAX_POINTER_BYTES, MAX_POINTER_SEGMENTS, LIMIT_ISSUES } from "./limits"
 export { LAYOUT_CONSTANTS, FIELD_INTRINSIC_WIDTH, MEDIA_INTRINSIC_WIDTH, MEDIA_ASPECT_RATIO, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, TREE_GUIDE_BRIDGE } from "./layout"
 export { treeGuides, applyTreeGuides, isRowRoot } from "./tree-guides"
 export type { TreeGuide } from "./tree-guides"
 export { ANIMATIONS, ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, animatesOpacity, animationTiming, animationFrame, cubicBezier, keyframesCss, animationCss, paintedOpacity } from "./animation"
 export type { AnimationDef, AnimationFrame, AnimationTiming, Keyframe } from "./animation"
-export type { DataScope, ResolveOptions, ActionOutcome, FunctionTable } from "./dynamic"
+export type { DataScope, ResolveOptions, ActionOutcome, FunctionTable, PointerWrite } from "./dynamic"
 export { DEFAULT_STRINGS, STRING_IDS, parseStringRef, isStringRef, stringTable, formatString, resolveString } from "./strings"
 export { DEFAULT_LOCALE, parseLocale, localeRegion, weekStart, textDirection, RTL_MIRRORED_ICONS, mirrorsInRtl } from "./locale"
 export type { LocaleParts } from "./locale"

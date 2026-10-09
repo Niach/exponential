@@ -10,6 +10,7 @@ import { absolutePath, readPointer } from "./dynamic"
 import type { ChildTemplate } from "./types"
 
 import { WINDOW_OVERSCAN } from "./layout"
+import { MAX_TEMPLATE_ITEMS } from "./limits"
 export { WINDOW_THRESHOLD, WINDOW_OVERSCAN } from "./layout"
 
 /** The instance key of every item: the value at `keyPointer` (relative to
@@ -65,7 +66,9 @@ export function templateInstances(data: unknown, template: ChildTemplate, scope 
   const list = readPointer(data, path)
   if (!Array.isArray(list)) return []
   const keys = templateItemKeys(list, template.key)
-  return list.map((_, index) => ({ key: keys[index], path: `${path}/${index}`, index, instance: `${instance}.${instanceSegment(keys[index])}` }))
+  // VAPP-103: never more than `maxTemplateItems` (a renderer counts them
+  // per surface; past the limit the rest is not rendered).
+  return list.slice(0, MAX_TEMPLATE_ITEMS).map((_, index) => ({ key: keys[index], path: `${path}/${index}`, index, instance: `${instance}.${instanceSegment(keys[index])}` }))
 }
 
 // ---------------------------------------------------------------------------
