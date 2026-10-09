@@ -48,6 +48,7 @@ import { renderRound2 } from "./generate-round2"
 import { ANIMATION_NAMES } from "../src/animation"
 import { FORMAT_FUNCTION_NAMES } from "../src/format"
 import { LAYOUT_CONSTANTS } from "../src/layout"
+import { treeGuides } from "../src/tree-guides"
 import { conformanceManifest } from "../src/conformance"
 import styleJson from "../catalog/style.json" with { type: "json" }
 import localeJson from "../catalog/locale.json" with { type: "json" }
@@ -99,7 +100,10 @@ function builtinIcons(): Record<string, string> {
 }
 
 const components = Object.entries(coreCatalog.components)
-const visible = components.filter(([, def]) => !def.hidden)
+/** What a model is offered: neither the hidden placeholder nor a deprecated alias (round 3). */
+const visible = components.filter(([, def]) => !def.hidden && !def.deprecated)
+/** Round 3: the one-release aliases; their example case stays in the fixtures so every renderer replays the alias. */
+const deprecated = components.filter(([, def]) => def.deprecated)
 const names = components.map(([name]) => name)
 const natives = components.filter(([, d]) => d.kind === `native`).map(([n]) => n)
 const macros = components.filter(([, d]) => d.kind === `macro`).map(([n]) => n)
@@ -184,6 +188,8 @@ const rows = {
   componentEvents: components.map(([, d]) => eventNames(d)),
   componentSlots: components.map(([, d]) => (d.slots ?? []).join(`,`)),
   componentSpecimenIds: names.map(specimenId),
+  // Round 3: the replacement an alias expands to ("" = a live component).
+  componentDeprecated: components.map(([, d]) => d.deprecated ?? ``),
   liteComponents: lite,
   nativeComponents: natives,
   macroComponents: macros,
@@ -224,7 +230,7 @@ const rows = {
   layoutConstantNames: Object.keys(LAYOUT_CONSTANTS),
   layoutConstantValues: Object.values(LAYOUT_CONSTANTS).map(String),
 }
-const liteFlags = components.map(([, d]) => d.lite && !d.hidden)
+const liteFlags = components.map(([, d]) => d.lite && !d.hidden && !d.deprecated)
 const scalars: [string, string][] = [
   [`catalogId`, CORE_CATALOG_ID],
   [`liteCatalogId`, CORE_LITE_CATALOG_ID],
@@ -349,13 +355,15 @@ function renderDocs() {
   basicAliases.Heading = [`Text (h1–h4)`]
   basicAliases.Avatar = [`Image (avatar)`]
   basicAliases.Textarea = [`TextField (longText)`]
-  basicAliases.ToggleGroup = [`ChoicePicker (chips)`]
+  basicAliases.Segmented = [`ChoicePicker (chips)`]
   basicAliases.Select = [`ChoicePicker (filterable, multipleSelection)`]
   return {
     $comment: `${HEADER} One entry per component: what ui.exponential.at renders as the component's page (VAPP-93). specimenId = the id of its specimen there, painted once each renderer lands.`,
     catalogId: CORE_CATALOG_ID,
     liteCatalogId: CORE_LITE_CATALOG_ID,
     groups: [...new Set(components.map(([, d]) => d.group))],
+    /** Round 3: the one-release aliases and what replaces them. */
+    deprecated: Object.fromEntries(deprecated.map(([name, def]) => [name, def.deprecated])),
     components: visible.map(([name, def]) => ({
       name,
       kind: def.kind,
@@ -425,6 +433,9 @@ function boundMacroCases(): ComponentCase[] {
  *  prop and both values of every boolean prop, over the example. */
 function componentCases(): ComponentCase[] {
   const cases: ComponentCase[] = []
+  // Round 3: a deprecated alias keeps ONE case (its example) so every
+  // renderer proves it still expands.
+  for (const [name, def] of deprecated) cases.push(makeCase(name, def, `example`, { ...(def.example ?? {}) }))
   for (const [name, def] of visible) {
     const base = { ...(def.example ?? {}) }
     const make = (suffix: string, props: Record<string, unknown>) => makeCase(name, def, suffix, props)
@@ -449,18 +460,18 @@ function componentCases(): ComponentCase[] {
 /** Components that size to their content: their cases sit at the start of the
  *  column instead of stretching across it. */
 const INLINE_SPECIMENS = new Set([
-  `Avatar`, `Badge`, `Button`, `ButtonGroup`, `Checkbox`, `DropdownMenu`, `EntityChip`, `Icon`, `Link`, `Pill`,
-  `Radio`, `Ring`, `Spinner`, `Switch`, `Toggle`, `ToggleGroup`, `Tooltip`, `Popover`, `Pagination`,
+  `Avatar`, `Badge`, `Button`, `Checkbox`, `Chip`, `Icon`, `Link`, `Menu`,
+  `Radio`, `Ring`, `Spinner`, `Switch`, `Toggle`, `Segmented`, `Tooltip`, `Popover`, `Pagination`,
 ])
 /** The enum props a specimen shows, in priority order (at most two of them). */
-const SPECIMEN_ENUMS = [`variant`, `type`, `kind`, `level`, `size`, `tone`, `density`, `orientation`, `direction`, `fit`]
+const SPECIMEN_ENUMS = [`variant`, `shape`, `surface`, `openOn`, `type`, `kind`, `level`, `size`, `tone`, `tint`, `chevron`, `density`, `orientation`, `direction`, `fit`]
 /** The boolean props a specimen shows `true` for, in priority order (at most two). */
-const SPECIMEN_BOOLEANS = [`checked`, `pressed`, `selected`, `disabled`, `loading`, `busy`, `removable`, `attachments`, `chevron`, `padded`, `divided`, `guides`, `tee`, `rounded`]
+const SPECIMEN_BOOLEANS = [`checked`, `pressed`, `selected`, `disabled`, `loading`, `busy`, `removable`, `attachments`, `collapsible`, `tree`, `padded`, `divided`, `rounded`]
 const SPECIMEN_MAX_CASES = 8
 
 const text = (id: string, value: string, variant = `body`): NestedNode => ({ id, component: `Text`, props: { text: value, variant } })
 const button = (id: string, label: string, variant = `default`): NestedNode => ({ id, component: `Button`, props: { label, variant } })
-const row = (id: string, title: string, meta: string): NestedNode => ({ id, component: `ListRow`, props: { title, meta } })
+const row = (id: string, title: string, meta: string, depth = 0): NestedNode => ({ id, component: `Row`, props: { title, meta, pressable: true, ...(depth ? { depth } : {}) } })
 const card = (id: string, title: string, description: string): NestedNode => ({ id, component: `Card`, props: { title, description } })
 
 /** What a specimen puts inside a container instead of the cases' generic
@@ -475,7 +486,8 @@ const SPECIMEN_CHILDREN: Record<string, NestedNode[]> = {
   Grid: [1, 2, 3, 4, 5, 6].map((n) => card(`g${n}`, `Cell ${n}`, `Grid item`)),
   Card: [text(`t`, `3 open issues · 2 in review`), button(`b`, `Open board`, `outline`)],
   List: [text(`l1`, `Inbox`), text(`l2`, `Drafts`), text(`l3`, `Archive`)],
-  RowList: [row(`r1`, `r/selfhosted`, `312 posts`), row(`r2`, `r/rust`, `128 posts`), row(`r3`, `r/swift`, `64 posts`)],
+  // Round 3: a Section of nested rows shows the elbow, the tee and a pass-through.
+  Section: [row(`r1`, `Release 0.18`, `4 runs`), row(`r2`, `Build the macOS app`, `done`, 1), row(`r3`, `Notarize`, `running`, 2), row(`r4`, `Upload the dmg`, `queued`, 2), row(`r5`, `Publish the release notes`, `queued`, 1), row(`r6`, `Release 0.17`, `3 runs`)],
   Group: [row(`r1`, `Mentions`, `Push + email`), row(`r2`, `Assigned to me`, `Push`)],
   Carousel: [card(`p1`, `Page one`, `Swipe for more`), card(`p2`, `Page two`, ``), card(`p3`, `Page three`, ``)],
   Tabs: [text(`p1`, `The issue panel.`), text(`p2`, `The run panel.`)],
@@ -483,7 +495,6 @@ const SPECIMEN_CHILDREN: Record<string, NestedNode[]> = {
   Collapsible: [text(`p`, `Retries, timeouts and the proxy live here.`, `muted`)],
   Dialog: [text(`p`, `The board and its 42 issues move to the trash for 48 hours.`)],
   Drawer: [text(`p`, `Status, assignee and labels.`)],
-  Sheet: [text(`p`, `Everything about the selected item.`)],
   Popover: [text(`p`, `Popover content.`)],
   Tooltip: [button(`b`, `Hover me`, `outline`)],
   Button: [],
@@ -491,9 +502,8 @@ const SPECIMEN_CHILDREN: Record<string, NestedNode[]> = {
   Resizable: [text(`p1`, `Boards`, `label`), text(`p2`, `Drag the handle or use the arrow keys.`, `muted`)],
   ScrollArea: [1, 2, 3, 4, 5, 6, 7, 8].map((n) => row(`r${n}`, `Issue ${n}`, `${n}h`)),
   Sidebar: [text(`main`, `Pick a board on the left.`)],
-  HoverCard: [text(`p`, `Ada Lovelace · Owner`)],
   AlertDialog: [],
-  ContextMenu: [card(`target`, `Right-click me`, `Or long-press`)],
+  Menu: [button(`trigger`, `More`, `outline`)],
   Form: [
     { id: `title`, component: `Input`, props: { label: `Title`, name: `title`, placeholder: `What changed?` } },
     { id: `notify`, component: `Switch`, props: { label: `Notify watchers`, name: `notify`, checked: true } },
@@ -514,13 +524,10 @@ const SPECIMEN_SLOTS: Record<string, Record<string, NestedNode>> = {
     footer: { id: `footer`, component: `Stack`, props: { direction: `horizontal`, gap: `sm`, justify: `end` }, children: [button(`cancel`, `Cancel`, `outline`), button(`ok`, `Delete`, `destructive`)] },
   },
   Drawer: { trigger: button(`trigger`, `Filters`, `outline`), footer: button(`apply`, `Apply`) },
-  Sheet: { trigger: button(`trigger`, `Details`, `outline`), footer: button(`close`, `Done`) },
   Popover: { trigger: button(`trigger`, `Open popover`, `outline`) },
-  DropdownMenu: { trigger: button(`trigger`, `More`, `outline`) },
-  Sidebar: { sidebar: { id: `nav`, component: `Stack`, props: { gap: `xs` }, children: [{ id: `n1`, component: `NavRow`, props: { label: `Inbox`, icon: `nav-inbox`, selected: true, count: 3 } }, { id: `n2`, component: `NavRow`, props: { label: `Issues`, icon: `nav-issues` } }] } },
+  Sidebar: { sidebar: { id: `nav`, component: `Stack`, props: { gap: `xs` }, children: [{ id: `n1`, component: `Row`, props: { title: `Inbox`, icon: `nav-inbox`, selected: true, pressable: true }, slots: { trailing: { id: `n1-count`, component: `Badge`, props: { text: `3`, variant: `secondary` } } } }, { id: `n2`, component: `Row`, props: { title: `Issues`, icon: `nav-issues`, pressable: true } }] } },
   AppBar: { trailing: { id: `more`, component: `Button`, props: { icon: `ui-more`, label: `More`, variant: `ghost`, size: `icon` } } },
   AlertDialog: { trigger: button(`trigger`, `Delete board`, `destructive`) },
-  HoverCard: { trigger: { id: `trigger`, component: `Link`, props: { label: `@ada` } } },
 }
 
 /** A case node with the specimen's children + slots in place of `Child`. */
@@ -624,8 +631,37 @@ function renderSpecimens(all: ComponentCase[], demo: NestedNode) {
   }
 }
 
+/** Round 3: the depth runs the guides pass must get right (the ×4 vectors of
+ *  the app's tree-guides tests), as Row siblings under a Section (any non-Row sibling ends every subtree). */
+const TREE_GUIDE_DEPTHS: Record<string, number[]> = {
+  flat: [0, 0, 0],
+  chain: [0, 1, 2],
+  siblings: [0, 1, 1, 1],
+  "pass-through": [0, 1, 2, 2, 1],
+  "subtree-ends": [0, 1, 2, 3, 2],
+  "two-roots": [0, 1, 0, 1],
+  orphans: [1, 2, 1],
+}
+
+function treeGuideCases(): ComponentCase[] {
+  const rows = (depths: number[]) => depths.map((depth, i) => ({ id: `r${i + 1}`, component: `Row`, props: { title: `Row ${i + 1}`, ...(depth ? { depth } : {}) } }))
+  const cases: ComponentCase[] = Object.entries(TREE_GUIDE_DEPTHS).map(([name, depths]) => ({
+    name: `Row/tree:${name}`,
+    node: { id: `tree`, component: `Section`, props: { title: `Tree`, tree: true }, children: rows(depths) },
+  }))
+  cases.push({ name: `Row/tree:text-breaks-the-subtree`, node: { id: `tree`, component: `Section`, children: [...rows([0, 1]), { id: `t`, component: `Text`, props: { text: `Between` } }, { id: `r3`, component: `Row`, props: { title: `Row 3`, depth: 1 } }] } })
+  return cases
+}
+
+function treeGuidesFixture() {
+  return {
+    $comment: `${HEADER} Round 3 (docs/round-3-contract.md §2): the tree connector rule the core computes for nested Rows (src/tree-guides.ts treeGuides, the ×4 app rule): depths → per row the elbow level (null for a root), whether the elbow tees on to a later sibling, and the ancestor levels passing straight through. The Rust core replays it (tree_guides.rs); the painters never compute it.`,
+    cases: Object.entries(TREE_GUIDE_DEPTHS).map(([name, depths]) => ({ name, depths, guides: treeGuides(depths) })),
+  }
+}
+
 function macroCases(all: ComponentCase[]) {
-  return [...all, ...boundMacroCases()]
+  return [...all, ...boundMacroCases(), ...treeGuideCases()]
     .filter((c) => coreCatalog.components[c.node.component].kind === `macro`)
     .map((c) => {
       const result = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
@@ -777,9 +813,9 @@ const BIND_EXTRA_CASES: { name: string; input: NestedNode; datasets: Record<stri
     datasets: [{ l: `Hello` }, {}],
   },
   {
-    name: `TabBar/set:author-function`,
-    input: { id: `tab-bar`, component: `TabBar`, props: { items: [{ label: `A`, value: `a` }], value: { path: `/tab` } }, on: { change: { function: { call: `openUrl`, args: { url: `https://example.com` } } } } },
-    datasets: [{ tab: `a` }],
+    name: `Section/set:author-function`,
+    input: { id: `section`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } }, on: { change: { function: { call: `openUrl`, args: { url: `https://example.com` } } } }, children: [{ id: `r`, component: `Row`, props: { title: `A` } }] },
+    datasets: [{ open: true }],
   },
   {
     name: `Pagination/page:string-data`,
@@ -888,6 +924,7 @@ function renderFiles(): Record<string, string> {
       ...kitchenResult,
     }),
     "fixtures/prompt-budget.json": json(promptBudget()),
+    "fixtures/tree-guides.json": json(treeGuidesFixture()),
     "fixtures/bind-time.json": json({
       $comment: `${HEADER} Round 1 (docs/round-1-contract.md §1): every macro prop that takes a binding, bound to /<prop> → the expansion (calls where the input was dynamic) → for three data models (a sample, its falsy twin, and the path MISSING) the tree after the BIND pass (src/dynamic.ts bindTree: props resolved along their schema with DATA props verbatim, styles, recipe props and \`accessibility\` resolved, falsy \`visible\` nodes dropped, \`$string.<id>\` copy resolved through the DEFAULT string table, row-scoped slots left unbound) and every \`set\` press (runAction: context first, then the write). \`extra\` = hand-written cases (Table slot cells bound PER ROW in \`rowSlots\`, literal data rows, a bound accessible name, an author function meeting \`$set\` with the reducer's \`issues\`, a numeric prop bound to string data). Every renderer's bind-time resolver replays both lists.`,
       catalogId: CORE_CATALOG_ID,

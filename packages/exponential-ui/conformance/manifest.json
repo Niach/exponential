@@ -9,7 +9,7 @@
         "fixtures/catalog-components.json"
       ],
       "unit": "case",
-      "cases": 459,
+      "cases": 466,
       "check": "Reduce the case's nested node with the core catalog: no issues. Paint it under the default theme: no crash, no Unknown placeholder, every visible node painted."
     },
     {
@@ -18,7 +18,7 @@
         "fixtures/catalog-macros.json"
       ],
       "unit": "case",
-      "cases": 189,
+      "cases": 200,
       "check": "Expand the case: the tree equals `expanded` (JSON-equal, recipes included)."
     },
     {
@@ -54,7 +54,7 @@
         "fixtures/theme-recipes.json"
       ],
       "unit": "case",
-      "cases": 358,
+      "cases": 356,
       "check": "Resolve the part's recipe for the case's theme, props, mode and states: the visual equals the fixture."
     },
     {
@@ -81,7 +81,7 @@
         "fixtures/control-geometry.json"
       ],
       "unit": "theme × control × case",
-      "cases": 228,
+      "cases": 231,
       "check": "Measure the control under the theme: the box (height, padding, gap, border, radius) equals the fixture."
     },
     {
@@ -145,7 +145,7 @@
         "fixtures/bind-time.json"
       ],
       "unit": "case",
-      "cases": 31,
+      "cases": 26,
       "check": "Expand the input; for every dataset run the bind pass: the bound tree, every `set` press and the per-row slot cells equal the fixture (reducer `issues` too for `extra`)."
     },
     {

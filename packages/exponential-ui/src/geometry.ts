@@ -12,7 +12,7 @@ import type { ModeName, ResolvedStyle, ResolvedTheme } from "./theme-types"
 export const CONTROL_PARTS: Record<string, string> = {
   Button: `root`,
   Toggle: `root`,
-  ToggleGroup: `item`,
+  Segmented: `item`,
   Input: `field`,
   Textarea: `field`,
   Select: `trigger`,

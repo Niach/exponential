@@ -18,8 +18,8 @@
             { "id": "demo-badge-2", "component": "Badge", "props": { "text": "0 incidents", "variant": "outline" } }
           ]
         },
-        { "id": "demo-row-errors", "component": "PropertyRow", "props": { "label": "Error rate", "value": "0.04 %" } },
-        { "id": "demo-row-p95", "component": "PropertyRow", "props": { "label": "p95 latency", "value": "182 ms" } },
+        { "id": "demo-row-errors", "component": "Row", "props": { "title": "Error rate", "value": "0.04 %" } },
+        { "id": "demo-row-p95", "component": "Row", "props": { "title": "p95 latency", "value": "182 ms" } },
         { "id": "demo-rollout", "component": "Progress", "props": { "value": 80, "max": 100, "label": "Rollout", "tone": "primary" } },
         {
           "id": "demo-chart",

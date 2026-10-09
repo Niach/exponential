@@ -1409,7 +1409,7 @@
             },
             {
               "id": "chips1",
-              "component": "ToggleGroup",
+              "component": "Segmented",
               "props": {
                 "items": [
                   {
@@ -1429,7 +1429,7 @@
             },
             {
               "id": "chipsN",
-              "component": "ToggleGroup",
+              "component": "Segmented",
               "props": {
                 "items": [
                   {

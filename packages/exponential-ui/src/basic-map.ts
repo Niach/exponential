@@ -135,7 +135,7 @@ const transforms: Record<string, Transform> = {
       out.props.searchable = true
       out.props.multiple = multiple
     } else if (flat.displayStyle === `chips`) {
-      out.component = `ToggleGroup`
+      out.component = `Segmented`
       out.props = { items: out.props.options, type: multiple ? `multiple` : `single`, variant: `outline`, value: out.props.value }
     } else if (multiple) {
       out.component = `Select`

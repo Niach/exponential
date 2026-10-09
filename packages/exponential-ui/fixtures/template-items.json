@@ -512,7 +512,7 @@
           },
           {
             "id": "row",
-            "component": "ListRow",
+            "component": "Row",
             "props": {
               "title": {
                 "path": "title"
@@ -585,7 +585,7 @@
             "id": "row",
             "component": "Box",
             "props": {
-              "pressable": true
+              "pressable": false
             },
             "children": [
               {
@@ -605,11 +605,13 @@
                     },
                     "children": [],
                     "recipe": {
-                      "macro": "ListRow",
+                      "macro": "Row",
                       "part": "title",
                       "props": {
                         "selected": false,
-                        "density": "default"
+                        "density": "default",
+                        "surface": "flat",
+                        "depth": 0
                       }
                     }
                   }
@@ -622,11 +624,13 @@
                   "minWidth": 0
                 },
                 "recipe": {
-                  "macro": "ListRow",
+                  "macro": "Row",
                   "part": "body",
                   "props": {
                     "selected": false,
-                    "density": "default"
+                    "density": "default",
+                    "surface": "flat",
+                    "depth": 0
                   }
                 }
               }
@@ -638,15 +642,21 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs"
+              "paddingVertical": "$spacing.xs",
+              "borderRadius": "$radius.md"
             },
             "recipe": {
-              "macro": "ListRow",
+              "macro": "Row",
               "part": "root",
               "props": {
                 "selected": false,
-                "density": "default"
+                "density": "default",
+                "surface": "flat",
+                "depth": 0
               }
+            },
+            "accessibility": {
+              "role": "none"
             }
           },
           "cell": {

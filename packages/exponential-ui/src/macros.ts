@@ -14,6 +14,7 @@
 // `$a11y` becomes the node's `accessibility` (role, states, name: §6).
 
 import { TOKEN_GROUPS, catalogView } from "./catalog"
+import { applyTreeGuides } from "./tree-guides"
 import type { CatalogView } from "./catalog"
 import { evalConditionValue, evalValue, isBinding, isDynamic, truthy, type ExprContext } from "./expr"
 import type { Action, ExtensionDef, MacroChild, MacroDef, MacroTemplate, ReduceIssue, UiNode, Visible } from "./types"
@@ -322,7 +323,9 @@ export function expandMacros(
   root: UiNode,
   options: { extensions?: readonly ExtensionDef[]; issues?: ReduceIssue[] } = {}
 ): UiNode {
-  return expandTree(clone(root), catalogView(options.extensions), 0, options.issues)
+  // Round 3: the tree guides of nested Rows come from their siblings, so
+  // they are filled AFTER the whole tree is native (src/tree-guides.ts).
+  return applyTreeGuides(expandTree(clone(root), catalogView(options.extensions), 0, options.issues))
 }
 
 /** True for a value the expander would keep (see expr.ts). */

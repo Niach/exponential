@@ -355,7 +355,7 @@
       },
       "probes": [
         {
-          "component": "ListRow",
+          "component": "Row",
           "part": "root",
           "props": {
             "selected": true,
@@ -370,10 +370,10 @@
           "mode": "dark"
         },
         {
-          "component": "Band",
-          "part": "root",
+          "component": "Section",
+          "part": "header",
           "props": {
-            "variant": "default"
+            "tint": "neutral"
           },
           "mode": "light"
         }
@@ -386,7 +386,7 @@
         ],
         "probes": [
           {
-            "component": "ListRow",
+            "component": "Row",
             "part": "root",
             "props": {
               "selected": true,
@@ -417,10 +417,10 @@
             }
           },
           {
-            "component": "Band",
-            "part": "root",
+            "component": "Section",
+            "part": "header",
             "props": {
-              "variant": "default"
+              "tint": "neutral"
             },
             "mode": "light",
             "style": {

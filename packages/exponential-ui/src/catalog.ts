@@ -18,8 +18,9 @@ export const coreCatalog = coreJson as unknown as CatalogSource
 
 /** `https://ui.exponential.at/catalogs/core/v1` */
 export const CORE_CATALOG_ID: string = coreCatalog.id
-/** The prompt-sized subset: no overlays, media or Chart. A lite surface is a
- *  valid core surface, so it is a second id over the same definitions. */
+/** The prompt-sized subset: the app-shaped vocabulary (no overlays, media,
+ *  Chart, data tables or the rarer controls). A lite surface is a valid core
+ *  surface, so it is a second id over the same definitions. */
 export const CORE_LITE_CATALOG_ID: string = coreCatalog.liteId
 /** The vendored A2UI basic catalog (vendor/a2ui/v0_9). */
 export const A2UI_BASIC_CATALOG_ID: string = basicMapJson.from
@@ -103,12 +104,23 @@ export function componentDef(
   return catalogView(extensions).components[name]
 }
 
+/** True for a component a model is offered: neither the hidden placeholder
+ *  nor a deprecated alias (round 3). */
+export function isOffered(def: ComponentDef): boolean {
+  return !def.hidden && !def.deprecated
+}
+
 /** Component names in source order, optionally the lite subset, never the
- *  hidden placeholder. */
+ *  hidden placeholder nor a deprecated alias. */
 export function componentNames(options: { lite?: boolean } = {}): string[] {
   return Object.entries(coreCatalog.components)
-    .filter(([, def]) => !def.hidden && (!options.lite || def.lite))
+    .filter(([, def]) => isOffered(def) && (!options.lite || def.lite))
     .map(([name]) => name)
+}
+
+/** The deprecated aliases (round 3): name → its replacement. */
+export function deprecatedComponents(): Record<string, string> {
+  return Object.fromEntries(Object.entries(coreCatalog.components).filter(([, d]) => d.deprecated).map(([n, d]) => [n, d.deprecated!]))
 }
 
 /** The lite subset's names. */

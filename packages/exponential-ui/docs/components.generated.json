@@ -14,6 +14,24 @@
     "action",
     "input"
   ],
+  "deprecated": {
+    "Band": "Section",
+    "RowList": "Section",
+    "ToggleGroup": "Segmented",
+    "ButtonGroup": "Segmented",
+    "TabBar": "Segmented",
+    "Sheet": "Drawer",
+    "HoverCard": "Popover",
+    "DropdownMenu": "Menu",
+    "ContextMenu": "Menu",
+    "Pill": "Chip",
+    "ListRow": "Row",
+    "CardRow": "Row",
+    "PropertyRow": "Row",
+    "PickerRow": "Row",
+    "NavRow": "Row",
+    "EntityChip": "Chip"
+  },
   "components": [
     {
       "name": "Box",
@@ -518,7 +536,7 @@
       "group": "layout",
       "lite": true,
       "specimenId": "exponential-ui-sidebar",
-      "description": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden below a breakpoint or when `collapsed`; give narrow screens another way in (a TabBar, or a Sheet from an AppBar button).",
+      "description": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden below a breakpoint or when `collapsed`; give narrow screens another way in (a `bar` Segmented, or a Drawer from an AppBar button).",
       "children": "many",
       "slots": [
         "sidebar"
@@ -636,24 +654,37 @@
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe AppBar/<part>."
     },
     {
-      "name": "Band",
+      "name": "Section",
       "kind": "macro",
       "group": "list",
       "lite": true,
-      "specimenId": "exponential-ui-band",
-      "description": "A filled header strip over a run of flat rows, with a title and an optional count.",
-      "children": "none",
-      "slots": [],
-      "events": [],
+      "specimenId": "exponential-ui-section",
+      "description": "A band header over hairline-divided rows: a title with an optional caption, count and glyph, foldable, tinted; no title = just the rows.",
+      "children": "many",
+      "slots": [
+        "leading",
+        "trailing"
+      ],
+      "events": [
+        "change"
+      ],
       "basic": [],
       "props": [
         {
           "name": "title",
           "type": "string",
-          "required": true,
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "The band's label; omit it for a bare run of rows."
+        },
+        {
+          "name": "caption",
+          "type": "string",
+          "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "The band's label."
+          "description": "Muted text after the title."
         },
         {
           "name": "count",
@@ -661,16 +692,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "A count shown after the title."
-        },
-        {
-          "name": "variant",
-          "type": "default | group",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "default": "default",
-          "description": "`group` is the issue-list status group header with its glyph slot."
+          "description": "A count after the title; off unless given."
         },
         {
           "name": "icon",
@@ -678,43 +700,43 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "A glyph before the title."
-        }
-      ],
-      "accessibility": {
-        "role": "heading",
-        "notes": "heading (level 3) with the count in its name",
-        "keys": []
-      },
-      "example": {
-        "id": "example",
-        "component": "Band",
-        "title": "In progress",
-        "count": 4,
-        "variant": "group"
-      },
-      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Band/<part>."
-    },
-    {
-      "name": "RowList",
-      "kind": "macro",
-      "group": "list",
-      "lite": true,
-      "specimenId": "exponential-ui-row-list",
-      "description": "The flat list language: hairline-divided rows under a band, optionally with tree guides.",
-      "children": "many",
-      "slots": [],
-      "events": [],
-      "basic": [],
-      "props": [
+          "description": "A glyph before the title (the `leading` slot replaces it)."
+        },
         {
-          "name": "guides",
+          "name": "collapsible",
           "type": "boolean",
           "required": false,
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Reserves the gutter for nested rows' tree connectors."
+          "description": "The header folds the rows (chevron, press)."
+        },
+        {
+          "name": "open",
+          "type": "boolean",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "default": true,
+          "description": "Whether the rows show; bind it."
+        },
+        {
+          "name": "tint",
+          "type": "neutral | primary | success | warning | danger | info",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "neutral",
+          "description": "The band's colour tone."
+        },
+        {
+          "name": "tree",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "The rows form a tree: each `Row.depth` indents and draws its guides."
         },
         {
           "name": "style",
@@ -722,20 +744,23 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Extra Box styles for the list frame."
+          "description": "Extra Box styles for the frame."
         }
       ],
       "accessibility": {
-        "role": "list",
-        "notes": "list",
-        "keys": []
+        "role": "group",
+        "notes": "group; the header a heading (level 3) with the caption and count in its name, or a button with aria-expanded when collapsible; the rows a list (a tree when `tree`) of listitems",
+        "keys": [
+          "Enter, Space: fold when collapsible"
+        ]
       },
       "example": {
         "id": "example",
-        "component": "RowList",
-        "guides": false
+        "component": "Section",
+        "title": "In progress",
+        "icon": "nav-issues"
       },
-      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe RowList/<part>."
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Section/<part>."
     },
     {
       "name": "Group",
@@ -1647,12 +1672,12 @@
       "macro": null
     },
     {
-      "name": "ToggleGroup",
+      "name": "Segmented",
       "kind": "native",
       "group": "navigation",
       "lite": true,
-      "specimenId": "exponential-ui-toggle-group",
-      "description": "A row of toggle buttons selecting one or many values; `segmented` is the pill-shaped segmented control.",
+      "specimenId": "exponential-ui-segmented",
+      "description": "ONE row of segments selecting one or many values: the pill-track segmented control, bare toggles, joined outline buttons or a bottom bar of destinations.",
       "children": "none",
       "slots": [],
       "events": [
@@ -1668,7 +1693,7 @@
           "required": true,
           "bindable": false,
           "responsive": false,
-          "description": "The toggles in order."
+          "description": "The segments in order."
         },
         {
           "name": "type",
@@ -1689,12 +1714,12 @@
         },
         {
           "name": "variant",
-          "type": "default | outline | segmented",
+          "type": "segmented | toggles | outline | bar",
           "required": false,
           "bindable": false,
           "responsive": false,
-          "default": "default",
-          "description": "Button look, outlined, or the segmented control."
+          "default": "segmented",
+          "description": "The segmented track, bare `toggles`, joined `outline` buttons, or a full-width `bar` with icons over labels."
         },
         {
           "name": "size",
@@ -1712,12 +1737,12 @@
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "Stretches the items across the width."
+          "description": "Stretches the segments across the width (a `bar` always does)."
         }
       ],
       "accessibility": {
         "role": "radiogroup",
-        "notes": "radiogroup (single) or toolbar of toggle buttons (multiple)",
+        "notes": "radiogroup (single) or toolbar of toggle buttons (multiple); `bar` = navigation of buttons, the selected one aria-current=page",
         "keys": [
           "Roving tab stop",
           "ArrowLeft/ArrowRight (ArrowUp/ArrowDown): move focus (wraps)",
@@ -1727,7 +1752,7 @@
       },
       "example": {
         "id": "example",
-        "component": "ToggleGroup",
+        "component": "Segmented",
         "items": [
           {
             "label": "List",
@@ -1738,8 +1763,7 @@
             "value": "board"
           }
         ],
-        "value": "list",
-        "variant": "segmented"
+        "value": "list"
       },
       "macro": null
     },
@@ -1747,7 +1771,7 @@
       "name": "Accordion",
       "kind": "native",
       "group": "navigation",
-      "lite": true,
+      "lite": false,
       "specimenId": "exponential-ui-accordion",
       "description": "Collapsible sections; the child at index i is the body of item i.",
       "children": "many",
@@ -1865,7 +1889,7 @@
       "name": "Pagination",
       "kind": "macro",
       "group": "navigation",
-      "lite": true,
+      "lite": false,
       "specimenId": "exponential-ui-pagination",
       "description": "Previous, next and the current page out of a total.",
       "children": "none",
@@ -1907,70 +1931,6 @@
         "page": 2
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Pagination/<part>."
-    },
-    {
-      "name": "ButtonGroup",
-      "kind": "macro",
-      "group": "navigation",
-      "lite": true,
-      "specimenId": "exponential-ui-button-group",
-      "description": "Attached buttons with one selected value.",
-      "children": "none",
-      "slots": [],
-      "events": [
-        "change"
-      ],
-      "basic": [],
-      "props": [
-        {
-          "name": "buttons",
-          "type": "[option]",
-          "required": true,
-          "bindable": false,
-          "responsive": false,
-          "description": "The buttons in order."
-        },
-        {
-          "name": "selected",
-          "type": "string",
-          "required": false,
-          "bindable": true,
-          "responsive": false,
-          "description": "The selected button's value; bind it."
-        },
-        {
-          "name": "size",
-          "type": "sm | default | lg",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "default": "default",
-          "description": "Control height class."
-        }
-      ],
-      "accessibility": {
-        "role": "group",
-        "notes": "group of buttons (the selected one aria-pressed)",
-        "keys": [
-          "Tab through the buttons; Enter, Space: select"
-        ]
-      },
-      "example": {
-        "id": "example",
-        "component": "ButtonGroup",
-        "buttons": [
-          {
-            "label": "Day",
-            "value": "day"
-          },
-          {
-            "label": "Week",
-            "value": "week"
-          }
-        ],
-        "selected": "day"
-      },
-      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe ButtonGroup/<part>."
     },
     {
       "name": "Breadcrumb",
@@ -2021,63 +1981,6 @@
         ]
       },
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Breadcrumb/<part>."
-    },
-    {
-      "name": "TabBar",
-      "kind": "macro",
-      "group": "navigation",
-      "lite": true,
-      "specimenId": "exponential-ui-tab-bar",
-      "description": "A bottom bar of icon-and-label destinations selecting one value; bind `value`.",
-      "children": "none",
-      "slots": [],
-      "events": [
-        "change"
-      ],
-      "basic": [],
-      "props": [
-        {
-          "name": "items",
-          "type": "[option]",
-          "required": true,
-          "bindable": false,
-          "responsive": false,
-          "description": "The destinations in order, each with an icon."
-        },
-        {
-          "name": "value",
-          "type": "string",
-          "required": false,
-          "bindable": true,
-          "responsive": false,
-          "description": "The selected destination's value; bind it."
-        }
-      ],
-      "accessibility": {
-        "role": "navigation",
-        "notes": "navigation; the selected destination aria-current=page. Each destination a button; the selected one aria-current=page ($a11y).",
-        "keys": [
-          "Tab through the destinations; Enter, Space: select"
-        ]
-      },
-      "example": {
-        "id": "example",
-        "component": "TabBar",
-        "items": [
-          {
-            "label": "Inbox",
-            "value": "inbox",
-            "icon": "nav-inbox"
-          },
-          {
-            "label": "Issues",
-            "value": "issues",
-            "icon": "nav-issues"
-          }
-        ],
-        "value": "inbox"
-      },
-      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe TabBar/<part>."
     },
     {
       "name": "Stepper",
@@ -2301,64 +2204,6 @@
       "macro": null
     },
     {
-      "name": "Sheet",
-      "kind": "macro",
-      "group": "overlay",
-      "lite": false,
-      "specimenId": "exponential-ui-sheet",
-      "description": "A side sheet: a drawer from the trailing edge.",
-      "children": "many",
-      "slots": [
-        "trigger",
-        "footer"
-      ],
-      "events": [
-        "change"
-      ],
-      "basic": [],
-      "props": [
-        {
-          "name": "title",
-          "type": "string",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "description": "The sheet heading."
-        },
-        {
-          "name": "description",
-          "type": "string",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "description": "A muted line under the heading."
-        },
-        {
-          "name": "open",
-          "type": "boolean",
-          "required": false,
-          "bindable": true,
-          "responsive": false,
-          "default": false,
-          "description": "Whether it shows; bind it."
-        }
-      ],
-      "accessibility": {
-        "role": "dialog",
-        "notes": "dialog (modal)",
-        "keys": [
-          "As Drawer"
-        ]
-      },
-      "example": {
-        "id": "example",
-        "component": "Sheet",
-        "title": "Details",
-        "open": false
-      },
-      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Sheet/<part>."
-    },
-    {
       "name": "AlertDialog",
       "kind": "macro",
       "group": "overlay",
@@ -2507,55 +2352,6 @@
       "macro": null
     },
     {
-      "name": "HoverCard",
-      "kind": "macro",
-      "group": "overlay",
-      "lite": false,
-      "specimenId": "exponential-ui-hover-card",
-      "description": "A preview panel that opens while the pointer rests on its trigger (press on touch).",
-      "children": "many",
-      "slots": [
-        "trigger"
-      ],
-      "events": [
-        "change"
-      ],
-      "basic": [],
-      "props": [
-        {
-          "name": "side",
-          "type": "top | right | bottom | left",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "default": "bottom",
-          "description": "Preferred side of the trigger."
-        },
-        {
-          "name": "open",
-          "type": "boolean",
-          "required": false,
-          "bindable": true,
-          "responsive": false,
-          "default": false,
-          "description": "Whether it shows; bind it to force it."
-        }
-      ],
-      "accessibility": {
-        "role": "dialog",
-        "notes": "dialog (non-modal)",
-        "keys": [
-          "Opens on hover AND on keyboard focus of the trigger; Escape closes"
-        ]
-      },
-      "example": {
-        "id": "example",
-        "component": "HoverCard",
-        "side": "bottom"
-      },
-      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe HoverCard/<part>."
-    },
-    {
       "name": "Tooltip",
       "kind": "native",
       "group": "overlay",
@@ -2600,16 +2396,14 @@
       "macro": null
     },
     {
-      "name": "DropdownMenu",
+      "name": "Menu",
       "kind": "native",
       "group": "overlay",
       "lite": false,
-      "specimenId": "exponential-ui-dropdown-menu",
-      "description": "A menu of actions, checkboxes, groups and submenus behind a trigger (default: a button with the label).",
-      "children": "none",
-      "slots": [
-        "trigger"
-      ],
+      "specimenId": "exponential-ui-menu",
+      "description": "A menu of actions, checkboxes, groups and one-level submenus: opened by pressing its child (or a default button) or by right-click / long-press on it.",
+      "children": "one",
+      "slots": [],
       "events": [
         "select"
       ],
@@ -2621,7 +2415,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "The default trigger's text when no trigger slot is given."
+          "description": "The default trigger's text when no child is given."
         },
         {
           "name": "icon",
@@ -2638,13 +2432,23 @@
           "bindable": false,
           "responsive": false,
           "description": "The entries in order."
+        },
+        {
+          "name": "openOn",
+          "type": "press | contextmenu",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "press",
+          "description": "A press on the child, or the context gesture over it."
         }
       ],
       "accessibility": {
         "role": "menu",
-        "notes": "menu / menuitem / menuitemcheckbox / group / separator",
+        "notes": "menu / menuitem / menuitemcheckbox / group / separator; `openOn: contextmenu` opens at the pointer",
         "keys": [
           "Enter, Space, ArrowDown on the trigger: open on the first item; ArrowUp: open on the last",
+          "Shift+F10 or the Menu key on the focused child (contextmenu): open at the child",
           "ArrowDown/ArrowUp: next/previous item (wraps, skips disabled)",
           "Home/End: first/last item",
           "Enter, Space: run the item (a checkbox item toggles and stays open)",
@@ -2655,61 +2459,12 @@
       },
       "example": {
         "id": "example",
-        "component": "DropdownMenu",
+        "component": "Menu",
         "label": "More",
         "items": [
           {
             "label": "Rename",
             "value": "rename"
-          },
-          {
-            "label": "Delete",
-            "value": "delete",
-            "destructive": true
-          }
-        ]
-      },
-      "macro": null
-    },
-    {
-      "name": "ContextMenu",
-      "kind": "native",
-      "group": "overlay",
-      "lite": false,
-      "specimenId": "exponential-ui-context-menu",
-      "description": "A menu opened by right-click or long-press on its child.",
-      "children": "one",
-      "slots": [],
-      "events": [
-        "select"
-      ],
-      "basic": [],
-      "props": [
-        {
-          "name": "items",
-          "type": "[menuItem]",
-          "required": true,
-          "bindable": false,
-          "responsive": false,
-          "description": "The entries in order."
-        }
-      ],
-      "accessibility": {
-        "role": "menu",
-        "notes": "menu (as DropdownMenu)",
-        "keys": [
-          "Shift+F10 or the Menu key on the focused child: open at the child",
-          "Then as DropdownMenu"
-        ]
-      },
-      "example": {
-        "id": "example",
-        "component": "ContextMenu",
-        "items": [
-          {
-            "label": "Copy",
-            "value": "copy",
-            "shortcut": "⌘C"
           },
           {
             "label": "Delete",
@@ -2821,7 +2576,7 @@
       "group": "feedback",
       "lite": true,
       "specimenId": "exponential-ui-badge",
-      "description": "A small status label or count.",
+      "description": "A small count or status label.",
       "children": "none",
       "slots": [],
       "events": [],
@@ -2919,16 +2674,19 @@
       "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Alert/<part>."
     },
     {
-      "name": "Pill",
+      "name": "Chip",
       "kind": "macro",
       "group": "feedback",
       "lite": true,
-      "specimenId": "exponential-ui-pill",
-      "description": "A rounded chip for a filter, a label or a state; optionally selected, with a colour dot or an icon.",
+      "specimenId": "exponential-ui-chip",
+      "description": "A small labelled token: a pill for a filter, label or state, or a rect naming an entity with a glyph or picture, optionally removable.",
       "children": "none",
-      "slots": [],
+      "slots": [
+        "leading"
+      ],
       "events": [
-        "press"
+        "press",
+        "remove"
       ],
       "basic": [],
       "props": [
@@ -2939,6 +2697,15 @@
           "bindable": true,
           "responsive": false,
           "description": "The chip text."
+        },
+        {
+          "name": "shape",
+          "type": "pill | rect",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "pill",
+          "description": "A rounded pill or a squarer entity chip."
         },
         {
           "name": "selected",
@@ -2975,6 +2742,31 @@
           "description": "An icon before the text."
         },
         {
+          "name": "image",
+          "type": "url",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "A round picture instead of the icon."
+        },
+        {
+          "name": "detail",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Muted text after the label."
+        },
+        {
+          "name": "removable",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "Shows a remove control that fires `remove`."
+        },
+        {
           "name": "pressable",
           "type": "boolean",
           "required": false,
@@ -2986,18 +2778,18 @@
       ],
       "accessibility": {
         "role": "button",
-        "notes": "button with aria-pressed when pressable, text otherwise. A button with aria-pressed (= selected) when pressable, text otherwise ($a11y).",
+        "notes": "button with aria-pressed (= selected) when pressable, text otherwise ($a11y); remove = button labelled `remove`",
         "keys": [
-          "Enter, Space: press"
+          "Enter, Space: press; Delete, Backspace: remove when removable"
         ]
       },
       "example": {
         "id": "example",
-        "component": "Pill",
+        "component": "Chip",
         "label": "Drafts",
         "selected": true
       },
-      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Pill/<part>."
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Chip/<part>."
     },
     {
       "name": "EmptyState",
@@ -3257,7 +3049,7 @@
       "name": "Spinner",
       "kind": "native",
       "group": "feedback",
-      "lite": true,
+      "lite": false,
       "specimenId": "exponential-ui-spinner",
       "description": "An indeterminate activity indicator.",
       "children": "none",
@@ -3350,7 +3142,7 @@
       "name": "Table",
       "kind": "native",
       "group": "data",
-      "lite": true,
+      "lite": false,
       "specimenId": "exponential-ui-table",
       "description": "A data table of typed columns over rows: sorting, row selection, widths, alignment, windowed; a `slot` column renders a component per cell.",
       "children": "none",
@@ -3865,7 +3657,7 @@
       "name": "Toggle",
       "kind": "native",
       "group": "action",
-      "lite": true,
+      "lite": false,
       "specimenId": "exponential-ui-toggle",
       "description": "A two-state button that stays pressed.",
       "children": "none",
@@ -4442,7 +4234,7 @@
       "name": "Radio",
       "kind": "native",
       "group": "input",
-      "lite": true,
+      "lite": false,
       "specimenId": "exponential-ui-radio",
       "description": "A labelled group of radio options choosing one value; bind `value`.",
       "children": "none",
@@ -4609,7 +4401,7 @@
       "name": "Slider",
       "kind": "native",
       "group": "input",
-      "lite": true,
+      "lite": false,
       "specimenId": "exponential-ui-slider",
       "description": "A range slider between min and max; bind `value`.",
       "children": "none",
@@ -5464,14 +5256,17 @@
       "macro": null
     },
     {
-      "name": "ListRow",
+      "name": "Row",
       "kind": "macro",
       "group": "list",
       "lite": true,
-      "specimenId": "exponential-ui-list-row",
-      "description": "A flat list row: an optional leading icon, a title with a subtitle, trailing meta text.",
+      "specimenId": "exponential-ui-row",
+      "description": "THE list row: a lead glyph or slot, a mono identifier, a title with a subtitle, trailing meta or a readable value, a slot and a chevron; flat or a card, nestable by depth.",
       "children": "none",
-      "slots": [],
+      "slots": [
+        "leading",
+        "trailing"
+      ],
       "events": [
         "press"
       ],
@@ -5484,6 +5279,14 @@
           "bindable": true,
           "responsive": false,
           "description": "The main text."
+        },
+        {
+          "name": "identifier",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "A mono identifier before the title (`EXP-12`)."
         },
         {
           "name": "subtitle",
@@ -5502,12 +5305,37 @@
           "description": "Trailing muted text (a count, a time)."
         },
         {
+          "name": "value",
+          "type": "string",
+          "required": false,
+          "bindable": true,
+          "responsive": false,
+          "description": "A trailing readable value (a property, a pick)."
+        },
+        {
+          "name": "placeholder",
+          "type": "string",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "description": "Muted trailing text while `value` is empty."
+        },
+        {
           "name": "icon",
           "type": "icon",
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "A leading glyph."
+          "description": "The lead glyph (the `leading` slot replaces it)."
+        },
+        {
+          "name": "chevron",
+          "type": "none | right | selector",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "none",
+          "description": "A trailing disclosure (`right`) or picker (`selector`) glyph."
         },
         {
           "name": "selected",
@@ -5528,403 +5356,48 @@
           "description": "Row height class."
         },
         {
-          "name": "chevron",
+          "name": "surface",
+          "type": "flat | card",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "flat",
+          "description": "A flat row, or a padded card with its own fill and border."
+        },
+        {
+          "name": "pressable",
           "type": "boolean",
           "required": false,
           "bindable": false,
           "responsive": false,
           "default": false,
-          "description": "A trailing disclosure chevron."
-        }
-      ],
-      "accessibility": {
-        "role": "button",
-        "notes": "button (row)",
-        "keys": [
-          "Enter, Space: press"
-        ]
-      },
-      "example": {
-        "id": "example",
-        "component": "ListRow",
-        "title": "r/selfhosted",
-        "meta": "312 posts"
-      },
-      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe ListRow/<part>."
-    },
-    {
-      "name": "CardRow",
-      "kind": "macro",
-      "group": "list",
-      "lite": true,
-      "specimenId": "exponential-ui-card-row",
-      "description": "A gapped card-shaped row with a title, a subtitle and an optional leading icon.",
-      "children": "none",
-      "slots": [],
-      "events": [
-        "press"
-      ],
-      "basic": [],
-      "props": [
-        {
-          "name": "title",
-          "type": "string",
-          "required": true,
-          "bindable": true,
-          "responsive": false,
-          "description": "The main text."
+          "description": "Makes it a press target that fires `press` (an `on.press` implies it)."
         },
-        {
-          "name": "subtitle",
-          "type": "string",
-          "required": false,
-          "bindable": true,
-          "responsive": false,
-          "description": "A muted second line."
-        },
-        {
-          "name": "icon",
-          "type": "icon",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "description": "A leading glyph."
-        },
-        {
-          "name": "meta",
-          "type": "string",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "description": "Trailing muted text."
-        }
-      ],
-      "accessibility": {
-        "role": "button",
-        "notes": "button (row)",
-        "keys": [
-          "Enter, Space: press"
-        ]
-      },
-      "example": {
-        "id": "example",
-        "component": "CardRow",
-        "title": "MacBook Pro",
-        "subtitle": "Online · 2 runs",
-        "icon": "ui-device"
-      },
-      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe CardRow/<part>."
-    },
-    {
-      "name": "PropertyRow",
-      "kind": "macro",
-      "group": "list",
-      "lite": true,
-      "specimenId": "exponential-ui-property-row",
-      "description": "A label on the left and a value on the right, for read-only properties.",
-      "children": "none",
-      "slots": [],
-      "events": [],
-      "basic": [],
-      "props": [
-        {
-          "name": "label",
-          "type": "string",
-          "required": true,
-          "bindable": false,
-          "responsive": false,
-          "description": "The property name."
-        },
-        {
-          "name": "value",
-          "type": "string",
-          "required": true,
-          "bindable": true,
-          "responsive": false,
-          "description": "The property value."
-        },
-        {
-          "name": "icon",
-          "type": "icon",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "description": "A glyph before the label."
-        }
-      ],
-      "accessibility": {
-        "role": "group",
-        "notes": "row of a term and its value",
-        "keys": []
-      },
-      "example": {
-        "id": "example",
-        "component": "PropertyRow",
-        "label": "Assignee",
-        "value": "Alex Chen"
-      },
-      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe PropertyRow/<part>."
-    },
-    {
-      "name": "PickerRow",
-      "kind": "macro",
-      "group": "list",
-      "lite": true,
-      "specimenId": "exponential-ui-picker-row",
-      "description": "A form row that shows a chosen value and opens a picker on press.",
-      "children": "none",
-      "slots": [],
-      "events": [
-        "press"
-      ],
-      "basic": [],
-      "props": [
-        {
-          "name": "label",
-          "type": "string",
-          "required": true,
-          "bindable": false,
-          "responsive": false,
-          "description": "The field name."
-        },
-        {
-          "name": "value",
-          "type": "string",
-          "required": false,
-          "bindable": true,
-          "responsive": false,
-          "description": "The current choice's text."
-        },
-        {
-          "name": "placeholder",
-          "type": "string",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "default": "$string.choose",
-          "description": "Shown while nothing is chosen."
-        },
-        {
-          "name": "icon",
-          "type": "icon",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "description": "A glyph before the label."
-        }
-      ],
-      "accessibility": {
-        "role": "button",
-        "notes": "button with haspopup",
-        "keys": [
-          "Enter, Space: press"
-        ]
-      },
-      "example": {
-        "id": "example",
-        "component": "PickerRow",
-        "label": "Status",
-        "value": "In progress"
-      },
-      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe PickerRow/<part>."
-    },
-    {
-      "name": "NavRow",
-      "kind": "macro",
-      "group": "list",
-      "lite": true,
-      "specimenId": "exponential-ui-nav-row",
-      "description": "A sidebar or drawer navigation row with an icon, a label, a count and a selected state.",
-      "children": "none",
-      "slots": [],
-      "events": [
-        "press"
-      ],
-      "basic": [],
-      "props": [
-        {
-          "name": "label",
-          "type": "string",
-          "required": true,
-          "bindable": false,
-          "responsive": false,
-          "description": "The destination name."
-        },
-        {
-          "name": "icon",
-          "type": "icon",
-          "required": true,
-          "bindable": false,
-          "responsive": false,
-          "description": "The leading glyph."
-        },
-        {
-          "name": "selected",
-          "type": "boolean",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "default": false,
-          "description": "Draws it as the current destination."
-        },
-        {
-          "name": "count",
-          "type": "number",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "description": "A trailing count badge."
-        }
-      ],
-      "accessibility": {
-        "role": "link",
-        "notes": "link; aria-current=page when selected",
-        "keys": [
-          "Enter, Space: press"
-        ]
-      },
-      "example": {
-        "id": "example",
-        "component": "NavRow",
-        "label": "Inbox",
-        "icon": "nav-inbox",
-        "count": 3,
-        "selected": true
-      },
-      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe NavRow/<part>."
-    },
-    {
-      "name": "EntityChip",
-      "kind": "macro",
-      "group": "list",
-      "lite": true,
-      "specimenId": "exponential-ui-entity-chip",
-      "description": "A compact chip naming an entity with an icon or picture, optionally removable.",
-      "children": "none",
-      "slots": [],
-      "events": [
-        "press",
-        "remove"
-      ],
-      "basic": [],
-      "props": [
-        {
-          "name": "label",
-          "type": "string",
-          "required": true,
-          "bindable": true,
-          "responsive": false,
-          "description": "The entity name."
-        },
-        {
-          "name": "icon",
-          "type": "icon",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "description": "The leading glyph."
-        },
-        {
-          "name": "image",
-          "type": "url",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "description": "A leading picture instead of the icon."
-        },
-        {
-          "name": "detail",
-          "type": "string",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "description": "Muted text after the name."
-        },
-        {
-          "name": "removable",
-          "type": "boolean",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "default": false,
-          "description": "Shows a remove control that fires `remove`."
-        }
-      ],
-      "accessibility": {
-        "role": "button",
-        "notes": "button; remove = button labelled `remove`",
-        "keys": [
-          "Enter, Space: press; Delete, Backspace: remove when removable"
-        ]
-      },
-      "example": {
-        "id": "example",
-        "component": "EntityChip",
-        "label": "Sprint 12",
-        "icon": "nav-boards"
-      },
-      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe EntityChip/<part>."
-    },
-    {
-      "name": "TreeGuides",
-      "kind": "native",
-      "group": "list",
-      "lite": true,
-      "specimenId": "exponential-ui-tree-guides",
-      "description": "The tree connector gutter beside a nested row: an elbow at its depth and pass-through lines for deeper ancestors.",
-      "children": "none",
-      "slots": [],
-      "events": [],
-      "basic": [],
-      "props": [
         {
           "name": "depth",
           "type": "number",
-          "required": true,
-          "bindable": false,
-          "responsive": false,
-          "description": "The row's nesting depth (0 = root)."
-        },
-        {
-          "name": "elbowAt",
-          "type": "number",
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "The gutter index that draws the elbow into this row; omit for a root."
-        },
-        {
-          "name": "tee",
-          "type": "boolean",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "default": false,
-          "description": "Continues the line past this row to a later sibling."
-        },
-        {
-          "name": "passThrough",
-          "type": "[number]",
-          "required": false,
-          "bindable": false,
-          "responsive": false,
-          "description": "Gutter indexes whose ancestor line continues straight through."
+          "default": 0,
+          "description": "Nesting depth under a tree Section (0 = root); the guides are computed from the rows around it."
         }
       ],
       "accessibility": {
-        "role": "hidden",
-        "notes": "hidden (decorative)",
-        "keys": []
+        "role": "button",
+        "notes": "button (aria-selected when selected) when pressable, a group of its texts otherwise ($a11y); the guides are decorative",
+        "keys": [
+          "Enter, Space: press (pressable only)"
+        ]
       },
       "example": {
         "id": "example",
-        "component": "TreeGuides",
-        "depth": 1,
-        "elbowAt": 0,
-        "tee": true,
-        "passThrough": []
+        "component": "Row",
+        "title": "r/selfhosted",
+        "meta": "312 posts",
+        "pressable": true
       },
-      "macro": null
+      "macro": "Expands to natives (see catalog/macros.json); the theme styles its parts by recipe Row/<part>."
     }
   ]
 }

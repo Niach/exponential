@@ -3,7 +3,7 @@
   "recipes": {
     "Card": { "root": [ { "style": { "boxShadow": "$shadow.none" } } ] },
     "Group": { "body": [ { "style": { "backgroundColor": "$color.card" } } ] },
-    "Band": { "root": [ { "style": { "backgroundColor": "$color.muted" } } ] },
+    "Section": { "header": [ { "style": { "backgroundColor": "$color.muted" } } ] },
     "Button": {
       "root": [
         { "style": { "boxShadow": "$shadow.none", "fontWeight": "$type.weight.medium" } },
@@ -18,19 +18,16 @@
     "DatePicker": { "trigger": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ] },
     "Composer": { "root": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.border", "boxShadow": "$shadow.none" } } ] },
     "Tabs": { "list": [ { "style": { "backgroundColor": "$color.muted" } } ], "tab": [ { "when": { "state": "selected" }, "style": { "backgroundColor": "$color.accent", "boxShadow": "$shadow.none" } } ] },
-    "ToggleGroup": { "item": [ { "when": { "variant": "segmented", "state": "selected" }, "style": { "backgroundColor": "$color.accent", "boxShadow": "$shadow.none" } } ] },
-    "Pill": {
+    "Segmented": { "root": [ { "when": { "variant": "bar" }, "style": { "backgroundColor": "$color.card" } } ], "item": [ { "when": { "variant": "segmented", "state": "selected" }, "style": { "backgroundColor": "$color.accent", "boxShadow": "$shadow.none" } } ] },
+    "Chip": {
       "root": [
         { "style": { "backgroundColor": "$color.secondary", "borderColor": "$color.border" } },
+        { "when": { "shape": "rect" }, "style": { "backgroundColor": "$color.secondary" } },
         { "when": { "selected": true }, "style": { "backgroundColor": "$color.accent", "borderColor": "$color.ring" } }
       ]
     },
-    "EntityChip": { "root": [ { "style": { "backgroundColor": "$color.secondary" } } ] },
-    "ListRow": { "root": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "selected": true }, "style": { "backgroundColor": "$color.accent" } } ] },
-    "NavRow": { "root": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "selected": true }, "style": { "backgroundColor": "$color.accent" } } ] },
-    "PickerRow": { "root": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } } ] },
-    "CardRow": { "root": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } } ] },
-    "DropdownMenu": { "item": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "state": "selected" }, "style": { "backgroundColor": "$color.accent" } } ] },
+    "Row": { "root": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "selected": true }, "style": { "backgroundColor": "$color.accent" } } ] },
+    "Menu": { "item": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "state": "selected" }, "style": { "backgroundColor": "$color.accent" } } ] },
     "Alert": { "root": [ { "style": { "backgroundColor": "$color.card" } } ] },
     "Dialog": { "content": [ { "style": { "backgroundColor": "$color.popover", "borderRadius": "$radius.xl" } } ] },
     "Drawer": { "content": [ { "style": { "backgroundColor": "$color.popover", "borderRadius": "$radius.xl3" } } ] },
@@ -42,12 +39,10 @@
     "ChipInput": { "field": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ], "chip": [ { "style": { "backgroundColor": "$color.accent", "color": "$color.foreground" } } ] },
     "TimePicker": { "trigger": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ], "item": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } } ] },
     "DateRangePicker": { "trigger": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.input", "boxShadow": "$shadow.none" } } ] },
-    "ContextMenu": { "item": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "state": "selected" }, "style": { "backgroundColor": "$color.accent" } } ] },
     "Toast": { "root": [ { "style": { "backgroundColor": "$color.popover", "borderColor": "$color.border", "borderRadius": "$radius.xl" } } ] },
     "CodeBlock": { "root": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.border" } } ] },
     "Table": { "row": [ { "when": { "state": "hover" }, "style": { "backgroundColor": "$color.secondary" } }, { "when": { "striped": true }, "style": { "backgroundColor": "$color.card" } } ] },
     "FileUpload": { "dropzone": [ { "style": { "backgroundColor": "$color.card", "borderColor": "$color.border" } }, { "when": { "state": "dragover" }, "style": { "backgroundColor": "$color.accent", "borderColor": "$color.ring" } } ] },
-    "Sidebar": { "sidebar": [ { "style": { "backgroundColor": "$color.card" } } ] },
-    "TabBar": { "root": [ { "style": { "backgroundColor": "$color.card" } } ] }
+    "Sidebar": { "sidebar": [ { "style": { "backgroundColor": "$color.card" } } ] }
   }
 }

@@ -43,7 +43,7 @@ describe(`bound macro inputs (§1)`, () => {
 
   test(`catalog-macros.json carries a bound case per bindable macro prop and a responsive case per responsive prop`, () => {
     for (const [name, def] of Object.entries(coreCatalog.components)) {
-      if (def.kind !== `macro`) continue
+      if (def.kind !== `macro` || def.deprecated) continue // round 3: an alias keeps its example case only
       for (const [prop, schema] of Object.entries(def.props)) {
         if (schema.bindable) expect(cases.some((c) => c.name === `${name}/bound:${prop}`), `${name}/bound:${prop}`).toBe(true)
         if (schema.responsive) expect(cases.some((c) => c.name === `${name}/responsive:${prop}`), `${name}/responsive:${prop}`).toBe(true)
@@ -86,8 +86,12 @@ describe(`bound macro inputs (§1)`, () => {
     expect(outcome.event).toEqual({ name: `toggled`, context: { open: true } })
     const literal = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: false }, on: { change: { event: { name: `toggled` } } } })
     expect(byId(literal, `c.trigger`)!.on!.press).toEqual({ event: { name: `toggled`, context: { open: true } } })
+    // Round 3: a collapsible Section's header writes `open` back like Collapsible's trigger; a TabBar alias hands its bound value to the Segmented native.
+    const section = expand({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } } })
+    expect(runAction(byId(section, `s.header`)!.on!.press, { open: true }).data).toEqual({ open: false })
     const tabs = expand({ id: `t`, component: `TabBar`, props: { items: [{ label: `A`, value: `a`, icon: `nav-inbox` }, { label: `B`, value: `b`, icon: `nav-issues` }], value: { path: `/tab` } } })
-    expect(runAction(byId(tabs, `t.item.1`)!.on!.press, { tab: `a` }).data).toEqual({ tab: `b` })
+    expect(tabs.component).toBe(`Segmented`)
+    expect(tabs.props).toMatchObject({ variant: `bar`, fill: true, value: { path: `/tab` } })
     const alert = expand({ id: `a`, component: `AlertDialog`, props: { title: `Sure?`, open: { path: `/ask` } } })
     expect(runAction(alert.slots!.footer.children[1].on!.press, { ask: true }).data).toEqual({ ask: false })
   })
@@ -263,12 +267,13 @@ describe(`accessibility (§6)`, () => {
   test(`every component has a role and keys; interactive ones name their keys; entries name real components`, () => {
     for (const [name, def] of Object.entries(coreCatalog.components)) {
       expect(COMPONENT_A11Y[name], name).toBeDefined()
+      if (def.deprecated) continue // round 3: an alias defers to its replacement's entry
       if ((def.events?.length ?? 0) > 0 && name !== `Chart`) expect(COMPONENT_A11Y[name].keys.length, `${name} keys`).toBeGreaterThan(0)
     }
     for (const name of Object.keys(COMPONENT_A11Y)) expect(coreCatalog.components[name], name).toBeDefined()
     for (const entry of Object.values(COMPONENT_A11Y)) expect(entry.role.length).toBeGreaterThan(2)
     expect(Object.keys(A11Y_COMMANDS)).toEqual([`focus`, `announce`, `scrollIntoView`, `scrollToIndex`])
-    for (const name of [`Tabs`, `Radio`, `ToggleGroup`, `Select`, `DropdownMenu`, `Accordion`, `DatePicker`]) expect(COMPONENT_A11Y[name].keys.join(` `), name).toMatch(/Arrow/)
+    for (const name of [`Tabs`, `Radio`, `Segmented`, `Select`, `Menu`, `Accordion`, `DatePicker`]) expect(COMPONENT_A11Y[name].keys.join(` `), name).toMatch(/Arrow/)
     expect(COMPONENT_A11Y.Tooltip.keys.join(` `)).toContain(`focus`)
   })
 })
