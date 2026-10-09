@@ -37,9 +37,7 @@ final class Round1NativesTests: XCTestCase {
         view.layoutSubtreeIfNeeded()
         _ = view.fittingSize
         #else
-        let view = UIHostingController(rootView: root).view!
-        view.frame = CGRect(x: 0, y: 0, width: width, height: max(m.surfaceSize.height, height))
-        view.layoutIfNeeded()
+        renderInWindow(root, size: CGSize(width: width, height: max(m.surfaceSize.height, height)))
         #endif
         return painted
     }

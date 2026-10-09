@@ -74,7 +74,7 @@ struct InlineFieldLeaf: View {
                 disabled: disabled,
                 submitsOnReturn: false,
                 accessibilityLabel: label,
-                secure: false
+                inputType: ""
             )
         }
         .frame(width: cx.inner.width, height: cx.inner.height)

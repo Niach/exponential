@@ -165,6 +165,29 @@ internal fun SwitchTrack(cx: LeafContext) {
     }
 }
 
+/** The platform slider's range and M3 `steps` (the stops BETWEEN the ends). */
+internal data class SliderRange(val range: ClosedFloatingPointRange<Float>, val steps: Int)
+
+/**
+ * The author's real range (only an empty or inverted one widens to
+ * `min..min+1`); `step <= 0` = continuous (`steps = 0`); a step that divides
+ * the range into at most [MAX_SLIDER_STOPS] stops = `stops - 1` M3 steps, any
+ * other step stays continuous on the platform and snaps through
+ * `SurfaceModel.snap` (the last stop is `max`, not a multiple of `step`).
+ */
+internal fun sliderRange(min: Double, max: Double, step: Double): SliderRange {
+    val hi = if (max > min) max else min + 1
+    var steps = 0
+    if (step > 0) {
+        val n = (hi - min) / step
+        val stops = Math.round(n)
+        if (stops in 1..MAX_SLIDER_STOPS && kotlin.math.abs(n - stops) < 1e-6) steps = (stops - 1).toInt()
+    }
+    return SliderRange(min.toFloat()..hi.toFloat(), steps)
+}
+
+internal const val MAX_SLIDER_STOPS = 1000L
+
 /**
  * A Slider `track`. Drawn (`Slider/track` `native: false`; geometry mode):
  * the track bar, the `Slider/range` fill and the `Slider/thumb` at the
@@ -233,19 +256,25 @@ internal fun SliderTrack(cx: LeafContext) {
         val primary = cx.themeColor("primary")
         // The unfilled bar: the track recipe's background, else the theme's muted colour.
         val inactive = cx.style.background ?: cx.themeColor("muted")
-        val top = max(hi, lo + 1)
+        val geometry = sliderRange(lo, hi, step)
         val colors = SliderDefaults.colors(
             thumbColor = primary ?: Color.Unspecified,
             activeTrackColor = primary ?: Color.Unspecified,
             inactiveTrackColor = inactive ?: Color.Unspecified,
+            // The steps snap; they draw no tick dots (web / iOS draw none).
+            activeTickColor = Color.Transparent,
+            inactiveTickColor = Color.Transparent,
+            disabledActiveTickColor = Color.Transparent,
+            disabledInactiveTickColor = Color.Transparent,
         )
         val interactions = remember(cx.node.id) { MutableInteractionSource() }
         LeafFrame {
             Slider(
-                value = value.toFloat().coerceIn(lo.toFloat(), top.toFloat()),
+                value = value.toFloat().coerceIn(geometry.range),
                 onValueChange = { model.sliderDrag(index, SurfaceModel.snap(it.toDouble(), lo, hi, step)) },
                 onValueChangeFinished = { model.sliderRelease(index) },
-                valueRange = lo.toFloat()..top.toFloat(),
+                valueRange = geometry.range,
+                steps = geometry.steps,
                 enabled = !disabled,
                 colors = colors,
                 interactionSource = interactions,

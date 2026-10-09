@@ -178,8 +178,10 @@ public final class SurfaceModel {
         self.extensions = ExtensionRegistry.shared
         self.surface = try Surface.withTheme(surfaceId: id, catalogId: options.catalogId, theme: options.theme?.theme, mode: options.mode.rawValue)
         surface.setRounding(on: options.rounding)
+        // A registered extension the core refuses fails the surface (the
+        // host learns why), never a surface silently missing its components.
         for json in extensions.definitions {
-            try? surface.registerExtension(extensionJson: json)
+            try surface.registerExtension(extensionJson: json)
         }
         primitiveTokens = theme?.primitiveTokens(mode: mode) ?? .system
         applySettings()

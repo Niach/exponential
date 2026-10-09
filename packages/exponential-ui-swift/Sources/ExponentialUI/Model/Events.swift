@@ -444,6 +444,13 @@ extension SurfaceModel {
     }
 
     /// `v` snapped to `min + k·step` and clamped.
+    /// The platform slider's range and step: the author's real range
+    /// (only an empty or inverted one widens to `min...min+1`), and no step
+    /// when `step <= 0` (continuous).
+    public static func sliderRange(min: Double, max: Double, step: Double) -> (range: ClosedRange<Double>, step: Double?) {
+        (min...(max > min ? max : min + 1), step > 0 ? step : nil)
+    }
+
     public static func snap(_ v: Double, min: Double, max: Double, step: Double) -> Double {
         var x = step > 0 ? min + ((v - min) / step).rounded() * step : v
         x = Swift.min(Swift.max(x, Swift.min(min, max)), Swift.max(min, max))

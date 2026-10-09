@@ -368,7 +368,9 @@ class SurfaceModel(
 
     init {
         surface.setRounding(options.rounding)
-        for (json in extensions.definitions) runCatching { surface.registerExtension(json) }
+        // A registered extension the core refuses fails the surface (the
+        // host learns why), never a surface silently missing its components.
+        for (json in extensions.definitions) surface.registerExtension(json)
         applySettings()
         refreshEffectiveTheme()
         primitiveTokens = effectiveTheme?.primitiveTokens(mode) ?: PrimitiveTokens.SYSTEM

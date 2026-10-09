@@ -24,7 +24,40 @@ struct OwnedTextField {
     /// Enter submits (a Composer) instead of inserting a newline.
     let submitsOnReturn: Bool
     let accessibilityLabel: String
-    let secure: Bool
+    /// The owner Input's `type` (catalog enum `inputType`; "" = not an
+    /// Input): keyboard, masking, autofill and autocorrection.
+    let inputType: String
+
+    var secure: Bool { inputType == "password" }
+}
+
+/// What an Input `type` asks of the platform field (Compose `keyboardTypeOf`
+/// + autofill hints): the keyboard, the autofill content type, and
+/// autocapitalisation / autocorrection OFF for addresses, numbers and secrets.
+struct InputTraits: Equatable {
+    enum Keyboard: Equatable { case standard, email, url, phone, number, search }
+    enum Content: Equatable { case email, url, phone, password }
+    var keyboard: Keyboard = .standard
+    var content: Content?
+    var autocorrect = true
+    var secure = false
+
+    init(type: String, kind: FieldKind?) {
+        switch type {
+        case "email": keyboard = .email; content = .email; autocorrect = false
+        case "url": keyboard = .url; content = .url; autocorrect = false
+        case "tel": keyboard = .phone; content = .phone; autocorrect = false
+        case "password": content = .password; autocorrect = false; secure = true
+        case "number": keyboard = .number; autocorrect = false
+        case "search": keyboard = .search
+        default: break
+        }
+        switch kind {
+        case .number?: keyboard = .number; autocorrect = false
+        case .search?: keyboard = .search
+        default: break
+        }
+    }
 }
 
 /// The driver calls, routed to the field's model state.
@@ -126,18 +159,9 @@ extension OwnedTextField: UIViewRepresentable {
             field.textColor = color
             field.tintColor = color
             field.isEnabled = !disabled
-            field.isSecureTextEntry = secure
             field.accessibilityLabel = accessibilityLabel
             field.attributedPlaceholder = NSAttributedString(string: placeholder, attributes: [.foregroundColor: placeholderColor, .font: font])
-            switch kind {
-            case .number?:
-                field.keyboardType = .numbersAndPunctuation
-                field.returnKeyType = .done
-            case .search?:
-                field.returnKeyType = .search
-            default:
-                break
-            }
+            Self.apply(InputTraits(type: inputType, kind: kind), to: field)
             let coordinator = context.coordinator
             field.onKey = { name, shift in coordinator.parent.key(name, shift: shift) }
             if wantsWrite, field.text != text { field.text = text }
@@ -158,6 +182,30 @@ extension OwnedTextField: UIViewRepresentable {
             context.coordinator.focusSerial = serial
             DispatchQueue.main.async { if !view.isFirstResponder { view.becomeFirstResponder() } }
         }
+    }
+
+    /// The UIKit side of `InputTraits` (tests read it back).
+    static func apply(_ t: InputTraits, to field: UITextField) {
+        switch t.keyboard {
+        case .standard: field.keyboardType = .default
+        case .email: field.keyboardType = .emailAddress
+        case .url: field.keyboardType = .URL
+        case .phone: field.keyboardType = .phonePad
+        case .number: field.keyboardType = .numbersAndPunctuation
+        case .search: field.keyboardType = .default
+        }
+        switch t.content {
+        case .email?: field.textContentType = .emailAddress
+        case .url?: field.textContentType = .URL
+        case .phone?: field.textContentType = .telephoneNumber
+        case .password?: field.textContentType = .password
+        case nil: field.textContentType = nil
+        }
+        field.returnKeyType = t.keyboard == .search ? .search : (t.keyboard == .number ? .done : .default)
+        field.autocorrectionType = t.autocorrect ? .default : .no
+        field.spellCheckingType = t.autocorrect ? .default : .no
+        field.autocapitalizationType = t.autocorrect ? .sentences : .none
+        field.isSecureTextEntry = t.secure
     }
 
     func sizeThatFits(_ proposal: ProposedViewSize, uiView: UIView, context: Context) -> CGSize? {
@@ -291,6 +339,7 @@ extension OwnedTextField: NSViewRepresentable {
             return scroll
         }
         let field = secure ? NSSecureTextField() : NSTextField()
+        if secure { field.contentType = .password }
         field.delegate = context.coordinator
         field.isBordered = false
         field.drawsBackground = false

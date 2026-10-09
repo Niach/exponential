@@ -76,7 +76,8 @@ public enum ExponentialUI {
     /// `SurfaceModel.register` adds one to a live surface.
     @MainActor
     public static func register(extension json: String, painters: [String: ExtensionPainter]) throws {
-        _ = try extensionErrors(extensionJson: json)
+        let errors = try extensionErrors(extensionJson: json)
+        if !errors.isEmpty { throw UiError.Invalid(reason: "extension: " + errors.joined(separator: "; ")) }
         ExtensionRegistry.shared.register(definition: json)
         for (kind, painter) in painters { ExtensionRegistry.shared.register(kind: kind, painter: painter) }
     }
