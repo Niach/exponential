@@ -8,6 +8,7 @@ import { jsonResponse } from "@/lib/mcp/helpers"
 import { createExponentialMcpServer } from "@/lib/mcp/server"
 import { resolveMcpToolGates } from "@/lib/mcp/gates"
 import { parseMcpSessionHeader } from "@/lib/mcp/session-header"
+import { isSessionWait, withKeepalive } from "@/lib/mcp/session-wait-stream"
 import {
   FULL_ACCESS,
   resolveMcpAccessForGrant,
@@ -102,18 +103,46 @@ async function handle(request: Request) {
     sessionId,
     gates
   )
+  let parsedBody: unknown
+  try {
+    parsedBody = await request.clone().json()
+  } catch {
+    parsedBody = undefined
+  }
+  // FEED-83: a waiting sessions_get answers over SSE so keepalives (and its
+  // progress notifications) flow while it holds; everything else stays JSON.
+  const streaming = isSessionWait(parsedBody)
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
-    enableJsonResponse: true,
+    enableJsonResponse: !streaming,
   })
-
-  try {
-    await server.connect(transport)
-    return await transport.handleRequest(request)
-  } finally {
+  const closeAll = async () => {
     await transport.close().catch(() => {})
     await server.close().catch(() => {})
   }
+
+  let response: Response
+  try {
+    await server.connect(transport)
+    response = await transport.handleRequest(request, {
+      parsedBody: parsedBody ?? undefined,
+    })
+  } catch (e) {
+    await closeAll()
+    throw e
+  }
+  if (
+    !streaming ||
+    !response.body ||
+    !response.headers.get(`content-type`)?.includes(`text/event-stream`)
+  ) {
+    await closeAll()
+    return response
+  }
+  return new Response(withKeepalive(response.body, closeAll), {
+    status: response.status,
+    headers: response.headers,
+  })
 }
 
 export const Route = createFileRoute(`/api/mcp`)({
