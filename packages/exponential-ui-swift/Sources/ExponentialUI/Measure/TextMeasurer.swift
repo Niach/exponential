@@ -211,7 +211,7 @@ public enum TextFonts {
 public enum TextShaper {
     /// The attributes a text style renders with.
     public static func attributes(_ ts: TextStyle, italic: Bool = false, family: String? = nil, align: NSTextAlignment = .natural, lineBreak: NSLineBreakMode = .byWordWrapping) -> [NSAttributedString.Key: Any] {
-        let font = TextFonts.platformFont(family: family ?? ts.fontFamily, weight: ts.fontWeight, size: ts.fontSize, italic: italic)
+        let font = TextFonts.platformFont(family: family ?? ts.fontFamily, weight: ts.fontWeight, size: ts.fontSize, italic: italic || ts.italic)
         let p = NSMutableParagraphStyle()
         p.minimumLineHeight = ts.lineHeight
         p.maximumLineHeight = ts.lineHeight
@@ -223,7 +223,10 @@ public enum TextShaper {
         // minus the descender when min/max heights pin the line, so shift it.
         let natural = font.ascender - font.descender
         let offset = max(0, (ts.lineHeight - natural) / 2)
-        return [.font: font, .paragraphStyle: p, .baselineOffset: 0, .init("ExponentialUI.halfLeading"): offset]
+        var attrs: [NSAttributedString.Key: Any] = [.font: font, .paragraphStyle: p, .baselineOffset: 0, .init("ExponentialUI.halfLeading"): offset]
+        // CSS `letter-spacing`: extra advance after every character.
+        if let ls = ts.letterSpacing, ls != 0 { attrs[.kern] = ls }
+        return attrs
     }
 
     /// `text` as an attributed string in `ts`.
@@ -248,13 +251,16 @@ public enum TextShaper {
     /// The advance width of ONE line of `text` (no newlines) in `ts`.
     public static func width(_ text: String, _ ts: TextStyle, italic: Bool = false) -> CGFloat {
         if text.isEmpty { return 0 }
-        let key = "\(ts.fontFamily ?? "")|\(ts.fontWeight)|\(ts.fontSize)|\(italic)|\(text)"
+        let italic = italic || ts.italic
+        let spacing = ts.letterSpacing ?? 0
+        let key = "\(ts.fontFamily ?? "")|\(ts.fontWeight)|\(ts.fontSize)|\(italic)|\(spacing)|\(text)"
         lock.lock()
         if let hit = widths[key] { lock.unlock(); return hit }
         lock.unlock()
         let font = TextFonts.font(family: ts.fontFamily, weight: ts.fontWeight, size: ts.fontSize, italic: italic)
         let line = CTLineCreateWithAttributedString(NSAttributedString(string: text, attributes: [NSAttributedString.Key(kCTFontAttributeName as String): font]))
-        let w = layoutUnit(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)))
+        // Letter spacing follows every character (CSS), the last one too.
+        let w = layoutUnit(CGFloat(CTLineGetTypographicBounds(line, nil, nil, nil)) + spacing * CGFloat(text.count))
         lock.lock()
         if widths.count > 8192 { widths.removeAll() }
         widths[key] = w
@@ -444,9 +450,10 @@ public enum TextShaper {
     }
 
     /// Text content `(w, h)` at an inner wrap width (nil = max-content,
-    /// 0 = min-content), the gpui `para` rule: a one-line text shrinks to 0
-    /// at min-content and never wraps; `lines` clamps the line count.
+    /// 0 = min-content): a one-line text never wraps (its min-content is the
+    /// whole line); `lines` clamps the line count.
     public static func measure(_ text: String, _ ts: TextStyle, wrap: CGFloat?, lines clampLines: Int?) -> CGSize {
+        let text = ts.shown(text)
         let single = clampLines == 1
         let clamp = clampLines.flatMap { $0 > 0 ? $0 : nil }
         let lh = ts.lineHeight
@@ -460,7 +467,9 @@ public enum TextShaper {
             let n = single ? 1 : lines(text, ts, wrap: nil).count
             return CGSize(width: maxContent(text, ts), height: height(n))
         case .some(let w) where w <= 0:
-            if single { return CGSize(width: 0, height: lh) }
+            // A one-line (nowrap) text cannot break: its min-content is its
+            // whole line, as CSS (round 2; Compose and the web).
+            if single { return CGSize(width: maxContent(text, ts), height: lh) }
             let m = minContent(text, ts)
             return CGSize(width: m, height: height(lines(text, ts, wrap: m).count))
         case .some(let w):
@@ -507,10 +516,21 @@ struct MarkdownShaper: MarkdownTextMeasure {
     }
 
     func width(_ inlines: [MarkdownInline], _ spec: MarkdownTextSpec) -> CGFloat {
+        // Each hard line of the RICH runs (bold / code / italic keep their
+        // faces): a plain re-shaping measured a bold paragraph narrower than
+        // it lays out, so it wrapped at its own max-content width.
         let a = TextShaper.runs(inlines, spec, mono: mono, ink: .black, link: .black, codeBackground: nil)
-        return a.string.components(separatedBy: "\n").map { line in
-            TextShaper.lineWidth(TextShaper.runs([MarkdownInline(text: line, code: inlines.first?.code ?? false)], spec, mono: mono, ink: .black, link: .black, codeBackground: nil))
-        }.max() ?? 0
+        let ns = a.string as NSString
+        var widest: CGFloat = 0
+        var start = 0
+        while start <= ns.length {
+            let nl = ns.range(of: "\n", options: [], range: NSRange(location: start, length: ns.length - start))
+            let end = nl.location == NSNotFound ? ns.length : nl.location
+            widest = max(widest, TextShaper.lineWidth(a.attributedSubstring(from: NSRange(location: start, length: end - start))))
+            if nl.location == NSNotFound { break }
+            start = end + 1
+        }
+        return widest
     }
 
     func widestWord(_ inlines: [MarkdownInline], _ spec: MarkdownTextSpec) -> CGFloat {

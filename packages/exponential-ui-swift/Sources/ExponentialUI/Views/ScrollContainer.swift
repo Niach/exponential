@@ -21,8 +21,10 @@ struct ScrollContainer: View {
 
     var body: some View {
         let info = model.scroll(index)
-        let horizontal = info?.scrollsX ?? false
-        let vertical = info?.scrollsY ?? true
+        // A windowed List scrolls along its own axis (round 2: either one).
+        let listX = model.lists[node.id].map { $0.windowed && $0.horizontal } ?? false
+        let horizontal = info?.scrollsX ?? listX
+        let vertical = info?.scrollsY ?? !listX
         let axes: Axis.Set = horizontal && vertical ? [.horizontal, .vertical] : (horizontal ? .horizontal : .vertical)
         let content = CGSize(
             width: horizontal ? max(model.contentWidth(index), size.width) : size.width,

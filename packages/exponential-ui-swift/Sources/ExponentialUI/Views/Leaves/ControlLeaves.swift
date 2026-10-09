@@ -254,7 +254,7 @@ struct ToggleGroupLeaf: View {
         // label is drawn by the shaper at its measured width, so the item
         // painted is the item measured (a SwiftUI `Text` sized itself in
         // its own font and truncated "Board" to "Boa…").
-        let ts = TextStyle(fontSize: item.px("fontSize") ?? cx.textStyle.fontSize, fontWeight: Int(item.props.num("fontWeight") ?? 500), lineHeight: cx.textStyle.lineHeight, fontFamily: item.fontFamily)
+        let ts = TextStyle(fontSize: item.px("fontSize") ?? cx.textStyle.fontSize, fontWeight: Int(item.props.num("fontWeight") ?? 500), lineHeight: cx.textStyle.lineHeight, fontFamily: item.fontFamily, letterSpacing: cx.textStyle.letterSpacing, textTransform: cx.textStyle.textTransform)
         let border = item.px("borderWidth") ?? 0
         let fill = props.flag("fill")
         let disabledAll = cx.model.isDisabled(cx.index)
@@ -269,7 +269,7 @@ struct ToggleGroupLeaf: View {
                 Button {
                     cx.model.toggleGroupSelect(cx.index, value: value)
                 } label: {
-                    HStack(spacing: 6) {
+                    HStack(spacing: item.px("gap") ?? 0) {
                         if let icon = it["icon"]?.string {
                             ConceptIcon(name: icon, size: 16, color: st.color ?? cx.ink, model: cx.model)
                         }

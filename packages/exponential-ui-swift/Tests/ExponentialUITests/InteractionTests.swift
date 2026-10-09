@@ -194,7 +194,7 @@ final class InteractionTests: XCTestCase {
         let wrapped = TextShaper.measure("Hello world again and again", ts, wrap: 60, lines: nil)
         XCTAssertGreaterThanOrEqual(wrapped.height, 40)
         XCTAssertEqual(wrapped.height.truncatingRemainder(dividingBy: 20), 0, "n lines = n × lineHeight")
-        XCTAssertEqual(TextShaper.measure("Hello world", ts, wrap: 0, lines: 1).width, 0, "a one-line text shrinks to nothing at min-content")
+        XCTAssertEqual(TextShaper.measure("Hello world", ts, wrap: 0, lines: 1).width, TextShaper.maxContent("Hello world", ts), "a one-line text never breaks: its min-content is the whole line (round 2)")
         XCTAssertEqual(TextShaper.measure("Hello world", ts, wrap: 0, lines: nil).width, TextShaper.minContent("Hello world", ts))
         XCTAssertEqual(TextShaper.measure("a\nb\nc", ts, wrap: nil, lines: 2).height, 40, "clamped to the lines prop")
         let c = ControlBox(paddingHorizontal: 16, paddingVertical: 0, borderWidth: 1, gap: 8, minWidth: 80, minHeight: nil, width: nil, height: 36)

@@ -75,6 +75,11 @@ public final class SurfaceModel {
     public private(set) var lists: [String: ListInfo] = [:]
     /// Scroll containers by slot: the core's offsets and content sizes.
     public private(set) var scrolls: [Int: ScrollInfo] = [:]
+    /// Round 2: `position: sticky` nodes and pinned List section headers
+    /// this pass, by slot: paint the node and its subtree moved by this.
+    public private(set) var sticky: [Int: CGSize] = [:]
+    /// The host's scroll of the whole surface (`setSurfaceScroll`).
+    @ObservationIgnored public internal(set) var surfaceScroll: CGPoint = .zero
     /// The open toasts (the model runs their timers).
     public private(set) var toasts: [ToastInfo] = []
     /// `ltr` | `rtl` (the locale's, unless the author set `direction`).
@@ -150,6 +155,8 @@ public final class SurfaceModel {
     @ObservationIgnored var stringsKey: String?
     @ObservationIgnored var numberFormatters: [String: NumberFormatter] = [:]
     @ObservationIgnored var dateFormatters: [String: DateFormatter] = [:]
+    /// The surface Formatter the core formats through (`FoundationFormatter`).
+    @ObservationIgnored public internal(set) var formatter: FoundationFormatter?
     /// Tests and geometry suites: lay out with the core's fixed fake
     /// measure (8 px per character, 20 px lines) instead of TextKit.
     @ObservationIgnored public var fixedMeasure = false
@@ -327,6 +334,9 @@ public final class SurfaceModel {
         var sc: [Int: ScrollInfo] = [:]
         for s in out.scrolls { sc[Int(s.index)] = ScrollInfo(s) }
         if sc != scrolls { scrolls = sc }
+        var pins: [Int: CGSize] = [:]
+        for p in out.sticky { pins[Int(p.index)] = CGSize(width: CGFloat(p.dx), height: CGFloat(p.dy)) }
+        if pins != sticky { sticky = pins }
         publishScrollJumps()
         if out.direction != direction { direction = out.direction }
         if out.breakpoint != breakpoint { breakpoint = out.breakpoint }
@@ -447,7 +457,7 @@ public final class SurfaceModel {
         if let changed {
             for i in changed where i < st.count {
                 st[i] = surface.visual(index: UInt32(i)).map(PaintStyle.init) ?? PaintStyle()
-                if nodes[i].isLeaf, let t = surface.textStyle(index: UInt32(i)) { ts[i] = TextStyle(t) } else { ts[i] = nil }
+                if nodes[i].isLeaf, let t = surface.textStyle(index: UInt32(i)) { ts[i] = TextStyle(t, defaultFamily: theme?.sansFamily) } else { ts[i] = nil }
             }
         } else {
             st = surface.visuals().map(PaintStyle.init)
@@ -456,7 +466,7 @@ public final class SurfaceModel {
             // The core resolves a leaf's text style DURING the pass (the
             // recipe's font): read after it, never from pre-pass nodes.
             for n in nodes where n.isLeaf && !n.removed {
-                if let t = surface.textStyle(index: UInt32(n.index)) { ts[n.index] = TextStyle(t) }
+                if let t = surface.textStyle(index: UInt32(n.index)) { ts[n.index] = TextStyle(t, defaultFamily: theme?.sansFamily) }
             }
         }
         if changed == nil || changed?.isEmpty == false || inks.count != nodes.count {
@@ -578,7 +588,7 @@ public final class SurfaceModel {
 
     /// The content height a scrolling container shows (its children's extent).
     public func contentHeight(_ index: Int) -> CGFloat {
-        if let n = node(index), let l = lists[n.id], l.windowed { return l.contentHeight }
+        if let n = node(index), let l = lists[n.id], l.windowed, !l.horizontal { return l.contentHeight }
         if let s = scrolls[index] { return s.contentSize.height }
         let origin = frame(index).origin
         return (children[safe: index] ?? []).map { frame($0).maxY - origin.y }.max() ?? 0
@@ -586,6 +596,8 @@ public final class SurfaceModel {
 
     /// The content width a scrolling container shows.
     public func contentWidth(_ index: Int) -> CGFloat {
+        // A horizontal windowed list (round 2): the core's content extent is its width.
+        if let n = node(index), let l = lists[n.id], l.windowed, l.horizontal { return l.contentHeight }
         if let s = scrolls[index] { return s.contentSize.width }
         let origin = frame(index).origin
         return (children[safe: index] ?? []).map { frame($0).maxX - origin.x }.max() ?? 0

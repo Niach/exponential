@@ -323,10 +323,19 @@ final class RealFontConformanceTests: XCTestCase {
             var node = DumpNode(id: n.id, component: n.component, part: n.part, parent: n.parent.flatMap { ids[$0] }, x: r2(f.minX - root.minX), y: r2(f.minY - root.minY), w: r2(f.width), h: r2(f.height))
             if n.isLeaf, let text = leafText(JSONValue.parse(n.propsJson).object ?? [:]) {
                 if let ts = m.surface.textStyle(index: n.index), ts.lineHeight > 0, textComponents.contains(n.component) {
+                    // Round 2 (layout boxes): the lines the painter lays the
+                    // text out in at its frame WIDTH, as Compose's dump (the
+                    // web counts its text's line boxes; a stretched box, an
+                    // overlay trigger as tall as its row, is not more lines).
                     let v = i < visuals.count ? visuals[i] : nil
-                    let pad = v?.padding.map { CGFloat($0[0] + $0[2]) } ?? 0
-                    let border = v.flatMap { v in v.borderWidths.map { CGFloat($0[0] + $0[2]) } ?? v.borderWidth.map { 2 * CGFloat($0) } } ?? 0
-                    node.lines = max(Int(((f.height - pad - border) / CGFloat(ts.lineHeight)).rounded()), 1)
+                    let padX = v?.padding.map { CGFloat($0[1] + $0[3]) } ?? 0
+                    let borderX = v.flatMap { v in v.borderWidths.map { CGFloat($0[1] + $0[3]) } ?? v.borderWidth.map { 2 * CGFloat($0) } } ?? 0
+                    let props = JSONValue.parse(n.propsJson).object ?? [:]
+                    let raw = props["text"]?.string ?? props["label"]?.string ?? text
+                    let clamp = n.lines.map { Int($0) }
+                    let style = m.textStyle(i)
+                    let h = raw.isEmpty ? 0 : TextShaper.measure(raw, style, wrap: clamp == 1 ? nil : max(1, f.width - padX - borderX), lines: clamp).height
+                    node.lines = max(Int((h / CGFloat(ts.lineHeight)).rounded()), 1)
                     node.lh = r2(CGFloat(ts.lineHeight))
                 }
                 node.text = text
@@ -628,7 +637,7 @@ final class RealFontConformanceTests: XCTestCase {
         let geist400 = TextFonts.font(family: "Geist", weight: 400, size: 14)
         XCTAssertEqual(CTFontCopyPostScriptName(geist500) as String, CTFontCopyPostScriptName(geist400) as String)
         // Substitutes and generics map onto the set, nothing else.
-        XCTAssertEqual(CTFontCopyFamilyName(TextFonts.font(family: "Nunito", weight: 400, size: 14)) as String, "Inter")
+        XCTAssertEqual(CTFontCopyFamilyName(TextFonts.font(family: "Nunito", weight: 400, size: 14)) as String, "Nunito")
         XCTAssertEqual(CTFontCopyFamilyName(TextFonts.font(family: "ui-monospace", weight: 400, size: 14)) as String, "JetBrains Mono")
         XCTAssertEqual(CTFontCopyFamilyName(TextFonts.font(family: nil, weight: 400, size: 14)) as String, "Inter")
         XCTAssertEqual(CTFontCopyFamilyName(TextFonts.font(family: "Comic Sans MS", weight: 400, size: 14)) as String, "Inter")

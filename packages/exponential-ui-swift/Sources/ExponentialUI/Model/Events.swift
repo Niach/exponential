@@ -529,6 +529,52 @@ extension SurfaceModel {
         }
     }
 
+    /// Round 2: scroll List / Table `id` so the item at DATA index `index`
+    /// shows (`start | center | end | nearest`).
+    public func scrollToIndex(id: String, index: Int, align: String? = nil) {
+        if layoutNeeded { pass() }
+        dispatch(surface.scrollToIndex(id: id, index: UInt32(max(0, index)), align: align))
+    }
+
+    /// Round 2: the host viewport's scroll of the whole surface (pt):
+    /// unbounded lists window against it, sticky nodes pin against it.
+    public func setSurfaceScroll(_ offset: CGPoint) {
+        guard offset != surfaceScroll else { return }
+        surfaceScroll = offset
+        if surface.setSurfaceScroll(x: Float(offset.x), y: Float(offset.y)) {
+            nodesDirty = true
+            layoutNeeded = true
+            pass()
+        }
+    }
+
+    /// A Resizable handle drag (`phase` = start | move | end, `delta` = pt
+    /// along the group's axis since the drag STARTED): the core resizes
+    /// from the sizes at the start (round 2 §1).
+    public func resizeDrag(_ index: Int, phase: String, delta: CGFloat) {
+        fire(index, "drag", payload: .object(["phase": .string(phase), "delta": .number(Double(delta))]))
+    }
+
+    /// A key on a node the core handles itself (a Resizable handle: the
+    /// arrows, Home, End, Enter).
+    public func nodeKey(_ index: Int, key: String) {
+        fire(index, "key", payload: .object(["key": .string(key)]))
+    }
+
+    /// Round 2: pin the clock relative times read (epoch ms; nil = the wall clock).
+    public func setClock(nowMs: Double?) {
+        surface.setClock(nowMs: nowMs)
+        invalidate(structure: false)
+    }
+
+    /// Re-bind the clock-dependent text (`formatRelativeTime` without `now`):
+    /// `ExponentialSurface` calls it once a minute while `usesClock`.
+    public func tick() {
+        guard surface.usesClock() else { return }
+        surface.tick()
+        invalidate(structure: false)
+    }
+
     // MARK: - host → surface commands (`catalog/a11y.json` `commands`)
 
     /// `focus {id}`, `announce {text, live}`, `scrollIntoView {id}`.
@@ -539,6 +585,10 @@ extension SurfaceModel {
         case let .focus(id): json = .object(["focus": .object(["id": .string(id)])])
         case let .announce(text, live): json = .object(["announce": .object(["text": .string(text), "live": .string(live)])])
         case let .scrollIntoView(id): json = .object(["scrollIntoView": .object(["id": .string(id)])])
+        case let .scrollToIndex(id, index, align):
+            var o: [String: JSONValue] = ["id": .string(id), "index": .number(Double(index))]
+            if let align { o["align"] = .string(align) }
+            json = .object(["scrollToIndex": .object(o)])
         }
         guard let events = try? surface.commandJson(commandJson: json.json) else { return }
         dispatch(events)
@@ -659,4 +709,7 @@ public enum SurfaceCommand: Sendable, Equatable {
     case announce(text: String, live: String = "polite")
     /// Scroll every scrolling ancestor so the node is visible.
     case scrollIntoView(id: String)
+    /// Round 2: bring item `index` (DATA order) of List / Table `id` into
+    /// view; `align` = `start | center | end | nearest` (nil = nearest).
+    case scrollToIndex(id: String, index: Int, align: String?)
 }

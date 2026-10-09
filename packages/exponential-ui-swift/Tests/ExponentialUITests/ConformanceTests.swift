@@ -505,6 +505,16 @@ final class ConformanceTests: XCTestCase {
         case "host-transport": try transportSuite()
         case "host-policy": try policySuite()
         case "host-router": try routerSuite()
+        // Manifest v2 (round 2): `Round2Suites`.
+        case "bind": try Round2Suites.bind()
+        case "style-conditions": try Round2Suites.styleConditions()
+        case "code-tokens": try Round2Suites.codeTokens()
+        case "format": try Round2Suites.format()
+        case "template-items": try Round2Suites.templateItems()
+        case "text-direction": try Round2Suites.textDirection()
+        case "resizable": try Round2Suites.resizable()
+        case "virtual-list": try Round2Suites.virtualList()
+        case "animations": try Round2Suites.animations()
         default: [("suite \(id)", "the runner does not know the suite \(id): add it")]
         }
     }

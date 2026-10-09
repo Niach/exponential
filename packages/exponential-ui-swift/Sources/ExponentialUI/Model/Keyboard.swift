@@ -194,6 +194,14 @@ extension SurfaceModel {
         }
         guard let n = focused else { return false }
         if n.isTextField { return fieldKey(n.index, key: key, shift: shift) }
+        // A Resizable handle (round 2 §1): the core moves it (arrows by
+        // `resizeStep`, Home / End to the limits, Enter collapses).
+        if n.ownerComponent == "Resizable", n.part == "handle" {
+            let names = ["left": "ArrowLeft", "right": "ArrowRight", "up": "ArrowUp", "down": "ArrowDown", "home": "Home", "end": "End", "enter": "Enter", "return": "Enter"]
+            guard let k = names[key] else { return false }
+            nodeKey(n.index, key: k)
+            return true
+        }
         let owner = n.ownerComponent ?? ""
         let rtl = isRTL
         let stepH = Self.arrowStep(key, rtl: rtl, vertical: false)

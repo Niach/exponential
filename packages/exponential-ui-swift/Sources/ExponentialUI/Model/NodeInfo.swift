@@ -43,6 +43,11 @@ public struct NodeInfo: Identifiable, Sendable {
     /// A freed slot (a tombstone).
     public let removed: Bool
     public let macroName: String?
+    /// The node restyles under the pointer (round 2 `FfiNode.hoverStyled`):
+    /// the painter tracks a mouse over it and reports the hover.
+    public let hoverStyled: Bool
+    /// The core holds the pointer's `hover` on it (`FfiNode.hovered`).
+    public let hovered: Bool
 
     init(_ n: FfiNode) {
         index = Int(n.index)
@@ -72,6 +77,8 @@ public struct NodeInfo: Identifiable, Sendable {
         live = n.live
         removed = n.removed
         macroName = n.macroName
+        hoverStyled = n.hoverStyled && !n.removed
+        hovered = n.hovered
     }
 
     public var isContainer: Bool { !isLeaf }
@@ -285,6 +292,10 @@ public struct ListInfo: Sendable, Equatable {
     public let end: Int
     public let count: Int
     public let windowed: Bool
+    /// Round 2: the list windows on x (`contentHeight` = the content WIDTH).
+    public let horizontal: Bool
+    /// The content extent along the list's axis.
+    public var contentExtent: CGFloat { contentHeight }
 
     init(_ l: FfiList) {
         id = l.id
@@ -294,6 +305,7 @@ public struct ListInfo: Sendable, Equatable {
         end = Int(l.end)
         count = Int(l.count)
         windowed = l.windowed
+        horizontal = l.horizontal
     }
 }
 

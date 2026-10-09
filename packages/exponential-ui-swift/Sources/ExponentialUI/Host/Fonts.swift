@@ -99,25 +99,50 @@ public enum ExponentialUIFonts {
 }
 
 /// A resolved text style (the core's `TextStyle`): size, weight, line
-/// height and an optional family NAME.
+/// height, an optional family NAME and (round 2) letter spacing (pt, the
+/// font scale applied), `textTransform` and an italic `fontStyle`.
 public struct TextStyle: Equatable, Hashable, Sendable {
     public var fontSize: CGFloat
     public var fontWeight: Int
     public var lineHeight: CGFloat
     public var fontFamily: String?
+    /// Extra advance after every character (CSS `letter-spacing`); nil = none.
+    public var letterSpacing: CGFloat?
+    /// `uppercase | lowercase | capitalize`; nil = none.
+    public var textTransform: String?
+    /// `fontStyle: italic`.
+    public var italic: Bool
 
-    public init(fontSize: CGFloat, fontWeight: Int, lineHeight: CGFloat, fontFamily: String?) {
+    public init(fontSize: CGFloat, fontWeight: Int, lineHeight: CGFloat, fontFamily: String?, letterSpacing: CGFloat? = nil, textTransform: String? = nil, italic: Bool = false) {
         self.fontSize = fontSize
         self.fontWeight = fontWeight
         self.lineHeight = lineHeight
         self.fontFamily = fontFamily
+        self.letterSpacing = letterSpacing
+        self.textTransform = textTransform
+        self.italic = italic
     }
 
-    init(_ f: FfiTextStyle) {
+    /// `defaultFamily` = the theme's sans family: a part whose recipe names
+    /// no family inherits the theme's (CSS inheritance), never the system font.
+    init(_ f: FfiTextStyle, defaultFamily: String? = nil) {
         fontSize = CGFloat(f.fontSize)
         fontWeight = Int(f.fontWeight)
         lineHeight = CGFloat(f.lineHeight)
-        fontFamily = f.fontFamily
+        fontFamily = f.fontFamily ?? defaultFamily
+        letterSpacing = f.letterSpacing.flatMap { $0 == 0 ? nil : CGFloat($0) }
+        textTransform = f.textTransform.flatMap { $0 == "none" || $0.isEmpty ? nil : $0 }
+        italic = f.fontStyle == "italic"
+    }
+
+    /// `text` as this style shows it (`textTransform`, CSS semantics).
+    public func shown(_ text: String) -> String {
+        switch textTransform {
+        case "uppercase": text.uppercased()
+        case "lowercase": text.lowercased()
+        case "capitalize": text.split(separator: " ", omittingEmptySubsequences: false).map { w in w.prefix(1).uppercased() + w.dropFirst() }.joined(separator: " ")
+        default: text
+        }
     }
 
     public static let body = TextStyle(fontSize: 14, fontWeight: 400, lineHeight: 20, fontFamily: nil)

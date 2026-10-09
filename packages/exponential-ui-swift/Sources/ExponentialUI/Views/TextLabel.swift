@@ -166,7 +166,7 @@ extension TextLabel {
         #else
         attrs[.foregroundColor] = NSColor(color)
         #endif
-        self.init(attributed: NSAttributedString(string: text, attributes: attrs), lineHeight: ts.lineHeight, lines: lines)
+        self.init(attributed: NSAttributedString(string: ts.shown(text), attributes: attrs), lineHeight: ts.lineHeight, lines: lines)
     }
 
     /// The runs with the inherited text keys applied (contract §2):

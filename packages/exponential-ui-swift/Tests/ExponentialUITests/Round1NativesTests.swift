@@ -172,11 +172,12 @@ final class Round1NativesTests: XCTestCase {
         let box = ControlBox(paddingHorizontal: 12, borderWidth: 1, height: 36)
         let trigger = measurer.measureLeaf(LeafRequest(component: "Select", part: "trigger", props: ["text": .string("A")], control: box), wrap: nil)
         XCTAssertEqual(trigger.width, TextShaper.width("A", ts) + GeometrySpacing.value("sm") + 16 + 26, accuracy: 0.01)
-        // A DropdownMenu's own trigger ends in the selector glyph (+ gap + 16).
+        // A DropdownMenu's own trigger is an outline button: icon + label, no
+        // chevron (round-2 contract §7).
         let menuBox = ControlBox(paddingHorizontal: 12, borderWidth: 1, gap: 4, height: 32)
         let menu = measurer.measureLeaf(LeafRequest(component: "Button", part: "trigger", props: ["label": .string("More")], control: menuBox), wrap: nil)
         let button = measurer.measureLeaf(LeafRequest(component: "Button", props: ["label": .string("More")], control: menuBox), wrap: nil)
-        XCTAssertEqual(menu.width, button.width + 20, accuracy: 0.01)
+        XCTAssertEqual(menu.width, button.width, accuracy: 0.01)
         XCTAssertEqual(trigger.height, 36)
         XCTAssertEqual(trigger.baseline!, 8 + SurfaceMeasurer.baseline(ts), accuracy: 0.01)
         // Inline fields: text or placeholder + caret, the search glyph.

@@ -34,7 +34,9 @@ final class SnapshotTests: XCTestCase {
                 if let p = n.part { row["part"] = .string(p) }
                 if n.hidden { row["hidden"] = .bool(true) }
                 if let bg = m.style(n.index).backgroundHex { row["bg"] = .string(bg) }
-                if s.borderWidth > 0 { row["border"] = .number(Double(s.borderWidth)) }
+                // The core's uniform width (Compose's `boxStyle.borderWidth`): a
+                // per-side border (an AppBar's bottom rule) records none.
+                if let b = s.coreBorderWidth, b > 0 { row["border"] = .number(Double(b)) }
                 if s.radius > 0 { row["radius"] = .number(Double(s.radius)) }
                 if let o = s.opacity { row["opacity"] = .number(o) }
                 if !n.partStates.isEmpty { row["states"] = .array(n.partStates.map { .string($0) }) }

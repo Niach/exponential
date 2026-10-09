@@ -93,25 +93,19 @@ With these, every text node whose box is the text's own matches Chromium
 within 1 px across the matrix; the remaining text-component divergences are
 cascades (a sibling's width in a flex row: badges, list metas).
 
-## Today (the budget after the VAPP-100 integration)
+## Today (the budget after the round-2 adoption, VAPP-99/100)
 
-48 cases: size 1196 · position 6728 · wrap 0 · only web 24 · only swift 2640
-(gpui's `fixtures/conformance-known.json`: size 1564 · position 6402 · only
-web 24). `responsive/*` equals gpui case for case. `kitchen-sink/*`: size
-38–57 per case (gpui 55–71); position 253–327 (gpui 242–309): the vertical
-cascade of the core-side origins below runs further down the page now that
-more nodes match. The origins left, grouped:
+48 cases: size 0 · position 0 · wrap 0 · origins 0 · only swift 0; only web
+6–8 per kitchen-sink case (174 in all): the web's paint-only parts the core
+does not lay out (`media-img.fallback`, `accordion.count.1`, `ring.label`,
+`video.controls`, `audio.track`, `audio.controls`, `chip-user.image.fallback`,
+`page-1.fallback`). The budget equals Compose's
+(`ui-compose/src/test/conformance-known.json`) case for case.
 
-| origin | diagnosis | owner |
-|---|---|---|
-| `chart`, `chart-line`, `chart-donut` 160/200/180 vs 208/224/204 | the core pins the Chart's `height` style to the PLOT height (`layout_tree/misc.rs`); the web adds the title + legend rows | core |
-| `form-volume` (Slider) 30 vs 40 | the `track` gets the recipe's bar `height: 6` as its frame; the web's slider root is the thumb's 16 | core |
-| `form-plan` (Radio) 44 vs 48 | the items row gap | core / recipe |
-| `page-1` (Image) 180 vs 182.25 | Image/Video never get a height-for-width question (`measure.rs` lists them as fixed) | core |
-| `main-md` (Markdown) 88 vs 68 at ≥ 900 | the measurer answers 68 at the final width; the frame keeps a height asked at a narrower width | core |
-| `toggles` (ToggleGroup) full width vs 132, `sparkline` 96 vs 57, `tree-guides`, `resp-drawer` | stretch / shrink of a leaf in its row | core |
-| `hdr-badge`, `nav-inbox.count`, `pill-1` | the badge / pill 32–36 px minimum the web does not apply | core / recipe |
-| `table` rows, `nf-files`, `code` | part heights of the core-built natives | core / recipe |
-
-`only swift` (110 per kitchen-sink case) = parts the DOM paints without
-`data-xui-id`, as for gpui.
+The round-2 rules that closed the last origins: a one-line text's
+min-content is its whole line; a part without a recipe family inherits the
+theme's sans family; a Markdown max-content width shapes the rich runs
+(bold kept); Tabs / Accordion counts and the ToggleGroup item gap as §7;
+AudioPlayer `$control.row`; TreeGuides without a height; the carousel dots
+one dot tall; no chevron on a DropdownMenu's own trigger; the dump counts a
+text's lines at its frame WIDTH (a stretched box is not more lines).

@@ -234,7 +234,7 @@ struct A11yInfo: Equatable {
         case ("Image", _), ("Avatar", _), ("Video", _), ("Chart", _):
             return n.accessibilityLabel ?? "image"
         case ("Spinner", _), ("Ring", _):
-            return n.accessibilityLabel ?? "Loading"
+            return n.accessibilityLabel ?? model.builtinString("loading")
         default:
             return n.accessibilityLabel
         }

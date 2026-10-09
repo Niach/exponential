@@ -118,7 +118,9 @@ private struct NodeBody: View {
         let mirrorIcon = node.component == "Icon" && RTLGlyphs.mirrors(node.props.str("name"), rtl: model.isRTL)
         // The pointer (gpui `interactive`): pressables, focusables, fields,
         // hover triggers and boxes with a transition report `hover`.
-        let hovers = interactive && (node.pressable || node.isFocusable || node.triggerFor != nil || style.transition != nil)
+        // Round 2: the core marks nodes that restyle under the pointer
+        // (`hoverStyled`: a `:hover` block or a recipe `hover` rule).
+        let hovers = interactive && (node.pressable || node.isFocusable || node.triggerFor != nil || node.hoverStyled || style.transition != nil)
         Group {
             if pressable {
                 Button {
@@ -136,9 +138,13 @@ private struct NodeBody: View {
         .modifier(TooltipLongPress(node: node, model: model))
         .modifier(NativeHooks(node: node, model: model))
         .modifier(HoverReporting(id: node.id, model: model, on: hovers))
+        .modifier(ResizeHandleModifier(node: node, model: model, enabled: interactive && !model.isDisabled(index)))
         .modifier(CursorModifier(cursor: interactive ? style.cursor : nil))
         .modifier(AccessibilityModifier(node: node, model: model, style: style))
         .modifier(PaintOnly(style: style, animation: animation, mirror: mirrorIcon))
+        // Round 2: keyframe animations from the core's frames, outside the
+        // node's own transform; reduced motion = the rest frame.
+        .modifier(KeyframeAnimationModifier(animation: style.animation, reducedMotion: model.reducedMotion, size: size, bandColor: style.background ?? model.color("muted")))
         .environment(\.xuiGlyphMirrored, mirrorIcon)
         .transformEnvironment(\.xuiTextPaint) { $0 = $0.merged(style) }
     }
@@ -167,6 +173,7 @@ private struct NodeBody: View {
             box
                 .frame(width: size.width, height: size.height, alignment: .topLeading)
                 .paintedBox(style, size: size)
+                .modifier(BackdropBlurModifier(style: style, size: size))
                 .modifier(SkeletonPulse(on: node.component == "Skeleton"))
                 .modifier(ClipModifier(style: style, size: size))
         }
@@ -229,10 +236,63 @@ struct ChildrenLayout: View {
         return FrameLayout(size: size, frames: rel) {
             ForEach(kids, id: \.self) { k in
                 NodeView(index: k)
+                    // Round 2: a sticky node / pinned section header moves by the core's offset.
+                    .modifier(StickyModifier(offset: model.sticky[k]))
                     .layoutValue(key: NodeIndexKey.self, value: k)
                     // VoiceOver reads in PAINT order (slots are not pre-order).
                     .accessibilitySortPriority(model.accessibilityPriority(k))
             }
+        }
+    }
+}
+
+/// A Resizable `handle` (round 2 §1): a drag along the group's axis,
+/// reported as `drag {phase, delta}` in pt of pointer travel since the drag
+/// STARTED (the core resizes from the sizes at the start), measured in
+/// GLOBAL coordinates (the handle moves with the split after each `move`);
+/// an 8 pt hit area centred on the hairline; VoiceOver adjusts it with the
+/// core's keys.
+struct ResizeHandleModifier: ViewModifier {
+    let node: NodeInfo
+    let model: SurfaceModel
+    let enabled: Bool
+    @State private var dragging = false
+
+    func body(content: Content) -> some View {
+        if node.ownerComponent == "Resizable", node.part == "handle", enabled {
+            // `orientation` = the LINE's: a horizontal line moves along y.
+            let alongY = node.props.str("orientation") == "horizontal"
+            let index = node.index
+            let hit: CGFloat = 8
+            content
+                .contentShape(Rectangle().inset(by: -hit / 2))
+                .gesture(
+                    DragGesture(minimumDistance: 0, coordinateSpace: .global)
+                        .onChanged { g in
+                            let delta = alongY ? g.translation.height : g.translation.width
+                            if !dragging {
+                                dragging = true
+                                model.pressDown(node.id)
+                                model.resizeDrag(index, phase: "start", delta: 0)
+                            }
+                            model.resizeDrag(index, phase: "move", delta: delta)
+                        }
+                        .onEnded { g in
+                            let delta = alongY ? g.translation.height : g.translation.width
+                            dragging = false
+                            model.resizeDrag(index, phase: "end", delta: delta)
+                            model.pressUp(node.id)
+                        }
+                )
+                .accessibilityAdjustableAction { direction in
+                    switch direction {
+                    case .increment: model.nodeKey(index, key: alongY ? "ArrowDown" : (model.isRTL ? "ArrowLeft" : "ArrowRight"))
+                    case .decrement: model.nodeKey(index, key: alongY ? "ArrowUp" : (model.isRTL ? "ArrowRight" : "ArrowLeft"))
+                    @unknown default: break
+                    }
+                }
+        } else {
+            content
         }
     }
 }

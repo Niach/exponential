@@ -36,8 +36,11 @@ public struct SurfaceSettings: Sendable, Equatable {
     /// How long a hover card / tooltip stays open after the pointer left
     /// (the core's `HOVER_CLOSE_MS` for natives).
     public var hoverCloseMs: Int
+    /// The IANA zone instants format in (round 2 §3); nil = the device's.
+    /// The surface's Formatter (`FoundationFormatter`) is built in it.
+    public var timeZone: String?
 
-    public init(locale: String = "en-US", strings: [String: String] = [:], mode: ModeSetting = .system, density: Density = .default, contrast: Contrast = .system, fontScale: Double? = nil, insets: EdgeInsets? = nil, hover: Bool? = nil, reducedMotion: Bool? = nil, today: String? = nil, hoverCloseMs: Int = 150) {
+    public init(locale: String = "en-US", strings: [String: String] = [:], mode: ModeSetting = .system, density: Density = .default, contrast: Contrast = .system, fontScale: Double? = nil, insets: EdgeInsets? = nil, hover: Bool? = nil, reducedMotion: Bool? = nil, today: String? = nil, hoverCloseMs: Int = 150, timeZone: String? = nil) {
         self.locale = locale
         self.strings = strings
         self.mode = mode
@@ -49,6 +52,7 @@ public struct SurfaceSettings: Sendable, Equatable {
         self.reducedMotion = reducedMotion
         self.today = today
         self.hoverCloseMs = hoverCloseMs
+        self.timeZone = timeZone
     }
 }
 
@@ -126,7 +130,8 @@ extension SurfaceSettings {
             insetBottom: Float(insets.bottom),
             insetLeft: Float(insets.leading),
             today: today ?? localToday(),
-            hoverCloseMs: UInt32(max(0, hoverCloseMs))
+            hoverCloseMs: UInt32(max(0, hoverCloseMs)),
+            timeZone: timeZone ?? TimeZone.current.identifier
         )
     }
 }
@@ -181,6 +186,14 @@ extension SurfaceModel {
             return
         }
         appliedSettings = ffi
+        // ONE Formatter per surface (round 2 §3): Foundation in the
+        // surface locale and zone; the core formats every bound
+        // `formatNumber` / `formatDate` / … call and its natives through it.
+        if before?.locale != ffi.locale || before?.timeZone != ffi.timeZone {
+            let f = FoundationFormatter(locale: ffi.locale, timeZone: ffi.timeZone)
+            formatter = f
+            surface.setFormatter(formatter: f)
+        }
         // Font scale: every leaf measures again (the core rescales the type).
         if before == nil || before?.fontScale != ffi.fontScale || before?.locale != ffi.locale || before?.stringsJson != ffi.stringsJson {
             measureGeneration += 1
@@ -204,8 +217,14 @@ extension SurfaceModel {
         let contrastOn = s.map { $0.contrast == "high" || ($0.contrast == "system" && $0.systemHighContrast) } ?? false
         let dense = s.map { $0.density != "default" } ?? false
         var next = base
-        if contrastOn || dense, let json = surface.effectiveThemeJson(), let t = try? ThemeHandle.load(json: Self.loadableTheme(json)) {
-            next = t
+        if contrastOn || dense {
+            // The core's effective `Theme` object (round 2), else the JSON
+            // round trip an older core needed.
+            if let t = surface.effectiveTheme() {
+                next = ThemeHandle(t)
+            } else if let json = surface.effectiveThemeJson(), let t = try? ThemeHandle.load(json: Self.loadableTheme(json)) {
+                next = t
+            }
         }
         if next !== theme { theme = next }
         primitiveTokens = next.primitiveTokens(mode: mode)

@@ -156,13 +156,15 @@ struct TabLeaf: View {
         let ind = cx.part("Tabs", "indicator", states: selected ? ["selected"] : [])
         let indH = ind.height ?? 0
         ZStack(alignment: .bottom) {
-            HStack(spacing: 4) {
+            // [icon] label [count], `$spacing.xs` apart (the measure's chrome);
+            // the count in the label's style, muted.
+            HStack(spacing: cx.spacing("xs")) {
                 if let icon = cx.props["icon"]?.string {
                     ConceptIcon(name: icon, size: 16, color: cx.ink, model: cx.model)
                 }
-                Text(cx.props.text("text")).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
+                Text(cx.textStyle.shown(cx.props.text("text"))).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
                 if let count = cx.props["count"] {
-                    Text(count.displayText).font(.system(size: 12)).foregroundStyle(cx.themeColor("mutedForeground") ?? cx.ink).padding(.horizontal, 6)
+                    Text(count.displayText).font(cx.font).foregroundStyle(cx.themeColor("mutedForeground") ?? cx.ink).lineLimit(1)
                 }
             }
             .frame(width: cx.inner.width, height: cx.inner.height)
@@ -180,10 +182,15 @@ struct AccordionTriggerLeaf: View {
     let cx: LeafContext
 
     var body: some View {
-        var title = cx.props.text("text")
-        if let count = cx.props["count"] { title += " · \(count.displayText)" }
+        let title = cx.textStyle.shown(cx.props.text("text"))
+        // Round 2 §7: the count is its own muted part after the title.
         return HStack(spacing: max(cx.style.gap, 8)) {
-            Text(title).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
+            HStack(spacing: 8) {
+                Text(title).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
+                if let count = cx.props["count"] {
+                    Text(count.displayText).font(cx.font).foregroundStyle(cx.themeColor("mutedForeground") ?? cx.ink).lineLimit(1)
+                }
+            }
             Spacer(minLength: 0)
             ConceptIcon(name: BuiltinIcons.name("Accordion.trigger"), size: 16, color: cx.ink, model: cx.model).rotationEffect(.degrees(cx.node.open ? 180 : 0))
         }
@@ -229,10 +236,7 @@ struct ButtonLeaf: View {
                 ConceptIcon(name: "", size: iconSize, color: cx.ink, model: cx.model)
             }
             if !iconOnly, !label.isEmpty {
-                Text(label).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
-            }
-            if SurfaceMeasurer.hasMenuChevron(cx.node.component, cx.node.part) {
-                ConceptIcon(name: BuiltinIcons.name("Select.trigger"), size: 16, color: cx.ink, model: cx.model).opacity(0.6)
+                Text(cx.textStyle.shown(label)).font(cx.font).foregroundStyle(cx.ink).lineLimit(1)
             }
         }
         .frame(width: cx.inner.width, height: cx.inner.height)

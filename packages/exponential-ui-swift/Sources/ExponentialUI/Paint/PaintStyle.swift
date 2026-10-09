@@ -121,6 +121,9 @@ public struct PaintStyle: Equatable, Sendable {
     public var borderWidth: CGFloat = 0
     /// `[top, right, bottom, left]` (layout-effective: frames include them).
     public var borderWidths: [CGFloat] = [0, 0, 0, 0]
+    /// The core's own uniform `borderWidth` (nil when the sides differ or
+    /// none is set): what the cross-painter snapshot records.
+    public var coreBorderWidth: CGFloat?
     public var borderColor: Color?
     /// `solid | dashed | dotted`.
     public var borderStyle: String = "solid"
@@ -169,6 +172,16 @@ public struct PaintStyle: Equatable, Sendable {
     public var cursor: String?
     /// A Chart's resolved series colours.
     public var seriesColors: [Color] = []
+    /// Round 2: a leaf's resolved direction (`ltr | rtl`, the bidi
+    /// paragraph direction of its text; `textAlign` is then physical).
+    public var direction: String?
+    /// Round 2: backdrop blur radius (pt); nil = none.
+    public var backdropBlur: CGFloat?
+    /// Round 2: a keyframe animation (`{name, timing, reduced?}`), sampled
+    /// with the core's `animationFrameJson`.
+    public var animation: KeyframeAnimation?
+    /// Round 2: `position: sticky` (the offset arrives in `SurfaceModel.sticky`).
+    public var sticky = false
 
     public init() {}
 
@@ -178,6 +191,11 @@ public struct PaintStyle: Equatable, Sendable {
         let uniform = CGFloat(max(0, v.borderWidth ?? 0))
         borderWidths = v.borderWidths.map { $0.map { CGFloat(max(0, $0)) } }.flatMap { $0.count == 4 ? $0 : nil } ?? [uniform, uniform, uniform, uniform]
         borderWidth = borderWidths.max() ?? 0
+        coreBorderWidth = v.borderWidth.map { CGFloat(max(0, $0)) }
+        direction = v.direction
+        backdropBlur = v.backdropBlur.flatMap { $0 > 0 ? CGFloat($0) : nil }
+        animation = v.animationJson.flatMap(KeyframeAnimation.init(json:))
+        sticky = v.sticky
         borderColor = v.borderColor.flatMap { Color(hex: $0) }
         borderStyle = v.borderStyle ?? "solid"
         let r = CGFloat(max(0, v.borderRadius ?? 0))

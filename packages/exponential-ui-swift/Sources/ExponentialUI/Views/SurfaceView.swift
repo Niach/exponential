@@ -61,6 +61,21 @@ private struct SurfaceBody: View {
         .onGeometryChange(for: EdgeInsets.self) { $0.safeAreaInsets } action: { insets in
             safeArea = insets
         }
+        // Round 2: the host scroll view's offset of the whole surface
+        // (unbounded lists window against it, sticky nodes pin to it).
+        .onGeometryChange(for: CGPoint.self) { p in
+            let f = p.frame(in: .scrollView)
+            return CGPoint(x: max(0, -f.minX), y: max(0, -f.minY))
+        } action: { offset in
+            model.setSurfaceScroll(offset)
+        }
+        // Round 2: a `formatRelativeTime` without `now` re-binds once a minute.
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                model.tick()
+            }
+        }
         .modifier(KeyboardRouting(model: model, rootFocused: $rootFocused))
         .modifier(FilePicking(model: model))
         #if os(iOS)

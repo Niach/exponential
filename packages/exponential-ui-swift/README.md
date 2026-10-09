@@ -60,12 +60,26 @@ ScrollView { ExponentialSurface(model: model) }    // as wide as its container, 
   `colorSchemeContrast`, Dynamic Type, Reduce Motion, the safe area and an
   iPad pointer into the model (`setPlatform` without the view). Density
   and contrast paint with the core's effective theme; week start, text
-  direction and the built-in strings are the core's, formatting
-  (NumberField, Table number / date cells, picker dates) is Foundation in
-  the surface locale.
+  direction and the built-in strings are the core's. Formatting (round 2
+  §3) = ONE `FoundationFormatter` per surface (the core's foreign
+  `HostFormatter`: `NumberFormatter`, `DateFormatter`,
+  `RelativeDateTimeFormatter`) in the surface locale and
+  `SurfaceSettings.timeZone` (nil = the device's): bound `formatNumber` /
+  `formatDate` / … calls, Table cells, NumberField and picker text.
+  `setClock(nowMs:)` pins relative times; the view ticks once a minute.
 - **Commands.** `model.command(.focus(id:))`, `.announce(text:live:)`,
-  `.scrollIntoView(id:)`; `submitForm(id:)`, `failingChecks(_:)`,
+  `.scrollIntoView(id:)`, `.scrollToIndex(id:index:align:)` (round 2: the
+  DATA index of a List / Table); `submitForm(id:)`, `failingChecks(_:)`,
   `setOpen(_:_:)`, `dismissToast(_:)`, `escape()`.
+- **Round 2 painting.** Text styles carry `letterSpacing`, `textTransform`
+  and italic (measured and painted); hover tracks every node the core marks
+  `hoverStyled`; `position: sticky` and pinned section headers paint at the
+  core's offsets (`model.sticky`, against the host scroll view's offset,
+  `setSurfaceScroll`); Resizable handles drag from the start sizes and take
+  the core's keys (VoiceOver: adjustable); `backdropBlur` = a material by
+  radius; keyframe `animation`s sample the core's frames in a
+  `TimelineView` (Reduce Motion = the rest frame); windowed lists scroll on
+  either axis.
 - **Fonts.** `ExponentialUI.registerFont(at:)` registers a file a theme
   names (`Inter`); a missing family falls back to the system font.
 - **Themes.** `ThemeHandle.builtin(id)` / `ThemeHandle.load(json:)`;

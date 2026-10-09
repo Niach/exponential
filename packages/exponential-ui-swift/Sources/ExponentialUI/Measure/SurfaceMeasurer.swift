@@ -90,17 +90,20 @@ public struct LeafRequest {
     public let textStyle: TextStyle
     let control: ControlBox
     public let lines: Int?
+    /// The native or macro owning a part leaf (`Tabs`, `Stepper`); nil for a plain node.
+    public let ownerComponent: String?
 
-    init(_ l: FfiLeaf) {
+    init(_ l: FfiLeaf, defaultFamily: String? = nil) {
         index = Int(l.index)
         id = l.id
         component = l.component
         part = l.part
         props = JSONValue.parse(l.propsJson).object ?? [:]
         text = l.text
-        textStyle = TextStyle(l.textStyle)
+        textStyle = TextStyle(l.textStyle, defaultFamily: defaultFamily)
         control = ControlBox(l.control)
         lines = l.lines.map { Int($0) }
+        ownerComponent = l.ownerComponent
     }
 
     init(index: Int = 0, id: String = "leaf", component: String, part: String? = nil, props: Props = [:], textStyle: TextStyle = .body, control: ControlBox = ControlBox(), lines: Int? = nil) {
@@ -113,6 +116,7 @@ public struct LeafRequest {
         self.textStyle = textStyle
         self.control = control
         self.lines = lines
+        ownerComponent = nil
     }
 }
 
@@ -166,7 +170,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
 
     func measureIntrinsics(leaves: [FfiLeaf]) -> [FfiIntrinsics] {
         leaves.map { raw in
-            let leaf = LeafRequest(raw)
+            let leaf = LeafRequest(raw, defaultFamily: theme?.sansFamily)
             let maxC = answer(leaf, wrap: nil)
             let minC = answer(leaf, wrap: 0)
             return FfiIntrinsics(minContentWidth: Float(min(minC.width, maxC.width)), maxContentWidth: Float(maxC.width), heightAtMaxContent: Float(maxC.height), baseline: maxC.baseline.map { Float($0) })
@@ -175,7 +179,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
 
     func measureHeights(leaves: [FfiLeaf], requests: [FfiHeightRequest]) -> [Float] {
         var byIndex: [UInt32: LeafRequest] = [:]
-        for l in leaves { byIndex[l.index] = LeafRequest(l) }
+        for l in leaves { byIndex[l.index] = LeafRequest(l, defaultFamily: theme?.sansFamily) }
         return requests.map { r in
             guard let leaf = byIndex[r.index] else { return 0 }
             return Float(answer(leaf, wrap: CGFloat(r.width)).height)
@@ -197,7 +201,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     }
 
     private func line(_ text: String, _ ts: TextStyle) -> CGFloat {
-        TextShaper.maxContent(text, ts)
+        TextShaper.maxContent(ts.shown(text), ts)
     }
 
     /// Where the first baseline sits in a line box (`TextShaper.baseline`:
@@ -251,10 +255,13 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         case ("Text", let part):
             let count = props["count"].map(\.displayText) ?? ""
             let countW = count.isEmpty ? 0 : line(count, ts)
-            let chrome = Self.textChrome(Self.textOwner(part, props), part, props, gap: c.gap, countWidth: countW)
-            // A bound NUMBER reads as its digits, as the web prints it (the
-            // core's `FfiLeaf.text` is strings only).
-            let raw = props.text("text")
+            // The core names the owner (`FfiLeaf.ownerComponent`, round 2); the
+            // part-name guess stays for an owner this table does not know.
+            let owner = leaf.ownerComponent.flatMap { Self.chromeOwners.contains($0) ? $0 : nil } ?? Self.textOwner(part, props)
+            let chrome = Self.textChrome(owner, part, props, gap: c.gap, countWidth: countW, xs: spacing("xs"))
+            // A bound number / boolean reads as its display string (the
+            // core's `FfiLeaf.text`, contract round 2 §3).
+            let raw = leaf.text.isEmpty ? props.text("text") : leaf.text
             if chrome != (0, 0) {
                 content = row(raw, ts, lead: chrome.0, trail: chrome.1, wrap: inner)
             } else if part == "cell", props.str("cellType") == "boolean" {
@@ -277,13 +284,12 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             content = MeasuredContent(line(label, ts), ts.lineHeight, Self.baseline(ts))
         case ("Icon", _): content = MeasuredContent(16, 16)
         case ("Avatar", _): content = MeasuredContent(32, 32)
-        case ("Image", _): content = MeasuredContent(media(props, wrap: inner, defaultSize: CGSize(width: 320, height: 180)))
+        case ("Image", _): content = MeasuredContent(media(props, wrap: inner, defaultSize: Self.mediaDefault))
         case ("Video", _):
             // Without an aspect ratio or a height the web's `<video>` keeps
             // its default 150 px box height at any width.
-            var s = media(props, wrap: inner, defaultSize: CGSize(width: 320, height: 180))
-            if props.num("aspectRatio") == nil, props.px("height") == nil { s.height = Self.videoDefaultHeight }
-            content = MeasuredContent(s)
+            // Round 2 §7: `aspectRatio` (default 16:9), never a browser default.
+            content = MeasuredContent(media(props, wrap: inner, defaultSize: Self.mediaDefault))
         case ("AudioPlayer", _):
             let track: CGFloat = props.str("title").isEmpty ? 0 : ts.lineHeight + spacing("xs")
             let w: CGFloat
@@ -292,14 +298,17 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             case .some(let x) where x <= 0: w = 160
             case .some(let x): w = x
             }
-            content = MeasuredContent(w, track + Self.audioControlsHeight)
+            // Round 2 §7: the title line + xs + a controls row of `$control.row`.
+            content = MeasuredContent(w, track + control("row", Self.audioControlsHeight))
         case ("Spinner", _): content = MeasuredContent(20, 20)
         case ("Ring", _): content = MeasuredContent(32, 32)
         case ("Skeleton", _): content = MeasuredContent(skeleton(props, wrap: inner))
         case ("Chart", _): content = MeasuredContent(chart(leaf, wrap: inner))
         case ("Composer", _): content = MeasuredContent(composer(leaf, wrap: inner))
         case ("TreeGuides", _):
-            content = MeasuredContent(max(props.num("depth") ?? 0, 0) * 16, ts.lineHeight)
+            // depth × `treeGuideColumn` wide; no height of its own (it
+            // stretches to its row, round 2 §7).
+            content = MeasuredContent(max(props.num("depth") ?? 0, 0) * Self.treeGuideColumn, 0)
         case ("ToggleGroup", _): content = MeasuredContent(toggleGroup(leaf))
         case ("Unknown", _):
             let label = part("Unknown", "label", props)
@@ -307,9 +316,11 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
             content = para(SurfaceMeasurer.unknownLabel(props, leaf.component), lts, wrap: inner, lines: nil)
         case ("Box", "indicator"):
             let n = max(props.num("count") ?? 0, 0)
-            let dot = part("Carousel", "indicator", props).width ?? 8
+            // The dots row: the recipe sizes each DOT, the row is one dot tall.
+            let recipe = part("Carousel", "indicator", props)
+            let dot = recipe.width ?? 8
             let gap = spacing("xs")
-            content = MeasuredContent(n * dot + max(n - 1, 0) * gap, dot + spacing("sm"))
+            content = MeasuredContent(n * dot + max(n - 1, 0) * gap, recipe.height ?? dot)
         case ("Input", "field"):
             content = MeasuredContent(160, ts.lineHeight, Self.baseline(ts))
         case ("Textarea", "field"):
@@ -358,7 +369,10 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         }
     }
 
-    /// The owner of a `Text` part (`FfiLeaf` carries none): the part names
+    /// The owners whose text parts carry chrome (`textChrome`).
+    static let chromeOwners: Set<String> = ["Tabs", "Accordion", "Select", "TimePicker", "DropdownMenu", "ContextMenu", "Table"]
+
+    /// The owner of a `Text` part when the core names none: the part names
     /// are unique per owner; a `Select` option always carries `disabled`
     /// (a TimePicker time does not).
     static func textOwner(_ part: String?, _ props: Props) -> String {
@@ -382,11 +396,13 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
 
     /// The leading / trailing chrome a one-line text part carries beside its
     /// text (an icon, a count, a chevron, a check, a sort arrow), in px.
-    static func textChrome(_ owner: String, _ part: String?, _ props: Props, gap: CGFloat, countWidth: CGFloat) -> (CGFloat, CGFloat) {
+    static func textChrome(_ owner: String, _ part: String?, _ props: Props, gap: CGFloat, countWidth: CGFloat, xs: CGFloat = 4) -> (CGFloat, CGFloat) {
         let icon: (String) -> CGFloat = { has(props, $0) ? 16 + max(gap, 4) : 0 }
         switch (owner, part) {
-        case ("Tabs", "tab"): return (icon("icon"), has(props, "count") ? 4 + countWidth + 12 : 0)
-        case ("Accordion", "trigger"): return (0, 16 + max(gap, 8))
+        // The web's tab body: [icon] label [count], `$spacing.xs` apart.
+        case ("Tabs", "tab"): return (has(props, "icon") ? 16 + xs : 0, has(props, "count") ? xs + countWidth : 0)
+        // Round 2 §7: the count is its own muted part after the title.
+        case ("Accordion", "trigger"): return (0, (has(props, "count") ? 8 + countWidth : 0) + 16 + max(gap, 8))
         case ("Select", "item"): return (icon("icon"), 16 + max(gap, 8))
         case ("DropdownMenu", "itemLabel"), ("ContextMenu", "itemLabel"): return (icon("icon"), 0)
         case ("Table", "headerCell"): return (0, has(props, "sortIcon") || props.flag("sortable") ? 16 + 4 : 0)
@@ -399,7 +415,9 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     /// cannot load to the platform's mono, never to the sans).
     static func codeStyle(_ ts: TextStyle) -> TextStyle {
         var c = ts
-        if let f = ts.fontFamily, ExponentialUIFonts.isAvailable(f) { return c }
+        // The installed font set first (`NSFontManager`'s family list is
+        // read once per process: a family registered later never shows).
+        if let f = ts.fontFamily, TextFonts.resolve(f).family == f || ExponentialUIFonts.isAvailable(f) { return c }
         c.fontFamily = "ui-monospace"
         return c
     }
@@ -448,8 +466,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         let icon: CGFloat = (hasIcon || iconOnly) ? (part(leaf.component, "icon", props).width ?? control("iconSm", 16)) : 0
         let labelW = (iconOnly || label.isEmpty) ? 0 : line(label, ts)
         let gap = (hasIcon && labelW > 0) ? leaf.control.gap : 0
-        var w = ((hasIcon || iconOnly) ? icon : 0) + gap + labelW
-        if Self.hasMenuChevron(leaf.component, leaf.part) { w += leaf.control.gap + 16 }
+        let w = ((hasIcon || iconOnly) ? icon : 0) + gap + labelW
         let h = max(ts.lineHeight, hasIcon ? icon : 0)
         return MeasuredContent(w, h, labelW > 0 ? (h - ts.lineHeight) / 2 + Self.baseline(ts) : nil)
     }
@@ -566,14 +583,15 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         let pad = box.paddingHorizontal
         let border = item.px("borderWidth") ?? 0
         let h = box.height
-        let ts = TextStyle(fontSize: item.px("fontSize") ?? leaf.textStyle.fontSize, fontWeight: Int(item.props.num("fontWeight") ?? 500), lineHeight: leaf.textStyle.lineHeight, fontFamily: item.fontFamily)
+        let ts = TextStyle(fontSize: item.px("fontSize") ?? leaf.textStyle.fontSize, fontWeight: Int(item.props.num("fontWeight") ?? 500), lineHeight: leaf.textStyle.lineHeight, fontFamily: item.fontFamily, letterSpacing: leaf.textStyle.letterSpacing, textTransform: leaf.textStyle.textTransform)
         var w: CGFloat = 0
         for (i, it) in items.enumerated() {
             let label = it["label"]?.displayText ?? ""
             let hasIcon = it["icon"]?.string != nil
             let lw = label.isEmpty ? 0 : line(label, ts)
             let iw: CGFloat = hasIcon ? 16 : 0
-            let innerGap: CGFloat = (hasIcon && lw > 0) ? 6 : 0
+            // Icon ↔ label: the `ToggleGroup/item` recipe's gap (none = 0, as the web and gpui).
+            let innerGap: CGFloat = (hasIcon && lw > 0) ? (item.px("gap") ?? 0) : 0
             w += 2 * (pad + border) + iw + innerGap + lw
             if i > 0 { w += leaf.control.gap }
         }
@@ -592,12 +610,10 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     }
 
     /// The web's `<audio controls>` bar height (Chromium).
-    static let audioControlsHeight: CGFloat = 54
-    /// The web's `<video>` box height without a ratio (Chromium's default
-    /// object size).
-    static let videoDefaultHeight: CGFloat = 150
-
-    /// A DropdownMenu's built-in trigger (a `Button` `trigger` part) ends in
-    /// the `Select.trigger` glyph, like the web's.
-    static func hasMenuChevron(_ component: String, _ part: String?) -> Bool { component == "Button" && part == "trigger" }
+    /// The AudioPlayer controls row when the theme has no `$control.row`.
+    static let audioControlsHeight: CGFloat = 32
+    /// `catalog/layout.json` (round 2 §7): `mediaIntrinsicWidth` 320 at
+    /// `mediaAspectRatio` 16:9, `treeGuideColumn` 16.
+    static let mediaDefault = CGSize(width: 320, height: 320 / 1.7777778)
+    static let treeGuideColumn: CGFloat = 16
 }
