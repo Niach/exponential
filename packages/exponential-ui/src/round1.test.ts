@@ -267,7 +267,7 @@ describe(`accessibility (§6)`, () => {
     }
     for (const name of Object.keys(COMPONENT_A11Y)) expect(coreCatalog.components[name], name).toBeDefined()
     for (const entry of Object.values(COMPONENT_A11Y)) expect(entry.role.length).toBeGreaterThan(2)
-    expect(Object.keys(A11Y_COMMANDS)).toEqual([`focus`, `announce`, `scrollIntoView`])
+    expect(Object.keys(A11Y_COMMANDS)).toEqual([`focus`, `announce`, `scrollIntoView`, `scrollToIndex`])
     for (const name of [`Tabs`, `Radio`, `ToggleGroup`, `Select`, `DropdownMenu`, `Accordion`, `DatePicker`]) expect(COMPONENT_A11Y[name].keys.join(` `), name).toMatch(/Arrow/)
     expect(COMPONENT_A11Y.Tooltip.keys.join(` `)).toContain(`focus`)
   })

@@ -14,6 +14,11 @@ export const DEFAULT_URL_SCHEMES: readonly string[] = hostJson.urls.defaultSchem
 export const MCP_MIME_TYPES: readonly string[] = hostJson.transport.mcpMimeTypes
 export const MCP_ACTION_TOOL: string = hostJson.transport.mcpActionTool
 export const SSE_EVENTS: readonly string[] = hostJson.transport.sseEvents
+/** Round 2: what a host hands each surface (`surface`): the SurfaceSettings
+ *  keys, the Formatter's methods, the commands a live surface takes. */
+export const SURFACE_SETTING_KEYS: readonly string[] = hostJson.surface.settings
+export const FORMATTER_METHODS: readonly string[] = hostJson.surface.formatter
+export const SURFACE_COMMANDS: readonly string[] = hostJson.surface.commands
 
 export type HostErrorCode =
   | `VALIDATION_FAILED`

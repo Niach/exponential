@@ -1,5 +1,5 @@
 {
-  "$comment": "The conformance FONT SET: every theme font family name → the font files BOTH renderers lay text out with (the web as @font-face rules named after the family, served from these files; gpui as the ONLY fonts in a cosmic-text system without system fonts). Paths are repo-relative and committed. A family without committed files names a `substitute` (its metrics are the substitute's, on both sides — the comparison stays apples to apples, it no longer tests that family). CSS generic names the themes use as a family (`ui-monospace`) are mapped too. `default` = the face the desktop gets for `.SystemUIFont` and every unmapped family.",
+  "$comment": "The conformance FONT SET: every theme font family name → the font files BOTH renderers lay text out with (the web as @font-face rules named after the family, served from these files; gpui as the ONLY fonts in a cosmic-text system without system fonts). Paths are repo-relative and committed. A family without committed files names a `substitute` (its metrics are the substitute's, on both sides — the comparison stays apples to apples, it no longer tests that family). CSS generic names the themes use as a family (`ui-monospace`) are mapped too. `default` = the face the desktop gets for `.SystemUIFont` and every unmapped family. Round 2: Nunito and Fira Code (the playful theme's families, SIL OFL 1.1, licences beside the files in conformance/fonts/) are real faces now; Nunito's statics are instances of Google Fonts' variable Nunito[wght].ttf (fonttools varLib.instancer --update-name-table), Fira Code's are the v6.2 release's. Not shipped in the npm package.",
   "default": "Inter",
   "families": {
     "Inter": {
@@ -81,10 +81,67 @@
       "substitute": "JetBrains Mono"
     },
     "Nunito": {
-      "substitute": "Inter"
+      "faces": [
+        {
+          "file": "packages/exponential-ui/conformance/fonts/Nunito-Light.ttf",
+          "weight": 300,
+          "style": "normal"
+        },
+        {
+          "file": "packages/exponential-ui/conformance/fonts/Nunito-Regular.ttf",
+          "weight": 400,
+          "style": "normal"
+        },
+        {
+          "file": "packages/exponential-ui/conformance/fonts/Nunito-Italic.ttf",
+          "weight": 400,
+          "style": "italic"
+        },
+        {
+          "file": "packages/exponential-ui/conformance/fonts/Nunito-Medium.ttf",
+          "weight": 500,
+          "style": "normal"
+        },
+        {
+          "file": "packages/exponential-ui/conformance/fonts/Nunito-SemiBold.ttf",
+          "weight": 600,
+          "style": "normal"
+        },
+        {
+          "file": "packages/exponential-ui/conformance/fonts/Nunito-Bold.ttf",
+          "weight": 700,
+          "style": "normal"
+        },
+        {
+          "file": "packages/exponential-ui/conformance/fonts/Nunito-ExtraBold.ttf",
+          "weight": 800,
+          "style": "normal"
+        }
+      ]
     },
     "Fira Code": {
-      "substitute": "JetBrains Mono"
+      "faces": [
+        {
+          "file": "packages/exponential-ui/conformance/fonts/FiraCode-Regular.ttf",
+          "weight": 400,
+          "style": "normal"
+        },
+        {
+          "file": "packages/exponential-ui/conformance/fonts/FiraCode-Medium.ttf",
+          "weight": 500,
+          "style": "normal"
+        },
+        {
+          "file": "packages/exponential-ui/conformance/fonts/FiraCode-SemiBold.ttf",
+          "weight": 600,
+          "style": "normal"
+        },
+        {
+          "file": "packages/exponential-ui/conformance/fonts/FiraCode-Bold.ttf",
+          "weight": 700,
+          "style": "normal"
+        }
+      ]
     }
   },
   "lastResort": {

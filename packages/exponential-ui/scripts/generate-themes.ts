@@ -206,6 +206,8 @@ export function themeSchema(): Record<string, unknown> {
     transition: { type: `string`, pattern: `^\\$motion\\.[a-zA-Z0-9]+$` },
     transitionEasing: { type: `string`, pattern: `^\\$ease\\.[a-zA-Z0-9]+$` },
     transform: { type: `string`, pattern: STYLE_TRANSFORM_PATTERN },
+    backdropBlur: { type: `string`, pattern: `^\\$blur\\.[a-zA-Z0-9]+$` },
+    animation: { enum: styleKeyEnum(`animation`) },
     native: { type: `boolean` },
   }
   for (const key of RECIPE_KEYS) if (!styleProps[key]) throw new Error(`theme schema: no schema for recipe key ${key}`)
@@ -283,6 +285,7 @@ export function themeSchema(): Record<string, unknown> {
           breakpoint: numberMap(TOKEN_GROUPS.breakpoint),
           ease: { type: `object`, additionalProperties: false, properties: Object.fromEntries(TOKEN_GROUPS.ease.map((n) => [n, { type: `array`, items: { type: `number` }, minItems: 4, maxItems: 4 }])) },
           density: numberMap(TOKEN_GROUPS.density),
+          blur: numberMap(TOKEN_GROUPS.blur),
         },
       },
       fonts: {

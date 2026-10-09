@@ -349,6 +349,12 @@
     "density": {
       "compact": 0.875,
       "comfortable": 1.125
+    },
+    "blur": {
+      "sm": 4,
+      "md": 12,
+      "lg": 16,
+      "xl": 24
     }
   },
   "fonts": {
@@ -1235,6 +1241,14 @@
             "paddingVertical": "$spacing.md",
             "fontSize": "$type.size.sm",
             "color": "$color.foreground"
+          }
+        }
+      ],
+      "count": [
+        {
+          "style": {
+            "color": "$color.mutedForeground",
+            "fontWeight": "$type.weight.regular"
           }
         }
       ]
@@ -2467,9 +2481,150 @@
             "backgroundColor": "$color.border"
           }
         }
+      ],
+      "section": [
+        {
+          "style": {
+            "height": "$control.rowCompact",
+            "paddingHorizontal": "$spacing.sm",
+            "backgroundColor": "$color.background",
+            "color": "$color.mutedForeground",
+            "fontSize": "$type.size.xs",
+            "lineHeight": "$type.lineHeight.xs",
+            "fontWeight": "$type.weight.medium"
+          }
+        }
+      ]
+    },
+    "Resizable": {
+      "handle": [
+        {
+          "style": {
+            "backgroundColor": "$color.border",
+            "transition": "$motion.fast",
+            "transitionEasing": "$ease.standard"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.ring"
+          }
+        },
+        {
+          "when": {
+            "state": "focus"
+          },
+          "style": {
+            "backgroundColor": "$color.ring"
+          }
+        },
+        {
+          "when": {
+            "state": "pressed"
+          },
+          "style": {
+            "backgroundColor": "$color.ring"
+          }
+        }
+      ],
+      "grip": [
+        {
+          "style": {
+            "width": 6,
+            "height": 24,
+            "borderRadius": "$radius.full",
+            "backgroundColor": "$color.border",
+            "borderWidth": "$border.hairline",
+            "borderColor": "$color.background"
+          }
+        },
+        {
+          "when": {
+            "direction": "vertical"
+          },
+          "style": {
+            "width": 24,
+            "height": 6
+          }
+        }
       ]
     },
     "Carousel": {
+      "root": [
+        {
+          "style": {
+            "gap": "$spacing.sm"
+          }
+        }
+      ],
+      "controls": [
+        {
+          "style": {
+            "gap": "$spacing.sm"
+          }
+        }
+      ],
+      "previous": [
+        {
+          "style": {
+            "width": 28,
+            "height": 28,
+            "borderRadius": "$radius.full",
+            "color": "$color.foreground",
+            "backgroundColor": "#00000000",
+            "transition": "$motion.fast"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ],
+      "next": [
+        {
+          "style": {
+            "width": 28,
+            "height": 28,
+            "borderRadius": "$radius.full",
+            "color": "$color.foreground",
+            "backgroundColor": "#00000000",
+            "transition": "$motion.fast"
+          }
+        },
+        {
+          "when": {
+            "state": "hover"
+          },
+          "style": {
+            "backgroundColor": "$color.accent",
+            "color": "$color.accentForeground"
+          }
+        },
+        {
+          "when": {
+            "state": "disabled"
+          },
+          "style": {
+            "opacity": "$opacity.disabled"
+          }
+        }
+      ],
       "indicator": [
         {
           "style": {
@@ -2485,6 +2640,26 @@
           },
           "style": {
             "backgroundColor": "$color.primary"
+          }
+        }
+      ]
+    },
+    "AudioPlayer": {
+      "controls": [
+        {
+          "style": {
+            "height": "$control.row"
+          }
+        }
+      ],
+      "track": [
+        {
+          "style": {
+            "fontFamily": "$type.family.sans",
+            "fontSize": "$type.size.sm",
+            "lineHeight": "$type.lineHeight.sm",
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.foreground"
           }
         }
       ]
@@ -4787,7 +4962,16 @@
       "number": [
         {
           "style": {
-            "fontWeight": "$type.weight.medium"
+            "fontWeight": "$type.weight.medium",
+            "color": "$color.mutedForeground"
+          }
+        },
+        {
+          "when": {
+            "status": "current"
+          },
+          "style": {
+            "color": "$color.primaryForeground"
           }
         }
       ],

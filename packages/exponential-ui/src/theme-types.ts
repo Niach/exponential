@@ -58,6 +58,8 @@ export interface ThemeTokens {
   ease: Record<string, Easing>
   /** Multipliers over `control` and `spacing` for the non-default densities. */
   density: Record<string, number>
+  /** Round 2: backdrop blur radii in px (`backdropBlur: $blur.md`). */
+  blur: Record<string, number>
 }
 
 /** How a host registers a family the theme names: the files are the host's
@@ -106,6 +108,10 @@ export interface RecipeStyle {
   transitionEasing?: string
   /** `translate(…) scale(…) rotate(…)`, paint-only. */
   transform?: string
+  /** Round 2: `$blur.<name>`: blur what is behind the part. */
+  backdropBlur?: string
+  /** Round 2: a keyframe set of catalog/style.json `animations`. */
+  animation?: string
   /** The painter may use the platform's own control for this part. */
   native?: boolean
 }

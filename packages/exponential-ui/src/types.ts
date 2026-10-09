@@ -276,6 +276,9 @@ export interface SurfaceSettings {
   /** BCP 47; drives the format functions, calendar names, the week start
    *  and the text direction (catalog/locale.json). Default `en-US`. */
   locale?: string
+  /** Round 2: the IANA zone instants format in (the host Formatter's;
+   *  default the platform's; the English fallback and the fixtures: UTC). */
+  timeZone?: string
   /** Built-in UI string overrides by id (catalog/strings.json). */
   strings?: Record<string, string>
   /** `system` (default) = the platform's light/dark preference. */
@@ -295,3 +298,5 @@ export type SurfaceCommand =
   | { focus: { id: string } }
   | { announce: { text: string; live?: `polite` | `assertive` } }
   | { scrollIntoView: { id: string } }
+  /** Round 2: bring item `index` (data order) of List/Table `id` into view. */
+  | { scrollToIndex: { id: string; index: number; align?: `start` | `center` | `end` | `nearest` } }

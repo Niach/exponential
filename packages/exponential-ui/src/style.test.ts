@@ -34,11 +34,11 @@ describe(`Box style whitelist`, () => {
     expect(validateStyle({ zIndex: 2 })).toEqual([{ path: `style.zIndex`, message: `not in the Box style whitelist` }])
   })
 
-  test(`conditions: surface media and :pressed, one level deep, direction root-only`, () => {
+  test(`conditions: surface media and :pressed, one level deep, direction on any node (round 2)`, () => {
     expect(validateStyle({ "@media (min-width: 600px)": { gap: 8 }, ":pressed": { opacity: 0.6 } })).toEqual([])
     expect(validateStyle({ "@media (min-width: 600px)": { ":pressed": { opacity: 0.6 } } })[0].message).toBe(`conditions do not nest`)
     expect(validateStyle({ ":active": { opacity: 1 } })[0].message).toBe(`not a supported condition`)
-    expect(validateStyle({ direction: `rtl` }, { root: false })[0].message).toBe(`allowed on the root only`)
+    expect(validateStyle({ direction: `rtl` }, { root: false })).toEqual([])
     expect(validateStyle({ direction: `rtl` }, { root: true })).toEqual([])
   })
 

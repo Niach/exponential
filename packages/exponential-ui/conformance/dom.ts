@@ -6,6 +6,12 @@
 // `lines` (text components only) = the distinct line boxes of that text
 // (Range client rects grouped by their vertical centre), `lh` = the computed
 // line height.
+//
+// Round 2 (docs/round-2-contract.md §8): frames are LAYOUT boxes — the dump
+// neutralises `transform`/`translate`/`rotate`/`scale` and animations on
+// every node while it measures (they are paint-only by contract: a selected
+// tab icon scaled 1.15 keeps its 20 px box), and skips what the contract does
+// not place: nodes inside an inactive carousel page (`[data-xui-inactive]`).
 
 import { dropCollapsed, roundNode, type CaseDump, type DumpNode } from "./dump"
 
@@ -37,7 +43,22 @@ function ownTexts(el: HTMLElement): Text[] {
   return out
 }
 
+/** The rule that turns paint-only transforms and animations off while the
+ *  dump measures. */
+export const LAYOUT_ONLY_CSS = `[data-xui-id]{transform:none!important;translate:none!important;rotate:none!important;scale:none!important;animation:none!important;transition:none!important}`
+
 export function domDump(surface: Element, textComponents: readonly string[]): CaseDump {
+  const style = document.createElement(`style`)
+  style.textContent = LAYOUT_ONLY_CSS
+  document.head.appendChild(style)
+  try {
+    return measure(surface, textComponents)
+  } finally {
+    style.remove()
+  }
+}
+
+function measure(surface: Element, textComponents: readonly string[]): CaseDump {
   const rootEl = surface.querySelector<HTMLElement>(`[data-xui-id]`)
   if (!rootEl) return { width: 0, height: 0, nodes: [] }
   const o = rootEl.getBoundingClientRect()
@@ -45,6 +66,7 @@ export function domDump(surface: Element, textComponents: readonly string[]): Ca
   const seen = new Set<string>()
   for (const el of Array.from(surface.querySelectorAll<HTMLElement>(`[data-xui-id]`))) {
     if (el.closest(`[data-xui-layer]`)) continue
+    if (el.closest(`[data-xui-inactive]`)) continue
     if (el.getClientRects().length === 0) continue
     const id = el.dataset.xuiId!
     if (seen.has(id)) continue

@@ -61,7 +61,7 @@
       "issues": [
         {
           "path": "tokens.elevation",
-          "message": "unknown token group; known: spacing|radius|control|opacity|border|motion|breakpoint|ease|density|type"
+          "message": "unknown token group; known: spacing|radius|control|opacity|border|motion|breakpoint|ease|density|blur|type"
         }
       ]
     },
@@ -146,7 +146,7 @@
       "issues": [
         {
           "path": "recipes.Button.root[0].style.display",
-          "message": "not a recipe key; known: backgroundColor|color|borderColor|borderWidth|borderTopWidth|borderRightWidth|borderBottomWidth|borderLeftWidth|borderRadius|borderStyle|padding|paddingHorizontal|paddingVertical|gap|width|height|minWidth|minHeight|fontSize|fontWeight|lineHeight|fontFamily|letterSpacing|textDecoration|textTransform|fontStyle|boxShadow|opacity|transition|transitionEasing|transform|native"
+          "message": "not a recipe key; known: backgroundColor|color|borderColor|borderWidth|borderTopWidth|borderRightWidth|borderBottomWidth|borderLeftWidth|borderRadius|borderStyle|padding|paddingHorizontal|paddingVertical|gap|width|height|minWidth|minHeight|fontSize|fontWeight|lineHeight|fontFamily|letterSpacing|textDecoration|textTransform|fontStyle|boxShadow|opacity|transition|transitionEasing|transform|backdropBlur|animation|native"
         }
       ]
     },
@@ -190,7 +190,7 @@
       "issues": [
         {
           "path": "recipes.Switch.knob",
-          "message": "unknown part; known: root|track|thumb|label|description"
+          "message": "unknown part; known: root|track|thumb|label|description|body"
         }
       ]
     },
@@ -983,6 +983,22 @@
         {
           "path": "tokens.density.comfortable",
           "message": "missing value for $density.comfortable"
+        },
+        {
+          "path": "tokens.blur.sm",
+          "message": "missing value for $blur.sm"
+        },
+        {
+          "path": "tokens.blur.md",
+          "message": "missing value for $blur.md"
+        },
+        {
+          "path": "tokens.blur.lg",
+          "message": "missing value for $blur.lg"
+        },
+        {
+          "path": "tokens.blur.xl",
+          "message": "missing value for $blur.xl"
         }
       ]
     },
