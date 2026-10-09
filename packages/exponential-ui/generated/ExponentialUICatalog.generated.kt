@@ -63,6 +63,6 @@ object ExponentialUICatalog {
     val layoutConstantNames: List<String> = listOf("windowThreshold", "windowOverscan", "resizeStep", "panelMin", "resizeHandleHit", "fieldIntrinsicWidth", "mediaIntrinsicWidth", "mediaAspectRatio", "treeGuideColumn", "treeGuideRadius", "treeGuideBridge")
     val layoutConstantValues: List<String> = listOf("50", "5", "10", "10", "8", "160", "320", "1.7777778", "14", "3", "1")
     val limitNames: List<String> = listOf("maxComponents", "maxDepth", "maxMessageBytes", "maxTemplateItems", "maxPointerBytes", "maxPointerSegments")
-    val limitValues: List<String> = listOf("20000", "64", "4194304", "10000", "1024", "64")
+    val limitValues: List<String> = listOf("20000", "48", "4194304", "10000", "1024", "64")
     val componentLite: List<Boolean> = listOf(true, true, true, true, true, true, true, true, true, true, true, false, false, true, true, true, true, true, true, true, false, true, false, false, true, false, true, true, false, false, true, false, false, true, false, true, false, false, false, false, false, false, false, false, false, false, false, true, true, true, false, true, true, true, true, false, true, false, false, false, true, true, false, true, true, true, true, true, false, true, false, true, true, true, true, true, true, true, true, true, false, false, false, false, false, false, false, false)
 }

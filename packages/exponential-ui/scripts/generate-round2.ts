@@ -15,6 +15,7 @@ import { CORE_CATALOG_ID } from "../src/catalog"
 import { displayString, englishFormatter, fixedOffset, formatFunctions } from "../src/format"
 import { resolveDynamic } from "../src/dynamic"
 import { reduceNested, reduceSurface } from "../src/reducer"
+import { MAX_DEPTH } from "../src/limits"
 import { tableRowKeys, templateInstances, templateItemKeys, itemExtents, itemOffsets, listSections, scrollOffsetForIndex, scrollOffsetForItem, sectionRows, stickyHeader, virtualWindow, type ScrollAlign } from "../src/list"
 import { dragDelta, keyboardResize, normalizeSizes, panelExtents, resizePanels, type PanelLimits } from "../src/resizable"
 import { nodeDirections, nodeTextAlign, type Direction } from "../src/direction"
@@ -265,7 +266,7 @@ const CYCLE_CASES: { name: string; nested?: NestedNode; components?: FlatCompone
 
 function templateItemsFixture() {
   return {
-    $comment: `${HEADER} Round 2 (docs/round-2-contract.md §4). \`keys\`: a template's item keys (src/list.ts templateItemKeys: the value at \`key\` — a pointer relative to the item — as a string, objects as JSON; \`#<index>\` when missing, null, empty or a DUPLICATE of an earlier key, more \`#\`s until unique; no key = the index). \`rowKeys\`: Table rows by their \`rowKey\` FIELD, same rules. \`instances\`: the items a template renders in a scope and the instance SUFFIX each item's nodes wear (\`<node id><suffix>\`; suffix = \`.<key>\` with \`~\` → \`~0\` and \`.\` → \`~1\`; it ACCUMULATES through nested templates: \`issue.ops.1\`). \`reduce\`: a node a \`template\` names is LIFTED out of the tree into \`templates\` (never also rendered in place), on the nested and the flat path; an unknown template id is an issue; a template that would instantiate itself (its owner, an ancestor of its owner, the root, or through other templates) is an issue (\`template: cycle through this id\`) and is NOT lifted: it stays in place and its owner renders no items.`,
+    $comment: `${HEADER} Round 2 (docs/round-2-contract.md §4). \`keys\`: a template's item keys (src/list.ts templateItemKeys: the value at \`key\` — a pointer relative to the item — as a string, objects as JSON; \`#<index>\` when missing, null, empty or a DUPLICATE of an earlier key, more \`#\`s until unique; no key = the index). \`rowKeys\`: Table rows by their \`rowKey\` FIELD, same rules. \`instances\`: the items a template renders in a scope and the instance SUFFIX each item's nodes wear (\`<node id><suffix>\`; suffix = \`.<key>\` with \`~\` → \`~0\` and \`.\` → \`~1\`; it ACCUMULATES through nested templates: \`issue.ops.1\`). \`reduce\`: a node a \`template\` names is LIFTED out of the tree into \`templates\` (never also rendered in place), on the nested and the flat path; an unknown template id is an issue; a template that would instantiate itself (its owner, an ancestor of its owner, the root, or through other templates) is an issue (\`template: cycle through this id\`) and is NOT lifted: it stays in place and its owner renders no items. VAPP-103 (\`limit-*\`, catalog/limits.json): an id placed a second time (two parents, one parent twice, or the main tree and a template) renders at its FIRST place only (\`id used twice; only its first place renders\`), a node deeper than \`maxDepth\` levels (the root = 1) is the Unknown placeholder (\`nesting deeper than N levels\`).`,
     keys: KEY_CASES.map((c) => ({ ...c, expected: templateItemKeys(c.items, c.key) })),
     rowKeys: ROW_KEY_CASES.map((c) => ({ ...c, expected: tableRowKeys(c.rows, c.rowKey) })),
     instances: instanceCases(),
@@ -273,9 +274,44 @@ function templateItemsFixture() {
       { name: `nested-lifted`, catalogId: CORE_CATALOG_ID, nested: LIFT_NESTED, expected: reduceNested(LIFT_NESTED, { catalogId: CORE_CATALOG_ID }) },
       { name: `flat-lifted-and-built`, catalogId: CORE_CATALOG_ID, components: LIFT_FLAT, expected: reduceSurface(LIFT_FLAT, { catalogId: CORE_CATALOG_ID }) },
       ...CYCLE_CASES.map((c) => ({ ...c, catalogId: CORE_CATALOG_ID, expected: c.nested ? reduceNested(c.nested, { catalogId: CORE_CATALOG_ID }) : reduceSurface(c.components!, { catalogId: CORE_CATALOG_ID }) })),
+      ...LIMIT_CASES.map((c) => ({ ...c, catalogId: CORE_CATALOG_ID, expected: reduceSurface(c.components, { catalogId: CORE_CATALOG_ID }) })),
     ],
   }
 }
+
+/** VAPP-103: the reducer's refusals (catalog/limits.json), on the flat
+ *  path every core replays: an id placed twice renders at its FIRST place
+ *  only (`id used twice`; 2^n builds before), across a lifted template too;
+ *  a node deeper than `maxDepth` is the Unknown placeholder. */
+const doubling = (levels: number): FlatComponent[] => [
+  ...Array.from({ length: levels }, (_, i) => ({ id: i === 0 ? `root` : `n${i}`, component: `Box`, children: [`n${i + 1}`, `n${i + 1}`] })),
+  { id: `n${levels}`, component: `Text`, text: `leaf` },
+]
+const deepChain = (levels: number): FlatComponent[] => [
+  ...Array.from({ length: levels }, (_, i) => ({ id: i === 0 ? `root` : `n${i}`, component: `Box`, children: [`n${i + 1}`] })),
+  { id: `n${levels}`, component: `Text`, text: `leaf` },
+]
+const LIMIT_CASES: { name: string; components: FlatComponent[] }[] = [
+  {
+    name: `limit-used-twice`,
+    components: [
+      { id: `root`, component: `Box`, children: [`a`, `shared`, `shared`] },
+      { id: `a`, component: `Box`, children: [`shared`], slots: {} },
+      { id: `shared`, component: `Text`, text: `once` },
+    ],
+  },
+  { name: `limit-used-twice-doubling`, components: doubling(12) },
+  {
+    name: `limit-used-twice-across-a-template`,
+    components: [
+      { id: `root`, component: `Box`, children: [`label`, `list`] },
+      { id: `list`, component: `List`, children: { componentId: `row`, path: `/items` } },
+      { id: `row`, component: `Box`, children: [`label`] },
+      { id: `label`, component: `Text`, text: `shared` },
+    ],
+  },
+  { name: `limit-depth`, components: deepChain(MAX_DEPTH + 3) },
+]
 
 // ---------------------------------------------------------------------------
 // text-direction.json

@@ -60,10 +60,11 @@ fn timed<R>(budget_ms: u64, what: &str, f: impl FnOnce() -> R) -> R {
 
 /// Item 1: layout time is linear in flex nesting depth (taffy 0.12's cache
 /// made it double per level: 20 nested Stacks = 0.6 s, 14 Cards = 160 s).
+/// The engine alone is gated at 50 levels (`engine::cache_tests`).
 #[test]
-fn depth_30_and_50_nested_containers_lay_out_in_milliseconds() {
+fn depth_30_and_max_depth_nested_containers_lay_out_in_milliseconds() {
     for component in ["Stack", "Card", "Section", "Group", "Box"] {
-        for depth in [30, 50] {
+        for depth in [30, MAX_DEPTH - 1] {
             let mut s = surface(chain(component, depth));
             let out = timed(2_000, &format!("{depth} nested {component}"), || layout(&mut s));
             assert!(out.frames.len() > depth, "{component}: {} frames", out.frames.len());

@@ -13,10 +13,12 @@ pub fn limit(name: &str) -> Option<usize> {
 
 /// Nodes the reducer places in one surface's tree (template nodes included).
 pub const MAX_COMPONENTS: usize = 20_000;
-/// Component nesting levels (the root = 1). 64 keeps a laid-out surface
-/// inside an iOS secondary thread's 512 KB stack (`tests/robustness.rs`
-/// lays out 64 nested Cards on one).
-pub const MAX_DEPTH: usize = 64;
+/// Component nesting levels (the root = 1): every reduced tree stays
+/// inside serde_json's 128-level recursion limit (2 JSON levels per node).
+/// The stack is never the bound: the recursive passes grow it on the heap
+/// (`crate::roomy`/`crate::deep`; `tests/robustness.rs` lays a 48-deep
+/// Card surface out on a 128 KB thread).
+pub const MAX_DEPTH: usize = 48;
 /// One server message as UTF-8 JSON.
 pub const MAX_MESSAGE_BYTES: usize = 4_194_304;
 /// Template items one surface instantiates.
