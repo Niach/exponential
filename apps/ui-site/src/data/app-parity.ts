@@ -1214,9 +1214,9 @@ export const APP_PARITY: readonly AppParity[] = [
     "status": {
       "web": {
         "status": "ok",
-        "symbol": "Combobox / ComboboxList / ComboboxMenuItems",
-        "file": "packages/ui/src/combobox.tsx",
-        "note": "PickerOption is the row shape; ComboboxList the body without the popover; ComboboxMenuItems the rows inside a Radix menu"
+        "symbol": "Picker / PickerList / PickerMenuRows",
+        "file": "packages/ui/src/picker/picker.tsx",
+        "note": "EXP-1249: Picker is the ONE shell (Combobox is internal, not exported); PickerItem the row shape; PickerMenuRows the rows inside a Menu"
       },
       "desktop": {
         "status": "ok",
@@ -1472,9 +1472,9 @@ export const APP_PARITY: readonly AppParity[] = [
     "status": {
       "web": {
         "status": "ok",
-        "symbol": "MENU_ITEM_CLASS",
-        "file": "packages/ui/src/menu-surface.ts",
-        "note": "--menu-* in styles.css mirror tokens.json; this specimen wears the same constants"
+        "symbol": "Menu",
+        "file": "packages/ui/src/menu.tsx",
+        "note": "EXP-1249: ONE data-driven Menu (MenuEntry[], trigger | pointer | sheet) over the SDK dropdown-menu + sheet primitives; rows wear menu-surface's --menu-* constants"
       },
       "desktop": {
         "status": "leftover",
