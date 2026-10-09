@@ -858,7 +858,8 @@ pub fn ring(cx: &LeafCx) -> AnyElement {
 /// RTL. Stroke width / colour = the `TreeGuides/line` recipe.
 pub fn tree_guides(cx: &LeafCx) -> AnyElement {
     let depth = cx.num("depth").unwrap_or(0.0).max(0.0) as usize;
-    let elbow_at = cx.num("elbowAt").map(|v| v as i64).unwrap_or(depth as i64 - 1);
+    // The core fills `elbowAt`; a row it never saw (a lone root, a template item) draws no elbow.
+    let elbow_at = cx.num("elbowAt").map(|v| v as i64).unwrap_or(-1);
     let tee = cx.bool("tee");
     let pass: Vec<i64> = cx.node.props.get("passThrough").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).map(|v| v as i64).collect()).unwrap_or_default();
     let line = cx.part_props("TreeGuides", "line", &[]);

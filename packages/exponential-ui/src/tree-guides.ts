@@ -51,11 +51,45 @@ export function isRowRoot(node: UiNode): boolean {
   return node.recipe?.macro === `Row` && node.recipe.part === `root`
 }
 
-/** A Row root's depth: its recipe prop when a finite number ≥ 0, else 0 (a
- *  bound depth cannot be computed against its siblings). */
-function rowDepth(node: UiNode): number {
-  const depth = node.recipe?.props.depth
+/** A sibling's depth: a Row root's recipe prop, else any node's own numeric
+ *  `depth` prop (an extension row such as SessionRow or PrRow), when a finite
+ *  number > 0, else 0 (a bound depth cannot be computed against its siblings). */
+function siblingDepth(node: UiNode): number {
+  const depth = isRowRoot(node) ? node.recipe?.props.depth : node.props.depth
   return typeof depth === `number` && Number.isFinite(depth) && depth > 0 ? Math.floor(depth) : 0
+}
+
+/** A non-Row sibling that takes part: its own numeric `depth` prop (> 0). */
+function hasDepth(node: UiNode): boolean {
+  return !isRowRoot(node) && node.component !== `TreeGuides` && typeof node.props.depth === `number`
+}
+
+/** The filled guide as props: `{depth, elbowAt?, tee, passThrough}`. */
+function guideProps(depth: number, g: TreeGuide): Record<string, unknown> {
+  const props: Record<string, unknown> = { depth }
+  if (g.elbowAt !== null) props.elbowAt = g.elbowAt
+  props.tee = g.tee
+  props.passThrough = g.passThrough
+  return props
+}
+
+/** Fill the guides of ONE sibling list (a node's children, or a lone root /
+ *  slot value). A Row root's `guides` part takes the props; any other node
+ *  with a numeric `depth` gets them as its `guide` prop (`elbowAt?`, `tee`,
+ *  `passThrough`), which an extension painter draws. */
+function fillSiblings(nodes: UiNode[]): void {
+  const depths = nodes.map(siblingDepth)
+  const guides = treeGuides(depths)
+  nodes.forEach((node, i) => {
+    const g = guides[i]!
+    if (isRowRoot(node)) {
+      const part = guidesPart(node)
+      if (part) part.props = guideProps(depths[i]!, g)
+    } else if (hasDepth(node)) {
+      const { depth: _d, ...guide } = guideProps(depths[i]!, g)
+      node.props = { ...node.props, guide }
+    }
+  })
 }
 
 /** The Row's `guides` part, when its depth emitted one. */
@@ -67,22 +101,15 @@ function guidesPart(row: UiNode): UiNode | undefined {
  *  (the expander hands it a fresh tree); returns it for chaining. */
 export function applyTreeGuides(root: UiNode): UiNode {
   const visit = (node: UiNode) => {
-    const depths = node.children.map((c) => (isRowRoot(c) ? rowDepth(c) : 0))
-    const guides = treeGuides(depths)
-    node.children.forEach((child, i) => {
-      if (!isRowRoot(child)) return
-      const part = guidesPart(child)
-      if (!part) return
-      const g = guides[i]!
-      const props: Record<string, unknown> = { depth: depths[i] }
-      if (g.elbowAt !== null) props.elbowAt = g.elbowAt
-      props.tee = g.tee
-      props.passThrough = g.passThrough
-      part.props = props
-    })
-    for (const slot of Object.values(node.slots ?? {})) visit(slot)
+    fillSiblings(node.children)
+    for (const slot of Object.values(node.slots ?? {})) {
+      // A slot value has no siblings: a lone row is a root.
+      fillSiblings([slot])
+      visit(slot)
+    }
     node.children.forEach(visit)
   }
+  fillSiblings([root])
   visit(root)
   return root
 }

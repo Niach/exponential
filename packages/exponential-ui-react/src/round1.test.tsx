@@ -760,13 +760,13 @@ describe(`round 3 natives (VAPP-102)`, () => {
     const colEls = Array.from(g.querySelectorAll<HTMLElement>(`.xui-tree-col`))
     expect(colEls.map((c) => c.style.width)).toEqual([`14px`, `14px`])
     const pass = colEls[0].querySelector<HTMLElement>(`[data-vertical]`)!
-    expect(pass.style.left).toBe(`6.5px`)
+    expect(pass.style.left).toBe(`7px`)
     expect(pass.style.width).toBe(`1px`)
     expect(pass.style.top).toBe(`-1px`)
     expect(pass.style.bottom).toBe(`0px`)
     const elbow = colEls[1].querySelector<HTMLElement>(`[data-elbow]`)!
-    expect(elbow.style.left).toBe(`6.5px`)
-    expect(elbow.style.width).toBe(`7.5px`)
+    expect(elbow.style.left).toBe(`7px`)
+    expect(elbow.style.width).toBe(`7px`)
     expect(elbow.style.top).toBe(`-1px`)
     expect(elbow.style.height).toBe(`calc(50% + 1.5px)`)
     expect(elbow.style.borderBottomLeftRadius).toBe(`3px`)

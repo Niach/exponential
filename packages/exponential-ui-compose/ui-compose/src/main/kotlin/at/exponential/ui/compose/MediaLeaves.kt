@@ -390,7 +390,8 @@ internal fun treeGuideGeometry(props: Props, rtl: Boolean): TreeGuideGeometry {
     val depth = max(props.num("depth") ?: 0.0, 0.0).toInt()
     return TreeGuideGeometry(
         depth = depth,
-        elbowAt = props.num("elbowAt")?.toInt() ?: (depth - 1),
+        // The core fills `elbowAt`; a row it never saw (a lone root, a template item) draws no elbow.
+        elbowAt = props.num("elbowAt")?.toInt() ?: -1,
         tee = props["tee"]?.bool == true,
         pass = props.list("passThrough").mapNotNull { it.number?.toInt() },
         rtl = rtl,

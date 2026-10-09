@@ -69,13 +69,28 @@
         "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xs" },
         "children": [
           {
-            "part": "header", "component": "Box", "$if": "props.title",
-            "$a11y": { "role": { "$cond": ["props.collapsible", "button", "heading"] }, "level": 3, "expanded": { "$cond": ["props.collapsible", "{props.open|true}"] } },
-            "props": { "pressable": "{props.collapsible|false}" },
+            "part": "header", "component": "Box", "$if": ["props.title", { "$not": "props.collapsible" }],
+            "$a11y": { "role": "heading", "level": 3 },
+            "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "height": "$control.row", "paddingHorizontal": "$spacing.md", "borderRadius": "$radius.md" },
+            "children": [
+              { "part": "chevron", "component": "Icon", "$if": "props.collapsible", "props": { "name": "ui-chevron-right", "size": "sm", "tone": "neutral" } },
+              "$slot:leading",
+              { "part": "icon", "component": "Icon", "$if": "props.icon", "props": { "name": "{props.icon}", "size": "sm" } },
+              { "part": "title", "component": "Text", "props": { "text": "{props.title}", "variant": "label", "lines": 1 }, "style": { "flexShrink": 1, "minWidth": 0 } },
+              { "part": "caption", "component": "Text", "$if": "props.caption", "props": { "text": "{props.caption}", "variant": "muted", "lines": 1 }, "style": { "flexShrink": 1, "minWidth": 0 } },
+              { "part": "count", "component": "Text", "$if": "props.count", "props": { "text": { "$text": "props.count" }, "variant": "muted" } },
+              { "part": "spacer", "component": "Box", "style": { "flexGrow": 1, "minWidth": 0 } },
+              "$slot:trailing"
+            ]
+          },
+          {
+            "part": "header", "component": "Box", "$if": ["props.title", "props.collapsible"],
+            "$a11y": { "role": "button", "expanded": "{props.open|true}" },
+            "props": { "pressable": true },
             "style": { "display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm", "height": "$control.row", "paddingHorizontal": "$spacing.md", "borderRadius": "$radius.md" },
             "$on": { "press": "change" },
-            "$context": { "open": "{!props.open}" },
-            "$set": { "press": { "prop": "open", "value": "{!props.open}" } },
+            "$context": { "open": { "$not": "props.open|true" } },
+            "$set": { "press": { "prop": "open", "value": { "$not": "props.open|true" } } },
             "children": [
               { "part": "chevron", "component": "Icon", "$if": "props.collapsible", "props": { "name": "ui-chevron-right", "size": "sm", "tone": "neutral" } },
               "$slot:leading",

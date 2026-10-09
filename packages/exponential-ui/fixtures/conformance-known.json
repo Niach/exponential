@@ -12,7 +12,7 @@
       "fix": [
         "react"
       ],
-      "decision": "An overlay native (Dialog, Drawer, Sheet, AlertDialog, Popover, HoverCard, Tooltip, DropdownMenu with a trigger slot) is LAYOUT-TRANSPARENT: its frame is its trigger's frame and the trigger is the flex item; it never fills a column or stretches a row on its own (§8.1)."
+      "decision": "An overlay native (Dialog, Drawer, AlertDialog, Popover, Tooltip, a press Menu with a child trigger; the Sheet and HoverCard aliases expand to them) is LAYOUT-TRANSPARENT: its frame is its trigger's frame and the trigger is the flex item; it never fills a column or stretches a row on its own (§8.1)."
     },
     {
       "id": "audio",
@@ -236,7 +236,7 @@
     },
     {
       "id": "menu",
-      "component": "DropdownMenu",
+      "component": "Menu",
       "kind": "size",
       "cases": 24,
       "group": "overlay trigger rows",
@@ -244,7 +244,7 @@
       "fix": [
         "react"
       ],
-      "decision": "The default DropdownMenu trigger is an outline button with `icon` (when set) and `label`, NO chevron; the menu is layout-transparent like every overlay."
+      "decision": "The default Menu trigger (no child) is an outline button with `icon` (when set) and `label`, NO chevron; the menu is layout-transparent like every overlay."
     },
     {
       "id": "nav-inbox.count",
@@ -256,7 +256,7 @@
       "fix": [
         "gpui"
       ],
-      "decision": "As `hdr-badge`: the NavRow count Badge = padding + its text."
+      "decision": "As `hdr-badge`: the Row's trailing count Badge (the NavRow alias) = padding + its text."
     },
     {
       "id": "nav-inbox.label",
@@ -380,7 +380,7 @@
     },
     {
       "id": "toggles",
-      "component": "ToggleGroup",
+      "component": "Segmented",
       "kind": "size",
       "cases": 24,
       "group": "toggle group stretch",
@@ -388,7 +388,7 @@
       "fix": [
         "gpui"
       ],
-      "decision": "A ToggleGroup is content-sized (align-self start) unless `fill`; it never stretches across a column."
+      "decision": "A Segmented is content-sized (align-self start) unless `fill` or `variant: bar`; it never stretches across a column."
     },
     {
       "id": "tree-guides",
@@ -400,7 +400,7 @@
       "fix": [
         "react"
       ],
-      "decision": "TreeGuides = depth × 16 px columns (`treeGuideColumn`), stretched to its row's height; the `TreeGuides/line` recipe `width` is the STROKE, not the column."
+      "decision": "TreeGuides (a Row's `guides` part, round 3) = depth × 14 px columns (`treeGuideColumn`), stretched to its row's height; the `TreeGuides/line` recipe `width` is the STROKE, not the column."
     },
     {
       "id": "video",
@@ -462,7 +462,7 @@
       "fix": [
         "gpui"
       ],
-      "decision": "CSS flex: the CardRow's icon and meta parts are content-sized; gpui gives a sibling part 30 px more (find it with `--details` once React marks every CardRow part)."
+      "decision": "CSS flex: the card Row's icon and meta parts are content-sized; gpui gives a sibling part 30 px more (find it with `--details` once React marks every Row part)."
     },
     {
       "id": "card-row.body.title",
@@ -798,14 +798,14 @@
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 8,
       "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/600/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
-      "onlyRef": 7,
+      "onlyRef": 8,
       "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/900/ltr": {
@@ -1096,7 +1096,7 @@
     {
       "id": "page-1.fallback",
       "only": "ref",
-      "cases": 12,
+      "cases": 14,
       "reason": "Image/fallback of a Carousel page: painted inside the Image leaf; shows only where the web's load fails first."
     },
     {

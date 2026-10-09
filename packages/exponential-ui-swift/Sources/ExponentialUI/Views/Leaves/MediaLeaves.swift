@@ -214,7 +214,8 @@ struct TreeGuidesLeaf: View {
 
     var body: some View {
         let depth = Int(max(cx.props.num("depth") ?? 0, 0))
-        let elbowAt = cx.props.num("elbowAt").map { Int($0) } ?? (depth - 1)
+        // The core fills `elbowAt`; a row it never saw (a lone root, a template item) draws no elbow.
+        let elbowAt = cx.props.num("elbowAt").map { Int($0) } ?? -1
         let tee = cx.props.flag("tee")
         let pass = cx.props.list("passThrough").compactMap { $0.number.map { Int($0) } }
         let line = cx.part("TreeGuides", "line")

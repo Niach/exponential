@@ -1086,9 +1086,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -1244,9 +1242,7 @@
               {
                 "id": "section.header",
                 "component": "Box",
-                "props": {
-                  "pressable": false
-                },
+                "props": {},
                 "children": [
                   {
                     "id": "section.header.icon",
@@ -1534,9 +1530,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -1629,24 +1623,6 @@
                 "collapsible": false
               }
             },
-            "on": {
-              "press": {
-                "function": {
-                  "call": "set",
-                  "args": {
-                    "path": "/open",
-                    "value": {
-                      "call": "not",
-                      "args": {
-                        "value": {
-                          "path": "/open"
-                        }
-                      }
-                    }
-                  }
-                }
-              }
-            },
             "accessibility": {
               "role": "heading",
               "level": 3
@@ -1726,9 +1702,7 @@
               {
                 "id": "section.header",
                 "component": "Box",
-                "props": {
-                  "pressable": false
-                },
+                "props": {},
                 "children": [
                   {
                     "id": "section.header.icon",
@@ -1802,24 +1776,6 @@
                   "height": "$control.row",
                   "paddingHorizontal": "$spacing.md",
                   "borderRadius": "$radius.md"
-                },
-                "on": {
-                  "press": {
-                    "function": {
-                      "call": "set",
-                      "args": {
-                        "path": "/open",
-                        "value": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "path": "/open"
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
                 },
                 "accessibility": {
                   "role": "heading",
@@ -1884,16 +1840,7 @@
               }
             }
           },
-          "presses": [
-            {
-              "id": "section.header",
-              "outcome": {
-                "data": {
-                  "open": false
-                }
-              }
-            }
-          ]
+          "presses": []
         },
         {
           "data": {
@@ -1907,9 +1854,7 @@
               {
                 "id": "section.header",
                 "component": "Box",
-                "props": {
-                  "pressable": false
-                },
+                "props": {},
                 "children": [
                   {
                     "id": "section.header.icon",
@@ -1983,24 +1928,6 @@
                   "height": "$control.row",
                   "paddingHorizontal": "$spacing.md",
                   "borderRadius": "$radius.md"
-                },
-                "on": {
-                  "press": {
-                    "function": {
-                      "call": "set",
-                      "args": {
-                        "path": "/open",
-                        "value": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "path": "/open"
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
                 },
                 "accessibility": {
                   "role": "heading",
@@ -2034,16 +1961,7 @@
               }
             }
           },
-          "presses": [
-            {
-              "id": "section.header",
-              "outcome": {
-                "data": {
-                  "open": true
-                }
-              }
-            }
-          ]
+          "presses": []
         },
         {
           "data": {},
@@ -2055,9 +1973,7 @@
               {
                 "id": "section.header",
                 "component": "Box",
-                "props": {
-                  "pressable": false
-                },
+                "props": {},
                 "children": [
                   {
                     "id": "section.header.icon",
@@ -2128,24 +2044,6 @@
                   "height": "$control.row",
                   "paddingHorizontal": "$spacing.md",
                   "borderRadius": "$radius.md"
-                },
-                "on": {
-                  "press": {
-                    "function": {
-                      "call": "set",
-                      "args": {
-                        "path": "/open",
-                        "value": {
-                          "call": "not",
-                          "args": {
-                            "value": {
-                              "path": "/open"
-                            }
-                          }
-                        }
-                      }
-                    }
-                  }
                 },
                 "accessibility": {
                   "role": "heading",
@@ -2207,16 +2105,7 @@
               }
             }
           },
-          "presses": [
-            {
-              "id": "section.header",
-              "outcome": {
-                "data": {
-                  "open": true
-                }
-              }
-            }
-          ]
+          "presses": []
         }
       ]
     },
@@ -12450,15 +12339,8 @@
             },
             "accessibility": {
               "role": "button",
-              "level": 3,
               "expanded": {
-                "call": "fallback",
-                "args": {
-                  "value": {
-                    "path": "/open"
-                  },
-                  "default": true
-                }
+                "path": "/open"
               }
             }
           },
@@ -12700,7 +12582,6 @@
                 },
                 "accessibility": {
                   "role": "button",
-                  "level": 3,
                   "expanded": true
                 },
                 "recipe": {

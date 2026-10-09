@@ -15,10 +15,10 @@ Read §0, the sections you own, then §6 (your checklist).
 |---|---|---|---|
 | `Row` | NEW macro: leading/trailing slots, identifier, title/subtitle/meta/value(+placeholder), chevron, selected, density, surface flat\|card, pressable, depth | `core.catalog.json`, `macros.json` | `catalog-macros.json` |
 | `Section` | NEW macro: a band header (title, caption, count OFF by default, glyph, leading/trailing slots, collapsible/open, tint) over hairline-divided rows (a `List` native, the windowed backend); `tree` = the rows nest by depth | same | `catalog-macros.json`, `kitchen-sink.expanded.json` |
-| tree guides | computed by the CORE from consecutive rows' `depth` (elbow, tee, pass-through); `TreeGuides` = a hidden Row part, never authored; column 14 px, rounded 3 px elbow, 1 px bridge | `src/tree-guides.ts`, `layout.json` | `fixtures/tree-guides.json`, the `Row/tree:*` macro cases |
+| tree guides | computed by the CORE from consecutive rows' `depth` (elbow, tee, pass-through); `TreeGuides` = a hidden Row part, never authored; column 14 px (the line's left edge at i·14 + 7), rounded 3 px elbow, 1 px bridge | `src/tree-guides.ts`, `layout.json` | `fixtures/tree-guides.json`, the `Row/tree:*` macro cases |
 | `Chip` | NEW macro: shape pill\|rect (Pill + EntityChip), selected, tone, dot, icon, image, detail, removable, pressable, a `leading` slot | `macros.json` | `catalog-macros.json` |
 | `Segmented` | native (ToggleGroup renamed): variant segmented (default) \| toggles \| outline \| bar; TabBar + ButtonGroup fold in | `core.catalog.json`, `recipes.json` | `catalog-components.json`, `control-geometry.json` |
-| `Menu` | native (DropdownMenu + ContextMenu): `openOn press\|contextmenu`, the ONE child = the trigger or the target region, `menuItem.items` bindable (a source-fed submenu) | `core.catalog.json` | `catalog-components.json`, `bind-time.json` |
+| `Menu` | native (DropdownMenu + ContextMenu): `openOn press\|contextmenu`, the ONE child = the trigger or the target region, `menuItem.items` bindable (a source-fed submenu) | `core.catalog.json` | `catalog-components.json`, the React + Rust bound-submenu tests |
 | `Badge` | counts and short status labels only | `core.catalog.json` | — |
 | `Sheet` | the alias is `Drawer side: bottom` (what the app calls a sheet) | `macros.json` | `catalog-macros.json` |
 | deprecated aliases | 16 components carry `deprecated: "<Replacement>"`: still reduce (a one-node macro over the replacement), never offered | `core.catalog.json` `$comment` | `catalog.test.ts`, every `<Alias>/example` case |
@@ -81,10 +81,15 @@ order, a Row root (`recipe.macro` Row, part root) contributes its numeric
 `recipe.props.depth` (floored; anything else, including a non-Row sibling,
 counts as 0 and ends every subtree); the Row's `guides` part gets
 `{depth, elbowAt?, tee, passThrough}` in that key order (`elbowAt` omitted
-for a root). A `depth` is static (never bindable). Template items get their
-guides from the instantiated siblings the same way at layout time only where
-a renderer instantiates them into the expanded tree (the Rust core); a
-React data template today draws roots only.
+for a root). A lone root or slot value is a one-element list. Any OTHER
+sibling with a numeric `depth` prop (an extension row such as SessionRow or
+PrRow) takes part too and gets the result as its `guide` prop
+(`{elbowAt?, tee, passThrough}`) for its painter to draw. A `depth` is
+static (never bindable). The pass runs over the EXPANDED tree only: rows a
+data template instantiates (a List over `{path}`) are not siblings at
+expansion time, and a painter draws NO elbow without `elbowAt`; author
+static rows for a connected tree. A macro that offers `pressable` (Row,
+Chip) takes it from an `on.press` when unset.
 
 **Geometry** (`layout.json`): `treeGuideColumn` = 14 (the `guides` part is
 `depth × 14` wide, stretched to the row; column `i`'s line is at

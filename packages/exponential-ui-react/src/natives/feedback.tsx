@@ -66,12 +66,14 @@ export function TreeGuidesNative({ node, props, rootProps }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
   const depth = Math.max(0, Math.floor(num(props.depth, 0)))
-  const elbowAt = props.elbowAt === undefined || props.elbowAt === null ? depth - 1 : num(props.elbowAt)
+  // The core fills `elbowAt`; a row it never saw (a lone root, a template item) draws no elbow.
+  const elbowAt = props.elbowAt === undefined || props.elbowAt === null ? -1 : num(props.elbowAt)
   const tee = bool(props.tee)
   const pass = new Set(arr<number>(props.passThrough).map((v) => num(v)))
   const stroke = sizeOf(ctx, `TreeGuides`, `line`, props, 1)
   const line = part(`line`) as Record<string, string>
-  const x = TREE_GUIDE_COLUMN / 2 - stroke / 2
+  // The line's LEFT edge sits at i·14 + 7 (the reading of the three native painters).
+  const x = TREE_GUIDE_COLUMN / 2
   const vertical = (key: string) => <i key={key} {...line} data-vertical="" style={{ left: x, width: stroke, top: -TREE_GUIDE_BRIDGE, bottom: 0 }} />
   const cols = []
   for (let i = 0; i < depth; i++) {

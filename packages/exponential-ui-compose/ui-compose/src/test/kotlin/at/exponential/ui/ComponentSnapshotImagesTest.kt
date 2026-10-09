@@ -83,7 +83,7 @@ class ComponentSnapshotImagesTest {
          * image of exactly these components is skipped (never recorded on a
          * dev machine). Empty this set once the workflow committed them.
          */
-        val PENDING_IMAGES = setOf("Row", "Section", "Chip", "Segmented", "Menu")
+        val PENDING_IMAGES = emptySet<String>()
 
         /** Deprecated aliases (round 3) only prove they expand: no image of their own. */
         fun deprecated(component: String): Boolean {

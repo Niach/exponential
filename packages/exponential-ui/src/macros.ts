@@ -284,6 +284,8 @@ function buildNode(
 function expandMacro(node: UiNode, macro: string, def: MacroDef, view: CatalogView, depth: number, issues?: ReduceIssue[]): UiNode {
   if (depth > MAX_DEPTH) throw new Error(`macro ${macro}: expansion deeper than ${MAX_DEPTH}`)
   const baseProps = propsAt(node.props, null)
+  // Round 3: an `on.press` implies `pressable` on a macro that offers it (Row, Chip).
+  if (node.on?.press && baseProps.pressable === undefined && view.components[macro]?.props.pressable) baseProps.pressable = true
   const exp: Expansion = { view, macro, def, source: node, baseProps, variants: responsiveVariants(node.props), claimed: new Set(), issues }
   const ctx: ExprContext = { id: node.id, props: baseProps, vars: {} }
   const [root] = expandTemplate(def.root, exp, ctx, node.id)

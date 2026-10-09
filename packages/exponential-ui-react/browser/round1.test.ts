@@ -309,10 +309,10 @@ describe(`round 3 (VAPP-102) in Chromium`, () => {
       const divider = document.querySelector(`[data-xui-c="List"] [data-xui-part="List/divider"]`)
       return {
         width: origin.width,
-        passX: pass.left - origin.left + pass.width / 2,
+        passX: pass.left - origin.left,
         passTop: pass.top - origin.top,
         rowPad: origin.top - row.top,
-        elbowX: elbow.left - origin.left + parseFloat(cs.borderLeftWidth) / 2,
+        elbowX: elbow.left - origin.left,
         elbowEnd: elbow.right - origin.left,
         elbowTop: elbow.top - origin.top,
         elbowMid: elbow.bottom - parseFloat(cs.borderBottomWidth) / 2 - (origin.top + origin.height / 2),

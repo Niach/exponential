@@ -63,11 +63,51 @@ pub fn is_row_root(node: &UiNode) -> bool {
 
 /// A Row root's depth: its recipe prop when a finite number > 0 (floored),
 /// else 0 (a bound depth cannot be computed against its siblings).
-fn row_depth(node: &UiNode) -> usize {
-    let depth = node.recipe.as_ref().and_then(|r| r.props.get("depth")).and_then(Value::as_f64);
+/// A sibling's depth: a Row root's recipe prop, else any node's own numeric
+/// `depth` prop (an extension row such as SessionRow or PrRow), when a finite
+/// number > 0, else 0 (a bound depth cannot be computed against its siblings).
+fn sibling_depth(node: &UiNode) -> usize {
+    let depth = if is_row_root(node) { node.recipe.as_ref().and_then(|r| r.props.get("depth")) } else { node.props.get("depth") }.and_then(Value::as_f64);
     match depth {
         Some(d) if d.is_finite() && d > 0.0 => d.floor() as usize,
         _ => 0,
+    }
+}
+
+/// A non-Row sibling that takes part: its own numeric `depth` prop.
+fn has_depth(node: &UiNode) -> bool {
+    !is_row_root(node) && node.component != "TreeGuides" && node.props.get("depth").is_some_and(Value::is_number)
+}
+
+/// The filled guide as props: `{depth, elbowAt?, tee, passThrough}` (TS `guideProps`).
+fn guide_props(depth: usize, g: &TreeGuide) -> Props {
+    let mut props = Props::new();
+    props.insert("depth".into(), Value::from(depth as u64));
+    if let Some(elbow) = g.elbow_at {
+        props.insert("elbowAt".into(), Value::from(elbow as u64));
+    }
+    props.insert("tee".into(), Value::Bool(g.tee));
+    props.insert("passThrough".into(), Value::Array(g.pass_through.iter().map(|&l| Value::from(l as u64)).collect()));
+    props
+}
+
+/// Fill the guides of ONE sibling list (TS `fillSiblings`): a Row root's
+/// `guides` part takes the props; any other node with a numeric `depth` gets
+/// them (minus `depth`) as its `guide` prop for an extension painter to draw.
+fn fill_siblings(nodes: &mut [UiNode]) {
+    let depths: Vec<usize> = nodes.iter().map(sibling_depth).collect();
+    let guides = tree_guides(&depths);
+    for (i, node) in nodes.iter_mut().enumerate() {
+        let g = &guides[i];
+        if is_row_root(node) {
+            if let Some(part) = guides_part(node) {
+                part.props = guide_props(depths[i], g);
+            }
+        } else if has_depth(node) {
+            let mut guide = guide_props(depths[i], g);
+            guide.shift_remove("depth");
+            node.props.insert("guide".into(), Value::Object(guide));
+        }
     }
 }
 
@@ -80,31 +120,23 @@ fn guides_part(row: &mut UiNode) -> Option<&mut UiNode> {
 
 /// Fill every Row's guides from the rows around it. Mutates `root` in place
 /// (the expander hands it a fresh tree).
+/// TS `applyTreeGuides`: the root itself and every slot value are one-element
+/// lists; every node's children are one list; recurse slots then children.
 pub fn apply_tree_guides(root: &mut UiNode) {
-    let depths: Vec<usize> = root.children.iter().map(|c| if is_row_root(c) { row_depth(c) } else { 0 }).collect();
-    let guides = tree_guides(&depths);
-    for (i, child) in root.children.iter_mut().enumerate() {
-        if !is_row_root(child) {
-            continue;
-        }
-        let Some(part) = guides_part(child) else { continue };
-        let g = &guides[i];
-        let mut props = Props::new();
-        props.insert("depth".into(), Value::from(depths[i] as u64));
-        if let Some(elbow) = g.elbow_at {
-            props.insert("elbowAt".into(), Value::from(elbow as u64));
-        }
-        props.insert("tee".into(), Value::Bool(g.tee));
-        props.insert("passThrough".into(), Value::Array(g.pass_through.iter().map(|&l| Value::from(l as u64)).collect()));
-        part.props = props;
-    }
-    if let Some(slots) = root.slots.as_mut() {
+    fill_siblings(std::slice::from_mut(root));
+    visit(root);
+}
+
+fn visit(node: &mut UiNode) {
+    fill_siblings(&mut node.children);
+    if let Some(slots) = node.slots.as_mut() {
         for slot in slots.values_mut() {
-            apply_tree_guides(slot);
+            fill_siblings(std::slice::from_mut(slot));
+            visit(slot);
         }
     }
-    for child in &mut root.children {
-        apply_tree_guides(child);
+    for child in &mut node.children {
+        visit(child);
     }
 }
 

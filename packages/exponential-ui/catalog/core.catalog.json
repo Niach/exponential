@@ -691,7 +691,7 @@
     },
     "HoverCard": {
       "kind": "macro", "group": "overlay", "lite": false, "deprecated": "Popover", "children": "many", "slots": ["trigger"],
-      "description": "A preview panel that opens while the pointer rests on its trigger (press on touch).",
+      "description": "Deprecated: a Popover that opens on hover.",
       "props": {
         "side": { "type": "enum", "enum": "side", "default": "bottom", "description": "Preferred side of the trigger." },
         "open": { "type": "boolean", "default": false, "bindable": true, "description": "Whether it shows; bind it to force it." }

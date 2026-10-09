@@ -5235,7 +5235,7 @@
     },
     "HoverCard": {
       "type": "object",
-      "description": "A preview panel that opens while the pointer rests on its trigger (press on touch).",
+      "description": "Deprecated: a Popover that opens on hover.",
       "allOf": [
         {
           "$ref": "#/$defs/ComponentCommon"

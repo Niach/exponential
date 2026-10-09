@@ -486,9 +486,7 @@
                       {
                         "id": "nav-rows.header",
                         "component": "Box",
-                        "props": {
-                          "pressable": false
-                        },
+                        "props": {},
                         "children": [
                           {
                             "id": "nav-rows.header.icon",
@@ -609,7 +607,7 @@
                             "id": "row-1",
                             "component": "Box",
                             "props": {
-                              "pressable": false
+                              "pressable": true
                             },
                             "children": [
                               {
@@ -698,7 +696,8 @@
                               }
                             },
                             "accessibility": {
-                              "role": "none"
+                              "role": "button",
+                              "selected": true
                             },
                             "on": {
                               "press": {

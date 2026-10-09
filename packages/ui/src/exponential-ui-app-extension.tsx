@@ -20,6 +20,17 @@ import { DiffCounts, DiffPath, DiffStatusLetter } from "./diff-counts"
 import { ListRow } from "./glass-rows"
 import { LIVE_DOT_TONE, LiveDot, type LiveDotTone } from "./live-dot"
 import { PrRow, type PrNodeState } from "./pr-row"
+import type { TreeGuide } from "./tree-guides"
+import { createContext, useContext, useMemo } from "react"
+
+/** The core's filled guide on a depth-bearing extension row (`guide` = `{elbowAt?, tee, passThrough}`). */
+function guideOf(value: unknown): TreeGuide | null {
+  if (!value || typeof value !== `object`) return null
+  const g = value as { elbowAt?: unknown; tee?: unknown; passThrough?: unknown }
+  return { elbowAt: typeof g.elbowAt === `number` ? g.elbowAt : null, tee: g.tee === true, passThrough: Array.isArray(g.passThrough) ? g.passThrough.filter((v): v is number => typeof v === `number`) : [] }
+}
+
+const StackWordContext = createContext<{ word: string | null; topId: string | null } | null>(null)
 import { RunStatusRow, type RunStatusRowTone } from "./run-status-row"
 import { SessionRow } from "./session-row"
 import { StatusGlyph } from "./status-glyph"
@@ -117,6 +128,7 @@ function SessionRowPainter({ node, props, rootProps, emit }: ExtensionComponentP
         caption={textOf(props.caption)}
         captionTone={oneOf(RUN_TONES, props.captionTone, `muted`)}
         depth={numberOf(props.depth)}
+        guide={guideOf(props.guide)}
         deviceIcon={icon ? ICON_COMPONENTS[icon] : undefined}
         deviceName={textOf(props.device)}
         onClick={pressable(node) ? () => emit(`press`) : undefined}
@@ -128,14 +140,17 @@ function SessionRowPainter({ node, props, rootProps, emit }: ExtensionComponentP
 
 function PrRowPainter({ node, props, rootProps, emit }: ExtensionComponentProps) {
   const rail = (props.rail ?? null) as { above?: boolean; below?: boolean } | null
+  const stack = useContext(StackWordContext)
+  const word = textOf(props.word) ?? (stack && stack.topId === node.id ? stack.word : null)
   return (
     <div {...rootProps}>
       <PrRow
         node={oneOf<PrNodeState>(PR_STATES, props.state, `open`)}
         identifier={textOf(props.identifier)}
         title={String(props.title ?? ``)}
-        word={textOf(props.word)}
+        word={word}
         depth={numberOf(props.depth)}
+        guide={guideOf(props.guide)}
         rail={rail}
         active={props.active === true}
         onClick={pressable(node) ? () => emit(`press`) : undefined}
@@ -149,11 +164,15 @@ function PrRowPainter({ node, props, rootProps, emit }: ExtensionComponentProps)
  *  with its own `rail`); the rail ends on the base-branch row, as the app's
  *  `StackRail` draws it. */
 function StackRailPainter({ node, props, rootProps, children }: ExtensionComponentProps) {
+  // The extension's `word` = the quiet word of the TOP row when that PrRow names none.
+  const stack = useMemo(() => ({ word: textOf(props.word), topId: node.children[0]?.id ?? null }), [props.word, node.children[0]?.id])
   return (
-    <div {...rootProps} data-slot="stack-rail" style={{ display: `flex`, flexDirection: `column` }}>
-      {children}
-      <PrRow node="base" title={String(props.baseBranch ?? ``)} rail={{ above: node.children.length > 0 }} className="w-full" />
-    </div>
+    <StackWordContext.Provider value={stack}>
+      <div {...rootProps} data-slot="stack-rail" style={{ display: `flex`, flexDirection: `column` }}>
+        {children}
+        <PrRow node="base" title={String(props.baseBranch ?? ``)} rail={{ above: node.children.length > 0 }} className="w-full" />
+      </div>
+    </StackWordContext.Provider>
   )
 }
 

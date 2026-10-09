@@ -20,9 +20,7 @@
           {
             "id": "band.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "band.header.title",
@@ -4573,9 +4571,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -4851,7 +4847,6 @@
             },
             "accessibility": {
               "role": "button",
-              "level": 3,
               "expanded": true
             }
           },
@@ -4932,9 +4927,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -5101,9 +5094,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -5270,9 +5261,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -5408,9 +5397,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -5577,9 +5564,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -5746,9 +5731,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -5915,9 +5898,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -6084,9 +6065,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -6253,9 +6232,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -6422,9 +6399,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -6591,9 +6566,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -16619,9 +16592,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -16795,9 +16766,7 @@
           {
             "id": "section.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "section.header.icon",
@@ -16888,24 +16857,6 @@
                   "path": "/open"
                 },
                 "collapsible": false
-              }
-            },
-            "on": {
-              "press": {
-                "function": {
-                  "call": "set",
-                  "args": {
-                    "path": "/open",
-                    "value": {
-                      "call": "not",
-                      "args": {
-                        "value": {
-                          "path": "/open"
-                        }
-                      }
-                    }
-                  }
-                }
               }
             },
             "accessibility": {
@@ -20311,9 +20262,7 @@
           {
             "id": "tree.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "tree.header.title",
@@ -20696,9 +20645,7 @@
           {
             "id": "tree.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "tree.header.title",
@@ -21131,9 +21078,7 @@
           {
             "id": "tree.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "tree.header.title",
@@ -21671,9 +21616,7 @@
           {
             "id": "tree.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "tree.header.title",
@@ -22312,9 +22255,7 @@
           {
             "id": "tree.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "tree.header.title",
@@ -22942,9 +22883,7 @@
           {
             "id": "tree.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "tree.header.title",
@@ -23446,9 +23385,7 @@
           {
             "id": "tree.header",
             "component": "Box",
-            "props": {
-              "pressable": false
-            },
+            "props": {},
             "children": [
               {
                 "id": "tree.header.title",

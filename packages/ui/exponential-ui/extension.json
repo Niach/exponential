@@ -298,7 +298,7 @@
       "recipeProps": [],
       "root": {
         "part": "root", "component": "Section",
-        "props": { "title": "{props.title}", "count": "{props.count}" },
+        "props": { "tree": true, "title": "{props.title}", "count": "{props.count}" },
         "slots": { "leading": { "part": "status", "component": "StatusGlyph", "props": { "status": "{props.status}", "size": "sm" } } },
         "children": ["$children"]
       }
