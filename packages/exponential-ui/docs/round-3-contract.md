@@ -41,7 +41,9 @@ including the 16 aliases; 50 lite), TreeGuides hidden.
 
 **Row** parts, in order: `root` (a pressable Box: flex row, gap sm, min
 height `$control.row` / `$control.rowCompact` by `density`, padding
-horizontal md, vertical xs (flat) / md (card), radius md (flat) / lg (card))
+horizontal md and NO vertical padding (the `body` carries xs (flat) / md
+(card) so the `guides` part spans the row's full height and the lines of
+consecutive rows meet across the divider), radius md (flat) / lg (card))
 → `guides` (a `TreeGuides` native, only when `depth > 0`, FILLED BY THE
 CORE) → the `leading` slot → `icon` (sm, when no slot is given) →
 `identifier` (Text `code`) → `body` (`title` Text body, `subtitle` Text

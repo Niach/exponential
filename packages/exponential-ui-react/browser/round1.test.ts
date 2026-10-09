@@ -332,8 +332,8 @@ describe(`round 3 (VAPP-102) in Chromium`, () => {
     expect(g.radius).toBe(`3px`)
     expect(g.hasDivider).toBe(true)
     expect(g.overflow).toBe(`visible`)
-    // The part is the Row's CONTENT box: the bridge is measured from its top
-    // (the Row's flat paddingVertical = $spacing.xs sits above it).
-    expect(g.rowPad).toBe(4)
+    // The Row has NO vertical padding (its body carries it), so the part
+    // spans the row's full height and the bridge crosses the divider alone.
+    expect(g.rowPad).toBe(0)
   })
 })

@@ -9206,7 +9206,8 @@
               "flexDirection": "column",
               "gap": "$spacing.xxs",
               "flexGrow": 1,
-              "minWidth": 0
+              "minWidth": 0,
+              "paddingVertical": "$spacing.xs"
             },
             "recipe": {
               "macro": "Row",
@@ -9247,7 +9248,6 @@
           "gap": "$spacing.sm",
           "minHeight": "$control.row",
           "paddingHorizontal": "$spacing.md",
-          "paddingVertical": "$spacing.xs",
           "borderRadius": "$radius.md"
         },
         "recipe": {
@@ -9308,7 +9308,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -9349,7 +9350,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -9411,7 +9411,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -9452,7 +9453,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -9511,7 +9511,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -9552,7 +9553,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -9654,7 +9654,8 @@
               "flexDirection": "column",
               "gap": "$spacing.xxs",
               "flexGrow": 1,
-              "minWidth": 0
+              "minWidth": 0,
+              "paddingVertical": "$spacing.xs"
             },
             "recipe": {
               "macro": "Row",
@@ -9695,7 +9696,6 @@
           "gap": "$spacing.sm",
           "minHeight": "$control.row",
           "paddingHorizontal": "$spacing.md",
-          "paddingVertical": "$spacing.xs",
           "borderRadius": "$radius.md"
         },
         "recipe": {
@@ -9779,7 +9779,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -9820,7 +9821,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -9882,7 +9882,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -9923,7 +9924,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -9983,7 +9983,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -10024,7 +10025,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -10123,7 +10123,8 @@
               "flexDirection": "column",
               "gap": "$spacing.xxs",
               "flexGrow": 1,
-              "minWidth": 0
+              "minWidth": 0,
+              "paddingVertical": "$spacing.xs"
             },
             "recipe": {
               "macro": "Row",
@@ -10164,7 +10165,6 @@
           "gap": "$spacing.sm",
           "minHeight": "$control.row",
           "paddingHorizontal": "$spacing.md",
-          "paddingVertical": "$spacing.xs",
           "borderRadius": "$radius.md"
         },
         "recipe": {
@@ -10245,7 +10245,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -10286,7 +10287,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -10348,7 +10348,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -10389,7 +10390,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -10449,7 +10449,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -10490,7 +10491,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -10563,7 +10563,8 @@
               "flexDirection": "column",
               "gap": "$spacing.xxs",
               "flexGrow": 1,
-              "minWidth": 0
+              "minWidth": 0,
+              "paddingVertical": "$spacing.xs"
             },
             "recipe": {
               "macro": "Row",
@@ -10609,7 +10610,6 @@
           "gap": "$spacing.sm",
           "minHeight": "$control.row",
           "paddingHorizontal": "$spacing.md",
-          "paddingVertical": "$spacing.xs",
           "borderRadius": "$radius.md"
         },
         "recipe": {
@@ -10670,7 +10670,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -10711,7 +10712,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -10773,7 +10773,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -10794,7 +10795,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -10854,7 +10854,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -10875,7 +10876,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -10949,7 +10949,8 @@
               "flexDirection": "column",
               "gap": "$spacing.xxs",
               "flexGrow": 1,
-              "minWidth": 0
+              "minWidth": 0,
+              "paddingVertical": "$spacing.xs"
             },
             "recipe": {
               "macro": "Row",
@@ -11025,7 +11026,6 @@
           "gap": "$spacing.sm",
           "minHeight": "$control.row",
           "paddingHorizontal": "$spacing.md",
-          "paddingVertical": "$spacing.xs",
           "borderRadius": "$radius.md"
         },
         "recipe": {
@@ -11086,7 +11086,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -11148,7 +11149,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -11210,7 +11210,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -11251,7 +11252,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -11311,7 +11311,8 @@
                   "flexDirection": "column",
                   "gap": "$spacing.xxs",
                   "flexGrow": 1,
-                  "minWidth": 0
+                  "minWidth": 0,
+                  "paddingVertical": "$spacing.xs"
                 },
                 "recipe": {
                   "macro": "Row",
@@ -11352,7 +11353,6 @@
               "gap": "$spacing.sm",
               "minHeight": "$control.row",
               "paddingHorizontal": "$spacing.md",
-              "paddingVertical": "$spacing.xs",
               "borderRadius": "$radius.md"
             },
             "accessibility": {
@@ -12508,7 +12508,8 @@
                       "flexDirection": "column",
                       "gap": "$spacing.xxs",
                       "flexGrow": 1,
-                      "minWidth": 0
+                      "minWidth": 0,
+                      "paddingVertical": "$spacing.xs"
                     },
                     "recipe": {
                       "macro": "Row",
@@ -12529,7 +12530,6 @@
                   "gap": "$spacing.sm",
                   "minHeight": "$control.row",
                   "paddingHorizontal": "$spacing.md",
-                  "paddingVertical": "$spacing.xs",
                   "borderRadius": "$radius.md"
                 },
                 "recipe": {
@@ -12760,7 +12760,8 @@
                           "flexDirection": "column",
                           "gap": "$spacing.xxs",
                           "flexGrow": 1,
-                          "minWidth": 0
+                          "minWidth": 0,
+                          "paddingVertical": "$spacing.xs"
                         },
                         "recipe": {
                           "macro": "Row",
@@ -12781,7 +12782,6 @@
                       "gap": "$spacing.sm",
                       "minHeight": "$control.row",
                       "paddingHorizontal": "$spacing.md",
-                      "paddingVertical": "$spacing.xs",
                       "borderRadius": "$radius.md"
                     },
                     "accessibility": {
