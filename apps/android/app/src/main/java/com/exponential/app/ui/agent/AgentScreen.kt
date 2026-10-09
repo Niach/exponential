@@ -3,7 +3,6 @@ package com.exponential.app.ui.agent
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -84,6 +83,7 @@ import com.exponential.app.domain.BlockedStart
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.issue.StaticDot
+import com.exponential.app.domain.MAX_STEER_FILES
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.resumeWorktreeFor
 import com.exponential.app.ui.components.DeviceNotReadyRow
@@ -102,7 +102,6 @@ import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.markdown.AutocompleteRows
 import com.exponential.app.ui.markdown.EMOJI_TYPEAHEAD_LIMIT
 import com.exponential.app.ui.markdown.IssueRefHandler
-import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.autocompleteCandidateCount
 import com.exponential.app.ui.markdown.autocompleteTriggersAt
 import com.exponential.app.ui.markdown.mentionCandidatesFor
@@ -117,9 +116,7 @@ import com.exponential.app.ui.steer.SteerRunCaptionRow
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassRow
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 /**
  * EXP-825: the team's AGENT page — the ONE launcher on every client. The
@@ -278,7 +275,11 @@ fun AgentScreen(
     }
     val busy = sending || runState is ActionRunState.Sending
     val canSubmit = device != null && !agentNotReady && !busy && subjectOk &&
-        AgentComposerPrompt.withinLimit(draft, images.size)
+        AgentComposerPrompt.withinLimit(
+            draft,
+            images.count { it.isImage },
+            images.filter { !it.isImage }.map { it.filename },
+        )
     // The ONE pure place the subject turns into copy: the submit's contract
     // label and (EXP-1038) the headline verb above the field.
     // EXP-1233: the Fix merge conflicts builtin with a picked PR is its own
@@ -313,7 +314,11 @@ fun AgentScreen(
         overCap -> "At most $MAX_BATCH_ISSUES issues per run. Split the batch."
         selectedAction != null && ActionInputValues.hasUnsupportedType(selectedActionInputs) ->
             "This action needs a newer app version."
-        !AgentComposerPrompt.withinLimit(draft, images.size) ->
+        !AgentComposerPrompt.withinLimit(
+            draft,
+            images.count { it.isImage },
+            images.filter { !it.isImage }.map { it.filename },
+        ) ->
             "The message is too long (${AgentComposerPrompt.MAX_LENGTH} characters at most)."
         else -> null
     }
@@ -401,22 +406,20 @@ fun AgentScreen(
     // Back dismisses the menu, and only the menu.
     BackHandler(enabled = menuOpen) { composerArmed = false }
 
-    // ── Images (EXP-511): the system photo picker feeds the pending list ────
+    // ── Attachments (EXP-511, wave D): the system document picker, ANY type
+    // (images included), feeds the pending list ─────────────────────────────
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val imagePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(MAX_STEER_IMAGES),
-    ) { uris: List<Uri> ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            uris.forEach { uri ->
-                // ContentResolver reads can stream from a cloud-backed
-                // provider — never on the main thread.
-                val picked = withContext(Dispatchers.IO) {
-                    val bytes = MarkdownMediaUtils.readBytes(context, uri) ?: return@withContext null
-                    Triple(bytes, MarkdownMediaUtils.guessFilename(context, uri), MarkdownMediaUtils.guessMimeType(context, uri))
-                } ?: return@forEach
-                viewModel.addImage(uri, picked.first, picked.second, picked.third)
+            // ContentResolver reads can stream from a cloud-backed provider —
+            // [readComposerPick] stays off the main thread.
+            when (val picked = readComposerPick(context, uri)) {
+                is ComposerPick.Read -> viewModel.addImage(picked.uri, picked.bytes, picked.filename, picked.mime)
+                is ComposerPick.Refused -> viewModel.refuseAttachment(picked.message)
             }
         }
     }
@@ -777,15 +780,14 @@ fun AgentScreen(
             ultracode = launch.ultracode,
             mcpValue = mcpPickValue(mcpServerIds.size),
             computerUse = computerUse,
-            canAttach = images.size < MAX_STEER_IMAGES,
+            canAttach = images.count { it.isImage } < MAX_STEER_IMAGES ||
+                images.count { !it.isImage } < MAX_STEER_FILES,
             onRow = { row ->
                 plusMenuOpen = false
                 when (row) {
                     ComposerMenuRowId.ImplementIssue -> issuePickerOpen = true
                     ComposerMenuRowId.RunAction -> actionPickerOpen = true
-                    ComposerMenuRowId.AddFile -> imagePicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                    )
+                    ComposerMenuRowId.AddFile -> filePicker.launch(arrayOf("*/*"))
                     ComposerMenuRowId.Effort -> effortPickerOpen = true
                     ComposerMenuRowId.Subagents -> subagentPickerOpen = true
                     ComposerMenuRowId.McpServers -> mcpPickerOpen = true

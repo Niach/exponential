@@ -878,6 +878,46 @@ fn dimension(value: Option<&Value>) -> Option<u32> {
     Some(number as u32)
 }
 
+/// Wave D (web `turnEventsOf`, M6 ×4): the events [`session_turns`] walks
+/// open with the run's OWN start as a synthetic `started` edge — but only
+/// when something was observed beyond it (no events = the single-row
+/// thread).
+pub fn with_run_start(events: Vec<SessionTurnEvent>, run_started_ms: Option<i64>) -> Vec<SessionTurnEvent> {
+    match run_started_ms {
+        Some(at) if !events.is_empty() => {
+            let mut out = Vec::with_capacity(events.len() + 1);
+            out.push(SessionTurnEvent::TurnStarted { at });
+            out.extend(events);
+            out
+        }
+        _ => events,
+    }
+}
+
+/// Wave D (web `firstTurnEndKnown`, M6 ×4): whether the FIRST turn's end is
+/// a real observation. Its start is the run's own (synthetic), so its end is
+/// known only when the view watched it run: the first event after the run's
+/// start is an observed `started` edge. Mounting after it ended leaves only
+/// the next message to close it, and that time includes the idle gap — the
+/// row then reads `Done on <device>` with no duration.
+pub fn first_turn_end_known(events: &[SessionTurnEvent], run_started_ms: Option<i64>) -> bool {
+    let Some(start) = run_started_ms else {
+        return true;
+    };
+    let Some((first, rest)) = events.split_first() else {
+        return true;
+    };
+    if *first != (SessionTurnEvent::TurnStarted { at: start }) {
+        return true;
+    }
+    let mut ordered: Vec<(usize, &SessionTurnEvent)> = rest.iter().enumerate().collect();
+    ordered.sort_by(|(a_order, a), (b_order, b)| a.at().cmp(&b.at()).then(a_order.cmp(b_order)));
+    match ordered.first() {
+        None => true,
+        Some((_, next)) => matches!(next, SessionTurnEvent::TurnStarted { .. }),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1191,6 +1231,34 @@ mod tests {
             panic!("one group");
         };
         assert_eq!(group.pr_url.as_deref(), Some("https://github.com/o/r/pull/1"));
+    }
+
+    /// Wave D (web `firstTurnEndKnown` cases): the synthetic run start
+    /// rides in front only when something was observed, and the first
+    /// turn's end is known only when an observed `started` edge follows it.
+    #[test]
+    fn the_first_turn_end_is_known_only_when_watched() {
+        use SessionTurnEvent::*;
+        let message = |at| UserMessage { at, text: "next".into(), images: Vec::new() };
+        assert!(with_run_start(Vec::new(), Some(1_000)).is_empty());
+        assert_eq!(
+            with_run_start(vec![message(5_000)], Some(1_000)),
+            vec![TurnStarted { at: 1_000 }, message(5_000)]
+        );
+        assert_eq!(with_run_start(vec![message(5_000)], None), vec![message(5_000)]);
+        // Mounted after the first turn ended: only the next message closes it.
+        let unwatched = with_run_start(vec![message(5_000)], Some(1_000));
+        assert!(!first_turn_end_known(&unwatched, Some(1_000)));
+        // Watched: an observed `started` edge comes first.
+        let watched = with_run_start(
+            vec![TurnStarted { at: 1_010 }, TurnEnded { at: 2_000 }, message(5_000)],
+            Some(1_000),
+        );
+        assert!(first_turn_end_known(&watched, Some(1_000)));
+        // No synthetic start in front (no run start, or none observed).
+        assert!(first_turn_end_known(&[message(5_000)], Some(1_000)));
+        assert!(first_turn_end_known(&unwatched, None));
+        assert!(first_turn_end_known(&with_run_start(Vec::new(), Some(1_000)), Some(1_000)));
     }
 
     /// EXP-1245 — the fixture's `turns.cases` ×4 (the web's case names).

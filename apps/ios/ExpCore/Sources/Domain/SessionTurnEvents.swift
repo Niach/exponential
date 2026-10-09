@@ -88,11 +88,12 @@ public final class SessionTurnLog: @unchecked Sendable {
         for row in feed {
             guard row.isUserMessage, let at = messageAt[row.id], !row.text.isEmpty else { continue }
             let parsed = SteerImageMessage.parse(row.text)
-            if parsed.text.isEmpty && parsed.attachmentIds.isEmpty { continue }
+            if parsed.text.isEmpty && parsed.attachmentIds.isEmpty && parsed.files.isEmpty { continue }
             messages.append(.userMessage(
                 at: at,
                 text: parsed.text,
-                images: parsed.attachmentIds.map { "/api/attachments/\($0)" }
+                images: parsed.attachmentIds.map { "/api/attachments/\($0)" },
+                files: parsed.files
             ))
         }
         if messages.isEmpty && edges.isEmpty { return [] }
@@ -115,4 +116,24 @@ public final class SessionTurnLog: @unchecked Sendable {
         logs[sessionId] = log
         return log
     }
+}
+
+/// Whether the FIRST turn's end is a real observation (web
+/// `firstTurnEndKnown`, M6 ×4). Its start is the run's own (synthetic), so
+/// its end is known only when the view watched it run: the first event after
+/// the run's start is an observed `started` edge. Mounting after it ended
+/// leaves only the next message to close it, and that time includes the
+/// idle gap.
+public func firstTurnEndKnown(_ events: [SessionTurnEvent], runStartedAt: Double?) -> Bool {
+    guard let first = events.first, case let .turn(started, at) = first, started,
+          let start = runStartedAt, at == start
+    else { return true }
+    let next = events.dropFirst().enumerated()
+        .filter { $0.element.at.isFinite }
+        .min { a, b in
+            a.element.at != b.element.at ? a.element.at < b.element.at : a.offset < b.offset
+        }?.element
+    guard let next else { return true }
+    if case .turn(true, _) = next { return true }
+    return false
 }

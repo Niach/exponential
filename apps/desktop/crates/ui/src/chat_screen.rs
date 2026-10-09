@@ -83,7 +83,7 @@ use crate::coding_flow::{self, CodingHub, SessionSubject};
 use crate::composer_images::{self, PendingImages};
 use crate::device_readiness;
 use crate::icons::registry;
-use crate::issue_picker::{self, IssueRow};
+use crate::picker::issue_picker::{self, IssueRow};
 use crate::launch_options::{self, inline_pin_trigger, LaunchOptionsSection};
 use crate::mention_input::MentionInput;
 use crate::navigation::{self, ChatSeed, Navigation};
@@ -113,6 +113,19 @@ pub(crate) const MENU_SUBAGENTS: &str = "Subagents";
 pub(crate) const MENU_ULTRACODE: &str = "Ultracode";
 pub(crate) const MENU_MCP_SERVERS: &str = "MCP servers";
 pub(crate) const MENU_COMPUTER_USE: &str = "Computer use";
+
+/// The issue picker footer's submit (fixture `testIds.implementSubmit`).
+pub(crate) const IMPLEMENT_SUBMIT_ID: &str = "agent-composer-implement";
+
+/// The fixture's `implementButton`: "Implement 1 issue" / "Implement {n}
+/// issues". It only closes the picker — the picks already are the subject.
+pub(crate) fn implement_button_label(count: usize) -> String {
+    if count == 1 {
+        "Implement 1 issue".to_string()
+    } else {
+        format!("Implement {count} issues")
+    }
+}
 
 /// EXP-1249: how tall the "+" menu may grow, for the side-with-room fit.
 const PLUS_MENU_WANTED_HEIGHT: f32 = 360.;
@@ -1658,7 +1671,7 @@ impl ChatScreenView {
             return;
         };
         let Some(transport) = queries::attachment_transport(cx) else {
-            self.notice = Some("Couldn't upload image".into());
+            self.notice = Some("Couldn't upload attachment".into());
             cx.notify();
             return;
         };
@@ -1689,15 +1702,14 @@ impl ChatScreenView {
                             cx.notify();
                             return;
                         }
-                        let ids: Vec<String> = resolved.into_iter().map(|(_, id)| id).collect();
-                        let message = steer::build_steer_image_message(&text, &ids);
+                        let message = this.images.message(&text);
                         this.start(message, window, cx);
                     }
                     Err((resolved, error)) => {
                         // Keep what landed so a retry uploads only the rest.
                         this.images.note_uploaded(&resolved);
                         log::warn!("[ui] chat composer upload failed: {error}");
-                        this.notice = Some("Couldn't upload image".into());
+                        this.notice = Some("Couldn't upload attachment".into());
                     }
                 }
                 cx.notify();
@@ -2501,6 +2513,8 @@ impl ChatScreenView {
         let empty_pool = rows.is_empty();
         let body_rows = rows.clone();
         let on_close = self.picker_on_close(cx);
+        let submit_close = on_close.clone();
+        let picked_count = picked.len();
         crate::picker::deferred(move |window, cx| {
             crate::picker::Picker::multi(
                 items,
@@ -2558,7 +2572,25 @@ impl ChatScreenView {
                 if hidden > 0 {
                     notes.push(format!("+{hidden} more. Refine your search.").into());
                 }
-                if notes.is_empty() {
+                // The fixture's `implementButton`: once anything is picked a
+                // footer submit closes the picker (the picks already ARE the
+                // subject).
+                let submit = (picked_count > 0).then(|| {
+                    let close = submit_close.clone();
+                    h_flex()
+                        .w_full()
+                        .p_1()
+                        .child(
+                            Button::new(IMPLEMENT_SUBMIT_ID)
+                                .primary()
+                                .small()
+                                .w_full()
+                                .cursor_pointer()
+                                .label(implement_button_label(picked_count))
+                                .on_click(move |_, window, cx| close(window, cx)),
+                        )
+                });
+                if notes.is_empty() && submit.is_none() {
                     return None;
                 }
                 Some(
@@ -2569,6 +2601,7 @@ impl ChatScreenView {
                                 .into_iter()
                                 .map(|note| issue_picker::list_note(note, cx)),
                         )
+                        .children(submit)
                         .into_any_element(),
                 )
             })
@@ -3579,7 +3612,7 @@ pub(crate) fn plus_menu(
                 pointer_menu_item(None, MENU_ADD_FILE, |_| None, move |window, cx| {
                     if let Some(view) = view.upgrade() {
                         view.update(cx, |_, cx| {
-                            composer_images::pick_image_files(window, cx, |this, read, window, cx| {
+                            composer_images::pick_attachment_files(window, cx, |this, read, window, cx| {
                                 this.stage_images(read, window, cx)
                             });
                         });
@@ -4095,6 +4128,21 @@ mod tests {
                 .map(|id| row_of(id.as_str().unwrap()).0)
                 .collect();
             assert_eq!(composer_menu_rows(Some(conditions)), expected, "{}", case["name"]);
+        }
+        // The issue picker's footer submit (`implementButton`, its test id
+        // and every `implementLabels` case).
+        assert_eq!(fixture["testIds"]["implementSubmit"], IMPLEMENT_SUBMIT_ID);
+        assert_eq!(fixture["implementButton"]["one"], implement_button_label(1));
+        assert_eq!(
+            fixture["implementButton"]["many"]
+                .as_str()
+                .unwrap()
+                .replace("{n}", "7"),
+            implement_button_label(7)
+        );
+        for case in fixture["implementLabels"].as_array().unwrap() {
+            let count = case["count"].as_u64().unwrap() as usize;
+            assert_eq!(case["expected"], implement_button_label(count));
         }
         // Before the launch cluster exists: the first group, no separator.
         assert_eq!(

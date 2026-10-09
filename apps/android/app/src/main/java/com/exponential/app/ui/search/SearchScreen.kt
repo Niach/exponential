@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.domain.IssueStatus
+import com.exponential.app.ui.components.IssueRowContent
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
@@ -143,35 +144,31 @@ private fun SearchResultRow(result: SearchResult, onClick: () -> Unit) {
             .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        StatusIcon(IssueStatus.fromWire(issue.status), size = 16.dp)
-        Spacer(Modifier.width(10.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                issue.title,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(2.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (result.board != null) {
-                    BoardIcon(result.board, size = 12.dp)
-                    Spacer(Modifier.width(6.dp))
-                }
-                Text(
+        IssueRowContent(
+            title = issue.title,
+            leading = { StatusIcon(IssueStatus.fromWire(issue.status), size = 16.dp) },
+            leadingGap = 10.dp,
+            subLine = {
+                Spacer(Modifier.height(2.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
                     if (result.board != null) {
-                        "${result.board.name} · ${issue.identifier}"
-                    } else {
-                        issue.identifier
-                    },
-                    style = MaterialTheme.typography.labelMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
+                        BoardIcon(result.board, size = 12.dp)
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Text(
+                        if (result.board != null) {
+                            "${result.board.name} · ${issue.identifier}"
+                        } else {
+                            issue.identifier
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            },
+        )
     }
 }
 

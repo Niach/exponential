@@ -82,16 +82,36 @@ fun turnEventsOf(log: TurnLog, feed: List<TurnFeedRow>, runStartedAt: Long?): Li
         val text = row.text
         if (!row.isUserMessage || text.isNullOrEmpty()) continue
         val parsed = parseSteerMessage(text)
-        if (parsed.text.isEmpty() && parsed.attachmentIds.isEmpty()) continue
+        if (parsed.text.isEmpty() && parsed.attachmentIds.isEmpty() && parsed.files.isEmpty()) continue
         messages += SessionTurnEvent.UserMessage(
             at = at,
             text = parsed.text,
             images = parsed.attachmentIds.map { "/api/attachments/$it" },
+            files = parsed.files,
         )
     }
     if (messages.isEmpty() && log.edges.isEmpty()) return emptyList()
     val first = runStartedAt?.let { listOf(SessionTurnEvent.Turn(started = true, at = it)) }.orEmpty()
     return first + messages + log.edges
+}
+
+/**
+ * Web M6 ×4 (`firstTurnEndKnown`): whether the FIRST turn's end was actually
+ * observed. [turnEventsOf] puts a synthetic `started` edge at the run's start
+ * in front; that turn's end is known only when the first event after it is an
+ * observed `started` edge. Otherwise ("Done on <device>") the caption drops
+ * the duration rather than measure from a guessed end.
+ */
+fun firstTurnEndKnown(events: List<SessionTurnEvent>, runStartedAt: Long?): Boolean {
+    val first = events.firstOrNull() ?: return true
+    // No synthetic run start in front: every turn opened on an observed edge.
+    if (first !is SessionTurnEvent.Turn || !first.started || runStartedAt == null || first.at != runStartedAt) {
+        return true
+    }
+    val next = events.drop(1).withIndex()
+        .sortedWith(compareBy({ it.value.at }, { it.index }))
+        .firstOrNull()?.value
+    return next == null || (next is SessionTurnEvent.Turn && next.started)
 }
 
 private val turnLogs = mutableMapOf<String, TurnLog>()

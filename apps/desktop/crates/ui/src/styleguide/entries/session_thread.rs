@@ -107,6 +107,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
             "macbook",
             None,
             now,
+            true,
         ) {
             let settled = turn.ended_at.is_some();
             use crate::queries::CodingSessionDisplay as D;

@@ -494,6 +494,292 @@ pub(crate) fn with_pointer_layer(menu: impl IntoElement) -> Div {
 }
 
 // ---------------------------------------------------------------------------
+// The pointer CONTEXT menu (wave D): `PointerMenu`'s right-click twin
+// ---------------------------------------------------------------------------
+
+/// The right-click twin of [`PointerMenu`]: gpui-component's `ContextMenu`
+/// (rev da4f936) with the SAME pointer layer over the open menu, so a
+/// `Submenu` row (Status ›, Labels › …, which has no element form) points
+/// like every element row does. Behaviour otherwise mirrors upstream: a
+/// right press inside the element opens the menu at the pointer (built on
+/// the next frame from current state), a pick / Escape / click outside
+/// dismisses it, and the dismiss hands focus back to whatever held it before
+/// the press unless the pick moved it elsewhere. Upstream's private
+/// `set_previous_focus` is out of reach, so that restore lives in the
+/// dismiss subscription here.
+pub(crate) trait PointerContextMenuExt: InteractiveElement + gpui::ParentElement + Styled {
+    #[track_caller]
+    fn pointer_context_menu(
+        mut self,
+        builder: impl Fn(
+                gpui_component::menu::PopupMenu,
+                &mut Window,
+                &mut gpui::Context<gpui_component::menu::PopupMenu>,
+            ) -> gpui_component::menu::PopupMenu
+            + 'static,
+    ) -> PointerContextMenu<Self>
+    where
+        Self: Sized,
+    {
+        let caller = std::panic::Location::caller();
+        let id = self
+            .interactivity()
+            .element_id
+            .clone()
+            .map(|id| ElementId::Name(format!("pointer-context-menu-{id:?}").into()))
+            .unwrap_or_else(|| ElementId::CodeLocation(*caller));
+        PointerContextMenu {
+            id,
+            element: Some(self),
+            builder: std::rc::Rc::new(builder),
+            ignore_style: gpui::StyleRefinement::default(),
+        }
+    }
+}
+
+impl<E: InteractiveElement + gpui::ParentElement + Styled> PointerContextMenuExt for E {}
+
+type ContextMenuBuilder = std::rc::Rc<
+    dyn Fn(
+        gpui_component::menu::PopupMenu,
+        &mut Window,
+        &mut gpui::Context<gpui_component::menu::PopupMenu>,
+    ) -> gpui_component::menu::PopupMenu,
+>;
+
+/// See [`PointerContextMenuExt`].
+pub(crate) struct PointerContextMenu<E: gpui::ParentElement + Styled + Sized> {
+    id: ElementId,
+    element: Option<E>,
+    builder: ContextMenuBuilder,
+    // Never read: the style refinement forwarded once the element is taken.
+    ignore_style: gpui::StyleRefinement,
+}
+
+impl<E: gpui::ParentElement + Styled> gpui::ParentElement for PointerContextMenu<E> {
+    fn extend(&mut self, elements: impl IntoIterator<Item = AnyElement>) {
+        if let Some(element) = &mut self.element {
+            element.extend(elements);
+        }
+    }
+}
+
+impl<E: gpui::ParentElement + Styled> Styled for PointerContextMenu<E> {
+    fn style(&mut self) -> &mut gpui::StyleRefinement {
+        match &mut self.element {
+            Some(element) => element.style(),
+            None => &mut self.ignore_style,
+        }
+    }
+}
+
+impl<E: gpui::ParentElement + Styled + IntoElement + 'static> IntoElement for PointerContextMenu<E> {
+    type Element = Self;
+
+    fn into_element(self) -> Self::Element {
+        self
+    }
+}
+
+#[derive(Default)]
+struct PointerContextShared {
+    menu: Option<gpui::Entity<gpui_component::menu::PopupMenu>>,
+    open: bool,
+    position: gpui::Point<Pixels>,
+    previous_focus: Option<gpui::FocusHandle>,
+    subscription: Option<gpui::Subscription>,
+}
+
+#[derive(Default)]
+pub(crate) struct PointerContextState {
+    element: Option<AnyElement>,
+    shared: std::rc::Rc<std::cell::RefCell<PointerContextShared>>,
+}
+
+impl<E: gpui::ParentElement + Styled> PointerContextMenu<E> {
+    fn with_state<R>(
+        &mut self,
+        id: &gpui::GlobalElementId,
+        window: &mut Window,
+        cx: &mut App,
+        f: impl FnOnce(&mut Self, &mut PointerContextState, &mut Window, &mut App) -> R,
+    ) -> R {
+        window.with_optional_element_state::<PointerContextState, _>(Some(id), |state, window| {
+            let mut state = state.unwrap().unwrap_or_default();
+            let result = f(self, &mut state, window, cx);
+            (result, Some(state))
+        })
+    }
+}
+
+impl<E: gpui::ParentElement + Styled + IntoElement + 'static> gpui::Element for PointerContextMenu<E> {
+    type RequestLayoutState = PointerContextState;
+    type PrepaintState = gpui::Hitbox;
+
+    fn id(&self) -> Option<ElementId> {
+        Some(self.id.clone())
+    }
+
+    fn source_location(&self) -> Option<&'static std::panic::Location<'static>> {
+        None
+    }
+
+    fn request_layout(
+        &mut self,
+        id: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> (gpui::LayoutId, Self::RequestLayoutState) {
+        use gpui::Focusable as _;
+        self.with_state(id.unwrap(), window, cx, |this, state, window, cx| {
+            let (position, open, menu) = {
+                let shared = state.shared.borrow();
+                (shared.position, shared.open, shared.menu.clone())
+            };
+            let menu_element = match menu {
+                Some(menu) if open && !menu.read(cx).is_empty() => {
+                    if !menu.focus_handle(cx).contains_focused(window, cx) {
+                        menu.focus_handle(cx).focus(window, cx);
+                    }
+                    Some(
+                        deferred(
+                            anchored().child(
+                                div()
+                                    .w(window.bounds().size.width)
+                                    .h(window.bounds().size.height)
+                                    .on_scroll_wheel(|_, _, cx| cx.stop_propagation())
+                                    .child(
+                                        anchored()
+                                            .position(position)
+                                            .snap_to_window_with_margin(px(8.))
+                                            .anchor(Anchor::TopLeft)
+                                            .child(with_pointer_layer(menu)),
+                                    ),
+                            ),
+                        )
+                        .with_priority(gpui_base::POPUP_PRIORITY)
+                        .into_any(),
+                    )
+                }
+                _ => None,
+            };
+            let mut element = this
+                .element
+                .take()
+                .expect("the context menu's element is laid out once")
+                .children(menu_element)
+                .into_any_element();
+            let layout_id = element.request_layout(window, cx);
+            (
+                layout_id,
+                PointerContextState {
+                    element: Some(element),
+                    ..Default::default()
+                },
+            )
+        })
+    }
+
+    fn prepaint(
+        &mut self,
+        _: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        bounds: gpui::Bounds<Pixels>,
+        state: &mut Self::RequestLayoutState,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Self::PrepaintState {
+        if let Some(element) = &mut state.element {
+            element.prepaint(window, cx);
+        }
+        window.insert_hitbox(bounds, gpui::HitboxBehavior::Normal)
+    }
+
+    fn paint(
+        &mut self,
+        id: Option<&gpui::GlobalElementId>,
+        _: Option<&gpui::InspectorElementId>,
+        _: gpui::Bounds<Pixels>,
+        state: &mut Self::RequestLayoutState,
+        hitbox: &mut Self::PrepaintState,
+        window: &mut Window,
+        cx: &mut App,
+    ) {
+        if let Some(element) = &mut state.element {
+            element.paint(window, cx);
+        }
+        let builder = self.builder.clone();
+        self.with_state(id.unwrap(), window, cx, |_, state, window, _| {
+            let shared = state.shared.clone();
+            let hitbox = hitbox.clone();
+            window.on_mouse_event(move |event: &gpui::MouseDownEvent, phase, window, cx| {
+                if !phase.bubble()
+                    || event.button != gpui::MouseButton::Right
+                    || !hitbox.is_hovered(window)
+                {
+                    return;
+                }
+                {
+                    let mut state = shared.borrow_mut();
+                    // A press while our own menu holds focus keeps the focus
+                    // captured when THAT menu opened.
+                    let focused = window.focused(cx);
+                    let inside_menu = match (&state.menu, &focused) {
+                        (Some(menu), Some(focused)) => {
+                            use gpui::Focusable as _;
+                            menu.focus_handle(cx) == *focused
+                        }
+                        _ => false,
+                    };
+                    if !inside_menu {
+                        state.previous_focus = focused;
+                    }
+                    state.menu = None;
+                    state.subscription = None;
+                    state.position = event.position;
+                    state.open = true;
+                }
+                window.defer(cx, {
+                    let shared = shared.clone();
+                    let builder = builder.clone();
+                    move |window, cx| {
+                        let menu = gpui_component::menu::PopupMenu::build(
+                            window,
+                            cx,
+                            move |menu, window, cx| builder(menu, window, cx),
+                        );
+                        let subscription = window.subscribe(&menu, cx, {
+                            let shared = shared.clone();
+                            move |menu, _: &gpui::DismissEvent, window, cx| {
+                                use gpui::Focusable as _;
+                                let previous = {
+                                    let mut state = shared.borrow_mut();
+                                    state.open = false;
+                                    state.previous_focus.take()
+                                };
+                                // Hand focus back unless the pick moved it
+                                // (a dialog's input, say).
+                                let lost = window.focused(cx).is_none()
+                                    || menu.focus_handle(cx).contains_focused(window, cx);
+                                if let (true, Some(previous)) = (lost, previous) {
+                                    window.focus(&previous, cx);
+                                }
+                                window.refresh();
+                            }
+                        });
+                        let mut state = shared.borrow_mut();
+                        state.menu = Some(menu);
+                        state.subscription = Some(subscription);
+                        window.refresh();
+                    }
+                });
+            });
+        });
+    }
+}
+
+// ---------------------------------------------------------------------------
 // The typeahead menu (EXP-970)
 // ---------------------------------------------------------------------------
 

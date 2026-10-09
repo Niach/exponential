@@ -818,6 +818,8 @@ class AgentSessionViewModel @AssistedInject constructor(
 
     fun removePendingImage(index: Int) = connection.removePendingImage(index)
 
+    fun refusePendingAttachment(message: String) = connection.refusePendingAttachment(message)
+
     fun sendQuestionAnswer(
         questionId: String,
         askId: String?,

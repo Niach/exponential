@@ -16,6 +16,7 @@ import {
 import { LaunchHeadline } from "@/components/launch-dialog/launch-headline"
 import { LaunchOptionsLine } from "@/components/launch-dialog/launch-options-line"
 import {
+  AttachmentFileTile,
   AttachmentThumb,
   Button,
   conceptIcon,
@@ -26,7 +27,6 @@ import type { IconConcept } from "@exp/icons"
 import { contract } from "@exp/domain-contract"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 import { pickChatSuggestions } from "@/lib/chat-suggestions"
-import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { cn } from "@/lib/utils"
 import { useSession } from "@/hooks/use-session"
 import { useIssuesCodingReadiness } from "@/hooks/use-coding-readiness"
@@ -198,15 +198,25 @@ export function LaunchComposer({
             ) : null}
             {images.length > 0 && (
               <div className="flex flex-wrap gap-2 px-3 pt-3">
-                {images.map((image) => (
-                  <AttachmentThumb
-                    key={image.url}
-                    src={image.url}
-                    removeLabel="Remove image"
-                    onRemove={() => model.removeImage(image.url)}
-                    disabled={busy}
-                  />
-                ))}
+                {images.map((image) =>
+                  image.kind === `image` ? (
+                    <AttachmentThumb
+                      key={image.url}
+                      src={image.url}
+                      removeLabel="Remove image"
+                      onRemove={() => model.removeImage(image.url)}
+                      disabled={busy}
+                    />
+                  ) : (
+                    <AttachmentFileTile
+                      key={image.url}
+                      name={image.file.name}
+                      removeLabel={`Remove ${image.file.name}`}
+                      onRemove={() => model.removeImage(image.url)}
+                      disabled={busy}
+                    />
+                  )
+                )}
               </div>
             )}
           </>
@@ -217,7 +227,6 @@ export function LaunchComposer({
               ref={fileInputRef}
               type="file"
               multiple
-              accept={acceptedImageContentTypes.join(`,`)}
               className="hidden"
               onChange={(e) => {
                 filePickerOpenRef.current = false

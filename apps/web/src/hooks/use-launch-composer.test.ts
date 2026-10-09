@@ -418,6 +418,58 @@ describe(`useLaunchComposer submit`, () => {
     expect(result.current.images).toEqual([])
   })
 
+  it(`uploads files beside images and links them after the embeds`, async () => {
+    mockState.upload
+      .mockResolvedValueOnce({ id: `att-1`, filename: `a.png` })
+      .mockResolvedValueOnce({ id: `att-2`, filename: `notes [v2].pdf` })
+    const { result, remote } = mount()
+    act(() => result.current.setText(`see`))
+    act(() => {
+      result.current.addFiles(
+        [
+          new File([`x`], `a.png`, { type: `image/png` }),
+          new File([`x`], `notes [v2].pdf`, { type: `application/pdf` }),
+        ],
+        3
+      )
+    })
+    expect(result.current.text).toBe(`see [Image #1]`)
+    expect(result.current.images.map((entry) => entry.kind)).toEqual([
+      `image`,
+      `file`,
+    ])
+    await act(() => result.current.submit())
+    expect(remote.runAction).toHaveBeenCalledWith(
+      device,
+      expect.anything(),
+      expect.anything(),
+      { repo: `repo-1` },
+      `see [Image #1]\n\n![image](/api/attachments/att-1)\n[notes [v2\\].pdf](/api/attachments/att-2)`
+    )
+  })
+
+  it(`toasts the one rejection copy and the file cap`, () => {
+    const { result } = mount()
+    const big = new File([`x`], `huge.zip`, { type: `application/zip` })
+    Object.defineProperty(big, `size`, { value: 51 * 1024 * 1024 })
+    act(() => {
+      result.current.addFiles(
+        [
+          big,
+          ...[1, 2, 3, 4, 5].map(
+            (n) => new File([`x`], `${n}.txt`, { type: `text/plain` })
+          ),
+        ],
+        0
+      )
+    })
+    expect(mockState.toastError).toHaveBeenCalledWith(
+      `Images up to 10 MB and files up to 50 MB can be attached`
+    )
+    expect(mockState.toastError).toHaveBeenCalledWith(`Up to 4 files per message`)
+    expect(result.current.images).toHaveLength(4)
+  })
+
   it(`keeps the draft on an upload failure and retries only the rest`, async () => {
     mockState.upload
       .mockResolvedValueOnce({ id: `att-1` })
@@ -436,7 +488,7 @@ describe(`useLaunchComposer submit`, () => {
     await act(() => result.current.submit())
     expect(remote.runAction).not.toHaveBeenCalled()
     expect(mockState.toastError).toHaveBeenCalledWith(
-      `Couldn't upload image`,
+      `Couldn't upload attachment`,
       expect.anything()
     )
     expect(result.current.images[0]!.uploadedId).toBe(`att-1`)

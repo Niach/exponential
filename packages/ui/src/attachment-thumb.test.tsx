@@ -1,7 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest"
 
-import { AttachmentThumb } from "./attachment-thumb"
+import {
+  AttachmentFileLink,
+  AttachmentFileTile,
+  AttachmentThumb,
+} from "./attachment-thumb"
 
 // EXP-962: the composer tile and the posted inline image are ONE thumb.
 
@@ -76,5 +80,28 @@ describe(`AttachmentThumb`, () => {
     const video = container.querySelector(`video`)!
     expect(video.className).toContain(`bg-black`)
     expect(video.getAttribute(`preload`)).toBe(`metadata`)
+  })
+})
+
+describe(`AttachmentFileTile`, () => {
+  it(`shows the name at the tile height with the same remove badge`, () => {
+    const onRemove = vi.fn()
+    const { container } = render(
+      <AttachmentFileTile name="notes.pdf" removeLabel="Remove file" onRemove={onRemove} />
+    )
+    const tile = container.querySelector(`[data-slot="attachment-file-tile"]`)!
+    expect(tile.className).toContain(`h-16`)
+    expect(tile.textContent).toBe(`notes.pdf`)
+    fireEvent.click(screen.getByRole(`button`, { name: `Remove file` }))
+    expect(onRemove).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe(`AttachmentFileLink`, () => {
+  it(`opens the attachment in a new tab`, () => {
+    render(<AttachmentFileLink href="/api/attachments/f1" name="build.log" />)
+    const link = screen.getByRole(`link`, { name: `Open build.log` })
+    expect(link.getAttribute(`href`)).toBe(`/api/attachments/f1`)
+    expect(link.getAttribute(`target`)).toBe(`_blank`)
   })
 })

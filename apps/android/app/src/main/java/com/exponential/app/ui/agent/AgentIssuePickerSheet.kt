@@ -22,6 +22,7 @@ import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.IssueSearch
 import com.exponential.app.domain.IssueStatus
 import com.exponential.app.domain.statusIcon
+import com.exponential.app.ui.components.IssueRowContent
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.components.StatusIcon
@@ -165,26 +166,15 @@ internal fun AgentIssuePickerSheet(
 private fun RowScope.IssueRowBody(option: IssueOption) {
     val status = IssueStatus.fromWire(option.status)
     val priority = IssuePriority.fromWire(option.priority)
-    PriorityIcon(priority, size = 16.dp)
-    Spacer(Modifier.width(10.dp))
-    Text(
-        option.identifier,
-        style = MaterialTheme.typography.labelMedium,
-        fontFamily = FontFamily.Monospace,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.widthIn(min = 60.dp),
-    )
-    Spacer(Modifier.width(10.dp))
-    StatusIcon(status, size = 16.dp)
-    Spacer(Modifier.width(10.dp))
-    Text(
-        option.title,
-        style = MaterialTheme.typography.bodyMedium,
-        color = MaterialTheme.colorScheme.onSurface,
-        maxLines = 1,
-        overflow = TextOverflow.Ellipsis,
-        modifier = Modifier.weight(1f),
+    IssueRowContent(
+        title = option.title,
+        leading = { PriorityIcon(priority, size = 16.dp) },
+        leadingGap = 10.dp,
+        identifier = option.identifier,
+        identifierMinWidth = 60.dp,
+        identifierEllipsis = true,
+        identifierGap = 10.dp,
+        status = { StatusIcon(status, size = 16.dp) },
+        statusGap = 10.dp,
     )
 }

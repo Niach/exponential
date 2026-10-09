@@ -42,22 +42,22 @@ async function postIssueUpload(
 }
 
 /**
- * Steer-image upload (EXP-702): EVERY steered image goes to the session's
- * own server-only store — issue runs included, so steering screenshots never
- * land in the issue's Files section. Same request/response contract as the
- * issue route; the server only accepts the inline image types (10 MB) and
+ * Steer attachment upload (EXP-702): EVERY steered image or file goes to the
+ * session's own server-only store — issue runs included, so steering
+ * attachments never land in the issue's Files section. Same request/response
+ * contract and per-type caps as the issue route (images 10 MB, files 50 MB),
  * only from the session's owner.
  */
 export async function uploadSessionImageFile(sessionId: string, file: File) {
   return postIssueUpload(
     `/api/sessions/${sessionId}/files`,
     file,
-    `Failed to upload image`
+    `Failed to upload file`
   )
 }
 
 /**
- * EXP-825: an image attached to a START — the Agent page composer — before
+ * EXP-825: an image or file attached to a START — the Agent page composer — before
  * any session exists. Lands in the team's pending store; the device binds it
  * to the session row it creates (or the orphan sweep reclaims it).
  */
@@ -65,7 +65,7 @@ export async function uploadTeamSessionImageFile(teamId: string, file: File) {
   return postIssueUpload(
     `/api/teams/${teamId}/session-files`,
     file,
-    `Failed to upload image`
+    `Failed to upload file`
   )
 }
 

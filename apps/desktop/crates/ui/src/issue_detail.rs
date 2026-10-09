@@ -740,7 +740,7 @@ impl IssueDetailView {
         let scoped = row.as_ref().map(|row| {
             domain::session_results::session_results_for_pr(row.results.as_ref(), issue.pr_url.as_deref())
         });
-        let groups = scoped
+        let mut groups = scoped
             .as_ref()
             .map(|raw| domain::session_results::parse_session_result_groups(Some(raw)))
             .unwrap_or_default();
@@ -752,6 +752,26 @@ impl IssueDetailView {
             .as_ref()
             .map(|changes| changes.read(cx).pane_files(cx))
             .filter(|files| !files.is_empty());
+        // Wave D (web M8): no report + a loaded PR body = ONE unnumbered
+        // group that claims every diff path (so `Other changes` never
+        // shows); the section pages read the same groups. Loading / failed
+        // bodies keep the fallback lead.
+        let unnumbered = groups.is_empty() && reviewable && {
+            if self.pr_body.as_ref().map(|(id, _)| id.as_str()) != Some(issue.id.as_str()) {
+                self.fetch_pr_body(issue.id.clone(), cx);
+            }
+            match self.pr_body.as_ref().map(|(_, state)| state) {
+                Some(PrBodyState::Ready(description)) => {
+                    groups.push(crate::session_results::pr_description_group(
+                        description.title.as_deref(),
+                        description.body.as_deref(),
+                        diff.as_deref(),
+                    ));
+                    true
+                }
+                _ => false,
+            }
+        };
         // A diff page: the back row over the pane, filtered to the page.
         if let (Some(page), Some(changes), Some(files)) = (self.guide_page, changes.as_ref(), diff.as_ref()) {
             let diff_files = crate::session_results::guide_diff_files(files);
@@ -814,6 +834,7 @@ impl IssueDetailView {
                 on_open: Some(on_open),
                 stack,
                 fallback_lead,
+                unnumbered,
             },
             cx,
         ))

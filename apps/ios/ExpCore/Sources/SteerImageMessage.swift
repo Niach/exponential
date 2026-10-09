@@ -47,20 +47,95 @@ public enum SteerImageMessage {
         return "\(trimmed)\n\n\(embeds)"
     }
 
+    /// Wave D (×4): one non-image attachment of a steer/start message — the
+    /// upload's id and the server's sanitized `filename` (the link text).
+    public struct File: Equatable, Sendable {
+        public let id: String
+        public let name: String
+
+        public init(id: String, name: String) {
+            self.id = id
+            self.name = name
+        }
+    }
+
+    /// How many non-image files one message may carry.
+    public static let maxFiles = 4
+
+    /// The ONE rejection copy ×4 for a pick over its cap (images 10 MB,
+    /// files 50 MB).
+    public static let attachmentRejectedMessage =
+        "Images up to 10 MB and files up to 50 MB can be attached"
+
+    /// The cap copy ×4 once a message already carries `maxFiles` files.
+    public static let filesFullMessage = "Up to 4 files per message"
+
+    /// One file line: `[<name>](/api/attachments/<id>)`, never preceded by
+    /// `!`. The name is backslash-escaped (`]` and `\`) on the way out.
+    private static let fileLinePattern =
+        "^\\[((?:[^\\]\\\\]|\\\\.)*)\\]\\(/api/attachments/([^)\\s]+)\\)$"
+    private static let fileLineRegex = try! NSRegularExpression(pattern: fileLinePattern)
+
+    /// `]` and `\` in a filename are backslash-escaped so the link text can
+    /// never close early.
+    public static func escapeFileName(_ name: String) -> String {
+        var out = ""
+        for character in name {
+            if character == "\\" || character == "]" { out.append("\\") }
+            out.append(character)
+        }
+        return out
+    }
+
+    private static func unescapeFileName(_ escaped: String) -> String {
+        var out = ""
+        var pending = false
+        for character in escaped {
+            if pending {
+                out.append(character)
+                pending = false
+            } else if character == "\\" {
+                pending = true
+            } else {
+                out.append(character)
+            }
+        }
+        if pending { out.append("\\") }
+        return out
+    }
+
+    /// Wave D (byte-identical ×4: web `buildSteerMessage`, desktop
+    /// `domain::image_message`, Android `SteerImageMessage.kt`): the prose, a
+    /// blank line, the image embed block exactly as `build` writes it, then
+    /// one `[<filename>](/api/attachments/<id>)` line per file. Files carry
+    /// no positional marker. With no files this IS `build`.
+    public static func buildMessage(text: String, imageIds: [String], files: [File]) -> String {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lines = imageIds.map { "![image](/api/attachments/\($0))" }
+            + files.map { "[\(escapeFileName($0.name))](/api/attachments/\($0.id))" }
+        if lines.isEmpty { return trimmed }
+        let block = lines.joined(separator: "\n")
+        if trimmed.isEmpty { return block }
+        return "\(trimmed)\n\n\(block)"
+    }
+
     /// The inverse of `build`: the prose without its trailing embed block, the
     /// attachment ids in embed order (image #1 is `attachmentIds[0]`), and the
     /// `[Image #N]` numbers the prose carries — 1-based, in text order,
     /// deduped. A number with no matching embed is still reported; the viewer
-    /// decides what to do with a dangling reference.
+    /// decides what to do with a dangling reference. Wave D: `files` = the
+    /// trailing file lines, peeled off BEFORE the image embeds.
     public struct Parsed: Equatable, Sendable {
         public let text: String
         public let attachmentIds: [String]
         public let markers: [Int]
+        public let files: [File]
 
-        public init(text: String, attachmentIds: [String], markers: [Int]) {
+        public init(text: String, attachmentIds: [String], markers: [Int], files: [File] = []) {
             self.text = text
             self.attachmentIds = attachmentIds
             self.markers = markers
+            self.files = files
         }
     }
 
@@ -68,6 +143,13 @@ public enum SteerImageMessage {
         var lines = message.components(separatedBy: "\n")
         var end = lines.count
         while end > 0, jsTrim(lines[end - 1]).isEmpty { end -= 1 }
+        var files: [File] = []
+        while end > 0 {
+            let line = jsTrim(lines[end - 1])
+            guard let file = fileLine(line) else { break }
+            files.insert(file, at: 0)
+            end -= 1
+        }
         var attachmentIds: [String] = []
         while end > 0 {
             let line = jsTrim(lines[end - 1])
@@ -77,7 +159,9 @@ public enum SteerImageMessage {
         }
         lines = Array(lines.prefix(end))
         let text = trimmingTrailingWhitespace(lines.joined(separator: "\n"))
-        return Parsed(text: text, attachmentIds: attachmentIds, markers: markers(in: text))
+        return Parsed(
+            text: text, attachmentIds: attachmentIds, markers: markers(in: text), files: files
+        )
     }
 
     /// The `[Image #N]` numbers a draft carries, 1-based, in text order, deduped.
@@ -190,6 +274,17 @@ public enum SteerImageMessage {
     }
 
     // MARK: - String helpers (kept private so the contract stays one surface)
+
+    private static func fileLine(_ line: String) -> File? {
+        let ns = line as NSString
+        guard let match = fileLineRegex.firstMatch(
+            in: line, range: NSRange(location: 0, length: ns.length)
+        ) else { return nil }
+        return File(
+            id: ns.substring(with: match.range(at: 2)),
+            name: unescapeFileName(ns.substring(with: match.range(at: 1)))
+        )
+    }
 
     private static func embedAttachmentId(_ line: String) -> String? {
         let ns = line as NSString

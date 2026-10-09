@@ -40,6 +40,7 @@ import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.FixConflictsPr
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.imageNumberAt
 import com.exponential.app.domain.insertImageMarker
 import com.exponential.app.domain.renumberImageMarkers
 import com.exponential.app.ui.components.ComposerSubmitButton
@@ -115,17 +116,19 @@ internal fun AgentComposer(
     // caret, so the writer can say "crop [Image #2]" without typing the
     // token. Removing one renumbers the draft (below), so the markers always
     // name images the composer still has (the steer composer's rule).
-    var markedImages by remember { mutableIntStateOf(pendingImages.size) }
-    LaunchedEffect(pendingImages.size) {
-        if (pendingImages.size > markedImages) {
+    // Wave D: only IMAGES are numbered — a file tile carries no marker.
+    val imageCount = pendingImages.count { it.isImage }
+    var markedImages by remember { mutableIntStateOf(imageCount) }
+    LaunchedEffect(imageCount) {
+        if (imageCount > markedImages) {
             var next = value
-            for (k in (markedImages + 1)..pendingImages.size) {
+            for (k in (markedImages + 1)..imageCount) {
                 val (text, caret) = insertImageMarker(next.text, next.selection.end, k)
                 next = TextFieldValue(text, TextRange(caret))
             }
             onValueRewrite(next)
         }
-        markedImages = pendingImages.size
+        markedImages = imageCount
     }
     val inputDefs = actionChip?.inputs.orEmpty()
     GlassComposer(
@@ -167,8 +170,9 @@ internal fun AgentComposer(
                 enabled = !sending,
                 onRemove = { index ->
                     // Renumber BEFORE the list shrinks: `[Image #k]` goes, and
-                    // every higher marker comes down one.
-                    val renumbered = renumberImageMarkers(value.text, index + 1)
+                    // every higher marker comes down one. A file has no marker.
+                    val number = pendingImages.imageNumberAt(index)
+                    val renumbered = if (number != null) renumberImageMarkers(value.text, number) else value.text
                     if (renumbered != value.text) {
                         onValueRewrite(
                             TextFieldValue(

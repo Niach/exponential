@@ -86,6 +86,44 @@ pub(crate) struct GuideSpec {
     /// The lead drawn when the run filed NO report (an open PR's GitHub
     /// body, [`pr_body_block`]).
     pub(crate) fallback_lead: Option<AnyElement>,
+    /// Wave D (web `numbered={false}`): bands without the `01 / 04`
+    /// caption — the PR-body fallback's single group
+    /// ([`pr_description_group`]).
+    pub(crate) unnumbered: bool,
+}
+
+/// Wave D (web `prDescriptionGroups`, M8 ×4): an open PR's GitHub body as
+/// the Guide's ONE group when the run filed no report — band = the PR title
+/// (else `Pull request`), text = the body (else `No description.`), and it
+/// CLAIMS every diff path, so its band carries the single Changes row and
+/// nothing is left for `Other changes`.
+pub(crate) fn pr_description_group(
+    title: Option<&str>,
+    body: Option<&str>,
+    diff: Option<&[crate::diff_pane::PaneFile]>,
+) -> SessionResultGroup {
+    let topic = title
+        .map(str::trim)
+        .filter(|title| !title.is_empty())
+        .unwrap_or(PR_BODY_FALLBACK_LABEL)
+        .to_string();
+    let text = body
+        .map(str::trim)
+        .filter(|body| !body.is_empty())
+        .unwrap_or(PR_BODY_EMPTY)
+        .to_string();
+    SessionResultGroup {
+        topic,
+        text: Some(text),
+        entries: Vec::new(),
+        earlier: Vec::new(),
+        files: diff
+            .unwrap_or_default()
+            .iter()
+            .map(|file| file.path.to_string())
+            .collect(),
+        pr_url: None,
+    }
 }
 
 /// The coverage rule's view of a pane file.
@@ -198,7 +236,7 @@ pub(crate) fn render(
             session_result_tile_height_fitting(&pictures, available_width)
         })
         .fold(SESSION_RESULT_TILE_HEIGHT, f32::min);
-    let GuideSpec { diff, on_open, stack, fallback_lead } = guide;
+    let GuideSpec { diff, on_open, stack, fallback_lead, unnumbered } = guide;
     let diff = diff.as_deref().map(guide_diff_files);
     let coverage = guide_coverage(
         groups,
@@ -244,15 +282,17 @@ pub(crate) fn render(
     }
     for section in &coverage.sections {
         let group_ix = position(section.group);
-        let caption = div()
-            .flex_shrink_0()
-            .mr_1()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child(SharedString::from(guide_section_caption(section.index, section.total)))
-            .into_any_element();
+        let caption = (!unnumbered).then(|| {
+            div()
+                .flex_shrink_0()
+                .mr_1()
+                .text_xs()
+                .text_color(cx.theme().muted_foreground)
+                .child(SharedString::from(guide_section_caption(section.index, section.total)))
+                .into_any_element()
+        });
         let band = crate::surface::glass_section_band(
-            Some(caption),
+            caption,
             SharedString::from(section.group.topic.clone()),
             None,
             cx,
@@ -598,7 +638,9 @@ pub(crate) fn stack_card(
 /// `run-row.json` `turnCaptions` ×4): a turn without a start (a sent message
 /// waiting) has NO row; a settled turn reads `Done on <device> · <turn
 /// time>` muted; the open turn reads the run's caption with the TURN's
-/// start, so a working turn counts from its own start.
+/// start, so a working turn counts from its own start. Wave D (web
+/// `endKnown`, M6): a settled turn whose end was NOT observed reads
+/// `Done on <device>` with no duration rather than count the idle gap.
 pub(crate) fn turn_row_caption(
     started_ms: Option<i64>,
     ended_ms: Option<i64>,
@@ -606,9 +648,13 @@ pub(crate) fn turn_row_caption(
     device: &str,
     run_ended_ms: Option<i64>,
     now_ms: i64,
+    end_known: bool,
 ) -> Option<(String, crate::run_rows::StatusTone)> {
     let start = started_ms?;
     if let Some(end) = ended_ms {
+        if !end_known {
+            return Some((format!("Done on {device}"), crate::run_rows::StatusTone::Muted));
+        }
         return Some((
             format!("Done on {device} · {}", crate::session_rows::format_duration(end - start)),
             crate::run_rows::StatusTone::Muted,
@@ -907,6 +953,7 @@ mod turn_caption_tests {
                 case["device"].as_str().unwrap(),
                 ms(&case["runEndedAt"]),
                 ms(&case["now"]).unwrap(),
+                case["endKnown"].as_bool().unwrap_or(true),
             );
             let actual = caption.map(|(text, tone)| {
                 let tone = match tone {
@@ -919,5 +966,41 @@ mod turn_caption_tests {
             });
             assert_eq!(actual.unwrap_or(serde_json::Value::Null), case["expected"], "{name}");
         }
+    }
+
+    /// Wave D (web M8): the PR-body group claims every diff path, so the
+    /// coverage leaves nothing for `Other changes`; blank title/body fall
+    /// back to the shared copy.
+    #[test]
+    fn the_pr_body_group_claims_every_diff_path() {
+        use crate::diff_pane::PaneFile;
+        let files = vec![
+            PaneFile::from_parts("src/a.rs", domain::diff::DiffStatus::Modified, 3, 1),
+            PaneFile::from_parts("src/b.rs", domain::diff::DiffStatus::Added, 5, 0),
+        ];
+        let group = pr_description_group(Some(" Fix login "), Some("  "), Some(&files));
+        assert_eq!(group.topic, "Fix login");
+        assert_eq!(group.text.as_deref(), Some(PR_BODY_EMPTY));
+        assert_eq!(group.files, vec!["src/a.rs".to_string(), "src/b.rs".to_string()]);
+        let groups = vec![group];
+        let diff = guide_diff_files(&files);
+        let coverage = guide_coverage(&groups, |g| g.topic.as_str(), |g| g.files.as_slice(), Some(&diff));
+        assert!(coverage.other.is_none(), "nothing is left for Other changes");
+        assert_eq!(coverage.sections.len(), 1);
+        assert_eq!(coverage.sections[0].changes.as_ref().unwrap().file_count(), 2);
+        let untitled = pr_description_group(None, Some("body"), None);
+        assert_eq!(untitled.topic, PR_BODY_FALLBACK_LABEL);
+        assert!(untitled.files.is_empty());
+    }
+
+    /// Wave D (web M6): an unobserved end drops the duration.
+    #[test]
+    fn an_unobserved_turn_end_reads_done_without_a_duration() {
+        use crate::run_rows::{RunRowState, StatusTone};
+        let settled = |end_known| {
+            turn_row_caption(Some(1_000), Some(61_000), RunRowState::Done, "macbook", None, 90_000, end_known)
+        };
+        assert_eq!(settled(false), Some(("Done on macbook".to_string(), StatusTone::Muted)));
+        assert!(settled(true).unwrap().0.starts_with("Done on macbook · "));
     }
 }

@@ -449,20 +449,16 @@ fn stack_row_label(entry: &PrEntry) -> String {
 }
 
 /// One OTHER pull request of the stack as THE pull-request row: ring lead
-/// (emerald while open, muted once merged or closed) · mono `#n` · the
-/// representative issue's title · the PR state chip. A click closes the
-/// dialog and opens that pull request's review.
+/// ([`stack_row_node`]) · mono `#n` · the representative issue's title · the
+/// PR state chip. A click closes the dialog and opens that pull request's
+/// review.
 fn stack_list_row(entry: &PrEntry, cx: &mut App) -> crate::pr_rows::PrListRow {
     let representative = entry.representative();
     let state = representative
         .pr_state
         .clone()
         .unwrap_or_else(|| domain::contract::PR_STATE_OPEN.to_string());
-    let node = if state == domain::contract::PR_STATE_OPEN {
-        domain::list_item::PrNodeState::Open
-    } else {
-        domain::list_item::PrNodeState::Base
-    };
+    let node = stack_row_node(&state);
     let issue_id = representative.id.clone();
     let open_id = issue_id.clone();
     crate::pr_rows::PrListRow {
@@ -484,9 +480,30 @@ fn stack_list_row(entry: &PrEntry, cx: &mut App) -> crate::pr_rows::PrListRow {
     }
 }
 
+/// Wave D (web `PrNode`, ×4): the ring a stack row's PR state draws. The
+/// web node knows only open / current / base, and a DRAFT is an open pull
+/// request, so it keeps the emerald `open` ring (the `Draft` chip says the
+/// rest); only a merged or closed PR goes to the muted base ring.
+pub(crate) fn stack_row_node(state: &str) -> domain::list_item::PrNodeState {
+    if state == domain::contract::PR_STATE_MERGED || state == domain::contract::PR_STATE_CLOSED {
+        domain::list_item::PrNodeState::Base
+    } else {
+        domain::list_item::PrNodeState::Open
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_draft_stack_row_keeps_the_open_ring() {
+        use domain::list_item::PrNodeState;
+        assert_eq!(stack_row_node("open"), PrNodeState::Open);
+        assert_eq!(stack_row_node("draft"), PrNodeState::Open);
+        assert_eq!(stack_row_node("merged"), PrNodeState::Base);
+        assert_eq!(stack_row_node("closed"), PrNodeState::Base);
+    }
 
     fn issue(identifier: &str, head: Option<&str>, base: Option<&str>) -> Issue {
         serde_json::from_value(serde_json::json!({

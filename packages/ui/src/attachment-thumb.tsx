@@ -146,3 +146,73 @@ export function AttachmentThumb({
     </div>
   )
 }
+
+// Wave D: a NON-image attachment on a steer or start message. `ui-file` is
+// the concept every client draws for a file (the natives mirror it).
+const FileGlyph = conceptIcon(`ui-file`)
+
+/** The composer strip's tile for a pending FILE: the file glyph + the
+ *  filename at the image tile's height, with the same corner remove badge. */
+export function AttachmentFileTile({
+  name,
+  removeLabel,
+  onRemove,
+  disabled,
+  className,
+}: {
+  name: string
+  removeLabel?: string
+  onRemove?: () => void
+  disabled?: boolean
+  className?: string
+}) {
+  return (
+    <div
+      data-slot="attachment-file-tile"
+      title={name}
+      className={cn(
+        `relative flex h-16 max-w-48 items-center gap-1.5 rounded-md border border-glass-stroke-card bg-glass-section px-2.5`,
+        className
+      )}
+    >
+      <FileGlyph className="size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 truncate text-xs">{name}</span>
+      {onRemove && (
+        <AttachmentRemoveButton
+          label={removeLabel ?? `Remove`}
+          disabled={disabled}
+          onClick={onRemove}
+        />
+      )}
+    </div>
+  )
+}
+
+/** A posted file as a message shows it: the comment thread's file chip
+ *  (glyph + name), the whole chip opening the attachment in a new tab. */
+export function AttachmentFileLink({
+  href,
+  name,
+  className,
+}: {
+  href: string
+  name: string
+  className?: string
+}) {
+  return (
+    <a
+      data-slot="attachment-file-link"
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+      aria-label={`Open ${name}`}
+      className={cn(
+        `flex max-w-60 items-center gap-1.5 rounded-md border border-glass-stroke-card bg-glass-section px-2 py-1.5 hover:bg-glass-row`,
+        className
+      )}
+    >
+      <FileGlyph className="size-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 truncate text-xs">{name}</span>
+    </a>
+  )
+}

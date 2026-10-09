@@ -62,6 +62,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         "macbook",
         None,
         now,
+        true,
     )
     .map(|(caption, tone)| {
         run_status_row(

@@ -78,6 +78,63 @@ final class SessionTurnEventsTests: XCTestCase {
         XCTAssertEqual(turns.turns[1].items, [.text(topic: "Reviews", text: "second")])
     }
 
+    // Web M6 ×4: `firstTurnEndKnown`.
+    func testKnowsTheFirstTurnsEndOnlyWhenTheViewWatchedItRun() {
+        let watched = SessionTurnLog()
+        watched.recordFeedMessages([], now: start)
+        watched.recordTurnSlot(.started, startedAt: start + 50, now: start + 50)
+        watched.recordTurnSlot(.ended, startedAt: start + 50, now: 4_000)
+        let feed = [message(1, "next")]
+        watched.recordFeedMessages(feed, now: 9_000)
+        XCTAssertTrue(firstTurnEndKnown(watched.turnEvents(feed, runStartedAt: start), runStartedAt: start))
+
+        // Mounted after the first turn ended: only the next message closes it.
+        let late = SessionTurnLog()
+        late.recordTurnSlot(.ended, startedAt: nil, now: 8_000)
+        late.recordFeedMessages([], now: 8_000)
+        late.recordFeedMessages(feed, now: 9_000)
+        let events = late.turnEvents(feed, runStartedAt: start)
+        XCTAssertFalse(firstTurnEndKnown(events, runStartedAt: start))
+        // sessionTurns still closes it at the message; the row drops the time.
+        XCTAssertEqual(sessionTurns("[]", feed: events).turns.first?.endedAt, 9_000)
+    }
+
+    func testTreatsAFeedWithoutTheRunsStartAsObserved() {
+        XCTAssertTrue(firstTurnEndKnown([], runStartedAt: start))
+        XCTAssertTrue(firstTurnEndKnown(
+            [.turn(started: true, at: 5_000), .turn(started: false, at: 6_000)],
+            runStartedAt: nil
+        ))
+    }
+
+    func testAnUnobservedFirstEndDropsTheDuration() {
+        let turn = SessionTurn(startedAt: 1_000, endedAt: 9_000)
+        XCTAssertEqual(
+            WorkFaces.turnRowCaption(
+                turn, state: .done, device: "mint", runEndedAt: nil, now: Date(), endKnown: false
+            )?.text,
+            "Done on mint"
+        )
+        XCTAssertEqual(
+            WorkFaces.turnRowCaption(turn, state: .done, device: "mint", runEndedAt: nil, now: Date())?.text
+                .hasPrefix("Done on mint · "),
+            true
+        )
+    }
+
+    // Wave D: a message's file lines ride the turn as files, never prose.
+    func testCarriesAMessagesFilesBesideItsImages() {
+        let log = SessionTurnLog()
+        log.recordFeedMessages([], now: start)
+        let feed = [message(1, "read\n\n![image](/api/attachments/i9)\n[spec.pdf](/api/attachments/f1)")]
+        log.recordFeedMessages(feed, now: 5_000)
+        let turns = sessionTurns("[]", feed: log.turnEvents(feed, runStartedAt: start))
+        let sent = turns.turns.compactMap(\.message).first
+        XCTAssertEqual(sent?.text, "read")
+        XCTAssertEqual(sent?.images, ["/api/attachments/i9"])
+        XCTAssertEqual(sent?.files, [.init(id: "f1", name: "spec.pdf")])
+    }
+
     func testTheBubbleCaptionDropsMissingParts() {
         let utc = TimeZone(identifier: "UTC")!
         // 2025-10-09T21:40:00Z

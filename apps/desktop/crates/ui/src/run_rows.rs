@@ -12,6 +12,7 @@
 //!
 //! [`run_status_row`] is the Run face's status row, not a list row.
 
+use crate::controls::PointerContextMenuExt as _;
 use std::rc::Rc;
 
 use gpui::prelude::FluentBuilder as _;
@@ -19,7 +20,7 @@ use gpui::{
     div, App, ClickEvent, Hsla, InteractiveElement, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement as _, Styled, Window,
 };
-use gpui_component::{menu::ContextMenuExt as _, ActiveTheme as _, Icon, Sizable as _};
+use gpui_component::{ActiveTheme as _, Icon, Sizable as _};
 
 use crate::icons::registry;
 use crate::queries::{self, CodingSessionDisplay};
@@ -639,7 +640,7 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
     match kill {
         Some(RunRowKill { label, on_kill }) => {
             let on_kill = Rc::new(on_kill);
-            row.context_menu(move |menu, _window, cx| {
+            row.pointer_context_menu(move |menu, _window, cx| {
                 let on_kill = on_kill.clone();
                 menu.item(
                     crate::controls::danger_menu_item(

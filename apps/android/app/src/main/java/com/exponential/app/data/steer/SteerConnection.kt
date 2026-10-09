@@ -19,13 +19,15 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.HISTORY_PAGE_LIMIT
 import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.INLINE_IMAGE_CONTENT_TYPES
-import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
 import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.TURN_STATE_STARTED
 import com.exponential.app.domain.appendUserMessage
 import com.exponential.app.domain.applyActivityEvent
-import com.exponential.app.domain.buildSteerImageMessage
+import com.exponential.app.domain.buildSteerMessage
+import com.exponential.app.domain.steerAttachmentRefusal
+import com.exponential.app.domain.uploadedImageIds
+import com.exponential.app.domain.uploadedSteerFiles
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.clearCompaction
 import com.exponential.app.domain.clearQueue
@@ -291,8 +293,9 @@ class SteerConnection internal constructor(
     private var stageCapJob: Job? = null
     private var stageStartedAtMs = 0L
 
-    /** Images picked for the next steer message (EXP-511), capped at
-     *  [MAX_STEER_IMAGES]; uploaded to the session's issue on send. */
+    /** Images and files picked for the next steer message (EXP-511, wave D),
+     *  capped at [MAX_STEER_IMAGES] images + 4 files; uploaded to the session
+     *  on send. */
     private val _pendingImages = MutableStateFlow<List<PendingAttachment>>(emptyList())
     val pendingImages: StateFlow<List<PendingAttachment>> = _pendingImages
 
@@ -1147,23 +1150,31 @@ class SteerConnection internal constructor(
         return true
     }
 
-    /** Attach a picked image to the next steer message (EXP-511). Rejects
-     *  anything the server would refuse and silently drops picks past the cap. */
+    /** Attach a picked image or file to the next steer message (EXP-511,
+     *  wave D: any type). Images ≤ 10 MB × 4, files ≤ 50 MB × 4; a refusal
+     *  reports the ONE ×4 copy through [steerImageError]. */
     fun addPendingImage(uri: Uri, bytes: ByteArray, filename: String, mime: String) {
         val contentType = canonicalContentType(mime)
-        if (contentType !in INLINE_IMAGE_CONTENT_TYPES) {
-            _steerImageError.value = "That file type can't be attached"
+        val isImage = contentType in INLINE_IMAGE_CONTENT_TYPES
+        val current = _pendingImages.value
+        val refusal = steerAttachmentRefusal(
+            imageCount = current.count { it.isImage },
+            fileCount = current.count { !it.isImage },
+            isImage = isImage,
+            sizeBytes = bytes.size.toLong(),
+        )
+        if (refusal != null) {
+            _steerImageError.value = refusal
             return
         }
-        if (bytes.size > MAX_IMAGE_UPLOAD_BYTES) {
-            _steerImageError.value =
-                "Images must be ${MAX_IMAGE_UPLOAD_BYTES / (1024 * 1024)} MB or smaller"
-            return
-        }
-        if (_pendingImages.value.size >= MAX_STEER_IMAGES) return
         _steerImageError.value = null
-        _pendingImages.value = _pendingImages.value +
-            PendingAttachment(uri, bytes, filename, contentType, isImage = true)
+        _pendingImages.value = current +
+            PendingAttachment(uri, bytes, filename, contentType, isImage = isImage)
+    }
+
+    /** A pick refused before its bytes were read (wave D: over the cap). */
+    fun refusePendingAttachment(message: String) {
+        _steerImageError.value = message
     }
 
     fun removePendingImage(index: Int) {
@@ -1203,7 +1214,7 @@ class SteerConnection internal constructor(
                 // EXP-698: images upload against the SESSION, so a batch,
                 // action or chat run can be shown one too — this only guards a
                 // session that ended mid-compose.
-                _steerImageError.value = "Images can't be sent right now"
+                _steerImageError.value = "Attachments can't be sent right now"
                 return@launch
             }
             val accountId = auth?.activeAccountId?.value
@@ -1229,15 +1240,18 @@ class SteerConnection internal constructor(
                     } catch (t: Throwable) {
                         // The 412 body's billing copy never reaches the UI —
                         // the API already replaced it (EXP-216).
-                        _steerImageError.value = trpcErrorMessage(t, "The image could not be uploaded")
+                        _steerImageError.value = trpcErrorMessage(
+                            t,
+                            if (image.isImage) "The image could not be uploaded" else "The file could not be uploaded",
+                        )
                         return@launch
                     }
                     _pendingImages.value = _pendingImages.value.mapIndexed { i, entry ->
-                        if (i == index) entry.copy(uploadedId = uploaded.id) else entry
+                        if (i == index) entry.copy(uploadedId = uploaded.id, uploadedName = uploaded.filename) else entry
                     }
                 }
-                val ids = _pendingImages.value.mapNotNull { it.uploadedId }
-                if (sendMessage(buildSteerImageMessage(text, ids))) {
+                val pending = _pendingImages.value
+                if (sendMessage(buildSteerMessage(text, pending.uploadedImageIds(), pending.uploadedSteerFiles()))) {
                     _pendingImages.value = emptyList()
                     _draft.value = ""
                 }

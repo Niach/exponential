@@ -493,6 +493,17 @@ impl SessionScreenView {
         cx.notify();
     }
 
+    /// Wave D (dev): open one of the Guide's diff pages
+    /// (`EXP_DEV_RUN_FACE=guide-all`).
+    pub(crate) fn open_guide_page(
+        &mut self,
+        page: crate::session_results::GuidePage,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.inner.update(cx, |view, cx| view.open_guide_page(page, cx));
+        cx.notify();
+    }
+
     // ── Header ────────────────────────────────────────────────────────────
 
     /// Whether the run is over — the engine's own exit edge, the transcript's

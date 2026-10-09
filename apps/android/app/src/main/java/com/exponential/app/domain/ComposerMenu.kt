@@ -71,6 +71,22 @@ object ComposerMenu {
 
     /** The per-run payload key and the device cap that reads it. */
     const val COMPUTER_USE_PAYLOAD_KEY = "computerUse"
+
+    /** The toggle's shown value: the person's flip, else the device default. */
+    fun computerUseShown(pick: Boolean?, deviceDefault: Boolean): Boolean = pick ?: deviceDefault
+
+    /**
+     * Web M12 ×4: `computerUse` rides the start only after an explicit flip
+     * (or when the shown value differs from the device's CURRENT default);
+     * an untouched toggle sends nothing, so the device's own
+     * `launch_defaults.computerUse` applies. Null too on a device that does
+     * not read the flag ([canToggle] false).
+     */
+    fun computerUseWire(pick: Boolean?, deviceDefault: Boolean, canToggle: Boolean): Boolean? {
+        if (!canToggle) return null
+        val shown = computerUseShown(pick, deviceDefault)
+        return if (pick != null || shown != deviceDefault) shown else null
+    }
     val COMPUTER_USE_RUN_CAP: String = DomainContract.codingSessionComputerUseCap
 
     /** Every row in fixture order (`rows`). */

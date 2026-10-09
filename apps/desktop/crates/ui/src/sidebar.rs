@@ -35,6 +35,7 @@
 //! Every affordance dispatches a typed action (§3.6) or navigates directly;
 //! menus render in the Root overlay, outside this element tree.
 
+use crate::controls::PointerContextMenuExt as _;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::rc::Rc;
 
@@ -47,7 +48,7 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
-    menu::{ContextMenuExt as _, PopupMenuItem},
+    menu::PopupMenuItem,
     spinner::Spinner,
     v_flex, v_virtual_list, ActiveTheme as _, Icon, Selectable as _, Sizable as _,
     VirtualListScrollHandle,
@@ -2824,7 +2825,6 @@ impl ListPanel {
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let theme = cx.theme();
-        let theme_radius = theme.radius;
         let unread = group.unread > 0;
         let selected = matches!(
             resolved_screen(&self.nav, cx),
@@ -2853,118 +2853,72 @@ impl ListPanel {
             .unwrap_or_default()
             .into();
         let type_icon = notification_type_icon(latest.and_then(|n| n.kind.as_deref()));
-        h_flex()
-            .id(SharedString::from(format!("mini-inbox-{}", group.issue.id)))
-            .w_full()
-            .items_start()
-            .gap_2()
-            .px_2()
-            .py_1p5()
-            .rounded(theme_radius)
-            .when(selected, |this| this.bg(theme.list_active))
-            .hover(|this| this.bg(theme.list_hover))
-            .cursor_pointer()
-            .on_click(cx.listener(move |this, _, window, cx| {
-                // Web `markGroupRead`: clear the group's unreads
-                // (the Electric echo removes the dot), then open.
-                mark_group_read(&unread_ids, cx);
-                let screen = Screen::IssueDetail {
-                    issue_id: issue_id.clone(),
-                };
-                if opens_results {
-                    let origin = this.row_origin(cx);
-                    crate::work_header::open_issue_results(&issue_id, window, cx, move |window, cx| {
-                        match origin {
-                            Some(origin) => {
-                                crate::navigation::navigate_from(window, cx, screen, origin)
-                            }
-                            None => navigate(window, cx, screen),
-                        }
-                    });
-                    return;
-                }
-                this.open_from_list(screen, window, cx);
-            }))
-                        // Leading circular type badge (the latest item's kind).
-                        .child(
-                            h_flex()
-                                .size_6()
-                                .flex_shrink_0()
-                                .items_center()
-                                .justify_center()
-                                .rounded_full()
-                                .bg(theme.muted)
-                                .child(type_icon.xsmall().text_color(theme.muted_foreground)),
-                        )
-                        .child(
-                            v_flex()
-                                .flex_1()
-                                .min_w_0()
-                                .child(
-                                    h_flex()
-                                        .w_full()
-                                        .items_center()
-                                        .gap_1p5()
-                                        .child(
-                                            div()
-                                                .flex_shrink_0()
-                                                .text_xs()
-                                                .text_color(theme.muted_foreground)
-                                                .font_family(theme::terminal::FONT_FAMILY)
-                                                .child(SharedString::from(
-                                                    group.issue.identifier.clone(),
-                                                )),
-                                        )
-                                        .child(
-                                            div()
-                                                .flex_1()
-                                                .min_w_0()
-                                                .text_xs()
-                                                .truncate()
-                                                .when(unread, |this| {
-                                                    this.font_weight(FontWeight::MEDIUM)
-                                                })
-                                                // Read groups render dimmed.
-                                                .text_color(if unread {
-                                                    theme.foreground
-                                                } else {
-                                                    theme.muted_foreground
-                                                })
-                                                .child(SharedString::from(
-                                                    group.issue.title.clone(),
-                                                )),
-                                        ),
-                                )
-                                .child(
-                                    div()
-                                        .w_full()
-                                        .text_xs()
-                                        .truncate()
-                                        .text_color(theme.muted_foreground)
-                                        .child(sentence),
-                                ),
-                        )
-                        .child(
-                            h_flex()
-                                .flex_shrink_0()
-                                .items_center()
-                                .gap_1p5()
-                                .pt_0p5()
-                                .child(
-                                    div()
-                                        .text_xs()
-                                        .text_color(theme.muted_foreground)
-                                        .child(time),
-                                )
-                                .child(
-                                    div()
-                                        .size_2()
-                                        .flex_shrink_0()
-                                        .rounded_full()
-                                        .when(unread, |this| this.bg(theme.primary)),
-                                ),
-                        )
-                        .into_any_element()
+        // Wave D: THE issue row shell, two-line: the circular type badge
+        // (the latest item's kind) · identifier · title (medium while
+        // unread, dimmed once read) over the sentence · time + unread dot.
+        let mut slots = crate::issue_relations::IssueRowSlots::new(SharedString::from(
+            group.issue.title.clone(),
+        ));
+        slots.lead = Some(
+            h_flex()
+                .size_6()
+                .flex_shrink_0()
+                .items_center()
+                .justify_center()
+                .rounded_full()
+                .bg(theme.muted)
+                .child(type_icon.xsmall().text_color(theme.muted_foreground))
+                .into_any_element(),
+        );
+        slots.identifier = Some(SharedString::from(group.issue.identifier.clone()));
+        slots.title_medium = unread;
+        slots.title_color = Some(if unread {
+            theme.foreground
+        } else {
+            theme.muted_foreground
+        });
+        slots.sub_line = Some(sentence);
+        slots.trailing = vec![h_flex()
+            .flex_shrink_0()
+            .items_center()
+            .gap_1p5()
+            .pt_0p5()
+            .child(div().text_xs().text_color(theme.muted_foreground).child(time))
+            .child(
+                div()
+                    .size_2()
+                    .flex_shrink_0()
+                    .rounded_full()
+                    .when(unread, |this| this.bg(theme.primary)),
+            )
+            .into_any_element()];
+        crate::issue_relations::issue_row_shell(
+            SharedString::from(format!("mini-inbox-{}", group.issue.id)),
+            slots,
+            crate::issue_relations::IssueRowDensity::TwoLine,
+            selected,
+            cx,
+        )
+        .on_click(cx.listener(move |this, _, window, cx| {
+            // Web `markGroupRead`: clear the group's unreads
+            // (the Electric echo removes the dot), then open.
+            mark_group_read(&unread_ids, cx);
+            let screen = Screen::IssueDetail {
+                issue_id: issue_id.clone(),
+            };
+            if opens_results {
+                let origin = this.row_origin(cx);
+                crate::work_header::open_issue_results(&issue_id, window, cx, move |window, cx| {
+                    match origin {
+                        Some(origin) => crate::navigation::navigate_from(window, cx, screen, origin),
+                        None => navigate(window, cx, screen),
+                    }
+                });
+                return;
+            }
+            this.open_from_list(screen, window, cx);
+        }))
+        .into_any_element()
     }
 
     /// One agent message row (EXP-801): the bot badge, the sentence ("Ada's
@@ -3574,53 +3528,21 @@ impl ListPanel {
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let group_key = status.group_key.clone();
-        let muted = cx.theme().muted_foreground;
-        h_flex()
-            .id(SharedString::from(format!("list-nav-group-{group_key}")))
-            .w_full()
-            .h(px(24.))
-            .px_1p5()
-            .gap_1p5()
-            .items_center()
-            .rounded(cx.theme().radius)
-            .cursor_pointer()
-            // EXP-293's `statusHeaderBg`: a wash in the status' hue so the
-            // band reads as a divider and not as one more issue row.
-            .bg(crate::icons::status_tint_color(&status.tint, cx).opacity(0.07))
-            .child(
-                Icon::new(if collapsed {
-                    registry::UI_CHEVRON_RIGHT
-                } else {
-                    registry::UI_CHEVRON_DOWN
-                })
-                .with_size(px(12.))
-                .flex_shrink_0()
-                .text_color(muted),
-            )
-            .child(crate::icons::resolved_status_icon(status, cx).xsmall())
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .text_xs()
-                    .font_weight(FontWeight::MEDIUM)
-                    .child(SharedString::from(status.name.clone())),
-            )
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_xs()
-                    .text_color(muted)
-                    .child(SharedString::from(count.to_string())),
-            )
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if !this.nav_collapsed.remove(&group_key) {
-                    this.nav_collapsed.insert(group_key.clone());
-                }
-                cx.notify();
-            }))
-            .into_any_element()
+        crate::issue_list::issue_group_band(
+            SharedString::from(format!("list-nav-group-{group_key}")),
+            status,
+            count,
+            collapsed,
+            crate::issue_list::BandDensity::Compact,
+            cx,
+        )
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            if !this.nav_collapsed.remove(&group_key) {
+                this.nav_collapsed.insert(group_key.clone());
+            }
+            cx.notify();
+        }))
+        .into_any_element()
     }
 
     /// One side-list issue row (spec C: status glyph, identifier, title; the
@@ -3679,13 +3601,6 @@ impl ListPanel {
                     .w_6()
                     .child(status_dropdown(issue, statuses, cx)),
             )
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .child(SharedString::from(issue.identifier.clone())),
-            )
             .into_any_element();
         let title = issue.title.trim();
         let title = if title.is_empty() {
@@ -3698,14 +3613,16 @@ impl ListPanel {
         let menu_statuses = statuses.clone();
         let menu_origin = self.nav_row_origin.clone();
         // A bulk-selected row wears the same active fill as the open one —
-        // both mean "this row is where you are" (EXP-426).
-        rail_row_lead(
+        // both mean "this row is where you are" (EXP-426). Wave D: THE issue
+        // row shell at the column's compact density.
+        let mut slots = crate::issue_relations::IssueRowSlots::new(title);
+        slots.lead = Some(lead);
+        slots.identifier = Some(SharedString::from(issue.identifier.clone()));
+        crate::issue_relations::issue_row_shell(
             ("list-nav-issue", index),
-            lead,
-            title,
+            slots,
+            crate::issue_relations::IssueRowDensity::Compact,
             active || selected,
-            None,
-            None,
             cx,
         )
         // EXP-980: the sub-issue indent + EXP-965's elbow, at the narrow
@@ -3742,7 +3659,7 @@ impl ListPanel {
             }
             this.open_from_list(screen.clone(), window, cx);
         }))
-        .context_menu(move |menu, window, cx| {
+        .pointer_context_menu(move |menu, window, cx| {
             build_row_context_menu(
                 menu,
                 &menu_issue,

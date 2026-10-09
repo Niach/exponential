@@ -4290,7 +4290,9 @@ export function registerExponentialTools(
                 contentType: contentType ?? ``,
                 body: new Uint8Array(Buffer.from(dataBase64, `base64`)),
               },
-              { teamId: row.teamId, sessionId }
+              { teamId: row.teamId, sessionId },
+              undefined,
+              { imagesOnly: true }
             )
             const written = await publishSessionResultPicture(
               {

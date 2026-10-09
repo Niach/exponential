@@ -35,6 +35,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssueRelationsView
 import com.exponential.app.domain.PrGraph
 import com.exponential.app.domain.ResolvedIssueStatus
+import com.exponential.app.ui.components.IssueRowContent
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GroupDivider
@@ -256,26 +257,12 @@ private fun PrRelationRow(pr: IssueEntity, onClick: () -> Unit) {
             .testTag("pr-relation-row-${pr.identifier}"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(glyph, contentDescription = null, modifier = Modifier.size(16.dp), tint = tint)
-        Spacer(Modifier.width(12.dp))
-        Text(
-            pr.prNumber?.let { "#$it" } ?: pr.identifier,
-            style = MaterialTheme.typography.labelMedium,
-            fontFamily = FontFamily.Monospace,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            maxLines = 1,
+        IssueRowContent(
+            title = pr.title,
+            leading = { Icon(glyph, contentDescription = null, modifier = Modifier.size(16.dp), tint = tint) },
+            identifier = pr.prNumber?.let { "#$it" } ?: pr.identifier,
+            trailing = { PrStatePill(pr.prState) },
         )
-        Spacer(Modifier.width(12.dp))
-        Text(
-            pr.title,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f),
-        )
-        Spacer(Modifier.width(12.dp))
-        PrStatePill(pr.prState)
     }
 }
 

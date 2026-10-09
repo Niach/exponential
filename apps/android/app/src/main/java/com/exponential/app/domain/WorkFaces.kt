@@ -428,9 +428,13 @@ fun turnRowCaption(
     device: String,
     runEndedAt: String?,
     nowMs: Long,
+    /** Web M6: false = the turn's end was not observed ([firstTurnEndKnown]),
+     *  so the settled caption names no duration. */
+    endKnown: Boolean = true,
 ): RunRowCaption? {
     val start = startedAt ?: return null
     if (endedAt != null) {
+        if (!endKnown) return RunRowCaption("Done on $device", RunRowTone.Muted)
         return RunRowCaption("Done on $device · ${formatDurationMs(endedAt - start)}", RunRowTone.Muted)
     }
     return when (state) {
@@ -451,4 +455,5 @@ fun turnRowCaption(
     device: String,
     runEndedAt: String?,
     nowMs: Long,
-): RunRowCaption? = turnRowCaption(turn.startedAt, turn.endedAt, state, device, runEndedAt, nowMs)
+    endKnown: Boolean = true,
+): RunRowCaption? = turnRowCaption(turn.startedAt, turn.endedAt, state, device, runEndedAt, nowMs, endKnown)

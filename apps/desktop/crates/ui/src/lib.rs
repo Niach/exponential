@@ -94,7 +94,6 @@ mod issue_draft;
 mod issue_draft_screen;
 mod draft_editor;
 mod issue_preview;
-mod issue_picker;
 mod issue_relations;
 mod join_team;
 mod launch_options;

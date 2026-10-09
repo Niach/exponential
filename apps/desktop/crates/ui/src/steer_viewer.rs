@@ -584,6 +584,9 @@ pub(crate) struct SteerSessionView {
     /// log — the owner's alone; no log = one turn, today's thread) and the
     /// rows it lays out.
     thread: domain::session_results::SessionTurns,
+    /// Wave D (web `firstTurnEndKnown`): whether the first turn's end was
+    /// observed — `false` drops its duration from the status row.
+    thread_first_end_known: bool,
     thread_rows: Vec<ThreadRow>,
     thread_cards: Vec<FeedRowSpec>,
     /// EXP-1175: the status row reads `Building on … · <elapsed>`, so the
@@ -813,6 +816,7 @@ impl SteerSessionView {
             },
             thread_keys: Vec::new(),
             thread: domain::session_results::SessionTurns { per_turn: false, turns: Vec::new() },
+            thread_first_end_known: true,
             thread_rows: Vec::new(),
             thread_cards: Vec::new(),
             status_ticking: false,
@@ -1422,6 +1426,15 @@ impl SteerSessionView {
                 }
             })
             .collect();
+        // Wave D (web `turnEventsOf`): the run's own start opens the first
+        // turn; its end counts only when the view watched it.
+        let run_started = self
+            .row
+            .as_ref()
+            .and_then(|row| crate::run_rows::stamp_ms(crate::run_rows::run_started_at(row)));
+        let events = domain::session_results::with_run_start(events, run_started);
+        self.thread_first_end_known =
+            domain::session_results::first_turn_end_known(&events, run_started);
         self.thread = domain::session_results::session_turns(
             self.row.as_ref().and_then(|row| row.results.as_ref()),
             &events,
@@ -3130,6 +3143,7 @@ impl SteerSessionView {
                 on_open: Some(on_open),
                 stack,
                 fallback_lead: None,
+                unnumbered: false,
             },
             cx,
         ))
@@ -3523,7 +3537,7 @@ impl SteerSessionView {
         // is what retires the old "no issue = no attachment" gate.
         let session_id = self.session_id.clone();
         let Some(transport) = crate::queries::attachment_transport(cx) else {
-            self.notice = Some(SharedString::from("Couldn't upload image"));
+            self.notice = Some(SharedString::from("Couldn't upload attachment"));
             cx.notify();
             return;
         };
@@ -3546,9 +3560,7 @@ impl SteerSessionView {
                 match outcome {
                     Ok(resolved) => {
                         this.pending_images.note_uploaded(&resolved);
-                        let ids: Vec<String> =
-                            resolved.into_iter().map(|(_, id)| id).collect();
-                        let message = build_steer_image_message(&text, &ids);
+                        let message = this.pending_images.message(&text);
                         if this.deliver(&message) {
                             this.clear_draft(window, cx);
                         } else {
@@ -3560,7 +3572,7 @@ impl SteerSessionView {
                         // Keep what landed so a retry uploads only the rest.
                         this.pending_images.note_uploaded(&resolved);
                         log::warn!("[ui] steer composer upload failed: {error}");
-                        this.notice = Some(SharedString::from("Couldn't upload image"));
+                        this.notice = Some(SharedString::from("Couldn't upload attachment"));
                     }
                 }
                 cx.notify();
@@ -3648,7 +3660,7 @@ impl SteerSessionView {
     }
 
     fn pick_images(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        composer_images::pick_image_files(window, cx, |this, read, window, cx| {
+        composer_images::pick_attachment_files(window, cx, |this, read, window, cx| {
             this.stage_images(read, window, cx)
         });
     }
@@ -4465,6 +4477,7 @@ impl SteerSessionView {
             &facts.device,
             facts.ended_ms,
             facts.now_ms,
+            turn > 0 || self.thread_first_end_known,
         )?;
         let open = ended.is_none();
         let mark = if open { facts.mark } else { crate::run_rows::RunStatusMark::Ended };
@@ -5122,6 +5135,30 @@ impl SteerSessionView {
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let parsed = parse_steer_message(text);
+        // Wave D: trailing FILE lines render as the comment thread's file
+        // chips under the rest of the message (never a link, never a broken
+        // image); the rest takes the images-only path unchanged.
+        if !parsed.files.is_empty() {
+            let rest = build_steer_image_message(&parsed.text, &parsed.attachment_ids);
+            let mut chips = h_flex().w_full().min_w_0().flex_wrap().gap_1();
+            for (index, file) in parsed.files.iter().enumerate() {
+                chips = chips.child(crate::comment_attachments::steer_file_chip(
+                    SharedString::from(format!("steer-msg-file-{id}-{index}")),
+                    file.id.clone(),
+                    file.name.clone(),
+                    cx,
+                ));
+            }
+            return v_flex()
+                .w_full()
+                .min_w_0()
+                .gap_1()
+                .when(!rest.is_empty(), |this| {
+                    this.child(self.render_user_message(id, &rest, cx))
+                })
+                .child(chips)
+                .into_any_element();
+        }
         let count = parsed.attachment_ids.len();
         let chips = count > 0
             && parsed
@@ -7527,7 +7564,7 @@ impl SteerSessionView {
             // the comment and description editors.
             .child(
                 crate::composer::composer_tool("steer-attach", registry::UI_ADD, cx)
-                    .tooltip("Attach image")
+                    .tooltip("Add file or image")
                     .disabled(self.sending)
                     .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                         this.pick_images(window, cx);

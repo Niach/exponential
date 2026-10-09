@@ -1,6 +1,8 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.domain.SteerFile
 import com.exponential.app.domain.buildSteerImageMessage
+import com.exponential.app.domain.buildSteerMessage
 import com.exponential.app.domain.imageMarker
 import com.exponential.app.domain.insertImageMarker
 import com.exponential.app.domain.SteerMessageSegment
@@ -166,5 +168,72 @@ class SteerImageMessageTest {
     @Test
     fun `renumber leaves an untouched draft alone`() {
         assertEquals("no markers here", renumberImageMarkers("no markers here", 1))
+    }
+
+    // ── Wave D: any file rides the message as a plain link line ──────────────
+
+    private val idC = "33333333-3333-4333-8333-333333333333"
+
+    @Test
+    fun `files follow the image block, one link line each`() {
+        assertEquals(
+            "fix [Image #1]\n\n![image](/api/attachments/$idA)\n" +
+                "[report.pdf](/api/attachments/$idB)\n[notes [v2\\].txt](/api/attachments/$idC)",
+            buildSteerMessage(
+                "fix [Image #1]",
+                listOf(idA),
+                listOf(SteerFile(idB, "report.pdf"), SteerFile(idC, "notes [v2].txt")),
+            ),
+        )
+    }
+
+    @Test
+    fun `files without images sit a blank line below the prose`() {
+        assertEquals(
+            "read this\n\n[a\\\\b.log](/api/attachments/$idB)",
+            buildSteerMessage("read this", emptyList(), listOf(SteerFile(idB, "a\\b.log"))),
+        )
+    }
+
+    @Test
+    fun `files alone yield the link lines alone`() {
+        assertEquals(
+            "[report.pdf](/api/attachments/$idB)",
+            buildSteerMessage("  ", emptyList(), listOf(SteerFile(idB, "report.pdf"))),
+        )
+    }
+
+    @Test
+    fun `no files is the frozen image builder`() {
+        assertEquals(
+            buildSteerImageMessage("fix it", listOf(idA, idB)),
+            buildSteerMessage("fix it", listOf(idA, idB), emptyList()),
+        )
+    }
+
+    @Test
+    fun `parse peels the file lines before the image embeds`() {
+        val files = listOf(SteerFile(idB, "notes [v2].txt"), SteerFile(idC, "a\\b.log"))
+        val parsed = parseSteerMessage(buildSteerMessage("crop [Image #1]", listOf(idA), files))
+        assertEquals("crop [Image #1]", parsed.text)
+        assertEquals(listOf(idA), parsed.attachmentIds)
+        assertEquals(files, parsed.files)
+        assertEquals(listOf(1L), parsed.markers)
+    }
+
+    @Test
+    fun `parse of files without images keeps the prose`() {
+        val parsed = parseSteerMessage("read this\n\n[report.pdf](/api/attachments/$idB)")
+        assertEquals("read this", parsed.text)
+        assertEquals(emptyList<String>(), parsed.attachmentIds)
+        assertEquals(listOf(SteerFile(idB, "report.pdf")), parsed.files)
+    }
+
+    @Test
+    fun `an image-only message parses exactly as before`() {
+        val parsed = parseSteerMessage(buildSteerImageMessage("hi", listOf(idA)))
+        assertEquals("hi", parsed.text)
+        assertEquals(listOf(idA), parsed.attachmentIds)
+        assertEquals(emptyList<SteerFile>(), parsed.files)
     }
 }

@@ -1,8 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
-// EXP-825: an image attached to a START before any session exists — the
-// Agent page composer's upload. Team-scoped (any member), images only, the
-// same size cap and storage budget as the session route; the row lands with
+// EXP-825: an image or file attached to a START before any session exists —
+// the Agent page composer's upload. Team-scoped (any member), any type, the
+// same per-type caps and storage budget as the session route; the row lands with
 // a NULL session_id and a team-scoped pending storage key.
 
 const h = vi.hoisted(() => ({
@@ -107,10 +107,23 @@ describe(`handleTeamSessionAttachmentUpload`, () => {
     expect(h.uploadObject).not.toHaveBeenCalled()
   })
 
-  it(`rejects non-image content types and oversize images`, async () => {
+  it(`stores any file type as a pending row with no dimensions`, async () => {
     const pdf = new FormData()
     pdf.append(`file`, fileOfSize(`doc.pdf`, `application/pdf`, 4))
-    await expect(upload(pdf)).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    const response = await upload(pdf)
+    const json = (await response.json()) as { id: string; filename: string }
+    expect(json.filename).toBe(`doc.pdf`)
+    expect(h.insertValues).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: null,
+        contentType: `application/pdf`,
+        width: null,
+        height: null,
+      })
+    )
+  })
+
+  it(`rejects oversize images`, async () => {
     await expect(
       upload(imageForm(maxImageUploadBytes + 1))
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })

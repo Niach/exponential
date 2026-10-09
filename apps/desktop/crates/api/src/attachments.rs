@@ -114,6 +114,56 @@ pub fn download_image(
     Ok(path)
 }
 
+/// Wave D: the local filename a steered FILE is written under — the link
+/// text's basename (path separators, NULs and leading dots dropped), or
+/// `file` when nothing usable is left.
+pub fn local_file_name(name: &str) -> String {
+    let base = name.rsplit(['/', '\\']).next().unwrap_or_default();
+    let cleaned: String = base
+        .chars()
+        .filter(|c| *c != '\0' && !c.is_control())
+        .collect();
+    let cleaned = cleaned.trim().trim_start_matches('.').trim();
+    if cleaned.is_empty() {
+        "file".to_string()
+    } else {
+        cleaned.to_string()
+    }
+}
+
+/// Wave D steer-FILE localization: download attachment `attachment_id` of
+/// ANY content type into `dest_dir/<id>/<name>` (the sender's filename, so
+/// the agent reads `notes.pdf`, not an opaque id) and return its path. The
+/// per-id directory keeps two files of the same name apart. Same id guard,
+/// cache short circuit and auth as [`download_image`]. Blocking.
+pub fn download_file(
+    trpc: &TrpcClient,
+    attachment_id: &str,
+    file_name: &str,
+    dest_dir: &Path,
+) -> Result<PathBuf, ApiError> {
+    if attachment_id.is_empty()
+        || !attachment_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err(ApiError::InvalidUrl(format!(
+            "not an attachment id: {attachment_id:?}"
+        )));
+    }
+    let dir = dest_dir.join(attachment_id);
+    let path = dir.join(local_file_name(file_name));
+    if path.is_file() {
+        return Ok(path);
+    }
+    let (bytes, _content_type) = trpc.get_bytes(&format!("/api/attachments/{attachment_id}"))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|err| ApiError::Io(format!("{}: {err}", dir.display())))?;
+    std::fs::write(&path, &bytes)
+        .map_err(|err| ApiError::Io(format!("{}: {err}", path.display())))?;
+    Ok(path)
+}
+
 /// Output of `attachments.delete` — the Postgres txid for the §4.1
 /// `awaitTxId` gate (the desktop reads through sync and ignores it).
 #[derive(Clone, Debug, Deserialize)]
@@ -376,6 +426,37 @@ mod tests {
         assert!(!dir.0.join("att-3.png").exists());
         // A traversal-shaped id never reaches the network or the disk.
         match download_image(&client("http://127.0.0.1:1"), "../etc/passwd", &dir.0) {
+            Err(ApiError::InvalidUrl(_)) => {}
+            other => panic!("expected InvalidUrl, got {other:?}"),
+        }
+    }
+
+    // ── Wave D: steer-file localization ─────────────────────────────────────
+
+    #[test]
+    fn local_file_name_keeps_the_basename_only() {
+        assert_eq!(local_file_name("notes.pdf"), "notes.pdf");
+        assert_eq!(local_file_name("../../etc/passwd"), "passwd");
+        assert_eq!(local_file_name("a\\b\\c.txt"), "c.txt");
+        assert_eq!(local_file_name(".env"), "env");
+        assert_eq!(local_file_name(""), "file");
+        assert_eq!(local_file_name(".."), "file");
+    }
+
+    #[test]
+    fn download_file_writes_any_type_under_its_id_and_name() {
+        let dir = TempDir::new("download-file");
+        let (base, captured) = one_shot_server_typed(200, "application/pdf", "%PDF");
+        let path = download_file(&client(&base), "att-4", "spec.pdf", &dir.0).unwrap();
+        assert_eq!(path, dir.0.join("att-4").join("spec.pdf"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"%PDF");
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.starts_with("GET /api/attachments/att-4 HTTP/1.1"));
+        // Cached: a second call never reaches the (now closed) server.
+        let again = download_file(&client("http://127.0.0.1:1"), "att-4", "spec.pdf", &dir.0)
+            .unwrap();
+        assert_eq!(again, path);
+        match download_file(&client("http://127.0.0.1:1"), "../x", "a", &dir.0) {
             Err(ApiError::InvalidUrl(_)) => {}
             other => panic!("expected InvalidUrl, got {other:?}"),
         }

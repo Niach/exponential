@@ -79,6 +79,7 @@ import {
   ComposerSubmit,
   ExponentialLogo,
   ImagePreviewDialog,
+  AttachmentFileLink,
   AttachmentThumb,
   DisclosureHeader,
 } from "@exp/ui"
@@ -2804,13 +2805,16 @@ const UserMessageBubble = memo(function UserMessageBubble({
 }: {
   text: string
 }) {
-  const { text: body, attachmentIds, markers } = parseSteerMessage(text)
+  const { text: body, attachmentIds, files, markers } = parseSteerMessage(text)
   const hasImages = attachmentIds.length > 0
+  // Wave D: file lines are peeled off like the embeds and drawn as the
+  // comment thread's file chips, never as broken images or raw links.
+  const hasAttachments = hasImages || files.length > 0
   // Clamp the PROSE, never the wire message: four embed lines are four more
   // "lines" of nothing, and they used to push a two-line steer into the fold
   // — which then hid the images the fold was measuring.
   const { expanded, setExpanded, clampable } = useClampToggle(
-    hasImages ? body : text
+    hasAttachments ? body : text
   )
   const [preview, setPreview] = useState<number | null>(null)
   const openMarker = (index: number) => {
@@ -2832,7 +2836,7 @@ const UserMessageBubble = memo(function UserMessageBubble({
         <div
           className={cn(clampable && !expanded && `max-h-40 overflow-hidden`)}
         >
-          {!hasImages ? (
+          {!hasAttachments ? (
             <FeedText text={text} ariaLabel="Your message" hardBreaks />
           ) : (
             body &&
@@ -2865,6 +2869,22 @@ const UserMessageBubble = memo(function UserMessageBubble({
                 alt={`Image ${i + 1}`}
                 openLabel={`Open image ${i + 1}`}
                 onOpen={() => setPreview(i)}
+              />
+            ))}
+          </div>
+        )}
+        {files.length > 0 && (
+          <div
+            className={cn(
+              `flex flex-wrap gap-2`,
+              (body || hasImages) && `mt-2`
+            )}
+          >
+            {files.map((file) => (
+              <AttachmentFileLink
+                key={file.id}
+                href={`/api/attachments/${file.id}`}
+                name={file.name}
               />
             ))}
           </div>

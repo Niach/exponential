@@ -623,12 +623,20 @@ sealed class SessionTurnEvent {
         override val at: Long,
         val text: String,
         val images: List<String> = emptyList(),
+        /** Wave D: the message's file lines (none on the shared fixture). */
+        val files: List<SteerFile> = emptyList(),
     ) : SessionTurnEvent()
 
     data class Turn(val started: Boolean, override val at: Long) : SessionTurnEvent()
 }
 
-data class SessionTurnMessage(val text: String, val at: Long, val images: List<String>)
+data class SessionTurnMessage(
+    val text: String,
+    val at: Long,
+    val images: List<String>,
+    /** Wave D: the message's file lines, drawn as file tiles under it. */
+    val files: List<SteerFile> = emptyList(),
+)
 
 data class SessionTurn(
     /** The person's message that opened the turn; null for the first turn of
@@ -679,7 +687,7 @@ fun sessionTurns(raw: String?, feed: List<SessionTurnEvent>? = null): SessionTur
                 val running = open()
                 if (running != null) running.endedAt = event.at
                 turns += TurnBuilder(
-                    message = SessionTurnMessage(event.text, event.at, event.images.filter { it.isNotEmpty() }),
+                    message = SessionTurnMessage(event.text, event.at, event.images.filter { it.isNotEmpty() }, event.files),
                     startedAt = if (running != null) event.at else null,
                 )
             }

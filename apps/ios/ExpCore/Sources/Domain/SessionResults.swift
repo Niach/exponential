@@ -450,6 +450,30 @@ public func guideCoverage(_ groups: [SessionResultGroup], _ diffFiles: [Diff.Fil
     )
 }
 
+// MARK: - EXP-1154: the PR body standing in for a missing report
+
+/// The fallback's band label without a PR title (web
+/// `PR_DESCRIPTION_FALLBACK_TOPIC`).
+public let prDescriptionFallbackTopic = "Pull request"
+/// The fallback's body for a blank PR description (web `PR_DESCRIPTION_EMPTY`).
+public let prDescriptionEmpty = "No description."
+
+/// The GitHub PR body as ONE Guide group (web `prDescriptionGroups`, M8 ×4):
+/// band = the PR title, else `Pull request`; `No description.` when blank.
+/// No report + a PR = ONE Changes section, so the group claims EVERY diff
+/// path: its band carries the one Changes row and nothing is left for
+/// `Other changes`.
+public func prDescriptionGroup(title: String?, body: String?, files: [Diff.File]?) -> SessionResultGroup {
+    let topic = title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    let text = body?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    return SessionResultGroup(
+        topic: topic.isEmpty ? prDescriptionFallbackTopic : topic,
+        text: text.isEmpty ? prDescriptionEmpty : text,
+        entries: [],
+        files: (files ?? []).map(\.path)
+    )
+}
+
 // MARK: - EXP-1251: a run's topics scoped per PR
 
 // A run that stacks a second PR scopes its topics: a text entry may carry
@@ -667,12 +691,14 @@ public func sessionThread(_ raw: String?) -> SessionThread {
 /// One relay feed fact the turns read: a person's message or a turn edge.
 /// Times are epoch milliseconds.
 public enum SessionTurnEvent: Equatable, Sendable {
-    case userMessage(at: Double, text: String, images: [String] = [])
+    /// Wave D: `files` = the message's non-image attachments (iOS-local:
+    /// the fixture carries none, so it defaults empty).
+    case userMessage(at: Double, text: String, images: [String] = [], files: [SteerImageMessage.File] = [])
     case turn(started: Bool, at: Double)
 
     var at: Double {
         switch self {
-        case let .userMessage(at, _, _): at
+        case let .userMessage(at, _, _, _): at
         case let .turn(_, at): at
         }
     }
@@ -683,11 +709,14 @@ public struct SessionTurnMessage: Equatable, Sendable {
     public let at: Double
     /// The message's image urls, in order (the bubble shows a thumb).
     public let images: [String]
+    /// Wave D: the message's non-image files, in order (link rows).
+    public let files: [SteerImageMessage.File]
 
-    public init(text: String, at: Double, images: [String] = []) {
+    public init(text: String, at: Double, images: [String] = [], files: [SteerImageMessage.File] = []) {
         self.text = text
         self.at = at
         self.images = images
+        self.files = files
     }
 }
 
@@ -750,11 +779,13 @@ public func sessionTurns(_ raw: String?, feed: [SessionTurnEvent]? = nil) -> Ses
     }
     for event in events {
         switch event {
-        case let .userMessage(at, text, images):
+        case let .userMessage(at, text, images, files):
             let running = openIndex()
             if let running { turns[running].endedAt = at }
             turns.append(SessionTurn(
-                message: SessionTurnMessage(text: text, at: at, images: images.filter { !$0.isEmpty }),
+                message: SessionTurnMessage(
+                    text: text, at: at, images: images.filter { !$0.isEmpty }, files: files
+                ),
                 startedAt: running == nil ? nil : at
             ))
         case let .turn(started, at):

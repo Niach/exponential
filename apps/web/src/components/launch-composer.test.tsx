@@ -685,6 +685,29 @@ describe(`LaunchComposer + menu`, () => {
     }
   })
 
+  it(`takes any file and shows a pending file as a named tile`, () => {
+    const { container } = render(
+      <LaunchComposer
+        model={fakeModel({
+          images: [
+            {
+              kind: `file`,
+              file: new File([`x`], `notes.pdf`, { type: `application/pdf` }),
+              url: `blob:f`,
+            },
+          ],
+        })}
+        users={[]}
+      />
+    )
+    const input = container.querySelector(`input[type="file"]`)!
+    expect(input.hasAttribute(`accept`)).toBe(false)
+    expect(screen.getByRole(`button`, { name: `Remove notes.pdf` })).toBeTruthy()
+    expect(
+      container.querySelector(`[data-slot="attachment-file-tile"]`)!.textContent
+    ).toBe(`notes.pdf`)
+  })
+
   it(`opens the file chooser from Add file or image`, () => {
     const click = vi.spyOn(HTMLInputElement.prototype, `click`)
     render(<LaunchComposer model={fakeModel()} users={[]} />)

@@ -99,6 +99,7 @@ export function SessionThreadView({
                   <UserMessageBubble
                     text={turn.message.text}
                     imageSrc={turn.message.images[0] ?? null}
+                    files={turn.message.files}
                     caption={messageCaption?.(turn.message) ?? null}
                   />
                 )}

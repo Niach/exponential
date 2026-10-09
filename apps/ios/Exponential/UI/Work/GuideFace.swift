@@ -8,7 +8,8 @@ import SwiftUI
 /// when the PR sits in a linear open stack of 2+), the Summary lead, the
 /// numbered sections (band, text, ONE `GuideChangesRow`, tiles, Earlier), the
 /// automatic `Other changes` section, then `Show complete diff`. With no
-/// report an open PR's GitHub body leads and the whole diff is ONE `Changes`
+/// report an open PR's GitHub body is ONE unnumbered section claiming the
+/// whole diff (web M8, `prDescriptionGroup`); with neither, ONE `Changes`
 /// section. Coverage is `guideCoverage` (ExpCore, fixture-locked ×4).
 ///
 /// A Changes row opens that section's diff as a PAGE in place
@@ -72,8 +73,18 @@ struct GuideFace<Merge: View>: View {
         self.merge = merge
     }
 
+    /// M8 ×4: with no report, the loaded PR body is ONE unnumbered group
+    /// that claims every diff path (`prDescriptionGroup`), so its band holds
+    /// the one Changes row and `Other changes` never shows.
+    private var prGroup: SessionResultGroup? {
+        guard groups.isEmpty, case let .loaded(description) = prFallback else { return nil }
+        return prDescriptionGroup(title: description.title, body: description.body, files: files)
+    }
+
     var body: some View {
-        if let section, let page = WorkFaces.guideSectionPage(groups, files: files, section: section) {
+        let prGroup = prGroup
+        let shown = prGroup.map { [$0] } ?? groups
+        if let section, let page = WorkFaces.guideSectionPage(shown, files: files, section: section) {
             GuideSectionDiffView(
                 page: page,
                 truncatedLines: section == .all ? truncatedLines : nil,
@@ -84,10 +95,11 @@ struct GuideFace<Merge: View>: View {
             )
         } else {
             GuideBody(
-                groups: groups,
+                groups: shown,
                 files: files,
                 diffStatus: diffStatus,
                 prFallback: prFallback,
+                prBody: prGroup != nil,
                 stack: stack,
                 defaultBranch: defaultBranch,
                 onOpenStackMember: onOpenStackMember,
@@ -134,6 +146,8 @@ private struct GuideBody: View {
     let files: [Diff.File]?
     let diffStatus: GuideDiffStatus
     let prFallback: GuidePrFallback?
+    /// `groups` is the loaded PR body standing in for a missing report.
+    let prBody: Bool
     let stack: PrStack.StackView?
     let defaultBranch: String?
     let onOpenStackMember: ((String) -> Void)?
@@ -168,7 +182,8 @@ private struct GuideBody: View {
     }
 
     var body: some View {
-        let coverage = guideCoverage(groups, files)
+        let shown = groups
+        let coverage = guideCoverage(shown, files)
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 24) {
                 if let stack {
@@ -191,30 +206,38 @@ private struct GuideBody: View {
                 // By position: one topic can repeat.
                 ForEach(Array(coverage.sections.enumerated()), id: \.offset) { _, section in
                     VStack(alignment: .leading, spacing: 0) {
-                        GlassSectionBand(section.group.topic) {
-                            Text(guideSectionCaption(section.index, section.total))
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                .padding(.trailing, 2)
-                                .accessibilityIdentifier("guide-section-caption")
-                        } trailing: {
-                            EmptyView()
+                        if prBody {
+                            // The PR body: one UNNUMBERED section.
+                            GlassSectionBand(section.group.topic)
+                        } else {
+                            GlassSectionBand(section.group.topic) {
+                                Text(guideSectionCaption(section.index, section.total))
+                                    .font(.caption.monospacedDigit())
+                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                    .padding(.trailing, 2)
+                                    .accessibilityIdentifier("guide-section-caption")
+                            } trailing: {
+                                EmptyView()
+                            }
                         }
                         groupBody(section.group, changes: section.changes, key: .section(section.index))
                             .padding(.top, 4)
                     }
+                    .accessibilityIdentifier(
+                        prBody ? "session-results-pr-body" : "guide-section-\(section.index)"
+                    )
                 }
                 if let other = coverage.other {
                     VStack(alignment: .leading, spacing: 0) {
                         GlassSectionBand(other.topic)
-                            .opacity(groups.isEmpty ? 1 : 0.7)
+                            .opacity(shown.isEmpty ? 1 : 0.7)
                         GuideChangesRow(changes: other.changes) { onOpen(.other) }
                             .padding(.top, 4)
                     }
                     .accessibilityIdentifier("guide-other-changes")
                 }
                 // No report: the one Changes section already is the whole diff.
-                if !groups.isEmpty, let complete = coverage.complete, complete.fileCount > 0 {
+                if !shown.isEmpty, let complete = coverage.complete, complete.fileCount > 0 {
                     GuideShowCompleteDiffRow(changes: complete) { onOpen(.all) }
                 }
                 diffStatusLine
@@ -277,23 +300,9 @@ private struct GuideBody: View {
     @ViewBuilder
     private func fallback(_ state: GuidePrFallback) -> some View {
         switch state {
-        case let .loaded(description):
-            let title = description.title?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            let body = description.body?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            VStack(alignment: .leading, spacing: 0) {
-                GlassSectionBand(title.isEmpty ? "Pull request" : title)
-                if body.isEmpty {
-                    Text("No description.")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .padding(.top, 4)
-                } else {
-                    AgentMarkdownText(text: body, context: markdownContext)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 4)
-                }
-            }
-            .accessibilityIdentifier("session-results-pr-body")
+        case .loaded:
+            // Rendered as the PR-body group (`prDescriptionGroup`).
+            EmptyView()
         case let .failed(message):
             Text(message)
                 .font(.subheadline)

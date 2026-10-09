@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react"
 import {
+  AttachmentFileTile,
   AttachmentThumb,
   conceptIcon,
   ModelPicker,
@@ -38,14 +39,17 @@ import {
   useSlashCommandMenu,
 } from "@/components/steer-command-menu"
 import type { SteerSessionStore } from "@/lib/steer-session-store"
-import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { uploadSessionImageFile } from "@/lib/storage/issue-image-upload"
+import { buildSteerMessage, insertImageMarker } from "@/lib/steer-image-message"
 import {
-  buildSteerImageMessage,
-  insertImageMarker,
-  MAX_STEER_IMAGES,
-  renumberImageMarkers,
-} from "@/lib/steer-image-message"
+  ATTACHMENT_REJECTED_TOAST,
+  dropPendingImage,
+  FILE_CAP_TOAST,
+  IMAGE_CAP_TOAST,
+  markPendingImageUploaded,
+  pendingImageCount,
+  uploadedWireParts,
+} from "@/lib/pending-images"
 import { cn } from "@/lib/utils"
 import {
   MentionTextarea,
@@ -191,14 +195,15 @@ export function SteerComposer({
 
   const addFiles = (files: File[]) => {
     // EXP-698: an attached image also drops its POSITIONAL reference at the
-    // caret, so "crop [Image #2]" names one of several embeds. The strip
-    // length before the add IS the numbering base.
-    const base = pendingImages.length
-    const { rejected, overflow, added } = store.addDraftImages(files)
-    if (added > 0) {
+    // caret, so "crop [Image #2]" names one of several embeds. The image
+    // count before the add IS the numbering base; files carry no marker.
+    const base = pendingImageCount(pendingImages)
+    const { rejected, overflow, fileOverflow, addedImages } =
+      store.addDraftImages(files)
+    if (addedImages > 0) {
       let next = text
       let caret = fieldRef.current?.caret() ?? text.length
-      for (let i = 0; i < added; i++) {
+      for (let i = 0; i < addedImages; i++) {
         const inserted = insertImageMarker(next, caret, base + i + 1)
         next = inserted.text
         caret = inserted.caret
@@ -206,19 +211,17 @@ export function SteerComposer({
       store.setDraftText(next)
       fieldRef.current?.setCaret(caret)
     }
-    if (rejected > 0) {
-      toast.error(`Only images up to 10 MB can be attached`)
-    }
-    if (overflow > 0) {
-      toast.error(`Up to ${MAX_STEER_IMAGES} images per message`)
-    }
+    if (rejected > 0) toast.error(ATTACHMENT_REJECTED_TOAST)
+    if (overflow > 0) toast.error(IMAGE_CAP_TOAST)
+    if (fileOverflow > 0) toast.error(FILE_CAP_TOAST)
   }
 
   /** Dropping a pending image takes its markers with it and slides the
-   *  higher ones down, so the numbers keep matching the strip. */
+   *  higher ones down, so the numbers keep matching the strip; a file has
+   *  none. */
   const removeImage = (url: string) => {
-    const index = pendingImages.findIndex((image) => image.url === url)
-    if (index >= 0) store.setDraftText(renumberImageMarkers(text, index + 1))
+    const next = dropPendingImage(pendingImages, url, text).text
+    if (next !== text) store.setDraftText(next)
     store.removeDraftImage(url)
   }
 
@@ -232,7 +235,7 @@ export function SteerComposer({
     const command = parseSteerCommand(text, commands)
     if (command) {
       if (pendingImages.length > 0) {
-        toast.error(`Remove the images to send a command`)
+        toast.error(`Remove the attachments to send a command`)
         return
       }
       if (command.command.confirm && !confirmed) {
@@ -248,23 +251,26 @@ export function SteerComposer({
     try {
       // Upload sequentially, persisting each id as it lands — a mid-batch
       // failure keeps the composer intact and a retry only uploads the rest.
-      const ids: string[] = []
+      let current = pendingImages
       for (const image of pendingImages) {
-        let uploadedId = image.uploadedId
-        if (!uploadedId) {
-          const uploaded = await uploadSessionImageFile(sessionId, image.file)
-          uploadedId = uploaded.id
-          store.setDraftImageUploaded(image.url, uploadedId)
-        }
-        ids.push(uploadedId)
+        if (image.uploadedId) continue
+        const uploaded = await uploadSessionImageFile(sessionId, image.file)
+        current = markPendingImageUploaded(
+          current,
+          image.url,
+          uploaded.id,
+          uploaded.filename
+        )
+        store.setDraftImageUploaded(image.url, uploaded.id, uploaded.filename)
       }
-      if (!onSend(buildSteerImageMessage(text, ids))) {
+      const { imageIds, files } = uploadedWireParts(current)
+      if (!onSend(buildSteerMessage(text, imageIds, files))) {
         toast.error(`The session is no longer connected`)
         return
       }
       store.clearDraftAfterSend()
     } catch (error) {
-      toast.error(`Couldn't upload image`, {
+      toast.error(`Couldn't upload attachment`, {
         description: error instanceof Error ? error.message : undefined,
       })
     } finally {
@@ -323,15 +329,25 @@ export function SteerComposer({
         strip={
           pendingImages.length > 0 && (
             <div className="flex flex-wrap gap-2 px-3 pt-3">
-              {pendingImages.map((image) => (
-                <AttachmentThumb
-                  key={image.url}
-                  src={image.url}
-                  removeLabel="Remove image"
-                  onRemove={() => removeImage(image.url)}
-                  disabled={sending}
-                />
-              ))}
+              {pendingImages.map((image) =>
+                image.kind === `image` ? (
+                  <AttachmentThumb
+                    key={image.url}
+                    src={image.url}
+                    removeLabel="Remove image"
+                    onRemove={() => removeImage(image.url)}
+                    disabled={sending}
+                  />
+                ) : (
+                  <AttachmentFileTile
+                    key={image.url}
+                    name={image.file.name}
+                    removeLabel={`Remove ${image.file.name}`}
+                    onRemove={() => removeImage(image.url)}
+                    disabled={sending}
+                  />
+                )
+              )}
             </div>
           )
         }
@@ -427,7 +443,6 @@ export function SteerComposer({
           ref={fileInputRef}
           type="file"
           multiple
-          accept={acceptedImageContentTypes.join(`,`)}
           className="hidden"
           onChange={(e) => {
             filePickerOpenRef.current = false
@@ -436,8 +451,8 @@ export function SteerComposer({
           }}
         />
         <ComposerTool
-          aria-label="Attach image"
-          title="Attach image"
+          aria-label="Add file or image"
+          title="Add file or image"
           disabled={sending}
           onClick={() => {
             filePickerOpenRef.current = true

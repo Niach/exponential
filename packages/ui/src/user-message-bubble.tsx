@@ -1,4 +1,5 @@
 import type { ReactNode } from "react"
+import { AttachmentFileLink } from "./attachment-thumb"
 import { cn } from "./cn"
 
 // EXP-1245: the run OWNER's own message in the Run face's thread of turns:
@@ -36,6 +37,7 @@ export function UserMessageBubble({
   text,
   renderText,
   imageSrc,
+  files,
   caption,
   className,
 }: {
@@ -44,6 +46,9 @@ export function UserMessageBubble({
   renderText?: (text: string) => ReactNode
   /** The first image the message carried, drawn as a thumb. */
   imageSrc?: string | null
+  /** Wave D: the files the message carried, as the comment thread's file
+   *  chips (glyph + name, opening the attachment). */
+  files?: readonly { name: string; url: string }[]
   caption?: string | null
   className?: string
 }) {
@@ -62,6 +67,13 @@ export function UserMessageBubble({
             data-slot="user-message-thumb"
             className="mt-2 h-20 w-auto rounded-md border border-glass-stroke-card object-cover"
           />
+        ) : null}
+        {files && files.length > 0 ? (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {files.map((file) => (
+              <AttachmentFileLink key={file.url} href={file.url} name={file.name} />
+            ))}
+          </div>
         ) : null}
       </div>
       {caption ? (

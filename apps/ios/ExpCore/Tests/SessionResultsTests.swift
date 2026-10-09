@@ -303,6 +303,26 @@ final class SessionResultsTests: XCTestCase {
         }
     }
 
+    // Web M8 ×4: the PR body standing in for a missing report claims every
+    // diff path, so `Other changes` never shows.
+    func testThePrBodyGroupClaimsTheWholeDiff() {
+        let files = [
+            Diff.File(path: "a.swift", previousPath: nil, additions: 1, deletions: 0),
+            Diff.File(path: "b.swift", previousPath: nil, additions: 2, deletions: 1),
+        ]
+        let group = prDescriptionGroup(title: "  ", body: "", files: files)
+        XCTAssertEqual(group.topic, "Pull request")
+        XCTAssertEqual(group.text, "No description.")
+        XCTAssertEqual(group.files, ["a.swift", "b.swift"])
+        let titled = prDescriptionGroup(title: " Fix it ", body: " Body ", files: nil)
+        XCTAssertEqual(titled.topic, "Fix it")
+        XCTAssertEqual(titled.text, "Body")
+        XCTAssertEqual(titled.files, [])
+        let coverage = guideCoverage([group], files)
+        XCTAssertNil(coverage.other)
+        XCTAssertEqual(coverage.sections.first?.changes?.fileCount, 2)
+    }
+
     private func coverageCase(_ name: String) throws -> [String: Any] {
         let block = try XCTUnwrap(try fixture()["coverage"] as? [String: Any])
         let cases = try XCTUnwrap(block["cases"] as? [[String: Any]])

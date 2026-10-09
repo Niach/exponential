@@ -101,12 +101,25 @@ export function turnEventsOf(
     const at = log.messageAt.get(row.id)
     if (at === undefined || row.kind !== `user_message` || !row.text) continue
     const parsed = parseSteerMessage(row.text)
-    if (!parsed.text && parsed.attachmentIds.length === 0) continue
+    if (
+      !parsed.text &&
+      parsed.attachmentIds.length === 0 &&
+      parsed.files.length === 0
+    )
+      continue
     messages.push({
       kind: `user_message`,
       at,
       text: parsed.text,
       images: parsed.attachmentIds.map((id) => `/api/attachments/${id}`),
+      ...(parsed.files.length > 0
+        ? {
+            files: parsed.files.map((file) => ({
+              name: file.name,
+              url: `/api/attachments/${file.id}`,
+            })),
+          }
+        : {}),
     })
   }
   if (messages.length === 0 && log.edges.length === 0) return []

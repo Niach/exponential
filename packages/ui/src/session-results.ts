@@ -584,14 +584,28 @@ export function sessionThread(raw: unknown): SessionThread {
 
 /** One relay feed fact the turns read: a person's message or a turn edge. */
 export type SessionTurnEvent =
-  | { kind: `user_message`; at: number; text: string; images?: readonly string[] }
+  | {
+      kind: `user_message`
+      at: number
+      text: string
+      images?: readonly string[]
+      /** Wave D: the message's file links (name + url), in order. */
+      files?: readonly SessionTurnFile[]
+    }
   | { kind: `turn`; state: `started` | `ended`; at: number }
+
+export interface SessionTurnFile {
+  name: string
+  url: string
+}
 
 export interface SessionTurnMessage {
   text: string
   at: number
   /** The message's image urls, in order (the bubble shows a thumb). */
   images: string[]
+  /** Wave D: the file links, present only when the message carried any. */
+  files?: SessionTurnFile[]
 }
 
 export interface SessionTurn {
@@ -650,6 +664,9 @@ export function sessionTurns(
           text: event.text,
           at: event.at,
           images: (event.images ?? []).filter((src) => typeof src === `string` && src),
+          ...(event.files && event.files.length > 0
+            ? { files: [...event.files] }
+            : {}),
         },
         startedAt: running ? event.at : null,
         endedAt: null,

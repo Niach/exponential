@@ -371,3 +371,24 @@ describe(`session turns`, () => {
     })
   }
 })
+
+describe(`sessionTurns files (wave D)`, () => {
+  it(`carries a message's file links only when it has any`, () => {
+    const turns = sessionTurns([], [
+      {
+        kind: `user_message`,
+        at: 1,
+        text: `see`,
+        files: [{ name: `build.log`, url: `/api/attachments/f1` }],
+      },
+      { kind: `user_message`, at: 2, text: `plain` },
+    ])
+    expect(turns.turns[0]!.message).toEqual({
+      text: `see`,
+      at: 1,
+      images: [],
+      files: [{ name: `build.log`, url: `/api/attachments/f1` }],
+    })
+    expect(turns.turns[1]!.message).toEqual({ text: `plain`, at: 2, images: [] })
+  })
+})

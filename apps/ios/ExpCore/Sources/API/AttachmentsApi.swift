@@ -142,7 +142,9 @@ public final class AttachmentsApi: Sendable {
     /// run happens to be about — it never shows up in the issue's Files
     /// section, and a batch/action run (which has no issue at all) can carry
     /// images too. Same multipart part name and response contract as the issue
-    /// route; the server gates on session ownership.
+    /// route; the server gates on session ownership. Wave D: ANY content type
+    /// (images ≤ 10 MB, files ≤ 50 MB); the answer's sanitized `filename` is
+    /// the link text a file line carries.
     public func uploadSessionImage(
         accountId: String,
         sessionId: String,
@@ -166,6 +168,7 @@ public final class AttachmentsApi: Sendable {
     /// (`codingSessions.start` `attachmentIds`); an abandoned upload is
     /// reclaimed by the server's orphan sweep. Same multipart part and
     /// response as the session route; the server gates on team membership.
+    /// Wave D: any content type, like the session route.
     public func uploadTeamSessionImage(
         accountId: String,
         teamId: String,

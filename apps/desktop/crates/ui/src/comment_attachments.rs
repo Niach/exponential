@@ -422,6 +422,40 @@ fn file_chip(
     chip.into_any_element()
 }
 
+/// Wave D: a steered message's FILE line (`[<name>](/api/attachments/<id>)`)
+/// as the comment thread's file chip — type glyph (from the name's
+/// extension, the Files section's concept) + filename — opening the
+/// attachment exactly like [`file_chip`]. The message carries no size, so
+/// the size column is dropped rather than printing `0 B`.
+pub(crate) fn steer_file_chip(
+    element_id: SharedString,
+    attachment_id: String,
+    name: String,
+    cx: &App,
+) -> gpui::AnyElement {
+    use crate::surface::{PillMode, PillSize};
+    let content_type =
+        crate::markdown::image_paste::content_type_for_path(std::path::Path::new(&name));
+    let label = SharedString::from(name.clone());
+    crate::surface::glass_pill(element_id, PillSize::Sm, PillMode::Action, cx)
+        .child(
+            Icon::from(icon_for_content_type(Some(content_type)))
+                .with_size(px(PillSize::Sm.glyph())),
+        )
+        .child(
+            div()
+                .max_w(px(160.))
+                .whitespace_nowrap()
+                .overflow_hidden()
+                .text_ellipsis()
+                .child(label),
+        )
+        .on_click(move |_, window, cx| {
+            open_attachment_file(attachment_id.clone(), name.clone(), window, cx)
+        })
+        .into_any_element()
+}
+
 /// Fetch one attachment into its temp path and open it with the OS. Failures
 /// surface as a window notification (same wording shape as the Files rail).
 pub(crate) fn open_attachment_file(

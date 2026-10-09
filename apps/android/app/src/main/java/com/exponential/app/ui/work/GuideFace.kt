@@ -184,8 +184,18 @@ fun GuideFace(
             stack?.let { card ->
                 item(key = "__stack__") { GuideStackCard(card) }
             }
+            // Web M8 ×4: with no report the PR-body group claims EVERY diff
+            // path — its band carries the one Changes row and nothing is
+            // left for a separate `Changes` / `Other changes` band.
+            val prGroupClaims = groups.isEmpty() && prFallback is PrDescriptionState.Loaded
             if (groups.isEmpty() && prFallback != null) {
-                item(key = "__pr_fallback__") { PrFallbackSection(prFallback) }
+                item(key = "__pr_fallback__") {
+                    PrFallbackSection(
+                        state = prFallback,
+                        changes = if (prGroupClaims) coverage.other?.changes else null,
+                        onOpenChanges = onOpenSection?.let { open -> { open(GuideSectionKey.Other) } },
+                    )
+                }
             }
             coverage.lead?.let { lead ->
                 item(key = "__lead__") {
@@ -224,7 +234,7 @@ fun GuideFace(
                     }
                 }
             }
-            coverage.other?.let { other ->
+            coverage.other?.takeIf { !prGroupClaims }?.let { other ->
                 item(key = "__other__") {
                     Column(
                         modifier = Modifier.testTag("guide-other-changes"),
@@ -450,7 +460,12 @@ private fun GuideRow(
  * when blank; a spinner while it loads, the refusal when it failed.
  */
 @Composable
-private fun PrFallbackSection(state: PrDescriptionState) {
+private fun PrFallbackSection(
+    state: PrDescriptionState,
+    /** Web M8: the whole diff, claimed by this group (its ONE Changes row). */
+    changes: GuideChangeSet? = null,
+    onOpenChanges: (() -> Unit)? = null,
+) {
     Column(
         modifier = Modifier.testTag("results-pr-fallback"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -487,6 +502,7 @@ private fun PrFallbackSection(state: PrDescriptionState) {
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                     )
                 }
+                if (changes != null) GuideChangesRow(changes = changes, onOpen = onOpenChanges)
             }
         }
     }

@@ -134,8 +134,9 @@ pub use workflow::{
 pub use tool_diff::{truncate_unified_diff, unified_diff, TOOL_DIFF_MAX_BYTES, TOOL_DIFF_MAX_LINES};
 pub use tool_output::{truncate_output, TOOL_OUTPUT_MAX_BYTES, TOOL_OUTPUT_MAX_LINES};
 pub use image_message::{
-    build_steer_image_message, image_marker, insert_image_marker, parse_steer_message,
-    renumber_image_markers, ParsedSteerMessage, MAX_STEER_IMAGES,
+    build_steer_image_message, build_steer_message, image_marker, insert_image_marker,
+    parse_steer_message, renumber_image_markers, ParsedSteerMessage, SteerFile,
+    MAX_STEER_FILES, MAX_STEER_IMAGES,
 };
 pub use history::{
     history_chunk_frame, history_page_for, journal_dir, journal_path, prune_journals,
@@ -151,7 +152,7 @@ pub use exp_tool_group::{
     exp_tool_group_caption, exp_tool_run_end, is_exp_tool_call, ExpToolGroupCall,
 };
 pub use publisher::{
-    has_image_embed, image_localizer, localize_message, publish, ActivitySender, AttachmentHook,
+    has_attachment_embed, has_image_embed, image_localizer, localize_message, publish, ActivitySender, AttachmentHook,
     CompactHook, ImageEmbeds, KillSignal, PublishSpec, PublisherHandle, PublisherHooks,
     PublisherTickets, TrpcPublisherTickets,
 };

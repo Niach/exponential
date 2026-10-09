@@ -7,7 +7,8 @@ package com.exponential.app.domain
  * and for the Chat and Create action builtins the server requires it. Images
  * ride it as the steer embed format ([buildSteerImageMessage], byte-identical
  * ×4): prose, blank line, one `![image](/api/attachments/<id>)` line per
- * upload, `[Image #k]` markers in the prose. The contract caps both
+ * upload, `[Image #k]` markers in the prose, then (wave D) one
+ * `[<filename>](/api/attachments/<id>)` line per non-image file. The contract caps both
  * (`startPrompt`). Mirrors iOS `AgentComposerPrompt`.
  */
 object AgentComposerPrompt {
@@ -24,10 +25,10 @@ object AgentComposerPrompt {
      * no images), so the wire omits the key and the server sees NO prompt
      * rather than an empty one.
      */
-    fun build(text: String, attachmentIds: List<String>): String? {
+    fun build(text: String, attachmentIds: List<String>, files: List<SteerFile> = emptyList()): String? {
         val trimmed = text.trim()
-        if (trimmed.isEmpty() && attachmentIds.isEmpty()) return null
-        return buildSteerImageMessage(trimmed, attachmentIds)
+        if (trimmed.isEmpty() && attachmentIds.isEmpty() && files.isEmpty()) return null
+        return buildSteerMessage(trimmed, attachmentIds, files)
     }
 
     /**
@@ -37,8 +38,14 @@ object AgentComposerPrompt {
      * so a fixed-width stand-in measures the embeds exactly before the
      * upload has minted them.
      */
-    fun withinLimit(text: String, imageCount: Int = 0): Boolean =
-        (build(text, List(imageCount) { ATTACHMENT_ID_STAND_IN })?.length ?: 0) <= MAX_LENGTH
+    fun withinLimit(text: String, imageCount: Int = 0, fileNames: List<String> = emptyList()): Boolean =
+        (
+            build(
+                text,
+                List(imageCount) { ATTACHMENT_ID_STAND_IN },
+                fileNames.map { SteerFile(ATTACHMENT_ID_STAND_IN, it) },
+            )?.length ?: 0
+            ) <= MAX_LENGTH
 
     /** A 36-char UUID-shaped placeholder for a not-yet-uploaded attachment. */
     private const val ATTACHMENT_ID_STAND_IN = "00000000-0000-0000-0000-000000000000"

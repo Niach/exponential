@@ -122,4 +122,21 @@ describe(`session turn events`, () => {
       )
     ).toBe(true)
   })
+
+  it(`carries a message's file links beside its images (wave D)`, () => {
+    const log = emptyTurnLog()
+    const text = `look\n\n![image](/api/attachments/i1)\n[build.log](/api/attachments/f1)`
+    const feed = [{ id: 1, kind: `user_message`, text, at: 5_000 }]
+    recordFeedMessages(log, feed, 5_000)
+    const message = turnEventsOf(log, feed, START).find(
+      (event) => event.kind === `user_message`
+    )
+    expect(message).toEqual({
+      kind: `user_message`,
+      at: 5_000,
+      text: `look`,
+      images: [`/api/attachments/i1`],
+      files: [{ name: `build.log`, url: `/api/attachments/f1` }],
+    })
+  })
 })

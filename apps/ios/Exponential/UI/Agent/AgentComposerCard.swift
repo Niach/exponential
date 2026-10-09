@@ -13,7 +13,8 @@ import UIKit
 ///   (`AgentComposerHeadline`, mounted by the host above this card);
 /// - field: the one-block markdown field with the `@` / `#` / `:` typeahead
 ///   (the host mounts `EditorAutocompleteMenu` under the card);
-/// - strip: the pending images (the steer composer's tiles + markers);
+/// - strip: the pending images (the steer composer's tiles + markers) and,
+///   since wave D, the pending files (a file tile each);
 /// - tools: EXP-1249 — the ONE "+" (`ComposerPlusMenu`, a bottom sheet of the
 ///   `composer-menu.json` rows: Implement issue › · Run action › · Add file or
 ///   image | Effort › · Subagents › · Ultracode | MCP servers › · Computer
@@ -31,6 +32,11 @@ struct AgentComposerCard: View {
     @State private var showActionPicker = false
     @State private var showPhotoPicker = false
     @State private var photoItems: [PhotosPickerItem] = []
+    /// Wave D: "Add file or image" = the Photo | File sub-choice, floated
+    /// from the "+" once its sheet closed.
+    @State private var showAttachMenu = false
+    @State private var showFileImporter = false
+    @State private var plusAnchor: CGRect = .zero
     /// EXP-1249: the "+" sheet, and the row it closed on — promoted to its
     /// picker once the sheet finished dismissing.
     @State private var showMenu = false
@@ -61,9 +67,11 @@ struct AgentComposerCard: View {
             .accessibilityElement(children: .contain)
             .accessibilityIdentifier("agent-composer-field")
         } strip: {
-            if !model.pendingImages.isEmpty {
-                PendingAttachmentStrip(items: model.pendingImages) { id in
-                    model.removeImage(id: id)
+            if !model.pendingImages.isEmpty || !model.pendingFiles.isEmpty {
+                PendingAttachmentStrip(
+                    items: PendingStripItem.steer(images: model.pendingImages, files: model.pendingFiles)
+                ) { id in
+                    model.removeAttachment(id: id)
                 }
                 .padding(.horizontal, 8)
                 .padding(.bottom, 4)
@@ -85,6 +93,9 @@ struct AgentComposerCard: View {
                 showMenu = true
             }
             .accessibilityIdentifier(ComposerMenu.plusTestId)
+            .onGeometryChange(for: CGRect.self, of: { $0.frame(in: .global) }) { frame in
+                plusAnchor = frame
+            }
             .sheet(isPresented: $showMenu, onDismiss: promoteMenuPick) {
                 ComposerPlusMenu(model: model, mcpServers: mcpServers) { id in
                     menuPick = id
@@ -110,6 +121,26 @@ struct AgentComposerCard: View {
                 guard !newItems.isEmpty else { return }
                 Task { await ingestPhotos(newItems) }
             }
+            .background {
+                Color.clear
+                    .steerAttachChoiceMenu(
+                        isPresented: $showAttachMenu,
+                        anchor: plusAnchor,
+                        onPhoto: { showPhotoPicker = true },
+                        onFile: { showFileImporter = true }
+                    )
+            }
+            .background {
+                Color.clear
+                    .fileImporter(
+                        isPresented: $showFileImporter,
+                        allowedContentTypes: [.item],
+                        allowsMultipleSelection: true
+                    ) { result in
+                        guard case let .success(urls) = result else { return }
+                        Task { await ingestFiles(urls) }
+                    }
+            }
         } submit: {
             // EXP-827: the round send GLYPH, icon-only ×4 — the subject chips
             // already say what a send starts, and the contract's per-subject
@@ -129,14 +160,12 @@ struct AgentComposerCard: View {
         .accessibilityIdentifier("agent-composer")
         // EXP-792: the team's MCP servers, and the pick they seed.
         .task(id: model.teamId) { await loadMcpServers() }
-        // EXP-1249: the per-run computer use seeds from the machine's own
-        // default on every device change, and stays off the wire for a
-        // machine that cannot read it.
+        // EXP-1249 (web M12 rule ×4): the per-run computer use is the
+        // person's explicit FLIP, nil = untouched — the toggle shows the
+        // machine's current default and the start omits the key, so the
+        // device's own setting applies. A device change clears the flip.
         .onChange(of: model.device?.deviceId, initial: true) { _, _ in
-            let device = model.device
-            model.launch.computerUse = device?.canToggleComputerUse == true
-                ? device?.computerUseDefault
-                : nil
+            model.launch.computerUse = nil
         }
     }
 
@@ -149,7 +178,10 @@ struct AgentComposerCard: View {
         switch pick {
         case .implementIssue: showIssuePicker = true
         case .runAction: showActionPicker = true
-        case .addFile: showPhotoPicker = true
+        case .addFile:
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) { showAttachMenu = true }
         case .effort: showEffortPicker = true
         case .subagents: showSubagentPicker = true
         case .mcpServers: showMcpPicker = true
@@ -257,7 +289,7 @@ struct AgentComposerCard: View {
         defer { photoItems = [] }
         model.imageError = nil
         for item in items {
-            guard !model.attachFull else { break }
+            guard !model.imagesFull else { break }
             guard let data = try? await item.loadTransferable(type: Data.self) else { continue }
             let type = item.supportedContentTypes.first
             // EXP-554: one shared normalizer for every composer.
@@ -274,10 +306,24 @@ struct AgentComposerCard: View {
         }
     }
 
+    /// Wave D: Files-app picks, ANY type — an image queues as an image, the
+    /// rest as file tiles; over a cap = the one rejection copy.
+    private func ingestFiles(_ urls: [URL]) async {
+        model.imageError = nil
+        for url in urls {
+            let outcome = await AttachmentPicks.readPickedSteerFile(at: url)
+            guard let picked = outcome.attachment else {
+                model.imageError = outcome.failure
+                continue
+            }
+            model.queuePicked(picked)
+        }
+    }
+
     /// EXP-802: a PASTED image joins the strip like a picked one — it can
     /// never become an image BLOCK: the draft is exactly one text block.
     private func ingestPastedImage(_ image: UIImage) {
-        guard !model.attachFull else { return }
+        guard !model.imagesFull else { return }
         guard let data = image.jpegData(compressionQuality: 0.85) else { return }
         model.imageError = nil
         let outcome = AttachmentPicks.normalizedPhoto(

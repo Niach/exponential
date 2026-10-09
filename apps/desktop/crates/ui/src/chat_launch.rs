@@ -16,7 +16,7 @@ use coding::{
     ActionInputValue, BatchIssueSpec, BatchLaunchRequest, LaunchOptions, LaunchOrigin, RepoGroup,
 };
 
-use crate::issue_picker::{IssueRow, MAX_ISSUES_PER_RUN};
+use crate::picker::issue_picker::{IssueRow, MAX_ISSUES_PER_RUN};
 
 /// What the composer is about to start.
 #[derive(Clone, Debug, PartialEq, Eq)]

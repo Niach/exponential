@@ -153,7 +153,7 @@ pub trait AttachmentTransport: Send + Sync {
     /// and the same response shape as [`Self::upload`], only the path
     /// differs. Steered screenshots go here, an issue run's included, so
     /// they never land in the issue's Files section; the server gates on
-    /// session ownership and images only.
+    /// session ownership. Wave D: ANY file type (images 10 MB, files 50 MB).
     fn upload_session(
         &self,
         session_id: &str,
@@ -162,7 +162,7 @@ pub trait AttachmentTransport: Send + Sync {
         bytes: &[u8],
     ) -> anyhow::Result<UploadedImage>;
 
-    /// EXP-825: upload one image BEFORE a session exists —
+    /// EXP-825: upload one image (wave D: or any file) BEFORE a session exists —
     /// `POST /api/teams/{id}/session-files`, the same multipart part and
     /// response shape as [`Self::upload_session`]. The row is created with
     /// `session_id NULL`; the start that embeds it binds it through

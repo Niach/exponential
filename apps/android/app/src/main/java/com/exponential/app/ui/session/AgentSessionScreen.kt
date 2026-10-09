@@ -3,7 +3,6 @@ package com.exponential.app.ui.session
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -154,6 +153,7 @@ import com.exponential.app.domain.recordFeedMessages
 import com.exponential.app.domain.recordTurnSlot
 import com.exponential.app.domain.sessionTurns
 import com.exponential.app.domain.turnEventsOf
+import com.exponential.app.domain.firstTurnEndKnown
 import com.exponential.app.domain.turnLogFor
 import com.exponential.app.domain.turnRowCaption
 import com.exponential.app.domain.userMessageCaption
@@ -229,14 +229,17 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.HistoryState
 import com.exponential.app.domain.pastRunByline
 import com.exponential.app.domain.rateLimitBannerShows
-import com.exponential.app.domain.MAX_STEER_IMAGES
 import com.exponential.app.domain.insertImageMarker
 import com.exponential.app.domain.SteerMessageSegment
 import com.exponential.app.domain.imageMarker
 import com.exponential.app.domain.parseSteerMessage
+import com.exponential.app.domain.escapeSteerFileName
+import com.exponential.app.ui.agent.ComposerPick
+import com.exponential.app.ui.agent.readComposerPick
 import com.exponential.app.domain.steerMessageSegments
 import com.exponential.app.domain.renumberImageMarkers
 import com.exponential.app.domain.PendingAttachment
+import com.exponential.app.domain.imageNumberAt
 import com.exponential.app.domain.QuestionOption
 import com.exponential.app.domain.SessionAccountOption
 import com.exponential.app.domain.SessionAccountSwitch
@@ -313,7 +316,6 @@ import com.exponential.app.ui.markdown.annotate
 import com.exponential.app.ui.markdown.LocalInlineCodeStyle
 import com.exponential.app.ui.markdown.LocalMarkdownAutolink
 import com.exponential.app.ui.markdown.LocalMarkdownBodyStyle
-import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import com.exponential.app.ui.markdown.MarkdownView
 import com.exponential.app.ui.markdown.MdStyle
 import com.exponential.app.ui.steer.ActionRunState
@@ -326,12 +328,10 @@ import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassButton
 import com.exponential.app.ui.theme.glassCard
 import com.exponential.app.ui.theme.glassRow
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 // The RUN FACE of the phone Work screen (EXP-32 → EXP-893) — a chat-style
 // view of a coding session over the relay's scrubbed activity channel. NO
@@ -502,36 +502,22 @@ private fun RunFaceContent(
     // (`SlashCommands.agentId`), which has no contract rows at all.
     val catalogAgent = SlashCommands.agentId(session?.agent, sessionConfig != null)
 
-    // Steer image attach (EXP-511) — the system photo picker feeds the VM's
-    // pending list; the upload rides the SESSION route (EXP-698), so every
-    // kind of run accepts one.
+    // Steer attach (EXP-511, wave D: ANY file, images included) — the system
+    // document picker feeds the VM's pending list; the upload rides the
+    // SESSION route (EXP-698), so every kind of run accepts one.
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val imagePicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickMultipleVisualMedia(MAX_STEER_IMAGES),
-    ) { uris: List<Uri> ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
+    val filePicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocument(),
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
         scope.launch {
-            uris.forEach { uri ->
-                // ContentResolver reads can stream from a cloud-backed provider —
-                // never on the main thread.
-                val picked = withContext(Dispatchers.IO) {
-                    val bytes = MarkdownMediaUtils.readBytes(context, uri)
-                        ?: return@withContext null
-                    PendingAttachment(
-                        uri = uri,
-                        bytes = bytes,
-                        filename = MarkdownMediaUtils.guessFilename(context, uri),
-                        contentType = MarkdownMediaUtils.guessMimeType(context, uri),
-                        isImage = true,
-                    )
-                } ?: return@forEach
-                viewModel.addPendingImage(
-                    picked.uri,
-                    picked.bytes,
-                    picked.filename,
-                    picked.contentType,
-                )
+            // ContentResolver reads can stream from a cloud-backed provider —
+            // [readComposerPick] stays off the main thread.
+            when (val picked = readComposerPick(context, uri)) {
+                is ComposerPick.Read ->
+                    viewModel.addPendingImage(picked.uri, picked.bytes, picked.filename, picked.mime)
+                is ComposerPick.Refused -> viewModel.refusePendingAttachment(picked.message)
             }
         }
     }
@@ -876,6 +862,10 @@ private fun RunFaceContent(
         }
     }
     val turns = remember(session?.results, turnEvents) { sessionTurns(session?.results, turnEvents) }
+    // Web M6: an unobserved first-turn end reads "Done on <device>", no duration.
+    val firstEndKnown = remember(turnEvents, session?.startedAt) {
+        firstTurnEndKnown(turnEvents, session?.startedAt?.let { WireTimestamps.parseEpochMs(it) })
+    }
     val turnRow: @Composable (SessionTurn, Boolean) -> Unit = { turn, last ->
         val caption = turnRowCaption(
             turn = turn,
@@ -883,6 +873,7 @@ private fun RunFaceContent(
             device = hostDevice.displayLabel,
             runEndedAt = session?.let { it.endedAt ?: it.updatedAt },
             nowMs = rowNowMs,
+            endKnown = turn !== turns.turns.firstOrNull() || firstEndKnown,
         )
         if (caption != null) {
             RunStatusRow(
@@ -1591,11 +1582,7 @@ private fun RunFaceContent(
                 onInterrupt = viewModel::interrupt,
                 expanded = composerExpanded,
                 onExpandedChange = { composerExpanded = it },
-                onPickImages = {
-                    imagePicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly),
-                    )
-                },
+                onPickImages = { filePicker.launch(arrayOf("*/*")) },
                 onRemoveImage = viewModel::removePendingImage,
                 // EXP-724: a command that discards the conversation is
                 // confirmed first; everything else sends straight out.
@@ -2701,7 +2688,10 @@ private fun ThreadItemBody(item: ThreadItem) {
 @Composable
 private fun TurnMessageBubble(message: SessionTurnMessage) {
     val raw = remember(message) {
-        val embeds = message.images.joinToString("\n") { "![image]($it)" }
+        val embeds = (
+            message.images.map { "![image]($it)" } +
+                message.files.map { "[${escapeSteerFileName(it.name)}](/api/attachments/${it.id})" }
+            ).joinToString("\n")
         listOf(message.text, embeds).filter { it.isNotEmpty() }.joinToString("\n\n")
     }
     Column(
@@ -3509,7 +3499,9 @@ private fun UserMessageBubble(text: String, nested: Boolean = false) {
     var expanded by remember { mutableStateOf(false) }
     val parsed = remember(text) { parseSteerMessage(text) }
     val hasImages = parsed.attachmentIds.isNotEmpty()
-    val prose = if (hasImages) parsed.text else text
+    // Wave D: file lines peel off too — rendered as file tiles below.
+    val hasFiles = parsed.files.isNotEmpty()
+    val prose = if (hasImages || hasFiles) parsed.text else text
     val folds = remember(prose) { clampable(prose) }
     Row(
         modifier = Modifier
@@ -3551,6 +3543,9 @@ private fun UserMessageBubble(text: String, nested: Boolean = false) {
                     },
                     softBreaksAsNewlines = true,
                 )
+            }
+            if (hasFiles) {
+                SteerFileRows(parsed.files)
             }
         }
     }
@@ -5506,17 +5501,19 @@ private fun ExpandedSteerComposer(
     // Each newly picked image inserts its own marker, so the writer can say
     // "crop [Image #2]" without typing the token. Removing one renumbers the
     // draft (below), so the markers always name images the composer still has.
-    var markedImages by remember { mutableIntStateOf(pendingImages.size) }
-    LaunchedEffect(pendingImages.size) {
-        if (pendingImages.size > markedImages) {
+    // Wave D: only IMAGES are numbered — a file tile carries no marker.
+    val imageCount = pendingImages.count { it.isImage }
+    var markedImages by remember { mutableIntStateOf(imageCount) }
+    LaunchedEffect(imageCount) {
+        if (imageCount > markedImages) {
             var next = value
-            for (k in (markedImages + 1)..pendingImages.size) {
+            for (k in (markedImages + 1)..imageCount) {
                 val (text, caret) = insertImageMarker(next.text, next.selection.end, k)
                 next = TextFieldValue(text, TextRange(caret))
             }
             onValueRewrite(next)
         }
-        markedImages = pendingImages.size
+        markedImages = imageCount
     }
     // Opening the card is what a tap on the folded capsule means: the field
     // takes focus (and the keyboard) at once.
@@ -5540,8 +5537,9 @@ private fun ExpandedSteerComposer(
                 enabled = !sending,
                 onRemove = { index ->
                     // Renumber BEFORE the list shrinks: `[Image #k]` goes, and
-                    // every higher marker comes down one.
-                    val renumbered = renumberImageMarkers(value.text, index + 1)
+                    // every higher marker comes down one. A file has no marker.
+                    val number = pendingImages.imageNumberAt(index)
+                    val renumbered = if (number != null) renumberImageMarkers(value.text, number) else value.text
                     if (renumbered != value.text) {
                         onValueRewrite(
                             TextFieldValue(
@@ -5570,7 +5568,7 @@ private fun ExpandedSteerComposer(
             // and `editor-image` stays the comment/description editors'.
             ComposerToolButton(
                 ExpIcons.uiAdd,
-                contentDescription = "Attach image",
+                contentDescription = "Add file or image",
                 onClick = onPickImages,
                 enabled = !sending,
             )

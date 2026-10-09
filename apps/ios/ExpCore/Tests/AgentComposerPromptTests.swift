@@ -54,6 +54,23 @@ final class AgentComposerPromptTests: XCTestCase {
         XCTAssertEqual(parsed.text, "Crop [Image #1] like this")
     }
 
+    // Wave D: a start prompt carries files after the images; files alone are
+    // a prompt too.
+    func testFilesFollowTheImagesAndAreAPromptAlone() {
+        XCTAssertEqual(
+            AgentComposerPrompt.build(
+                text: "Read this",
+                attachmentIds: ["att-1"],
+                files: [.init(id: "att-2", name: "spec.pdf")]
+            ),
+            "Read this\n\n![image](/api/attachments/att-1)\n[spec.pdf](/api/attachments/att-2)"
+        )
+        XCTAssertEqual(
+            AgentComposerPrompt.build(text: " ", attachmentIds: [], files: [.init(id: "att-2", name: "spec.pdf")]),
+            "[spec.pdf](/api/attachments/att-2)"
+        )
+    }
+
     func testTheLengthCapIsInclusive() {
         XCTAssertTrue(AgentComposerPrompt.withinLimit(""))
         XCTAssertTrue(

@@ -74,7 +74,9 @@ pub const SESSION_HEARTBEAT_INTERVAL: std::time::Duration =
 
 /// EXP-511: the per-worktree scratch dir the steer publisher downloads a
 /// steered message's image attachments into, so the agent reads a FILE instead
-/// of an auth-gated URL. `coding` never talks to the relay (§3.1) — it only
+/// of an auth-gated URL. Wave D: a steered FILE (any type) lands here too, as
+/// `<id>/<filename>`; the name stays because existing worktrees' git excludes
+/// name it. `coding` never talks to the relay (§3.1) — it only
 /// owns the name and the git exclusion; the hosts (`ui`/`cli`) hand the path to
 /// the publisher.
 pub const STEER_IMAGES_DIR: &str = ".exp-steer-images";
@@ -281,11 +283,19 @@ pub fn default_device_label() -> String {
 
 /// EXP-825: the pre-session upload ids a composer prompt's image embeds
 /// name (`![image](/api/attachments/<id>)`, the steer message shape shared
-/// ×4), for `codingSessions.start`'s `attachmentIds`. Empty for no prompt
-/// or a prompt without embeds.
+/// ×4), for `codingSessions.start`'s `attachmentIds`. Wave D: the trailing
+/// FILE lines' ids follow the images'. Empty for no prompt or a prompt
+/// without attachments.
 pub fn prompt_attachment_ids(prompt: Option<&str>) -> Vec<String> {
     prompt
-        .map(|text| domain::image_message::parse_steer_message(text).attachment_ids)
+        .map(|text| {
+            let parsed = domain::image_message::parse_steer_message(text);
+            parsed
+                .attachment_ids
+                .into_iter()
+                .chain(parsed.files.into_iter().map(|file| file.id))
+                .collect()
+        })
         .unwrap_or_default()
 }
 
@@ -4135,6 +4145,23 @@ mod tests {
     use api::token_store::SecretKind;
     use std::collections::BTreeMap;
     use std::fs;
+
+    #[test]
+    fn prompt_attachment_ids_carries_images_then_files() {
+        let a = "11111111-1111-4111-8111-111111111111";
+        let c = "33333333-3333-4333-8333-333333333333";
+        let prompt = domain::image_message::build_steer_message(
+            "match this",
+            &[a.to_string()],
+            &[domain::image_message::SteerFile::new(c, "notes.pdf")],
+        );
+        assert_eq!(
+            prompt_attachment_ids(Some(&prompt)),
+            vec![a.to_string(), c.to_string()]
+        );
+        assert!(prompt_attachment_ids(Some("plain")).is_empty());
+        assert!(prompt_attachment_ids(None).is_empty());
+    }
 
     fn request(identifier: &str) -> LaunchRequest {
         LaunchRequest {

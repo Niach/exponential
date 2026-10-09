@@ -17,6 +17,7 @@
 //! team switch drops all tabs (they are team-scoped). Tabs that don't fit
 //! the strip collapse into a "+N" overflow menu (EXP-288).
 
+use crate::controls::PointerContextMenuExt as _;
 use std::collections::{HashMap, HashSet};
 
 use gpui::{
@@ -28,7 +29,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     dock::{Panel, PanelControl, PanelEvent},
     h_flex,
-    menu::ContextMenuExt as _,
     v_flex, ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
@@ -1323,6 +1323,8 @@ pub struct ScreensPanel {
 /// without synthetic input; anything else, and the absence of the var, is
 /// the transcript. EXP-1251: the Guide's diff pages are the Guide's own
 /// state ([`crate::steer_viewer::SteerSessionView::open_guide_page`]).
+/// Wave D: `guide-all` opens the Guide AND its complete diff page (the web
+/// `?view=guide&section=all`), which is what the run-changes capture shoots.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum RunFace {
     Run,
@@ -1333,7 +1335,9 @@ pub(crate) enum RunFace {
 /// capture run.
 pub(crate) fn parse_run_face(value: Option<&str>) -> Option<RunFace> {
     match value.map(str::trim) {
-        Some("guide") | Some("results") | Some("diff") | Some("changes") => Some(RunFace::Guide),
+        Some("guide") | Some("guide-all") | Some("results") | Some("diff") | Some("changes") => {
+            Some(RunFace::Guide)
+        }
         Some("run") | Some("transcript") => Some(RunFace::Run),
         _ => None,
     }
@@ -1341,6 +1345,17 @@ pub(crate) fn parse_run_face(value: Option<&str>) -> Option<RunFace> {
 
 fn dev_run_face() -> Option<RunFace> {
     parse_run_face(std::env::var("EXP_DEV_RUN_FACE").ok().as_deref())
+}
+
+/// Wave D: the Guide page `EXP_DEV_RUN_FACE` lands on — `guide-all` = the
+/// complete diff ([`crate::session_results::GuidePage::All`]); every other
+/// value stays on the Guide itself.
+pub(crate) fn parse_dev_guide_page(value: Option<&str>) -> Option<crate::session_results::GuidePage> {
+    (value.map(str::trim) == Some("guide-all")).then_some(crate::session_results::GuidePage::All)
+}
+
+fn dev_guide_page() -> Option<crate::session_results::GuidePage> {
+    parse_dev_guide_page(std::env::var("EXP_DEV_RUN_FACE").ok().as_deref())
 }
 
 /// EXP-1175 — `EXP_DEV_SHOW_WORK=1` opens every Run face on the full
@@ -2080,6 +2095,13 @@ impl ScreensPanel {
         };
         self.pending_run_face = None;
         view.update(cx, |view, cx| view.set_run_face(face, cx));
+        // Wave D (dev): `EXP_DEV_RUN_FACE=guide-all` goes on to the complete
+        // diff page.
+        if face == RunFace::Guide {
+            if let Some(page) = dev_guide_page() {
+                view.update(cx, |view, cx| view.open_guide_page(page, cx));
+            }
+        }
     }
 
     /// EXP-923: mark the tabs whose run is live ([`live_tab_plan`]) — it
@@ -2680,7 +2702,7 @@ impl ScreensPanel {
             // used to lose to the Linux WM window menu; the strip's
             // `app_title_bar::interactive` wrapper now swallows the press that
             // popped it (EXP-294).
-            .context_menu({
+            .pointer_context_menu({
                 let panel = panel.clone();
                 move |menu, _window, _cx| {
                     let close = panel.clone();
@@ -2918,7 +2940,7 @@ impl ScreensPanel {
                 if let Screen::Terminal { .. } = &screen {
                     let terminal = screen.clone();
                     let panel = panel.clone();
-                    return chip.context_menu(move |menu, _window, _cx| {
+                    return chip.pointer_context_menu(move |menu, _window, _cx| {
                         let undock = panel.clone();
                         let undock_screen = terminal.clone();
                         let close = panel.clone();
@@ -4134,6 +4156,14 @@ mod tests {
     #[test]
     fn the_dev_run_face_opens_the_guide() {
         assert_eq!(parse_run_face(Some("guide")), Some(RunFace::Guide));
+        // Wave D: `guide-all` = the Guide's complete diff page.
+        assert_eq!(parse_run_face(Some("guide-all")), Some(RunFace::Guide));
+        assert_eq!(
+            super::parse_dev_guide_page(Some(" guide-all ")),
+            Some(crate::session_results::GuidePage::All)
+        );
+        assert_eq!(super::parse_dev_guide_page(Some("guide")), None);
+        assert_eq!(super::parse_dev_guide_page(None), None);
         assert_eq!(parse_run_face(Some("diff")), Some(RunFace::Guide));
         assert_eq!(parse_run_face(Some(" changes ")), Some(RunFace::Guide));
         assert_eq!(parse_run_face(Some("results")), Some(RunFace::Guide));

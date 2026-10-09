@@ -372,10 +372,15 @@ public extension WorkFaces {
         state: RunRowState,
         device: String,
         runEndedAt: Date?,
-        now: Date
+        now: Date,
+        endKnown: Bool = true
     ) -> RunRowCaption? {
         guard let start = turnStartedAt else { return nil }
         if let end = turnEndedAt {
+            // Web M6 ×4: a settled turn whose end was never observed (the
+            // first turn, closed only by the next message) drops the
+            // duration rather than count the idle gap.
+            guard endKnown else { return RunRowCaption(text: "Done on \(device)", tone: .muted) }
             return RunRowCaption(
                 text: "Done on \(device) · \(AgentFeed.workingDuration(ms: elapsedMs(start, end)))",
                 tone: .muted
@@ -390,7 +395,8 @@ public extension WorkFaces {
         state: RunRowState,
         device: String,
         runEndedAt: Date?,
-        now: Date
+        now: Date,
+        endKnown: Bool = true
     ) -> RunRowCaption? {
         turnRowCaption(
             turnStartedAt: turn.startedAt.map { Date(timeIntervalSince1970: $0 / 1000) },
@@ -398,7 +404,8 @@ public extension WorkFaces {
             state: state,
             device: device,
             runEndedAt: runEndedAt,
-            now: now
+            now: now,
+            endKnown: endKnown
         )
     }
 }

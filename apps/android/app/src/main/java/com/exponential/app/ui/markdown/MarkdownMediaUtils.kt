@@ -38,6 +38,17 @@ object MarkdownMediaUtils {
         return uri.lastPathSegment ?: "image"
     }
 
+    /** The provider's advertised byte size, or null when it does not say. */
+    fun querySize(context: Context, uri: Uri): Long? =
+        try {
+            context.contentResolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                val idx = cursor.getColumnIndex(OpenableColumns.SIZE)
+                if (cursor.moveToFirst() && idx >= 0 && !cursor.isNull(idx)) cursor.getLong(idx) else null
+            }
+        } catch (_: Throwable) {
+            null
+        }
+
     /** Decode just the image bounds to get pixel w/h without loading the bitmap. */
     fun probeSize(context: Context, uri: Uri): ProbedSize {
         return try {
