@@ -22,8 +22,8 @@ import at.exponential.ui.model.setOpen
 import at.exponential.ui.model.sliderDrag
 import at.exponential.ui.model.sliderRelease
 import at.exponential.ui.model.sliderValue
-import at.exponential.ui.model.toggleGroupSelect
-import at.exponential.ui.model.toggleGroupValues
+import at.exponential.ui.model.segmentedSelect
+import at.exponential.ui.model.segmentedValues
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -107,15 +107,15 @@ class InteractionTest {
         m.press(dot)
         assertTrue(m.radioChecked(dot))
         assertFalse(m.radioChecked(m.idx("form-plan.dot.0")))
-        // ToggleGroup single + multiple.
+        // Segmented single + multiple.
         val seg = m.idx("segmented")
-        m.toggleGroupSelect(seg, JsonValue.Str("board"))
-        assertEquals(listOf("board"), m.toggleGroupValues(seg))
+        m.segmentedSelect(seg, JsonValue.Str("board"))
+        assertEquals(listOf("board"), m.segmentedValues(seg))
         val multi = m.idx("toggles")
-        m.toggleGroupSelect(multi, JsonValue.Str("italic"))
-        assertEquals(setOf("bold", "italic"), m.toggleGroupValues(multi).toSet())
-        m.toggleGroupSelect(multi, JsonValue.Str("bold"))
-        assertEquals(listOf("italic"), m.toggleGroupValues(multi))
+        m.segmentedSelect(multi, JsonValue.Str("italic"))
+        assertEquals(setOf("bold", "italic"), m.segmentedValues(multi).toSet())
+        m.segmentedSelect(multi, JsonValue.Str("bold"))
+        assertEquals(listOf("italic"), m.segmentedValues(multi))
         // Slider snaps to the step.
         val trackIdx = m.idx("form-volume.track")
         m.sliderDrag(trackIdx, SurfaceModel.snap(42.0, 0.0, 100.0, 5.0))
@@ -267,7 +267,7 @@ class InteractionTest {
         assertEquals(m.nodes.indices.toList(), m.nodes.sortedBy { it.index.toFloat() }.map { it.index })
         // Labels: every focusable leaf has an accessible name.
         val unnamed = m.nodes.filter {
-            it.isFocusable && it.isLeaf && !it.isTextField && it.component != "ToggleGroup" &&
+            it.isFocusable && it.isLeaf && !it.isTextField && it.component != "Segmented" &&
                 it.part !in setOf("box", "dot", "track", "field", "indicator") && it.accessibilityLabel == null
         }
         assertEquals(emptyList<String>(), unnamed.map { it.id })

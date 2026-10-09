@@ -20,8 +20,8 @@ import at.exponential.ui.model.nodeKey
 import at.exponential.ui.model.press
 import at.exponential.ui.model.scrollTo
 import at.exponential.ui.model.sliderValue
-import at.exponential.ui.model.toggleGroupSelect
-import at.exponential.ui.model.toggleGroupValues
+import at.exponential.ui.model.segmentedSelect
+import at.exponential.ui.model.segmentedValues
 
 /** A hardware key as the a11y spec names it (`left`, `enter`, `pageup`…), null for the rest. */
 internal fun keyName(e: KeyEvent): String? = when (e.key) {
@@ -47,7 +47,7 @@ internal fun keyName(e: KeyEvent): String? = when (e.key) {
  * focused control; arrows rove inside tabs, radios, toggle groups, menus
  * and listboxes (Home / End = the ends) and step sliders, carousels and
  * Resizable handles (the core's `keyboardResize`); ArrowDown opens a
- * picker or menu trigger; Shift+F10 opens a ContextMenu; a focused scroll
+ * picker or menu trigger; Shift+F10 opens a context Menu; a focused scroll
  * container scrolls. Tab moves focus in pre-order (Compose's focus order
  * follows composition = pre-order). Text fields keep their keys.
  */
@@ -73,7 +73,7 @@ fun handleKey(model: SurfaceModel, key: String?, shift: Boolean = false, typed: 
         var p: Int? = n.index
         while (p != null) {
             val c = model.node(p) ?: break
-            if (c.component == "ContextMenu") {
+            if (c.isContextMenu) {
                 val f = model.frame(n.index)
                 model.fire(c.index, "contextmenu", JsonValue.Obj(mapOf("x" to JsonValue.Num(f.center.x.toDouble()), "y" to JsonValue.Num(f.center.y.toDouble()))))
                 return true
@@ -97,7 +97,7 @@ fun handleKey(model: SurfaceModel, key: String?, shift: Boolean = false, typed: 
     }
     val owner = n.ownerComponent
     when {
-        n.component == "ToggleGroup" -> return toggleGroupKey(model, n, key, hv)
+        n.component == "Segmented" -> return segmentedKey(model, n, key, hv)
         n.component == "Slider" && n.part == "track" -> {
             val min = n.props.num("min") ?: 0.0
             val max = n.props.num("max") ?: 100.0
@@ -144,7 +144,7 @@ fun handleKey(model: SurfaceModel, key: String?, shift: Boolean = false, typed: 
             model.focusRequest = model.node(t)?.id
             return true
         }
-        (owner == "DropdownMenu" || owner == "ContextMenu") && n.part == "item" -> {
+        owner == "Menu" && n.part == "item" -> {
             val kind = n.props["kind"]?.string ?: "item"
             val (openKey, closeKey) = if (rtl) "left" to "right" else "right" to "left"
             if (key == openKey && kind == "submenu") {
@@ -251,11 +251,11 @@ private fun typeahead(model: SurfaceModel, n: NodeInfo, typed: String): Boolean 
     return false
 }
 
-/** ToggleGroup: arrows move the roving item and select it (single), Space / Enter toggle it. */
-private fun toggleGroupKey(model: SurfaceModel, n: NodeInfo, key: String, step: Int?): Boolean {
+/** Segmented: arrows move the roving item and select it (single), Space / Enter toggle it. */
+private fun segmentedKey(model: SurfaceModel, n: NodeInfo, key: String, step: Int?): Boolean {
     val items = n.props["items"]?.array ?: return false
     if (items.isEmpty()) return false
-    val values = model.toggleGroupValues(n.index)
+    val values = model.segmentedValues(n.index)
     val at = items.indexOfFirst { values.contains((it["value"] ?: JsonValue.Null).displayText) }.coerceAtLeast(0)
     val next = when (key) {
         "home" -> 0
@@ -264,7 +264,7 @@ private fun toggleGroupKey(model: SurfaceModel, n: NodeInfo, key: String, step: 
         else -> Math.floorMod(at + (step ?: return false), items.size)
     }
     val item = items[next]
-    model.toggleGroupSelect(n.index, item["value"] ?: JsonValue.Str(item["label"]?.displayText ?: ""))
+    model.segmentedSelect(n.index, item["value"] ?: JsonValue.Str(item["label"]?.displayText ?: ""))
     return true
 }
 

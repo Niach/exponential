@@ -161,7 +161,7 @@ internal fun InnerBox(cx: LeafContext, contentAlignment: Alignment = Alignment.T
     }
 }
 
-/** A recipe part's own box (background, border, radius, opacity): ToggleGroup items, chips. */
+/** A recipe part's own box (background, border, radius, opacity): Segmented items, chips. */
 internal fun Modifier.leafPartBox(style: PaintStyle, fallbackRadius: Float = 0f): Modifier {
     val shape = RoundedCornerShape(max(style.radius, fallbackRadius).dp)
     var m = this

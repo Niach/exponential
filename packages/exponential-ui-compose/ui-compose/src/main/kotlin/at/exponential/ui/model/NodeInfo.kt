@@ -79,6 +79,10 @@ class NodeInfo(n: FfiNode) {
     val isInlineField: Boolean
         get() = (component == "NumberField" && part == "input") || (component == "ChipInput" && part == "input") || (component == "Select" && part == "search")
 
+    /** A `Menu` opened by a long press / right click (`openOn: contextmenu`, the old ContextMenu): its ONE child is the target region. */
+    val isContextMenu: Boolean
+        get() = component == "Menu" && props.str("openOn") == "contextmenu"
+
     /** A picker trigger (round 1: the core's `trigger` part opens the owner's popup layer). */
     val isPickerTrigger: Boolean
         get() = part == "trigger" && (component == "Select" || component == "DatePicker" || component == "TimePicker" || component == "DateRangePicker")
@@ -89,7 +93,7 @@ class NodeInfo(n: FfiNode) {
             if (hidden || disabled) return false
             if (pressable) return true
             return when (component) {
-                "Button", "Link", "Toggle", "ToggleGroup", "Composer" -> true
+                "Button", "Link", "Toggle", "Segmented", "Composer" -> true
                 "Box" -> part == "indicator"
                 else -> false
             }
@@ -118,7 +122,7 @@ class NodeInfo(n: FfiNode) {
 /** An open overlay layer (the facade's `FfiLayer`); frames in dp, surface coordinates. */
 data class LayerInfo(
     val layer: Int,
-    /** `Dialog` | `Drawer` | `Popover` | `Tooltip` | `DropdownMenu`. */
+    /** `Dialog` | `Drawer` | `Popover` | `Tooltip` | `Menu` (a submenu = a second `Menu` layer of the same owner). */
     val kind: String,
     val owner: String,
     val root: Int,

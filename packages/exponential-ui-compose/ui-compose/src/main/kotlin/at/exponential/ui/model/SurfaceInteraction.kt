@@ -245,7 +245,7 @@ fun SurfaceModel.press(index: Int) {
         fire(index, "press")
         return
     }
-    if (n.isTextField || (n.component == "Slider" && n.part == "track") || n.component == "ToggleGroup") return
+    if (n.isTextField || (n.component == "Slider" && n.part == "track") || n.component == "Segmented") return
     when (owner.component) {
         "Checkbox", "Switch" -> {
             val external = owner.props["checked"] ?: JsonValue.Bool(false)
@@ -324,9 +324,23 @@ fun SurfaceModel.focus(id: String, focused: Boolean, fromKeyboard: Boolean = fal
 
 // overlays
 
-/** Open or close an overlay owner (Dialog, Drawer, Popover, Tooltip, DropdownMenu). */
+/** Open or close an overlay owner (Dialog, Drawer, Popover, Tooltip, Menu). */
 fun SurfaceModel.setOpen(owner: String, open: Boolean) {
     dispatch(surface.setOpen(owner, open))
+}
+
+/**
+ * Is `layer` a Menu's open SUBMENU (round 3: the core lays it out as a
+ * second layer of the same owner, root `<owner>.content.<row>`, beside its
+ * row), not the menu itself?
+ */
+fun SurfaceModel.isSubmenuLayer(layer: LayerInfo): Boolean =
+    layer.kind == "Menu" && node(layer.root)?.id != "${layer.owner}.content"
+
+/** Close the open submenu of the Menu `owner` (its row toggles it), the menu stays open. */
+fun SurfaceModel.closeSubmenu(owner: String) {
+    val row = nodes.firstOrNull { it.owner == owner && it.ownerComponent == "Menu" && it.part == "item" && it.open && it.props.str("kind") == "submenu" } ?: return
+    fire(row.index, "press")
 }
 
 /**
@@ -400,8 +414,8 @@ internal fun SurfaceModel.layersChanged() {
 
 // controls
 
-/** A ToggleGroup item press: single = that value, multiple = the toggled set. */
-fun SurfaceModel.toggleGroupSelect(index: Int, value: JsonValue) {
+/** A Segmented item press: single = that value, multiple = the toggled set. */
+fun SurfaceModel.segmentedSelect(index: Int, value: JsonValue) {
     val n = node(index) ?: return
     if (isDisabled(index)) return
     val multiple = n.props.str("type") == "multiple"
@@ -423,8 +437,8 @@ fun SurfaceModel.toggleGroupSelect(index: Int, value: JsonValue) {
     fire(index, "change", JsonValue.Obj(mapOf("value" to next)))
 }
 
-/** The values a ToggleGroup shows selected. */
-fun SurfaceModel.toggleGroupValues(index: Int): List<String> {
+/** The values a Segmented shows selected. */
+fun SurfaceModel.segmentedValues(index: Int): List<String> {
     val n = node(index) ?: return emptyList()
     return when (val v = mirrored(n.id, n.props["value"] ?: JsonValue.Null)) {
         is JsonValue.Arr -> v.v.map { it.displayText }
