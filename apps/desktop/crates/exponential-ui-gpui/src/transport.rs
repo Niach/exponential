@@ -204,23 +204,69 @@ mod net {
         }
     }
 
-    /// The POST side: one thread sends client messages in order.
-    fn poster(url: String, headers: Vec<(String, String)>) -> flume::Sender<Value> {
+    /// A client message POST may take this long to connect...
+    const POST_CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+    /// ...and this long in total. The POST thread sends in order, so an
+    /// unbounded request (a half-open connection) would stall every later
+    /// client message forever; past this the message is dropped.
+    const POST_TIMEOUT: Duration = Duration::from_secs(30);
+
+    /// The POST side's client: bounded, unlike the stream's [`client`].
+    fn post_client(connect: Duration, total: Duration) -> reqwest::blocking::Client {
+        reqwest::blocking::Client::builder().connect_timeout(connect).timeout(total).build().unwrap_or_else(|_| reqwest::blocking::Client::new())
+    }
+
+    /// The POST side: one thread sends client messages in order. Like the
+    /// TS `StreamTransport.send` (a rejected fetch, no retry), a failed or
+    /// timed-out POST drops that message; it reports `Error` (detail = why)
+    /// to `sink` unless `closed`, and the next successful POST reports
+    /// `Open` again. The thread exits once every [`flume::Sender`] is
+    /// dropped or `closed` flips (`close`/`start`; still-queued messages
+    /// are dropped) and its in-flight request (bounded by `total`) ends;
+    /// it is detached, never joined (a join could block the main thread
+    /// for `total`).
+    fn poster(url: String, headers: Vec<(String, String)>, sink: Option<TransportSink>, closed: Arc<AtomicBool>, connect: Duration, total: Duration) -> (flume::Sender<Value>, std::thread::JoinHandle<()>) {
         let (tx, rx) = flume::unbounded::<Value>();
-        std::thread::Builder::new()
+        let handle = std::thread::Builder::new()
             .name("exponential-ui post".into())
             .spawn(move || {
-                let client = client();
+                let client = post_client(connect, total);
+                let report = |status: TransportStatus, detail: Option<String>| {
+                    if let Some(sink) = &sink {
+                        if !closed.load(Ordering::SeqCst) {
+                            sink.status(status, detail);
+                        }
+                    }
+                };
+                let mut failed = false;
                 while let Ok(message) = rx.recv() {
+                    if closed.load(Ordering::SeqCst) {
+                        break;
+                    }
                     let mut req = client.post(&url).header("content-type", "application/json");
                     for (k, v) in &headers {
                         req = req.header(k.as_str(), v.as_str());
                     }
-                    let _ = req.body(message.to_string()).send();
+                    let outcome = match req.body(message.to_string()).send() {
+                        Ok(res) if res.status().is_success() => Ok(()),
+                        Ok(res) => Err(format!("HTTP {}", res.status().as_u16())),
+                        Err(e) => Err(e.to_string()),
+                    };
+                    match outcome {
+                        Ok(()) if failed => {
+                            failed = false;
+                            report(TransportStatus::Open, None);
+                        }
+                        Ok(()) => {}
+                        Err(e) => {
+                            failed = true;
+                            report(TransportStatus::Error, Some(format!("send failed: {e}")));
+                        }
+                    }
                 }
             })
             .expect("spawn the post thread");
-        tx
+        (tx, handle)
     }
 
     /// Bytes → text across chunk boundaries (a code point may span two).
@@ -284,12 +330,13 @@ mod net {
         options: HttpTransportOptions,
         kind: Kind,
         closed: Arc<AtomicBool>,
+        sink: Option<TransportSink>,
         post: Option<flume::Sender<Value>>,
     }
 
     impl StreamTransport {
         fn new(options: HttpTransportOptions, kind: Kind) -> Self {
-            StreamTransport { options, kind, closed: Arc::new(AtomicBool::new(false)), post: None }
+            StreamTransport { options, kind, closed: Arc::new(AtomicBool::new(false)), sink: None, post: None }
         }
 
         fn accept(&self) -> &'static str {
@@ -300,9 +347,10 @@ mod net {
         }
 
         fn start(&mut self, sink: TransportSink) {
-            self.closed.store(true, Ordering::SeqCst);
+            self.close();
             let closed = Arc::new(AtomicBool::new(false));
             self.closed = closed.clone();
+            self.sink = Some(sink.clone());
             let options = self.options.clone();
             let accept = self.accept();
             let kind = self.kind;
@@ -367,14 +415,21 @@ mod net {
         }
 
         fn send(&mut self, message: &Value) {
-            let post = self.post.get_or_insert_with(|| poster(self.options.post_url.clone().unwrap_or_else(|| self.options.url.clone()), self.options.headers.clone()));
+            let post = self.post.get_or_insert_with(|| {
+                let url = self.options.post_url.clone().unwrap_or_else(|| self.options.url.clone());
+                poster(url, self.options.headers.clone(), self.sink.clone(), self.closed.clone(), POST_CONNECT_TIMEOUT, POST_TIMEOUT).0
+            });
             let _ = post.send(message.clone());
         }
 
         /// Stops delivery at once; the reader thread exits at its next
-        /// chunk (a blocking read cannot be interrupted).
+        /// chunk (a blocking read cannot be interrupted). Dropping the POST
+        /// sender ends the POST thread after its in-flight request (bounded
+        /// by [`POST_TIMEOUT`]); queued, unsent client messages are dropped.
         fn close(&mut self) {
             self.closed.store(true, Ordering::SeqCst);
+            self.sink = None;
+            self.post = None;
         }
     }
 
@@ -667,7 +722,61 @@ mod net {
 
     #[cfg(test)]
     mod tests {
-        use super::Utf8Chunks;
+        use std::net::TcpListener;
+        use std::sync::atomic::AtomicBool;
+        use std::sync::{Arc, Mutex};
+        use std::time::{Duration, Instant};
+
+        use serde_json::json;
+
+        use super::{poster, Utf8Chunks};
+        use crate::transport::{TransportEvent, TransportSink, TransportStatus};
+
+        #[test]
+        fn a_hung_post_reports_an_error_within_the_timeout_and_close_ends_the_thread() {
+            // Accepts every connection and never answers (a half-open server).
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}/a2ui", listener.local_addr().unwrap());
+            let held = Arc::new(Mutex::new(Vec::new()));
+            {
+                let held = held.clone();
+                std::thread::spawn(move || {
+                    for conn in listener.incoming().flatten() {
+                        held.lock().unwrap().push(conn);
+                    }
+                });
+            }
+            let events = Arc::new(Mutex::new(Vec::<TransportEvent>::new()));
+            let sink = {
+                let events = events.clone();
+                TransportSink::new(move |e| events.lock().unwrap().push(e))
+            };
+            let total = Duration::from_millis(300);
+            let (tx, handle) = poster(url, Vec::new(), Some(sink), Arc::new(AtomicBool::new(false)), Duration::from_millis(300), total);
+            let began = Instant::now();
+            tx.send(json!({"n": 1})).unwrap();
+            tx.send(json!({"n": 2})).unwrap();
+            // Both hang; the second is not stalled behind the first forever.
+            let deadline = began + Duration::from_secs(5);
+            loop {
+                let errors = events.lock().unwrap().iter().filter(|e| matches!(e, TransportEvent::Status(TransportStatus::Error, Some(d)) if d.starts_with("send failed"))).count();
+                if errors == 2 {
+                    break;
+                }
+                assert!(Instant::now() < deadline, "the hung POSTs never timed out: {:?}", events.lock().unwrap());
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            assert!(began.elapsed() < total * 2 + Duration::from_secs(1));
+            // Dropping the sender (what `close` does) ends the thread.
+            tx.send(json!({"n": 3})).unwrap();
+            drop(tx);
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while !handle.is_finished() {
+                assert!(Instant::now() < deadline, "the POST thread outlived close");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            handle.join().unwrap();
+        }
 
         #[test]
         fn a_code_point_split_across_chunks_survives() {
