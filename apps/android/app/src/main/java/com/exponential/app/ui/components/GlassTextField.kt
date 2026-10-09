@@ -142,7 +142,7 @@ private fun GlassPlaceholder(text: String) {
  * M3 container colour (so [GlassTextField]'s `containerColor` keeps tinting
  * it), hence a transparent chrome fill.
  */
-private fun Modifier.glassFieldBorder(focused: Boolean): Modifier = fieldChrome(
+private fun Modifier.glassFieldBorder(focused: Boolean): Modifier = this.fieldChrome(
     AppPrimitiveTokens,
     focused = focused,
     radius = GlassFieldRadius,

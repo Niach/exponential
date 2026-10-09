@@ -30,6 +30,11 @@ afterEach(() => {
 })
 
 const tree = (node: NestedNode) => reduceNested(node, { catalogId: CORE_CATALOG_ID }).root
+/** Root + the lifted templates (round 2 §4) as surface props. */
+const reduced = (node: NestedNode) => {
+  const r = reduceNested(node, { catalogId: CORE_CATALOG_ID })
+  return { root: r.root, templates: r.templates }
+}
 
 describe(`event context: the component payload wins a clashing key (Rust core fire())`, () => {
   it(`a bound Input's change carries the TYPED value, not the author's stale read of the same path`, () => {
@@ -153,7 +158,7 @@ describe(`template instance ids`, () => {
       ],
     } as unknown as NestedNode
     const rows = [{ id: 1, name: `a` }, { id: 1, name: `b` }, { id: ``, name: `c` }, { name: `d` }, { id: `#1`, name: `e` }]
-    const { container } = render(<ExponentialSurface root={tree(nested)} data={{ rows }} theme="neutral" id="tk" />)
+    const { container } = render(<ExponentialSurface {...reduced(nested)} data={{ rows }} theme="neutral" id="tk" />)
     const ids = Array.from(container.querySelectorAll<HTMLElement>(`[data-xui-c="Text"]`)).map((e) => e.dataset.xuiId)
     expect(ids).toEqual([`row.1`, `row.#1`, `row.#2`, `row.#3`, `row.#4`])
     expect(Array.from(container.querySelectorAll(`[data-xui-c="Text"]`)).map((e) => e.textContent)).toEqual([`a`, `b`, `c`, `d`, `e`])
@@ -171,7 +176,7 @@ describe(`template instance ids`, () => {
       ],
     } as unknown as NestedNode
     const data = { groups: [{ id: `a`, items: [{ t: `a0` }, { t: `a1` }] }, { id: `a`, items: [{ t: `b0` }] }, { id: null, items: [] }] }
-    const { container } = render(<ExponentialSurface root={tree(nested)} data={data} theme="neutral" id="nt" />)
+    const { container } = render(<ExponentialSurface {...reduced(nested)} data={data} theme="neutral" id="nt" />)
     const ids = Array.from(container.querySelectorAll<HTMLElement>(`[data-xui-c="Text"]`)).map((e) => e.dataset.xuiId)
     expect(ids).toEqual([`cell.a.0`, `cell.a.1`, `cell.#1.0`])
     const all = Array.from(container.querySelectorAll<HTMLElement>(`[data-xui-id]`)).map((e) => e.dataset.xuiId!)
@@ -244,7 +249,7 @@ describe(`Table keyboard and literal-row slots`, () => {
         ] },
       ],
     } as unknown as NestedNode
-    const { container } = render(<ExponentialSurface root={tree(nested)} data={{ teams: [{ rows: [{ id: `x`, n: `1` }] }, { rows: [{ id: `x`, n: `2` }] }] }} theme="neutral" id="si" />)
+    const { container } = render(<ExponentialSurface {...reduced(nested)} data={{ teams: [{ rows: [{ id: `x`, n: `1` }] }, { rows: [{ id: `x`, n: `2` }] }] }} theme="neutral" id="si" />)
     const ids = Array.from(container.querySelectorAll<HTMLElement>(`[data-xui-c="Text"]`)).map((e) => e.dataset.xuiId)
     expect(ids).toEqual([`cell.0.x`, `cell.1.x`])
   })
@@ -359,19 +364,24 @@ describe(`calendar tab stop`, () => {
     expect(calendarStop(days, view, new Date(2026, 9, 25), () => true)).toBeNull()
   })
   it(`min after today: the grid still has an enabled tab stop; the month buttons carry it into the new view`, () => {
-    const root = tree({ id: `d`, component: `DatePicker`, props: { label: `When`, min: `2099-01-10` } })
+    // min = the 10th, three months after today's month (a short walk).
+    const now = new Date()
+    const minDate = new Date(now.getFullYear(), now.getMonth() + 3, 10)
+    const min = `${minDate.getFullYear()}-${String(minDate.getMonth() + 1).padStart(2, `0`)}-10`
+    const root = tree({ id: `d`, component: `DatePicker`, props: { label: `When`, min } })
     const { container } = render(<ExponentialSurface root={root} theme="neutral" id="ct" />)
     fireEvent.click(container.querySelector(`.xui-DatePicker-trigger`)!)
     const stop = () => document.querySelector<HTMLButtonElement>(`.xui-calendar-grid button[tabindex="0"]`)
     // today's month (before min): every day disabled → no stop in it
     fireEvent.click(document.querySelector(`[aria-label="Next month"]`)!)
-    const months = Array.from({ length: 900 }).findIndex(() => {
+    const months = Array.from({ length: 6 }).findIndex(() => {
       if (stop()) return true
       fireEvent.click(document.querySelector(`[aria-label="Next month"]`)!)
       return false
     })
-    expect(months).toBeGreaterThanOrEqual(0)
+    expect(months).toBe(2)
     expect(stop()!.disabled).toBe(false)
+    expect(stop()!.dataset.date).toBe(min)
     fireEvent.click(document.querySelector(`[aria-label="Next month"]`)!)
     expect(stop()).not.toBeNull()
     expect(stop()!.dataset.date!.slice(0, 7)).toMatch(/^\d{4}-\d{2}$/)

@@ -17,6 +17,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.json.Props
 import at.exponential.ui.model.SurfaceModel
@@ -64,9 +65,18 @@ class LeafContext(
     /** The content box inside padding + border (what the measurer counted), leaf-local dp. */
     val inner: Rect
         get() {
-            val (ix, iy) = style.inset
-            return Rect(ix, iy, ix + max(0f, size.width - 2 * ix), iy + max(0f, size.height - 2 * iy))
+            val (t, r, b, l) = style.insets
+            return Rect(l, t, l + max(0f, size.width - l - r), t + max(0f, size.height - t - b))
         }
+
+    /** Right-to-left (the node's own direction, else the surface's). */
+    val rtl: Boolean get() = style.direction?.let { it == "rtl" } ?: (model.direction == "rtl")
+
+    /** `text` in the leaf's `textTransform` (the core's text style, inherited like CSS). */
+    fun shown(text: String): String = at.exponential.ui.measure.SurfaceMeasurer.applyTransform(text, textStyle.textTransform)
+
+    /** A built-in string (`$string.<id>`, the host's overrides). */
+    fun string(id: String, params: Map<String, Any?> = emptyMap()): String = model.string(id, params)
 
     /** A part of `component` resolved with the OWNER's props. */
     fun part(component: String, part: String, states: List<String> = emptyList()): PartStyle =
@@ -97,24 +107,37 @@ class LeafContext(
     }
 
     /**
-     * The Compose style of [ts] (default: the leaf's) through the model's
-     * `TextShaper.style`, the one the measurer shaped with, so the painted
-     * height is the measured one; coloured [color].
+     * The Compose style of [ts] (default: the leaf's, with its tracking and
+     * italics) through the model's `TextShaper.style`, the one the measurer
+     * shaped with, so the painted size is the measured one; coloured [color].
      */
     fun composeTextStyle(
         ts: ResolvedTextStyle = textStyle,
         color: Color = ink,
-        italic: Boolean = false,
+        italic: Boolean = ts.italic || textStyle.italic,
         family: String? = null,
         align: TextAlign? = null,
-    ): TextStyle = model.shaper().style(ts, italic, family, align).copy(color = color)
+    ): TextStyle {
+        val base = model.textShaper().style(ts, italic, family, align, rtl = rtl).copy(color = color)
+        return when (style.textDecoration) {
+            "underline" -> base.copy(textDecoration = TextDecoration.Underline)
+            "line-through" -> base.copy(textDecoration = TextDecoration.LineThrough)
+            else -> base
+        }
+    }
 }
 
-/** A CSS-ish `textAlign` / `align` value → Compose (`natural` = start; the surface pins Ltr). */
-internal fun leafTextAlign(value: String?): TextAlign? = when (value) {
+/**
+ * A `textAlign` / `align` value → Compose. The core resolves a leaf's
+ * PHYSICAL align (round 2: start / end against the node's direction);
+ * a logical value still here resolves against [rtl] (the surface pins Ltr).
+ */
+internal fun leafTextAlign(value: String?, rtl: Boolean = false): TextAlign? = when (value) {
     "center" -> TextAlign.Center
-    "right", "end" -> TextAlign.Right
-    "left", "start" -> TextAlign.Left
+    "right" -> TextAlign.Right
+    "left" -> TextAlign.Left
+    "end" -> if (rtl) TextAlign.Left else TextAlign.Right
+    "start" -> if (rtl) TextAlign.Right else TextAlign.Left
     "justify" -> TextAlign.Justify
     else -> null
 }

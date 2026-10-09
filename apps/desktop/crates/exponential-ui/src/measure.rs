@@ -88,6 +88,19 @@ impl LeafRequest<'_> {
             .and_then(Value::as_str)
             .unwrap_or("")
     }
+
+    /// [`Self::text`] for a painter: the same prop, and a number or boolean
+    /// in it shows as its [`crate::format::display_string`] (`412`, `1.5`,
+    /// `true`), the rule the build applies to bound text props. An FFI host
+    /// gets this as `FfiLeaf.text`.
+    pub fn display_text(&self) -> std::borrow::Cow<'_, str> {
+        let v = ["text", "label", "title", "content", "placeholder"].iter().find_map(|k| self.props.get(*k));
+        match v {
+            Some(Value::String(s)) => std::borrow::Cow::Borrowed(s.as_str()),
+            Some(v @ (Value::Number(_) | Value::Bool(_))) => std::borrow::Cow::Owned(crate::format::display_string(v)),
+            _ => std::borrow::Cow::Borrowed(""),
+        }
+    }
 }
 
 /// What the host answers for one leaf: the width it needs with every line

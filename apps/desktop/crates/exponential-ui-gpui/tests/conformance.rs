@@ -30,6 +30,26 @@ use serde_json::{json, Value};
 const BASELINE: &str = "packages/exponential-ui/fixtures/conformance-baseline.json";
 const KNOWN: &str = "packages/exponential-ui/fixtures/conformance-known.json";
 
+/// Round 2 §8: every origin left must be a JUSTIFIED survivor (an origin
+/// not listed here fails the gate). The writer records them under
+/// `survivors` in the known file, with the reason and the cases they
+/// occur in.
+const SURVIVORS: &[(&str, &str, &str)] = &[];
+
+/// Nodes only ONE side places (not compared): every one is a decision. An
+/// unlisted web-only (`ref`) or gpui-only (`gpui`) id fails the gate; the
+/// writer records them under `coverageGaps`. (id, side, reason)
+const COVERAGE_GAPS: &[(&str, &str, &str)] = &[
+    ("media-img.fallback", "ref", "Image/fallback: gpui paints the broken-picture glyph inside the Image leaf (the box is compared)."),
+    ("page-1.fallback", "ref", "Image/fallback of a Carousel page: painted inside the Image leaf; shows only where the web's load fails first."),
+    ("chip-user.image.fallback", "ref", "Avatar initials inside a Chip: painted inside the image leaf (the box is compared)."),
+    ("accordion.count.1", "ref", "Accordion count: painted inside the trigger leaf; its room is measured (round2.rs an_accordion_count_is_measured_after_the_title)."),
+    ("ring.label", "ref", "Ring centre label: painted inside the Ring leaf."),
+    ("video.controls", "ref", "Video controls bar: painted inside the Video leaf (16:9 box compared)."),
+    ("audio.track", "ref", "AudioPlayer title line: painted inside the AudioPlayer leaf (its height is the core's)."),
+    ("audio.controls", "ref", "AudioPlayer controls row: painted inside the AudioPlayer leaf (its height is the core's)."),
+];
+
 /// `conformance/baseline.ts` `decodeBaseline`.
 fn decode_baseline(b: &Value) -> BTreeMap<String, CaseDump> {
     assert_eq!(b["format"], "xui-conformance-baseline/1", "baseline format");
@@ -176,6 +196,8 @@ fn gpui_matches_the_web_baseline_within_the_known_budget() {
     let mut better = Vec::new();
     let mut budget = serde_json::Map::new();
     let mut origin_groups: BTreeMap<String, (usize, String)> = BTreeMap::new();
+    let mut by_origin: BTreeMap<String, (String, String, Vec<String>)> = BTreeMap::new();
+    let mut one_sided: BTreeMap<(String, &str), usize> = BTreeMap::new();
     for case in &cases {
         let reference = baseline.get(&case.key).unwrap_or_else(|| panic!("{}: not in the baseline (rewrite it: bun run --filter @exponential-at/ui conformance -- --write-baseline)", case.key));
         let cand = &dump.cases[&case.key];
@@ -186,6 +208,7 @@ fn gpui_matches_the_web_baseline_within_the_known_budget() {
             eprintln!("  FIX  {}", d.line);
             let g = origin_groups.entry(format!("{} ({}) {}", d.id, d.component, d.kinds.join("+"))).or_insert((0, case.key.clone()));
             g.0 += 1;
+            by_origin.entry(d.id.clone()).or_insert_with(|| (d.component.clone(), d.kinds.join("+"), Vec::new())).2.push(case.key.clone());
         }
         let cascade: Vec<&Diff> = r.diffs.iter().filter(|d| !d.origin).collect();
         if verbose {
@@ -206,6 +229,12 @@ fn gpui_matches_the_web_baseline_within_the_known_budget() {
         if !r.only_cand.is_empty() {
             eprintln!("  only in gpui ({}; parts the DOM paints without data-xui-id): {}", r.only_cand.len(), list(&r.only_cand));
         }
+        for id in &r.only_ref {
+            *one_sided.entry((id.clone(), "ref")).or_default() += 1;
+        }
+        for id in &r.only_cand {
+            *one_sided.entry((id.clone(), "gpui")).or_default() += 1;
+        }
         let now = counts(&r);
         let was = &known["cases"][&case.key];
         for k in ["size", "position", "wrap", "onlyRef", "onlyCand"] {
@@ -225,12 +254,33 @@ fn gpui_matches_the_web_baseline_within_the_known_budget() {
     for (what, (n, example)) in &groups {
         eprintln!("  {n:>3}× {what}   e.g. {example}");
     }
+    let unexplained: Vec<String> = by_origin.keys().filter(|id| !SURVIVORS.iter().any(|(s, _, _)| s == *id)).cloned().collect();
+    let survivors: Vec<Value> = by_origin
+        .iter()
+        .filter_map(|(id, (component, kind, cases))| {
+            let (_, fix, reason) = SURVIVORS.iter().find(|(s, _, _)| s == id)?;
+            Some(json!({"id": id, "component": component, "kind": kind, "cases": cases.len(), "fix": [fix], "reason": reason}))
+        })
+        .collect();
+    let unlisted_gaps: Vec<String> = one_sided.keys().filter(|(id, side)| !COVERAGE_GAPS.iter().any(|(g, s, _)| g == id && s == side)).map(|(id, side)| format!("{id} (only {side})")).collect();
+    let gaps: Vec<Value> = one_sided
+        .iter()
+        .filter_map(|((id, side), n)| {
+            let (_, _, reason) = COVERAGE_GAPS.iter().find(|(g, s, _)| g == id && s == side)?;
+            Some(json!({"id": id, "only": side, "cases": n, "reason": reason}))
+        })
+        .collect();
     if write {
-        let out = json!({
-            "$comment": "The desktop conformance RATCHET (apps/desktop/crates/exponential-ui-gpui/tests/conformance.rs): per case, the divergence counts of the gpui painter (headless, gpui's cosmic-text system, the conformance fonts) against the web baseline (fixtures/conformance-baseline.json) today. A case may only go DOWN; rewrite after a fix with EXP_UI_WRITE_FIXTURES=1 cargo test -p exponential-ui-gpui --test conformance. `onlyRef`/`onlyCand` = nodes only the web / only gpui placed (coverage, not compared).",
-            "renderer": conformance_dump::RENDERER,
-            "cases": Value::Object(budget),
-        });
+        // Round 2 §8: the writer keeps every other key (the `causes` and
+        // `rules` decisions) and only rewrites `renderer`, `survivors`,
+        // `coverageGaps` and `cases`.
+        let mut out = known.as_object().cloned().unwrap_or_default();
+        out.insert("survivors".into(), Value::Array(survivors));
+        out.insert("coverageGaps".into(), Value::Array(gaps));
+        out.entry("$comment").or_insert_with(|| json!("The desktop conformance RATCHET (apps/desktop/crates/exponential-ui-gpui/tests/conformance.rs): per case, the divergence counts of the gpui painter (headless, gpui's cosmic-text system, the conformance fonts) against the web baseline (fixtures/conformance-baseline.json) today. A case may only go DOWN; rewrite after a fix with EXP_UI_WRITE_FIXTURES=1 cargo test -p exponential-ui-gpui --test conformance. `onlyRef`/`onlyCand` = nodes only the web / only gpui placed (coverage, not compared; each listed under `coverageGaps`)."));
+        out.insert("renderer".into(), json!(conformance_dump::RENDERER));
+        out.insert("cases".into(), Value::Object(budget));
+        let out = Value::Object(out);
         std::fs::write(&known_path, serde_json::to_string_pretty(&out).expect("json") + "\n").expect("write the known budget");
         eprintln!("\nwrote {KNOWN}");
         return;
@@ -239,6 +289,9 @@ fn gpui_matches_the_web_baseline_within_the_known_budget() {
         eprintln!("\nIMPROVED — lower the budget (EXP_UI_WRITE_FIXTURES=1):\n  {}", better.join("\n  "));
     }
     assert!(worse.is_empty(), "the gpui painter diverges MORE from the web baseline than {KNOWN} allows:\n  {}\n(run with -- --nocapture for every divergence)", worse.join("\n  "));
+    assert!(unexplained.is_empty(), "divergence origins with no decision (fix them, or justify them in SURVIVORS): {}", unexplained.join(", "));
+    assert!(unlisted_gaps.is_empty(), "nodes only one side places, with no decision (place them on both, or justify them in COVERAGE_GAPS): {}", unlisted_gaps.join(", "));
+    assert_eq!(known["coverageGaps"].as_array().map(Vec::len), Some(gaps.len()), "{KNOWN} `coverageGaps` is stale (EXP_UI_WRITE_FIXTURES=1)");
 }
 
 fn n(id: &str, parent: Option<&str>, x: f32, y: f32, w: f32, h: f32) -> DumpNode {

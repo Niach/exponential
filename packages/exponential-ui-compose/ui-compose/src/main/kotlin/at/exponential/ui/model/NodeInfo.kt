@@ -10,6 +10,7 @@ import at.exponential.ui.ffi.FfiNode
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.Props
 import at.exponential.ui.json.flag
+import at.exponential.ui.json.shownText
 import at.exponential.ui.json.str
 
 /** A core frame as a Compose [Rect] in dp, surface coordinates. */
@@ -41,11 +42,20 @@ class NodeInfo(n: FfiNode) {
     val removed: Boolean = n.removed
     val hidden: Boolean = n.hidden || n.removed
     val triggerFor: String? = n.triggerFor
+
+    /** The node restyles under a mouse (a `:hover` style block or a hover recipe rule, the core decides; VAPP-100). */
+    val hoverStyled: Boolean = n.hoverStyled
     val accessibility: Props? = n.accessibilityJson?.let { JsonValue.parse(it).obj }
 
     /** Part states the core resolved (`selected`, `open`, `checked`). */
     val partStates: List<String> = n.partStates
     val macroName: String? = n.macroName
+
+    /** A live region (`polite | assertive`; Text `live`, Toast, Form announcements). */
+    val live: String? = n.live
+
+    /** The Form this field belongs to. */
+    val form: String? = n.form
 
     /** Not a leaf. */
     val isContainer: Boolean get() = !isLeaf
@@ -89,12 +99,12 @@ class NodeInfo(n: FfiNode) {
     val accessibilityLabel: String?
         get() {
             accessibility?.get("label")?.string?.takeIf { it.isNotEmpty() }?.let { return it }
-            fun s(k: String): String? = props.str(k).ifEmpty { null }
+            fun s(k: String): String? = props.shownText(k).ifEmpty { null }
             return when (component) {
                 "Image", "Video" -> s("alt") ?: s("title")
                 "Avatar" -> s("name")
                 "Box", "Extension" -> s("label") ?: s("title")
-                "Spinner" -> s("label") ?: "Loading"
+                "Spinner" -> s("label")
                 "Link" -> s("label") ?: s("href")
                 "Chart" -> s("title") ?: s("kind")
                 "Markdown" -> props.str("text").ifEmpty { null }
@@ -178,12 +188,14 @@ data class PassStats(
 )
 
 /** The interaction states of one node (reported to the core as `states`). */
-internal data class InteractionState(val hover: Boolean = false, val pressed: Boolean = false, val focus: Boolean = false) {
+internal data class InteractionState(val hover: Boolean = false, val pressed: Boolean = false, val focus: Boolean = false, val focusVisible: Boolean = false) {
     val states: List<String>
         get() = buildList {
             if (hover) add("hover")
             if (pressed) add("pressed")
             if (focus) add("focus")
+            // Focus from the keyboard (`:focus-visible`, the focus ring).
+            if (focusVisible) add("focus-visible")
         }
 }
 

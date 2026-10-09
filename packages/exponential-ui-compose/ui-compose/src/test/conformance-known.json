@@ -1,0 +1,342 @@
+{
+  "$comment" : "The Android conformance RATCHET (ui-compose/src/test/kotlin/at/exponential/ui/RealFontConformanceTest.kt): per case, the divergence counts of the Compose painter (Robolectric's native text stack, the conformance fonts) against the web baseline (packages/exponential-ui/fixtures/conformance-baseline.json) today. A case may only go DOWN; rewrite after a fix or a baseline rewrite with EXP_UI_WRITE_FIXTURES=1 ./gradlew :ui-compose:testDebugUnitTest --tests '*RealFontConformanceTest'. `onlyRef`/`onlyCand` = nodes only the web / only Compose placed (coverage, not compared). The divergence DECISIONS live in packages/exponential-ui/fixtures/conformance-known.json `causes` and `rules`.",
+  "cases" : {
+    "kitchen-sink/exponential/dark/1280/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 8,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/exponential/dark/1280/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 8,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/exponential/dark/390/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 6,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/exponential/dark/390/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 6,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/exponential/dark/600/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 8,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/exponential/dark/600/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 8,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/exponential/dark/900/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 8,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/exponential/dark/900/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 8,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/neutral/dark/1280/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 8,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/neutral/dark/1280/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 8,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/neutral/dark/390/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 6,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/neutral/dark/390/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 6,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/neutral/dark/600/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 7,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/neutral/dark/600/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 7,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/neutral/dark/900/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 8,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/neutral/dark/900/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 8,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/playful/dark/1280/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 7,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/playful/dark/1280/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 7,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/playful/dark/390/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 6,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/playful/dark/390/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 6,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/playful/dark/600/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 7,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/playful/dark/600/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 7,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/playful/dark/900/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 8,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "kitchen-sink/playful/dark/900/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 8,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/exponential/dark/1280/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/exponential/dark/1280/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/exponential/dark/390/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/exponential/dark/390/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/exponential/dark/600/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/exponential/dark/600/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/exponential/dark/900/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/exponential/dark/900/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/neutral/dark/1280/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/neutral/dark/1280/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/neutral/dark/390/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/neutral/dark/390/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/neutral/dark/600/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/neutral/dark/600/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/neutral/dark/900/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/neutral/dark/900/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/playful/dark/1280/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/playful/dark/1280/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/playful/dark/390/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/playful/dark/390/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/playful/dark/600/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/playful/dark/600/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/playful/dark/900/ltr" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    },
+    "responsive/playful/dark/900/rtl" : {
+      "onlyCand" : 0,
+      "onlyRef" : 0,
+      "position" : 0,
+      "size" : 0,
+      "wrap" : 0
+    }
+  },
+  "renderer" : "compose-robolectric"
+}

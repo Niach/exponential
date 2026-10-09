@@ -17,6 +17,7 @@ import {
   applyDensity,
   builtinTheme,
   formatString,
+  intlFormatter,
   loadTheme,
   mediaMatches,
   parseMediaCondition,
@@ -24,21 +25,20 @@ import {
   stringTable,
   textDirection,
   BUILTIN_THEMES,
-  CORE_CATALOG_ID,
   DEFAULT_LOCALE,
   DEFAULT_THEME_ID,
 } from "@exponential-at/ui"
-import type { ModeName, ResolvedTheme, ThemeSource, UiNode, FlatComponent, SurfaceCommand } from "@exponential-at/ui"
+import type { ModeName, ResolvedTheme, ScrollAlign, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
 import { BASE_CSS } from "./base-css"
-import { compileNodeSheet, queryToken, surfaceClass, walkNodes } from "./box-css"
+import { compileNodeSheet, queryToken, surfaceClass } from "./box-css"
 import { SurfaceContext, type SurfaceContextValue } from "./context"
-import { CLIENT_FUNCTIONS, setPointer, type DataModel } from "./data"
+import { CLIENT_FUNCTIONS, memoFormatter, setPointer, type DataModel } from "./data"
 import { extensionCatalogs, extensionMacroNames, registeredExtensions, subscribeExtensions, type ReactExtension } from "./extensions"
 import type { HostPlugin } from "./host"
 import { NodeView } from "./node-view"
 import { useMediaQuery } from "./platform"
 import { compiledTheme } from "./theme-css"
-import { templateNodeFrom, type SurfaceState } from "./use-surface"
+import type { SurfaceState } from "./use-surface"
 
 export type ThemeInput = ResolvedTheme | ThemeSource | string
 
@@ -49,13 +49,19 @@ export interface SurfaceHandle {
   focus: (id: string) => boolean
   announce: (text: string, live?: `polite` | `assertive`) => void
   scrollIntoView: (id: string) => boolean
+  /** Round 2: item `index` (data order) of the List/Table `id` into view;
+   *  false when no such list is painted. */
+  scrollToIndex: (id: string, index: number, align?: ScrollAlign) => boolean
 }
 
 export interface ExponentialSurfaceProps {
   /** The state from `useSurface` (tree + data + templates)… */
   surface?: SurfaceState
-  /** …or a normalized tree (a fixture) with an optional data model. */
+  /** …or a normalized tree (a fixture) with an optional data model… */
   root?: UiNode | null
+  /** …and its LIFTED templates (`ReduceResult.templates`, round 2 §4): a
+   *  data template's component lives here, never in the tree. */
+  templates?: Readonly<Record<string, UiNode>>
   data?: DataModel
   /** A built-in id (`exponential` | `neutral` | `playful`), a theme file
    *  (resolved against the built-ins) or a resolved theme. */
@@ -71,6 +77,9 @@ export interface ExponentialSurfaceProps {
   /** BCP 47 (default `en-US`): formatting, calendar names, week start, the
    *  default text direction. */
   locale?: string
+  /** IANA time zone dates and relative times format in (default the
+   *  platform's). */
+  timeZone?: string
   /** Built-in string overrides by id (`catalog/strings.json`). */
   strings?: Record<string, string>
   host?: HostPlugin
@@ -139,7 +148,7 @@ export function surfaceTheme(theme: ResolvedTheme, density: `compact` | `default
 }
 
 const EMPTY: readonly ReactExtension[] = []
-const noComponents: readonly FlatComponent[] = []
+const NO_TEMPLATES: Readonly<Record<string, UiNode>> = {}
 const EMPTY_HOST: HostPlugin = {}
 
 const useIsoLayoutEffect = typeof window === `undefined` ? useEffect : useLayoutEffect
@@ -184,20 +193,73 @@ function defaultOpenUrl(url: string) {
 
 const FOCUSABLE = `input:not([disabled]),textarea:not([disabled]),select:not([disabled]),button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"]),[contenteditable="true"]`
 
-function findNode(root: UiNode, id: string): UiNode | undefined {
-  for (const n of walkNodes(root)) if (n.id === id) return n
-  return undefined
+const platformZone = (): string => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || `UTC`
+  } catch {
+    return `UTC`
+  }
+}
+
+/** Bundlers replace `process.env.NODE_ENV`; without one (a raw ESM load)
+ *  it throws, which counts as production. Declared here so the published
+ *  types build without Node's. */
+declare const process: { env: { NODE_ENV?: string } }
+const IS_DEV = (() => {
+  try {
+    return process.env.NODE_ENV !== `production`
+  } catch {
+    return false
+  }
+})()
+const warnedTemplates = new Set<string>()
+
+/** Dev only: a node whose `template.component` is not in `templates` paints
+ *  NO items (round 2 §4: the reducer lifts templates out of the tree; pass
+ *  the reduce result's `templates` next to `root`). */
+function warnMissingTemplates(surfaceId: string, root: UiNode, templates: Record<string, UiNode>): void {
+  const visit = (n: UiNode) => {
+    const id = (n.template as { component?: unknown } | undefined)?.component
+    if (typeof id === `string` && !templates[id]) {
+      const key = `${surfaceId}\u0000${id}`
+      if (!warnedTemplates.has(key)) {
+        warnedTemplates.add(key)
+        console.warn(`[exponential-ui] surface "${surfaceId}": "${n.id}" templates "${id}", which is not in \`templates\` (pass the reducer's \`templates\` with \`root\`); it renders no items.`)
+      }
+    }
+    for (const c of n.children) visit(c)
+    for (const sl of Object.values(n.slots ?? {})) visit(sl)
+  }
+  visit(root)
+  for (const t of Object.values(templates)) visit(t)
+}
+
+/** Whether a tree calls `formatRelativeTime` without a `now`, or has a
+ *  Table with a `relativeTime` column (or bound columns, unknown until
+ *  data): the surface then re-binds once a minute (round 2 §3). */
+function usesLiveClock(value: unknown): boolean {
+  if (Array.isArray(value)) return value.some(usesLiveClock)
+  if (typeof value !== `object` || value === null) return false
+  const v = value as Record<string, unknown>
+  if (v.call === `formatRelativeTime` && (typeof v.args !== `object` || v.args === null || (v.args as Record<string, unknown>).now === undefined)) return true
+  if (v.component === `Table`) {
+    const columns = (v.props as Record<string, unknown> | undefined)?.columns
+    if (Array.isArray(columns) ? columns.some((c) => (c as Record<string, unknown> | null)?.type === `relativeTime`) : typeof columns === `object` && columns !== null) return true
+  }
+  return Object.values(v).some(usesLiveClock)
 }
 
 export function ExponentialSurface({
   surface,
   root: rootProp,
+  templates: templatesProp,
   data: dataProp,
   theme: themeProp,
   mode: modeSetting = `system`,
   density = `default`,
   contrast = `system`,
   locale = DEFAULT_LOCALE,
+  timeZone,
   strings: stringOverrides,
   host,
   extensions: extensionsProp = EMPTY,
@@ -250,36 +312,14 @@ export function ExponentialSurface({
   )
 
   const root = surface ? surface.root : (rootProp ?? null)
-  const components = surface?.components ?? noComponents
-  const catalogId = surface?.catalogId ?? CORE_CATALOG_ID
-  // Template components, reduced once per component list (the reducer drops
-  // unreferenced flat components; a nested tree names a node of its own).
-  const templateNode = useMemo(() => {
-    const cache = new Map<string, UiNode | undefined>()
-    return (componentId: string) => {
-      if (!cache.has(componentId)) cache.set(componentId, templateNodeFrom(components, catalogId, extensionDefs, componentId) ?? (root ? findNode(root, componentId) : undefined))
-      return cache.get(componentId)
-    }
-  }, [components, catalogId, extensionDefs, root])
-  const templateRoots = useMemo(() => {
-    const out: UiNode[] = []
-    if (!root) return out
-    const seen = new Set<string>()
-    const visit = (n: UiNode) => {
-      for (const node of walkNodes(n)) {
-        const c = node.template?.component
-        if (!c || seen.has(c)) continue
-        seen.add(c)
-        const tpl = templateNode(c)
-        if (tpl) {
-          out.push(tpl)
-          visit(tpl)
-        }
-      }
-    }
-    visit(root)
-    return out
-  }, [root, templateNode])
+  // Round 2 §4: a data template's node comes from the reducer's LIFTED
+  // `templates` (it is no longer in the tree, so never painted in place).
+  const templates = (surface ? surface.templates : templatesProp) ?? NO_TEMPLATES
+  const templateNode = useCallback((componentId: string) => templates[componentId], [templates])
+  const templateRoots = useMemo(() => Object.values(templates), [templates])
+  useEffect(() => {
+    if (IS_DEV && root) warnMissingTemplates(surfaceId, root, templates)
+  }, [surfaceId, root, templates])
   const sheet = useMemo(() => (root ? compileNodeSheet([root, ...templateRoots], surfaceId, theme) : { css: ``, queries: [] }), [root, templateRoots, surfaceId, theme])
 
   const [rootEl, setRootEl] = useState<HTMLElement | null>(null)
@@ -327,6 +367,26 @@ export function ExponentialSurface({
   }, [])
 
   const functions = useMemo(() => ({ ...CLIENT_FUNCTIONS, ...(host?.functions ?? {}) }), [host?.functions])
+  const zone = timeZone ?? platformZone()
+  const formatter = useMemo(() => memoFormatter(intlFormatter(locale, zone)), [locale, zone])
+  // The surface clock: a tree that formats a relative time against "now"
+  // re-binds once a minute (a new `now` reaches every node).
+  const liveClock = useMemo(() => usesLiveClock(root) || usesLiveClock(templateRoots), [root, templateRoots])
+  const [minute, setMinute] = useState(() => Date.now())
+  useEffect(() => {
+    if (!liveClock) return
+    const timer = setInterval(() => setMinute(Date.now()), 60_000)
+    return () => clearInterval(timer)
+  }, [liveClock])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const now = useMemo(() => () => Date.now(), [minute])
+  const scrollers = useRef(new Map<string, (index: number, align?: ScrollAlign) => void>())
+  const registerScroller = useCallback((id: string, scroll: (index: number, align?: ScrollAlign) => void) => {
+    scrollers.current.set(id, scroll)
+    return () => {
+      if (scrollers.current.get(id) === scroll) scrollers.current.delete(id)
+    }
+  }, [])
   const openUrl = host?.openUrl ?? defaultOpenUrl
   const hostValue = host ?? EMPTY_HOST
 
@@ -350,14 +410,18 @@ export function ExponentialSurface({
       functions,
       openUrl,
       locale,
+      formatter,
+      now,
+      registerScroller,
       strings,
       t,
       breakpoint,
+      xq,
       reducedMotion,
       hover,
       announce,
     }),
-    [surfaceId, compiled, theme, mode, hostValue, extensions, extensionDefs, data, setData, templateNode, states, measure, portal, toastLayer, direction, functions, openUrl, locale, strings, t, breakpoint, reducedMotion, hover, announce]
+    [surfaceId, compiled, theme, mode, hostValue, extensions, extensionDefs, data, setData, templateNode, states, measure, portal, toastLayer, direction, functions, openUrl, locale, formatter, now, registerScroller, strings, t, breakpoint, xq, reducedMotion, hover, announce]
   )
 
   const nodeEl = useCallback((id: string): HTMLElement | null => rootEl?.querySelector<HTMLElement>(`[data-xui-id="${typeof CSS !== `undefined` && CSS.escape ? CSS.escape(id) : id.replace(/"/g, `\\"`)}"]`) ?? null, [rootEl])
@@ -377,14 +441,22 @@ export function ExponentialSurface({
         el.scrollIntoView({ block: `nearest`, behavior: reducedMotion ? `auto` : `smooth` })
         return true
       }
+      const scrollToIndex = (id: string, index: number, align?: ScrollAlign) => {
+        const scroll = scrollers.current.get(id)
+        if (!scroll) return false
+        scroll(index, align)
+        return true
+      }
       return {
         focus,
         scrollIntoView,
+        scrollToIndex,
         announce,
         run: (command) => {
           if (`focus` in command) focus(command.focus.id)
           else if (`announce` in command) announce(command.announce.text, command.announce.live)
           else if (`scrollIntoView` in command) scrollIntoView(command.scrollIntoView.id)
+          else if (`scrollToIndex` in command) scrollToIndex(command.scrollToIndex.id, command.scrollToIndex.index, command.scrollToIndex.align)
         },
       }
     },

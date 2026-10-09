@@ -87,7 +87,7 @@ export interface StyleProps {
   maxWidth?: Len
   maxHeight?: Len
   aspectRatio?: number | `${number}/${number}`
-  position?: `relative` | `absolute`
+  position?: `relative` | `absolute` | `sticky`
   top?: Len
   right?: Len
   bottom?: Len
@@ -157,6 +157,12 @@ export interface StyleProps {
   pointerEvents?: `auto` | `none`
   userSelect?: `auto` | `none` | `text`
   cursor?: `auto` | `default` | `pointer` | `text` | `not-allowed` | `grab` | `grabbing` | `move` | `col-resize` | `row-resize`
+  /** Round 2: `$blur.<name>`; blurs what is behind the box. */
+  backdropBlur?: `$blur.${string}`
+  /** Round 2: a keyframe set (style.json `animations`). */
+  animation?: `pulse` | `spin` | `fade-in` | `slide-in-up` | `slide-in-down` | `slide-in-left` | `slide-in-right` | `shimmer`
+  /** Round 2: `$motion.<name>` instead of the animation's own token. */
+  animationDuration?: `$motion.${string}`
 }
 
 export type MediaKey = `@media (${string})`
@@ -272,7 +278,7 @@ export function isConditionKey(key: string): boolean {
 }
 
 /** Every rule the client resolver relies on: whitelisted keys, well-typed
- *  values, conditions one level deep, `direction` on the root only. */
+ *  values, conditions one level deep (round 2: `direction` on any node). */
 export function validateStyle(
   style: unknown,
   options: { path?: string; root?: boolean } = {}

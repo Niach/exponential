@@ -136,19 +136,8 @@ fn round_decimal(s: &str, p: usize) -> String {
     out
 }
 
-/// JavaScript's `String(n)` (shortest round trip; exponent form below 1e-6
-/// and from 1e21, as JS writes it).
+/// JavaScript's `String(n)` ([`crate::json::number_to_string`]).
 pub fn js_number_string(n: f64) -> String {
-    if !n.is_finite() {
-        return if n.is_nan() { "NaN".into() } else if n > 0.0 { "Infinity".into() } else { "-Infinity".into() };
-    }
-    if n != 0.0 && (n.abs() < 1e-6 || n.abs() >= 1e21) {
-        let e = format!("{n:e}");
-        return match e.split_once('e') {
-            Some((m, x)) if !x.starts_with('-') => format!("{m}e+{x}"),
-            _ => e,
-        };
-    }
     crate::json::number_to_string(n)
 }
 
@@ -240,15 +229,26 @@ pub fn clamp_number_value(v: f64, min: Option<f64>, max: Option<f64>, precision:
     to_fixed(v, precision).parse().unwrap_or(v)
 }
 
-/// A byte count as `48 KB` / `1.2 MB`.
-pub fn format_bytes(n: f64) -> String {
-    if n < 1024.0 {
-        format!("{} B", n as u64)
-    } else if n < 1024.0 * 1024.0 {
-        format!("{} KB", (n / 1024.0).round() as u64)
-    } else {
-        format!("{:.1} MB", n / 1024.0 / 1024.0)
+/// A byte count as the web shows it (`Intl` `style: "unit"`, short): 1024
+/// steps, at most one fraction digit, through [`Formatter::bytes`]
+/// (`47.1 kB` in the English fallback).
+///
+/// [`Formatter::bytes`]: crate::format::Formatter::bytes
+pub fn format_bytes_with(formatter: &dyn crate::format::Formatter, n: f64) -> String {
+    use crate::format::ByteUnit;
+    const UNITS: [ByteUnit; 4] = [ByteUnit::Byte, ByteUnit::Kilobyte, ByteUnit::Megabyte, ByteUnit::Gigabyte];
+    let mut v = n.max(0.0);
+    let mut i = 0;
+    while v >= 1024.0 && i < UNITS.len() - 1 {
+        v /= 1024.0;
+        i += 1;
     }
+    formatter.bytes((v * 10.0).round() / 10.0, UNITS[i])
+}
+
+/// [`format_bytes_with`] through the English formatter.
+pub fn format_bytes(n: f64) -> String {
+    format_bytes_with(&crate::format::EnglishFormatter, n)
 }
 
 impl Builder<'_, '_> {
@@ -389,6 +389,20 @@ impl Builder<'_, '_> {
         self.push_layer(layer, root, &owner, LayerPlacement::Anchored { anchor: trigger, side: OverlaySide::Bottom, align: OverlayAlign::Start }, false, true, true, Some(list));
     }
 
+    /// A `yyyy-mm-dd` as the surface formatter's medium date (the raw
+    /// value when unreadable).
+    pub(crate) fn date_label(&self, iso: &str) -> String {
+        match crate::format::format_date_value(self.ctx.formatter, &json!(iso), &crate::format::DateOptions::default()) {
+            s if s.is_empty() => iso.to_string(),
+            s => s,
+        }
+    }
+
+    /// A `yyyy-mm-dd` through a TR35 pattern of the surface formatter.
+    pub(crate) fn date_pattern(&self, iso: &str, pattern: &str) -> String {
+        crate::format::format_date_value(self.ctx.formatter, &json!(iso), &crate::format::DateOptions { format: Some(pattern.to_string()), ..Default::default() })
+    }
+
     /// DatePicker / DateRangePicker: trigger; open → one calendar layer:
     /// header (previous, the month title, next), the weekday row, six weeks
     /// of `day` cells from the week start (`firstDayOfWeek`, else the
@@ -404,8 +418,8 @@ impl Builder<'_, '_> {
         let placeholder = str_prop(&owner.props, "placeholder").map(str::to_string).unwrap_or_else(|| self.string("choose"));
         let text = match (range, start.is_empty()) {
             (_, true) => placeholder.clone(),
-            (false, false) => dates::label(&start),
-            (true, false) => format!("{} – {}", dates::label(&start), if end.is_empty() { "…".to_string() } else { dates::label(&end) }),
+            (false, false) => self.date_label(&start),
+            (true, false) => format!("{} – {}", self.date_label(&start), if end.is_empty() { "…".to_string() } else { self.date_label(&end) }),
         };
         let glyph = format!("{}.trigger", owner.component);
         let trigger = self.trigger(&owner, &text, start.is_empty(), &glyph);
@@ -427,7 +441,8 @@ impl Builder<'_, '_> {
             n
         };
         button(self, header, "previous", &format!("{}.previousMonth", "DatePicker"), "previousMonth");
-        let title = format!("{} {y}", dates::MONTHS[(m - 1) as usize]);
+        // Round 2: month and weekday names through the surface formatter.
+        let title = self.date_pattern(&dates::format(y, m, 1), "MMMM yyyy");
         let t = self.part_in(header, &owner, "title", "Text", NodeKind::Leaf, json!({"flexGrow": 1, "textAlign": "center"}), json!({"text": title, "variant": "label", "month": m, "year": y}), "");
         self.nodes[t as usize].live = Some("polite".into());
         button(self, header, "next", "DatePicker.nextMonth", "nextMonth");
@@ -437,7 +452,9 @@ impl Builder<'_, '_> {
         self.nodes[weekdays as usize].part_query = None;
         for c in 0..7u32 {
             let dow = (first_dow + c) % 7;
-            let w = self.part_in(weekdays, &owner, "weekday", "Text", NodeKind::Leaf, cell_style.clone(), json!({"text": dates::WEEKDAYS_SHORT[dow as usize], "variant": "caption", "weekday": dow}), &format!(".{c}"));
+            // 2026-01-04 is a Sunday.
+            let name = self.date_pattern(&dates::format(2026, 1, 4 + dow), "EEE");
+            let w = self.part_in(weekdays, &owner, "weekday", "Text", NodeKind::Leaf, cell_style.clone(), json!({"text": name, "variant": "caption", "weekday": dow}), &format!(".{c}"));
             self.nodes[w as usize].part_query = None;
         }
         let lead = (dates::weekday(y, m, 1) + 7 - first_dow) % 7;
@@ -463,6 +480,10 @@ impl Builder<'_, '_> {
                 let selected = is_start || is_end;
                 let props = json!({"text": dd.to_string(), "date": date, "outside": outside, "disabled": disabled, "selected": selected, "inRange": in_range, "rangeStart": range && is_start, "rangeEnd": is_end, "today": today.as_deref() == Some(date.as_str())});
                 let day = self.part_in(week, &owner, "day", "Text", NodeKind::Leaf, cell_style.clone(), props, &format!(".{r}.{c}"));
+                // The cell's name = the full localized date (the reference's
+                // `{weekday: long, year, month: long, day}`).
+                let label = crate::format::format_date_value(self.ctx.formatter, &json!(date), &crate::format::DateOptions { style: Some(crate::format::DateStyle::Full), ..Default::default() });
+                self.default_a11y(day, "label", json!(label));
                 self.nodes[day as usize].pressable = !disabled;
                 if selected {
                     self.add_state(day, "selected");
@@ -523,7 +544,7 @@ impl Builder<'_, '_> {
         let max = number_prop(&owner.props, "max");
         let (_, precision) = number_step_precision(&owner.props);
         let disabled = bool_prop(&owner.props, "disabled");
-        let field = self.part(&owner, "field", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "alignSelf": "stretch", "gap": "$spacing.xs"}), json!({}));
+        let field = self.part(&owner, "field", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "alignSelf": "stretch", "gap": "$spacing.xxs"}), json!({}));
         let stepper = |b: &mut Self, part: &str, at_limit: bool| {
             let label = b.string(part);
             let glyph = format!("NumberField.{part}");
@@ -535,7 +556,7 @@ impl Builder<'_, '_> {
             n
         };
         stepper(self, "decrement", value.zip(min).is_some_and(|(v, m)| v <= m));
-        let text = value.map(|v| format_number_value(v, precision)).unwrap_or_default();
+        let text = value.map(|v| self.ctx.formatter.number(v, crate::format::NumberOptions { decimals: Some(precision), grouping: true })).unwrap_or_default();
         let mut props = Self::control_props(&owner);
         props["text"] = json!(text);
         let input = self.part_in(field, &owner, "input", "NumberField", NodeKind::Leaf, json!({"flexGrow": 1, "flexBasis": 0, "minWidth": 40}), props, "");
@@ -601,7 +622,10 @@ impl Builder<'_, '_> {
         self.nodes[zone as usize].pressable = !disabled;
         self.icon_part(zone, &owner, "icon", "FileUpload.icon", "");
         let title = self.string("dropFiles");
-        self.text_part(zone, &owner, "title", &title, "label", "");
+        let t = self.text_part(zone, &owner, "title", &title, "label", "");
+        // The title's weight (the web's `.xui-FileUpload-title`); a
+        // `FileUpload/title` recipe overrides it.
+        self.style_default(t, &[("fontWeight", json!("$type.weight.medium"))]);
         if let Some(hint) = str_prop(&owner.props, "hint") {
             self.text_part(zone, &owner, "hint", hint, "muted", "");
         }
@@ -615,10 +639,10 @@ impl Builder<'_, '_> {
             let name = f.get("name").map(js).unwrap_or_default();
             let row = self.part_in(owner.index, &owner, "file", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "gap": "$spacing.sm"}), json!({"name": name}), &suffix);
             self.icon_part(row, &owner, "fileIcon", "FileUpload.file", &suffix);
-            let n = self.part_in(row, &owner, "fileName", "Text", NodeKind::Leaf, json!({"flexGrow": 1, "flexShrink": 1, "minWidth": 0}), json!({"text": name, "lines": 1}), &suffix);
-            let _ = n;
+            self.part_in(row, &owner, "fileName", "Text", NodeKind::Leaf, json!({"flexGrow": 1, "flexShrink": 1, "minWidth": 0}), json!({"text": name, "lines": 1}), &suffix);
             if let Some(size) = f.get("size").and_then(Value::as_f64) {
-                self.text_part(row, &owner, "fileMeta", &format_bytes(size), "muted", &suffix);
+                let meta = format_bytes_with(self.ctx.formatter, size);
+                self.text_part(row, &owner, "fileMeta", &meta, "muted", &suffix);
             }
             if !disabled {
                 let label = self.string_with("removeItem", &[("name", &name)]);
@@ -684,7 +708,8 @@ impl Builder<'_, '_> {
     pub(crate) fn radio(&mut self, index: u32) {
         let owner = self.nodes[index as usize].clone();
         let horizontal = str_prop(&owner.props, "orientation") == Some("horizontal");
-        self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column")), ("gap", json!("$spacing.xs"))]);
+        // The gap is the `Radio/root` recipe's ($spacing.sm, round 2 §7).
+        self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column"))]);
         self.nodes[index as usize].kind = NodeKind::Container;
         if let Some(label) = str_prop(&owner.props, "label") {
             self.text_part(index, &owner, "label", label, "label", "");
@@ -836,6 +861,8 @@ mod tests {
         assert_eq!(parse_time("09:30"), Some(570));
         assert_eq!(format_time(570), "09:30");
         assert_eq!(format_number_value(2.5, 2), "2.50");
-        assert_eq!(format_bytes(48213.0), "47 KB");
+        assert_eq!(format_bytes(48213.0), "47.1 kB");
+        assert_eq!(format_bytes(2048.0), "2 kB");
+        assert_eq!(format_bytes(500.0), "500 byte");
     }
 }

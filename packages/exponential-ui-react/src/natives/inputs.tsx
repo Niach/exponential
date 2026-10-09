@@ -183,7 +183,10 @@ export function NumberFieldNative({ node, props, rootProps, emit, scope, domId }
   const focusRef = useRef<HTMLInputElement | null>(null)
   const f = useField({ node, domId, props, value, focusRef })
   const disabled = bool(props.disabled) || Boolean(f.form?.disabled)
-  const format = useMemo(() => new Intl.NumberFormat(ctx.locale, { minimumFractionDigits: precision, maximumFractionDigits: precision }), [ctx.locale, precision])
+  // Display through the surface Formatter (round 2 §3); the typed text is
+  // parsed in the locale's separators.
+  const decimalSep = useMemo(() => new Intl.NumberFormat(ctx.locale).formatToParts(1.1).find((p) => p.type === `decimal`)?.value ?? `.`, [ctx.locale])
+  const format = useMemo(() => ({ format: (n: number) => ctx.formatter.number(n, { decimals: precision }) }), [ctx.formatter, precision])
   const clamp = (n: number) => {
     let v = n
     if (min !== null) v = Math.max(min, v)
@@ -212,7 +215,7 @@ export function NumberFieldNative({ node, props, rootProps, emit, scope, domId }
         <input
           ref={focusRef}
           id={id}
-          className="xui-NumberField-input"
+          {...(part(`input`) as Record<string, string>)}
           type="text"
           inputMode={precision > 0 ? `decimal` : `numeric`}
           role="spinbutton"
@@ -227,7 +230,7 @@ export function NumberFieldNative({ node, props, rootProps, emit, scope, domId }
           disabled={disabled}
           value={shown}
           onFocus={() => {
-            setText(value === null ? `` : String(value).replace(`.`, format.formatToParts(1.1).find((p) => p.type === `decimal`)?.value ?? `.`))
+            setText(value === null ? `` : String(value).replace(`.`, decimalSep))
             void emit(`focus`)
           }}
           onChange={(e) => {
@@ -340,8 +343,20 @@ export function SwitchNative({ node, props, rootProps, emit, scope, domId }: Nat
     return Math.max(0, trackWidth - thumb - 4)
   }, [ctx.theme])
   const description = str(props.description)
+  // Round 2 §7: [label + description][switch] — label first, the track at
+  // the END; the whole row toggles (the label already clicks the control).
+  const onRow = (e: React.MouseEvent) => {
+    const target = e.target as Element
+    if (disabled || target.closest(`button,label,a,input`)) return
+    focusRef.current?.click()
+  }
   return (
-    <div {...(rootProps as Record<string, unknown>)}>
+    <div {...(rootProps as Record<string, unknown>)} onClick={onRow}>
+      <div {...(part(`body`) as Record<string, string>)}>
+        <TextPart part={part(`label`)} text={props.label} as="label" htmlFor={id} />
+        <TextPart part={part(`description`)} text={description} id={`${id}-d`} />
+        <FieldErrors part={part} field={f} />
+      </div>
       <SwitchPrimitive.Root
         ref={focusRef}
         id={id}
@@ -359,11 +374,6 @@ export function SwitchNative({ node, props, rootProps, emit, scope, domId }: Nat
       >
         <SwitchPrimitive.Thumb {...(part(`thumb`, checked && `checked`) as Record<string, string>)} />
       </SwitchPrimitive.Root>
-      <div className="xui-field-text">
-        <TextPart part={part(`label`)} text={props.label} as="label" htmlFor={id} />
-        <TextPart part={part(`description`)} text={description} id={`${id}-d`} />
-        <FieldErrors part={part} field={f} />
-      </div>
     </div>
   )
 }
@@ -397,7 +407,8 @@ export function RadioNative({ node, props, rootProps, emit, scope, domId }: Nati
       <TextPart part={part(`label`)} text={props.label} id={`${id}-l`} />
       <RadioPrimitive.Root
         ref={focusRef}
-        className="xui-radio-items"
+        {...(part(`items`) as Record<string, string>)}
+        className={`${(part(`items`) as { className: string }).className} xui-radio-items`}
         value={value}
         name={str(props.name, node.id)}
         orientation={str(props.orientation, `vertical`) as `vertical` | `horizontal`}
@@ -410,16 +421,18 @@ export function RadioNative({ node, props, rootProps, emit, scope, domId }: Nati
           void emit(`change`, { value: next })
         }}
       >
-        {options.map((o) => {
+        {options.map((o, i) => {
           const checked = o.value === value
           const oid = `${id}-${o.value}`
+          // Placed parts (round 2 §6): the option ROW = `item.<i>`, its
+          // circle = `dot.<i>` (the recipe's item), its text = `label.<i>`.
           return (
-            <label key={o.value} className="xui-radio-row" htmlFor={oid}>
-              <RadioPrimitive.Item id={oid} value={o.value} disabled={bool(o.disabled)} {...(part(`item`, checked && `checked`, bool(o.disabled) && `disabled`, f.invalid && `invalid`) as Record<string, string>)}>
+            <label key={o.value} className="xui-radio-row" htmlFor={oid} data-xui-id={`${part.domId}.item.${i}`}>
+              <RadioPrimitive.Item id={oid} value={o.value} disabled={bool(o.disabled)} {...(part(`item`, checked && `checked`, bool(o.disabled) && `disabled`, f.invalid && `invalid`) as Record<string, string>)} data-xui-id={`${part.domId}.dot.${i}`}>
                 <RadioPrimitive.Indicator {...(part(`dot`, checked && `checked`) as Record<string, string>)} />
               </RadioPrimitive.Item>
               {o.icon ? <IconGlyph icons={ctx.host.icons} name={o.icon} className="xui-icon" width={16} height={16} /> : null}
-              <span {...(part(`label`) as Record<string, string>)}>{str(o.label)}</span>
+              <span {...(part.at(`label`, i) as Record<string, string>)}>{str(o.label)}</span>
             </label>
           )
         })}
@@ -437,12 +450,11 @@ export function SliderNative({ node, props, rootProps, emit, scope }: NativeProp
   const max = num(props.max, 100)
   const step = num(props.step, 1)
   const [value, setValue] = useBoundState(node, scope, `value`, num(props.value, min))
-  const format = useMemo(() => new Intl.NumberFormat(ctx.locale), [ctx.locale])
   return (
     <div {...(rootProps as Record<string, unknown>)}>
-      <div className="xui-slider-head">
+      <div {...(part(`header`) as Record<string, string>)} className={`${(part(`header`) as { className: string }).className} xui-slider-head`}>
         <TextPart part={part(`label`)} text={props.label} as="label" htmlFor={id} />
-        <span {...(part(`value`) as Record<string, string>)}>{format.format(value)}</span>
+        <span {...(part(`value`) as Record<string, string>)}>{ctx.formatter.number(value)}</span>
       </div>
       <SliderPrimitive.Root
         className="xui-slider-root"
@@ -504,7 +516,7 @@ export function ComposerNative({ node, props, rootProps, emit, scope, domId }: N
         rows={1}
         placeholder={placeholder || undefined}
         value={field.value}
-        aria-label={placeholder || submitLabel}
+        aria-label={ctx.t(`message`)}
         onFocus={field.onFocus}
         onBlur={field.onBlur}
         onChange={(e) => {

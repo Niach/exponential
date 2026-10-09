@@ -31,7 +31,9 @@ serde = { version = "1", features = ["derive"] }
 # (media blocks apply in source order, tokenizer prefix tables, issue order).
 # The desktop workspace already unifies it on through gpui; this makes the
 # standalone crate (tests, the FFI, crates.io) behave the same.
-serde_json = { version = "1", features = ["preserve_order"] }
+# `float_roundtrip`: numbers parse to the nearest double like JS
+# `JSON.parse` (round 2 display strings: 123456789012345680000).
+serde_json = { version = "1", features = ["preserve_order", "float_roundtrip"] }
 indexmap = { version = "2", features = ["serde"] }
 # VAPP-91: the host API resolves URLs exactly like JS `new URL` (WHATWG);
 # the version already in apps/desktop/Cargo.lock, ONE url in the tree.

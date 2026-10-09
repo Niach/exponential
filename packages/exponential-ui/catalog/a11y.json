@@ -1,18 +1,20 @@
 {
-  "$comment": "Round 1 (docs/round-1-contract.md §6): the ACCESSIBILITY contract every renderer keeps. `roles` = the MACHINE-READABLE role vocabulary (ARIA names, plus `text` = static text and `hidden` = out of the accessibility tree; SwiftUI traits / Compose semantics / AccessKit roles map from them), used by every `role` here and by the expanded tree's `accessibility.role`. `components` = per component its `role` (one of `roles`: the role of the component's main accessible object), `notes` (prose: composite parts, states, which strings name it) and the KEYBOARD expectations, one line per key group (arrows flip in RTL; a roving tab stop = one Tab stop for the group, arrows move inside it). Every component is listed (round1.test.ts gates it). `commands` = what a HOST may ask of a surface at runtime. `rules` = what holds for every component. Append-only; docs/components.generated.json carries each component's entry.",
+  "$comment": "Round 1 (docs/round-1-contract.md §6): the ACCESSIBILITY contract every renderer keeps. `roles` = the MACHINE-READABLE role vocabulary (ARIA names, plus `text` = static text and `hidden` = out of the accessibility tree; SwiftUI traits / Compose semantics / AccessKit roles map from them), used by every `role` here and by the expanded tree's `accessibility.role`. `components` = per component its `role` (one of `roles`: the role of the component's main accessible object), `notes` (prose: composite parts, states, which strings name it) and the KEYBOARD expectations, one line per key group (arrows flip in RTL; a roving tab stop = one Tab stop for the group, arrows move inside it). Every component is listed (round1.test.ts gates it). `commands` = what a HOST may ask of a surface at runtime. `rules` = what holds for every component. Round 2 (docs/round-2-contract.md): Resizable, `scrollToIndex`, sections, the per-node direction rule. Append-only; docs/components.generated.json carries each component's entry.",
   "roles": ["alert", "alertdialog", "banner", "button", "checkbox", "combobox", "dialog", "document", "form", "group", "heading", "hidden", "img", "link", "list", "listitem", "main", "menu", "meter", "navigation", "none", "progressbar", "radio", "radiogroup", "region", "separator", "slider", "spinbutton", "status", "switch", "tablist", "table", "text", "textbox", "tooltip"],
   "rules": [
-    "Every interactive node is reachable by Tab in reading order (tree order, the `direction` root style flips it) and shows a focus ring only for keyboard focus (`:focus-visible`, recipe state `focus`).",
+    "Every interactive node is reachable by Tab in reading order (tree order; a node's resolved `direction` flips its rows) and shows a focus ring only for keyboard focus (`:focus-visible`, recipe state `focus`).",
     "A field's label, description and every error are linked to it (aria-labelledby / aria-describedby, contentDescription, accessibilityLabel/Hint); an error has the id `<node id>.error`.",
     "`visible: false` removes the node from the accessibility tree; `visibility: hidden` hides it too; `display: none` likewise.",
     "Icon-only buttons and standalone Icons take their `label` (or `accessibility.label`) as the accessible name; decorative icons are hidden.",
     "`accessibility.label`/`description` on any node override the computed name/description.",
-    "Animations honour reduced motion: with `prefers-reduced-motion: reduce` transitions run at 0 ms and the Spinner/Skeleton shimmer stops."
+    "Animations honour reduced motion: with `prefers-reduced-motion: reduce` transitions run at 0 ms, the Spinner/Skeleton shimmer stops and every style `animation` shows its rest keyframe.",
+    "Text and accessible names follow the NODE's direction (an inner `direction` box included): reading order, `textAlign` start/end and the bidi paragraph direction."
   ],
   "commands": {
     "focus": { "args": ["id"], "description": "Moves keyboard focus to the node with this id (the first focusable descendant of a non-focusable node); ignored when it is not rendered." },
     "announce": { "args": ["text", "live"], "description": "Speaks the text through the platform's live region (`polite` waits, `assertive` interrupts) without showing anything." },
-    "scrollIntoView": { "args": ["id"], "description": "Scrolls the nearest scrolling ancestor (List, ScrollArea, the surface) so the node is visible." }
+    "scrollIntoView": { "args": ["id"], "description": "Scrolls the nearest scrolling ancestor (List, ScrollArea, the surface) so the node is visible." },
+    "scrollToIndex": { "args": ["id", "index", "align"], "description": "Scrolls the List or Table `id` so its item (data index, before any local sort) is in view: `align` start | center | end | nearest (default), the pinned section header subtracted; a windowed list renders it first (src/list.ts scrollOffsetForIndex)." }
   },
   "components": {
     "Box": { "role": "none", "notes": "group (button when pressable). A pressable Box is a button.", "keys": ["Enter, Space: press (pressable only)"] },
@@ -34,7 +36,8 @@
     "Meter": { "role": "meter", "notes": "meter (value of max, labelled by its label)", "keys": [] },
     "Sparkline": { "role": "img", "notes": "img with a generated summary (first, last, min, max). The Chart painter names it with `sparklineSummary` (first, last, min, max).", "keys": [] },
     "PropertyRow": { "role": "group", "notes": "row of a term and its value", "keys": [] },
-    "List": { "role": "list", "notes": "list", "keys": ["Tab moves through the rows' controls; the list itself is one scroll region"] },
+    "List": { "role": "list", "notes": "list; each item a listitem with its position in the WHOLE list (aria-setsize/posinset, also when windowed); a section header is a heading (level 3) and stays first in reading order while pinned", "keys": ["Tab moves through the rows' controls; the list itself is one scroll region"] },
+    "Resizable": { "role": "group", "notes": "group; each handle a focusable separator (aria-orientation = the line's, valuenow = the size of the panel before it, valuemin/max = its limits, controls = that panel), named `$string.resize`", "keys": ["Arrow keys on a handle: move it on screen by 10 points (Left/Right horizontal, Up/Down vertical; rtl: ArrowRight shrinks the first panel)", "Home / End: the panel before the handle to its min / max", "Enter: collapse or reopen a collapsible panel"] },
     "Text": { "role": "text", "notes": "text (a live region when `live` is not off)", "keys": [] },
     "Markdown": { "role": "document", "notes": "document fragment (headings, lists, links, tables keep their roles)", "keys": ["Tab moves through the links"] },
     "CodeBlock": { "role": "region", "notes": "region (code), copy = button", "keys": ["Tab reaches the copy button; Enter, Space: copy and announce `copied`"] },
@@ -68,7 +71,7 @@
     "NumberField": { "role": "spinbutton", "notes": "spinbutton (valuemin/valuemax/valuenow)", "keys": ["ArrowUp/ArrowDown: ± step (Shift: ×10)", "PageUp/PageDown: ± 10 steps", "Home/End: min/max", "Enter or blur: commit and clamp"] },
     "Checkbox": { "role": "checkbox", "notes": "checkbox", "keys": ["Space: toggle"] },
     "Radio": { "role": "radiogroup", "notes": "radiogroup / radio", "keys": ["Roving tab stop on the checked option", "ArrowDown/ArrowRight: next option, selecting it (wraps)", "ArrowUp/ArrowLeft: previous option"] },
-    "Switch": { "role": "switch", "notes": "switch", "keys": ["Space, Enter: toggle"] },
+    "Switch": { "role": "switch", "notes": "switch; the label (and description) first, the switch at the end; the whole row toggles", "keys": ["Space, Enter: toggle"] },
     "Slider": { "role": "slider", "notes": "slider", "keys": ["ArrowRight/ArrowUp: + step; ArrowLeft/ArrowDown: - step", "PageUp/PageDown: ± 10 steps", "Home/End: min/max"] },
     "Select": { "role": "combobox", "notes": "combobox + listbox / option", "keys": ["Enter, Space, ArrowDown: open on the selected option", "ArrowDown/ArrowUp: move the active option; Home/End: first/last", "Enter: choose (multiple: toggle and stay open)", "Escape: close without change", "Typing: jump to the next matching option; with `searchable`, typing filters, focus stays in the search field and arrows move the active option (aria-activedescendant)"] },
     "ChipInput": { "role": "textbox", "notes": "textbox with a list of removable chips", "keys": ["Enter or comma: add the typed entry", "Backspace in an empty field: focus the last chip, again: remove it", "ArrowLeft/ArrowRight: move between chips; Delete, Backspace: remove the focused chip", "ArrowDown: open the suggestions (as Select)"] },

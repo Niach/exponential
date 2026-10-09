@@ -93,7 +93,7 @@ object Bench {
         var generation = 1_000_000L
         fun measurer(fresh: Boolean): TimedMeasurer {
             if (fresh) generation += 1
-            return TimedMeasurer(SurfaceMeasurer(model.theme, model.mode, model.extensions, emptyMap(), generation, model.shaper()))
+            return TimedMeasurer(SurfaceMeasurer(model.effectiveTheme, model.mode, model.extensions, emptyMap(), generation, model.textShaper()))
         }
         for ((phase, fresh, n) in listOf(Triple("split-warm", false, 30), Triple("split-remeasure", true, 10))) {
             val layouts = ArrayList<Long>()

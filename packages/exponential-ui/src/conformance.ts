@@ -19,11 +19,22 @@ import overlayFixture from "../fixtures/overlay-geometry.json" with { type: "jso
 import transportFixture from "../fixtures/host-transport.json" with { type: "json" }
 import policyFixture from "../fixtures/host-policy.json" with { type: "json" }
 import routerFixture from "../fixtures/host-router.json" with { type: "json" }
+import bindFixture from "../fixtures/bind-time.json" with { type: "json" }
+import conditionsFixture from "../fixtures/style-conditions.json" with { type: "json" }
+import codeFixture from "../fixtures/code-tokens.json" with { type: "json" }
+import formatFixture from "../fixtures/format.json" with { type: "json" }
+import templateItemsFixture from "../fixtures/template-items.json" with { type: "json" }
+import directionFixture from "../fixtures/text-direction.json" with { type: "json" }
+import resizableFixture from "../fixtures/resizable.json" with { type: "json" }
+import virtualListFixture from "../fixtures/virtual-list.json" with { type: "json" }
+import animationsFixture from "../fixtures/animations.json" with { type: "json" }
 import { BUILTIN_THEME_IDS } from "./themes"
 import { MODES } from "./theme"
 import { HOST_CONTRACT_VERSION } from "./host/contract"
 
-export const CONFORMANCE_VERSION = 1
+/** 2 = round 2: the round-1 bind/style/code fixtures and the round-2
+ *  contract fixtures became suites (docs/round-2-contract.md §8). */
+export const CONFORMANCE_VERSION = 2
 
 export interface ConformanceSuite {
   id: string
@@ -59,6 +70,15 @@ const BUNDLED: Record<string, unknown> = {
   "host-transport.json": transportFixture,
   "host-policy.json": policyFixture,
   "host-router.json": routerFixture,
+  "bind-time.json": bindFixture,
+  "style-conditions.json": conditionsFixture,
+  "code-tokens.json": codeFixture,
+  "format.json": formatFixture,
+  "template-items.json": templateItemsFixture,
+  "text-direction.json": directionFixture,
+  "resizable.json": resizableFixture,
+  "virtual-list.json": virtualListFixture,
+  "animations.json": animationsFixture,
 }
 
 /** The manifest over the bundled fixtures, or over `fixture(name)` (the
@@ -71,6 +91,9 @@ export function conformanceManifest(fixture: (name: string) => unknown = (name) 
   const extendsFixture = f(`theme-extends.json`), invalidFixture = f(`theme-invalid.json`), controlFixture = f(`control-geometry.json`)
   const layoutFixture = f(`layout-geometry.json`), overlayFixture = f(`overlay-geometry.json`)
   const transportFixture = f(`host-transport.json`), policyFixture = f(`host-policy.json`), routerFixture = f(`host-router.json`)
+  const bindF = f(`bind-time.json`), conditionsF = f(`style-conditions.json`), codeF = f(`code-tokens.json`), formatF = f(`format.json`), itemsF = f(`template-items.json`)
+  const directionF = f(`text-direction.json`), resizableF = f(`resizable.json`), listF = f(`virtual-list.json`), animationsF = f(`animations.json`)
+  const animationCases = Object.values(animationsF.themes as Record<string, object>).reduce<number>((sum, t) => sum + n(t), 0) + 1 + n(animationsF.opacity)
   const controlCases = Object.values(controlFixture.themes as Record<string, Record<string, { cases: object }>>).reduce((sum, t) => sum + Object.values(t).reduce((s, c) => s + n(c.cases), 0), 0)
   const suites: ConformanceSuite[] = [
     { id: `catalog`, files: [`fixtures/catalog-components.json`], unit: `case`, cases: n(componentsFixture.cases), check: `Reduce the case's nested node with the core catalog: no issues. Paint it under the default theme: no crash, no Unknown placeholder, every visible node painted.` },
@@ -88,6 +111,17 @@ export function conformanceManifest(fixture: (name: string) => unknown = (name) 
     { id: `host-transport`, files: [`fixtures/host-transport.json`], unit: `case`, cases: n(transportFixture.jsonl) + n(transportFixture.sse) + n(transportFixture.mcp) + n(transportFixture.mcpAction), check: `Feed the chunks through ONE decoder (JSONL / SSE), or decode the MCP result, or build the MCP action call: messages + issues equal \`expected\`.` },
     { id: `host-policy`, files: [`fixtures/host-policy.json`], unit: `case`, cases: n(policyFixture.functions) + n(policyFixture.combine) + n(policyFixture.urls) + n(policyFixture.media) + n(policyFixture.sources) + n(policyFixture.negotiation), check: `Decide the function / combine / url, build the media request, parse the source, negotiate the catalog ids: each equals \`expected\`.` },
     { id: `host-router`, files: [`fixtures/host-router.json`], unit: `package or flow`, cases: n(routerFixture.validation) + n(routerFixture.flows), check: `Validate each package; for each flow build ONE router with \`extensionIds\`, install \`packages\` (issues = \`installIssues\`), route every step: the ops equal \`expected\`.` },
+    // Round 1 fixtures every renderer already replays, now counted (round 2).
+    { id: `bind`, files: [`fixtures/bind-time.json`], unit: `case`, cases: n(bindF.cases) + n(bindF.extra), check: `Expand the input; for every dataset run the bind pass: the bound tree, every \`set\` press and the per-row slot cells equal the fixture (reducer \`issues\` too for \`extra\`).` },
+    { id: `style-conditions`, files: [`fixtures/style-conditions.json`], unit: `case`, cases: n(conditionsF.cases), check: `Flatten the style for every context: equal to \`expected\` (key order irrelevant).` },
+    { id: `code-tokens`, files: [`fixtures/code-tokens.json`], unit: `case`, cases: n(codeF.cases), check: `Tokenize the code: the lines of tokens equal \`expected\`.` },
+    // Round 2 (docs/round-2-contract.md).
+    { id: `format`, files: [`fixtures/format.json`], unit: `call or value`, cases: n(formatF.calls) + n(formatF.zoned) + n(formatF.display), check: `Resolve each format call through the English fallback (\`zoned\`: at the case's \`offsetMinutes\`): the string equals \`expected\` exactly; display each value in a text prop: equals \`expected\`. A platform Formatter may run too, at en-US / UTC (\`zoned\`: \`timeZone\`), comparing after U+202F and U+00A0 → space.` },
+    { id: `template-items`, files: [`fixtures/template-items.json`], unit: `case`, cases: n(itemsF.keys) + n(itemsF.rowKeys) + n(itemsF.instances) + n(itemsF.reduce), check: `Key the items / rows, list the template instances (path, key, accumulated suffix), reduce the surfaces (templates lifted): equal to \`expected\`.` },
+    { id: `text-direction`, files: [`fixtures/text-direction.json`], unit: `surface direction`, cases: n(directionF.cases), check: `Reduce the tree; every node's resolved direction and physical text alignment equal \`expected\`.` },
+    { id: `resizable`, files: [`fixtures/resizable.json`], unit: `case`, cases: n(resizableF.normalize) + n(resizableF.resize) + n(resizableF.keys) + n(resizableF.extents) + n(resizableF.drag), check: `Normalize / resize / key / measure / convert: the numbers equal \`expected\` within 1e-6.` },
+    { id: `virtual-list`, files: [`fixtures/virtual-list.json`], unit: `case`, cases: n(listF.windows) + n(listF.scrollTo) + n(listF.sections) + n(listF.sectionedScrollTo) + n(listF.sticky), check: `Window the extents, compute the scrollToIndex offset (sectioned: data index → row), group the sections, pin the sticky header: equal to \`expected\`.` },
+    { id: `animations`, files: [`fixtures/animations.json`], unit: `theme × animation`, cases: animationCases, check: `Time each animation under the theme and sample its frames (and the reduced-motion frame): equal to \`expected\` within 1e-3; \`opacity\`: the painted opacity = the node's own × the frame's, within 1e-3.` },
   ]
   return {
     $comment: `GENERATED by \`bun run --filter @exponential-at/ui generate\` (VAPP-91). The Exponential UI conformance suite: a renderer is "Exponential UI conformant" when its runner reports every suite below with \`cases\` run and none failed (\`bun run --filter @exponential-at/ui conformance:check <report.json>\`). conformance/README.md says how to write a runner for a new platform.`,

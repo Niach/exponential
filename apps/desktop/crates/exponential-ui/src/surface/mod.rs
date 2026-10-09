@@ -160,6 +160,20 @@ pub struct ListOutput {
     pub end: u32,
     pub count: u32,
     pub windowed: bool,
+    /// Round 2: windows on x (`content_height` is then the content width).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub horizontal: bool,
+}
+
+/// Round 2 (§2, §5): a node pinned by `position: sticky` (or a List's
+/// pinned section header): paint it (and its subtree) translated by
+/// `(dx, dy)` on top of its frame, inside the same scroll translation as
+/// its siblings. Only nodes that move are listed.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct StickyOutput {
+    pub index: u32,
+    pub dx: f32,
+    pub dy: f32,
 }
 
 /// One scroll container (any `overflow: scroll|auto` node, windowed lists,
@@ -201,6 +215,10 @@ pub struct LayoutOutput {
     pub layers: Vec<Layer>,
     pub lists: Vec<ListOutput>,
     pub scrolls: Vec<ScrollOutput>,
+    /// Round 2: sticky nodes and pinned section headers at their pinned
+    /// paint offsets this pass.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sticky: Vec<StickyOutput>,
     /// Open toasts the host times (`duration_ms` 0 = sticky); a timeout is
     /// `event(<toast root>, "dismiss")` / `dismiss_toast(id)`.
     pub toasts: Vec<ToastSpec>,
@@ -274,6 +292,10 @@ pub enum OutEvent {
     /// the pointer came back). Keep ONE timer per owner: a new `HoverTimer`
     /// for the same owner restarts it.
     HoverTimer { owner: String, delay_ms: u32 },
+    /// Round 2: scroll the host viewport of the whole surface to `(x, y)`
+    /// (a `scrollToIndex` on a list the page scrolls), then report it with
+    /// [`Surface::set_surface_scroll`].
+    ScrollSurface { x: f32, y: f32 },
 }
 
 /// What a host may ask of a live surface (`catalog/a11y.json` `commands`).
@@ -283,6 +305,14 @@ pub enum SurfaceCommand {
     Focus { id: String },
     Announce { text: String, #[serde(default)] live: Option<String> },
     ScrollIntoView { id: String },
+    /// Round 2: `scrollToIndex {id, index, align?}` (`start | center | end |
+    /// nearest`, default nearest).
+    ScrollToIndex {
+        id: String,
+        index: u32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        align: Option<String>,
+    },
 }
 
 /// Safe-area insets (status bar, notch, home indicator) layers keep clear of.
@@ -412,9 +442,8 @@ struct NodeState {
     styled: bool,
     /// The node's resolved (inherited) direction.
     direction: Direction,
-    /// Its `fontSize` is a `%` of the parent's (a parent's type change
-    /// restyles it).
-    font_relative: bool,
+    /// Its line height is a px value set here or inherited (else `normal`).
+    line_height_set: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -469,9 +498,9 @@ pub struct Surface {
     restyle_all: bool,
     style_dirty: BTreeSet<u32>,
     visuals_dirty: HashSet<u32>,
+    /// The LIFTED templates of the last reduce (`ReduceResult::templates`,
+    /// round 2), by component id.
     template_cache: HashMap<String, Option<UiNode>>,
-    /// The template components the tree references (per reduce).
-    template_ids: Option<Vec<String>>,
     /// Last placements by slot, so an event can find anchor frames.
     last_frames: Vec<Frame>,
     /// Measurements by node id that outlive a slot (a windowed list's rows
@@ -499,6 +528,12 @@ pub struct Surface {
     /// What the last build knew that events and subtree rebuilds need: the
     /// literal Table rows (data scopes) and the Forms' disabled/busy flags.
     seed: crate::layout_tree::BuildSeed,
+    /// Round 2: the surface formatter (default: the English fallback).
+    formatter: Arc<dyn crate::format::Formatter>,
+    /// A fixed clock for relative times (`None` = the wall clock).
+    clock: Option<f64>,
+    /// Bumped on every write to `data` (template key caches).
+    data_version: u64,
 }
 
 // SAFETY: taffy's `CompactLength` carries a `*const ()` slot for `calc()`
@@ -557,7 +592,6 @@ impl Surface {
             style_dirty: BTreeSet::new(),
             visuals_dirty: HashSet::new(),
             template_cache: HashMap::new(),
-            template_ids: None,
             last_frames: Vec::new(),
             archive: HashMap::new(),
             responsive: false,
@@ -575,6 +609,9 @@ impl Surface {
             subtree_pending: BTreeSet::new(),
             hover_closing: HashSet::new(),
             seed: Default::default(),
+            formatter: Arc::new(crate::format::EnglishFormatter),
+            clock: None,
+            data_version: 0,
         };
         s.refresh_theme();
         s
@@ -583,6 +620,60 @@ impl Surface {
     // ------------------------------------------------------------------
     // Configuration
     // ------------------------------------------------------------------
+
+    /// Round 2: format numbers, currencies, percents, dates and relative
+    /// times through `formatter` (the host's, built in the surface's locale
+    /// and the host's time zone; or [`crate::format::ZonedEnglishFormatter`]
+    /// at the host's UTC offset). The core has no zone database: the zone
+    /// reaches it only through the formatter. The tree re-binds.
+    pub fn set_formatter(&mut self, formatter: Arc<dyn crate::format::Formatter>) {
+        self.formatter = formatter;
+        self.needs_build = true;
+    }
+
+    /// The formatter in effect.
+    pub fn formatter(&self) -> &Arc<dyn crate::format::Formatter> {
+        &self.formatter
+    }
+
+    /// Pin the clock relative times read (epoch ms; `None` = the wall
+    /// clock). A host re-binds a surface showing `formatRelativeTime`
+    /// without `now` at least once a minute ([`Surface::tick`]).
+    pub fn set_clock(&mut self, now_ms: Option<f64>) {
+        self.clock = now_ms;
+        self.needs_build = true;
+    }
+
+    /// Re-bind (relative times move): the next layout rebuilds.
+    pub fn tick(&mut self) {
+        self.needs_build = true;
+    }
+
+    /// Round 2 (§3): whether the surface shows a time that moves with the
+    /// clock — a `formatRelativeTime` call without `now` in the tree or a
+    /// template, or a Table `relativeTime` column — so the host calls
+    /// [`Surface::tick`] at least once a minute. `false` with a pinned clock
+    /// ([`Surface::set_clock`]). O(nodes): ask after a reduce or layout.
+    pub fn uses_clock(&self) -> bool {
+        fn relative_call(v: &Value) -> bool {
+            match v {
+                Value::Object(o) => (o.get("call").and_then(Value::as_str) == Some("formatRelativeTime") && o.get("args").and_then(|a| a.get("now")).is_none()) || o.values().any(relative_call),
+                Value::Array(a) => a.iter().any(relative_call),
+                _ => false,
+            }
+        }
+        if self.clock.is_some() {
+            return false;
+        }
+        let mut found = false;
+        for tree in self.root.iter().chain(self.template_cache.values().flatten()) {
+            tree.walk(&mut |n| found = found || n.props.values().any(relative_call));
+        }
+        found
+            || self.nodes.iter().zip(&self.live).any(|(n, live)| {
+                *live && n.component == "Table" && n.props.get("columns").and_then(Value::as_array).is_some_and(|cols| cols.iter().any(|c| c.get("type").and_then(Value::as_str) == Some("relativeTime")))
+            })
+    }
 
     /// Register an extension catalog (validated). The tree is re-reduced.
     pub fn register_extension(&mut self, ext: ExtensionDef) -> Result<(), String> {
@@ -905,20 +996,54 @@ impl Surface {
 
     /// The pressed set as a whole (the spike's `set_pressed`).
     pub fn set_pressed(&mut self, ids: &[String]) -> bool {
+        self.set_flagged("pressed", ids)
+    }
+
+    /// The hovered set as a whole: `ids` carry the `hover` state (recipes'
+    /// `hover` / style `:hover` resolve through it), every other node loses
+    /// it. Same effects as [`Self::set_states`] (a hover overlay opens).
+    pub fn set_hovered(&mut self, ids: &[String]) -> bool {
+        self.set_flagged("hover", ids)
+    }
+
+    /// One node's `hover` on or off, its other states kept (a host's pointer
+    /// enter / leave).
+    pub fn set_hover(&mut self, id: &str, hovered: bool) -> bool {
+        let mut s = self.states.get(id).cloned().unwrap_or_default();
+        let has = s.iter().any(|x| x == "hover");
+        if has == hovered {
+            return false;
+        }
+        if hovered {
+            s.push("hover".into());
+        } else {
+            s.retain(|x| x != "hover");
+        }
+        self.set_states(id, s)
+    }
+
+    /// The interaction states the HOST set on a node (`hover`, `pressed`,
+    /// `focus`…; [`Self::set_states`]), empty when none.
+    pub fn host_states(&self, id: &str) -> &[String] {
+        self.states.get(id).map(Vec::as_slice).unwrap_or(&[])
+    }
+
+    /// Exactly `ids` carry `flag`; the rest of each node's states are kept.
+    fn set_flagged(&mut self, flag: &str, ids: &[String]) -> bool {
         let mut changed = false;
         let keep: HashSet<&String> = ids.iter().collect();
-        let had: Vec<String> = self.states.iter().filter(|(_, s)| s.iter().any(|x| x == "pressed")).map(|(k, _)| k.clone()).collect();
+        let had: Vec<String> = self.states.iter().filter(|(_, s)| s.iter().any(|x| x == flag)).map(|(k, _)| k.clone()).collect();
         for id in had {
             if !keep.contains(&id) {
                 let mut s = self.states.get(&id).cloned().unwrap_or_default();
-                s.retain(|x| x != "pressed");
+                s.retain(|x| x != flag);
                 changed |= self.set_states(&id, s);
             }
         }
         for id in ids {
             let mut s = self.states.get(id).cloned().unwrap_or_default();
-            if !s.iter().any(|x| x == "pressed") {
-                s.push("pressed".into());
+            if !s.iter().any(|x| x == flag) {
+                s.push(flag.into());
                 changed |= self.set_states(id, s);
             }
         }
@@ -968,6 +1093,7 @@ impl Surface {
             self.components.clear();
             self.nested = None;
             self.data = Value::Object(Map::new());
+            self.data_version += 1;
             self.local = LocalState::default();
             self.template_cache.clear();
             self.reduce();
@@ -1005,6 +1131,7 @@ impl Surface {
             self.nested = None;
             self.root = None;
             self.data = Value::Object(Map::new());
+            self.data_version += 1;
             self.local = LocalState::default();
             self.needs_build = true;
             return Ok(ApplyOutcome { structure_changed: true, issues: Vec::new() });
@@ -1064,6 +1191,7 @@ impl Surface {
     /// re-resolve on the next layout.
     pub fn set_data(&mut self, path: &str, value: Option<Value>) {
         set_pointer(&mut self.data, path, value);
+        self.data_version += 1;
         self.needs_build = true;
     }
 
@@ -1076,8 +1204,9 @@ impl Surface {
     }
 
     fn reduce(&mut self) {
-        self.template_ids = None;
+        self.template_cache.clear();
         self.local.static_keys.clear();
+        self.local.key_cache.clear();
         let options = ReduceOptions::new(&self.catalog_id).with_view(self.view.clone());
         let result: Option<ReduceResult> = if let Some(nested) = &self.nested {
             Some(crate::reducer::reduce_nested(nested, &options))
@@ -1090,6 +1219,9 @@ impl Surface {
             Some(r) => {
                 self.root = Some(r.root);
                 self.issues = r.issues;
+                // Round 2: template nodes are lifted out of the tree; items
+                // instantiate them from this table.
+                self.template_cache = r.templates.unwrap_or_default().into_iter().map(|(id, n)| (id, Some(n))).collect();
             }
             None => {
                 self.root = None;
@@ -1097,31 +1229,6 @@ impl Surface {
             }
         }
         self.needs_build = true;
-    }
-
-    /// The reduced template a List/Box `template` names: a flat component
-    /// (A2UI messages), else — for the nested authoring form, which has no
-    /// flat list — the node with that id in the reduced tree `tree`.
-    fn template_root(&mut self, component_id: &str, tree: Option<&UiNode>) -> Option<UiNode> {
-        if let Some(cached) = self.template_cache.get(component_id) {
-            return cached.clone();
-        }
-        let options = ReduceOptions { catalog_id: self.catalog_id.clone(), view: self.view.clone(), root_id: Some(component_id.to_string()), expand: true, validate: false };
-        let built = if self.components.iter().any(|c| c.id == component_id) {
-            Some(reduce_surface(&self.components, &options).root)
-        } else {
-            tree.and_then(|t| {
-                let mut found = None;
-                t.walk(&mut |n| {
-                    if found.is_none() && n.id == component_id {
-                        found = Some(n.clone());
-                    }
-                });
-                found
-            })
-        };
-        self.template_cache.insert(component_id.to_string(), built.clone());
-        built
     }
 
     fn gap_px(&self, name: &str) -> f32 {
@@ -1222,6 +1329,22 @@ impl Surface {
 
     pub fn index_of(&self, id: &str) -> Option<u32> {
         self.slot_of.get(id).copied()
+    }
+
+    /// Round 2 (VAPP-100): does the node restyle under the pointer? True
+    /// when its style has a `:hover` block or its recipe (the native's own
+    /// root recipe, its part or macro recipe) has a rule on `state: hover`
+    /// that its props match ([`crate::theme::recipe_reacts_to`]), in the
+    /// effective theme. A painter tracks the pointer over these nodes (as
+    /// over pressables, triggers and fields) and reports `hover`. Ask again
+    /// after a theme switch.
+    pub fn hover_styled(&self, index: u32) -> bool {
+        let Some(n) = self.layout_node(index) else { return false };
+        if n.base_style.contains_key(":hover") {
+            return true;
+        }
+        let Some(theme) = &self.effective else { return false };
+        [&n.own_query, &n.part_query].into_iter().flatten().any(|q| crate::theme::recipe_reacts_to(theme, q, "hover"))
     }
 
     pub fn last_frame(&self, index: u32) -> Option<Frame> {

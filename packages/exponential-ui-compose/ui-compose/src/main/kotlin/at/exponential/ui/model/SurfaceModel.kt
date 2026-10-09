@@ -5,6 +5,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -12,8 +13,11 @@ import androidx.compose.ui.text.font.FontFamily
 import at.exponential.ui.ExponentialUi
 import at.exponential.ui.extension.ExtensionPainter
 import at.exponential.ui.extension.ExtensionRegistry
+import at.exponential.ui.format.IcuFormatter
 import at.exponential.ui.ffi.FfiApplyOutcome
 import at.exponential.ui.ffi.FfiLayout
+import at.exponential.ui.ffi.FfiSettings
+import at.exponential.ui.ffi.HostFormatter
 import at.exponential.ui.ffi.Surface
 import at.exponential.ui.ffi.coreCatalogId
 import at.exponential.ui.ffi.defaultThemeId
@@ -32,9 +36,12 @@ import at.exponential.ui.theme.PaintStyle
 import at.exponential.ui.theme.PartStyle
 import at.exponential.ui.theme.ResolvedTextStyle
 import at.exponential.ui.theme.ThemeHandle
+import kotlin.math.abs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.SupervisorJob
 
 /** How overlays present. */
@@ -55,6 +62,72 @@ data class SurfaceOptions(
     val overlays: OverlayPresentation = OverlayPresentation.Native,
     /** Round frames to whole dp (off: fractional, like the web). */
     val rounding: Boolean = false,
+    /** Locale, strings, density, contrast, motion, insets (round 1 §4, round 2 §3). */
+    val settings: SurfaceSettings = SurfaceSettings(),
+)
+
+/**
+ * The surface settings a host chooses. `null` members follow the device
+ * ([SurfaceEnvironment], read by `ExponentialSurface`): its locale, time
+ * zone, font scale, animator scale (0 = reduced motion), pointer and
+ * safe-area insets.
+ */
+data class SurfaceSettings(
+    /** BCP 47; null = the device's (`en-US` headless). */
+    val locale: String? = null,
+    /** IANA; null = the device's (`UTC` headless). */
+    val timeZone: String? = null,
+    /** Built-in string overrides `{id: text}` (`catalog/strings.json`). */
+    val strings: Map<String, String> = emptyMap(),
+    /** The mode follows the platform's dark setting (`system`); else [SurfaceOptions.mode]. */
+    val followSystemMode: Boolean = false,
+    /** `compact | default | comfortable` (scales control and spacing tokens). */
+    val density: String = "default",
+    /** `normal | high | system` (the theme's contrast overlays). */
+    val contrast: String = "normal",
+    /** Text scale (1 = the theme's sizes); null = the device's font scale. */
+    val fontScale: Float? = null,
+    /** null = the device's (animator duration scale 0). */
+    val reducedMotion: Boolean? = null,
+    /** A hover-capable pointer; null = the device's (a mouse is connected). */
+    val hover: Boolean? = null,
+    /** Safe-area insets (dp) layers keep clear of; null = the window's. */
+    val insets: Insets? = null,
+    /** The calendar's today (`yyyy-mm-dd`); null = the clock's. */
+    val today: String? = null,
+    /** How long a hover card / tooltip stays after it is left (ms). */
+    val hoverCloseMs: Int = 0,
+    /** The formatter; null = [IcuFormatter] in the locale and time zone. */
+    val formatter: HostFormatter? = null,
+)
+
+/** Safe-area insets in dp. */
+data class Insets(val top: Float = 0f, val right: Float = 0f, val bottom: Float = 0f, val left: Float = 0f)
+
+/** What the device says (`ExponentialSurface` reads it; tests and headless hosts keep the defaults). */
+data class SurfaceEnvironment(
+    val locale: String = "en-US",
+    val timeZone: String = "UTC",
+    val systemDark: Boolean = false,
+    val systemHighContrast: Boolean = false,
+    val fontScale: Float = 1f,
+    val reducedMotion: Boolean = false,
+    val hover: Boolean = false,
+    val insets: Insets = Insets(),
+)
+
+/** A toast the core keeps open: its id (the Toast node) and how long it shows (0 = sticky). */
+data class ToastInfo(val id: String, val durationMs: Double, val kind: String)
+
+/** A scroll container's state (the core's `FfiScroll`): unscrolled frames, the offset, the content size (dp). */
+data class ScrollInfo(
+    val index: Int,
+    val offsetX: Float,
+    val offsetY: Float,
+    val contentWidth: Float,
+    val contentHeight: Float,
+    val scrollX: Boolean,
+    val scrollY: Boolean,
 )
 
 /**
@@ -93,8 +166,108 @@ class SurfaceModel(
     /** The current theme (null = geometry mode). */
     val theme: ThemeHandle? get() = themeState
 
-    /** The current mode. */
+    /**
+     * The theme the core resolves against: [theme] with `extends`, the
+     * density and the contrast applied (`Surface.effectiveTheme`). Every
+     * token and sub-part lookup reads it, so a painted part matches the
+     * core's layout under `compact` or high contrast.
+     */
+    var effectiveTheme: ThemeHandle? by mutableStateOf(options.theme)
+        private set
+    private var effectiveKey: String? = null
+
+    /** Re-read [effectiveTheme] when the theme, density or contrast moved. */
+    private fun refreshEffectiveTheme() {
+        val t = themeState
+        val st = appliedSettings
+        val key = "${System.identityHashCode(t)}|${st?.density}|${st?.contrast}|${st?.systemHighContrast}"
+        if (key == effectiveKey) return
+        effectiveKey = key
+        effectiveTheme = if (t == null) null else runCatching { surface.effectiveTheme() }.getOrNull()?.let(::ThemeHandle) ?: t
+    }
+
+    /** The current mode (`system` resolved). */
     val mode: Mode get() = modeState
+
+    /** The host's settings (see [setSettings]). */
+    var settings: SurfaceSettings = options.settings
+        private set
+
+    /** What the device says (see [setEnvironment]). */
+    var environment: SurfaceEnvironment = SurfaceEnvironment()
+        private set
+
+    /** The surface's formatter (the host's, else ICU in the locale and zone; null = the core's English fallback). */
+    var formatter: HostFormatter? = null
+        private set
+    private var formatterKey: String? = null
+    private var appliedSettings: FfiSettings? = null
+
+    /** The built-in string table in effect (`{id: text}`, the host's overrides applied). */
+    var strings: Map<String, String> = emptyMap()
+        private set
+
+    /** Scroll containers by node index (unscrolled frames; translate descendants by the offset). */
+    var scrolls: Map<Int, ScrollInfo> by mutableStateOf(emptyMap())
+        private set
+
+    /**
+     * Bumped when a pass finds the core's offset of a scroll container away
+     * from what its view shows (`scrollIntoView`, `scrollToIndex`, a clamp):
+     * the views re-read [scrolls] and follow.
+     */
+    var scrollEpoch: Int by mutableIntStateOf(0)
+        private set
+
+    /** What each scroll container's VIEW shows (dp), as it reported it ([scrollTo] `fromView`). */
+    internal val viewScroll = HashMap<Int, Offset>()
+
+    /** Nodes whose paint follows a scroll offset: `position: sticky` boxes, sticky List / Table headers. */
+    internal var scrollPinned: List<Int> = emptyList()
+        private set
+    private var pinnedDirty = true
+
+    /** Pinned (`position: sticky`, sticky List headers) nodes: index → the offset (dp) on top of their frame. */
+    var sticky: Map<Int, Offset> by mutableStateOf(emptyMap())
+        private set
+
+    /** The toasts the core keeps open (timers run in [toastTimers]). */
+    var toasts: List<ToastInfo> by mutableStateOf(emptyList())
+        private set
+
+    /** The surface direction the last pass laid out with (`ltr | rtl`). */
+    var direction: String by mutableStateOf("ltr")
+        private set
+
+    /** The breakpoint the last pass resolved (`sm`, `md`…; null below the first). */
+    var breakpoint: String? by mutableStateOf(null)
+        private set
+
+    /** A focus the core asked for (a Form's first invalid field, the `focus` command): the node id, consumed by its view. */
+    var focusRequest: String? by mutableStateOf(null)
+
+    /** The keyboard-focused node (hardware keys; `focus-visible`). */
+    var keyboardFocus: String? by mutableStateOf(null)
+        internal set
+
+    /** Speaks through the platform (set by `ExponentialSurface`: the view's announcement). */
+    var announcer: ((text: String, live: String) -> Unit)? = null
+
+    /** The host viewport's scroll of the whole surface (dp), reported by `ExponentialSurface`. */
+    var surfaceScroll: Offset by mutableStateOf(Offset.Zero)
+        internal set
+
+    /** Asks the HOST to scroll the surface to (x, y) (a `scrollToIndex` on a list the page scrolls), set by `ExponentialSurface`. */
+    var scrollSurfaceHandler: ((x: Float, y: Float) -> Unit)? = null
+
+    internal val toastTimers = HashMap<String, Job>()
+
+    /** Toast id → what holds it (`hover`, `press`, `focus`): its timer pauses while any does. */
+    internal val toastHeld = HashMap<String, MutableSet<String>>()
+
+    /** Toast id → the ms its timer still has to run (a hold keeps the rest, never restarts the full duration). */
+    internal val toastLeft = HashMap<String, Long>()
+    internal val hoverTimers = HashMap<String, Job>()
 
     /** Every layout node, pre-order (= paint order = accessibility order). */
     var nodes: List<NodeInfo> by mutableStateOf(emptyList(), neverEqualPolicy())
@@ -196,8 +369,90 @@ class SurfaceModel(
     init {
         surface.setRounding(options.rounding)
         for (json in extensions.definitions) runCatching { surface.registerExtension(json) }
-        primitiveTokens = theme?.primitiveTokens(mode) ?: PrimitiveTokens.SYSTEM
+        applySettings()
+        refreshEffectiveTheme()
+        primitiveTokens = effectiveTheme?.primitiveTokens(mode) ?: PrimitiveTokens.SYSTEM
     }
+
+    // Settings
+
+    /** Replace the host's settings (takes effect on the next pass). */
+    fun setSettings(settings: SurfaceSettings) {
+        if (settings == this.settings) return
+        this.settings = settings
+        if (applySettings()) invalidate(true)
+    }
+
+    /** What the device says changed (locale, zone, dark, font scale, motion, pointer, insets). */
+    fun setEnvironment(environment: SurfaceEnvironment) {
+        if (environment == this.environment) return
+        this.environment = environment
+        if (applySettings()) invalidate(true)
+    }
+
+    /**
+     * Settings ⊕ environment → the core's `SurfaceSettings` and the
+     * formatter. Returns whether anything reached the core.
+     */
+    private fun applySettings(): Boolean {
+        val st = settings
+        val env = environment
+        val locale = st.locale ?: env.locale
+        val zone = st.timeZone ?: env.timeZone
+        val wanted = FfiSettings(
+            locale = locale,
+            stringsJson = JsonValue.Obj(st.strings.mapValues { JsonValue.Str(it.value) }).json,
+            mode = if (st.followSystemMode) "system" else modeState.wire,
+            systemDark = env.systemDark,
+            density = st.density,
+            contrast = st.contrast,
+            systemHighContrast = env.systemHighContrast,
+            fontScale = st.fontScale ?: env.fontScale,
+            hover = st.hover ?: env.hover,
+            reducedMotion = st.reducedMotion ?: env.reducedMotion,
+            insetTop = (st.insets ?: env.insets).top,
+            insetRight = (st.insets ?: env.insets).right,
+            insetBottom = (st.insets ?: env.insets).bottom,
+            insetLeft = (st.insets ?: env.insets).left,
+            today = st.today,
+            hoverCloseMs = st.hoverCloseMs.coerceAtLeast(0).toUInt(),
+            timeZone = zone,
+        )
+        val key = "$locale|$zone|${System.identityHashCode(st.formatter)}"
+        var changed = false
+        if (key != formatterKey) {
+            formatterKey = key
+            formatter = st.formatter ?: IcuFormatter.create(locale, zone)
+            surface.setFormatter(formatter)
+            changed = true
+        }
+        if (wanted != appliedSettings) {
+            runCatching { surface.setSettings(wanted) }.onSuccess {
+                appliedSettings = wanted
+                changed = true
+            }
+            strings = runCatching { JsonValue.parse(surface.stringsJson()).obj?.mapValues { it.value.string ?: "" } }.getOrNull() ?: emptyMap()
+            val before = effectiveTheme
+            refreshEffectiveTheme()
+            if (effectiveTheme !== before) primitiveTokens = effectiveTheme?.primitiveTokens(modeState) ?: PrimitiveTokens.SYSTEM
+            val resolved = Mode.of(surface.mode()) ?: modeState
+            if (resolved != modeState) {
+                modeState = resolved
+                primitiveTokens = effectiveTheme?.primitiveTokens(resolved) ?: PrimitiveTokens.SYSTEM
+            }
+        }
+        return changed
+    }
+
+    /** A built-in string (`$string.<id>`, the host's overrides applied), `{name}` placeholders filled. */
+    fun string(id: String, params: Map<String, Any?> = emptyMap()): String {
+        var s = strings[id] ?: id
+        for ((k, v) in params) s = s.replace("{$k}", v?.toString() ?: "")
+        return s
+    }
+
+    /** Reduced motion in effect (the host's setting, else the device's). */
+    val reducedMotion: Boolean get() = settings.reducedMotion ?: environment.reducedMotion
 
     // Content
 
@@ -241,16 +496,22 @@ class SurfaceModel(
     fun setTheme(theme: ThemeHandle) {
         themeState = theme
         surface.setTheme(theme.theme)
-        primitiveTokens = theme.primitiveTokens(mode)
+        refreshEffectiveTheme()
+        primitiveTokens = effectiveTheme?.primitiveTokens(mode) ?: PrimitiveTokens.SYSTEM
         measureGeneration += 1
         invalidate(true)
     }
 
-    /** Switch light / dark. */
+    /** Switch light / dark (a `followSystemMode` setting keeps following the platform). */
     fun setMode(mode: Mode) {
         modeState = mode
-        runCatching { surface.setMode(mode.wire) }
-        primitiveTokens = theme?.primitiveTokens(mode) ?: PrimitiveTokens.SYSTEM
+        if (settings.followSystemMode) {
+            applySettings()
+        } else {
+            runCatching { surface.setMode(mode.wire) }
+            appliedSettings = appliedSettings?.copy(mode = mode.wire)
+        }
+        primitiveTokens = effectiveTheme?.primitiveTokens(this.mode) ?: PrimitiveTokens.SYSTEM
         invalidate(true)
     }
 
@@ -286,6 +547,45 @@ class SurfaceModel(
      * (dialog centring, windowed lists). `maxHeight` bounds a card.
      */
     fun setViewport(width: Float, height: Float, maxHeight: Float? = null) {
+        if (height > 0f) hostViewport = true
+        applyViewport(width, height, maxHeight)
+    }
+
+    /** The host set the visible height itself ([setViewport]): the surface's own measurement no longer moves it. */
+    private var hostViewport = false
+
+    /** The surface's width from its own layout (`ExponentialSurface`). */
+    internal fun setSurfaceWidth(width: Float) = applyViewport(width, viewportHeight, maxHeight)
+
+    /**
+     * The visible part of the surface in the window (dp), unless the host
+     * set the viewport. It moves on every frame of a host scroll while an
+     * edge of the surface is on screen, and each change is a full pass: the
+     * first value and growth by ≥ [VIEWPORT_STEP] apply at once (a windowed
+     * list never shows blank rows), anything else once the scroll rests
+     * ([VIEWPORT_SETTLE_MS]); a larger height than needed only renders a
+     * few more rows.
+     */
+    internal fun autoViewportHeight(height: Float) {
+        if (hostViewport) return
+        viewportJob?.cancel()
+        viewportJob = null
+        val d = height - viewportHeight
+        if (abs(d) < 0.5f) return
+        if (viewportHeight <= 0f || d >= VIEWPORT_STEP) {
+            applyViewport(width, height, maxHeight)
+            return
+        }
+        viewportJob = scope.launch {
+            delay(VIEWPORT_SETTLE_MS)
+            viewportJob = null
+            if (!hostViewport) applyViewport(width, height, maxHeight)
+        }
+    }
+
+    private var viewportJob: Job? = null
+
+    private fun applyViewport(width: Float, height: Float, maxHeight: Float?) {
         val w = kotlin.math.max(0f, kotlin.math.floor(width))
         if (w == this.width && height == viewportHeight && maxHeight == this.maxHeight && !layoutNeeded) return
         this.width = w
@@ -305,7 +605,7 @@ class SurfaceModel(
         if (nodesDirty) readNodes()
         var measurer: SurfaceMeasurer? = null
         val out: FfiLayout = (if (fixedMeasure) runCatching { surface.layoutFixed(null, true) }.getOrNull() else null)
-            ?: SurfaceMeasurer(theme, mode, extensions, extensionKinds(), measureGeneration, shaper()).let {
+            ?: SurfaceMeasurer(effectiveTheme, mode, extensions, extensionKinds(), measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf).let {
                 measurer = it
                 surface.layout(it)
             }
@@ -327,6 +627,18 @@ class SurfaceModel(
         val ls = HashMap<String, ListInfo>()
         for (l in out.lists) ls[l.id] = ListInfo(l)
         if (ls != lists) lists = ls
+        val sc = HashMap<Int, ScrollInfo>()
+        for (x in out.scrolls) sc[x.index.toInt()] = ScrollInfo(x.index.toInt(), x.offsetX, x.offsetY, x.contentWidth, x.contentHeight, x.scrollX, x.scrollY)
+        if (sc != scrolls) scrolls = sc
+        viewScroll.keys.retainAll(sc.keys)
+        if (sc.any { (i, x) -> viewScroll[i]?.let { v -> abs(v.x - x.offsetX) > 0.5f || abs(v.y - x.offsetY) > 0.5f } == true }) scrollEpoch += 1
+        val st = HashMap<Int, Offset>()
+        for (x in out.sticky) st[x.index.toInt()] = Offset(x.dx, x.dy)
+        if (st != sticky) sticky = st
+        val ts = out.toasts.map { ToastInfo(it.id, it.durationMs, it.kind) }
+        if (ts != toasts) toasts = ts
+        if (out.direction != direction) direction = out.direction
+        if (out.breakpoint != breakpoint) breakpoint = out.breakpoint
         if (passCount == 0 || out.visualChanges.isNotEmpty() || styles.size != nodes.size) {
             readVisuals()
             // The core resolves a leaf's text style DURING the pass (the
@@ -336,11 +648,40 @@ class SurfaceModel(
         val size = Size(out.surfaceWidth, out.surfaceHeight)
         if (size != surfaceSize) surfaceSize = size
         stats = PassStats(out.layoutNs.toLong(), System.nanoTime() - t0, out.upcalls.toInt(), out.measureRounds.toInt(), measurer?.calls ?: 0, nodes.size)
+        if (pinnedDirty) {
+            pinnedDirty = false
+            scrollPinned = nodes.filter { n -> styles.getOrNull(n.index)?.sticky == true || n.props["stickyHeaders"]?.bool == true || n.props["stickyHeader"]?.bool == true }.map { it.index }
+        }
         layoutNeeded = false
         passCount += 1
         layersChanged()
         reportUnknowns()
         echoFields()
+        syncToasts()
+    }
+
+    /**
+     * The component owning part `id` (the facade's leaf carries no owner):
+     * the node at `index` when it is that id, else the nearest node whose id
+     * prefixes it (`table.cell.alice.0` → `table`).
+     */
+    internal fun ownerComponentOf(index: Int, id: String, part: String?): String? {
+        nodes.getOrNull(index)?.takeIf { it.id == id }?.let { return it.ownerComponent }
+        var cut = id.lastIndexOf('.')
+        while (cut > 0) {
+            val prefix = id.substring(0, cut)
+            byId[prefix]?.let { i -> nodes.getOrNull(i)?.let { n -> return n.ownerComponent ?: n.component } }
+            cut = id.lastIndexOf('.', cut - 1)
+        }
+        return null
+    }
+
+    /** What the user typed into host-owned fields (not yet in the props): the measurer sizes autosize fields with it. */
+    private fun liveTexts(): Map<String, String> {
+        if (fieldsMap.isEmpty()) return emptyMap()
+        val m = HashMap<String, String>()
+        for ((id, f) in fieldsMap) if (f.focused || f.pendingChange) m[id] = f.text
+        return m
     }
 
     private fun extensionKinds(): Map<String, String> {
@@ -366,6 +707,7 @@ class SurfaceModel(
         nodes = list
         structureVersion = surface.structureVersion().toLong()
         nodesDirty = false
+        pinnedDirty = true
         pruneFields()
     }
 
@@ -384,7 +726,8 @@ class SurfaceModel(
         for (v in raw) st.add(PaintStyle(v))
         while (st.size < nodes.size) st.add(PaintStyle.EMPTY)
         styles = st
-        val fallback = theme?.ink(mode) ?: if (mode == Mode.Dark) Color.White else Color.Black
+        pinnedDirty = true
+        val fallback = effectiveTheme?.ink(mode) ?: if (mode == Mode.Dark) Color.White else Color.Black
         val ink = ArrayList<Color>(nodes.size)
         repeat(nodes.size) { ink.add(fallback) }
         for (n in nodes) {
@@ -405,6 +748,27 @@ class SurfaceModel(
 
     // Lookups
 
+    /** Is `index` the node `ancestor` or inside it? */
+    internal fun isWithin(index: Int, ancestor: Int): Boolean {
+        var i: Int? = index
+        var hops = 0
+        while (i != null && hops < 4096) {
+            if (i == ancestor) return true
+            i = nodes.getOrNull(i)?.parent
+            hops += 1
+        }
+        return false
+    }
+
+    /**
+     * Must a scroll of container `index` lay out again? Only when a windowed
+     * list windows against it (its own window or one inside it) or a pinned
+     * node sits in it; a plain container only moves paint, which its view
+     * already did.
+     */
+    internal fun scrollNeedsPass(index: Int): Boolean =
+        lists.values.any { it.windowed && isWithin(it.node, index) } || scrollPinned.any { isWithin(it, index) }
+
     /** The index of the node `id`. */
     fun indexOf(id: String): Int? = byId[id]
 
@@ -418,7 +782,7 @@ class SurfaceModel(
     fun style(index: Int): PaintStyle = styles.getOrNull(index) ?: PaintStyle.EMPTY
 
     /** The text colour of `index`. */
-    fun ink(index: Int): Color = inks.getOrNull(index) ?: (theme?.ink(mode) ?: if (mode == Mode.Dark) Color.White else Color.Black)
+    fun ink(index: Int): Color = inks.getOrNull(index) ?: (effectiveTheme?.ink(mode) ?: if (mode == Mode.Dark) Color.White else Color.Black)
 
     /** The text style of a leaf (valid after a pass). */
     fun textStyle(index: Int): ResolvedTextStyle = textStyles[index] ?: ResolvedTextStyle.BODY
@@ -435,16 +799,16 @@ class SurfaceModel(
 
     /** A part's look under the surface's theme (empty in geometry mode). */
     fun part(component: String, part: String, props: Props, states: List<String> = emptyList()): PartStyle =
-        theme?.part(component, part, props, states, mode) ?: PartStyle.EMPTY
+        effectiveTheme?.part(component, part, props, states, mode) ?: PartStyle.EMPTY
 
     /** A colour token. */
-    fun color(name: String): Color? = theme?.color(name, mode)
+    fun color(name: String): Color? = effectiveTheme?.color(name, mode)
 
     /** A spacing token (geometry fallbacks without a theme). */
-    fun spacing(name: String): Float = theme?.spacing(name) ?: GeometrySpacing.value(name)
+    fun spacing(name: String): Float = effectiveTheme?.spacing(name) ?: GeometrySpacing.value(name)
 
     /** A control size token. */
-    fun control(name: String, fallback: Float): Float = theme?.control(name, fallback) ?: fallback
+    fun control(name: String, fallback: Float): Float = effectiveTheme?.control(name, fallback) ?: fallback
 
     /** The interaction states reported for `id`. */
     fun statesOf(id: String): List<String> = interaction[id]?.states ?: emptyList()
@@ -561,7 +925,16 @@ class SurfaceModel(
     /** The family of a theme family NAME through the host and the registry (null = default). */
     fun fontFamily(name: String?): FontFamily? = fontResolver.family(name)
 
+    /** [shaper] with this surface's default family (the theme's `sans`): every measure and paint shapes through it. */
+    fun textShaper(): TextShaper = shaper().also { it.defaultFamily = effectiveTheme?.sansFamily }
+
     companion object {
+        /** Viewport growth (dp) that applies at once ([autoViewportHeight]). */
+        const val VIEWPORT_STEP = 48f
+
+        /** How long the visible height must rest before a smaller change applies (ms). */
+        const val VIEWPORT_SETTLE_MS = 150L
+
         private fun roundHalfAway(x: Double): Double = if (x >= 0) kotlin.math.floor(x + 0.5) else -kotlin.math.floor(-x + 0.5)
 
         /** `v` snapped to `min + k·step` and clamped. */

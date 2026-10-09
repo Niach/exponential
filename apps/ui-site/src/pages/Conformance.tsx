@@ -1,9 +1,8 @@
 /* Conformance: what it means, the suites (rendered from the generated
    manifest), how a third-party renderer runs them and checks its report,
-   our four runners and CI, and round 1's real-font harness (VAPP-98) as the
-   second half that arrives with round 1. */
+   our four runners and CI, and the real-font harness. */
 import manifest from "@exponential-at/ui/conformance/manifest.json"
-import { DocsCallout, DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
+import { DocsCode, DocsLayout, DocsSection, type DocsSection as DocsSectionType } from "@exp/site-shell"
 import { DocsTable } from "../components/Content"
 import { LEARN_NAV } from "../lib/content"
 import type { PageProps } from "../lib/routes"
@@ -203,35 +202,24 @@ export default function ConformancePage({ path }: PageProps) {
 
         <DocsSection id="real-font" num="06" label="The real-font harness">
           <h2>The real-font harness</h2>
-          <DocsCallout kind="note" title="Arrives with round 1">
-            The suites above are on master today. The real-font harness is the second half, and it lands with
-            renderer hardening round 1.
-          </DocsCallout>
           <p>
-            The fixture suites lock the <strong>contract</strong> case by case, with no fonts involved: layout
-            replays with a fixed fake measure, so it tests the rules, not the text. The real-font harness locks what
-            real text does to them. It renders the kitchen sink and the responsive cases in the React renderer
-            (headless Chromium) and in the gpui painter (headless, gpui's own text system), both with the same
-            committed font files. Then it compares the two frame by frame against a committed web baseline.
+            The suites lock the <strong>contract</strong> with a fixed fake measure. The real-font harness locks what
+            real text does to it: the kitchen sink and the responsive cases, rendered by React (headless Chromium) and
+            gpui with the same committed fonts (Inter, Geist, JetBrains Mono, Nunito, Fira Code), compared frame by frame against a
+            committed web baseline.
           </p>
-          <ul>
-            <li>
-              <strong>Frame dumps</strong>: every placed node of every case (fixture × theme × mode × width ×
-              direction) with its frame, its text and its line count.
-            </li>
-            <li>
-              <strong>The comparison</strong>: frames within a pixel tolerance; a text node may wrap one line more or
-              less. Every divergence is reported, and the ones nothing below them explains are marked as origins,
-              the list to fix.
-            </li>
-            <li>
-              <strong>A pixel step</strong>: the web surface next to a real gpui window, with a pixel-difference
-              ratio and a structural similarity score. It is reported, never gating.
-            </li>
-          </ul>
+          <DocsTable
+            head={[`Step`, `What it checks`]}
+            rows={[
+              [<strong key="s">Frame dumps</strong>, `Every placed part of every case (fixture × theme × mode × width × direction): frame, text, line count.`],
+              [<strong key="s">Comparison</strong>, `Frames within a pixel tolerance; a text may wrap one line more or less. Unexplained divergences are origins: the fix list.`],
+              [<strong key="s">Known divergences</strong>, <span key="k"><code>conformance-known.json</code>: per cause, which side is right and who fixes it; the ratchet only goes down.</span>],
+              [<strong key="s">Pixel step</strong>, `The web surface beside a real gpui window: pixel ratio and SSIM. Reported, never gating.`],
+            ]}
+          />
+          <DocsCode>{`bun run --filter @exponential-at/ui conformance -- --only kitchen-sink/playful/dark/390/ltr`}</DocsCode>
           <p>
-            Once both halves are on master, the harness's comparison becomes one more suite in the manifest,{` `}
-            <code>real-font</code>, so <code>conformance:check</code> stays the one verdict.
+            Next: the comparison becomes suite <code>real-font</code> in the manifest, so <code>conformance:check</code> stays the one verdict.
           </p>
         </DocsSection>
 

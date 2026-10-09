@@ -26,10 +26,11 @@ function Chat({ messages }) {
       theme="exponential"                     // or "neutral" | "playful" | a theme JSON | a ResolvedTheme
       mode="system"                           // light | dark | system (default; follows the platform live)
       locale="de-AT"                          // formatting, calendar names, week start, text direction
+      timeZone="Europe/Vienna"                // dates and relative times (default: the platform's)
       strings={{ search: "Suchen…" }}         // built-in copy overrides (catalog/strings.json ids)
       density="compact" contrast="system"     // the theme's density multiplier; high-contrast overlays
       host={{ icons, onAction, onInput, onUpload }}     // the host plugin (below)
-      handleRef={ref}                         // ref.current.run({ focus: { id } } | { announce } | { scrollIntoView })
+      handleRef={ref}                         // ref.current.run({ focus: { id } } | { announce } | { scrollIntoView } | { scrollToIndex })
     />
   )
 }
@@ -45,15 +46,15 @@ function Chat({ messages }) {
 | `src/box-css.ts` | a surface's node sheet (template subtrees included): the whitelisted `style`s, the `@media` grammar (width → container queries, height/orientation → `data-xq`, hover/reduced-motion → media), the state blocks, dynamic values → `var(--xd-n)` |
 | `src/base-css.ts` | layer `xui-base`: the three CSS-equals-taffy rules + each native's structure |
 | `src/node-view.tsx` | the BIND pass per node (`visible`, props, dynamic style values, recipe props, `$string`, responsive native props), painter picked, root attributes, the action runner (`set` then the event), keyed templates |
-| `src/natives/` | the 46 native painters (Box, Text, Button… Form, NumberField, ChipInput, Date/Range/TimePicker, FileUpload, CodeBlock, Table, Chart, ContextMenu, Toast, Unknown); `natives.test.ts` gates them against the catalog |
+| `src/natives/` | the 47 native painters (Box, Text, Button… Form, NumberField, ChipInput, Date/Range/TimePicker, FileUpload, CodeBlock, Table, Chart, ContextMenu, Toast, Resizable, Unknown); `natives.test.ts` gates them against the catalog |
 | `src/form.tsx` | the Form native + the field protocol every named control speaks (`useField`) |
 | `src/platform.ts` | live platform preferences (`matchMedia`) and the measured surface box |
-| `src/data.ts` | the data model (JSON pointers), `{path}` bindings, the 14 basic + 13 core functions, `bindTree` |
+| `src/data.ts` | the data model (JSON pointers), `{path}` bindings, the basic + core client functions (the format functions through the surface Formatter), `bindTree` |
 | `src/inputs.ts` | `useHostOwnedValue`: local state, 150 ms debounce, revisions, echo rule |
-| `src/list.tsx` | `WindowedList`: item key, estimated height, overscan, one ResizeObserver, `scrollToIndex` |
+| `src/list.tsx` | `WindowedList`: one axis, item key, estimated extent, gap + dividers, overscan, sticky rows, one ResizeObserver, `scrollToIndex` |
 | `src/extensions.ts` | `registerExtension` / `defineReactExtension` |
 | `src/primitives/` | the shadcn set (moved from `@exp/ui`, which re-exports it) + `tailwind.css`; `bun run build:css` → `dist/exponential-ui-react.css` |
-| `harness/` | the browser harness the Chromium suites and the screenshot script drive (`dev:harness` → :4181; views kitchen-sink, geometry, overlay, catalog, conditions, tree) |
+| `harness/` | the browser harness the Chromium suites and the screenshot script drive (`dev:harness` → :4181; views kitchen-sink, geometry, overlay, catalog, conditions, tree, round2, bench) |
 | `browser/` | the headless-Chromium suites: geometry, overlays, typing, round 1 (conditions, overlays × breakpoints, kitchen sink × themes × widths, keyboard) (`test:browser`) |
 | `fixtures/kitchen-sink.data.json` | the data model the kitchen sink renders against (harness + the app's view) |
 | `scripts/` | `build-css.ts`, `shots.ts` (the stored kitchen-sink shots), `pack-smoke.ts` (a plain Vite app on the packed tarballs) |
@@ -156,8 +157,9 @@ interface HostPlugin {
   surface's data model. `browser/typing.test.ts`: 40 keys at 150 ms RTT,
   none dropped, three runs.
 - **Bindings**: `{path}` is a JSON pointer into `surface.data` (relative
-  inside a template item); `{call, args}` runs a client function (the basic
-  14 + the 13 core functions; truthiness = the catalog's, `0` is true);
+  inside a template item); `{call, args}` runs a client function (the bind
+  table `bindFunctionNames`; truthiness = the catalog's, `0` is true; the
+  format functions run through the surface Formatter);
   `$string.<id>` resolves through the surface's string table. A falsy
   `visible` drops the node. `bindTree` is the whole-tree form, replayed
   against `fixtures/bind-time.json`.
@@ -173,7 +175,9 @@ interface HostPlugin {
   focus to the first invalid field and announces `invalidFields`.
 - **Templates**: `children: {componentId, path, key?}` renders the component
   once per item at `path`, keyed by `key` (reordering keeps the item's
-  state); a flat `useSurface` list or a node of that id in a nested tree.
+  state). The component comes from the reducer's LIFTED `templates`
+  (`useSurface` keeps them; a fixture passes `templates` beside `root`); it
+  never renders in place.
 
 ### The host API (VAPP-91)
 
@@ -248,14 +252,48 @@ VAPP-92 painter override.
 
 ## Lists
 
-`WindowedList({ count, itemKey, estimatedItemHeight, overscan, renderItem })`
-positions the visible window absolutely inside a spacer, corrects estimates
-with ONE `ResizeObserver` (items leaving the window are unobserved, it
-disconnects on unmount), follows the nearest ancestor that actually scrolls
-(overflow auto/scroll AND content taller than its box; an unbounded List is
-not one, the page scroll drives it) and exposes
-`scrollToIndex` through its ref. `List` and `Table` use it past the catalog's
-`WINDOW_THRESHOLD` (50); fewer render flat so the fixtures snapshot every row.
+`List` renders its children, then the template's items. Past the catalog's
+`WINDOW_THRESHOLD` (50), or with `stickyHeaders`, it windows
+(`WindowedList`): one axis (`direction` vertical or horizontal), rows end to
+end with the gap (+ the hairline when `divided`, the divider centred in it),
+unmeasured rows at `$control.row`, ONE `ResizeObserver`. The window follows
+the nearest ancestor that actually scrolls on that axis, else the viewport.
+The numbers are the core's (`virtualWindow`, `scrollOffsetForIndex`,
+`stickyHeader`). Fewer items render flat, so fixtures snapshot every row.
+
+| feature | web |
+|---|---|
+| `sectionBy` | consecutive items share a header: the `section` slot bound to `{value, count, index}`, else the value; `role=heading` level 3, part `<id>.section.<i>` |
+| `stickyHeaders` | the current header pins at the top, pushed back by the next one; drawn even outside the window |
+| a11y | every item `role=listitem` with `aria-setsize` / `aria-posinset` of the WHOLE list |
+| `scrollToIndex` | host command `{scrollToIndex: {id, index, align}}` on List and Table (data index); re-aimed once the revealed rows are measured |
+
+Bench (`fixtures/bench-list.json`: 100,000 `ListRow`s, 390 × 800, neutral;
+i9-13900K, Linux, Playwright 1.59 headless Chromium / jsdom 27; median of 3):
+
+| renderer | firstPaintMs | scrollStepMs | scrollToIndexMs | renderedItems |
+|---|---|---|---|---|
+| Chromium (`bun run bench:list`) | 147 | 4.9 | 38 | 30 |
+| jsdom (`XUI_BENCH=1 vitest run src/bench.test.tsx`) | 549 | 14.9 | 70 | 30 |
+
+A step = the scroll, the window's render flushed and the layout read back
+(main-thread work, no frame wait); the jump includes the first re-aim.
+
+## Round 2 (contract `docs/round-2-contract.md`)
+
+| item | web |
+|---|---|
+| Resizable | flex panels (sizes = grow factors over a 0 basis = `panelExtents`), hairline handles with an 8 px hit area, pointer drag from the START sizes, `keyboardResize`, bound `sizes` + `change {sizes}` at drag end / key, `separator` a11y named `$string.resize` |
+| templates (breaking) | `<ExponentialSurface>` takes `templates` beside `root` (the reducer's lifted ones; `useSurface` and `HostSurface` pass them). The in-tree fallback and the `templateNodeFrom` export are gone: a `root`-only caller renders no template items, and dev builds warn once per missing template |
+| `position: sticky` | CSS sticky |
+| `backdropBlur` | `backdrop-filter: blur(var(--xui-blur-*))` (+ `-webkit-`) |
+| `animation` | `@keyframes xui-<name>` in the base sheet, duration `calc($motion × factor)`, `animationDuration` keeps the factor, shimmer = an `::after` band on `--xui-band`; reduced motion = 0 ms (the rest frame) |
+| `direction` | on any node: its `dir`, and its subtree's natives (Radix `dir`, arrows, chart mirror) read it; `rtlMirroredIcons` flip by `:dir(rtl)` |
+| Formatter | `intlFormatter(locale, timeZone)` per surface (`timeZone` prop, default the platform's): the six format functions, Table `number`/`currency`/`percent`/`date`/`relativeTime` cells, NumberField, Slider value, chart ticks and summary, picker triggers, calendar names; a `formatRelativeTime` without `now` or a Table `relativeTime` column re-binds every minute |
+| text props | a bound number shows `412`, a boolean `true`, an object nothing (`displayString`) |
+| strings | `invalidValue`, `message`, `codeBlock`, `dialog`, `table`, `carousel`, `slide`, `resize` |
+| parts | every laid-out part carries `data-xui-id="<id>.<part>[.<i or row key>]"` + `data-xui-part`; inactive carousel pages are `inert` + `data-xui-inactive` |
+| §7 sizes | overlays = their trigger's box (`data-xui-overlay-root`), menu trigger without chevron, Chart `height` = the whole box, AudioPlayer track + controls row, Video / Image 16:9, Table and CodeBlock from recipes only (per-side border widths no longer pick up the UA's 3 px), Browse in the drop zone, TreeGuides 16 px columns, Switch label first, Checkbox gap, Radio items at the root gap, Accordion count part |
 
 ## The primitive set
 
@@ -274,7 +312,8 @@ Tailwind takes the compiled `dist/exponential-ui-react.css`
 
 ```bash
 bun run --filter @exponential-at/ui-react test            # jsdom: fixtures → DOM, bind-time, round 1, inputs, data, theme css, primitives (LANG=en_US.UTF-8)
-bun run --filter @exponential-at/ui-react test:browser    # headless Chromium: geometry, overlays, typing, round 1
+bun run --filter @exponential-at/ui-react test:browser    # headless Chromium: geometry, overlays, typing, rounds 1–2, conformance
+bun run --filter @exponential-at/ui-react bench:list      # the 100,000-row list bench in Chromium
 bun run --filter @exponential-at/ui-react typecheck
 bun run --filter @exponential-at/ui-react dev:harness     # http://localhost:4181/?view=kitchen-sink&theme=playful
 bun run --filter @exponential-at/ui-react shots           # shots/exponential-ui-kitchen-sink/{web,web-mobile}.webp

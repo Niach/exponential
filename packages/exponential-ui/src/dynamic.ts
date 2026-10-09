@@ -13,6 +13,7 @@
 
 import { catalogView } from "./catalog"
 import { CORE_FUNCTIONS, isBinding, isCall, isDynamic, truthy } from "./expr"
+import { ENGLISH_FORMAT_FUNCTIONS, FORMAT_FUNCTION_NAMES, englishFormatter, formatFunctions, type Formatter } from "./format"
 import { resolveString } from "./strings"
 import type { Action, ComponentDef, ExtensionDef, PropSchema, UiNode } from "./types"
 
@@ -89,11 +90,14 @@ const LOGIC_FUNCTIONS: Record<string, (args: Record<string, unknown>) => unknown
 
 export type FunctionTable = Record<string, (args: Record<string, unknown>) => unknown>
 
-/** The reference function table: the core functions + and/or/not/required.
+/** The reference function table: the core functions + and/or/not/required
+ *  + (round 2) the format functions through the English fallback Formatter
+ *  (`formatNumber`, `formatCurrency`, `formatPercent`, `formatDate`,
+ *  `formatRelativeTime`, `pluralize`; ResolveOptions.formatter replaces it).
  *  `set` is an action, never a value. The expander EMITS `not`/`and`/`or`
  *  too, so a renderer must implement this whole table (generated as
  *  `bindFunctionNames`), not just the core names. */
-export const BIND_FUNCTIONS: FunctionTable = { ...LOGIC_FUNCTIONS, ...CORE_FUNCTIONS }
+export const BIND_FUNCTIONS: FunctionTable = { ...LOGIC_FUNCTIONS, ...CORE_FUNCTIONS, ...ENGLISH_FORMAT_FUNCTIONS }
 export const BIND_FUNCTION_NAMES: readonly string[] = Object.keys(BIND_FUNCTIONS)
 
 export interface ResolveOptions {
@@ -106,7 +110,26 @@ export interface ResolveOptions {
   /** The surface's extensions: their components' prop schemas decide which
    *  props are DATA (bindTree). */
   extensions?: readonly ExtensionDef[]
+  /** Round 2: the surface's Formatter (SurfaceSettings.locale + timeZone);
+   *  the format functions run through it. Absent = the English fallback. */
+  formatter?: Formatter
+  /** The clock `formatRelativeTime` reads without a `now` argument. */
+  now?: () => number
 }
+
+const FORMAT_NAMES: ReadonlySet<string> = new Set(FORMAT_FUNCTION_NAMES)
+const FORMAT_TABLES = new WeakMap<Formatter, FunctionTable>()
+
+function formatTable(options: ResolveOptions): FunctionTable | undefined {
+  if (!options.formatter && !options.now) return undefined
+  const formatter = options.formatter ?? (english ??= englishFormatter())
+  if (options.now) return formatFunctions(formatter, options.now)
+  let table = FORMAT_TABLES.get(formatter)
+  if (!table) FORMAT_TABLES.set(formatter, (table = formatFunctions(formatter)))
+  return table
+}
+
+let english: Formatter | undefined
 
 /** A prop or style value with every binding and call resolved, at any
  *  depth. An unknown function resolves to undefined. */
@@ -115,7 +138,7 @@ export function resolveDynamic(value: unknown, data: unknown, options: ResolveOp
   if (isCall(value)) {
     const args: Record<string, unknown> = {}
     for (const [k, v] of Object.entries(value.args ?? {})) args[k] = resolveDynamic(v, data, options)
-    const fn = options.functions?.[value.call] ?? BIND_FUNCTIONS[value.call]
+    const fn = options.functions?.[value.call] ?? (FORMAT_NAMES.has(value.call) ? formatTable(options)?.[value.call] : undefined) ?? BIND_FUNCTIONS[value.call]
     return fn ? fn(args) : undefined
   }
   if (typeof value === `string`) return options.strings ? resolveString(value, options.strings) : value
@@ -232,6 +255,18 @@ export function rowScope(rowsProp: unknown, rows: readonly unknown[], index: num
 /** A row-scoped slot cell bound for row `index` (see `rowScope`). */
 export function bindRowSlot(slot: UiNode, rowsProp: unknown, rows: readonly unknown[], index: number, data: unknown, options: ResolveOptions = {}): UiNode | null {
   return bindTree(slot, data, { ...options, scope: rowScope(rowsProp, rows, index, options.scope) })
+}
+
+/** Round 2 (docs/round-2-contract.md §4): the scope a List's `section`
+ *  header binds in — a LITERAL item `{value, count, index}` (relative paths
+ *  read it: `{path: "value"}`; absolute ones the surface data). */
+export function sectionScope(section: { value: string; count: number }, index: number, scope: DataScope = {}): DataScope {
+  return { ...(scope.base !== undefined ? { base: scope.base } : {}), item: { value: section.value, count: section.count, index } }
+}
+
+/** A List `section` header bound for section `index` (see `sectionScope`). */
+export function bindSectionHeader(slot: UiNode, section: { value: string; count: number }, index: number, data: unknown, options: ResolveOptions = {}): UiNode | null {
+  return bindTree(slot, data, { ...options, scope: sectionScope(section, index, options.scope) })
 }
 
 /** The BIND pass a renderer runs over an expanded tree for one data model:

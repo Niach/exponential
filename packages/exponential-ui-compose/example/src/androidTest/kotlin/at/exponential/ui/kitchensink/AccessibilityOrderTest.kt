@@ -32,7 +32,8 @@ class AccessibilityOrderTest {
             val text = file.readText()
             val labels = text.substringBefore("\n---\n").split("\n").filter { it.isNotEmpty() }
             Log.i("a11y-walk", labels.joinToString(" | "))
-            val prefix = listOf("Alex Chen", "Reddit radar", "Kitchen sink · one catalog on every client", "3", "Scan now", "Sources")
+            // The AppBar (back, title, search) and the breadcrumb come first (round 1 kitchen sink).
+            val prefix = listOf("Back", "Inbox", "Search", "Boards", "Sprint 12", "EXP-42", "Alex Chen", "Reddit radar", "Kitchen sink · one catalog on every client", "3", "Scan now", "Sources")
             assertEquals("walk: ${labels.take(20)}", prefix, labels.take(prefix.size))
             fun position(label: String): Int = labels.indexOfFirst { it.startsWith(label) }.let { if (it < 0) Int.MAX_VALUE else it }
             assertTrue(position("r/selfhosted") < position("r/opensource"))

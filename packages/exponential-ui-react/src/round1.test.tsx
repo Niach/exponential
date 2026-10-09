@@ -213,6 +213,8 @@ describe(`node sheet: conditions → CSS`, () => {
       [`transition-timing-function`, `var(--xui-ease-standard)`],
     ])
     expect(declarations({ backgroundGradient: { angle: 90, stops: [{ color: `$color.primary`, offset: 0 }, { color: `#ffffff00`, offset: 1 }] } })).toEqual([[`background-image`, `linear-gradient(90deg, var(--xui-color-primary) 0%, #ffffff00 100%)`]])
+    // Round 2: per-side widths alone keep the cascaded other sides (the base
+    // layer resets a part's UA `medium`, so a node style never zeroes a recipe border).
     expect(declarations({ borderBottomWidth: 1, borderStyle: `dashed` })).toEqual([
       [`border-bottom-width`, `1px`],
       [`border-style`, `dashed`],

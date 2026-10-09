@@ -378,6 +378,29 @@ built-in themes into iOS, Android or the desktop app, add that client to the
 two rows' `clients` and regenerate the notices** — the same rule as the
 desktop's vendored crates above.
 
+### Exponential UI: the conformance fonts (round 2, 2026-10-08)
+
+`packages/exponential-ui/conformance/fonts/` holds the fonts the conformance
+harness lays text out with on every renderer, so web and native measure the
+same glyphs:
+
+- **Nunito** 3.602 (googlefonts/nunito, SIL OFL 1.1, The Nunito Project
+  Authors; no Reserved Font Name): seven static instances made from Google
+  Fonts' `Nunito[wght].ttf` and `Nunito-Italic[wght].ttf` with
+  `fonttools varLib.instancer --update-name-table`. OFL allows modified
+  versions under the same licence; with no Reserved Font Name the family name
+  may stay.
+- **Fira Code** 6.2 (tonsky/FiraCode, SIL OFL 1.1, The Fira Code Project
+  Authors): the release's TTFs, unmodified.
+
+Each family's licence sits beside the files (`OFL-Nunito.txt`,
+`OFL-FiraCode.txt`), which is what OFL section 2 asks of any copy. Only the
+harness and the renderers' conformance tests load them. No app bundle, native
+build or notice uses them, and `release/prepare-npm.ts` leaves the folder out
+of the npm package. The public web image does carry them, because its runtime
+stage copies `packages/` whole; the licence files travel with them, so that
+copy is covered too.
+
 ## How this is enforced — EXP-375
 
 The rule above is mechanical, not aspirational. `packages/licenses` generates

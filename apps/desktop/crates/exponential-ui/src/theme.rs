@@ -186,10 +186,13 @@ pub struct ThemeTokens {
     /// Multipliers over `control` and `spacing` for the non-default densities.
     #[serde(default, serialize_with = "ser_nums")]
     pub density: IndexMap<String, f64>,
+    /// Round 2: backdrop blur radii in px (`backdropBlur: $blur.md`).
+    #[serde(default, serialize_with = "ser_nums")]
+    pub blur: IndexMap<String, f64>,
 }
 
 /// The numeric groups directly under `tokens`, in overlay order.
-const NUMBER_GROUPS: [&str; 8] = ["spacing", "radius", "control", "opacity", "border", "motion", "breakpoint", "density"];
+const NUMBER_GROUPS: [&str; 9] = ["spacing", "radius", "control", "opacity", "border", "motion", "breakpoint", "density", "blur"];
 /// Token groups whose values are cubic-bezier tuples.
 const TUPLE_GROUPS: [&str; 1] = ["ease"];
 const TYPE_SUBS: [&str; 4] = ["size", "lineHeight", "weight", "family"];
@@ -206,6 +209,7 @@ impl ThemeTokens {
             "motion" => Some(&self.motion),
             "breakpoint" => Some(&self.breakpoint),
             "density" => Some(&self.density),
+            "blur" => Some(&self.blur),
             g => g.strip_prefix("type.").and_then(|sub| self.r#type.numbers(sub)),
         }
     }
@@ -219,6 +223,7 @@ impl ThemeTokens {
             "motion" => Some(&mut self.motion),
             "breakpoint" => Some(&mut self.breakpoint),
             "density" => Some(&mut self.density),
+            "blur" => Some(&mut self.blur),
             g => g.strip_prefix("type.").and_then(|sub| self.r#type.numbers_mut(sub)),
         }
     }
@@ -390,10 +395,12 @@ const KEY_GROUPS: &[(&str, &[&str])] = &[
     ("transition", &["motion"]),
     ("transitionEasing", &["ease"]),
     ("transform", &[]),
+    ("backdropBlur", &["blur"]),
+    ("animation", &[]),
 ];
 const COLOR_KEYS: [&str; 3] = ["backgroundColor", "color", "borderColor"];
-const TOKEN_ONLY_KEYS: [&str; 4] = ["fontFamily", "boxShadow", "transition", "transitionEasing"];
-const ENUM_KEYS: [&str; 4] = ["borderStyle", "textDecoration", "textTransform", "fontStyle"];
+const TOKEN_ONLY_KEYS: [&str; 5] = ["fontFamily", "boxShadow", "transition", "transitionEasing", "backdropBlur"];
+const ENUM_KEYS: [&str; 5] = ["borderStyle", "textDecoration", "textTransform", "fontStyle", "animation"];
 const THEME_KEYS: [&str; 10] = ["$schema", "$comment", "id", "name", "extends", "modes", "contrast", "tokens", "fonts", "recipes"];
 
 /// The enum a style key takes (`borderStyle` → solid|dashed|dotted).
@@ -1256,6 +1263,31 @@ pub fn recipe_style(theme: &ResolvedTheme, query: &RecipeQuery) -> Props {
         }
     }
     out
+}
+
+/// Does the query's recipe change under interaction `state` (`hover`)? True
+/// when a rule names the state in `when.state` and every other `when` key
+/// matches the query's props (the rule's OTHER states are not required: a
+/// `[hover, checked]` rule counts while unchecked). Painters ask it to know
+/// which nodes to track the pointer over.
+pub fn recipe_reacts_to(theme: &ResolvedTheme, query: &RecipeQuery, state: &str) -> bool {
+    let Some(rules) = theme.recipes.get(&query.component).and_then(|p| p.get(&query.part)) else { return false };
+    rules.iter().any(|rule| {
+        let Some(when) = &rule.when else { return false };
+        let names_state = match when.get("state") {
+            Some(Value::Array(list)) => list.iter().any(|s| s.as_str() == Some(state)),
+            Some(v) => v.as_str() == Some(state),
+            None => false,
+        };
+        names_state
+            && when.iter().filter(|(k, _)| k.as_str() != "state").all(|(key, want)| match query.props.get(key) {
+                None => false,
+                Some(actual) => match want {
+                    Value::Array(list) => list.iter().any(|w| json::strict_eq(w, actual)),
+                    w => json::strict_eq(w, actual),
+                },
+            })
+    })
 }
 
 /// A part's concrete visuals for one mode (`theme-recipes.json` locks it).

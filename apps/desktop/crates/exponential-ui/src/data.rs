@@ -16,6 +16,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::expr::truthy;
+use crate::format::Formatter;
 use crate::json;
 use crate::strings::{resolve_string, StringTable};
 use crate::catalog::CatalogView;
@@ -138,11 +139,34 @@ pub struct ResolveContext<'a> {
     /// The catalog whose prop schemas decide which props are DATA
     /// ([`bind_tree`]); `None` = the core catalog.
     pub view: Option<&'a CatalogView>,
+    /// Round 2: the surface's formatter (`SurfaceSettings.locale` + the
+    /// host's zone); the format functions run through it. `None` = the
+    /// English fallback ([`crate::format::ENGLISH`]).
+    pub formatter: Option<&'a dyn Formatter>,
+    /// The clock (epoch ms) `formatRelativeTime` reads without a `now`
+    /// argument; `None` = the wall clock.
+    pub now: Option<f64>,
 }
 
 impl<'a> ResolveContext<'a> {
     pub fn new(data: &'a Value, scope: &'a str) -> ResolveContext<'a> {
-        ResolveContext { data, scope, strings: None, overlay: None, item: None, view: None }
+        ResolveContext { data, scope, strings: None, overlay: None, item: None, view: None, formatter: None, now: None }
+    }
+
+    /// Format through the surface's formatter (see [`ResolveContext::formatter`]).
+    pub fn with_formatter(self, formatter: &'a dyn Formatter) -> ResolveContext<'a> {
+        ResolveContext { formatter: Some(formatter), ..self }
+    }
+
+    /// A fixed clock for `formatRelativeTime` (fixtures, a host re-binding
+    /// once a minute).
+    pub fn with_now(self, now_ms: f64) -> ResolveContext<'a> {
+        ResolveContext { now: Some(now_ms), ..self }
+    }
+
+    /// The formatter in effect.
+    pub fn formatter(&self) -> &'a dyn Formatter {
+        self.formatter.unwrap_or(&crate::format::ENGLISH)
     }
 
     /// Relative paths read inside `item` (see [`ResolveContext::item`]).
@@ -218,119 +242,16 @@ fn interpolate(text: &str, ctx: &ResolveContext) -> String {
     out
 }
 
-fn group_thousands(int: &str) -> String {
-    let bytes: Vec<char> = int.chars().collect();
-    let mut out = String::new();
-    for (i, c) in bytes.iter().enumerate() {
-        if i > 0 && (bytes.len() - i).is_multiple_of(3) {
-            out.push(',');
-        }
-        out.push(*c);
-    }
-    out
-}
-
-/// `en` number formatting with min/max fraction digits (`toLocaleString`).
-pub fn format_number(n: f64, min_digits: usize, max_digits: usize) -> String {
-    if !n.is_finite() {
-        return String::new();
-    }
-    let rounded = format!("{:.*}", max_digits, n.abs());
-    let (int, frac) = rounded.split_once('.').unwrap_or((&rounded, ""));
-    let mut frac = frac.to_string();
-    while frac.len() > min_digits && frac.ends_with('0') {
-        frac.pop();
-    }
-    let mut out = String::new();
-    if n < 0.0 && !rounded.trim_matches(|c| c == '0' || c == '.').is_empty() {
-        out.push('-');
-    }
-    out.push_str(&group_thousands(int));
-    if !frac.is_empty() {
-        out.push('.');
-        out.push_str(&frac);
-    }
-    out
-}
-
-fn plural_category(n: f64) -> &'static str {
-    if n == 1.0 {
-        "one"
-    } else {
-        "other"
-    }
-}
-
-fn format_date(value: &str, pattern: Option<&str>) -> String {
-    // yyyy-mm-dd[Thh:mm[:ss]] only (no timezone math; the host formats richer dates).
-    let date = value.get(0..10).unwrap_or("");
-    let mut parts = date.split('-');
-    let (Some(y), Some(m), Some(d)) = (parts.next(), parts.next(), parts.next()) else { return String::new() };
-    let (Ok(y), Ok(m), Ok(d)) = (y.parse::<i32>(), m.parse::<u32>(), d.parse::<u32>()) else { return String::new() };
-    if !(1..=12).contains(&m) || !(1..=31).contains(&d) {
-        return String::new();
-    }
-    let time = value.get(11..19).unwrap_or("00:00:00");
-    let mut t = time.split(':');
-    let hh = t.next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-    let mm = t.next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-    let ss = t.next().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0);
-    const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-    const DAYS: [&str; 7] = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-    // Zeller-style weekday.
-    let (zy, zm) = if m < 3 { (y - 1, m + 12) } else { (y, m) };
-    let k = zy % 100;
-    let j = zy / 100;
-    let h = (d as i32 + (13 * (zm as i32 + 1)) / 5 + k + k / 4 + j / 4 + 5 * j) % 7;
-    let weekday = ((h + 6) % 7) as usize; // 0 = Sunday
-    let Some(pattern) = pattern else {
-        return format!("{m}/{d}/{y}");
-    };
-    let h12 = if hh % 12 == 0 { 12 } else { hh % 12 };
-    let mut out = String::new();
-    let mut rest = pattern;
-    let tokens = ["yyyy", "yy", "MMMM", "MMM", "MM", "M", "dd", "d", "EEEE", "EEE", "HH", "H", "hh", "h", "mm", "ss", "a"];
-    'outer: while !rest.is_empty() {
-        for tok in tokens {
-            if let Some(after) = rest.strip_prefix(tok) {
-                let rep = match tok {
-                    "yyyy" => y.to_string(),
-                    "yy" => format!("{:02}", y % 100),
-                    "MMMM" => MONTHS[(m - 1) as usize].to_string(),
-                    "MMM" => MONTHS[(m - 1) as usize][..3].to_string(),
-                    "MM" => format!("{m:02}"),
-                    "M" => m.to_string(),
-                    "dd" => format!("{d:02}"),
-                    "d" => d.to_string(),
-                    "EEEE" => DAYS[weekday].to_string(),
-                    "EEE" => DAYS[weekday][..3].to_string(),
-                    "HH" => format!("{hh:02}"),
-                    "H" => hh.to_string(),
-                    "hh" => format!("{h12:02}"),
-                    "h" => h12.to_string(),
-                    "mm" => format!("{mm:02}"),
-                    "ss" => format!("{ss:02}"),
-                    "a" => if hh < 12 { "AM".into() } else { "PM".into() },
-                    _ => unreachable!(),
-                };
-                out.push_str(&rep);
-                rest = after;
-                continue 'outer;
-            }
-        }
-        let ch = rest.chars().next().unwrap();
-        out.push(ch);
-        rest = &rest[ch.len_utf8()..];
-    }
-    out
-}
-
-/// The function table: the core functions first, then the 14 client
-/// functions of the basic catalog (`and`/`or`/`not`/`required` with the core
-/// truthiness, `src/dynamic.ts LOGIC_FUNCTIONS`). `openUrl` returns the url as
-/// a string the surface turns into an event for the host. `None` = unknown
-/// function or an undefined result.
+/// The function table: the six format functions through the context's
+/// formatter (round 2), the core functions, then the client functions of
+/// the basic catalog (`and`/`or`/`not`/`required` with the core
+/// truthiness, `src/dynamic.ts LOGIC_FUNCTIONS`). `openUrl` returns the url
+/// as a string the surface turns into an event for the host. `None` =
+/// unknown function or an undefined result.
 pub fn call_function(name: &str, args: &Map<String, Value>, ctx: &ResolveContext) -> Option<Value> {
+    if let Some(result) = crate::format::call_format_function(name, args, ctx.formatter(), ctx.now.unwrap_or_else(crate::format::now_ms)) {
+        return result;
+    }
     if let Some(result) = crate::expr::core_function(name, args) {
         return result;
     }
@@ -355,40 +276,6 @@ pub fn call_function(name: &str, args: &Map<String, Value>, ctx: &ResolveContext
             Value::Bool(ok)
         }
         "formatString" => Value::String(interpolate(&s("value"), ctx)),
-        "formatNumber" => {
-            let n = num(a("value"));
-            if !n.is_finite() {
-                return Some(Value::String(String::new()));
-            }
-            let decimals = a("decimals").map(json::to_number).map(|d| d as usize);
-            Value::String(format_number(n, decimals.unwrap_or(0), decimals.unwrap_or(2)))
-        }
-        "formatCurrency" => {
-            let n = num(a("value"));
-            let currency = a("currency").map(json::to_js_string).unwrap_or_else(|| "USD".into());
-            let decimals = a("decimals").map(json::to_number).map(|d| d as usize).unwrap_or(2);
-            let body = format_number(n.abs(), decimals, decimals);
-            let symbol = match currency.as_str() {
-                "USD" => "$",
-                "EUR" => "€",
-                "GBP" => "£",
-                "JPY" => "¥",
-                _ => "",
-            };
-            let sign = if n < 0.0 { "-" } else { "" };
-            Value::String(if symbol.is_empty() { format!("{sign}{currency} {body}") } else { format!("{sign}{symbol}{body}") })
-        }
-        "formatDate" => Value::String(format_date(&s("value"), a("format").filter(|v| !v.is_null()).and_then(Value::as_str))),
-        "pluralize" => {
-            let n = num(a("value"));
-            if n == 0.0 {
-                if let Some(zero) = a("zero").filter(|v| !v.is_null()) {
-                    return Some(zero.clone());
-                }
-            }
-            let category = plural_category(n);
-            a(category).filter(|v| !v.is_null()).or_else(|| a("other").filter(|v| !v.is_null())).cloned().unwrap_or(Value::String(String::new()))
-        }
         "openUrl" => return a("url").filter(|v| v.is_string()).cloned(),
         "and" => Value::Bool(a("values").and_then(Value::as_array).is_some_and(|v| v.iter().all(truthy))),
         "or" => Value::Bool(a("values").and_then(Value::as_array).is_some_and(|v| v.iter().any(truthy))),
@@ -730,6 +617,15 @@ pub fn bind_row_slot(slot: &UiNode, rows_prop: &Value, rows: &[Value], index: us
     bind_tree(slot, &row_ctx)
 }
 
+/// Round 2 (§4): a List's `section` header bound for section `index`
+/// (`src/dynamic.ts bindSectionHeader` + `sectionScope`): relative paths
+/// read the LITERAL item `{value, count, index}`, absolute ones the data.
+pub fn bind_section_header(slot: &UiNode, section: &crate::list::ListSection, index: usize, ctx: &ResolveContext) -> Option<UiNode> {
+    let item = serde_json::json!({"value": section.value, "count": section.count, "index": index});
+    let section_ctx = ResolveContext { item: Some(&item), ..*ctx };
+    bind_tree(slot, &section_ctx)
+}
+
 /// An event an action dispatches, its context resolved BEFORE any write.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ActionEvent {
@@ -834,16 +730,28 @@ mod tests {
         assert_eq!(call("regex", json!({"value": "ab12", "pattern": "^[a-z]+\\d{2}$"})), Some(json!(true)));
         assert_eq!(call("regex", json!({"value": "ab1", "pattern": "^[a-z]+\\d{2}$"})), Some(json!(false)));
         assert_eq!(call("formatNumber", json!({"value": {"path": "/price"}})), Some(json!("1,234.5")));
+        assert_eq!(call("formatPercent", json!({"value": 0.256})), Some(json!("26%")));
         assert_eq!(call("formatNumber", json!({"value": 1234.5, "decimals": 2})), Some(json!("1,234.50")));
         assert_eq!(call("formatCurrency", json!({"value": 1234.5, "currency": "USD"})), Some(json!("$1,234.50")));
         assert_eq!(call("formatString", json!({"value": "n = ${/n}"})), Some(json!("n = 3")));
         assert_eq!(call("pluralize", json!({"value": {"path": "/n"}, "one": "item", "other": "items"})), Some(json!("items")));
+        assert_eq!(call("pluralize", json!({"value": 1, "other": "items"})), Some(json!("items")));
+        assert_eq!(call("pluralize", json!({"value": "x"})), None);
         assert_eq!(call("formatDate", json!({"value": "2026-10-07", "format": "d MMM yyyy"})), Some(json!("7 Oct 2026")));
         assert_eq!(call("formatDate", json!({"value": "2026-10-07", "format": "EEE"})), Some(json!("Wed")));
         assert_eq!(call("and", json!({"values": [true, 1]})), Some(json!(true)));
         assert_eq!(call("not", json!({"value": ""})), Some(json!(true)));
         assert_eq!(call("length", json!({"value": "abc", "min": 2, "max": 3})), Some(json!(true)));
         assert_eq!(call("numeric", json!({"value": "12", "min": 10})), Some(json!(true)));
+    }
+
+    #[test]
+    fn a_section_header_binds_its_section() {
+        let header: UiNode = serde_json::from_value(json!({"id": "h", "component": "Text", "props": {"text": {"call": "concat", "args": {"values": [{"path": "value"}, " · ", {"path": "count"}, " · ", {"path": "/title"}]}}}})).unwrap();
+        let data = json!({"title": "Inbox"});
+        let section = crate::list::ListSection { value: "Today".into(), start: 0, count: 2 };
+        let bound = bind_section_header(&header, &section, 0, &ResolveContext::new(&data, "")).unwrap();
+        assert_eq!(bound.props["text"], json!("Today · 2 · Inbox"));
     }
 
     #[test]

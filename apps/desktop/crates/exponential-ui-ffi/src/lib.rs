@@ -30,6 +30,21 @@
 //!   `runActionJson`) so a native never re-implements the bind pass, and the
 //!   shared pure helpers (tokenizer, chart numbers, locale, strings,
 //!   conditions).
+//!
+//! Round 2 (docs/round-2-contract.md):
+//! - a foreign `HostFormatter` (Foundation / `android.icu`) set per surface
+//!   (`setFormatter`); the core parses date values and picks the relative
+//!   unit, the host localizes; or a foreign `HostZone` for the English
+//!   fallback (`setFallbackZone`); `FfiSettings.timeZone` is the host's
+//!   (it builds those in it; the core has no zone database);
+//! - `bindRowSlotJson`, `bindSectionHeaderJson` (+ the formatter),
+//!   `scrollToIndex`, `setSurfaceScroll`, the clock (`setClock`, `tick`,
+//!   `usesClock`);
+//! - Visual: `direction`, `backdropBlur`, `animationJson`, `sticky`;
+//!   layout: `sticky` offsets, horizontal lists;
+//! - the shared helpers natives need: display strings, date parsing and
+//!   patterns, relative units, animation frames, the Resizable and list
+//!   arithmetic.
 
 use std::sync::{Arc, Mutex};
 use std::thread::ThreadId;
@@ -146,6 +161,18 @@ pub struct FfiList {
     pub end: u32,
     pub count: u32,
     pub windowed: bool,
+    /// Round 2: windows on x (`content_height` = the content width).
+    #[uniffi(default = false)]
+    pub horizontal: bool,
+}
+
+/// Round 2: a sticky node (or a pinned List section header) this pass:
+/// paint it and its subtree translated by `(dx, dy)`.
+#[derive(Debug, Clone, Copy, uniffi::Record)]
+pub struct FfiSticky {
+    pub index: u32,
+    pub dx: f32,
+    pub dy: f32,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -178,6 +205,9 @@ pub struct FfiLayout {
     /// This call came from inside the surface's own measurer: the previous
     /// result, no new pass.
     pub reentrant: bool,
+    /// Round 2: `position: sticky` nodes and pinned section headers.
+    #[uniffi(default = [])]
+    pub sticky: Vec<FfiSticky>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -186,6 +216,15 @@ pub struct FfiTextStyle {
     pub font_weight: u16,
     pub line_height: f32,
     pub font_family: Option<String>,
+    /// Round 2 (VAPP-100): extra px between glyphs (font scale applied),
+    /// `uppercase | lowercase | capitalize`, `italic`; null = none. They
+    /// change the shaped width: measure and paint with them.
+    #[uniffi(default = None)]
+    pub letter_spacing: Option<f32>,
+    #[uniffi(default = None)]
+    pub text_transform: Option<String>,
+    #[uniffi(default = None)]
+    pub font_style: Option<String>,
 }
 
 #[derive(Debug, Clone, uniffi::Record)]
@@ -218,6 +257,11 @@ pub struct FfiLeaf {
     pub text_style: FfiTextStyle,
     pub control: FfiControlBox,
     pub lines: Option<u32>,
+    /// Round 2 (VAPP-100): the component owning a PART leaf: the native
+    /// (`Tabs` for `Tabs/tab`) or the macro (`Stepper` for its `number`);
+    /// null for a plain node.
+    #[uniffi(default = None)]
+    pub owner_component: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, uniffi::Record)]
@@ -285,6 +329,20 @@ pub struct FfiNode {
     pub part_states: Vec<String>,
     /// The macro a non-part node expands (`Card`, `Alert`…), else null.
     pub macro_name: Option<String>,
+    /// Round 2 (VAPP-100): the interaction states the HOST set on the node
+    /// (`setStates` / `setPressed` / `setHovered` / `setHover`), as of this
+    /// read; recipes and `:hover`/`:pressed` styles resolve through them.
+    #[uniffi(default = [])]
+    pub interaction_states: Vec<String>,
+    /// `interaction_states` holds `hover`.
+    #[uniffi(default = false)]
+    pub hovered: bool,
+    /// Round 2 (VAPP-100): the node restyles under the pointer (a `:hover`
+    /// style block, or a recipe rule on `state: hover` its props match, in
+    /// the effective theme). Track a mouse over it like over a pressable and
+    /// report `setHover`. Re-read after a theme switch.
+    #[uniffi(default = false)]
+    pub hover_styled: bool,
 }
 
 /// A part's resolved look (VAPP-88): the painted visual plus the flat style
@@ -345,6 +403,21 @@ pub struct FfiVisual {
     pub cursor: Option<String>,
     /// A Chart's series colours, resolved.
     pub series_colors: Option<Vec<String>>,
+    /// Round 2: a leaf's direction (`ltr | rtl`), the bidi paragraph
+    /// direction of its text (`text_align` is then the PHYSICAL align).
+    #[uniffi(default = None)]
+    pub direction: Option<String>,
+    /// Round 2: backdrop blur radius in px (no platform blur = paint the
+    /// background alone).
+    #[uniffi(default = None)]
+    pub backdrop_blur: Option<f32>,
+    /// Round 2: `{name, timing: {durationMs, easing, iterations}, reduced?}`;
+    /// sample it with `animationFrameJson`.
+    #[uniffi(default = None)]
+    pub animation_json: Option<String>,
+    /// Round 2: `position: sticky` (offsets: `FfiLayout.sticky`).
+    #[uniffi(default = false)]
+    pub sticky: bool,
 }
 
 /// What a host sets per surface. `strings_json` = `{id: text}` overrides;
@@ -373,11 +446,19 @@ pub struct FfiSettings {
     /// `hoverTimeout(owner)`.
     #[uniffi(default = 0)]
     pub hover_close_ms: u32,
+    /// Round 2: the IANA zone instants show in (`catalog/host.json`
+    /// `timeZone`). The HOST's: build the `HostFormatter` (or the
+    /// `HostZone` for `setFallbackZone`) in it; the core has no zone
+    /// database and takes the zone only through those. Kept on the facade
+    /// so `settings()` returns it; without either, instants format in UTC.
+    #[uniffi(default = None)]
+    pub time_zone: Option<String>,
 }
 
 /// One event for the host: `kind` = `action | openUrl | functionCall |
 /// dataChanged | input | focus | announce | copy | pickFiles | relayout |
-/// hoverTimer`, `json` = the event's fields (`functionCall`: `{componentId,
+/// hoverTimer | scrollSurface` (round 2: `{x, y}`, scroll the host
+/// viewport, then `setSurfaceScroll`), `json` = the event's fields (`functionCall`: `{componentId,
 /// name, args}`, a host function for the registry + `decideFunction` gate).
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct FfiEvent {
@@ -391,6 +472,32 @@ pub struct FfiApplyOutcome {
     pub issues_json: String,
 }
 
+fn text_style(t: &exponential_ui::measure::TextStyle) -> FfiTextStyle {
+    FfiTextStyle {
+        font_size: t.font_size,
+        font_weight: t.font_weight,
+        line_height: t.line_height,
+        font_family: t.font_family.clone(),
+        letter_spacing: t.letter_spacing,
+        text_transform: t.text_transform.clone(),
+        font_style: t.font_style.clone(),
+    }
+}
+
+/// The leaves of a step as records. A macro PART leaf (`Stepper/number`)
+/// names its macro as the owner, like a native part names its native.
+fn leaves_of(surface: &Surface, list: &[LeafData]) -> Vec<FfiLeaf> {
+    let core = surface.core();
+    list.iter()
+        .map(|d| {
+            let macro_owner = core.layout_node(d.index).and_then(|n| n.part_query.as_ref()).filter(|q| q.part != "root").map(|q| q.component.clone());
+            let mut l = leaf(d);
+            l.owner_component = l.owner_component.or(macro_owner);
+            l
+        })
+        .collect()
+}
+
 fn leaf(d: &LeafData) -> FfiLeaf {
     let l = d.request();
     FfiLeaf {
@@ -399,8 +506,9 @@ fn leaf(d: &LeafData) -> FfiLeaf {
         component: l.component.to_string(),
         part: l.part.map(str::to_string),
         props_json: Value::Object(l.props.clone()).to_string(),
-        text: l.text().to_string(),
-        text_style: FfiTextStyle { font_size: l.text_style.font_size, font_weight: l.text_style.font_weight, line_height: l.text_style.line_height, font_family: l.text_style.font_family.clone() },
+        // A number or boolean shows as its display string (`412`).
+        text: l.display_text().into_owned(),
+        text_style: text_style(l.text_style),
         control: FfiControlBox {
             padding_horizontal: l.control.padding_horizontal,
             padding_vertical: l.control.padding_vertical,
@@ -416,6 +524,7 @@ fn leaf(d: &LeafData) -> FfiLeaf {
             height: l.control.height,
         },
         lines: l.lines,
+        owner_component: l.owner_component.map(str::to_string),
     }
 }
 
@@ -447,7 +556,7 @@ fn convert(out: LayoutOutput) -> FfiLayout {
     FfiLayout {
         frames: out.frames.iter().map(frame).collect(),
         layers: out.layers.iter().map(layer).collect(),
-        lists: out.lists.iter().map(|l| FfiList { id: l.id.clone(), node: l.node, content_height: l.content_height, start: l.start, end: l.end, count: l.count, windowed: l.windowed }).collect(),
+        lists: out.lists.iter().map(|l| FfiList { id: l.id.clone(), node: l.node, content_height: l.content_height, start: l.start, end: l.end, count: l.count, windowed: l.windowed, horizontal: l.horizontal }).collect(),
         visual_changes: out.visual_changes,
         structure_version: out.structure_version,
         surface_width: out.surface_width,
@@ -465,11 +574,13 @@ fn convert(out: LayoutOutput) -> FfiLayout {
         rebuilt: out.rebuilt,
         built_nodes: out.built_nodes,
         reentrant: false,
+        sticky: out.sticky.iter().map(|s| FfiSticky { index: s.index, dx: s.dx, dy: s.dy }).collect(),
     }
 }
 
-fn node(n: &PlacedNode, lnode: Option<&exponential_ui::layout_tree::LNode>) -> FfiNode {
+fn node(n: &PlacedNode, lnode: Option<&exponential_ui::layout_tree::LNode>, host: &[String], hover_styled: bool) -> FfiNode {
     let query = lnode.and_then(|l| l.part_query.as_ref());
+    let host = if n.removed { Vec::new() } else { host.to_vec() };
     FfiNode {
         index: n.index,
         id: n.id.clone(),
@@ -499,6 +610,9 @@ fn node(n: &PlacedNode, lnode: Option<&exponential_ui::layout_tree::LNode>) -> F
             (Some(q), Some(l)) if l.owner.is_none() => Some(q.component.clone()),
             _ => None,
         },
+        hovered: host.iter().any(|s| s == "hover"),
+        interaction_states: host,
+        hover_styled: !n.removed && hover_styled,
     }
 }
 
@@ -541,6 +655,10 @@ fn visual(v: &exponential_ui::style::Visual) -> FfiVisual {
         user_select: v.user_select.clone(),
         cursor: v.cursor.clone(),
         series_colors: v.series_colors.clone(),
+        direction: v.direction.clone(),
+        backdrop_blur: v.backdrop_blur,
+        animation_json: v.animation.as_ref().map(|a| serde_json::to_string(a).unwrap_or_default()),
+        sticky: v.sticky,
     }
 }
 
@@ -563,7 +681,7 @@ fn settings_of(f: &FfiSettings) -> Result<SurfaceSettings, UiError> {
     })
 }
 
-fn settings_out(s: &SurfaceSettings) -> FfiSettings {
+fn settings_out(s: &SurfaceSettings, time_zone: Option<String>) -> FfiSettings {
     let word = |v: serde_json::Value| v.as_str().unwrap_or_default().to_string();
     FfiSettings {
         locale: s.locale.clone(),
@@ -582,6 +700,7 @@ fn settings_out(s: &SurfaceSettings) -> FfiSettings {
         inset_left: s.insets.left,
         today: s.today.clone(),
         hover_close_ms: s.hover_close_ms,
+        time_zone,
     }
 }
 
@@ -730,11 +849,13 @@ pub struct Surface {
     pass_thread: Mutex<Option<ThreadId>>,
     /// The last completed layout (what a re-entrant call returns).
     last: Mutex<Option<FfiLayout>>,
+    /// `FfiSettings.time_zone` as the host set it (the core never reads it).
+    time_zone: Mutex<Option<String>>,
 }
 
 impl Surface {
     fn wrap(core: CoreSurface) -> Arc<Self> {
-        Arc::new(Surface { inner: Mutex::new(core), pass: Mutex::new(()), pass_thread: Mutex::new(None), last: Mutex::new(None) })
+        Arc::new(Surface { inner: Mutex::new(core), pass: Mutex::new(()), pass_thread: Mutex::new(None), last: Mutex::new(None), time_zone: Mutex::new(None) })
     }
 
     fn core(&self) -> std::sync::MutexGuard<'_, CoreSurface> {
@@ -793,6 +914,7 @@ fn empty_layout() -> FfiLayout {
         rebuilt: false,
         built_nodes: 0,
         reentrant: true,
+        sticky: Vec::new(),
     }
 }
 
@@ -860,13 +982,15 @@ impl Surface {
     }
 
     pub fn settings(&self) -> FfiSettings {
-        settings_out(self.core().settings())
+        let zone = self.time_zone.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        settings_out(self.core().settings(), zone)
     }
 
     /// Every setting at once (what changed takes effect on the next layout).
     pub fn set_settings(&self, settings: FfiSettings) -> Result<(), UiError> {
         let s = settings_of(&settings)?;
         self.core().set_settings(s);
+        *self.time_zone.lock().unwrap_or_else(|e| e.into_inner()) = settings.time_zone;
         Ok(())
     }
 
@@ -906,6 +1030,16 @@ impl Surface {
     /// A hover-capable pointer, the reduced-motion preference.
     pub fn set_pointer(&self, hover: bool, reduced_motion: bool) {
         self.core().set_pointer(hover, reduced_motion)
+    }
+
+    /// Round 2 (VAPP-100): the theme the core resolves against, as a
+    /// `Theme` object: the set theme (`extends` resolved) with the surface's
+    /// density and contrast applied. Painters resolving sub-parts
+    /// (`resolve_part`) or reading tokens use this one, so they get the
+    /// core layout's values. Null in geometry mode. Read it again after a
+    /// theme or settings change.
+    pub fn effective_theme(&self) -> Option<Arc<Theme>> {
+        self.core().effective_theme().map(|t| Arc::new(Theme { inner: t.clone() }))
     }
 
     /// The theme in effect (density + contrast applied), as JSON.
@@ -981,6 +1115,18 @@ impl Surface {
         self.core().set_pressed(&ids)
     }
 
+    /// Round 2 (VAPP-100): the hovered set as a whole (`hover` on exactly
+    /// these ids), like `set_pressed`. Recipes' `hover` and `:hover` styles
+    /// resolve through it; a hover overlay's trigger opens it.
+    pub fn set_hovered(&self, ids: Vec<String>) -> bool {
+        self.core().set_hovered(&ids)
+    }
+
+    /// One node's pointer enter (`true`) / leave, its other states kept.
+    pub fn set_hover(&self, id: String, hovered: bool) -> bool {
+        self.core().set_hover(&id, hovered)
+    }
+
     pub fn invalidate_measures(&self) {
         self.core().invalidate_measures()
     }
@@ -1007,11 +1153,11 @@ impl Surface {
         let out = loop {
             step = match step {
                 LayoutStep::Intrinsics(leaves) => {
-                    let answers: Vec<Intrinsics> = measurer.measure_intrinsics(leaves.iter().map(leaf).collect()).iter().map(intrinsics).collect();
+                    let answers: Vec<Intrinsics> = measurer.measure_intrinsics(leaves_of(self, &leaves)).iter().map(intrinsics).collect();
                     self.core().layout_intrinsics(&answers)
                 }
                 LayoutStep::Heights(leaves, requests) => {
-                    let heights = measurer.measure_heights(leaves.iter().map(leaf).collect(), requests.iter().map(|r| FfiHeightRequest { index: r.index, width: r.width }).collect());
+                    let heights = measurer.measure_heights(leaves_of(self, &leaves), requests.iter().map(|r| FfiHeightRequest { index: r.index, width: r.width }).collect());
                     self.core().layout_heights(&heights)
                 }
                 LayoutStep::Done(out) => break convert(*out),
@@ -1057,14 +1203,14 @@ impl Surface {
     pub fn nodes(&self) -> Vec<FfiNode> {
         let mut inner = self.core();
         let placed = inner.nodes();
-        placed.iter().map(|n| node(n, inner.layout_node(n.index))).collect()
+        placed.iter().map(|n| node(n, inner.layout_node(n.index), inner.host_states(&n.id), inner.hover_styled(n.index))).collect()
     }
 
     /// The given slots only (a delta's `added` + `changed`).
     pub fn nodes_at(&self, indices: Vec<u32>) -> Vec<FfiNode> {
         let mut inner = self.core();
         let placed = inner.nodes_at(&indices);
-        placed.iter().map(|n| node(n, inner.layout_node(n.index))).collect()
+        placed.iter().map(|n| node(n, inner.layout_node(n.index), inner.host_states(&n.id), inner.hover_styled(n.index))).collect()
     }
 
     pub fn visuals(&self) -> Vec<FfiVisual> {
@@ -1076,7 +1222,7 @@ impl Surface {
     }
 
     pub fn text_style(&self, index: u32) -> Option<FfiTextStyle> {
-        self.core().text_style(index).map(|t| FfiTextStyle { font_size: t.font_size, font_weight: t.font_weight, line_height: t.line_height, font_family: t.font_family.clone() })
+        self.core().text_style(index).map(text_style)
     }
 
     pub fn index_of(&self, id: String) -> Option<u32> {
@@ -1118,7 +1264,8 @@ impl Surface {
     }
 
     /// `{"focus": {"id"}}` | `{"announce": {"text", "live"}}` |
-    /// `{"scrollIntoView": {"id"}}`.
+    /// `{"scrollIntoView": {"id"}}` | `{"scrollToIndex": {"id", "index",
+    /// "align"?}}` (round 2).
     pub fn command_json(&self, command_json: String) -> Result<Vec<FfiEvent>, UiError> {
         let command: SurfaceCommand = parse(&command_json)?;
         Ok(events(self.core().command(&command)))
@@ -1139,6 +1286,362 @@ impl Surface {
     pub fn hover_timeout(&self, owner: String) -> Vec<FfiEvent> {
         events(self.core().hover_timeout(&owner))
     }
+
+    /// Round 2: format through the host's formatter (built from the
+    /// surface's locale + time zone); `None` = the English fallback. The
+    /// formatter is called during a rebuild with the surface locked: it
+    /// must not call back into the surface.
+    pub fn set_formatter(&self, formatter: Option<Arc<dyn HostFormatter>>) {
+        let f: Arc<dyn exponential_ui::format::Formatter> = match formatter {
+            Some(host) => Arc::new(ForeignFormatter(host)),
+            None => Arc::new(exponential_ui::format::EnglishFormatter),
+        };
+        self.core().set_formatter(f);
+    }
+
+    /// Round 2: the English fallback in the surface zone, as the platform's
+    /// UTC offset per instant (`zone`; `None` = UTC). It REPLACES a host
+    /// formatter: a host with one formats in its own zone and needs none.
+    /// Called with the surface locked: never call the surface from it.
+    pub fn set_fallback_zone(&self, zone: Option<Arc<dyn HostZone>>) {
+        let f: Arc<dyn exponential_ui::format::Formatter> = match zone {
+            Some(zone) => Arc::new(exponential_ui::format::ZonedEnglishFormatter::new(Arc::new(move |ms| zone.offset_minutes(ms)))),
+            None => Arc::new(exponential_ui::format::EnglishFormatter),
+        };
+        self.core().set_formatter(f);
+    }
+
+    /// Round 2: pin the clock relative times read (epoch ms; `None` = the
+    /// wall clock).
+    pub fn set_clock(&self, now_ms: Option<f64>) {
+        self.core().set_clock(now_ms);
+    }
+
+    /// Round 2: whether a time on screen moves with the clock (a
+    /// `formatRelativeTime` without `now`, a Table `relativeTime` column;
+    /// `false` with a pinned clock): call `tick` at least once a minute
+    /// while it holds. Ask after a layout.
+    pub fn uses_clock(&self) -> bool {
+        self.core().uses_clock()
+    }
+
+    /// Round 2: re-bind (call at least once a minute while the surface
+    /// shows a `formatRelativeTime` without `now`).
+    pub fn tick(&self) {
+        self.core().tick();
+    }
+
+    /// Round 2: the host's scroll offset of the whole surface; unbounded
+    /// lists window against it, sticky nodes pin against it. True = lay
+    /// out again.
+    pub fn set_surface_scroll(&self, x: f32, y: f32) -> bool {
+        self.core().set_surface_scroll(x, y)
+    }
+
+    /// Round 2: bring item `index` (data order) of List/Table `id` into
+    /// view; `align` = `start | center | end | nearest` (default).
+    pub fn scroll_to_index(&self, id: String, index: u32, align: Option<String>) -> Vec<FfiEvent> {
+        let align = align.as_deref().and_then(exponential_ui::list::ScrollAlign::parse).unwrap_or_default();
+        events(self.core().scroll_to_index(&id, index as usize, align))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Round 2: the host formatter (docs/round-2-contract.md §3)
+// ---------------------------------------------------------------------------
+
+/// Implemented by the host per surface (Foundation `NumberFormatter` /
+/// `Date.FormatStyle` / `RelativeDateTimeFormatter`; `android.icu`), in the
+/// surface's locale and time zone. The core parses the values and decides
+/// (the date value, the relative unit and count, the plural arm); the host
+/// only localizes. `formatPatternJson` gives a host the TR35 subset with
+/// its own month / weekday names.
+/// Round 2: the surface zone for the core's English fallback (it has no
+/// zone database): the platform's UTC offset at an instant
+/// (`TimeZone.secondsFromGMT(for:)`, `TimeZone.getOffset`).
+#[uniffi::export(with_foreign)]
+pub trait HostZone: Send + Sync {
+    /// Minutes east of UTC in force at `epoch_ms`.
+    fn offset_minutes(&self, epoch_ms: f64) -> i32;
+}
+
+#[uniffi::export(with_foreign)]
+pub trait HostFormatter: Send + Sync {
+    /// BCP 47.
+    fn locale(&self) -> String;
+    /// `decimals` = fixed fraction digits (`None` = 0..3); `grouping` =
+    /// locale separators.
+    fn number(&self, value: f64, decimals: Option<u32>, grouping: bool) -> String;
+    /// `code` = an upper-case ISO 4217 code; `decimals` `None` = its minor digits.
+    fn currency(&self, value: f64, code: String, decimals: Option<u32>, grouping: bool) -> String;
+    /// `value` is a ratio (0.256 → 26 %); `decimals` `None` = 0.
+    fn percent(&self, value: f64, decimals: Option<u32>) -> String;
+    /// `epoch_ms` = the instant; `date_only` = a calendar day (format in
+    /// UTC, never shifted); `format` = a TR35 pattern (wins) else `style` =
+    /// `short | medium | long | full` (default medium) + `time` = append
+    /// the short time.
+    fn date(&self, epoch_ms: f64, date_only: bool, format: Option<String>, style: Option<String>, time: bool) -> String;
+    /// `value` units from now (negative = past); `unit` = `second | minute
+    /// | hour | day | week | month | year`; numeric:auto phrasing.
+    fn relative_time(&self, value: i64, unit: String) -> String;
+    /// `zero | one | two | few | many | other`.
+    fn plural(&self, value: f64) -> String;
+    /// A byte size: `value` already in `unit` (`byte | kilobyte | megabyte
+    /// | gigabyte`, ≤ 1 fraction digit) with the locale's short unit name
+    /// (`Intl` `style: unit`; en-US `47.1 kB`, `500 byte`).
+    fn bytes(&self, value: f64, unit: String) -> String;
+}
+
+struct ForeignFormatter(Arc<dyn HostFormatter>);
+
+impl exponential_ui::format::Formatter for ForeignFormatter {
+    fn locale(&self) -> String {
+        self.0.locale()
+    }
+    fn number(&self, value: f64, o: exponential_ui::format::NumberOptions) -> String {
+        self.0.number(value, o.decimals, o.grouping)
+    }
+    fn currency(&self, value: f64, code: &str, o: exponential_ui::format::NumberOptions) -> String {
+        self.0.currency(value, code.to_string(), o.decimals, o.grouping)
+    }
+    fn percent(&self, value: f64, decimals: Option<u32>) -> String {
+        self.0.percent(value, decimals)
+    }
+    fn date(&self, value: exponential_ui::format::DateValue, o: &exponential_ui::format::DateOptions) -> String {
+        self.0.date(value.ms, value.date_only, o.format.clone(), o.style.map(|s| s.as_str().to_string()), o.time)
+    }
+    fn relative_time(&self, value: i64, unit: exponential_ui::format::RelativeUnit) -> String {
+        self.0.relative_time(value, unit.as_str().to_string())
+    }
+    fn plural(&self, value: f64) -> exponential_ui::format::PluralCategory {
+        exponential_ui::format::PluralCategory::parse(&self.0.plural(value)).unwrap_or(exponential_ui::format::PluralCategory::Other)
+    }
+    fn bytes(&self, value: f64, unit: exponential_ui::format::ByteUnit) -> String {
+        self.0.bytes(value, unit.as_str().to_string())
+    }
+}
+
+/// Options of the round-2 bind helpers: `{scope?, strings?: {id: text},
+/// now?: epoch ms}`.
+#[derive(Default, serde::Deserialize)]
+struct BindOptions {
+    #[serde(default)]
+    scope: String,
+    #[serde(default)]
+    strings: Option<indexmap::IndexMap<String, String>>,
+    #[serde(default)]
+    now: Option<f64>,
+}
+
+fn bind_options(options_json: Option<String>) -> Result<(BindOptions, exponential_ui::strings::StringTable), UiError> {
+    let options: BindOptions = match options_json {
+        Some(s) if !s.trim().is_empty() => parse(&s)?,
+        _ => BindOptions::default(),
+    };
+    let table = exponential_ui::strings::string_table(&options.strings.clone().unwrap_or_default());
+    Ok((options, table))
+}
+
+/// The resolve context of a bind helper: its scope, strings, clock
+/// (`now`) and formatter (the English fallback when `None`).
+fn bind_ctx<'a>(data: &'a Value, options: &'a BindOptions, table: &'a exponential_ui::strings::StringTable, formatter: Option<&'a ForeignFormatter>) -> exponential_ui::data::ResolveContext<'a> {
+    let ctx = exponential_ui::data::ResolveContext::new(data, &options.scope).with_strings(table);
+    let ctx = match options.now {
+        Some(now) => ctx.with_now(now),
+        None => ctx,
+    };
+    match formatter {
+        Some(f) => ctx.with_formatter(f),
+        None => ctx,
+    }
+}
+
+/// Round 2 (§4): a row-scoped slot cell (Table) bound for row `index`:
+/// `rows_prop_json` = the UNBOUND `rows` (a binding → relative paths read
+/// the data at `<its pointer>/<index>`; a literal → inside `rows[index]`),
+/// `rows_json` = the bound rows. Format calls go through `formatter` (the
+/// surface's; `None` = the English fallback). `None` = not visible.
+#[uniffi::export(default(formatter = None))]
+pub fn bind_row_slot_json(slot_json: String, rows_prop_json: String, rows_json: String, index: u32, data_json: String, options_json: Option<String>, formatter: Option<Arc<dyn HostFormatter>>) -> Result<Option<String>, UiError> {
+    let slot: UiNode = parse(&slot_json)?;
+    let rows_prop: Value = parse(&rows_prop_json)?;
+    let rows: Vec<Value> = parse(&rows_json)?;
+    let data: Value = parse(&data_json)?;
+    let (options, table) = bind_options(options_json)?;
+    let foreign = formatter.map(ForeignFormatter);
+    let ctx = bind_ctx(&data, &options, &table, foreign.as_ref());
+    Ok(exponential_ui::data::bind_row_slot(&slot, &rows_prop, &rows, index as usize, &ctx).map(|n| serde_json::to_string(&n).unwrap_or_default()))
+}
+
+/// Round 2 (§4): a List `section` header bound for section `index`;
+/// `section_json` = `{value, count}` (`start` optional): relative paths
+/// read `{value, count, index}`. `options.now` and `formatter` as
+/// [`bind_row_slot_json`].
+#[uniffi::export(default(formatter = None))]
+pub fn bind_section_header_json(slot_json: String, section_json: String, index: u32, data_json: String, options_json: Option<String>, formatter: Option<Arc<dyn HostFormatter>>) -> Result<Option<String>, UiError> {
+    let slot: UiNode = parse(&slot_json)?;
+    let section: Value = parse(&section_json)?;
+    let section = exponential_ui::list::ListSection { value: section.get("value").map(exponential_ui::format::display_string).unwrap_or_default(), start: section.get("start").and_then(Value::as_u64).unwrap_or(0) as usize, count: section.get("count").and_then(Value::as_u64).unwrap_or(0) as usize };
+    let data: Value = parse(&data_json)?;
+    let (options, table) = bind_options(options_json)?;
+    let foreign = formatter.map(ForeignFormatter);
+    let ctx = bind_ctx(&data, &options, &table, foreign.as_ref());
+    Ok(exponential_ui::data::bind_section_header(&slot, &section, index as usize, &ctx).map(|n| serde_json::to_string(&n).unwrap_or_default()))
+}
+
+/// Round 2 (§3): what a text prop shows for a bound value (`412`, `true`,
+/// nothing for null / objects).
+#[uniffi::export]
+pub fn display_string_json(value_json: String) -> Result<String, UiError> {
+    Ok(exponential_ui::format::display_string(&parse::<Value>(&value_json)?))
+}
+
+/// Round 2: a format call (`{call, args}`) through the English fallback
+/// (at `offset_minutes` east of UTC, default 0: `format.json` `zoned`), or
+/// through `formatter` (`now` = the clock for `formatRelativeTime`).
+#[uniffi::export(default(offset_minutes = None))]
+pub fn format_call_json(call_json: String, formatter: Option<Arc<dyn HostFormatter>>, now: Option<f64>, offset_minutes: Option<i32>) -> Result<Option<String>, UiError> {
+    let call: Value = parse(&call_json)?;
+    let empty = Value::Object(Default::default());
+    let foreign = formatter.map(ForeignFormatter);
+    let zoned = exponential_ui::format::ZonedEnglishFormatter::fixed(offset_minutes.unwrap_or(0));
+    let ctx = exponential_ui::data::ResolveContext::new(&empty, "");
+    let ctx = match &foreign {
+        Some(f) => ctx.with_formatter(f),
+        None => ctx.with_formatter(&zoned),
+    };
+    let ctx = match now {
+        Some(n) => ctx.with_now(n),
+        None => ctx,
+    };
+    Ok(exponential_ui::data::resolve_value(&call, &ctx).map(|v| v.to_string()))
+}
+
+/// Round 2: a date value (`yyyy-mm-dd`, an ISO date-time, epoch ms) as
+/// `{ms, dateOnly}`, or `None` when unreadable.
+#[uniffi::export]
+pub fn parse_date_value_json(value_json: String) -> Result<Option<String>, UiError> {
+    let v: Value = parse(&value_json)?;
+    Ok(exponential_ui::format::parse_date_value(&v).map(|d| serde_json::json!({"ms": d.ms, "dateOnly": d.date_only}).to_string()))
+}
+
+/// Round 2: the TR35 subset over calendar fields with the host's names:
+/// `fields_json` = `{year, month (1–12), day, weekday (0 = Sunday), hour,
+/// minute, second}`, `names_json` = `{months, monthsShort, weekdays,
+/// weekdaysShort, dayPeriods}` (`None` = English).
+#[uniffi::export]
+pub fn format_pattern_json(pattern: String, fields_json: String, names_json: Option<String>) -> Result<String, UiError> {
+    let f: Value = parse(&fields_json)?;
+    let n = |k: &str| f.get(k).and_then(Value::as_i64).unwrap_or(0);
+    let fields = exponential_ui::format::DateFields { year: n("year"), month: n("month").clamp(1, 12) as u32, day: n("day") as u32, weekday: n("weekday").rem_euclid(7) as u32, hour: n("hour") as u32, minute: n("minute") as u32, second: n("second") as u32 };
+    let names = match names_json {
+        Some(s) => parse::<exponential_ui::format::DateNames>(&s)?,
+        None => exponential_ui::format::english_names().clone(),
+    };
+    Ok(exponential_ui::format::format_pattern(&pattern, &fields, &names))
+}
+
+/// Round 2: the unit a relative time shows in: `{value, unit}` for
+/// `delta_ms` = value − now.
+#[uniffi::export]
+pub fn relative_time_unit_json(delta_ms: f64) -> String {
+    let (value, unit) = exponential_ui::format::relative_time_unit(delta_ms);
+    serde_json::json!({"value": value, "unit": unit.as_str()}).to_string()
+}
+
+/// Round 2 (§2): the frame of an animation (`timing_json` = a visual's
+/// `animation.timing`) `elapsed_ms` after the node entered the tree:
+/// `{opacity, translateX, translateY, rotate, scale, band}`.
+#[uniffi::export]
+pub fn animation_frame_json(name: String, timing_json: String, elapsed_ms: f64, reduced_motion: bool) -> Result<Option<String>, UiError> {
+    let timing: exponential_ui::animation::AnimationTiming = parse(&timing_json)?;
+    Ok(exponential_ui::animation::frame_with_timing(&name, &timing, elapsed_ms, reduced_motion).map(|f| serde_json::to_string(&f).unwrap_or_default()))
+}
+
+/// Round 2 (§1): the Resizable arithmetic, `{op, …}` → the numbers:
+/// `normalize {sizes?, count, panels?}`, `resize {sizes, handle, delta,
+/// panels?}`, `key {sizes, handle, key, orientation, direction?, panels?}`,
+/// `extents {sizes, container, handleExtent?}`, `drag {px, container,
+/// panels, orientation, direction?, handleExtent?}` (`handleExtent` = the
+/// theme's `$control.hairline`, default 1; `extents` also reads the older
+/// `handle`). A surface runs them itself on `drag` / `key` events; hosts
+/// use this for previews and the binding suites.
+#[uniffi::export]
+pub fn resizable_json(request_json: String) -> Result<String, UiError> {
+    use exponential_ui::resizable::{drag_delta, keyboard_resize, normalize_sizes, panel_extents, resize_panels, Orientation, PanelLimits};
+    let r: Value = parse(&request_json)?;
+    let nums = |k: &str| r.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect::<Vec<_>>()).unwrap_or_default();
+    let limits = PanelLimits::list(r.get("panels"));
+    let orientation = r.get("orientation").and_then(Value::as_str).and_then(Orientation::parse).unwrap_or_default();
+    let rtl = r.get("direction").and_then(Value::as_str) == Some("rtl");
+    let handle = r.get("handle").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let handle_extent = |fallback: Option<&str>| r.get("handleExtent").or_else(|| fallback.and_then(|k| r.get(k))).and_then(Value::as_f64).unwrap_or(1.0);
+    let out = match r.get("op").and_then(Value::as_str).unwrap_or("") {
+        "normalize" => serde_json::json!(normalize_sizes(r.get("sizes").and_then(Value::as_array).map(Vec::as_slice), r.get("count").and_then(Value::as_u64).unwrap_or(0) as usize, &limits)),
+        "resize" => serde_json::json!(resize_panels(&nums("sizes"), handle, r.get("delta").and_then(Value::as_f64).unwrap_or(0.0), &limits)),
+        "key" => serde_json::json!(keyboard_resize(&nums("sizes"), handle, r.get("key").and_then(Value::as_str).unwrap_or(""), orientation, rtl, &limits)),
+        "extents" => serde_json::json!(panel_extents(&nums("sizes"), r.get("container").and_then(Value::as_f64).unwrap_or(0.0), handle_extent(Some("handle")))),
+        "drag" => serde_json::json!(drag_delta(r.get("px").and_then(Value::as_f64).unwrap_or(0.0), r.get("container").and_then(Value::as_f64).unwrap_or(0.0), r.get("panels").and_then(Value::as_u64).unwrap_or(0) as usize, orientation, rtl, handle_extent(None))),
+        other => return Err(invalid(format!("op must be normalize|resize|key|extents|drag, got {other:?}"))),
+    };
+    Ok(out.to_string())
+}
+
+/// Round 2 (§5): the list arithmetic, `{op, …}` → JSON: `window {extents,
+/// gap, scroll, viewport, overscan?}`, `scrollTo {extents, gap, index,
+/// viewport, scroll, align?, inset?}`, `scrollToItem {rows ([{header}|
+/// {item}], as `sections` gives), rowExtents, gap, index (DATA), viewport,
+/// scroll, align?, stickyHeaders?}`, `sections {items, sectionBy}`,
+/// `sticky {rowExtents, headerRows, scroll, gap?, rowOffsets?}` (`gap` =
+/// the list's item spacing incl. a divider's hairline; `rowOffsets`, when
+/// given, wins; header rows sort, out-of-range ones are an error), `keys
+/// {items, key?}`, `rowKeys {rows, rowKey?}`.
+#[uniffi::export]
+pub fn list_json(request_json: String) -> Result<String, UiError> {
+    use exponential_ui::list::*;
+    let r: Value = parse(&request_json)?;
+    let nums = |k: &str| r.get(k).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_f64).collect::<Vec<_>>()).unwrap_or_default();
+    let num = |k: &str| r.get(k).and_then(Value::as_f64).unwrap_or(0.0);
+    let arr = |k: &str| r.get(k).and_then(Value::as_array).cloned().unwrap_or_default();
+    let out = match r.get("op").and_then(Value::as_str).unwrap_or("") {
+        "window" => serde_json::to_value(virtual_window(&nums("extents"), num("gap"), num("scroll"), num("viewport"), r.get("overscan").and_then(Value::as_u64).map(|o| o as usize).unwrap_or(DEFAULT_OVERSCAN))).map_err(invalid)?,
+        "scrollTo" => serde_json::json!(scroll_offset_for_index(&nums("extents"), num("gap"), r.get("index").and_then(Value::as_u64).unwrap_or(0) as usize, num("viewport"), num("scroll"), r.get("align").and_then(Value::as_str).and_then(ScrollAlign::parse).unwrap_or_default(), num("inset"))),
+        "sections" => {
+            let sections = list_sections(&arr("items"), r.get("sectionBy").and_then(Value::as_str).unwrap_or(""));
+            let rows: Vec<Value> = section_rows(&sections).into_iter().map(|row| match row {
+                SectionRow::Header(h) => serde_json::json!({"header": h}),
+                SectionRow::Item(i) => serde_json::json!({"item": i}),
+            }).collect();
+            serde_json::json!({"sections": sections, "rows": rows})
+        }
+        "scrollToItem" => {
+            let rows: Vec<SectionRow> = serde_json::from_value(r.get("rows").cloned().unwrap_or_default()).map_err(|e| invalid(format!("rows: {e}")))?;
+            let extents = nums("rowExtents");
+            if extents.len() != rows.len() {
+                return Err(invalid(format!("rowExtents ({}) must match rows ({})", extents.len(), rows.len())));
+            }
+            let align = r.get("align").and_then(Value::as_str).and_then(ScrollAlign::parse).unwrap_or_default();
+            serde_json::json!(scroll_offset_for_item(&rows, &extents, num("gap"), r.get("index").and_then(Value::as_u64).unwrap_or(0) as usize, num("viewport"), num("scroll"), align, r.get("stickyHeaders").and_then(Value::as_bool).unwrap_or(false)))
+        }
+        "sticky" => {
+            let extents = nums("rowExtents");
+            let offsets = match r.get("rowOffsets") {
+                Some(_) => nums("rowOffsets"),
+                None => item_offsets(&extents, num("gap")),
+            };
+            let mut headers: Vec<usize> = arr("headerRows").iter().filter_map(Value::as_u64).map(|h| h as usize).collect();
+            headers.sort_unstable();
+            headers.dedup();
+            if let Some(bad) = headers.iter().find(|&&h| h >= extents.len() || h >= offsets.len()) {
+                return Err(invalid(format!("headerRows: row {bad} is past rowExtents ({}) / rowOffsets ({})", extents.len(), offsets.len())));
+            }
+            serde_json::to_value(sticky_header(&offsets, &extents, &headers, num("scroll"))).map_err(invalid)?
+        }
+        "keys" => serde_json::json!(template_item_keys(&arr("items"), r.get("key").and_then(Value::as_str))),
+        "rowKeys" => serde_json::json!(table_row_keys(&arr("rows"), r.get("rowKey").and_then(Value::as_str).unwrap_or("id"))),
+        other => return Err(invalid(format!("op must be window|scrollTo|scrollToItem|sections|sticky|keys|rowKeys, got {other:?}"))),
+    };
+    Ok(out.to_string())
 }
 
 // ---------------------------------------------------------------------------

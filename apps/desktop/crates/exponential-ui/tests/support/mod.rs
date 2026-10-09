@@ -4,6 +4,8 @@
 
 #![allow(dead_code)]
 
+pub mod round2;
+
 use exponential_ui::host::{
     client_capabilities, combine_decisions, decide_function, decide_url, mcp_action_call, media_request, messages_from_mcp_result, parse_source,
     supported_catalog_ids, validate_package, Decoded, FunctionDecision, FunctionPolicy, HostRouter, JsonlDecoder, MediaOptions, SseDecoder, UrlPolicy,

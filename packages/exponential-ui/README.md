@@ -20,7 +20,7 @@ nothing from the Exponential app.
 
 | path | what |
 |---|---|
-| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 15 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 82 components with props + descriptions |
+| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 17 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 83 components with props + descriptions |
 | `catalog/macros.json` | the declarative expansion table, one template per macro component |
 | `catalog/basic-map.json` | A2UI basic → core: components (+ named transforms), icons, functions |
 | `catalog/style.json` | the `Box` style whitelist (VAPP-4), one source for TS / schema / natives |
@@ -29,6 +29,7 @@ nothing from the Exponential app.
 | `catalog/locale.json` | round 1: week start by region, likely regions (CLDR), deprecated language aliases, the RTL languages, the glyphs mirrored under RTL |
 | `catalog/code.json` | round 1: CodeBlock's built-in tokenizer (rules + per-language specs) |
 | `catalog/a11y.json` | round 1: the machine-readable role vocabulary; per component its role, notes and keyboard expectations; the rules; the host commands (focus, announce, scrollIntoView). Macro parts carry role/states/name via `$a11y` (macros.json) |
+| `catalog/layout.json` | round 2: the shared layout numbers (window threshold + overscan, field and media intrinsic sizes, Resizable step/min/hit, TreeGuides column) |
 | `catalog/recipes.json` | the recipe contract: interaction states (+ `invalid`, `dragover`), the recipe key whitelist (+ motion, transform, per-side borders), every native's parts + `when` props (macro parts come from macros.json) |
 | `catalog/host.json` | the host API contract (VAPP-91): message kinds, ops, error codes, function decisions, URL schemes, MCP carrier, package format |
 | `catalog/core.schema.json` | generated: the catalog as JSON Schema in A2UI's catalog shape |
@@ -41,6 +42,7 @@ nothing from the Exponential app.
 | `docs/themes.generated.json` | generated: the token vocabulary with every built-in's values, the recipe contract per component |
 | `fixtures/` | the contract (below) |
 | `docs/round-1-contract.md` | the renderer-hardening round: every contract change with notes per renderer |
+| `docs/round-2-contract.md` | round 2: Resizable, sticky, backdrop blur, animations, the Formatter, sections + scrollToIndex, the 53 gpui-vs-web decisions; a checklist per renderer |
 | `src/host/` | the host API reference: router, decoders, policy, sources, packages, the `ExponentialHost` runtime + transports |
 | `src/connector/` | the Exponential connector (MCP OAuth + `exp:` sources over MCP) and `createVappHost` |
 | `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide; round 1's real-font harness beside it (`run.ts`, `dump.ts`, `compare.ts`, `fonts.json`) |
@@ -227,7 +229,7 @@ server, a third-party theme, one extension component, four hosts).
 
 ## Conformance
 
-`conformance/README.md`: 15 suites, 1367 cases; a renderer is conformant
+`conformance/README.md`: 24 suites (version 2); a renderer is conformant
 when `bun run --filter @exponential-at/ui conformance:check <report>` says
 so. All four renderers and the core run it in CI (`exponential-ui.yml`).
 
@@ -251,6 +253,14 @@ so. All four renderers and the core run it in CI (`exponential-ui.yml`).
 | `theme-invalid.json` | bad themes → the issues they must raise (paths ×4, never a crash) |
 | `control-geometry.json` | theme × control × props → the box a painter or override must measure to |
 | `host-transport.json` / `host-policy.json` / `host-router.json` | the host API (VAPP-91): decoders, the gate / urls / media / sources / negotiation, router flows → ops |
+| `format.json` | round 2: the format functions through the English fallback Formatter (= Intl en-US; UTC, and `zoned` at a fixed offset) + what a text prop shows for a bound number/boolean |
+| `template-items.json` | round 2: item keys (`#<index>` for missing/duplicate), Table row keys, accumulated (escaped) instance suffixes, template nodes lifted out of the tree, cycles reported |
+| `text-direction.json` | round 2: per-node direction (`direction` on any node) and the physical text alignment |
+| `resizable.json` | round 2: Resizable sizes: normalize, drag, keys (rtl), extents, px → percent |
+| `virtual-list.json` | round 2: the one-axis window, scrollToIndex, sections, the sticky header |
+| `animations.json` | round 2: timing + sampled frames of every `animation` per built-in theme, reduced motion, the CSS @keyframes |
+| `bench-list.json` | round 2: the 100,000-row List every renderer benches (numbers in each renderer's README) |
+| `conformance-known.json` | the gpui ratchet + round 2's 53 divergence decisions (`causes`, `rules`) |
 
 ## Commands
 

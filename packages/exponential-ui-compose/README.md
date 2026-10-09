@@ -8,13 +8,13 @@ The Rust core [`exponential-ui`](../../apps/desktop/crates/exponential-ui) does 
 - resolves the theme,
 - lays the tree out with taffy.
 
-This library measures text for the core in batches. It then paints the result in Compose at the frames the core computed.
+This library measures text for the core in batches. It then paints the result in Compose at the frames the core computed. It implements the round 1 and round 2 contracts ([`docs/round-1-contract.md`](../exponential-ui/docs/round-1-contract.md), [`docs/round-2-contract.md`](../exponential-ui/docs/round-2-contract.md)).
 
 Android 8+ (minSdk 26). No WebView, no downloaded code, nothing from the Exponential app.
 
 | module | artifact | what | depends on |
 |---|---|---|---|
-| `:ui-compose` (`ui-compose/`) | `at.exponential:ui-compose` | The painter: `SurfaceModel` + `ExponentialSurface`, the host plugin, extension painters. | The UniFFI facade [`exponential-ui-ffi`](../../apps/desktop/crates/exponential-ui-ffi) (the generated Kotlin binding compiled in; `libexponential_ui_ffi.so` for arm64-v8a, armeabi-v7a and x86_64; JNA 5.17 `@aar`), `:ui-compose-primitives` |
+| `:ui-compose` (`ui-compose/`) | `at.exponential:ui-compose` | The painter: `SurfaceModel` + `ExponentialSurface`, the host plugin, extension painters. | The UniFFI facade [`exponential-ui-ffi`](../../apps/desktop/crates/exponential-ui-ffi) (the generated Kotlin binding compiled in; the generated catalog object `at.exponential.ui.ExponentialUICatalog` from `packages/exponential-ui/generated`; `libexponential_ui_ffi.so` for arm64-v8a, armeabi-v7a and x86_64; JNA 5.17 `@aar`), `:ui-compose-primitives` |
 | `:ui-compose-primitives` (`primitives/`) | `at.exponential:ui-compose-primitives` | The generic Compose primitives the catalog natives are painted with, themed by `PrimitiveTokens`: pill, segmented control, field chrome, drawn switch, avatar, meter track, ring, the markdown model + `MarkdownView`, empty state, disclosure header. | nothing (pure Compose) |
 | `:example` (`example/`) | (app `at.exponential.ui.kitchensink`) | The kitchen-sink app. | `:ui-compose` only |
 
@@ -58,25 +58,59 @@ Column(Modifier.verticalScroll(rememberScrollState())) {
   - `icon(name, size)` maps the catalog's registry concepts to your composables, painted under `LocalContentColor`. `null` paints the placeholder circle.
   - `onAction` receives every A2UI action.
   - `onInput` receives host-owned text edits: `Change` is debounced 150 ms and carries a revision; `Commit` fires on blur or IME Done.
-  - The rest: `openUrl` (default: `ACTION_VIEW` through `ExponentialUi.appContext`), `resolveUrl`, `onUnknown`, `fontFamily`, `markdown`.
-- **Fonts.** `ExponentialUi.registerFont(family, FontFamily)` registers a family a theme names. A missing family falls back to the platform default.
+  - The rest: `openUrl` (default: `ACTION_VIEW` through `ExponentialUi.appContext`), `resolveUrl`, `onUnknown`, `fontFamily`, `markdown`, `copy` (default: the clipboard), `pickFiles` (a FileUpload asks; answer `request.done(files)`).
+- **Fonts.** `ExponentialUi.registerFont(family, FontFamily)` registers a family a theme names. Text without a family uses the theme's `sans`; a family that is not registered falls back to the platform default.
 - **Themes.** Load one with `ThemeHandle.builtin(id)` or `ThemeHandle.load(json, parents)`; switch with `model.setTheme` / `setMode`.
   - Painters never read recipes: the core hands them resolved visuals.
   - Sub-parts the core does not synthesize (a Checkbox `check`, a Switch `thumb`, a Select `trigger`…) resolve through the facade's `Theme` object (`model.part(component, part, props)`), cached per query.
+  - Tokens and sub-parts come from `model.effectiveTheme` (`Surface.effectiveTheme()`: `extends`, density and contrast applied), so they match the core's layout under `compact` or high contrast. `model.theme` stays the theme you set.
 - **Extensions.** Register with `ExponentialUi.register(extensionJson, mapOf(kind to painter))`.
   - An `ExtensionPainter` answers `measure(leaf, wrap)` (the border box) and `@Composable Paint(context)` (the content inside the frame).
   - `context.emit` fires the node's `on` handlers.
-- **Viewport.** The width comes from the surface's own layout (`onSizeChanged`, reported after layout, never during composition). `model.setViewport(width, height, maxHeight)` sets the visible height (dialog centring, windowed lists) and a card bound.
+- **Viewport.** The width comes from the surface's own layout (`onSizeChanged`, reported after layout, never during composition). The visible part comes from the window (`onGloballyPositioned`): unbounded lists window against it, sticky pins and viewport layers follow it. `model.setViewport(width, height, maxHeight)` pins the visible height yourself.
+- **Settings** (`SurfaceOptions.settings`, `model.setSettings`). `null` members follow the device, which `ExponentialSurface` reads:
+
+  | setting | default |
+  |---|---|
+  | `locale`, `timeZone` | the device's (`en-US` / `UTC` headless) |
+  | `strings` | `{}` (overrides of `catalog/strings.json`) |
+  | `followSystemMode` | `false` (`true` = `system` mode) |
+  | `density` | `default` (`compact`, `comfortable`) |
+  | `contrast` | `normal` (`high`, `system`) |
+  | `fontScale` | the device's font scale (the core scales the type; painting stays at 1) |
+  | `reducedMotion` | animator duration scale 0 |
+  | `hover` | a mouse is connected |
+  | `insets` | the window's safe-drawing insets |
+  | `formatter` | `IcuFormatter(locale, timeZone)` (`android.icu`) |
+
+- **Commands.** `model.command(json)` takes `{focus: {id}}`, `{announce: {text, live}}`, `{scrollIntoView: {id}}`, `{scrollToIndex: {id, index, align}}`; `model.scrollToIndex(id, index, align)` is the shorthand.
 
 ## The painting model
 
 - **Frames and order.** The core returns absolute frames (dp) in surface coordinates. Pre-order is both paint order and accessibility order.
 - **`FrameLayout`.** A custom `Layout` measures each child with `Constraints.fixed` at its frame and `place`s it, never `placeRelative`, relative to its container. It never asks for intrinsics.
 - **Nesting.** Containers nest like the tree, so `overflow: hidden`, radius clips and opacity inherit without emulation.
-- **Direction.** The surface pins `LocalLayoutDirection` to Ltr, because an RTL surface has already been mirrored by the core.
-- **Font scale.** The surface pins `fontScale = 1`: sizes are the theme's.
-- **Boxes.** A container paints its box: background, radius, shadows (CSS blur → a `BlurMaskFilter`), border and opacity (`ModulateAlpha`, so shadows survive). A measured leaf paints inside the recipe padding the measurer counted.
-- **Text.** ONE `TextMeasurer`, created by `ExponentialSurface` on that density, both measures and paints. The style is the same in both places (`lineHeight` with `LineHeightStyle(Center, Trim.None)`, `includeFontPadding = false`), so the measured height is the painted height and `n` lines = `n × lineHeight`.
+- **Direction.** The surface pins `LocalLayoutDirection` to Ltr, because the core has already mirrored an RTL node. A leaf shapes its text with ITS direction as the bidi paragraph direction and the core's physical `textAlign`. Only `rtlMirroredIcons` flip (`scaleX = -1`, outermost).
+- **Font scale.** The surface pins `fontScale = 1`; the device's scale reaches the core, which scales the theme's type.
+- **Boxes.** A container paints its box:
+  - background + gradient (CSS angle) on per-corner radii (CSS clamping);
+  - shadows (CSS blur → a `BlurMaskFilter`);
+  - the border inside the box: per-side widths in one colour, `dashed` / `dotted`;
+  - opacity (`ModulateAlpha`, so shadows survive), the paint-only `transform` about the centre, `visibility: hidden` (inherited: out of the tree for TalkBack, no taps, no focus);
+  - `backdropBlur` paints the translucent background alone (see the divergences).
+
+  A measured leaf paints inside the recipe padding the measurer counted (per side).
+- **Motion.** `transition` animates background, border colour and opacity over its ms with its cubic bezier. A style `animation` paints the core's frame (`animationFrameJson`) every display frame from the node's entry; infinite ones run on `withInfiniteAnimationFrameNanos`. Reduced motion paints the rest frame.
+- **Scrolling.** The core's `scrolls` (any `overflow: scroll | auto`, windowed lists, a Dialog body) become Compose scrollers on one or both axes. Frames stay unscrolled; every offset goes back through `scrollTo(id, x, y, fromView = true)`.
+
+  | the scrolled container | per scroll step |
+  |---|---|
+  | plain (no windowed list, no sticky node inside) | nothing: Compose already moved the paint |
+  | a windowed list or a sticky node inside | one layout pass (the window or the pins move) |
+
+  An offset the core sets (`scrollIntoView`, `scrollToIndex`, a clamp, a key) scrolls the view (`scrollEpoch`). The visible height the surface reports to the core applies at once when it grows by 48 dp or more, otherwise after 150 ms at rest.
+- **Sticky.** `position: sticky` nodes and pinned List headers paint at their frame plus the core's `(dx, dy)`, above their siblings.
+- **Text.** ONE `TextMeasurer`, created by `ExponentialSurface` on that density, both measures and paints. The style is the same in both places (`lineHeight` with `LineHeightStyle(Center, Trim.None)`, `includeFontPadding = false`, `letterSpacing`, `TextMotion.Animated` = unhinted fractional advances, as Chromium and gpui), so the measured height is the painted height and `n` lines = `n × lineHeight`. Widths are the FRACTIONAL shaped extent, as on the web and gpui. Frames round to whole px and Compose ceils a text's intrinsic width, so a text up to `TEXT_SLACK_PX` (2 px) wider than its box still paints on one line.
 - **Text colour.** The node's own, else the nearest ancestor's, else the theme's `foreground`.
 
 ## Measurement (the VAPP-4 verdict)
@@ -87,12 +121,16 @@ Column(Modifier.verticalScroll(rememberScrollState())) {
 
 The core memoizes the answers per measure identity, so a resize to a width it has seen makes no upcall.
 
-Every answer is the BORDER box: the recipe's padding and border around the content, with fixed and minimum sizes winning. The rules are a verbatim port of the Swift measurer (the gpui rules):
-- a `lines: 1` text shrinks to 0 at min-content;
-- picker triggers (Select, DatePicker, TimePicker, DateRangePicker) size the core's `text` plus the glyph, at least 160 dp;
-- inline fields (NumberField / ChipInput `input`, Select `search`) size the wider of their text and placeholder;
-- Markdown measures with the same block layout it paints;
-- platform controls have recipe-fixed boxes.
+Every answer is the BORDER box: the recipe's padding (per side) and border around the content, with fixed and minimum sizes winning, plus the first baseline. The rules follow the gpui measurer and round 2 §7:
+- an empty text is 0 lines; a `lines: 1` text is `nowrap`: min-content = the whole line (gpui's rule; the Swift measurer still shrinks it to 0, a drift for the iOS lane);
+- a text part carries its owner's chrome: a tab's icon and count, an accordion's count and chevron, a Select option's check, a menu item's icon, a Table header's sort arrow;
+- typed Table cells (`boolean` a tick, `badge` a pill) and CodeBlock lines (one line, never wrapped);
+- picker triggers (Select, DatePicker, TimePicker, DateRangePicker) size their text plus the glyph, no 160 floor;
+- text fields are 160 wide at max-content (`catalog/layout.json`); inline fields (NumberField / ChipInput `input`, Select `search`) and autosize Textareas size their LIVE text;
+- Image / Video take `aspectRatio` (16:9), 320 at max-content, 0 at min-content; a Chart's `height` is the whole box; an AudioPlayer is the title line + `$control.row`;
+- the leaf's `FfiTextStyle`: size, weight, line height, family, `letterSpacing`, `textTransform` and italics, inherited like CSS (the leaves paint with the same style);
+- a number or boolean in a text prop shows as its display string (`412`);
+- Markdown measures with the same block layout it paints; platform controls have recipe-fixed boxes.
 
 Nothing is measured through Compose intrinsics, so a pass runs headless (JVM tests).
 
@@ -104,11 +142,15 @@ Nothing is measured through Compose intrinsics, so a pass runs headless (JVM tes
 - **DatePicker.** An M3 `DatePickerDialog`, date only, with `min` / `max` as `SelectableDates` (native overlays).
 - **Select.** An M3 `DropdownMenu` on the trigger, with a filter field when `searchable`; it stays open per pick when `multiple` (native overlays, unless the recipe paints the popup).
 - **TimePicker, DateRangePicker** (and the two above under painted overlays): the core's popup layer.
+- **Resizable.** A handle drags from the sizes at the drag START (`drag {phase, delta}`, the core's `resizePanels`), on Compose's minimum touch target around the hairline; arrows, Home, End and Enter go to the core's `keyboardResize`; TalkBack adjusts it.
+- **Chart.** Bar, stackedBar, line, area, pie, donut and sparkline from the core's numbers: the nice ticks and their formatted labels, the palette, the donut hole, the legend. Value labels, the tooltip and the summary format through the surface formatter. A tap or the pointer shows the tooltip; focused, ArrowLeft / ArrowRight move it, Home / End jump, Escape hides it. In RTL the cartesian kinds mirror (pie and donut do not). A missing point is skipped and reads `—` in the tooltip.
+- **CodeBlock.** The core tokenizer's tokens coloured by `CodeBlock/token {kind}`; copy goes through `HostPlugin.copy` and the core announces `copied`.
 - **DropdownMenu.** An M3 `DropdownMenu`, its open state driven by the core's layer.
 - **Text fields.** Input, Textarea, Composer and the inline fields (NumberField / ChipInput `input`, Select `search`) are host-owned `BasicTextField`s (`OwnedTextField`):
   - the view owns its `TextFieldValue`;
   - every edit carries a revision;
   - a model write (an echo, the composer clearing) reloads the view only when `FieldState.writeGeneration` moves.
+- **Interaction states.** Press, focus and hover reach the core as the node's states (`setStates`), so recipes' `hover` / `pressed` and `:hover` styles restyle it. A mouse hovers pressables, the nodes the core marks `hoverStyled` (a `:hover` style block or a hover recipe rule), triggers, text fields and nodes with a transition (gpui's set).
 - **Unbound values.** The core keeps every unbound control's value (round 1) and restyles its parts; the painter's mirror only bridges the press until the next pass.
 
 ## Overlays
@@ -121,16 +163,39 @@ Nothing is measured through Compose intrinsics, so a pass runs headless (JVM tes
 - **Popover** and every other overlay (HoverCard, ContextMenu, a painted DropdownMenu, the core's picker popups): a focusable `Popup` on the side the core placed it. It flips and clamps into the window.
 - **DropdownMenu:** an M3 menu.
 - **Tooltip:** painted in the surface at the core's frame after a long press.
-- **Toast:** painted in the surface at the core's frame; Escape never closes one.
+- **Toast:** painted in the surface at the core's frame. The duration runs in the model; a press or the pointer pauses it, and on release the REST of it runs. Escape never closes one.
+- **ContextMenu:** a long press on its target (Shift+F10 from the keyboard).
+
+Viewport-placed painted layers (a centred dialog, an edge sheet, the toasts) follow the part of the surface the host shows.
 
 **`Painted`:** draws every layer inside the surface at the core's frames, with a scrim. Use it for snapshots and for hosts that own their windows.
 
 ## Windowed lists
 
-The core windows a `List` past 24 rows.
-- The rows sit at content offsets inside a `verticalScroll` whose content is as tall as the core says.
-- The scroll offset goes back through `scroll(list, offset)`, which moves the window in constant work.
+The core windows a `List` or `Table` past 50 rows (`windowThreshold`), on one axis (horizontal lists too).
+- The rows sit at their content offsets inside a scroller whose content is as large as the core says. Item keys are the core's (`#<index>` rules, accumulated suffixes).
+- The offset goes back through `scrollTo(list, x, y)`, which moves the window in constant work.
+- A list without a bounded size windows against the host's scroller (the surface reports what is visible).
+- Sections (`sectionBy`) and `stickyHeaders` come from the core; the pinned header paints with the sticky offsets.
+- `scrollToIndex` renders the item first, then scrolls (a page-scrolled list asks the host scroller through `bringIntoView`).
 - No `LazyColumn`, no guessed row heights.
+
+## Keyboard
+
+Hardware keys follow `catalog/a11y.json`:
+
+| keys | on |
+|---|---|
+| Tab / Shift+Tab | every control, in pre-order (handler-less buttons too); focus from the keyboard is `:focus-visible` |
+| Enter, Space | press the focused control |
+| arrows, Home, End | rove Tabs (activating), Radio, ToggleGroup, Accordion headers, menu items and options (with type-ahead); step a Slider, a Carousel, a Resizable handle; ±1 day / week in a calendar (PageUp / PageDown = month, Shift = year) |
+| ArrowDown | open a picker or menu trigger |
+| ArrowUp / ArrowDown in a NumberField | step it |
+| Backspace in an empty ChipInput | remove the last chip |
+| Shift+F10 | open the ContextMenu around the focused node |
+| Escape | close the top layer (an AlertDialog presses its cancel), else a tooltip |
+
+A focused scroll container scrolls with the arrows, Page keys, Home and End. Tab leaves a multi-line field.
 
 ## Accessibility
 
@@ -139,9 +204,10 @@ TalkBack reads pre-order. This is the VAPP-4 fix, which needs both halves:
 - **The surface** is a traversal group.
 
 Node kinds:
-- **Pressable containers** become ONE button labelled from their leaves (`combinedLabel`, the children cleared).
-- **Card / Group / Alert** containers are labelled groups.
-- **Leaves** carry their role, label and state: Tab `selected`, toggleable state, slider range + `setProgress`, image, button.
+- **Pressable containers** become ONE button with a click action, named by `accessibility.label` else their leaves (`combinedLabel`, the children cleared).
+- **The node's `accessibility`** (macro `$a11y`, the author's, the core's defaults) adds: heading, button / checkbox / switch / radio / image roles, pressed / checked / selected / current, expand / collapse actions, progress values (progressbar, meter, slider, separator), pane titles of dialogs, `polite` / `assertive` live regions (Text `live`, Toast, `status` / `alert`), set positions of windowed items. `hidden` (and `visibility: hidden`) leaves the tree.
+- **Leaves** carry their role, label and state: Tab `selected`, toggleable state, slider range + `setProgress`, a Resizable handle (named `$string.resize`, adjustable), image (a Chart named by `chartSummary` / `sparklineSummary`), button; a field carries its failing checks as its error, one per line.
+- **Announcements** (`announce`, Form `invalidFields`, CodeBlock `copied`) go through the view's `announceForAccessibility`; `assertive` first interrupts what TalkBack is saying; `focus` requests reach the node's `FocusRequester`.
 - **Modal layers** block the rest.
 
 The example's `a11yDump` writes the walk Compose's accessibility delegate hands TalkBack. The real TalkBack walk on the emulator matches it item for item (see Numbers).
@@ -234,43 +300,63 @@ bash packages/exponential-ui-compose/release/central-bundle.sh -PuiVersion=0.1.0
   - `src/test/snapshots/components.json`, the painted tree of every component case under the fixed measure;
   - Roborazzi image snapshots (`src/test/snapshots/images/`);
   - `HostTest`: the host runtime (router ops, sources + cancel, the function gate + consent + package narrowing, the URL policy, media requests, the in-memory transport, actions → client messages, catalog negotiation);
-  - `ConformanceTest`: every suite of `packages/exponential-ui/conformance/manifest.json`.
+  - `ConformanceTest`: every suite of `packages/exponential-ui/conformance/manifest.json` (version 2, 24 suites).
     - The painted suites run THROUGH this painter: catalog and replay composed by `ExponentialSurface`, control geometry from `SurfaceMeasurer`.
+    - `format` runs through the painter's `IcuFormatter` (en-US, UTC); the animation timings and the leaves' direction come from a live surface's visuals.
     - The pure suites run through the bindings.
     - The report goes to `$EXPONENTIAL_UI_CONFORMANCE_REPORT`, default `<repo>/.conformance/exponential-ui-compose.json`. Check it with `bun run --filter @exponential-at/ui conformance:check "$PWD/.conformance/exponential-ui-compose.json"`.
 
-  `EXPONENTIAL_UI_RECORD=1` rewrites the snapshots.
+  - `Round2InteractionTest`: settings + the ICU formatter, strings, copy / focus / announce / file picks, toast timers, Resizable drags and keys, scroll containers + sticky pins, `scrollToIndex`, keys, animations, direction.
+  - `RealFontConformanceTest`: the real-font harness (`packages/exponential-ui/conformance`, round 2 §8). Every case of `fixtures/conformance-cases.json` laid out with ONLY the conformance fonts (Robolectric's native text, density 3) is dumped to `build/conformance/compose.json` (the `xui-frame-dump/1` format) and compared with the web baseline by the rules of `compare.ts`. The gate is a ratchet over `src/test/conformance-known.json`: a worse case fails, and so does a better one until its budget is lowered. `onlyRef` (nodes the web places that Compose does not emit) is budgeted per case; the run prints the total. `build/conformance/report.txt` lists every origin. Rewrite the budget after a fix or a baseline rewrite: `EXP_UI_WRITE_FIXTURES=1 ./gradlew :ui-compose:testDebugUnitTest --tests '*RealFontConformanceTest'`.
+  - `ListBenchTest`: the shared 100,000-row bench (`fixtures/bench-list.json`).
+
+  `EXPONENTIAL_UI_RECORD=1` rewrites the snapshots. The SwiftUI comparison checks every case both snapshots have. Cases waiting for a Swift re-record are listed in `src/test/snapshots/swift-parity-pending.json`: new drift fails, and so does a listed case that matches again.
+
+  What the conformance suites exercise:
+
+  | suites | through |
+  |---|---|
+  | catalog, replay, geometry, controls, format, animation timings, direction of the leaves | this painter (`ExponentialSurface`, `SurfaceMeasurer`, `IcuFormatter`, live visuals) |
+  | bind, style-conditions, code-tokens, template-items, resizable, virtual-list, keyframes CSS | the bindings or a test-side port of the TS reference (the Rust core's own tests cover the same files) |
+
+  Painter coverage for windowing, sticky pins, Resizable drags and toasts is `Round2InteractionTest`, not the suite count.
 - **`./gradlew :example:connectedDebugAndroidTest`** runs on a device:
-  - `AccessibilityOrderTest`: the TalkBack walk starts `Alex Chen, Reddit radar, Kitchen sink · one catalog on every client, 3, Scan now, Sources`, keeps the iOS orderings, and has more than 60 labels.
+  - `AccessibilityOrderTest`: the TalkBack walk starts `Back, Inbox, Search, Boards, Sprint 12, EXP-42, Alex Chen, Reddit radar, …, Scan now, Sources`, keeps the iOS orderings, and has more than 60 labels.
+  - `KeyboardTest`: Tab walks the controls in pre-order with `:focus-visible` and reaches the tabs, ArrowRight activates the next tab, the Escape KEY closes the top layer.
   - `TypingTest`: 40 characters in one `performTextInput` burst land in order in the Title field and on the `host:` line.
 
 ## Numbers
 
-From the release build of the example (R8, non-debuggable) on the `Medium_Phone_API_36.0` emulator (arm64, API 36). They are indicative only, since this is an emulator. `layout` = the core's pass including the JNA upcalls and the Kotlin measurer.
+From the release build of the example (R8, non-debuggable) on a `Medium_Phone_API_34` emulator (x86_64, API 34, KVM on a 32-core Linux host, 2026-10-08). Indicative only, since this is an emulator; the earlier Mac numbers (arm64 emulator) were 4 to 8 times lower for the Kotlin measurer. `layout` = the core's pass including the JNA upcalls and the Kotlin measurer.
 
-| pass | bench 200 (205 nodes) | kitchen sink (287 nodes) |
+| pass | bench 200 (205 nodes) | kitchen sink (500 nodes) |
 |---|---|---|
-| cold, the first pass of a process (5 launches) | 15.0 to 18.5 ms layout, 25 to 27 ms wall (41 ms on the first launch after install); 2 upcalls, 379 answers | 29.7 to 37.2 ms layout, 42 to 48 ms wall; 2 upcalls, 371 answers |
-| warm full pass, width flipping 390 / 411 dp | **0.78 to 0.79 ms** best, 0.87 to 0.89 median (wall 1.09 / 1.20); 0 upcalls, memo answers | 1.94 to 2.1 ms best, 2.19 to 2.28 median; 0 upcalls |
-| the same under the core's fixed measure (no JNA, no Kotlin) | 0.76 to 0.78 ms best | 1.93 to 2.18 ms best |
-| full re-measure (a new measure identity: every leaf crosses) | 2.8 to 3.4 ms best, ~3.6 median | 5.7 to 6.2 ms best, ~6.9 median |
-| of which Kotlin (the measurer) / the two JNA crossings | ~1.7 ms / ~0.9 ms | ~3.4 ms / ~1.6 ms |
-| cached pass (nothing dirty) | 0.02 ms layout, 0.23 to 0.42 ms wall | 0.02 ms layout, 0.25 ms best wall |
+| cold, the first pass of a process (6 launches) | 52 to 78 ms layout, 70 to 99 ms wall; 2 upcalls, 379 answers | 105 to 181 ms layout, 144 to 215 ms wall; 2 upcalls, 628 answers |
+| warm full pass, width flipping 390 / 411 dp | **0.17 ms** best, 0.18 median; 0 upcalls, memo answers | 1.96 ms best, 2.12 median |
+| the same under the core's fixed measure | 0.2 ms best | 0.09 to 2.5 ms |
+| full re-measure (every leaf crosses) | 16.8 ms best, 18.3 median | 38 ms best, 47 median |
+| of which Kotlin (the measurer) / the two JNA crossings | ~14.7 ms / ~1.8 ms | ~29 ms / ~4.4 ms |
+| cached pass (nothing dirty) | 0.02 ms layout, 0.54 ms best wall | 0.06 ms layout, 0.72 ms best wall |
 
 **Reading:**
-- The target, under 2 ms warm for 200 nodes including JNA, is met: 0.8 ms.
-- The kitchen sink's warm pass is the engine itself, with a fixed measure just as fast.
-- A full re-measure costs about 2 ms of Kotlin text measuring plus about 0.5 ms per JNA crossing. That crossing cost is the size of the batch payload, not a per-leaf callback (the VAPP-4 spike paid 15 to 80 µs per leaf).
+- The warm target, under 2 ms for 200 nodes including JNA, is met: 0.17 ms.
+- A full re-measure is the Kotlin text measuring (a Compose `TextMeasurer` call per question); the JNA crossings stay a batch each.
+
+**The list bench** (`fixtures/bench-list.json`, `ListBenchTest`: the model with Robolectric's native text at density 2.75 on the JVM, the same Linux host): `firstPaintMs` 139, `scrollStepMs` 14.1 (the core's own step is 3.2 ms; the rest is the newly windowed rows' measuring and the node / visual read-back), `scrollToIndexMs` 17.0, `renderedItems` 30.
 
 The TalkBack walk (real TalkBack, swipes on the emulator's virtual touchscreen) reads the kitchen sink in pre-order from the avatar to the `host:` line. Inside the open Dialog it stays in the dialog: title, description, body, `Delete for good`, Close, then it wraps.
 
 ## Known divergences from the React renderer
 
 - Line breaks follow Android's text layout; the `lines` clamp ellipsizes.
-- Skeleton is static. Images load through a small `BitmapFactory` loader: http(s), file, content and android.resource URIs, downsampled to 2048 px. `data:` URIs and SVG are not supported, and the host app needs the INTERNET permission. Video and AudioPlayer are static placeholders.
+- Images load through a small `BitmapFactory` loader: http(s), file, content and android.resource URIs, downsampled to 2048 px. `data:` URIs and SVG are not supported, and the host app needs the INTERNET permission. Video and AudioPlayer are static placeholders.
 - Native M3 controls (Switch, Slider, menus, the DatePickerDialog) take M3 defaults apart from the primary tint; the DatePickerDialog takes the host's `MaterialTheme`. The M3 Slider keeps a 16 dp thumb (not M3's 44 dp bar) and a 48 dp touch height, both overflowing the 6 dp track frame vertically.
 - A pressable container clears its children's semantics (`clearAndSetSemantics`, the SwiftUI `.ignore`), so a nested pressable inside a pressable row is not separately reachable.
-- Markdown paints with the primitives' `MarkdownView`. It rounds the wrap width while the measurer takes the ceiling, so a paragraph exactly on a wrap boundary can paint one line off (the leaf clips to its frame).
+- Markdown paints with the primitives' `MarkdownView`. It rounds the wrap width while the text measurer ceils it, so a paragraph exactly on a wrap boundary can paint one line off (the leaf clips to its frame).
 - The Ring's value label is wider than the 32 dp ring and clips at a narrow card edge (the shared measurer rule; iOS does the same).
 - TalkBack reads a labelled field's label twice (the `Label` node, then the field's own description), as it reads the slider's value twice.
 - Painted mode has no back handling (no `activity-compose` dependency). Native mode gets it from the Dialog and the sheet.
+- `backdropBlur` paints the translucent background alone: a Compose `RenderEffect` blurs a node's OWN content, and sampling what is behind it needs a copy of the surface drawn under every blurred node. The authoring rule (pair it with a translucent `backgroundColor`) keeps the result legible.
+- TalkBack has no heading levels and no role descriptions in Compose: a heading is a heading, a Carousel page a group.
+- A FileUpload takes files only through `HostPlugin.pickFiles` (no drag and drop).
+- The real-font conformance dump runs on Robolectric's text stack, not a device's (`src/test/conformance-known.json` counts every divergence; most origins are shared with gpui and decided in `fixtures/conformance-known.json`).

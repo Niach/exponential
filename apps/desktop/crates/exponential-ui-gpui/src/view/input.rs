@@ -321,7 +321,9 @@ impl SurfaceView {
         let icon_w = if icon.is_some() { 16.0 + 8.0 } else { 0.0 };
         let field_w = (w - icon_w).max(0.0);
         let el = match &f.input {
-            FieldInput::Line(s) => Input::new(s).appearance(false).disabled(disabled).font(font).text_size(px(size)).text_color(ink).w(px(field_w)).h(px(h)).into_any_element(),
+            // Round 2 §7: the text starts at border + paddingHorizontal (the
+            // field's own content box): no input padding of its own.
+            FieldInput::Line(s) => Input::new(s).appearance(false).disabled(disabled).font(font).text_size(px(size)).text_color(ink).px_0().py_0().w(px(field_w)).h(px(h)).into_any_element(),
             FieldInput::Multi(s) => gpui_component::input::Textarea::new(s).appearance(false).disabled(disabled).font(font).text_size(px(size)).text_color(ink).w(px(field_w)).h(px(h)).into_any_element(),
         };
         let mut row = lcx.row(div().absolute().left(px(x)).top(px(y)).w(px(w)).h(px(h))).items_center().gap(px(if icon.is_some() { 8.0 } else { 0.0 }));

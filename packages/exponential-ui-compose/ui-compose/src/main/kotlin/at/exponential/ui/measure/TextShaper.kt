@@ -13,9 +13,12 @@ import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.LineHeightStyle
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextDirection
+import androidx.compose.ui.text.style.TextMotion
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.sp
 import at.exponential.ui.primitives.Markdown
 import at.exponential.ui.primitives.MarkdownInline
@@ -44,24 +47,55 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
         override fun removeEldestEntry(eldest: MutableMap.MutableEntry<Pair<Any, TextStyle>, Float>?): Boolean = size > 4096
     }
 
-    /** The Compose family of a theme family NAME (registered, else monospace / default). */
-    fun family(name: String?): FontFamily =
-        fonts.family(name) ?: when (name) {
-            "ui-monospace", "monospace" -> FontFamily.Monospace
-            else -> FontFamily.Default
-        }
+    /**
+     * The surface default family NAME (the theme's `sans`, set by
+     * `SurfaceModel.textShaper`): a style without a family takes it, as CSS
+     * inherits the surface's font and gpui's `Fonts::family(None)`.
+     */
+    var defaultFamily: String? = null
+
+    /** The Compose family of a theme family NAME (null = [defaultFamily]; registered, else monospace / default). */
+    fun family(name: String?): FontFamily {
+        val n = name ?: defaultFamily
+        return fonts.family(n) ?: if (n != null && looksMono(n)) FontFamily.Monospace else FontFamily.Default
+    }
+
+    /** A family NAME that asks for a monospace face (the fallback when it is not registered). */
+    private fun looksMono(name: String): Boolean {
+        val n = name.lowercase()
+        return n == "ui-monospace" || n == "monospace" || n == "ui-mono" || "mono" in n || "code" in n || "courier" in n || "consolas" in n || "menlo" in n
+    }
 
     /** The Compose style a resolved text style renders with (fontScale-free sp = dp). */
-    fun style(ts: ResolvedTextStyle, italic: Boolean = false, family: String? = null, align: TextAlign? = null): TextStyle = TextStyle(
+    fun style(ts: ResolvedTextStyle, italic: Boolean = ts.italic, family: String? = null, align: TextAlign? = null, rtl: Boolean? = null): TextStyle = TextStyle(
         fontSize = ts.fontSize.sp,
         lineHeight = ts.lineHeight.sp,
         fontWeight = FontWeight(ts.fontWeight.coerceIn(1, 1000)),
         fontStyle = if (italic) FontStyle.Italic else FontStyle.Normal,
         fontFamily = family(family ?: ts.fontFamily),
+        letterSpacing = ts.letterSpacing?.takeIf { it != 0f }?.sp ?: TextUnit.Unspecified,
         textAlign = align ?: TextAlign.Unspecified,
+        // The bidi paragraph direction = the node's direction (round 2 §2).
+        textDirection = when (rtl) {
+            true -> TextDirection.Rtl
+            false -> TextDirection.Ltr
+            null -> TextDirection.Unspecified
+        },
         lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None),
         platformStyle = PlatformTextStyle(includeFontPadding = false),
+        // Unhinted fractional advances, as Chromium, gpui and CoreText lay
+        // text out; the default (Static: hinted, whole-pixel advances) is
+        // ~0.3 px wider per glyph at density 3.
+        textMotion = TextMotion.Animated,
     )
+
+    private val baselines = HashMap<ResolvedTextStyle, Float>()
+
+    /** The first baseline (dp) of one line in `ts` from the line box top. */
+    fun baseline(ts: ResolvedTextStyle): Float = baselines.getOrPut(ts) {
+        val r = layout(AnnotatedString("Hg"), style(ts), null, 1)
+        r.firstBaseline / density
+    }
 
     private fun layout(text: AnnotatedString, style: TextStyle, wrapPx: Int?, maxLines: Int = Int.MAX_VALUE): TextLayoutResult =
         measurer.measure(
@@ -73,13 +107,22 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
             constraints = if (wrapPx != null) Constraints(maxWidth = max(wrapPx, 1)) else Constraints(),
         )
 
-    /** The width (dp, ceiled) of `text` on one line (the widest `\n` line). */
+    /**
+     * The width (dp) of `text` on one line (the widest `\n` line): the
+     * shaped FRACTIONAL extent, as the web and gpui lay it out. Compose's
+     * intrinsic width is ceiled to a device pixel, which adds up along a
+     * row of labels; the painters give text
+     * [at.exponential.ui.compose.TEXT_SLACK_PX] instead, so a frame of this
+     * width rounded to px never wraps or ellipsizes it.
+     */
     fun lineWidth(text: AnnotatedString, style: TextStyle): Float {
         if (text.isEmpty()) return 0f
         val key: Pair<Any, TextStyle> = (if (text.spanStyles.isEmpty()) text.text else text) to style
         widthCache[key]?.let { return it }
-        val px = layout(text, style, null).multiParagraph.intrinsics.maxIntrinsicWidth
-        val w = ceil(px / density - 0.001f)
+        val r = layout(text, style, null)
+        var px = 0f
+        for (i in 0 until r.lineCount) px = max(px, r.getLineRight(i) - r.getLineLeft(i))
+        val w = px / density
         widthCache[key] = w
         return w
     }
@@ -115,14 +158,15 @@ class TextShaper(val measurer: TextMeasurer, val density: Float, val fonts: Font
 
     /**
      * Text content size (dp) at an inner wrap width (null = max-content,
-     * 0 = min-content), the gpui rule: a one-line text shrinks to 0 at
-     * min-content and never wraps.
+     * 0 = min-content), the gpui rule: a one-line text is `nowrap`, so its
+     * min-content is the whole line (a Badge around it never gets narrower);
+     * the core makes the leaf clip on x, so it still ellipsizes in a row.
      */
     fun measure(text: String, ts: ResolvedTextStyle, wrap: Float?, lines: Int?): Size {
         val single = lines == 1
         return when {
             wrap == null -> Size(maxContent(text, ts), wrappedHeight(text, ts, null, lines))
-            wrap <= 0f -> Size(if (single) 0f else minContent(text, ts), ts.lineHeight)
+            wrap <= 0f -> Size(if (single) maxContent(text, ts) else minContent(text, ts), ts.lineHeight)
             else -> {
                 val maxW = maxContent(text, ts)
                 val used = if (single) min(maxW, wrap) else min(maxW, max(wrap, minContent(text, ts)))
@@ -182,14 +226,22 @@ class MarkdownShaper(val shaper: TextShaper, val mono: String?) : MarkdownTextMe
         return shaper.wrappedHeight(a, shaper.markdownStyle(spec), spec.lineHeight, width)
     }
 
-    override fun width(inlines: List<MarkdownInline>, spec: MarkdownTextSpec): Float {
+    /**
+     * Max-content: the widest hard line shaped WITH its runs (a bold or code
+     * run is wider than the body font says; measured without them, the
+     * paragraph wraps at its own max-content width, round 2 §7 `main-md`).
+     */
+    override fun width(inlines: List<MarkdownInline>, spec: MarkdownTextSpec): Float =
+        shaper.lineWidth(annotated(inlines, spec), shaper.markdownStyle(spec))
+
+    /** Min-content: the widest unbreakable segment, each shaped with the runs it covers. */
+    override fun widestWord(inlines: List<MarkdownInline>, spec: MarkdownTextSpec): Float {
         val a = annotated(inlines, spec)
-        val code = inlines.firstOrNull()?.code ?: false
-        return a.text.split("\n").maxOfOrNull { line ->
-            shaper.lineWidth(annotated(listOf(MarkdownInline(text = line, code = code)), spec), shaper.markdownStyle(spec))
-        } ?: 0f
+        val style = shaper.markdownStyle(spec)
+        return WORD.findAll(a.text).maxOfOrNull { shaper.lineWidth(a.subSequence(it.range.first, it.range.last + 1), style) } ?: 0f
     }
 
-    override fun widestWord(inlines: List<MarkdownInline>, spec: MarkdownTextSpec): Float =
-        shaper.minContent(Markdown.plain(inlines), ResolvedTextStyle(spec.size, spec.weight, spec.lineHeight, spec.family))
+    private companion object {
+        val WORD = Regex("\\S+")
+    }
 }

@@ -17,7 +17,7 @@
 // surfaces on one page can wear two themes and a host page's own
 // Tailwind/shadcn variables are never touched.
 
-import { coreCatalog, easingCss, parseTokenRef, shadowCss } from "@exponential-at/ui"
+import { ANIMATIONS, animatesOpacity, coreCatalog, easingCss, parseTokenRef, shadowCss } from "@exponential-at/ui"
 import type { Easing, FontSpec, RecipeRule, ResolvedTheme, Shadow } from "@exponential-at/ui"
 
 export const LAYERS = `@layer xui-base, xui-recipe, xui-node, xui-part;`
@@ -98,12 +98,37 @@ const SHORTHANDS: Record<string, string[]> = {
 const BORDER_WIDTHS = [`borderWidth`, `borderTopWidth`, `borderRightWidth`, `borderBottomWidth`, `borderLeftWidth`]
 
 /** Flat declarations (`prop:value` pairs) for one condition-free style. A
- *  border width without a `borderStyle` is solid (contract §2). */
-export function declarations(style: Record<string, unknown>, fonts: Record<string, FontSpec> = {}): [string, string][] {
+ *  border width without a `borderStyle` is solid (contract §2). An
+ *  animation that moves opacity MULTIPLIES the node's own (round 2 §2): the
+ *  keyframes move `--xui-a-opacity` and `opacity` = own ×
+ *  `var(--xui-a-opacity, 1)`. `base` = the style a condition block cascades
+ *  over, so a block that adds only the animation (or only the opacity)
+ *  still multiplies the other's value. */
+export function declarations(style: Record<string, unknown>, fonts: Record<string, FontSpec> = {}, base?: Record<string, unknown>): [string, string][] {
   const out: [string, string][] = []
+  const animation = `animation` in style ? style.animation : base?.animation
+  const multiply = typeof animation === `string` && animatesOpacity(animation) && (`animation` in style || `opacity` in style)
   for (const [key, value] of Object.entries(style)) {
     if (key === `native` || key.startsWith(`@`) || key.startsWith(`:`)) continue
     if (typeof value === `object` && value !== null && !Array.isArray(value) && key !== `backgroundGradient`) continue
+    // Round 2 §2: `backdropBlur` ($blur token), `animation` (a keyframe set
+    // of style.json, timed by the motion tokens) + `animationDuration`.
+    if (key === `backdropBlur`) {
+      const v = cssValue(key, value, fonts)
+      if (v) out.push([`-webkit-backdrop-filter`, `blur(${v})`], [`backdrop-filter`, `blur(${v})`])
+      continue
+    }
+    if (key === `animation`) {
+      out.push(...animationDeclarations(value, style.animationDuration))
+      continue
+    }
+    if (key === `animationDuration`) {
+      // Alone (a state or media block): the duration, the set's factor kept
+      // through `--xui-anim-factor`.
+      const v = typeof value === `string` ? tokenVar(value) : null
+      if (v && !(`animation` in style)) out.push([`animation-duration`, `calc(${v} * var(--xui-anim-factor, 1))`])
+      continue
+    }
     const css = cssValue(key, value, fonts)
     if (css === null) continue
     for (const target of SHORTHANDS[key] ?? [kebab(key)]) {
@@ -112,8 +137,52 @@ export function declarations(style: Record<string, unknown>, fonts: Record<strin
       else out.push([target, css])
     }
   }
+  if (multiply) {
+    const at = out.findIndex(([p]) => p === `opacity`)
+    const ownStyle = `opacity` in style ? style : base && `opacity` in base ? base : null
+    const own = at >= 0 ? out[at]![1] : ownStyle ? cssValue(`opacity`, ownStyle.opacity, fonts) : null
+    const value = own === null ? `var(--xui-a-opacity, 1)` : `calc(${own} * var(--xui-a-opacity, 1))`
+    if (at >= 0) out[at] = [`opacity`, value]
+    else out.push([`opacity`, value])
+  }
+  // Per-side widths alone keep the cascaded others (a part's UA `medium` is
+  // reset in the base layer, base-css.ts).
   if (!(`borderStyle` in style) && BORDER_WIDTHS.some((k) => k in style)) out.push([`border-style`, `solid`])
   return out
+}
+
+/** `animation: <name>` as CSS longhands over `@keyframes xui-<name>`
+ *  (base-css.ts): duration = the motion token × the set's factor (an
+ *  `animationDuration` token replaces the token, the factor kept), easing
+ *  per segment = `animation-timing-function`, fill both. An unknown name =
+ *  no animation. Reduced motion zeroes the duration (base-css.ts), which
+ *  shows each set's rest frame. */
+export function animationDeclarations(name: unknown, durationToken?: unknown): [string, string][] {
+  const def = typeof name === `string` ? ANIMATIONS[name] : undefined
+  if (!def) return [[`animation-name`, `none`]]
+  const token = (typeof durationToken === `string` && parseTokenRef(durationToken)?.group === `motion` ? durationToken : def.duration) as string
+  const ease = def.easing === `linear` ? `linear` : (tokenVar(def.easing) ?? `linear`)
+  return [
+    [`--xui-anim-factor`, String(def.factor)],
+    [`animation-name`, `xui-${name as string}`],
+    [`animation-duration`, `calc(${tokenVar(token) ?? `0ms`} * ${def.factor})`],
+    [`animation-timing-function`, ease],
+    [`animation-iteration-count`, def.iterations === `infinite` ? `infinite` : String(def.iterations)],
+    [`animation-fill-mode`, `both`],
+  ]
+}
+
+/** The shimmer BAND of `animation: shimmer` (style.json `animations.shimmer`
+ *  `band`): an `::after` over the box, a gradient of the band colour at
+ *  alpha 0 → .5 → 0, one box wide, at `--xui-band` box widths (the
+ *  keyframes move it −1 → 1), clipped to the box. Empty for anything else. */
+export function shimmerRule(selector: string, style: Record<string, unknown>): string {
+  if (style.animation !== `shimmer`) return ``
+  const band = ANIMATIONS.shimmer?.band
+  const color = (band && tokenVar(band.color)) ?? `var(--xui-color-background)`
+  const stops = (band?.stops ?? [{ offset: 0, alpha: 0 }, { offset: 0.5, alpha: 0.5 }, { offset: 1, alpha: 0 }]).map((s) => `color-mix(in srgb, ${color} ${Math.round(s.alpha * 100)}%, transparent) calc(var(--xui-band, 1) * 100% + ${Math.round(s.offset * 100)}%)`)
+  const sel = selector.split(`,`).map((x) => `${x}::after`).join(`,`)
+  return `${sel}{content:"";position:absolute;inset:0;pointer-events:none;border-radius:inherit;background-image:linear-gradient(90deg, ${stops.join(`, `)})}`
 }
 
 export const rule = (selector: string, decls: [string, string][]): string =>
@@ -266,6 +335,7 @@ function tokenBlock(theme: ResolvedTheme): string {
       decls.push([`--xui-${group}-${name}`, `${value}${unit}`])
     }
   }
+  for (const [name, px] of Object.entries(theme.tokens.blur ?? {})) decls.push([`--xui-blur-${name}`, `${px}px`])
   for (const [name, curve] of Object.entries(theme.tokens.ease ?? {})) decls.push([`--xui-ease-${name}`, easingCss(curve as Easing)])
   for (const [name, px] of Object.entries(theme.tokens.breakpoint ?? {})) decls.push([`--xui-breakpoint-${name}`, `${px}px`])
   for (const [name, value] of Object.entries(theme.tokens.type.size)) decls.push([`--xui-type-size-${name}`, `${value}px`])
@@ -314,7 +384,8 @@ export function compileTheme(theme: ResolvedTheme, options: { extensionMacros?: 
       for (const r of rules) {
         const decls = declarations(r.style as Record<string, unknown>, theme.fonts)
         if (decls.length === 0) continue
-        target.push(rule(ruleSelectors(base, r, macro).join(`,`), decls))
+        const selector = ruleSelectors(base, r, macro).join(`,`)
+        target.push(rule(selector, decls) + shimmerRule(selector, r.style as Record<string, unknown>))
       }
     }
   }

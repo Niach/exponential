@@ -492,13 +492,13 @@
                 "$recipe": { "status": { "$cond": [{ "$lt": ["{index}", "{props.current|0}"] }, "done", { "$cond": [{ "$eq": ["{index}", "{props.current|0}"] }, "current", "upcoming"] }] } },
                 "children": [
                   { "part": "check", "component": "Icon", "$if": { "$lt": ["{index}", "{props.current|0}"] }, "props": { "name": "ui-check", "size": "sm" } },
-                  { "part": "number", "component": "Text", "$if": { "$not": { "$lt": ["{index}", "{props.current|0}"] } }, "props": { "text": { "$text": { "$add": ["{index}", 1] } }, "variant": "caption" } }
+                  { "part": "number", "component": "Text", "$if": { "$not": { "$lt": ["{index}", "{props.current|0}"] } }, "props": { "text": { "$text": { "$add": ["{index}", 1] } }, "variant": "caption" }, "$recipe": { "status": { "$cond": [{ "$eq": ["{index}", "{props.current|0}"] }, "current", "upcoming"] } } }
                 ]
               },
               {
                 "part": "body", "component": "Box", "style": { "display": "flex", "flexDirection": "column", "gap": "$spacing.xxs", "minWidth": 0 },
                 "children": [
-                  { "part": "label", "component": "Text", "props": { "text": "{step.label}", "variant": "label", "lines": 1 } },
+                  { "part": "label", "component": "Text", "props": { "text": "{step.label}", "variant": "label", "lines": 1 }, "$recipe": { "status": { "$cond": [{ "$lt": ["{index}", "{props.current|0}"] }, "done", { "$cond": [{ "$eq": ["{index}", "{props.current|0}"] }, "current", "upcoming"] }] } } },
                   { "part": "description", "component": "Text", "$if": "step.description", "props": { "text": "{step.description}", "variant": "muted", "lines": 2 } }
                 ]
               }

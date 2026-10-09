@@ -26,9 +26,16 @@ impl Builder<'_, '_> {
         let copyable = owner.props.get("copyable").and_then(Value::as_bool).unwrap_or(true);
         let highlight: Vec<u64> = owner.props.get("highlight").and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_u64).collect()).unwrap_or_default();
         let title = str_prop(&owner.props, "title").map(str::to_string);
-        if title.is_some() || copyable {
+        // Round 2: the region's name — its title, else `$string.codeBlock`.
+        let label = title.clone().unwrap_or_else(|| self.string("codeBlock"));
+        self.default_a11y(index, "label", json!(label));
+        // Round 2: an untitled block names its language in the header (`ts`;
+        // none for `plain`), so a header never stands empty beside the copy
+        // button. The region's name stays `$string.codeBlock`.
+        let heading = title.clone().or_else(|| (language != "plain" && !language.is_empty()).then(|| language.clone()));
+        if heading.is_some() || copyable {
             let header = self.part(&owner, "header", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "space-between", "gap": "$spacing.sm"}), json!({}));
-            if let Some(t) = &title {
+            if let Some(t) = &heading {
                 let n = self.text_part(header, &owner, "title", t, "caption", "");
                 self.nodes[n as usize].base_style.insert("flexShrink".into(), json!(1));
                 self.nodes[n as usize].base_style.insert("minWidth".into(), json!(0));
@@ -60,14 +67,19 @@ impl Builder<'_, '_> {
         for (i, tokens) in lines.iter().enumerate() {
             let suffix = format!(".{i}");
             let text: String = tokens.iter().map(|t| t.text.as_str()).collect();
-            let row_style = if wrap { json!({"display": "flex", "flexDirection": "row", "alignSelf": "stretch"}) } else { json!({"display": "flex", "flexDirection": "row", "flexShrink": 0}) };
+            // A line spans the body (its highlight too); a long unwrapped
+            // line overflows it (the body scrolls).
+            let row_style = if wrap { json!({"display": "flex", "flexDirection": "row", "alignSelf": "stretch"}) } else { json!({"display": "flex", "flexDirection": "row", "flexShrink": 0, "alignSelf": "stretch"}) };
             let row = self.part_in(body, &owner, "line", "Box", NodeKind::Container, row_style, json!({"line": i + 1}), &suffix);
             if highlight.contains(&((i + 1) as u64)) {
                 self.add_state(row, "selected");
                 self.query_prop(row, "highlighted", Value::Bool(true));
             }
             if numbers {
-                let n = self.part_in(row, &owner, "lineNumber", "Text", NodeKind::Leaf, json!({"flexShrink": 0, "minWidth": digits as f32 * 8.0 + 8.0, "textAlign": "end"}), json!({"text": (i + 1).to_string(), "lines": 1}), &suffix);
+                // Round 2: the gutter's padding comes from `CodeBlock/gutter`
+                // (margins of the number, resolved at restyle); `digits`
+                // lets a painter size every number like the widest one.
+                let n = self.part_in(row, &owner, "lineNumber", "Text", NodeKind::Leaf, json!({"flexShrink": 0, "textAlign": "end"}), json!({"text": (i + 1).to_string(), "lines": 1, "digits": digits}), &suffix);
                 let _ = n;
             }
             let tokens = serde_json::to_value(tokens).unwrap_or(Value::Null);
@@ -95,9 +107,17 @@ impl Builder<'_, '_> {
         let colors: Vec<String> = (0..count).map(|i| series_color(i, if slices { None } else { series[i].tone.as_deref() })).collect();
         let legend = props.get("showLegend").and_then(Value::as_bool).unwrap_or(true) && count >= 2 && kind != "sparkline";
         let n = crate::json::number;
+        // Round 2 §3: tick and value labels through the surface formatter
+        // with its default digits (0..3), like the reference's
+        // `formatter.number(v)`. `valueLabels[s][i]` = series s, value i.
+        let fmt = |v: f64| self.ctx.formatter.number(v, crate::format::NumberOptions::default());
+        let labels: Vec<String> = ticks.ticks.iter().map(|t| fmt(*t)).collect();
+        let value_labels: Vec<Vec<String>> = series.iter().map(|s| s.values.iter().map(|v| fmt(*v)).collect()).collect();
         let chart = json!({
             "min": n(extent.min), "max": n(extent.max),
             "ticks": ticks.ticks.iter().map(|t| n(*t)).collect::<Vec<_>>(), "step": n(ticks.step),
+            "tickLabels": labels,
+            "valueLabels": value_labels,
             "colors": colors,
             "hole": if kind == "donut" { DONUT_HOLE } else { 0.0 },
             "legend": legend,
@@ -105,6 +125,10 @@ impl Builder<'_, '_> {
         self.nodes[index as usize].props.insert("chart".into(), chart);
         let h = props.get("height").and_then(Value::as_f64).unwrap_or(200.0);
         self.nodes[index as usize].base_style.entry("height".to_string()).or_insert(json!(h));
+        // Round 2 §7: a Chart's min-content width is 0 — it shrinks in a
+        // crowded row even with a `width` (taffy takes a leaf's own width as
+        // its min-content, CSS does not).
+        self.nodes[index as usize].base_style.entry("minWidth".to_string()).or_insert(json!(0));
         let _ = js;
     }
 }

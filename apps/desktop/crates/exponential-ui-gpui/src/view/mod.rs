@@ -16,11 +16,13 @@ mod events;
 mod input;
 mod motion;
 mod paint;
+mod pinned;
 pub(crate) mod state;
 
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -73,6 +75,10 @@ pub struct SurfaceViewOptions {
     /// Lay out with the core's FIXED measure instead of gpui's text system
     /// (golden geometry: the shared `layout-geometry*.json` fixtures).
     pub fixed_measure: Option<FixedMeasure>,
+    /// Round 2 §3: the host's number / date / relative-time formatter
+    /// (`None` = the core's English one). The view re-binds once a minute so
+    /// relative times move.
+    pub formatter: Option<Arc<dyn exponential_ui::format::Formatter>>,
 }
 
 impl Default for SurfaceViewOptions {
@@ -89,6 +95,7 @@ impl Default for SurfaceViewOptions {
             settings: None,
             expand_controls: None,
             fixed_measure: None,
+            formatter: None,
         }
     }
 }
@@ -155,6 +162,15 @@ pub(crate) struct Drag {
     pub value: f64,
 }
 
+/// An in-flight Resizable handle drag (round 2 §1): the core resizes from
+/// the sizes at the START, so only the pointer's start is kept.
+#[derive(Debug, Clone)]
+pub(crate) struct ResizeDrag {
+    pub handle: String,
+    pub vertical: bool,
+    pub start: f32,
+}
+
 /// An in-flight scrollbar thumb drag.
 #[derive(Debug, Clone)]
 pub(crate) struct ScrollDrag {
@@ -177,9 +193,10 @@ pub(crate) struct SheetDrag {
 }
 
 /// The part of the surface the host shows (surface coordinates): the
-/// visible top and height, from the element's clip.
+/// visible left edge, top and height, from the element's clip.
 #[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct VisibleRegion {
+    pub left: f32,
     pub top: f32,
     pub height: f32,
 }
@@ -238,6 +255,10 @@ pub struct AccessibleInfo {
     pub role: gpui::Role,
     pub label: Option<SharedString>,
     pub description: Option<SharedString>,
+    /// A heading's level (a List section header = 3).
+    pub level: Option<usize>,
+    /// A list item's place in the WHOLE list: (position, set size).
+    pub position: Option<(usize, usize)>,
 }
 
 /// Painted window bounds by node id ([`SurfaceView::record_bounds`]).
@@ -293,10 +314,16 @@ pub struct SurfaceView {
     layer_return: HashMap<String, String>,
     just_dismissed: Option<String>,
     unknown_version: Option<u64>,
-    list_offsets: HashMap<String, f32>,
+    /// The host scroller's offset over the surface last given to the core.
+    host_scroll: Option<(f32, f32)>,
     drag: Option<Drag>,
     scroll_drag: Option<ScrollDrag>,
     sheet_drag: Option<SheetDrag>,
+    resize_drag: Option<ResizeDrag>,
+    /// Round 2: the core's sticky offsets of the last pass (node → dx, dy).
+    sticky: HashMap<u32, (f32, f32)>,
+    /// Round 2: when each animated node entered the tree (by painted id).
+    anim_start: RefCell<HashMap<SharedString, Instant>>,
     slider_bounds: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
     motion: Motion,
     toast_timers: HashMap<String, ToastTimer>,
@@ -336,7 +363,42 @@ pub struct SurfaceView {
     /// The node indices `paint_node` visited in the last render, in paint
     /// order (only while [`SurfaceView::trace_paint`] is on).
     paint_trace: RefCell<Option<Vec<u32>>>,
+    /// A bind since the last minute tick formatted a relative time.
+    clock_read: Arc<AtomicBool>,
     _subscriptions: Vec<Subscription>,
+    _ticker: Task<()>,
+}
+
+/// The surface's formatter, noting when a bind formats a relative time (the
+/// only output the clock moves), so only those surfaces tick.
+struct ClockWatch {
+    inner: Arc<dyn exponential_ui::format::Formatter>,
+    read: Arc<AtomicBool>,
+}
+
+impl exponential_ui::format::Formatter for ClockWatch {
+    fn locale(&self) -> String {
+        self.inner.locale()
+    }
+    fn number(&self, value: f64, options: exponential_ui::format::NumberOptions) -> String {
+        self.inner.number(value, options)
+    }
+    fn currency(&self, value: f64, code: &str, options: exponential_ui::format::NumberOptions) -> String {
+        self.inner.currency(value, code, options)
+    }
+    fn percent(&self, value: f64, decimals: Option<u32>) -> String {
+        self.inner.percent(value, decimals)
+    }
+    fn date(&self, value: exponential_ui::format::DateValue, options: &exponential_ui::format::DateOptions) -> String {
+        self.inner.date(value, options)
+    }
+    fn relative_time(&self, value: i64, unit: exponential_ui::format::RelativeUnit) -> String {
+        self.read.store(true, Ordering::SeqCst);
+        self.inner.relative_time(value, unit)
+    }
+    fn plural(&self, value: f64) -> exponential_ui::format::PluralCategory {
+        self.inner.plural(value)
+    }
 }
 
 impl SurfaceView {
@@ -366,6 +428,27 @@ impl SurfaceView {
         } else {
             surface.set_mode(options.mode);
         }
+        let clock_read = Arc::new(AtomicBool::new(false));
+        let base = options.formatter.clone().unwrap_or_else(|| surface.formatter().clone());
+        surface.set_formatter(Arc::new(ClockWatch { inner: base, read: clock_read.clone() }));
+        // Relative times move: a tree whose last bind formatted one re-binds
+        // once a minute (§3); the others never tick.
+        let read = clock_read.clone();
+        let ticker = cx.spawn(async move |this: WeakEntity<SurfaceView>, cx| loop {
+            cx.background_executor().timer(std::time::Duration::from_secs(60)).await;
+            if !read.swap(false, Ordering::SeqCst) {
+                continue;
+            }
+            if this
+                .update(cx, |v, cx| {
+                    v.surface.tick();
+                    cx.notify();
+                })
+                .is_err()
+            {
+                break;
+            }
+        });
         let fonts = Fonts::new(options.host.clone(), options.theme.as_deref(), cx.text_system().clone());
         let window_size = window.map(|w| w.viewport_size()).map(|s| (f32::from(s.width), f32::from(s.height))).unwrap_or((0.0, 0.0));
         let width = options.width.filter(|w| *w > 0.0).unwrap_or(if window_size.0 > 0.0 { window_size.0 } else { DEFAULT_WIDTH });
@@ -379,7 +462,7 @@ impl SurfaceView {
             width_fixed: options.width.is_some(),
             viewport_height: 0.0,
             // Until the first prepaint sees the clip: the window.
-            visible: VisibleRegion { top: 0.0, height: window_size.1 },
+            visible: VisibleRegion { left: 0.0, top: 0.0, height: window_size.1 },
             origin: gpui::Point::default(),
             nodes_dirty: true,
             cache: NodeCache::default(),
@@ -414,10 +497,13 @@ impl SurfaceView {
             layer_return: HashMap::new(),
             just_dismissed: None,
             unknown_version: None,
-            list_offsets: HashMap::new(),
+            host_scroll: None,
             drag: None,
             scroll_drag: None,
             sheet_drag: None,
+            resize_drag: None,
+            sticky: HashMap::new(),
+            anim_start: RefCell::new(HashMap::new()),
             slider_bounds: Rc::new(RefCell::new(HashMap::new())),
             motion: Motion::default(),
             toast_timers: HashMap::new(),
@@ -441,7 +527,28 @@ impl SurfaceView {
             measure_override: options.fixed_measure.map(|m| Box::new(m) as Box<dyn Measure>),
             paint_trace: RefCell::new(None),
             _subscriptions: Vec::new(),
+            clock_read,
+            _ticker: ticker,
         }
+    }
+
+    /// Round 2 §3: format through the host's formatter (built from the
+    /// surface's locale + time zone); the tree re-binds.
+    pub fn set_formatter(&mut self, formatter: Arc<dyn exponential_ui::format::Formatter>, cx: &mut Context<Self>) {
+        self.surface.set_formatter(Arc::new(ClockWatch { inner: formatter, read: self.clock_read.clone() }));
+        cx.notify();
+    }
+
+    /// Whether a bind since the last minute tick formatted a relative time
+    /// (the surface re-binds at the next tick; the others never tick).
+    pub fn ticks_minutely(&self) -> bool {
+        self.clock_read.load(Ordering::SeqCst)
+    }
+
+    /// Pin the clock relative times read (epoch ms; `None` = the wall clock).
+    pub fn set_clock(&mut self, now_ms: Option<f64>, cx: &mut Context<Self>) {
+        self.surface.set_clock(now_ms);
+        cx.notify();
     }
 
     /// Apply one A2UI server→client message.
@@ -476,8 +583,10 @@ impl SurfaceView {
     pub fn set_theme(&mut self, theme: Option<Arc<ResolvedTheme>>, cx: &mut Context<Self>) {
         self.fonts.set_theme(theme.as_deref());
         self.surface.set_theme(theme);
-        // Every cached font/visual re-reads (the default family moved).
+        // Every cached font/visual re-reads (the default family moved), and
+        // the node cache's `hover_styled` (recipes moved).
         self.styles.clear();
+        self.nodes_dirty = true;
         cx.notify();
     }
 
@@ -551,6 +660,33 @@ impl SurfaceView {
     /// div at, as of the last pass.
     pub fn frame(&self, index: u32) -> Option<Frame> {
         self.frames.get(index as usize).copied()
+    }
+
+    /// The lines a `Text` leaf paints, as of the last pass (`None` for any
+    /// other node): 0 for an empty text, 1 for a one-line or chrome text,
+    /// else its text broken at the content width like the painter — never
+    /// the frame height over the line height (a stretched text keeps its
+    /// lines). The conformance dump's `lines`.
+    pub fn painted_lines(&self, index: u32, window: &Window) -> Option<u32> {
+        let i = index as usize;
+        let n = self.cache.nodes.get(i).filter(|n| n.index == index && n.component == "Text")?;
+        let ts = self.texts.get(i)?;
+        let raw = crate::measure::display_text(n.props.get("text"));
+        let shown = crate::text::transform(&raw, ts.text_transform.as_deref()).into_owned();
+        if shown.is_empty() {
+            return Some(0);
+        }
+        let chrome = crate::measure::text_chrome(n.owner_component.as_deref().unwrap_or(""), n.part.as_deref(), &n.props, self.styles.get(i).map(|s| s.gap).unwrap_or(0.0), 0.0);
+        if n.lines == Some(1) || chrome != (0.0, 0.0) {
+            return Some(1);
+        }
+        let f = self.frames.get(i)?;
+        let [t, r, b, l] = self.styles.get(i).map(|s| s.insets()).unwrap_or([0.0; 4]);
+        let _ = (t, b);
+        let font = self.node_fonts.get(i).cloned().unwrap_or_else(|| self.fonts.for_style(ts));
+        let mut shaper = crate::measure::Shaper::new(window, &self.fonts).tracked(ts);
+        let lines = shaper.lines(&shown, &font, ts.font_size, Some((f.w - l - r).max(1.0))).len() as u32;
+        Some(n.lines.filter(|c| *c > 0).map_or(lines, |c| lines.min(c)))
     }
 
     /// The content height of the last pass.
@@ -654,6 +790,14 @@ impl SurfaceView {
     /// A painted node's window bounds (with [`Self::record_bounds`] on).
     pub fn painted_bounds(&self, id: &str) -> Option<Bounds<Pixels>> {
         self.debug_bounds.as_ref().and_then(|b| b.borrow().get(id).copied())
+    }
+
+    /// What the painter fills a node with and the text colour it draws in
+    /// (inherited when the node sets none), as of the last frame: a test
+    /// and automation aid like [`Self::painted_bounds`].
+    pub fn painted_colors(&self, id: &str) -> Option<(Option<Hsla>, Hsla)> {
+        let i = self.index_of(id)? as usize;
+        Some((self.styles.get(i).and_then(|s| s.bg), *self.inks.get(i)?))
     }
 
     /// The surface's origin in window coordinates (as of the last frame).
@@ -838,6 +982,12 @@ impl SurfaceView {
         self.compute_inks(base);
         self.lists = out.lists.iter().map(|l| (l.node, l.clone())).collect();
         self.scrolls = out.scrolls.iter().map(|s| (s.index, *s)).collect();
+        self.sticky = out.sticky.iter().map(|s| (s.index, (s.dx, s.dy))).collect();
+        // An animation restarts when its node re-enters the tree.
+        if all || !out.delta.removed.is_empty() {
+            let ids = &self.cache.by_id;
+            self.anim_start.borrow_mut().retain(|id, _| ids.contains_key(id.as_ref()));
+        }
         self.rtl = out.direction == "rtl";
         self.surface_height = out.surface_height;
         self.sync_toasts(&out.toasts, window, cx);
@@ -1006,7 +1156,7 @@ impl SurfaceView {
             return self.node_a11y(n);
         }
         let (base, rest) = id.split_once('.')?;
-        let button = |label: String| AccessibleInfo { role: gpui::Role::Button, label: Some(label.into()), description: None };
+        let button = |label: String| AccessibleInfo { role: gpui::Role::Button, label: Some(label.into()), description: None, level: None, position: None };
         if let Some(n) = self.cache.index_of(base).and_then(|i| self.cache.node(i)).filter(|n| n.component == "Composer") {
             let (send, attach) = self.composer_labels(n);
             return match rest {
@@ -1020,7 +1170,7 @@ impl SurfaceView {
         let page: usize = page.parse().ok()?;
         let n = self.cache.index_of(owner).and_then(|i| self.cache.node(i))?;
         let total = n.props.get("count").and_then(serde_json::Value::as_f64).unwrap_or(0.0).max(0.0) as usize;
-        (page < total).then(|| AccessibleInfo { role: gpui::Role::Tab, label: Some(self.carousel_dot_label(page, total).into()), description: None })
+        (page < total).then(|| AccessibleInfo { role: gpui::Role::Tab, label: Some(self.carousel_dot_label(page, total).into()), description: None, level: None, position: Some((page + 1, total)) })
     }
 
     /// What a fading layer paints (an inspection aid): its nodes in paint
@@ -1103,29 +1253,21 @@ impl SurfaceView {
         let mask = window.content_mask().bounds;
         let top = (f32::from(mask.origin.y) - f32::from(bounds.origin.y)).max(0.0);
         let bottom = f32::from(mask.origin.y + mask.size.height) - f32::from(bounds.origin.y);
-        let region = VisibleRegion { top, height: (bottom - top).max(0.0) };
+        let left = (f32::from(mask.origin.x) - f32::from(bounds.origin.x)).max(0.0);
+        let region = VisibleRegion { left, top, height: (bottom - top).max(0.0) };
         let mut again = false;
         if (region.height - self.visible.height).abs() > 0.5 && self.viewport_height <= 0.0 {
             again = true;
         }
         self.visible = region;
-        // Windowed lists the HOST scrolls (no bounded height of their own).
-        for (node, list) in self.lists.clone() {
-            if !list.windowed {
-                continue;
-            }
-            let own = self.scrolls.get(&node).is_some_and(|s| s.scroll_y && s.content_height > self.frames.get(node as usize).map(|f| f.h).unwrap_or(0.0) + 0.5);
-            if own {
-                continue;
-            }
-            let f = self.frames.get(node as usize).copied().unwrap_or_default();
-            let offset = (region.top - f.y).max(0.0);
-            let last = self.list_offsets.get(&list.id).copied();
-            if last.is_none_or(|l| (l - offset).abs() >= 1.0) {
-                self.list_offsets.insert(list.id.clone(), offset);
-                if self.surface.scroll(&list.id, offset) {
-                    again = true;
-                }
+        // Round 2 §5: the host scrolls the WHOLE surface: windowed lists
+        // without a bounded size window against it and sticky nodes without
+        // a scrolling ancestor pin against it (the core decides which).
+        let host_scroll = (region.left, region.top);
+        if self.host_scroll.is_none_or(|(x, y)| (x - host_scroll.0).abs() >= 1.0 || (y - host_scroll.1).abs() >= 1.0) {
+            self.host_scroll = Some(host_scroll);
+            if self.surface.set_surface_scroll(host_scroll.0, host_scroll.1) {
+                again = true;
             }
         }
         if !self.width_fixed && (f32::from(bounds.size.width) - self.width).abs() > 0.5 {
@@ -1176,7 +1318,7 @@ impl SurfaceView {
             .text_color(ink);
         // A drag in flight (slider, scrollbar, sheet, text selection) follows the pointer
         // anywhere in the window, over layers and outside the surface too.
-        if self.drag.is_some() || self.scroll_drag.is_some() || self.sheet_drag.is_some() || self.md_dragging {
+        if self.drag.is_some() || self.scroll_drag.is_some() || self.sheet_drag.is_some() || self.resize_drag.is_some() || self.md_dragging {
             let this = self.this.clone();
             root = root.child(
                 gpui::canvas(

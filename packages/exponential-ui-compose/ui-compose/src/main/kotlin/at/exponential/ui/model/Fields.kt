@@ -90,6 +90,38 @@ fun SurfaceModel.fieldEdited(index: Int, text: String) {
         delay(INPUT_DEBOUNCE_MS)
         flushField(f, index, commit = false)
     }
+    // A field whose size follows its LIVE text (an inline field, an
+    // autosize Textarea, the Composer) measures again now.
+    val n = node(index) ?: return
+    val grows = n.isInlineField || n.component == "Composer" || (n.component == "Textarea" && ownerProps(index).flag("autosize"))
+    if (grows && surface.markDirty(index.toUInt())) {
+        layoutNeeded = true
+        pass()
+    }
+}
+
+/**
+ * Enter in a single-line field (round 1 §3): the pending text goes out as
+ * `submit` (a Form submits; a ChipInput adds the chip and empties).
+ */
+fun SurfaceModel.fieldSubmitted(index: Int) {
+    val f = field(index) ?: return
+    val n = node(index) ?: return
+    f.debounce?.cancel()
+    f.debounce = null
+    f.pendingChange = false
+    val events = try {
+        surface.event(index.toUInt(), "submit", JsonValue.Obj(mapOf("value" to JsonValue.Str(f.text))).json)
+    } catch (_: UiException) {
+        return
+    }
+    f.external = JsonValue.Str(f.text)
+    if (n.component == "ChipInput") {
+        f.text = ""
+        f.external = JsonValue.Str("")
+        f.writeGeneration += 1
+    }
+    dispatch(events, inputRevision = f.revision)
 }
 
 /** Blur / Enter: send what is pending as a `commit`. */
@@ -107,7 +139,11 @@ fun SurfaceModel.fieldFocused(index: Int, focused: Boolean) {
     f.focused = focused
     focusedField = if (focused) n.id else if (focusedField == n.id) null else focusedField
     focus(n.id, focused)
-    if (!focused) fieldCommitted(index)
+    if (!focused) {
+        fieldCommitted(index)
+        // The core's blur (`validateOn: blur` checks, a NumberField's clamp).
+        fire(index, "blur")
+    }
 }
 
 private fun SurfaceModel.flushField(f: FieldState, index: Int, commit: Boolean) {

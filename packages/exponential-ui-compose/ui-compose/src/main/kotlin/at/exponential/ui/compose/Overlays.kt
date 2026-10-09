@@ -94,6 +94,9 @@ internal fun PaintedLayers(model: SurfaceModel) {
     for (layer in model.layers) {
         key(layer.owner) {
             if (model.paintsInSurface(layer)) {
+                // A viewport-placed layer (a centred dialog, an edge sheet, the
+                // toasts) follows the part of the surface the host shows.
+                val shift = if (layer.placementSide == null && layer.position != "point") model.surfaceScroll.y else 0f
                 val unbounded = Modifier.wrapContentSize(Alignment.TopStart, unbounded = true)
                 if (layer.isModal) {
                     val scrim = model.part("Dialog", "overlay", emptyMap()).style.background ?: Color.Black.copy(alpha = 0.5f)
@@ -114,7 +117,7 @@ internal fun PaintedLayers(model: SurfaceModel) {
                             .hiddenFromAccessibility(),
                     )
                 }
-                LayerView(layer, Modifier.offset(layer.frame.left.dp, layer.frame.top.dp).then(unbounded))
+                LayerView(layer, Modifier.offset(layer.frame.left.dp, (layer.frame.top + shift).dp).then(unbounded))
             }
         }
     }
@@ -344,9 +347,9 @@ internal fun DatePopup(model: SurfaceModel) {
                 TextButton(onClick = {
                     val ms = state.selectedDateMillis
                     if (ms != null) model.pickDate(fieldIndex, DateModel.iso(fromMillis = ms)) else model.popup = null
-                }) { Text("Done") }
+                }) { Text(model.string("confirm")) }
             },
-            dismissButton = { TextButton(onClick = { model.popup = null }) { Text("Cancel") } },
+            dismissButton = { TextButton(onClick = { model.popup = null }) { Text(model.string("cancel")) } },
         ) {
             DatePicker(state = state)
         }

@@ -473,6 +473,22 @@ fileprivate struct FfiConverterUInt32: FfiConverterPrimitive {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterInt32: FfiConverterPrimitive {
+    typealias FfiType = Int32
+    typealias SwiftType = Int32
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int32 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int32, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     typealias FfiType = UInt64
     typealias SwiftType = UInt64
@@ -482,6 +498,22 @@ fileprivate struct FfiConverterUInt64: FfiConverterPrimitive {
     }
 
     public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterInt64: FfiConverterPrimitive {
+    typealias FfiType = Int64
+    typealias SwiftType = Int64
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Int64 {
+        return try lift(readInt(&buf))
+    }
+
+    public static func write(_ value: Int64, into buf: inout [UInt8]) {
         writeInt(&buf, lower(value))
     }
 }
@@ -582,6 +614,533 @@ fileprivate struct FfiConverterString: FfiConverter {
         writeBytes(&buf, value.utf8)
     }
 }
+
+
+
+
+public protocol HostFormatter: AnyObject, Sendable {
+    
+    /**
+     * BCP 47.
+     */
+    func locale()  -> String
+    
+    /**
+     * `decimals` = fixed fraction digits (`None` = 0..3); `grouping` =
+     * locale separators.
+     */
+    func number(value: Double, decimals: UInt32?, grouping: Bool)  -> String
+    
+    /**
+     * `code` = an upper-case ISO 4217 code; `decimals` `None` = its minor digits.
+     */
+    func currency(value: Double, code: String, decimals: UInt32?, grouping: Bool)  -> String
+    
+    /**
+     * `value` is a ratio (0.256 → 26 %); `decimals` `None` = 0.
+     */
+    func percent(value: Double, decimals: UInt32?)  -> String
+    
+    /**
+     * `epoch_ms` = the instant; `date_only` = a calendar day (format in
+     * UTC, never shifted); `format` = a TR35 pattern (wins) else `style` =
+     * `short | medium | long | full` (default medium) + `time` = append
+     * the short time.
+     */
+    func date(epochMs: Double, dateOnly: Bool, format: String?, style: String?, time: Bool)  -> String
+    
+    /**
+     * `value` units from now (negative = past); `unit` = `second | minute
+     * | hour | day | week | month | year`; numeric:auto phrasing.
+     */
+    func relativeTime(value: Int64, unit: String)  -> String
+    
+    /**
+     * `zero | one | two | few | many | other`.
+     */
+    func plural(value: Double)  -> String
+    
+    /**
+     * A byte size: `value` already in `unit` (`byte | kilobyte | megabyte
+     * | gigabyte`, ≤ 1 fraction digit) with the locale's short unit name
+     * (`Intl` `style: unit`; en-US `47.1 kB`, `500 byte`).
+     */
+    func bytes(value: Double, unit: String)  -> String
+    
+}
+open class HostFormatterImpl: HostFormatter, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_exponential_ui_ffi_fn_clone_hostformatter(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_exponential_ui_ffi_fn_free_hostformatter(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * BCP 47.
+     */
+open func locale() -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostformatter_locale(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * `decimals` = fixed fraction digits (`None` = 0..3); `grouping` =
+     * locale separators.
+     */
+open func number(value: Double, decimals: UInt32?, grouping: Bool) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostformatter_number(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(value),
+        FfiConverterOptionUInt32.lower(decimals),
+        FfiConverterBool.lower(grouping),$0
+    )
+})
+}
+    
+    /**
+     * `code` = an upper-case ISO 4217 code; `decimals` `None` = its minor digits.
+     */
+open func currency(value: Double, code: String, decimals: UInt32?, grouping: Bool) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostformatter_currency(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(value),
+        FfiConverterString.lower(code),
+        FfiConverterOptionUInt32.lower(decimals),
+        FfiConverterBool.lower(grouping),$0
+    )
+})
+}
+    
+    /**
+     * `value` is a ratio (0.256 → 26 %); `decimals` `None` = 0.
+     */
+open func percent(value: Double, decimals: UInt32?) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostformatter_percent(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(value),
+        FfiConverterOptionUInt32.lower(decimals),$0
+    )
+})
+}
+    
+    /**
+     * `epoch_ms` = the instant; `date_only` = a calendar day (format in
+     * UTC, never shifted); `format` = a TR35 pattern (wins) else `style` =
+     * `short | medium | long | full` (default medium) + `time` = append
+     * the short time.
+     */
+open func date(epochMs: Double, dateOnly: Bool, format: String?, style: String?, time: Bool) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostformatter_date(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(epochMs),
+        FfiConverterBool.lower(dateOnly),
+        FfiConverterOptionString.lower(format),
+        FfiConverterOptionString.lower(style),
+        FfiConverterBool.lower(time),$0
+    )
+})
+}
+    
+    /**
+     * `value` units from now (negative = past); `unit` = `second | minute
+     * | hour | day | week | month | year`; numeric:auto phrasing.
+     */
+open func relativeTime(value: Int64, unit: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostformatter_relative_time(
+            self.uniffiCloneHandle(),
+        FfiConverterInt64.lower(value),
+        FfiConverterString.lower(unit),$0
+    )
+})
+}
+    
+    /**
+     * `zero | one | two | few | many | other`.
+     */
+open func plural(value: Double) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostformatter_plural(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(value),$0
+    )
+})
+}
+    
+    /**
+     * A byte size: `value` already in `unit` (`byte | kilobyte | megabyte
+     * | gigabyte`, ≤ 1 fraction digit) with the locale's short unit name
+     * (`Intl` `style: unit`; en-US `47.1 kB`, `500 byte`).
+     */
+open func bytes(value: Double, unit: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostformatter_bytes(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(value),
+        FfiConverterString.lower(unit),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceHostFormatter {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceHostFormatter] = [UniffiVTableCallbackInterfaceHostFormatter(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeHostFormatter.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface HostFormatter: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeHostFormatter.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface HostFormatter: handle missing in uniffiClone")
+            }
+        },
+        locale: { (
+            uniffiHandle: UInt64,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterTypeHostFormatter.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.locale(
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        number: { (
+            uniffiHandle: UInt64,
+            value: Double,
+            decimals: RustBuffer,
+            grouping: Int8,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterTypeHostFormatter.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.number(
+                     value: try FfiConverterDouble.lift(value),
+                     decimals: try FfiConverterOptionUInt32.lift(decimals),
+                     grouping: try FfiConverterBool.lift(grouping)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        currency: { (
+            uniffiHandle: UInt64,
+            value: Double,
+            code: RustBuffer,
+            decimals: RustBuffer,
+            grouping: Int8,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterTypeHostFormatter.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.currency(
+                     value: try FfiConverterDouble.lift(value),
+                     code: try FfiConverterString.lift(code),
+                     decimals: try FfiConverterOptionUInt32.lift(decimals),
+                     grouping: try FfiConverterBool.lift(grouping)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        percent: { (
+            uniffiHandle: UInt64,
+            value: Double,
+            decimals: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterTypeHostFormatter.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.percent(
+                     value: try FfiConverterDouble.lift(value),
+                     decimals: try FfiConverterOptionUInt32.lift(decimals)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        date: { (
+            uniffiHandle: UInt64,
+            epochMs: Double,
+            dateOnly: Int8,
+            format: RustBuffer,
+            style: RustBuffer,
+            time: Int8,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterTypeHostFormatter.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.date(
+                     epochMs: try FfiConverterDouble.lift(epochMs),
+                     dateOnly: try FfiConverterBool.lift(dateOnly),
+                     format: try FfiConverterOptionString.lift(format),
+                     style: try FfiConverterOptionString.lift(style),
+                     time: try FfiConverterBool.lift(time)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        relativeTime: { (
+            uniffiHandle: UInt64,
+            value: Int64,
+            unit: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterTypeHostFormatter.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.relativeTime(
+                     value: try FfiConverterInt64.lift(value),
+                     unit: try FfiConverterString.lift(unit)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        plural: { (
+            uniffiHandle: UInt64,
+            value: Double,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterTypeHostFormatter.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.plural(
+                     value: try FfiConverterDouble.lift(value)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        },
+        bytes: { (
+            uniffiHandle: UInt64,
+            value: Double,
+            unit: RustBuffer,
+            uniffiOutReturn: UnsafeMutablePointer<RustBuffer>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> String in
+                guard let uniffiObj = try? FfiConverterTypeHostFormatter.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.bytes(
+                     value: try FfiConverterDouble.lift(value),
+                     unit: try FfiConverterString.lift(unit)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterString.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )]
+}
+
+private func uniffiCallbackInitHostFormatter() {
+    uniffi_exponential_ui_ffi_fn_init_callback_vtable_hostformatter(UniffiCallbackInterfaceHostFormatter.vtable)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostFormatter: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<HostFormatter>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = HostFormatter
+
+    public static func lift(_ handle: UInt64) throws -> HostFormatter {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return HostFormatterImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: HostFormatter) -> UInt64 {
+         if let rustImpl = value as? HostFormatterImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostFormatter {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: HostFormatter, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostFormatter_lift(_ handle: UInt64) throws -> HostFormatter {
+    return try FfiConverterTypeHostFormatter.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostFormatter_lower(_ value: HostFormatter) -> UInt64 {
+    return FfiConverterTypeHostFormatter.lower(value)
+}
+
+
 
 
 
@@ -795,6 +1354,221 @@ public func FfiConverterTypeHostRouter_lift(_ handle: UInt64) throws -> HostRout
 #endif
 public func FfiConverterTypeHostRouter_lower(_ value: HostRouter) -> UInt64 {
     return FfiConverterTypeHostRouter.lower(value)
+}
+
+
+
+
+
+
+/**
+ * Implemented by the host per surface (Foundation `NumberFormatter` /
+ * `Date.FormatStyle` / `RelativeDateTimeFormatter`; `android.icu`), in the
+ * surface's locale and time zone. The core parses the values and decides
+ * (the date value, the relative unit and count, the plural arm); the host
+ * only localizes. `formatPatternJson` gives a host the TR35 subset with
+ * its own month / weekday names.
+ * Round 2: the surface zone for the core's English fallback (it has no
+ * zone database): the platform's UTC offset at an instant
+ * (`TimeZone.secondsFromGMT(for:)`, `TimeZone.getOffset`).
+ */
+public protocol HostZone: AnyObject, Sendable {
+    
+    /**
+     * Minutes east of UTC in force at `epoch_ms`.
+     */
+    func offsetMinutes(epochMs: Double)  -> Int32
+    
+}
+/**
+ * Implemented by the host per surface (Foundation `NumberFormatter` /
+ * `Date.FormatStyle` / `RelativeDateTimeFormatter`; `android.icu`), in the
+ * surface's locale and time zone. The core parses the values and decides
+ * (the date value, the relative unit and count, the plural arm); the host
+ * only localizes. `formatPatternJson` gives a host the TR35 subset with
+ * its own month / weekday names.
+ * Round 2: the surface zone for the core's English fallback (it has no
+ * zone database): the platform's UTC offset at an instant
+ * (`TimeZone.secondsFromGMT(for:)`, `TimeZone.getOffset`).
+ */
+open class HostZoneImpl: HostZone, @unchecked Sendable {
+    fileprivate let handle: UInt64
+
+    /// Used to instantiate a [FFIObject] without an actual handle, for fakes in tests, mostly.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public struct NoHandle {
+        public init() {}
+    }
+
+    // TODO: We'd like this to be `private` but for Swifty reasons,
+    // we can't implement `FfiConverter` without making this `required` and we can't
+    // make it `required` without making it `public`.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    required public init(unsafeFromHandle handle: UInt64) {
+        self.handle = handle
+    }
+
+    // This constructor can be used to instantiate a fake object.
+    // - Parameter noHandle: Placeholder value so we can have a constructor separate from the default empty one that may be implemented for classes extending [FFIObject].
+    //
+    // - Warning:
+    //     Any object instantiated with this constructor cannot be passed to an actual Rust-backed object. Since there isn't a backing handle the FFI lower functions will crash.
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public init(noHandle: NoHandle) {
+        self.handle = 0
+    }
+
+#if swift(>=5.8)
+    @_documentation(visibility: private)
+#endif
+    public func uniffiCloneHandle() -> UInt64 {
+        return try! rustCall { uniffi_exponential_ui_ffi_fn_clone_hostzone(self.handle, $0) }
+    }
+    // No primary constructor declared for this class.
+
+    deinit {
+        if handle == 0 {
+            // Mock objects have handle=0 don't try to free them
+            return
+        }
+
+        try! rustCall { uniffi_exponential_ui_ffi_fn_free_hostzone(handle, $0) }
+    }
+
+    
+
+    
+    /**
+     * Minutes east of UTC in force at `epoch_ms`.
+     */
+open func offsetMinutes(epochMs: Double) -> Int32  {
+    return try!  FfiConverterInt32.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_hostzone_offset_minutes(
+            self.uniffiCloneHandle(),
+        FfiConverterDouble.lower(epochMs),$0
+    )
+})
+}
+    
+
+    
+}
+
+
+
+// Put the implementation in a struct so we don't pollute the top-level namespace
+fileprivate struct UniffiCallbackInterfaceHostZone {
+
+    // Create the VTable using a series of closures.
+    // Swift automatically converts these into C callback functions.
+    //
+    // This creates 1-element array, since this seems to be the only way to construct a const
+    // pointer that we can pass to the Rust code.
+    static let vtable: [UniffiVTableCallbackInterfaceHostZone] = [UniffiVTableCallbackInterfaceHostZone(
+        uniffiFree: { (uniffiHandle: UInt64) -> () in
+            do {
+                try FfiConverterTypeHostZone.handleMap.remove(handle: uniffiHandle)
+            } catch {
+                print("Uniffi callback interface HostZone: handle missing in uniffiFree")
+            }
+        },
+        uniffiClone: { (uniffiHandle: UInt64) -> UInt64 in
+            do {
+                return try FfiConverterTypeHostZone.handleMap.clone(handle: uniffiHandle)
+            } catch {
+                fatalError("Uniffi callback interface HostZone: handle missing in uniffiClone")
+            }
+        },
+        offsetMinutes: { (
+            uniffiHandle: UInt64,
+            epochMs: Double,
+            uniffiOutReturn: UnsafeMutablePointer<Int32>,
+            uniffiCallStatus: UnsafeMutablePointer<RustCallStatus>
+        ) in
+            let makeCall = {
+                () throws -> Int32 in
+                guard let uniffiObj = try? FfiConverterTypeHostZone.handleMap.get(handle: uniffiHandle) else {
+                    throw UniffiInternalError.unexpectedStaleHandle
+                }
+                return uniffiObj.offsetMinutes(
+                     epochMs: try FfiConverterDouble.lift(epochMs)
+                )
+            }
+
+            
+            let writeReturn = { uniffiOutReturn.pointee = FfiConverterInt32.lower($0) }
+            uniffiTraitInterfaceCall(
+                callStatus: uniffiCallStatus,
+                makeCall: makeCall,
+                writeReturn: writeReturn
+            )
+        }
+    )]
+}
+
+private func uniffiCallbackInitHostZone() {
+    uniffi_exponential_ui_ffi_fn_init_callback_vtable_hostzone(UniffiCallbackInterfaceHostZone.vtable)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeHostZone: FfiConverter {
+    fileprivate static let handleMap = UniffiHandleMap<HostZone>()
+
+    typealias FfiType = UInt64
+    typealias SwiftType = HostZone
+
+    public static func lift(_ handle: UInt64) throws -> HostZone {
+        if ((handle & 1) == 0) {
+            // Rust-generated handle, construct a new class that uses the handle to implement the
+            // interface
+            return HostZoneImpl(unsafeFromHandle: handle)
+        } else {
+            // Swift-generated handle, get the object from the handle map
+            return try handleMap.remove(handle: handle)
+        }
+    }
+
+    public static func lower(_ value: HostZone) -> UInt64 {
+         if let rustImpl = value as? HostZoneImpl {
+             // Rust-implemented object.  Clone the handle and return it
+            return rustImpl.uniffiCloneHandle()
+         } else {
+            // Swift object, generate a new vtable handle and return that.
+            return handleMap.insert(obj: value)
+         }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> HostZone {
+        let handle: UInt64 = try readInt(&buf)
+        return try lift(handle)
+    }
+
+    public static func write(_ value: HostZone, into buf: inout [UInt8]) {
+        writeInt(&buf, lower(value))
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostZone_lift(_ handle: UInt64) throws -> HostZone {
+    return try FfiConverterTypeHostZone.lift(handle)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeHostZone_lower(_ value: HostZone) -> UInt64 {
+    return FfiConverterTypeHostZone.lower(value)
 }
 
 
@@ -1372,7 +2146,8 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     
     /**
      * `{"focus": {"id"}}` | `{"announce": {"text", "live"}}` |
-     * `{"scrollIntoView": {"id"}}`.
+     * `{"scrollIntoView": {"id"}}` | `{"scrollToIndex": {"id", "index",
+     * "align"?}}` (round 2).
      */
     func commandJson(commandJson: String) throws  -> [FfiEvent]
     
@@ -1382,6 +2157,16 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      * A Toast's timeout: `open: false`, `dismiss` + `change`.
      */
     func dismissToast(id: String)  -> [FfiEvent]
+    
+    /**
+     * Round 2 (VAPP-100): the theme the core resolves against, as a
+     * `Theme` object: the set theme (`extends` resolved) with the surface's
+     * density and contrast applied. Painters resolving sub-parts
+     * (`resolve_part`) or reading tokens use this one, so they get the
+     * core layout's values. Null in geometry mode. Read it again after a
+     * theme or settings change.
+     */
+    func effectiveTheme()  -> Theme?
     
     /**
      * The theme in effect (density + contrast applied), as JSON.
@@ -1453,7 +2238,19 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     
     func scrollTo(id: String, x: Float, y: Float)  -> Bool
     
+    /**
+     * Round 2: bring item `index` (data order) of List/Table `id` into
+     * view; `align` = `start | center | end | nearest` (default).
+     */
+    func scrollToIndex(id: String, index: UInt32, align: String?)  -> [FfiEvent]
+    
     func setBuiltinTheme(id: String) throws 
+    
+    /**
+     * Round 2: pin the clock relative times read (epoch ms; `None` = the
+     * wall clock).
+     */
+    func setClock(nowMs: Double?) 
     
     /**
      * A flat component list (the `updateComponents` payload's `components`).
@@ -1470,9 +2267,37 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     func setDensity(density: String) throws 
     
     /**
+     * Round 2: the English fallback in the surface zone, as the platform's
+     * UTC offset per instant (`zone`; `None` = UTC). It REPLACES a host
+     * formatter: a host with one formats in its own zone and needs none.
+     * Called with the surface locked: never call the surface from it.
+     */
+    func setFallbackZone(zone: HostZone?) 
+    
+    /**
      * Dynamic Type / font scale (1 = the theme's sizes).
      */
     func setFontScale(scale: Float) 
+    
+    /**
+     * Round 2: format through the host's formatter (built from the
+     * surface's locale + time zone); `None` = the English fallback. The
+     * formatter is called during a rebuild with the surface locked: it
+     * must not call back into the surface.
+     */
+    func setFormatter(formatter: HostFormatter?) 
+    
+    /**
+     * One node's pointer enter (`true`) / leave, its other states kept.
+     */
+    func setHover(id: String, hovered: Bool)  -> Bool
+    
+    /**
+     * Round 2 (VAPP-100): the hovered set as a whole (`hover` on exactly
+     * these ids), like `set_pressed`. Recipes' `hover` and `:hover` styles
+     * resolve through it; a hover overlay's trigger opens it.
+     */
+    func setHovered(ids: [String])  -> Bool
     
     /**
      * Safe-area insets layers keep clear of.
@@ -1521,6 +2346,13 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
     func setStringsJson(stringsJson: String) throws 
     
     /**
+     * Round 2: the host's scroll offset of the whole surface; unbounded
+     * lists window against it, sticky nodes pin against it. True = lay
+     * out again.
+     */
+    func setSurfaceScroll(x: Float, y: Float)  -> Bool
+    
+    /**
      * Paint with this `Theme` object from the next pass on.
      */
     func setTheme(theme: Theme) 
@@ -1561,6 +2393,20 @@ public protocol SurfaceProtocol: AnyObject, Sendable {
      * The theme in force, as a `Theme` object (null in geometry mode).
      */
     func theme()  -> Theme?
+    
+    /**
+     * Round 2: re-bind (call at least once a minute while the surface
+     * shows a `formatRelativeTime` without `now`).
+     */
+    func tick() 
+    
+    /**
+     * Round 2: whether a time on screen moves with the clock (a
+     * `formatRelativeTime` without `now`, a Table `relativeTime` column;
+     * `false` with a pinned clock): call `tick` at least once a minute
+     * while it holds. Ask after a layout.
+     */
+    func usesClock()  -> Bool
     
     func visual(index: UInt32)  -> FfiVisual?
     
@@ -1667,7 +2513,8 @@ open func apply(messageJson: String)throws  -> FfiApplyOutcome  {
     
     /**
      * `{"focus": {"id"}}` | `{"announce": {"text", "live"}}` |
-     * `{"scrollIntoView": {"id"}}`.
+     * `{"scrollIntoView": {"id"}}` | `{"scrollToIndex": {"id", "index",
+     * "align"?}}` (round 2).
      */
 open func commandJson(commandJson: String)throws  -> [FfiEvent]  {
     return try  FfiConverterSequenceTypeFfiEvent.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
@@ -1694,6 +2541,22 @@ open func dismissToast(id: String) -> [FfiEvent]  {
     uniffi_exponential_ui_ffi_fn_method_surface_dismiss_toast(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(id),$0
+    )
+})
+}
+    
+    /**
+     * Round 2 (VAPP-100): the theme the core resolves against, as a
+     * `Theme` object: the set theme (`extends` resolved) with the surface's
+     * density and contrast applied. Painters resolving sub-parts
+     * (`resolve_part`) or reading tokens use this one, so they get the
+     * core layout's values. Null in geometry mode. Read it again after a
+     * theme or settings change.
+     */
+open func effectiveTheme() -> Theme?  {
+    return try!  FfiConverterOptionTypeTheme.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_effective_theme(
+            self.uniffiCloneHandle(),$0
     )
 })
 }
@@ -1885,10 +2748,37 @@ open func scrollTo(id: String, x: Float, y: Float) -> Bool  {
 })
 }
     
+    /**
+     * Round 2: bring item `index` (data order) of List/Table `id` into
+     * view; `align` = `start | center | end | nearest` (default).
+     */
+open func scrollToIndex(id: String, index: UInt32, align: String?) -> [FfiEvent]  {
+    return try!  FfiConverterSequenceTypeFfiEvent.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_scroll_to_index(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),
+        FfiConverterUInt32.lower(index),
+        FfiConverterOptionString.lower(align),$0
+    )
+})
+}
+    
 open func setBuiltinTheme(id: String)throws   {try rustCallWithError(FfiConverterTypeUiError_lift) {
     uniffi_exponential_ui_ffi_fn_method_surface_set_builtin_theme(
             self.uniffiCloneHandle(),
         FfiConverterString.lower(id),$0
+    )
+}
+}
+    
+    /**
+     * Round 2: pin the clock relative times read (epoch ms; `None` = the
+     * wall clock).
+     */
+open func setClock(nowMs: Double?)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_clock(
+            self.uniffiCloneHandle(),
+        FfiConverterOptionDouble.lower(nowMs),$0
     )
 }
 }
@@ -1935,6 +2825,20 @@ open func setDensity(density: String)throws   {try rustCallWithError(FfiConverte
 }
     
     /**
+     * Round 2: the English fallback in the surface zone, as the platform's
+     * UTC offset per instant (`zone`; `None` = UTC). It REPLACES a host
+     * formatter: a host with one formats in its own zone and needs none.
+     * Called with the surface locked: never call the surface from it.
+     */
+open func setFallbackZone(zone: HostZone?)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_fallback_zone(
+            self.uniffiCloneHandle(),
+        FfiConverterOptionTypeHostZone.lower(zone),$0
+    )
+}
+}
+    
+    /**
      * Dynamic Type / font scale (1 = the theme's sizes).
      */
 open func setFontScale(scale: Float)  {try! rustCall() {
@@ -1943,6 +2847,47 @@ open func setFontScale(scale: Float)  {try! rustCall() {
         FfiConverterFloat.lower(scale),$0
     )
 }
+}
+    
+    /**
+     * Round 2: format through the host's formatter (built from the
+     * surface's locale + time zone); `None` = the English fallback. The
+     * formatter is called during a rebuild with the surface locked: it
+     * must not call back into the surface.
+     */
+open func setFormatter(formatter: HostFormatter?)  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_formatter(
+            self.uniffiCloneHandle(),
+        FfiConverterOptionTypeHostFormatter.lower(formatter),$0
+    )
+}
+}
+    
+    /**
+     * One node's pointer enter (`true`) / leave, its other states kept.
+     */
+open func setHover(id: String, hovered: Bool) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_hover(
+            self.uniffiCloneHandle(),
+        FfiConverterString.lower(id),
+        FfiConverterBool.lower(hovered),$0
+    )
+})
+}
+    
+    /**
+     * Round 2 (VAPP-100): the hovered set as a whole (`hover` on exactly
+     * these ids), like `set_pressed`. Recipes' `hover` and `:hover` styles
+     * resolve through it; a hover overlay's trigger opens it.
+     */
+open func setHovered(ids: [String]) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_hovered(
+            self.uniffiCloneHandle(),
+        FfiConverterSequenceString.lower(ids),$0
+    )
+})
 }
     
     /**
@@ -2075,6 +3020,21 @@ open func setStringsJson(stringsJson: String)throws   {try rustCallWithError(Ffi
 }
     
     /**
+     * Round 2: the host's scroll offset of the whole surface; unbounded
+     * lists window against it, sticky nodes pin against it. True = lay
+     * out again.
+     */
+open func setSurfaceScroll(x: Float, y: Float) -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_set_surface_scroll(
+            self.uniffiCloneHandle(),
+        FfiConverterFloat.lower(x),
+        FfiConverterFloat.lower(y),$0
+    )
+})
+}
+    
+    /**
      * Paint with this `Theme` object from the next pass on.
      */
 open func setTheme(theme: Theme)  {try! rustCall() {
@@ -2176,6 +3136,31 @@ open func textStyle(index: UInt32) -> FfiTextStyle?  {
 open func theme() -> Theme?  {
     return try!  FfiConverterOptionTypeTheme.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_method_surface_theme(
+            self.uniffiCloneHandle(),$0
+    )
+})
+}
+    
+    /**
+     * Round 2: re-bind (call at least once a minute while the surface
+     * shows a `formatRelativeTime` without `now`).
+     */
+open func tick()  {try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_tick(
+            self.uniffiCloneHandle(),$0
+    )
+}
+}
+    
+    /**
+     * Round 2: whether a time on screen moves with the clock (a
+     * `formatRelativeTime` without `now`, a Table `relativeTime` column;
+     * `false` with a pinned clock): call `tick` at least once a minute
+     * while it holds. Ask after a layout.
+     */
+open func usesClock() -> Bool  {
+    return try!  FfiConverterBool.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_method_surface_uses_clock(
             self.uniffiCloneHandle(),$0
     )
 })
@@ -2827,7 +3812,8 @@ public func FfiConverterTypeFfiDelta_lower(_ value: FfiDelta) -> RustBuffer {
 /**
  * One event for the host: `kind` = `action | openUrl | functionCall |
  * dataChanged | input | focus | announce | copy | pickFiles | relayout |
- * hoverTimer`, `json` = the event's fields (`functionCall`: `{componentId,
+ * hoverTimer | scrollSurface` (round 2: `{x, y}`, scroll the host
+ * viewport, then `setSurfaceScroll`), `json` = the event's fields (`functionCall`: `{componentId,
  * name, args}`, a host function for the registry + `decideFunction` gate).
  */
 public struct FfiEvent: Equatable, Hashable {
@@ -3231,6 +4217,10 @@ public struct FfiLayout: Equatable, Hashable {
      * result, no new pass.
      */
     public var reentrant: Bool
+    /**
+     * Round 2: `position: sticky` nodes and pinned section headers.
+     */
+    public var sticky: [FfiSticky]
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -3254,7 +4244,10 @@ public struct FfiLayout: Equatable, Hashable {
         /**
          * This call came from inside the surface's own measurer: the previous
          * result, no new pass.
-         */reentrant: Bool) {
+         */reentrant: Bool, 
+        /**
+         * Round 2: `position: sticky` nodes and pinned section headers.
+         */sticky: [FfiSticky] = []) {
         self.frames = frames
         self.layers = layers
         self.lists = lists
@@ -3275,6 +4268,7 @@ public struct FfiLayout: Equatable, Hashable {
         self.rebuilt = rebuilt
         self.builtNodes = builtNodes
         self.reentrant = reentrant
+        self.sticky = sticky
     }
 
     
@@ -3312,7 +4306,8 @@ public struct FfiConverterTypeFfiLayout: FfiConverterRustBuffer {
                 restyled: FfiConverterUInt32.read(from: &buf), 
                 rebuilt: FfiConverterBool.read(from: &buf), 
                 builtNodes: FfiConverterUInt32.read(from: &buf), 
-                reentrant: FfiConverterBool.read(from: &buf)
+                reentrant: FfiConverterBool.read(from: &buf), 
+                sticky: FfiConverterSequenceTypeFfiSticky.read(from: &buf)
         )
     }
 
@@ -3337,6 +4332,7 @@ public struct FfiConverterTypeFfiLayout: FfiConverterRustBuffer {
         FfiConverterBool.write(value.rebuilt, into: &buf)
         FfiConverterUInt32.write(value.builtNodes, into: &buf)
         FfiConverterBool.write(value.reentrant, into: &buf)
+        FfiConverterSequenceTypeFfiSticky.write(value.sticky, into: &buf)
     }
 }
 
@@ -3369,10 +4365,21 @@ public struct FfiLeaf: Equatable, Hashable {
     public var textStyle: FfiTextStyle
     public var control: FfiControlBox
     public var lines: UInt32?
+    /**
+     * Round 2 (VAPP-100): the component owning a PART leaf: the native
+     * (`Tabs` for `Tabs/tab`) or the macro (`Stepper` for its `number`);
+     * null for a plain node.
+     */
+    public var ownerComponent: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(index: UInt32, id: String, component: String, part: String?, propsJson: String, text: String, textStyle: FfiTextStyle, control: FfiControlBox, lines: UInt32?) {
+    public init(index: UInt32, id: String, component: String, part: String?, propsJson: String, text: String, textStyle: FfiTextStyle, control: FfiControlBox, lines: UInt32?, 
+        /**
+         * Round 2 (VAPP-100): the component owning a PART leaf: the native
+         * (`Tabs` for `Tabs/tab`) or the macro (`Stepper` for its `number`);
+         * null for a plain node.
+         */ownerComponent: String? = nil) {
         self.index = index
         self.id = id
         self.component = component
@@ -3382,6 +4389,7 @@ public struct FfiLeaf: Equatable, Hashable {
         self.textStyle = textStyle
         self.control = control
         self.lines = lines
+        self.ownerComponent = ownerComponent
     }
 
     
@@ -3408,7 +4416,8 @@ public struct FfiConverterTypeFfiLeaf: FfiConverterRustBuffer {
                 text: FfiConverterString.read(from: &buf), 
                 textStyle: FfiConverterTypeFfiTextStyle.read(from: &buf), 
                 control: FfiConverterTypeFfiControlBox.read(from: &buf), 
-                lines: FfiConverterOptionUInt32.read(from: &buf)
+                lines: FfiConverterOptionUInt32.read(from: &buf), 
+                ownerComponent: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -3422,6 +4431,7 @@ public struct FfiConverterTypeFfiLeaf: FfiConverterRustBuffer {
         FfiConverterTypeFfiTextStyle.write(value.textStyle, into: &buf)
         FfiConverterTypeFfiControlBox.write(value.control, into: &buf)
         FfiConverterOptionUInt32.write(value.lines, into: &buf)
+        FfiConverterOptionString.write(value.ownerComponent, into: &buf)
     }
 }
 
@@ -3449,10 +4459,17 @@ public struct FfiList: Equatable, Hashable {
     public var end: UInt32
     public var count: UInt32
     public var windowed: Bool
+    /**
+     * Round 2: windows on x (`content_height` = the content width).
+     */
+    public var horizontal: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(id: String, node: UInt32, contentHeight: Float, start: UInt32, end: UInt32, count: UInt32, windowed: Bool) {
+    public init(id: String, node: UInt32, contentHeight: Float, start: UInt32, end: UInt32, count: UInt32, windowed: Bool, 
+        /**
+         * Round 2: windows on x (`content_height` = the content width).
+         */horizontal: Bool = false) {
         self.id = id
         self.node = node
         self.contentHeight = contentHeight
@@ -3460,6 +4477,7 @@ public struct FfiList: Equatable, Hashable {
         self.end = end
         self.count = count
         self.windowed = windowed
+        self.horizontal = horizontal
     }
 
     
@@ -3484,7 +4502,8 @@ public struct FfiConverterTypeFfiList: FfiConverterRustBuffer {
                 start: FfiConverterUInt32.read(from: &buf), 
                 end: FfiConverterUInt32.read(from: &buf), 
                 count: FfiConverterUInt32.read(from: &buf), 
-                windowed: FfiConverterBool.read(from: &buf)
+                windowed: FfiConverterBool.read(from: &buf), 
+                horizontal: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -3496,6 +4515,7 @@ public struct FfiConverterTypeFfiList: FfiConverterRustBuffer {
         FfiConverterUInt32.write(value.end, into: &buf)
         FfiConverterUInt32.write(value.count, into: &buf)
         FfiConverterBool.write(value.windowed, into: &buf)
+        FfiConverterBool.write(value.horizontal, into: &buf)
     }
 }
 
@@ -3565,6 +4585,23 @@ public struct FfiNode: Equatable, Hashable {
      * The macro a non-part node expands (`Card`, `Alert`…), else null.
      */
     public var macroName: String?
+    /**
+     * Round 2 (VAPP-100): the interaction states the HOST set on the node
+     * (`setStates` / `setPressed` / `setHovered` / `setHover`), as of this
+     * read; recipes and `:hover`/`:pressed` styles resolve through them.
+     */
+    public var interactionStates: [String]
+    /**
+     * `interaction_states` holds `hover`.
+     */
+    public var hovered: Bool
+    /**
+     * Round 2 (VAPP-100): the node restyles under the pointer (a `:hover`
+     * style block, or a recipe rule on `state: hover` its props match, in
+     * the effective theme). Track a mouse over it like over a pressable and
+     * report `setHover`. Re-read after a theme switch.
+     */
+    public var hoverStyled: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -3592,7 +4629,21 @@ public struct FfiNode: Equatable, Hashable {
          */partStates: [String], 
         /**
          * The macro a non-part node expands (`Card`, `Alert`…), else null.
-         */macroName: String?) {
+         */macroName: String?, 
+        /**
+         * Round 2 (VAPP-100): the interaction states the HOST set on the node
+         * (`setStates` / `setPressed` / `setHovered` / `setHover`), as of this
+         * read; recipes and `:hover`/`:pressed` styles resolve through them.
+         */interactionStates: [String] = [], 
+        /**
+         * `interaction_states` holds `hover`.
+         */hovered: Bool = false, 
+        /**
+         * Round 2 (VAPP-100): the node restyles under the pointer (a `:hover`
+         * style block, or a recipe rule on `state: hover` its props match, in
+         * the effective theme). Track a mouse over it like over a pressable and
+         * report `setHover`. Re-read after a theme switch.
+         */hoverStyled: Bool = false) {
         self.index = index
         self.id = id
         self.component = component
@@ -3618,6 +4669,9 @@ public struct FfiNode: Equatable, Hashable {
         self.removed = removed
         self.partStates = partStates
         self.macroName = macroName
+        self.interactionStates = interactionStates
+        self.hovered = hovered
+        self.hoverStyled = hoverStyled
     }
 
     
@@ -3660,7 +4714,10 @@ public struct FfiConverterTypeFfiNode: FfiConverterRustBuffer {
                 live: FfiConverterOptionString.read(from: &buf), 
                 removed: FfiConverterBool.read(from: &buf), 
                 partStates: FfiConverterSequenceString.read(from: &buf), 
-                macroName: FfiConverterOptionString.read(from: &buf)
+                macroName: FfiConverterOptionString.read(from: &buf), 
+                interactionStates: FfiConverterSequenceString.read(from: &buf), 
+                hovered: FfiConverterBool.read(from: &buf), 
+                hoverStyled: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -3690,6 +4747,9 @@ public struct FfiConverterTypeFfiNode: FfiConverterRustBuffer {
         FfiConverterBool.write(value.removed, into: &buf)
         FfiConverterSequenceString.write(value.partStates, into: &buf)
         FfiConverterOptionString.write(value.macroName, into: &buf)
+        FfiConverterSequenceString.write(value.interactionStates, into: &buf)
+        FfiConverterBool.write(value.hovered, into: &buf)
+        FfiConverterBool.write(value.hoverStyled, into: &buf)
     }
 }
 
@@ -3936,6 +4996,14 @@ public struct FfiSettings: Equatable, Hashable {
      * `hoverTimeout(owner)`.
      */
     public var hoverCloseMs: UInt32
+    /**
+     * Round 2: the IANA zone instants show in (`catalog/host.json`
+     * `timeZone`). The HOST's: build the `HostFormatter` (or the
+     * `HostZone` for `setFallbackZone`) in it; the core has no zone
+     * database and takes the zone only through those. Kept on the facade
+     * so `settings()` returns it; without either, instants format in UTC.
+     */
+    public var timeZone: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -3945,7 +5013,14 @@ public struct FfiSettings: Equatable, Hashable {
          * content are left (the host delays the un-hover); `> 0` (150 like the
          * web) = the core raises `hoverTimer {owner, delay_ms}` and closes on
          * `hoverTimeout(owner)`.
-         */hoverCloseMs: UInt32 = UInt32(0)) {
+         */hoverCloseMs: UInt32 = UInt32(0), 
+        /**
+         * Round 2: the IANA zone instants show in (`catalog/host.json`
+         * `timeZone`). The HOST's: build the `HostFormatter` (or the
+         * `HostZone` for `setFallbackZone`) in it; the core has no zone
+         * database and takes the zone only through those. Kept on the facade
+         * so `settings()` returns it; without either, instants format in UTC.
+         */timeZone: String? = nil) {
         self.locale = locale
         self.stringsJson = stringsJson
         self.mode = mode
@@ -3962,6 +5037,7 @@ public struct FfiSettings: Equatable, Hashable {
         self.insetLeft = insetLeft
         self.today = today
         self.hoverCloseMs = hoverCloseMs
+        self.timeZone = timeZone
     }
 
     
@@ -3995,7 +5071,8 @@ public struct FfiConverterTypeFfiSettings: FfiConverterRustBuffer {
                 insetBottom: FfiConverterFloat.read(from: &buf), 
                 insetLeft: FfiConverterFloat.read(from: &buf), 
                 today: FfiConverterOptionString.read(from: &buf), 
-                hoverCloseMs: FfiConverterUInt32.read(from: &buf)
+                hoverCloseMs: FfiConverterUInt32.read(from: &buf), 
+                timeZone: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -4016,6 +5093,7 @@ public struct FfiConverterTypeFfiSettings: FfiConverterRustBuffer {
         FfiConverterFloat.write(value.insetLeft, into: &buf)
         FfiConverterOptionString.write(value.today, into: &buf)
         FfiConverterUInt32.write(value.hoverCloseMs, into: &buf)
+        FfiConverterOptionString.write(value.timeZone, into: &buf)
     }
 }
 
@@ -4035,19 +5113,97 @@ public func FfiConverterTypeFfiSettings_lower(_ value: FfiSettings) -> RustBuffe
 }
 
 
+/**
+ * Round 2: a sticky node (or a pinned List section header) this pass:
+ * paint it and its subtree translated by `(dx, dy)`.
+ */
+public struct FfiSticky: Equatable, Hashable {
+    public var index: UInt32
+    public var dx: Float
+    public var dy: Float
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(index: UInt32, dx: Float, dy: Float) {
+        self.index = index
+        self.dx = dx
+        self.dy = dy
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension FfiSticky: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiSticky: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiSticky {
+        return
+            try FfiSticky(
+                index: FfiConverterUInt32.read(from: &buf), 
+                dx: FfiConverterFloat.read(from: &buf), 
+                dy: FfiConverterFloat.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: FfiSticky, into buf: inout [UInt8]) {
+        FfiConverterUInt32.write(value.index, into: &buf)
+        FfiConverterFloat.write(value.dx, into: &buf)
+        FfiConverterFloat.write(value.dy, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSticky_lift(_ buf: RustBuffer) throws -> FfiSticky {
+    return try FfiConverterTypeFfiSticky.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiSticky_lower(_ value: FfiSticky) -> RustBuffer {
+    return FfiConverterTypeFfiSticky.lower(value)
+}
+
+
 public struct FfiTextStyle: Equatable, Hashable {
     public var fontSize: Float
     public var fontWeight: UInt16
     public var lineHeight: Float
     public var fontFamily: String?
+    /**
+     * Round 2 (VAPP-100): extra px between glyphs (font scale applied),
+     * `uppercase | lowercase | capitalize`, `italic`; null = none. They
+     * change the shaped width: measure and paint with them.
+     */
+    public var letterSpacing: Float?
+    public var textTransform: String?
+    public var fontStyle: String?
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(fontSize: Float, fontWeight: UInt16, lineHeight: Float, fontFamily: String?) {
+    public init(fontSize: Float, fontWeight: UInt16, lineHeight: Float, fontFamily: String?, 
+        /**
+         * Round 2 (VAPP-100): extra px between glyphs (font scale applied),
+         * `uppercase | lowercase | capitalize`, `italic`; null = none. They
+         * change the shaped width: measure and paint with them.
+         */letterSpacing: Float? = nil, textTransform: String? = nil, fontStyle: String? = nil) {
         self.fontSize = fontSize
         self.fontWeight = fontWeight
         self.lineHeight = lineHeight
         self.fontFamily = fontFamily
+        self.letterSpacing = letterSpacing
+        self.textTransform = textTransform
+        self.fontStyle = fontStyle
     }
 
     
@@ -4069,7 +5225,10 @@ public struct FfiConverterTypeFfiTextStyle: FfiConverterRustBuffer {
                 fontSize: FfiConverterFloat.read(from: &buf), 
                 fontWeight: FfiConverterUInt16.read(from: &buf), 
                 lineHeight: FfiConverterFloat.read(from: &buf), 
-                fontFamily: FfiConverterOptionString.read(from: &buf)
+                fontFamily: FfiConverterOptionString.read(from: &buf), 
+                letterSpacing: FfiConverterOptionFloat.read(from: &buf), 
+                textTransform: FfiConverterOptionString.read(from: &buf), 
+                fontStyle: FfiConverterOptionString.read(from: &buf)
         )
     }
 
@@ -4078,6 +5237,9 @@ public struct FfiConverterTypeFfiTextStyle: FfiConverterRustBuffer {
         FfiConverterUInt16.write(value.fontWeight, into: &buf)
         FfiConverterFloat.write(value.lineHeight, into: &buf)
         FfiConverterOptionString.write(value.fontFamily, into: &buf)
+        FfiConverterOptionFloat.write(value.letterSpacing, into: &buf)
+        FfiConverterOptionString.write(value.textTransform, into: &buf)
+        FfiConverterOptionString.write(value.fontStyle, into: &buf)
     }
 }
 
@@ -4225,6 +5387,25 @@ public struct FfiVisual: Equatable, Hashable {
      * A Chart's series colours, resolved.
      */
     public var seriesColors: [String]?
+    /**
+     * Round 2: a leaf's direction (`ltr | rtl`), the bidi paragraph
+     * direction of its text (`text_align` is then the PHYSICAL align).
+     */
+    public var direction: String?
+    /**
+     * Round 2: backdrop blur radius in px (no platform blur = paint the
+     * background alone).
+     */
+    public var backdropBlur: Float?
+    /**
+     * Round 2: `{name, timing: {durationMs, easing, iterations}, reduced?}`;
+     * sample it with `animationFrameJson`.
+     */
+    public var animationJson: String?
+    /**
+     * Round 2: `position: sticky` (offsets: `FfiLayout.sticky`).
+     */
+    public var sticky: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
@@ -4256,7 +5437,22 @@ public struct FfiVisual: Equatable, Hashable {
          */transitionMs: Float?, transitionEasing: [Float]?, visibilityHidden: Bool, pointerEventsNone: Bool, userSelect: String?, cursor: String?, 
         /**
          * A Chart's series colours, resolved.
-         */seriesColors: [String]?) {
+         */seriesColors: [String]?, 
+        /**
+         * Round 2: a leaf's direction (`ltr | rtl`), the bidi paragraph
+         * direction of its text (`text_align` is then the PHYSICAL align).
+         */direction: String? = nil, 
+        /**
+         * Round 2: backdrop blur radius in px (no platform blur = paint the
+         * background alone).
+         */backdropBlur: Float? = nil, 
+        /**
+         * Round 2: `{name, timing: {durationMs, easing, iterations}, reduced?}`;
+         * sample it with `animationFrameJson`.
+         */animationJson: String? = nil, 
+        /**
+         * Round 2: `position: sticky` (offsets: `FfiLayout.sticky`).
+         */sticky: Bool = false) {
         self.backgroundColor = backgroundColor
         self.color = color
         self.borderWidth = borderWidth
@@ -4294,6 +5490,10 @@ public struct FfiVisual: Equatable, Hashable {
         self.userSelect = userSelect
         self.cursor = cursor
         self.seriesColors = seriesColors
+        self.direction = direction
+        self.backdropBlur = backdropBlur
+        self.animationJson = animationJson
+        self.sticky = sticky
     }
 
     
@@ -4348,7 +5548,11 @@ public struct FfiConverterTypeFfiVisual: FfiConverterRustBuffer {
                 pointerEventsNone: FfiConverterBool.read(from: &buf), 
                 userSelect: FfiConverterOptionString.read(from: &buf), 
                 cursor: FfiConverterOptionString.read(from: &buf), 
-                seriesColors: FfiConverterOptionSequenceString.read(from: &buf)
+                seriesColors: FfiConverterOptionSequenceString.read(from: &buf), 
+                direction: FfiConverterOptionString.read(from: &buf), 
+                backdropBlur: FfiConverterOptionFloat.read(from: &buf), 
+                animationJson: FfiConverterOptionString.read(from: &buf), 
+                sticky: FfiConverterBool.read(from: &buf)
         )
     }
 
@@ -4390,6 +5594,10 @@ public struct FfiConverterTypeFfiVisual: FfiConverterRustBuffer {
         FfiConverterOptionString.write(value.userSelect, into: &buf)
         FfiConverterOptionString.write(value.cursor, into: &buf)
         FfiConverterOptionSequenceString.write(value.seriesColors, into: &buf)
+        FfiConverterOptionString.write(value.direction, into: &buf)
+        FfiConverterOptionFloat.write(value.backdropBlur, into: &buf)
+        FfiConverterOptionString.write(value.animationJson, into: &buf)
+        FfiConverterBool.write(value.sticky, into: &buf)
     }
 }
 
@@ -4546,6 +5754,30 @@ fileprivate struct FfiConverterOptionUInt32: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionInt32: FfiConverterRustBuffer {
+    typealias SwiftType = Int32?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterInt32.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterInt32.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterOptionFloat: FfiConverterRustBuffer {
     typealias SwiftType = Float?
 
@@ -4634,6 +5866,54 @@ fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
         switch try readInt(&buf) as Int8 {
         case 0: return nil
         case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeHostFormatter: FfiConverterRustBuffer {
+    typealias SwiftType = HostFormatter?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeHostFormatter.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeHostFormatter.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterOptionTypeHostZone: FfiConverterRustBuffer {
+    typealias SwiftType = HostZone?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterTypeHostZone.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterTypeHostZone.read(from: &buf)
         default: throw UniffiInternalError.unexpectedOptionalTag
         }
     }
@@ -5110,6 +6390,31 @@ fileprivate struct FfiConverterSequenceTypeFfiScroll: FfiConverterRustBuffer {
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterSequenceTypeFfiSticky: FfiConverterRustBuffer {
+    typealias SwiftType = [FfiSticky]
+
+    public static func write(_ value: [FfiSticky], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeFfiSticky.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [FfiSticky] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [FfiSticky]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeFfiSticky.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeFfiToast: FfiConverterRustBuffer {
     typealias SwiftType = [FfiToast]
 
@@ -5171,6 +6476,21 @@ public func actionMessageJson(surfaceId: String, componentId: String, name: Stri
     )
 })
 }
+/**
+ * Round 2 (§2): the frame of an animation (`timing_json` = a visual's
+ * `animation.timing`) `elapsed_ms` after the node entered the tree:
+ * `{opacity, translateX, translateY, rotate, scale, band}`.
+ */
+public func animationFrameJson(name: String, timingJson: String, elapsedMs: Double, reducedMotion: Bool)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_animation_frame_json(
+        FfiConverterString.lower(name),
+        FfiConverterString.lower(timingJson),
+        FfiConverterDouble.lower(elapsedMs),
+        FfiConverterBool.lower(reducedMotion),$0
+    )
+})
+}
 public func basicCatalogId() -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_func_basic_catalog_id($0
@@ -5184,6 +6504,44 @@ public func benchTreeJson(n: UInt32) -> String  {
     return try!  FfiConverterString.lift(try! rustCall() {
     uniffi_exponential_ui_ffi_fn_func_bench_tree_json(
         FfiConverterUInt32.lower(n),$0
+    )
+})
+}
+/**
+ * Round 2 (§4): a row-scoped slot cell (Table) bound for row `index`:
+ * `rows_prop_json` = the UNBOUND `rows` (a binding → relative paths read
+ * the data at `<its pointer>/<index>`; a literal → inside `rows[index]`),
+ * `rows_json` = the bound rows. Format calls go through `formatter` (the
+ * surface's; `None` = the English fallback). `None` = not visible.
+ */
+public func bindRowSlotJson(slotJson: String, rowsPropJson: String, rowsJson: String, index: UInt32, dataJson: String, optionsJson: String?, formatter: HostFormatter? = nil)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_bind_row_slot_json(
+        FfiConverterString.lower(slotJson),
+        FfiConverterString.lower(rowsPropJson),
+        FfiConverterString.lower(rowsJson),
+        FfiConverterUInt32.lower(index),
+        FfiConverterString.lower(dataJson),
+        FfiConverterOptionString.lower(optionsJson),
+        FfiConverterOptionTypeHostFormatter.lower(formatter),$0
+    )
+})
+}
+/**
+ * Round 2 (§4): a List `section` header bound for section `index`;
+ * `section_json` = `{value, count}` (`start` optional): relative paths
+ * read `{value, count, index}`. `options.now` and `formatter` as
+ * [`bind_row_slot_json`].
+ */
+public func bindSectionHeaderJson(slotJson: String, sectionJson: String, index: UInt32, dataJson: String, optionsJson: String?, formatter: HostFormatter? = nil)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_bind_section_header_json(
+        FfiConverterString.lower(slotJson),
+        FfiConverterString.lower(sectionJson),
+        FfiConverterUInt32.lower(index),
+        FfiConverterString.lower(dataJson),
+        FfiConverterOptionString.lower(optionsJson),
+        FfiConverterOptionTypeHostFormatter.lower(formatter),$0
     )
 })
 }
@@ -5324,6 +6682,17 @@ public func defaultThemeId() -> String  {
 })
 }
 /**
+ * Round 2 (§3): what a text prop shows for a bound value (`412`, `true`,
+ * nothing for null / objects).
+ */
+public func displayStringJson(valueJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_display_string_json(
+        FfiConverterString.lower(valueJson),$0
+    )
+})
+}
+/**
  * A client error message (A2UI v0.9 `error`) JSON.
  */
 public func errorMessageJson(code: String, surfaceId: String, message: String, path: String?) -> String  {
@@ -5343,6 +6712,36 @@ public func extensionErrors(extensionJson: String)throws  -> [String]  {
     return try  FfiConverterSequenceString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
     uniffi_exponential_ui_ffi_fn_func_extension_errors(
         FfiConverterString.lower(extensionJson),$0
+    )
+})
+}
+/**
+ * Round 2: a format call (`{call, args}`) through the English fallback
+ * (at `offset_minutes` east of UTC, default 0: `format.json` `zoned`), or
+ * through `formatter` (`now` = the clock for `formatRelativeTime`).
+ */
+public func formatCallJson(callJson: String, formatter: HostFormatter?, now: Double?, offsetMinutes: Int32? = nil)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_format_call_json(
+        FfiConverterString.lower(callJson),
+        FfiConverterOptionTypeHostFormatter.lower(formatter),
+        FfiConverterOptionDouble.lower(now),
+        FfiConverterOptionInt32.lower(offsetMinutes),$0
+    )
+})
+}
+/**
+ * Round 2: the TR35 subset over calendar fields with the host's names:
+ * `fields_json` = `{year, month (1–12), day, weekday (0 = Sunday), hour,
+ * minute, second}`, `names_json` = `{months, monthsShort, weekdays,
+ * weekdaysShort, dayPeriods}` (`None` = English).
+ */
+public func formatPatternJson(pattern: String, fieldsJson: String, namesJson: String?)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_format_pattern_json(
+        FfiConverterString.lower(pattern),
+        FfiConverterString.lower(fieldsJson),
+        FfiConverterOptionString.lower(namesJson),$0
     )
 })
 }
@@ -5386,6 +6785,24 @@ public func jsonEqual(a: String, b: String) -> Bool  {
     uniffi_exponential_ui_ffi_fn_func_json_equal(
         FfiConverterString.lower(a),
         FfiConverterString.lower(b),$0
+    )
+})
+}
+/**
+ * Round 2 (§5): the list arithmetic, `{op, …}` → JSON: `window {extents,
+ * gap, scroll, viewport, overscan?}`, `scrollTo {extents, gap, index,
+ * viewport, scroll, align?, inset?}`, `scrollToItem {rows ([{header}|
+ * {item}], as `sections` gives), rowExtents, gap, index (DATA), viewport,
+ * scroll, align?, stickyHeaders?}`, `sections {items, sectionBy}`,
+ * `sticky {rowExtents, headerRows, scroll, gap?, rowOffsets?}` (`gap` =
+ * the list's item spacing incl. a divider's hairline; `rowOffsets`, when
+ * given, wins; header rows sort, out-of-range ones are an error), `keys
+ * {items, key?}`, `rowKeys {rows, rowKey?}`.
+ */
+public func listJson(requestJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_list_json(
+        FfiConverterString.lower(requestJson),$0
     )
 })
 }
@@ -5458,6 +6875,17 @@ public func packagePolicyJson(functionsJson: String?)throws  -> String  {
 })
 }
 /**
+ * Round 2: a date value (`yyyy-mm-dd`, an ISO date-time, epoch ms) as
+ * `{ms, dateOnly}`, or `None` when unreadable.
+ */
+public func parseDateValueJson(valueJson: String)throws  -> String?  {
+    return try  FfiConverterOptionString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_parse_date_value_json(
+        FfiConverterString.lower(valueJson),$0
+    )
+})
+}
+/**
  * A binding source URI → `{uri, scheme, name, params}` JSON, null when it
  * does not parse.
  */
@@ -5507,6 +6935,34 @@ public func reduceSurfaceJson(componentsJson: String, catalogId: String, extensi
         FfiConverterString.lower(componentsJson),
         FfiConverterString.lower(catalogId),
         FfiConverterOptionString.lower(extensionsJson),$0
+    )
+})
+}
+/**
+ * Round 2: the unit a relative time shows in: `{value, unit}` for
+ * `delta_ms` = value − now.
+ */
+public func relativeTimeUnitJson(deltaMs: Double) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_relative_time_unit_json(
+        FfiConverterDouble.lower(deltaMs),$0
+    )
+})
+}
+/**
+ * Round 2 (§1): the Resizable arithmetic, `{op, …}` → the numbers:
+ * `normalize {sizes?, count, panels?}`, `resize {sizes, handle, delta,
+ * panels?}`, `key {sizes, handle, key, orientation, direction?, panels?}`,
+ * `extents {sizes, container, handleExtent?}`, `drag {px, container,
+ * panels, orientation, direction?, handleExtent?}` (`handleExtent` = the
+ * theme's `$control.hairline`, default 1; `extents` also reads the older
+ * `handle`). A surface runs them itself on `drag` / `key` events; hosts
+ * use this for previews and the binding suites.
+ */
+public func resizableJson(requestJson: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypeUiError_lift) {
+    uniffi_exponential_ui_ffi_fn_func_resizable_json(
+        FfiConverterString.lower(requestJson),$0
     )
 })
 }
@@ -5691,10 +7147,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_action_message_json() != 2647) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_animation_frame_json() != 34139) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_basic_catalog_id() != 30075) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_bench_tree_json() != 31910) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_bind_row_slot_json() != 45227) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_bind_section_header_json() != 42416) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_bind_tree_json() != 42404) {
@@ -5736,10 +7201,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_default_theme_id() != 10974) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_display_string_json() != 16203) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_error_message_json() != 45756) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_extension_errors() != 24175) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_format_call_json() != 40402) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_format_pattern_json() != 12110) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_format_string() != 31957) {
@@ -5752,6 +7226,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_json_equal() != 25552) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_list_json() != 2952) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_load_theme_json() != 35667) {
@@ -5772,6 +7249,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_package_policy_json() != 10529) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_func_parse_date_value_json() != 60626) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_func_parse_source_json() != 38003) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -5782,6 +7262,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_reduce_surface_json() != 59777) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_relative_time_unit_json() != 52328) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_resizable_json() != 39983) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_resolve_conditions_json() != 827) {
@@ -5826,6 +7312,30 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_func_week_start() != 43637) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_locale() != 12162) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_number() != 35282) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_currency() != 28224) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_percent() != 54520) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_date() != 10148) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_relative_time() != 19375) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_plural() != 18062) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostformatter_bytes() != 58182) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_install_package() != 53902) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -5842,6 +7352,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_hostrouter_surface_ids() != 45773) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_hostzone_offset_minutes() != 22212) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_jsonldecoder_end() != 43219) {
@@ -5868,13 +7381,16 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_apply() != 62930) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_exponential_ui_ffi_checksum_method_surface_command_json() != 29382) {
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_command_json() != 27523) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_data_json() != 48232) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_dismiss_toast() != 60544) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme() != 34484) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_effective_theme_json() != 59305) {
@@ -5928,7 +7444,13 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to() != 16099) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_scroll_to_index() != 44001) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_builtin_theme() != 56744) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_clock() != 29426) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_components() != 46659) {
@@ -5943,7 +7465,19 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_density() != 26135) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_fallback_zone() != 58767) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_font_scale() != 25889) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_formatter() != 35944) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_hover() != 19545) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_hovered() != 21550) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_insets() != 63206) {
@@ -5982,6 +7516,9 @@ private let initializationResult: InitializationResult = {
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_strings_json() != 27566) {
         return InitializationResult.apiChecksumMismatch
     }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_set_surface_scroll() != 60657) {
+        return InitializationResult.apiChecksumMismatch
+    }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_set_theme() != 2832) {
         return InitializationResult.apiChecksumMismatch
     }
@@ -6010,6 +7547,12 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_theme() != 51512) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_tick() != 40589) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_method_surface_uses_clock() != 32081) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_method_surface_visual() != 1946) {
@@ -6085,6 +7628,8 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
 
+    uniffiCallbackInitHostFormatter()
+    uniffiCallbackInitHostZone()
     uniffiCallbackInitMeasurer()
     return InitializationResult.ok
 }()

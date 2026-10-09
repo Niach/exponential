@@ -1,342 +1,1115 @@
 {
-  "$comment": "The desktop conformance RATCHET (apps/desktop/crates/exponential-ui-gpui/tests/conformance.rs): per case, the divergence counts of the gpui painter (headless, gpui's cosmic-text system, the conformance fonts) against the web baseline (fixtures/conformance-baseline.json) today. A case may only go DOWN; rewrite after a fix with EXP_UI_WRITE_FIXTURES=1 cargo test -p exponential-ui-gpui --test conformance. `onlyRef`/`onlyCand` = nodes only the web / only gpui placed (coverage, not compared).",
+  "$comment": "The desktop conformance RATCHET (apps/desktop/crates/exponential-ui-gpui/tests/conformance.rs): per case, the divergence counts of the gpui painter (headless, gpui's cosmic-text system, the conformance fonts) against the web baseline (fixtures/conformance-baseline.json) today. A case may only go DOWN; rewrite after a fix with EXP_UI_WRITE_FIXTURES=1 cargo test -p exponential-ui-gpui --test conformance. `onlyRef`/`onlyCand` = nodes only the web / only gpui placed (coverage, not compared); `coverageGaps` = each such node with its reason (an unlisted one fails the gate: tests/conformance.rs COVERAGE_GAPS). Round 2 (docs/round-2-contract.md §8): `causes` = the 53 divergence ORIGINS of the 2026-10-08 report (`cases` = how many matrix cases showed it), each with the side the contract says is right (`web`, `gpui`, `neither` or `contract`), who fixes it (`react`, `gpui`, `core`, `contract`; `survivor` = kept, with a `reason`) and the decision; `rules` = the decisions with no origin today. The ratchet only reads `cases`: the gpui writer must carry `causes` and `rules` over when it rewrites this file.",
   "renderer": "gpui-cosmic-headless",
+  "causes": [
+    {
+      "id": "resp-drawer",
+      "component": "Drawer",
+      "kind": "size",
+      "cases": 48,
+      "group": "overlay trigger rows",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "An overlay native (Dialog, Drawer, Sheet, AlertDialog, Popover, HoverCard, Tooltip, DropdownMenu with a trigger slot) is LAYOUT-TRANSPARENT: its frame is its trigger's frame and the trigger is the flex item; it never fills a column or stretches a row on its own (§8.1)."
+    },
+    {
+      "id": "audio",
+      "component": "AudioPlayer",
+      "kind": "size",
+      "cases": 24,
+      "group": "media sizes",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "AudioPlayer = the title line (`AudioPlayer/track`, when titled) + `$spacing.xs` + a controls row of `AudioPlayer/controls` height (`$control.row`); the browser's <audio> default height is not the contract."
+    },
+    {
+      "id": "chart",
+      "component": "Chart",
+      "kind": "size",
+      "cases": 24,
+      "group": "chart heights",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "Chart `height` is the WHOLE chart box (title, legend, axes inside; the plot takes what is left), so the frame never depends on text metrics or legend wrapping."
+    },
+    {
+      "id": "chart-donut",
+      "component": "Chart",
+      "kind": "size",
+      "cases": 24,
+      "group": "chart heights",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "As `chart`: the frame = `height` (180)."
+    },
+    {
+      "id": "chart-line",
+      "component": "Chart",
+      "kind": "size",
+      "cases": 24,
+      "group": "chart heights",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "As `chart`: the frame = `height` (default 200)."
+    },
+    {
+      "id": "code",
+      "component": "CodeBlock",
+      "kind": "size",
+      "cases": 24,
+      "group": "control heights",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "CodeBlock geometry comes only from its recipes: border + header (`CodeBlock/header` padding + the copy button + hairline) + one `lineHeight` per line, no extra body padding (a theme that wants padding sets it in a recipe)."
+    },
+    {
+      "id": "form-due",
+      "component": "DatePicker",
+      "kind": "size",
+      "cases": 24,
+      "group": "picker row widths",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Picker triggers (Select, DatePicker, DateRangePicker, TimePicker) size to their content (text + glyph + padding + border); only text fields have the 160 px intrinsic width (catalog/layout.json `fieldIntrinsicWidth`)."
+    },
+    {
+      "id": "form-plan",
+      "component": "Radio",
+      "kind": "size",
+      "cases": 24,
+      "group": "control heights",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "The Radio group's gap is `Radio/root` gap (`$spacing.sm`), and an option row is max(dot, label line) tall."
+    },
+    {
+      "id": "form-volume",
+      "component": "Slider",
+      "kind": "size",
+      "cases": 24,
+      "group": "control heights",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Slider = header (label + value line) + `$spacing.xs` + a track ROW as tall as the thumb (`Slider/thumb` height); the rail (`Slider/track` height 6) is centred in it. Thumbs are paint parts (not dumped)."
+    },
+    {
+      "id": "hdr-badge",
+      "component": "Box",
+      "kind": "size",
+      "cases": 24,
+      "group": "badge and pill widths",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "A Badge is 2 × paddingHorizontal + its content; a part whose `$if` is false does not exist, so no gap is counted for it."
+    },
+    {
+      "id": "hdr-sub",
+      "component": "Text",
+      "kind": "size",
+      "cases": 24,
+      "group": "badge and pill widths",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `hdr-badge` (the wider badge takes the text column's width)."
+    },
+    {
+      "id": "hdr-title",
+      "component": "Text",
+      "kind": "size",
+      "cases": 24,
+      "group": "badge and pill widths",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `hdr-badge`."
+    },
+    {
+      "id": "list-item.body.title",
+      "component": "Text",
+      "kind": "size",
+      "cases": 24,
+      "group": "empty and number text",
+      "right": "web",
+      "fix": [
+        "contract",
+        "gpui"
+      ],
+      "decision": "The template node no longer renders in place (lifted into `templates`, §4); an empty Text lays out ZERO lines (0 height plus its padding) everywhere."
+    },
+    {
+      "id": "list-item.body.title.0",
+      "component": "Text",
+      "kind": "size",
+      "cases": 24,
+      "group": "empty and number text",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `list-item.meta.0` (0 px wide on gpui)."
+    },
+    {
+      "id": "list-item.body.title.1",
+      "component": "Text",
+      "kind": "size",
+      "cases": 24,
+      "group": "empty and number text",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `list-item.meta.1`."
+    },
+    {
+      "id": "list-item.body.title.2",
+      "component": "Text",
+      "kind": "size",
+      "cases": 24,
+      "group": "empty and number text",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `list-item.meta.2`."
+    },
+    {
+      "id": "list-item.meta.0",
+      "component": "Text",
+      "kind": "size",
+      "cases": 24,
+      "group": "empty and number text",
+      "right": "web",
+      "fix": [
+        "core",
+        "gpui"
+      ],
+      "decision": "A number bound into a text prop SHOWS its displayString (`412`); the core's reconcile and gpui's events/paint stop reading it with as_str (fixtures/format.json `display`)."
+    },
+    {
+      "id": "list-item.meta.1",
+      "component": "Text",
+      "kind": "size",
+      "cases": 24,
+      "group": "empty and number text",
+      "right": "web",
+      "fix": [
+        "core",
+        "gpui"
+      ],
+      "decision": "As `list-item.meta.0`."
+    },
+    {
+      "id": "list-item.meta.2",
+      "component": "Text",
+      "kind": "size",
+      "cases": 24,
+      "group": "empty and number text",
+      "right": "web",
+      "fix": [
+        "core",
+        "gpui"
+      ],
+      "decision": "As `list-item.meta.0`."
+    },
+    {
+      "id": "menu",
+      "component": "DropdownMenu",
+      "kind": "size",
+      "cases": 24,
+      "group": "overlay trigger rows",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "The default DropdownMenu trigger is an outline button with `icon` (when set) and `label`, NO chevron; the menu is layout-transparent like every overlay."
+    },
+    {
+      "id": "nav-inbox.count",
+      "component": "Box",
+      "kind": "size",
+      "cases": 24,
+      "group": "badge and pill widths",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "As `hdr-badge`: the NavRow count Badge = padding + its text."
+    },
+    {
+      "id": "nav-inbox.label",
+      "component": "Text",
+      "kind": "size",
+      "cases": 24,
+      "group": "badge and pill widths",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `nav-inbox.count`."
+    },
+    {
+      "id": "nf-files",
+      "component": "FileUpload",
+      "kind": "size",
+      "cases": 24,
+      "group": "control heights",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "The drop zone holds icon, title, hint (when set) AND the Browse button (`$string.browse`, an outline `$control.buttonSm` button), each `FileUpload/dropzone` gap apart."
+    },
+    {
+      "id": "page-1",
+      "component": "Image",
+      "kind": "size",
+      "cases": 24,
+      "group": "media sizes",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "An Image's box takes its `aspectRatio` (else 16:9 without a height): height = width / ratio, before and after the picture loads (no layout shift)."
+    },
+    {
+      "id": "progress-bound.label",
+      "component": "Text",
+      "kind": "size",
+      "cases": 24,
+      "group": "sparkline shrink",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `sparkline`."
+    },
+    {
+      "id": "progress-bound.track.fill",
+      "component": "Box",
+      "kind": "size",
+      "cases": 24,
+      "group": "sparkline shrink",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `sparkline`."
+    },
+    {
+      "id": "resp-nav-inbox.count",
+      "component": "Box",
+      "kind": "size",
+      "cases": 24,
+      "group": "badge and pill widths",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "As `nav-inbox.count`."
+    },
+    {
+      "id": "resp-nav-inbox.label",
+      "component": "Text",
+      "kind": "size",
+      "cases": 24,
+      "group": "badge and pill widths",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `resp-nav-inbox.count`."
+    },
+    {
+      "id": "spark-label",
+      "component": "Text",
+      "kind": "size",
+      "cases": 24,
+      "group": "sparkline shrink",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `sparkline`."
+    },
+    {
+      "id": "sparkline",
+      "component": "Chart",
+      "kind": "size",
+      "cases": 24,
+      "group": "sparkline shrink",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Flex items shrink (CSS flexShrink 1 = taffy's): a Chart's min-content width is 0, so a Sparkline with `width: 96` shrinks in a crowded row."
+    },
+    {
+      "id": "table",
+      "component": "Table",
+      "kind": "size",
+      "cases": 24,
+      "group": "control heights",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "Table = header (cell height + hairline) + one (cell height + hairline) per row + the caption (its line + 2 × `Table/caption` paddingVertical); the checkbox column is a cell like any other; no table-layout spacing."
+    },
+    {
+      "id": "toggles",
+      "component": "ToggleGroup",
+      "kind": "size",
+      "cases": 24,
+      "group": "toggle group stretch",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "A ToggleGroup is content-sized (align-self start) unless `fill`; it never stretches across a column."
+    },
+    {
+      "id": "tree-guides",
+      "component": "TreeGuides",
+      "kind": "size",
+      "cases": 24,
+      "group": "tree guides",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "TreeGuides = depth × 16 px columns (`treeGuideColumn`), stretched to its row's height; the `TreeGuides/line` recipe `width` is the STROKE, not the column."
+    },
+    {
+      "id": "video",
+      "component": "Video",
+      "kind": "size",
+      "cases": 24,
+      "group": "media sizes",
+      "right": "neither",
+      "fix": [
+        "react",
+        "gpui",
+        "contract"
+      ],
+      "decision": "Video gets an explicit `aspectRatio` prop (default 16:9 = `mediaAspectRatio`): height = width / ratio. The web's 300×150 browser default and gpui's fixed 180 are both gone."
+    },
+    {
+      "id": "hover-card-trigger",
+      "component": "Link",
+      "kind": "size",
+      "cases": 20,
+      "group": "overlay trigger rows",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Layout-transparent overlays: the trigger IS the flex item, so a Link trigger stretches in a stretch row like any Text."
+    },
+    {
+      "id": "pill-1",
+      "component": "Box",
+      "kind": "size",
+      "cases": 16,
+      "group": "badge and pill widths",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "As `hdr-badge`: no gap for the absent dot/icon parts."
+    },
+    {
+      "id": "alert-dialog",
+      "component": "Dialog",
+      "kind": "size",
+      "cases": 14,
+      "group": "overlay trigger rows",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "Layout-transparent: the frame is the trigger Button's (32/36/40 px), never the row's height."
+    },
+    {
+      "id": "card-row.body.subtitle",
+      "component": "Text",
+      "kind": "size",
+      "cases": 12,
+      "group": "card row",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "CSS flex: the CardRow's icon and meta parts are content-sized; gpui gives a sibling part 30 px more (find it with `--details` once React marks every CardRow part)."
+    },
+    {
+      "id": "card-row.body.title",
+      "component": "Text",
+      "kind": "size",
+      "cases": 12,
+      "group": "card row",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "As `card-row.body.subtitle`."
+    },
+    {
+      "id": "dialog",
+      "component": "Dialog",
+      "kind": "size",
+      "cases": 12,
+      "group": "overlay trigger rows",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "As `alert-dialog`."
+    },
+    {
+      "id": "drawer",
+      "component": "Drawer",
+      "kind": "size",
+      "cases": 12,
+      "group": "overlay trigger rows",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "As `alert-dialog`."
+    },
+    {
+      "id": "form-sub",
+      "component": "Select",
+      "kind": "size",
+      "cases": 12,
+      "group": "picker row widths",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `form-due` (the 160 px DatePicker floor wraps the row)."
+    },
+    {
+      "id": "main-md",
+      "component": "Markdown",
+      "kind": "size",
+      "cases": 12,
+      "group": "markdown lines",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "A Markdown paragraph lays out like a Text of the same runs: no extra line for the bold run or the trailing newline (one line at 900/1280)."
+    },
+    {
+      "id": "nav-card",
+      "component": "Box",
+      "kind": "size",
+      "cases": 12,
+      "group": "markdown lines",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `main-md` (same grid row)."
+    },
+    {
+      "id": "popover",
+      "component": "Popover",
+      "kind": "size",
+      "cases": 12,
+      "group": "overlay trigger rows",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "As `alert-dialog`."
+    },
+    {
+      "id": "sheet",
+      "component": "Drawer",
+      "kind": "size",
+      "cases": 12,
+      "group": "overlay trigger rows",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "As `alert-dialog`."
+    },
+    {
+      "id": "tooltip",
+      "component": "Tooltip",
+      "kind": "size",
+      "cases": 12,
+      "group": "overlay trigger rows",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "As `alert-dialog`."
+    },
+    {
+      "id": "footer-spacer",
+      "component": "Box",
+      "kind": "size",
+      "cases": 8,
+      "group": "badge and pill widths",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `pill-1`."
+    },
+    {
+      "id": "pill-2",
+      "component": "Box",
+      "kind": "position",
+      "cases": 8,
+      "group": "badge and pill widths",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `pill-1`."
+    },
+    {
+      "id": "pill-3",
+      "component": "Box",
+      "kind": "position",
+      "cases": 8,
+      "group": "badge and pill widths",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `pill-1`."
+    },
+    {
+      "id": "pill-4",
+      "component": "Box",
+      "kind": "position",
+      "cases": 8,
+      "group": "badge and pill widths",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Cascade of `pill-1`."
+    },
+    {
+      "id": "tab-bar.item.1.icon",
+      "component": "Icon",
+      "kind": "size",
+      "cases": 8,
+      "group": "transforms",
+      "right": "gpui",
+      "fix": [
+        "contract"
+      ],
+      "decision": "`transform` is paint-only: the selected icon's scale(1.15) never changes its 20 px box. The web dump now measures with transforms off (conformance/dom.ts LAYOUT_ONLY_CSS)."
+    },
+    {
+      "id": "hover-card",
+      "component": "Popover",
+      "kind": "size",
+      "cases": 4,
+      "group": "overlay trigger rows",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "As `hover-card-trigger` (the overlay's frame = its stretched Link trigger)."
+    }
+  ],
+  "rules": [
+    {
+      "group": "switch order",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "Switch = [label + description column][switch], label first, the track at the END (trailing edge in rtl), like iOS/shadcn settings rows; the whole row toggles. Checkbox and Radio keep the control first."
+    },
+    {
+      "group": "checkbox label overlap",
+      "right": "gpui",
+      "fix": [
+        "react"
+      ],
+      "decision": "Checkbox = [box][`Checkbox/root` gap][label + description column]; the label never overlaps the box."
+    },
+    {
+      "group": "input placeholder inset",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Text inside a field starts at the field's border + `paddingHorizontal` (14 = 1 + 12 + rounding under neutral); no painter padding of its own."
+    },
+    {
+      "group": "accordion count",
+      "right": "web",
+      "fix": [
+        "gpui",
+        "react"
+      ],
+      "decision": "An accordion item's `count` is its own part `Accordion/count` after the title (muted), never concatenated into the title text (`History · 4`)."
+    },
+    {
+      "group": "image fallbacks",
+      "right": "contract",
+      "fix": [
+        "react",
+        "gpui"
+      ],
+      "decision": "`Image/fallback` fills the image box (its recipe colours) with the glyph (`fallback` or `Image.fallback`) at `$control.iconLg`, centred."
+    },
+    {
+      "group": "carousel pages",
+      "right": "gpui",
+      "fix": [
+        "react",
+        "contract"
+      ],
+      "decision": "Only the ACTIVE carousel page is placed; inactive pages are aria-hidden and inert, may stay mounted for swiping, and carry `data-xui-inactive` (the web dump skips them)."
+    },
+    {
+      "group": "rtl bidi",
+      "right": "web",
+      "fix": [
+        "gpui"
+      ],
+      "decision": "Text shapes with the Unicode Bidi Algorithm, paragraph direction = the NODE's direction (`Hello!` in an rtl box shows `!Hello`)."
+    },
+    {
+      "group": "resp-states line breaks",
+      "right": "contract",
+      "fix": [
+        "survivor"
+      ],
+      "decision": "Line breaking = UAX #14 on both sides.",
+      "reason": "No origin in the 2026-10-08 report; kept as a watch item: two text engines may still break one word differently near a box edge, which the ±1 line tolerance absorbs."
+    },
+    {
+      "group": "coverage",
+      "right": "contract",
+      "fix": [
+        "react"
+      ],
+      "decision": "Every part a painter lays out is a recipes.json part and carries `data-xui-id=\"<node id>.<part>[.<index or row key>]\"` + `data-xui-part` (the 110 gpui-only ids per kitchen-sink case are those parts); thumbs, the Slider range and decorations are paint parts and are not dumped."
+    }
+  ],
   "cases": {
     "kitchen-sink/exponential/dark/390/ltr": {
-      "size": 55,
-      "position": 253,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 6,
+      "onlyCand": 0
     },
     "kitchen-sink/exponential/dark/390/rtl": {
-      "size": 55,
-      "position": 253,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 6,
+      "onlyCand": 0
     },
     "kitchen-sink/exponential/dark/600/ltr": {
-      "size": 55,
-      "position": 249,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 8,
+      "onlyCand": 0
     },
     "kitchen-sink/exponential/dark/600/rtl": {
-      "size": 55,
-      "position": 249,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 8,
+      "onlyCand": 0
     },
     "kitchen-sink/exponential/dark/900/ltr": {
-      "size": 71,
-      "position": 273,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 8,
+      "onlyCand": 0
     },
     "kitchen-sink/exponential/dark/900/rtl": {
-      "size": 71,
-      "position": 273,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 8,
+      "onlyCand": 0
     },
     "kitchen-sink/exponential/dark/1280/ltr": {
-      "size": 71,
-      "position": 273,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 8,
+      "onlyCand": 0
     },
     "kitchen-sink/exponential/dark/1280/rtl": {
-      "size": 71,
-      "position": 273,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 8,
+      "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/390/ltr": {
-      "size": 55,
-      "position": 253,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 6,
+      "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/390/rtl": {
-      "size": 55,
-      "position": 253,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 6,
+      "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/600/ltr": {
-      "size": 55,
-      "position": 249,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 7,
+      "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/600/rtl": {
-      "size": 55,
-      "position": 249,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 7,
+      "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/900/ltr": {
-      "size": 71,
-      "position": 273,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 8,
+      "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/900/rtl": {
-      "size": 71,
-      "position": 273,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 8,
+      "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/1280/ltr": {
-      "size": 71,
-      "position": 273,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 8,
+      "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/1280/rtl": {
-      "size": 71,
-      "position": 273,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 8,
+      "onlyCand": 0
     },
     "kitchen-sink/playful/dark/390/ltr": {
-      "size": 57,
-      "position": 309,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 6,
+      "onlyCand": 0
     },
     "kitchen-sink/playful/dark/390/rtl": {
-      "size": 57,
-      "position": 309,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 6,
+      "onlyCand": 0
     },
     "kitchen-sink/playful/dark/600/ltr": {
-      "size": 57,
-      "position": 242,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 7,
+      "onlyCand": 0
     },
     "kitchen-sink/playful/dark/600/rtl": {
-      "size": 57,
-      "position": 242,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 7,
+      "onlyCand": 0
     },
     "kitchen-sink/playful/dark/900/ltr": {
-      "size": 70,
-      "position": 274,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 8,
+      "onlyCand": 0
     },
     "kitchen-sink/playful/dark/900/rtl": {
-      "size": 70,
-      "position": 274,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 8,
+      "onlyCand": 0
     },
     "kitchen-sink/playful/dark/1280/ltr": {
-      "size": 70,
-      "position": 274,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 7,
+      "onlyCand": 0
     },
     "kitchen-sink/playful/dark/1280/rtl": {
-      "size": 70,
-      "position": 274,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
-      "onlyRef": 1,
-      "onlyCand": 110
+      "onlyRef": 7,
+      "onlyCand": 0
     },
     "responsive/exponential/dark/390/ltr": {
-      "size": 1,
+      "size": 0,
       "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/exponential/dark/390/rtl": {
-      "size": 1,
+      "size": 0,
       "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/exponential/dark/600/ltr": {
-      "size": 1,
+      "size": 0,
       "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/exponential/dark/600/rtl": {
-      "size": 1,
+      "size": 0,
       "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/exponential/dark/900/ltr": {
-      "size": 3,
-      "position": 1,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/exponential/dark/900/rtl": {
-      "size": 3,
-      "position": 1,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/exponential/dark/1280/ltr": {
-      "size": 3,
-      "position": 1,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/exponential/dark/1280/rtl": {
-      "size": 3,
-      "position": 1,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/neutral/dark/390/ltr": {
-      "size": 1,
+      "size": 0,
       "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/neutral/dark/390/rtl": {
-      "size": 1,
+      "size": 0,
       "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/neutral/dark/600/ltr": {
-      "size": 1,
+      "size": 0,
       "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/neutral/dark/600/rtl": {
-      "size": 1,
+      "size": 0,
       "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/neutral/dark/900/ltr": {
-      "size": 3,
-      "position": 1,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/neutral/dark/900/rtl": {
-      "size": 3,
-      "position": 1,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/neutral/dark/1280/ltr": {
-      "size": 3,
-      "position": 1,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/neutral/dark/1280/rtl": {
-      "size": 3,
-      "position": 1,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/playful/dark/390/ltr": {
-      "size": 1,
+      "size": 0,
       "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/playful/dark/390/rtl": {
-      "size": 1,
+      "size": 0,
       "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/playful/dark/600/ltr": {
-      "size": 1,
+      "size": 0,
       "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/playful/dark/600/rtl": {
-      "size": 1,
+      "size": 0,
       "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/playful/dark/900/ltr": {
-      "size": 3,
-      "position": 1,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/playful/dark/900/rtl": {
-      "size": 3,
-      "position": 1,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/playful/dark/1280/ltr": {
-      "size": 3,
-      "position": 1,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     },
     "responsive/playful/dark/1280/rtl": {
-      "size": 3,
-      "position": 1,
+      "size": 0,
+      "position": 0,
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
     }
-  }
+  },
+  "survivors": [],
+  "coverageGaps": [
+    {
+      "id": "accordion.count.1",
+      "only": "ref",
+      "cases": 24,
+      "reason": "Accordion count: painted inside the trigger leaf; its room is measured (round2.rs an_accordion_count_is_measured_after_the_title)."
+    },
+    {
+      "id": "audio.controls",
+      "only": "ref",
+      "cases": 24,
+      "reason": "AudioPlayer controls row: painted inside the AudioPlayer leaf (its height is the core's)."
+    },
+    {
+      "id": "audio.track",
+      "only": "ref",
+      "cases": 24,
+      "reason": "AudioPlayer title line: painted inside the AudioPlayer leaf (its height is the core's)."
+    },
+    {
+      "id": "chip-user.image.fallback",
+      "only": "ref",
+      "cases": 18,
+      "reason": "Avatar initials inside a Chip: painted inside the image leaf (the box is compared)."
+    },
+    {
+      "id": "media-img.fallback",
+      "only": "ref",
+      "cases": 24,
+      "reason": "Image/fallback: gpui paints the broken-picture glyph inside the Image leaf (the box is compared)."
+    },
+    {
+      "id": "page-1.fallback",
+      "only": "ref",
+      "cases": 12,
+      "reason": "Image/fallback of a Carousel page: painted inside the Image leaf; shows only where the web's load fails first."
+    },
+    {
+      "id": "ring.label",
+      "only": "ref",
+      "cases": 24,
+      "reason": "Ring centre label: painted inside the Ring leaf."
+    },
+    {
+      "id": "video.controls",
+      "only": "ref",
+      "cases": 24,
+      "reason": "Video controls bar: painted inside the Video leaf (16:9 box compared)."
+    }
+  ]
 }

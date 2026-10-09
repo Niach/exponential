@@ -474,13 +474,16 @@ fn date_picker_calendar_follows_the_locale_week_start_and_picks() {
     let nodes = s.nodes();
     let text = |id: &str| nodes.iter().find(|n| n.id == id).unwrap().props["text"].clone();
     assert_eq!(text("d.title"), json!("October 2026"));
-    assert_eq!(text("d.weekday.0"), json!("Su"), "en-US starts on Sunday");
+    // Round 2: weekday names = the formatter's `EEE`.
+    assert_eq!(text("d.weekday.0"), json!("Sun"), "en-US starts on Sunday");
     assert_eq!(text("d.day.0.0"), json!("27"), "Sun 27 Sep 2026 leads the grid");
     assert!(nodes.iter().find(|n| n.id == "d.day.1.3").unwrap().states.contains(&"selected".to_string()), "Wed 7 Oct");
+    let wed = nodes.iter().find(|n| n.id == "d.day.1.3").unwrap();
+    assert_eq!(wed.accessibility.as_ref().unwrap()["label"], json!("Wednesday, October 7, 2026"), "a day's name = the full localized date");
     s.set_locale("de-DE");
     s.layout(&mut m);
     let nodes = s.nodes();
-    assert_eq!(nodes.iter().find(|n| n.id == "d.weekday.0").unwrap().props["text"], json!("Mo"), "de starts on Monday");
+    assert_eq!(nodes.iter().find(|n| n.id == "d.weekday.0").unwrap().props["text"], json!("Mon"), "de starts on Monday (names: the English fallback formatter)");
     press(&mut s, "d.next");
     s.layout(&mut m);
     assert_eq!(s.nodes().iter().find(|n| n.id == "d.title").unwrap().props["text"], json!("November 2026"));

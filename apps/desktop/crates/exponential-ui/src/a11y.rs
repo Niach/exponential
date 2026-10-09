@@ -44,11 +44,11 @@ mod tests {
     use super::*;
 
     #[test]
-    fn every_core_component_has_a_role_and_the_three_commands_exist() {
+    fn every_core_component_has_a_role_and_the_four_commands_exist() {
         for name in g::COMPONENT_NAMES {
             assert!(component_a11y(name).is_some_and(|a| !a.role.is_empty()), "{name}");
         }
-        assert_eq!(A11Y.commands.keys().map(String::as_str).collect::<Vec<_>>(), ["focus", "announce", "scrollIntoView"]);
+        assert_eq!(A11Y.commands.keys().map(String::as_str).collect::<Vec<_>>(), ["focus", "announce", "scrollIntoView", "scrollToIndex"]);
         assert!(!A11Y.rules.is_empty());
     }
 }
