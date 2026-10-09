@@ -74,11 +74,18 @@ export interface CatalogSource {
   unknownComponent: string
   enums: Record<string, readonly string[]>
   defs: Record<string, DefSchema>
-  functions: { names: readonly string[]; core: Record<string, CoreFunctionDef> }
+  functions: { names: readonly string[]; core: Record<string, CoreFunctionDef>; basic: Record<string, FunctionSignature> }
   /** Round 1: `<Component>.<part>[.<variant>]` → the icons.json name a
    *  renderer draws for a part it owns (`$comment` aside). */
   builtinIcons: Record<string, string>
   components: Record<string, ComponentDef>
+}
+
+/** Round 4: a basic function's signature (core.catalog.json `functions.basic`). */
+export interface FunctionSignature {
+  /** Argument name → its type (`number`, `string`, `boolean`, `array`, `object`, `any`). */
+  args: Record<string, string>
+  returns: string
 }
 
 /** Round 1: one core function (core.catalog.json `functions.core`). */

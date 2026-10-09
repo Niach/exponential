@@ -69,7 +69,7 @@ describe(`host-policy.json`, () => {
       expect(clientCapabilities(c.extensionIds)).toEqual(c.expected.clientCapabilities)
     })
   // The basic catalog's 14 plus round 1's 15 core functions (`set` incl.).
-  test(`the 31 built-ins are the catalog's`, () => expect(BUILTIN_FUNCTIONS.length).toBe(31))
+  test(`the 32 built-ins are the catalog's`, () => expect(BUILTIN_FUNCTIONS.length).toBe(32))
 })
 
 describe(`host-router.json`, () => {

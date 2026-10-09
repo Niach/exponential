@@ -21,6 +21,7 @@
 //   fixtures/code-tokens.json             round 1: source × language → CodeBlock tokens per line
 //   fixtures/specimens.json               one surface per component + the demo (VAPP-93: the site's shots)
 //   + the theme outputs of scripts/generate-themes.ts (VAPP-92)
+//   + the round-4 fixture of scripts/generate-round4.ts (round4-contract.json)
 //   + the round-2 fixtures of scripts/generate-round2.ts (format, template items,
 //     text direction, Resizable, virtual lists, animations, the list bench)
 //
@@ -45,6 +46,7 @@ import { STRING_IDS, DEFAULT_STRINGS } from "../src/strings"
 import { renderThemes } from "./generate-themes"
 import { renderHost } from "./generate-host"
 import { renderRound2 } from "./generate-round2"
+import { renderRound4 } from "./generate-round4"
 import { ANIMATION_NAMES } from "../src/animation"
 import { FORMAT_FUNCTION_NAMES } from "../src/format"
 import { LAYOUT_CONSTANTS } from "../src/layout"
@@ -930,6 +932,8 @@ function renderFiles(): Record<string, string> {
     ...renderHost(),
     // Round 2: the contract fixtures (inputs in scripts/generate-round2.ts).
     ...renderRound2(),
+    // Round 4: the styling + semantics contract (inputs in scripts/generate-round4.ts).
+    ...renderRound4(),
   }
 }
 

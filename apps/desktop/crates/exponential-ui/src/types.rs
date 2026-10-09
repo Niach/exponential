@@ -263,6 +263,9 @@ pub struct CatalogFunctions {
     /// `{description, args, returns}`.
     #[serde(default)]
     pub core: IndexMap<String, Value>,
+    /// Round 4: the basic functions' signatures (`{args, returns}`).
+    #[serde(default)]
+    pub basic: IndexMap<String, Value>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]

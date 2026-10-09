@@ -596,12 +596,60 @@ pub fn core_function(name: &str, args: &Map<String, Value>) -> Option<Option<Val
         }
         "len" => Some(json::number(js_len(a("value")) as f64)),
         "fill" => Some(Value::String(fill_template(a("template"), a("params")))),
+        "filter" => Some(Value::Array(filter_items(a("items"), a("query"), a("fields"), a("where")))),
         _ => return None,
     })
 }
 
-/// The core function names in catalog order (`set` last, an action).
-pub const CORE_FUNCTION_NAMES: &[&str] = &["percent", "add", "sub", "eq", "lt", "clamp", "cond", "fallback", "concat", "coalesce", "text", "map", "len", "fill", "set"];
+/// The core function names in catalog order (`set` = the action; the
+/// format functions live in `format`).
+pub const CORE_FUNCTION_NAMES: &[&str] = &["percent", "add", "sub", "eq", "lt", "clamp", "cond", "fallback", "concat", "coalesce", "text", "map", "len", "fill", "set", "filter"];
+
+/// Round 4 (VAPP-103) `filter` (`src/expr.ts filterItems`): the items of an
+/// array that match, in order. `where` = field → value, every entry must
+/// hold (`eq` equality); an entry whose value is null or "" does NOT
+/// constrain. `query` = a case-insensitive substring of ANY of `fields`
+/// (the item's own string and number values when `fields` is absent; a
+/// string or number item matches itself); a missing or blank query does not
+/// constrain. Not an array → [].
+pub fn filter_items(items: Option<&Value>, query: Option<&Value>, fields: Option<&Value>, r#where: Option<&Value>) -> Vec<Value> {
+    let Some(Value::Array(items)) = items else { return vec![] };
+    let needle = match query {
+        Some(Value::String(s)) => s.trim().to_lowercase(),
+        Some(n @ Value::Number(_)) => json::to_js_string(n),
+        _ => String::new(),
+    };
+    let keys: Option<Vec<&str>> = fields.and_then(Value::as_array).map(|f| f.iter().filter_map(Value::as_str).collect());
+    let conditions: Vec<(&String, &Value)> = match r#where {
+        Some(Value::Object(m)) => m.iter().filter(|(_, v)| !v.is_null() && v.as_str() != Some("")).collect(),
+        _ => vec![],
+    };
+    let searchable = |v: &Value| match v {
+        Value::String(s) => Some(s.to_lowercase()),
+        Value::Number(_) => Some(json::to_js_string(v)),
+        _ => None,
+    };
+    items
+        .iter()
+        .filter(|item| {
+            let record = item.as_object();
+            if !conditions.iter().all(|(field, want)| values_equal(record.and_then(|r| r.get(field.as_str())), Some(want))) {
+                return false;
+            }
+            if needle.is_empty() {
+                return true;
+            }
+            match record {
+                Some(r) => match &keys {
+                    Some(keys) => keys.iter().filter_map(|k| r.get(*k)).any(|v| searchable(v).is_some_and(|s| s.contains(&needle))),
+                    None => r.values().any(|v| searchable(v).is_some_and(|s| s.contains(&needle))),
+                },
+                None => searchable(item).is_some_and(|s| s.contains(&needle)),
+            }
+        })
+        .cloned()
+        .collect()
+}
 
 #[cfg(test)]
 mod tests {

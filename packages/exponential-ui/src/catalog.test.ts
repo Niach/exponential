@@ -181,7 +181,9 @@ describe(`basic map`, () => {
     // Round 1: the basic catalog's 14 functions, then the core ones (functions.core), in that order.
     const core = Object.keys(coreCatalog.functions.core)
     expect([...coreCatalog.functions.names]).toEqual([...Object.keys(basic.functions), ...core])
-    expect(core).toEqual([`percent`, `add`, `sub`, `eq`, `lt`, `clamp`, `cond`, `fallback`, `concat`, `coalesce`, `text`, `map`, `len`, `fill`, `set`, `formatPercent`, `formatRelativeTime`])
+    expect(core).toEqual([`percent`, `add`, `sub`, `eq`, `lt`, `clamp`, `cond`, `fallback`, `concat`, `coalesce`, `text`, `map`, `len`, `fill`, `set`, `formatPercent`, `formatRelativeTime`, `filter`])
+    // Round 4: every basic function carries its signature too (the prompt lists them all).
+    expect(Object.keys(coreCatalog.functions.basic)).toEqual(Object.keys(basic.functions))
     for (const rule of Object.values(basicMap.components)) expect(coreCatalog.components[rule.to], rule.to).toBeDefined()
   })
 })

@@ -67,7 +67,7 @@ fn the_built_ins_are_the_catalogs() {
     assert_eq!(host::BUILTIN_FUNCTIONS, names.as_slice());
     // The basic catalog's 14 plus the 17 core functions (`set` incl.; round 2
     // adds formatPercent + formatRelativeTime).
-    assert_eq!(host::BUILTIN_FUNCTIONS.len(), 31);
+    assert_eq!(host::BUILTIN_FUNCTIONS.len(), 32);
 }
 
 #[test]

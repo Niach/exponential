@@ -1990,7 +1990,7 @@
                               "width": 8,
                               "height": 8,
                               "borderRadius": "$radius.full",
-                              "backgroundColor": "#EF4444",
+                              "backgroundColor": "$color.destructive",
                               "flexShrink": 0
                             },
                             "recipe": {

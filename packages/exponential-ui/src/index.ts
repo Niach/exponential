@@ -39,13 +39,13 @@ export {
   styleKeyType,
 } from "./style"
 export type { Style, StyleProps, MediaKey, StateKey, StyleIssue, Gradient, ConditionContext, MediaCondition } from "./style"
-export { validateProps, isDynamic } from "./validate"
+export { validateProps, validateNode, isCallableName, isDynamic } from "./validate"
 export type { PropIssue } from "./validate"
-export { evalValue, evalExpr, evalCondition, evalConditionValue, truthy, isBinding, isCall, percent, valuesEqual, clampNumber, fillTemplate, CORE_FUNCTIONS, CORE_FUNCTION_NAMES } from "./expr"
+export { evalValue, evalExpr, evalCondition, evalConditionValue, truthy, isBinding, isCall, percent, valuesEqual, clampNumber, fillTemplate, filterItems, CORE_FUNCTIONS, CORE_FUNCTION_NAMES } from "./expr"
 export type { ExprContext, Dynamic } from "./expr"
 export { expandMacros, isResponsiveValue, responsiveAt, propsAt, BREAKPOINTS } from "./macros"
 // Round 1: bind-time evaluation, built-in strings, locale, the CodeBlock tokenizer.
-export { resolveDynamic, isVisible, runAction, bindTree, readPointer, writePointer, absolutePath, readPath, hasItem, isDataSchema, resolveProp, resolveNodeProps, hasRowSlots, rowScope, bindRowSlot, sectionScope, bindSectionHeader, BIND_FUNCTIONS, BIND_FUNCTION_NAMES } from "./dynamic"
+export { resolveDynamic, isVisible, runAction, withOwnWrites, submitClosesOverlay, bindTree, readPointer, writePointer, absolutePath, readPath, hasItem, isDataSchema, resolveProp, resolveNodeProps, hasRowSlots, rowScope, bindRowSlot, sectionScope, bindSectionHeader, BIND_FUNCTIONS, BIND_FUNCTION_NAMES } from "./dynamic"
 // Round 2 (docs/round-2-contract.md): formatting, lists, panels, direction, animation.
 export { displayString, englishFormatter, intlFormatter, formatFunctions, formatPattern, parseDateValue, relativeTimeUnit, currencyDigits, FORMAT_FUNCTION_NAMES, ENGLISH_FORMAT_FUNCTIONS, ENGLISH_DATE_PATTERNS, ENGLISH_TIME_PATTERN, ENGLISH_DATE_TIME_JOIN, fixedOffset, intlZoneOffset } from "./format"
 export type { Formatter, NumberOptions, DateOptions, DateStyle, PluralCategory, RelativeUnit, ZoneOffset } from "./format"
