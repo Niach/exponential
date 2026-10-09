@@ -68,17 +68,4 @@ final class OpenPullsStore {
         }
         for task in tasks { await task.value }
     }
-
-    /// A merged pull has no sync echo: drop it locally.
-    func drop(accountId: String, repositoryId: String, number: Int) {
-        for (key, entry) in entries where key.accountId == accountId {
-            entries[key]?.repos = entry.repos.map { repo in
-                guard repo.repositoryId == repositoryId else { return repo }
-                return ReviewsQueue.PullRepo(
-                    teamId: repo.teamId, repositoryId: repo.repositoryId,
-                    fullName: repo.fullName, pulls: repo.pulls.filter { $0.number != number }
-                )
-            }
-        }
-    }
 }

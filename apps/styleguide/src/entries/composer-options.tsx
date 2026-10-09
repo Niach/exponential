@@ -58,13 +58,13 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `AgentOptionsRow`,
       file: `apps/ios/Exponential/UI/Agent/AgentOptionsRow.swift`,
-      note: `pills in a horizontal scroll; the ⋯ is AgentOptionsSheet`,
+      note: `pills in a horizontal scroll, no overflow; Effort / Subagents / Ultracode live in the "+" (ComposerPlusMenu)`,
     },
     android: {
       state: `ok`,
       symbol: `AgentOptionsRow`,
       file: `apps/android/app/src/main/java/com/exponential/app/ui/agent/AgentOptionsRow.kt`,
-      note: `same shape; the ⋯ is AgentOptionsSheet`,
+      note: `same shape, no overflow; Effort / Subagents / Ultracode live in the "+" (ComposerPlusMenuSheet)`,
     },
   },
   island: () => (

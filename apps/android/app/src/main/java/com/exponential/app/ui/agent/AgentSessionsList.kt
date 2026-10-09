@@ -50,10 +50,6 @@ internal fun LazyListScope.agentSessionsList(
      * instead of the one "Running" band.
      */
     teams: List<TeamEntity> = emptyList(),
-    /** @deprecated EXP-1248: rows no longer fold; ignored. */
-    collapsedRunning: Set<String> = emptySet(),
-    /** @deprecated EXP-1248: rows no longer fold; never called. */
-    onToggleRunning: (String) -> Unit = {},
 ) {
     val bands = teamBands(rows, teams) { it.session.teamId }
     if (rows.isEmpty() || bands.all { it.team == null }) {

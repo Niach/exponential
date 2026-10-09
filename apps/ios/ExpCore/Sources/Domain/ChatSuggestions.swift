@@ -33,9 +33,8 @@ public enum ChatSuggestions {
         "Which issues are blocked, and by what?",
     ]
 
-    /// How many chips a mount shows — enough to read as a range, few enough to
-    /// stay two short rows on a phone.
-    public static let count = 4
+    /// How many quiet rows a mount shows (`composer-menu.json` `suggestions.count`).
+    public static let count = ComposerMenu.suggestionCount
 
     /// `count` DISTINCT suggestions drawn from the pool, in pool order.
     ///

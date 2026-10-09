@@ -47,10 +47,10 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_board-empty ·
  *   sg_board-bulk-edit · sg_issue-comments · sg_issue-properties ·
  *   sg_issue-create · sg_search · sg_my-issues · sg_agents ·
- *   sg_chat · sg_chat-issues · sg_chat-action ·
+ *   sg_chat · sg_composer-menu · sg_chat-issues · sg_chat-action ·
  *   sg_machine-settings · sg_action-create · sg_action-triggers ·
  *   sg_trigger-editor · sg_action-runs · sg_action-suggestions · sg_reviews ·
- *   sg_session-row · sg_pr-row ·
+ *   sg_session-row · sg_pr-row · sg_guide · sg_guide-section ·
  *   sg_settings-root · sg_settings-team ·
  *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
  *   sg_onboarding-devices
@@ -110,6 +110,8 @@ class StyleguideScreenshotsTest {
 
         // APP-15: an open PR in the Reviews queue.
         private const val REVIEW_ISSUE_TITLE = "Batch-edit labels from the board"
+        // APP-14: the seed's realPr issue, so its Guide has files from GitHub.
+        private const val GUIDE_ISSUE_TITLE = "Group board issues by assignee"
 
         // EXP-1204: the seeded chat run with an open PR of its own — its
         // subject is the "Agent runs" row title and the RunChanges header.
@@ -406,10 +408,14 @@ class StyleguideScreenshotsTest {
             flow.settle()
         }
 
-        // EXP-1249: the "+" is the composer's ONE tool; Implement issue › opens
-        // the issue picker (composer-menu.json test ids).
+        // EXP-1249: the "+" is the composer's ONE tool — its sheet of the
+        // composer-menu.json rows is sg_composer-menu (iOS parity); Implement
+        // issue › opens the issue picker.
         composeRule.onNode(hasTestTag("agent-composer-plus-button")).performClick()
+        flow.waitFor(hasTestTag("agent-composer-menu"), NAV_TIMEOUT)
         flow.waitFor(hasTestTag("agent-composer-menu-implement-issue"), NAV_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_composer-menu")
         composeRule.onNode(hasTestTag("agent-composer-menu-implement-issue")).performClick()
         flow.waitFor(hasTestTag("agent-composer-issues-picker"), NAV_TIMEOUT)
         for (title in listOf(CHAT_FIRST_ISSUE_TITLE, CHAT_SECOND_ISSUE_TITLE)) {
@@ -561,6 +567,31 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag("pr-list"), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_pr-row")
+
+        // --- sg_guide / sg_guide-section: the Work screen's Guide (EXP-1251).
+        // A Reviews row opens its issue on the Guide face: APP-14's real PR has
+        // no report, so its whole diff is ONE Changes section; that row opens
+        // the section page. Both pop back to Reviews for sg_run-changes.
+        val wantsGuide = ScreenshotFlow.isShotWanted("sg_guide")
+        val wantsGuideSection = ScreenshotFlow.isShotWanted("sg_guide-section")
+        if (wantsGuide || wantsGuideSection) {
+            composeRule.onAllNodes(hasText(GUIDE_ISSUE_TITLE, substring = true)).onFirst().performClick()
+            if (flow.waitForOptional(hasTestTag("work-face-guide"), NAV_TIMEOUT)) {
+                composeRule.onNode(hasTestTag("work-face-guide")).performClick()
+            }
+            flow.waitFor(hasTestTag("guide-changes-row"), SYNC_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_guide")
+            composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
+            flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_guide-section")
+            composeRule.onNode(hasTestTag("guide-section-back")).performClick()
+            flow.waitFor(hasTestTag("guide-changes-row"), NAV_TIMEOUT)
+            composeRule.onNode(hasContentDescription("Back")).performClick()
+            flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
+            flow.settle()
+        }
 
         // --- Run changes (EXP-1194/1204): the "Agent runs" band lists Jonas's
         // finished chat run whose own pull request is open; its row opens

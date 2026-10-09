@@ -16,6 +16,9 @@ final class DeepLinkBus: @unchecked Sendable {
     // EXP-933: the Work face the issue link opens on — `.guide` for an
     // agent's targeted message (its report), `.issue` otherwise.
     var pendingIssueFace: WorkFaceKind = .issue
+    // A Stack card member tap: SWAP the issue on top of the stack instead of
+    // pushing (web + desktop parity), so Back never walks the stack.
+    var pendingIssueReplacesTop = false
     var pendingInviteToken: String?
     // An agent_message push tap (EXP-801): the row lives in the My Work
     // inbox and nowhere else, so the tap lands there. Carries the recipient's
@@ -44,10 +47,13 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingIssueId = issueId
     }
 
-    func navigateToIssue(_ issueId: String, accountId: String, face: WorkFaceKind = .issue) {
+    func navigateToIssue(
+        _ issueId: String, accountId: String, face: WorkFaceKind = .issue, replacingTop: Bool = false
+    ) {
         pendingIssueUserId = nil
         pendingIssueAccountId = accountId
         pendingIssueFace = face
+        pendingIssueReplacesTop = replacingTop
         pendingIssueId = issueId
     }
 
@@ -80,6 +86,7 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingIssueUserId = nil
         pendingIssueAccountId = nil
         pendingIssueFace = .issue
+        pendingIssueReplacesTop = false
         return id
     }
 

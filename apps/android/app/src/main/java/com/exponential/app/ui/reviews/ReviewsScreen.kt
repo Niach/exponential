@@ -24,7 +24,6 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.BoardEntity
-import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ReviewsQueue
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
@@ -51,14 +50,10 @@ import com.exponential.app.ui.theme.TextEmphasis
  */
 @Composable
 fun ReviewsScreen(
-    /** Unused since EXP-1248 (rows open the Guide); kept for the nav host. */
-    onOpenIssue: (String) -> Unit = {},
     /** An issue PR row: the issue's Guide face. */
     onOpenChanges: (String) -> Unit,
     /** EXP-1194: an Agent runs row — the run's own PR on its Guide. */
     onOpenRunChanges: (sessionId: String) -> Unit,
-    /** Unused since EXP-1248 (no merge path left here); kept for the nav host. */
-    onOpenAgent: (AgentComposerSeed) -> Unit = {},
     viewModel: ReviewsViewModel = hiltViewModel(),
 ) {
     Scaffold(containerColor = Color.Transparent) { padding ->

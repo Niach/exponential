@@ -31,9 +31,6 @@ export * from "./cn"
 export * from "./collapsible"
 export * from "./color-picker"
 export * from "./color-swatch-grid"
-// INTERNAL to Picker since the UI cleanup batch; exported only until the
-// styleguide's components.tsx specs move onto Picker. Never in app code.
-export { Combobox, ComboboxList } from "./combobox"
 export * from "./command"
 export * from "./composer"
 export * from "./context-ring"
@@ -96,7 +93,6 @@ export * from "./readiness-checklist"
 // EXP-1196: THE device readiness block (device-doctor.json).
 export * from "./device-readiness"
 // EXP-1170: THE phone properties sheet row.
-export * from "./property-row"
 export * from "./search-field"
 export * from "./resize-handle"
 export * from "./segmented-bar"

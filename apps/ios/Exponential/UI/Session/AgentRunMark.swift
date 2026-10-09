@@ -80,18 +80,6 @@ func runningRowMarkState(
     return state
 }
 
-/// EXP-1208: a FINISHED run's row lead (`EndedRunRow`'s `lead`): the ended
-/// mark, sized like every session row's.
-struct SessionRowEndedMark: View {
-    let agent: String?
-
-    var body: some View {
-        AgentRunMark(agent: agent, state: nil, ended: true)
-            .frame(width: SessionRowLead.markSize, height: SessionRowLead.markSize)
-            .accessibilityHidden(true)
-    }
-}
-
 /// A run's mark — wherever a run is named by its agent (the Work screen's
 /// Run tab and, EXP-1208, the lead of every session list row) it reads the
 /// same: the working mark while the agent works, else its brand mark with a

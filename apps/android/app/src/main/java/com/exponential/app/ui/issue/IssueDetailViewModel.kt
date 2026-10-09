@@ -1119,14 +1119,6 @@ class IssueDetailViewModel @AssistedInject constructor(
     // ── File attachments (EXP-297) ───────────────────────────────────────────
 
     /**
-     * EXP-327 legacy hook, no longer invoked: since EXP-1247 a FILE-path pick
-     * of an image or clip uploads `asFile` and stays a Files row instead of
-     * detouring into the description. Kept only while IssueDetailScreen still
-     * installs it.
-     */
-    var onInlineImagePicked: ((android.net.Uri, String) -> Unit)? = null
-
-    /**
      * Upload a picked document as an issue attachment. Failures stay on the
      * pending row (with the server's reason and a Retry) rather than becoming a
      * snackbar that scrolls away — the file is only ever gone if the user

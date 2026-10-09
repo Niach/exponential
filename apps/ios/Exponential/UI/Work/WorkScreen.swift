@@ -741,11 +741,11 @@ struct WorkScreen: View {
         return PrStack.stackView(issue, issues: pool)
     }
 
-    /// A stack member tap: the subject's own row stays, any other opens on
-    /// its Guide.
+    /// A stack member tap: the subject's own row stays, any other SWAPS in on
+    /// its Guide (the top route is replaced, as on web + desktop).
     private func openStackMember(_ id: String) {
         guard id != issueId else { return }
-        deps.deepLinkBus.navigateToIssue(id, accountId: accountId, face: .guide)
+        deps.deepLinkBus.navigateToIssue(id, accountId: accountId, face: .guide, replacingTop: true)
     }
 
     /// EXP-1248: a stack row's long-press "Merge through here" — the ONE

@@ -64,7 +64,7 @@ fun InboxListContent(
     onOpenSession: (String) -> Unit = {},
     // EXP-933: an issue row whose latest notification is an agent's message
     // opens the issue on its Results face.
-    onOpenIssueResults: (String) -> Unit = onOpenIssue,
+    onOpenIssueGuide: (String) -> Unit = onOpenIssue,
     viewModel: InboxViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -86,7 +86,7 @@ fun InboxListContent(
                     is InboxEntry.Issue -> InboxRow(entry.group) {
                         viewModel.markGroupRead(entry.group)
                         if (entry.group.opensResults) {
-                            onOpenIssueResults(entry.group.issue.id)
+                            onOpenIssueGuide(entry.group.issue.id)
                         } else {
                             onOpenIssue(entry.group.issue.id)
                         }

@@ -257,6 +257,20 @@ mod tests {
         }
     }
 
+    /// The Guide tool (`sessions_guide`) answers the RESULTS kind too, with
+    /// its own captions; `sessions_results` stays its alias (above).
+    #[test]
+    fn sessions_guide_answers_the_results_kind() {
+        let running = exp_tool_display("mcp__exponential__exponential_sessions_guide", false)
+            .expect("ours");
+        assert_eq!(running.row, "sessions_guide");
+        assert_eq!(running.result, result::RESULTS);
+        assert_eq!(running.subject_key, "topic");
+        assert_eq!(running.caption, "Writing the Guide");
+        let done = exp_tool_display("exponential_sessions_guide", true).expect("ours");
+        assert_eq!(done.caption, "Wrote the Guide");
+    }
+
     /// EXP-862 — the settings list: every built-in tool, its wire name whole
     /// (the row's tooltip) and human copy beside it.
     #[test]

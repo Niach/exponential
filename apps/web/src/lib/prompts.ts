@@ -140,18 +140,6 @@ export const mergeRunPrPrompt = (number?: number | null) => {
   )
 }
 
-/** EXP-1244: an open pull request no issue or run links (a repository band). */
-export const mergeExternalPrPrompt = (
-  repository: string,
-  number: number,
-  base: string
-) =>
-  copyOf(P[`merge-external-pr`], P[`merge-external-pr`].title, P[`merge-external-pr`].body, {
-    repository,
-    number,
-    base,
-  })
-
 export const stopRunPrompt = () =>
   copyOf(P[`stop-run`], P[`stop-run`].title, undefined)
 

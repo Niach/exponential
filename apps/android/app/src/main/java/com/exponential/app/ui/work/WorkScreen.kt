@@ -122,7 +122,7 @@ fun WorkScreen(
     // EXP-1097: the Sub-issues `+` — the create screen on the parent's board
     // with the parent preset. Null hides the `+`.
     onCreateSubIssue: ((boardId: String, parentId: String) -> Unit)? = null,
-    // EXP-933: the face to open on (`issue/{id}?face=results` from an agent
+    // EXP-933: the face to open on (`issue/{id}?face=guide` from an agent
     // message's inbox row or push); null = the subject's default face. A face
     // not yet available falls back like any vanished face.
     initialFace: WorkFaceKind? = null,

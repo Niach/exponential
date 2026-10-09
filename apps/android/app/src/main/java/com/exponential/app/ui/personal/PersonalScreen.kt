@@ -56,7 +56,7 @@ fun PersonalScreen(
     // EXP-980: a blocked-run inbox row opens the run it is about.
     onOpenSession: (String) -> Unit = {},
     // EXP-933: an agent message's issue row opens that issue's Results face.
-    onOpenIssueResults: (String) -> Unit = onOpenIssue,
+    onOpenIssueGuide: (String) -> Unit = onOpenIssue,
     inboxViewModel: InboxViewModel = hiltViewModel(),
     draftsViewModel: DraftsViewModel = hiltViewModel(),
 ) {
@@ -136,7 +136,7 @@ fun PersonalScreen(
                     else -> InboxListContent(
                         onOpenIssue = onOpenIssue,
                         onOpenSession = onOpenSession,
-                        onOpenIssueResults = onOpenIssueResults,
+                        onOpenIssueGuide = onOpenIssueGuide,
                         viewModel = inboxViewModel,
                     )
                 }

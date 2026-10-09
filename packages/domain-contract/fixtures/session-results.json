@@ -104,7 +104,7 @@
     ]
   },
   "guide": {
-    "$comment": "EXP-1154: the Results face as the GUIDE. guideSections(groups): lead = the FIRST group whose trimmed topic equals 'Summary' case-insensitively (null without one); sections = every other group in order with 1-based index and total (the lead never counts). guideSectionCaption(index,total) = two-digit zero-padded 'NN / NN'. guideFileRows(paths, diffFiles): one row per path in order, counts {additions,deletions} from the diff file whose path matches exactly, else null. Mirrored x4. fileRows is LEGACY (EXP-1251 replaced guideFileRows with coverage below; kept until every client moved).",
+    "$comment": "EXP-1154: the Results face as the GUIDE. guideSections(groups): lead = the FIRST group whose trimmed topic equals 'Summary' case-insensitively (null without one); sections = every other group in order with 1-based index and total (the lead never counts). guideSectionCaption(index,total) = two-digit zero-padded 'NN / NN'. Mirrored x4. EXP-1251: the files a section covers = `coverage` below.",
     "sections": [
       { "name": "summary leads wherever it sits", "topics": ["nav", "Summary", "chat"], "lead": "Summary", "sections": [["nav", 1, 2], ["chat", 2, 2]] },
       { "name": "no summary", "topics": ["nav"], "lead": null, "sections": [["nav", 1, 1]] },
@@ -114,10 +114,6 @@
     "captions": [
       { "index": 1, "total": 4, "text": "01 / 04" },
       { "index": 12, "total": 12, "text": "12 / 12" }
-    ],
-    "fileRows": [
-      { "name": "matched and unmatched", "paths": ["a.ts", "b.ts"], "diff": [{ "path": "a.ts", "additions": 3, "deletions": 1 }], "expected": [{ "path": "a.ts", "additions": 3, "deletions": 1 }, { "path": "b.ts", "additions": null, "deletions": null }] },
-      { "name": "no diff loaded", "paths": ["a.ts"], "diff": null, "expected": [{ "path": "a.ts", "additions": null, "deletions": null }] }
     ]
   },
   "tiles": {

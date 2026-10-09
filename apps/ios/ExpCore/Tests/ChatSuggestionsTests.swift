@@ -29,7 +29,7 @@ final class ChatSuggestionsTests: XCTestCase {
                 )
             }
         }
-        XCTAssertEqual(ChatSuggestions.count, 4)
+        XCTAssertEqual(ChatSuggestions.count, 3)
     }
 
     func testDrawsDistinctEntriesInPoolOrder() {
@@ -39,8 +39,8 @@ final class ChatSuggestionsTests: XCTestCase {
             return Double(seed) / 2147483647
         }
         let picked = ChatSuggestions.pick(random: random)
-        XCTAssertEqual(picked.count, 4)
-        XCTAssertEqual(Set(picked).count, 4)
+        XCTAssertEqual(picked.count, 3)
+        XCTAssertEqual(Set(picked).count, 3)
         let order = picked.map { ChatSuggestions.pool.firstIndex(of: $0) ?? -1 }
         XCTAssertEqual(order, order.sorted())
         XCTAssertFalse(order.contains(-1))
@@ -51,7 +51,7 @@ final class ChatSuggestionsTests: XCTestCase {
         XCTAssertTrue(ChatSuggestions.pick(count: 0, random: { 0 }).isEmpty)
         // A generator that returns the exclusive upper bound must not index out
         // of the pool (a clamp, not a crash).
-        XCTAssertEqual(ChatSuggestions.pick(random: { 1 }).count, 4)
+        XCTAssertEqual(ChatSuggestions.pick(random: { 1 }).count, 3)
     }
 
     func testCaretLandsBehindTheIssueRefPlaceholder() {

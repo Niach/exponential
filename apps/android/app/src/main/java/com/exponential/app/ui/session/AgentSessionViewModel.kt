@@ -41,7 +41,6 @@ import com.exponential.app.domain.ConflictRefusal
 import com.exponential.app.domain.MergeFailure
 import com.exponential.app.domain.MergeTarget
 import com.exponential.app.domain.PendingAttachment
-import com.exponential.app.domain.PrStack
 import com.exponential.app.domain.RunResumeTarget
 import com.exponential.app.domain.SessionAccountOption
 import com.exponential.app.domain.SessionAccountSwitch
@@ -718,26 +717,6 @@ class AgentSessionViewModel @AssistedInject constructor(
             } else {
                 resolveMergeTarget(it, issue = null, batchIssues = listOfNotNull(issue))
             }
-        }
-    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
-
-    /**
-     * EXP-1145: non-null when the Merge pill's issue PR ([mergeIssue], the one
-     * it actually merges) is a member of a PR stack with another OPEN member,
-     * so the pill asks first (Merge stack / Merge this pull request / Cancel).
-     * A run's OWN PR ([MergeTarget.Session]) never asks.
-     */
-    val stackMergeChoice: StateFlow<PrStack.StackMergeChoice?> = combine(
-        mergeTarget,
-        mergeIssue,
-        dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() },
-        dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() },
-    ) { target, row, issues, boards ->
-        // The stack is read from the issue's TEAM only ([PrStack.teamIssues]).
-        if (target is MergeTarget.Issue && row != null) {
-            PrStack.stackMergeChoice(row, PrStack.teamIssues(row, issues, boards))
-        } else {
-            null
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 

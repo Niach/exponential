@@ -95,9 +95,9 @@ export const entry: StyleguideEntry = {
     },
     desktop: {
       state: `leftover`,
-      symbol: `PopupMenu + controls::PointerMenu`,
-      file: `apps/desktop/crates/ui/src/styleguide/entries/menu.rs`,
-      note: `pointer rows (controls::pointer_menu_item) are 32px with the pointer cursor against the 36px token; the pickers' option rows are still the crate's 26px`,
+      symbol: `PopupMenu + controls::PointerMenu / pointer_label_item`,
+      file: `apps/desktop/crates/ui/src/controls.rs`,
+      note: `issue, tab, file and run menus point; settings, actions and team menus still plain crate rows`,
     },
     ios: {
       state: `ok`,

@@ -21,7 +21,7 @@ import XCTest
 ///   sg_chat · sg_composer-menu · sg_chat-issues · sg_chat-action ·
 ///   sg_machine-settings · sg_action-create · sg_action-triggers ·
 ///   sg_trigger-editor · sg_action-runs · sg_action-suggestions · sg_reviews ·
-///   sg_session-row · sg_pr-row ·
+///   sg_session-row · sg_pr-row · sg_guide · sg_guide-section ·
 ///   sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices
@@ -90,6 +90,8 @@ final class StyleguideScreenshots: XCTestCase {
     private static let myIssueTitle = "Dark mode contrast pass across settings"
     /// One of the four seeded open PRs on the Reviews queue.
     private static let reviewTitle = "Batch-edit labels from the board"
+    /// APP-14: the seed's realPr issue, so its Guide has files from GitHub.
+    private static let guideTitle = "Group board issues by assignee"
     /// EXP-1204: the seeded chat run with an open PR of its own — its subject
     /// is the Reviews "Agent runs" row title and the RunChanges header.
     private static let runChangesTitle = "Fix the error-type comparison in the resolver"
@@ -685,6 +687,36 @@ final class StyleguideScreenshots: XCTestCase {
             "Reviews drew no PrRow"
         )
         snapshot("sg_pr-row", settle: 1)
+
+        // ── sg_guide / sg_guide-section: the Work screen's Guide (EXP-1251) ─
+        // A Reviews row opens its issue on the Guide face: APP-14's real PR has
+        // no report, so its whole diff is ONE Changes section; that row opens
+        // the section page. Both pop back to Reviews for sg_run-changes.
+        let wantsGuide = ScreenshotShots.isWanted("sg_guide")
+        let wantsGuideSection = ScreenshotShots.isWanted("sg_guide-section")
+        if wantsGuide || wantsGuideSection {
+            app.staticTexts[Self.guideTitle].firstMatch.tap()
+            let guideTab = anyElement(app, identified: "work-face-guide")
+            if guideTab.waitForExistence(timeout: 20) { guideTab.tap() }
+            let changesRow = anyElement(app, identified: "guide-changes-row")
+            XCTAssertTrue(
+                changesRow.waitForExistence(timeout: 60),
+                "The Guide drew no Changes row — are the seeded PR's files reachable on GitHub?"
+            )
+            snapshot("sg_guide", settle: 2)
+            changesRow.tap()
+            let sectionPage = anyElement(app, identified: "guide-section-page")
+            XCTAssertTrue(sectionPage.waitForExistence(timeout: 30), "The Guide section page did not open")
+            snapshot("sg_guide-section", settle: 2)
+            anyElement(app, identified: "guide-section-back").tap()
+            _ = changesRow.waitForExistence(timeout: 15)
+            goBack(app)
+            XCTAssertTrue(
+                app.staticTexts[Self.reviewTitle].firstMatch.waitForExistence(timeout: 30),
+                "Back from the Guide did not land on Reviews"
+            )
+            settle(1)
+        }
 
         // ── sg_run-changes: an issue-less run's PR diff (EXP-1194/1204) ─────
         // The Reviews "Agent runs" band lists Jonas's finished chat run, whose

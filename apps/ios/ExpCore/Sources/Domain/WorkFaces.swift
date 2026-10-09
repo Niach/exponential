@@ -19,13 +19,6 @@ public enum WorkFaceKind: String, Equatable, Sendable, CaseIterable {
     case issue
     case run
     case guide
-
-    /// EXP-1251: the merged faces' old names, kept so a caller that still
-    /// says them lands on the Guide.
-    @available(*, deprecated, renamed: "guide")
-    public static let changes: WorkFaceKind = .guide
-    @available(*, deprecated, renamed: "guide")
-    public static let results: WorkFaceKind = .guide
 }
 
 /// EXP-862: the ONE session-dot mapping, hand-mirrored with web

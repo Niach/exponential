@@ -192,7 +192,7 @@ fun AppNavHost() {
                             // switch first; IssueDetail re-scopes reactively.
                             viewModel.switchAccount(resolution.accountId)
                         }
-                        navController.navigateIssueDeepLink(resolution.issueId, face = null)
+                        navController.navigateIssueDeepLink(resolution.issueId, rawFace = null)
                     }
                     WebLinkResolver.Resolution.NotFound ->
                         CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
@@ -624,7 +624,7 @@ private fun AuthenticatedNav(
                 // EXP-980: a blocked-run row opens the run it is about.
                 onOpenSession = { sessionId -> navController.navigate("steer/$sessionId") },
                 // EXP-933: an agent message's issue row → its Results face.
-                onOpenIssueResults = { id -> navController.navigate("issue/$id?face=guide") },
+                onOpenIssueGuide = { id -> navController.navigate("issue/$id?face=guide") },
             )
         }
         composable("reviews") {
@@ -633,11 +633,9 @@ private fun AuthenticatedNav(
             // open the issue's Work screen on its Changes face (the review IS
             // the issue); the long-press sheet keeps issue access.
             ReviewsScreen(
-                onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenChanges = { id -> navController.navigate("issue/$id?face=guide") },
                 // EXP-1194: an Agent runs row opens the run's own PR in OUR diff UI.
                 onOpenRunChanges = { id -> navController.navigate("runChanges/$id") },
-                onOpenAgent = openAgent,
             )
         }
         composable("runChanges/{sessionId}") { entry ->
@@ -779,10 +777,9 @@ private fun AuthenticatedNav(
             ),
         ) { entry ->
             // EXP-893: the Work screen on its Issue face — the run and the
-            // diff are FACES of the same screen, never routes. EXP-933:
-            // `?face=results` (an agent message's inbox row or push) opens it
-            // on the Results face instead; EXP-1154: `?face=changes` (a Reviews
-            // row) on the Changes face, the review of its PR.
+            // diff are FACES of the same screen, never routes. `?face=guide`
+            // (an agent message's inbox row or push, a Reviews row) opens it on
+            // the Guide; the old words results/changes/diff land there too.
             val issueId = entry.arguments?.getString("issueId").orEmpty()
             val initialFace = entry.arguments?.getString("face")?.let { face ->
                 workFaceFromParam(face)

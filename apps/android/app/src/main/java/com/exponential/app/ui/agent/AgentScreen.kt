@@ -433,10 +433,6 @@ fun AgentScreen(
     // EXP-923: the finished runs live behind the top bar's history button,
     // with no folded state anywhere — a plain list in a sheet.
     var recentOpen by remember { mutableStateOf(false) }
-    // EXP-897: which parents have their CHILD runs folded away — hoisted
-    // because the list is a LazyListScope extension, not a composable.
-    // Keyed by the TREE node key (`sessionTreeNodeKey`).
-    var collapsedRunning by remember { mutableStateOf(emptySet<String>()) }
     // …and with nothing running, the composer column sits in the MIDDLE of the
     // page instead of hugging the top bar (web `justify-center`, desktop
     // `min_h_full`, iOS the same rule).
@@ -729,11 +725,6 @@ fun AgentScreen(
             item(key = "__sessions_gap__") { Spacer(Modifier.height(4.dp)) }
             agentSessionsList(
                 rows = sessionsState.rows,
-                collapsedRunning = collapsedRunning,
-                onToggleRunning = { id ->
-                    collapsedRunning =
-                        if (id in collapsedRunning) collapsedRunning - id else collapsedRunning + id
-                },
                 steerEnabled = steerEnabled == true,
                 onOpenSteer = onOpenSteer,
                 onOpenIssue = onOpenIssue,

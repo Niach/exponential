@@ -44,9 +44,9 @@ enum AppRoute: Hashable {
     /// or the issue detail's coding card. A pushed destination (EXP-221), not
     /// a fullScreenCover, so it gets the native back button + swipe-back.
     case agentSession(accountId: String, sessionId: String)
-    /// EXP-1194: a run's OWN issue-less pull request on the Changes face
-    /// (`RunChangesView`) — what a Reviews → Agent runs row opens, like an
-    /// issue row opens its issue's `.issueFace(…, face: .changes)`.
+    /// EXP-1194: a run's OWN issue-less pull request (`RunChangesView`), what
+    /// a Reviews → Agent runs row opens, like an issue row opens its issue's
+    /// `.issueFace(…, face: .guide)`.
     case runChanges(accountId: String, sessionId: String)
     /// EXP-825: the team's Agent page — the ONE launcher (composer + the
     /// caller's Running/Recent sessions), a pushed detail. Every play button
@@ -428,8 +428,13 @@ struct MainNavigator: View {
                 let accountId = deps.deepLinkBus.pendingIssueAccountId
                     ?? issueAccountId(forUserId: deps.deepLinkBus.pendingIssueUserId)
                 let face = deps.deepLinkBus.pendingIssueFace
+                let replacesTop = deps.deepLinkBus.pendingIssueReplacesTop
                 _ = deps.deepLinkBus.consume()
-                navigate { appendIssueRoute(accountId: accountId, issueId: issueId, face: face) }
+                navigate {
+                    appendIssueRoute(
+                        accountId: accountId, issueId: issueId, face: face, replacingTop: replacesTop
+                    )
+                }
             }
         }
         .onChange(of: deps.deepLinkBus.pendingInviteToken) { _, token in
@@ -1152,12 +1157,25 @@ struct MainNavigator: View {
     /// already in flight by the time this route lands, so there is nothing
     /// useful to await here (initialSync only passively polls the active
     /// account's teams table; it starts no shape fetch).
-    private func appendIssueRoute(accountId: String, issueId: String, face: WorkFaceKind = .issue) {
-        if face == .issue {
-            path.append(AppRoute.issue(accountId: accountId, id: issueId))
-        } else {
-            path.append(AppRoute.issueFace(accountId: accountId, id: issueId, face: face))
+    ///
+    /// `replacingTop` (a Stack card member tap) swaps an issue page on top in
+    /// place, so Back returns to where the stack was opened from.
+    private func appendIssueRoute(
+        accountId: String, issueId: String, face: WorkFaceKind = .issue, replacingTop: Bool = false
+    ) {
+        let route = face == .issue
+            ? AppRoute.issue(accountId: accountId, id: issueId)
+            : AppRoute.issueFace(accountId: accountId, id: issueId, face: face)
+        switch path.last {
+        case .issue?, .issueFace?:
+            if replacingTop {
+                path[path.count - 1] = route
+                return
+            }
+        default:
+            break
         }
+        path.append(route)
     }
 
     /// EXP-801: land on My Work's Inbox segment for the push's recipient —

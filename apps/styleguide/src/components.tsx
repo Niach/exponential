@@ -39,7 +39,7 @@
  * island split, and the stylesheet contains no colour literal.
  */
 
-import type { ReactElement } from "react"
+import type { ComponentProps, ReactElement, ReactNode } from "react"
 
 import { designTokens } from "@exp/design-tokens"
 // The concept → glyph map itself. `@exp/ui` re-exports the RESOLVER
@@ -71,8 +71,6 @@ import {
   ClaudeIcon,
   CodexIcon,
   Checkbox,
-  Combobox,
-  ComboboxList,
   ColorPicker,
   ColorSwatchGrid,
   Composer,
@@ -125,7 +123,6 @@ import {
   PasswordInput,
   Pill,
   PrGithubButton,
-  PropertyRow,
   PreviewMedia,
   ResizeHandle,
   SearchField,
@@ -137,6 +134,8 @@ import {
   SelectValue,
   Separator,
   Skeleton,
+  SessionRow,
+  PrRow,
   StatusGlyph,
   Switch,
   TabsTrigger,
@@ -154,6 +153,8 @@ import {
   conceptIcon,
   indexEmojiData,
   type EmojiDataset,
+  Picker,
+  PickerList,
   type PickerItem,
   type SessionResultEntry,
   type SessionResultGroup,
@@ -162,6 +163,7 @@ import {
   TREE_INDENT,
   TreeGuides,
   treeGuides,
+  getDeviceIcon,
 } from "@exp/ui"
 
 import { tokenSlug } from "./component-styles.ts"
@@ -630,6 +632,83 @@ function repoPickerRow(name: string, locked = false): string {
   ].join(``)
 }
 
+/* ------------------------------------------------------------- list rows */
+
+/** ListRow's VALUE variant, as `issue-editor/mobile-properties.tsx` draws it:
+ *  a Button under the row recipe so it can be a picker's trigger. */
+function ValueRow({
+  label,
+  value,
+  ...props
+}: Omit<ComponentProps<typeof Button>, `value`> & { label: string; value: ReactNode }) {
+  return (
+    <ListRow asChild interactive data-variant="value">
+      <Button
+        type="button"
+        variant="text"
+        className="h-11! w-full justify-between rounded-none! px-4! py-0! font-normal"
+        {...props}
+      >
+        <span className="text-sm text-muted-foreground">{label}</span>
+        <span className="flex min-w-0 items-center gap-1.5 text-sm text-foreground">{value}</span>
+      </Button>
+    </ListRow>
+  )
+}
+
+const LIST_ITEM_LAPTOP = getDeviceIcon({ kind: `desktop` })
+
+/** The list-item anatomy and its three derivations, side by side. */
+function ListItemSpecimen() {
+  return (
+    <div className="flex w-[560px] max-w-full flex-col gap-4">
+      <div>
+        <GlassSectionHeader label="SessionRow · compact (small)" />
+        <SessionRow
+          size="small"
+          agent="claude"
+          markState="working"
+          identifier="EXP-1239"
+          title="ios double button"
+          deviceIcon={LIST_ITEM_LAPTOP}
+          deviceName="macbook"
+          onClick={noop}
+        />
+      </div>
+      <div>
+        <GlassSectionHeader label="SessionRow · list (big, captioned)" />
+        <SessionRow
+          size="big"
+          agent="claude"
+          markState="needs_input"
+          identifier="VAPP-99"
+          title="Exponential UI round 2: one stack, ~100% parity"
+          caption="Needs input · macbook · 5 min"
+          captionTone="amber"
+          deviceIcon={LIST_ITEM_LAPTOP}
+          deviceName="macbook"
+          ringClassName="ring-background"
+          onClick={noop}
+        />
+      </div>
+      <div>
+        <GlassSectionHeader label="Issue row · list" />
+        <ListRow interactive onClick={noop}>
+          <StatusGlyph icon="progress-2-4" colorClass="text-yellow-500" className="size-3.5 shrink-0" />
+          <span className="shrink-0 font-mono text-xs text-muted-foreground">APP-14</span>
+          <span className="min-w-0 flex-1 truncate text-sm">Fix the merge queue</span>
+          <UserAvatar size={16} user={{ id: `mina`, name: `Mina Kay`, image: null }} />
+        </ListRow>
+      </div>
+      <div>
+        <GlassSectionHeader label="PrRow · list" />
+        <PrRow identifier="EXP-1250" title="opening tabs closes all at some point" onClick={noop} />
+        <PrRow node="current" identifier="VAPP-100" title="SwiftUI parity with the round-1/2 contract" word="stack" active onClick={noop} />
+      </div>
+    </div>
+  )
+}
+
 /* ---------------------------------------------------------------- statuses */
 
 function ok(symbol: string, file: string, note?: string): ComponentStatus {
@@ -650,8 +729,6 @@ function na(note: string): ComponentStatus {
 }
 
 const WEB_GLASS_ROWS = `packages/ui/src/glass-rows.tsx`
-const WEB_PROPERTY_ROW = `packages/ui/src/property-row.tsx`
-const IOS_META_ROW = `apps/ios/ExpUI/Sources/GlassMetaRow.swift`
 const DESKTOP_SURFACE = `apps/desktop/crates/ui/src/surface.rs`
 const DESKTOP_CONTROLS = `apps/desktop/crates/ui/src/controls.rs`
 // VAPP-90: the recipe bodies live in the UI SDK; surface/controls re-export them.
@@ -910,13 +987,13 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     island: () => (
       <div className="grid gap-4">
         <GlassGroup>
-          <Combobox
+          <Picker
+            mode="single"
             triggerVariant="row"
-            searchable={false}
             mobileTitle="Repository"
             value="exp"
             onChange={noop}
-            options={[{ value: `exp`, label: `niach/exponential` }]}
+            items={[{ value: `exp`, label: `niach/exponential` }]}
           />
           <GlassInputRow id="demo-group-slug" label="Slug" defaultValue="mobile-app" />
           <GlassToggleRow
@@ -929,13 +1006,13 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         {/* The bare form, inside the menu surface an overlay already draws. */}
         <div className={cn(MENU_SURFACE_CLASS, `w-[20rem] p-0`)}>
           <GlassGroup bare>
-            <Combobox
+            <Picker
+              mode="single"
               triggerVariant="row"
-              searchable={false}
               mobileTitle="Effort"
               value="cli-default"
               onChange={noop}
-              options={[{ value: `cli-default`, label: `CLI default` }]}
+              items={[{ value: `cli-default`, label: `CLI default` }]}
             />
             <GlassToggleRow
               id="demo-group-bare-ultracode"
@@ -946,67 +1023,6 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           </GlassGroup>
         </div>
       </div>
-    ),
-  },
-  {
-    id: `property-row`,
-    title: `Property row`,
-    kind: `Lists & rows`,
-    blurb: `EXP-1170: THE phone properties sheet row (issue detail + create form, ×3 phones): the label left and muted, the value right and readable with its glyph riding beside it as one trailing unit, the WHOLE row the target, no chevron. Rows stack inside a \`GlassGroup\`. A set-valued property (Labels) shows the picks joined by ", " in the team's order and opens the shared picker sheet, never a cloud of toggle chips; nothing picked reads "None".`,
-    status: {
-      web: ok(`PropertyRow`, WEB_PROPERTY_ROW),
-      desktop: na(`Desktop shows the properties inline as header chips; no sheet rows.`),
-      ios: ok(`GlassMetaRow`, IOS_META_ROW),
-      android: ok(`MetaRow`, ANDROID_SHEET_ROWS),
-    },
-    island: () => (
-      <GlassGroup>
-        <PropertyRow
-          label="Status"
-          value={
-            <>
-              <StatusGlyph icon="progress-2-4" colorClass="text-yellow-500" className="size-3.5" />
-              In Progress
-            </>
-          }
-        />
-        <PropertyRow
-          label="Priority"
-          value={
-            <>
-              <PriorityHighGlyph className="size-3.5 text-orange-500" />
-              High
-            </>
-          }
-        />
-        <PropertyRow
-          label="Assignee"
-          value={
-            <>
-              <UserAvatar size={16} user={{ id: `mina`, name: `Mina Kay`, image: null }} />
-              <span className="max-w-[8rem] truncate">Mina Kay</span>
-            </>
-          }
-        />
-        <PropertyRow
-          label="Labels"
-          value={
-            <>
-              <LabelsGlyph className="size-3.5" />
-              <span className="max-w-[8rem] truncate">bug, mobile</span>
-            </>
-          }
-        />
-        <PropertyRow
-          label="Due date"
-          value={
-            <>
-              <DueDateGlyph className="size-3.5" />
-              Mar 8
-            </>
-          }
-        />
-      </GlassGroup>
     ),
   },
   {
@@ -1037,7 +1053,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `list-row`,
     title: `List row`,
     kind: `Lists & rows`,
-    blurb: `EXP-818: the flat list item every list wears — no stroke, no fill, radius 10, padding 12, NO gap between rows under a group band; hover takes the row fill, the selected row the active fill. Rows read as a table, not as cards. EXP-962 gave it a second density: \`compact\` is the 28px one-line row the narrow column runs at (the sidebar's pinned and draft arms, the compact inbox) — the same 14px type, 8px of side padding, 8px to the glyph — and \`SidebarMenuButton density="compact"\` is its exact twin, so a nav entry and a list row sitting in the same 17rem slot are the same height.`,
+    blurb: `EXP-818: the flat list item every list wears — no stroke, no fill, radius 10, padding 12, NO gap between rows under a group band; hover takes the row fill, the selected row the active fill. Rows read as a table, not as cards. EXP-962 gave it a second density: \`compact\` is the 28px one-line row the narrow column runs at (the sidebar's pinned and draft arms, the compact inbox) — the same 14px type, 8px of side padding, 8px to the glyph — and \`SidebarMenuButton density="compact"\` is its exact twin, so a nav entry and a list row sitting in the same 17rem slot are the same height. The VALUE variant (EXP-1170, was PropertyRow) is the phone properties sheet row: the label left and muted, the value right and readable with its glyph riding beside it as one trailing unit, 44px, the WHOLE row the target (a Button, so it can be a picker's trigger), no chevron; rows stack inside a \`GlassGroup\`. A set-valued property (Labels) shows its picks joined by ", " and opens the shared picker sheet, never a cloud of toggle chips; nothing picked reads "None".`,
     status: {
       web: ok(`ListRow`, WEB_GLASS_ROWS),
       desktop: ok(
@@ -1045,11 +1061,15 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         DESKTOP_SURFACE,
         `EXP-963: flat_row_compact is the 28px density the rail's entries run at`
       ),
-      ios: ok(`FlatRow / .flatRow()`, IOS_THEME),
-      android: ok(`Modifier.flatRow()`, ANDROID_GLASS),
+      ios: ok(`FlatRow / .flatRow()`, IOS_THEME, `value variant: GlassMetaRow (ExpUI/Sources/GlassMetaRow.swift)`),
+      android: ok(`Modifier.flatRow()`, ANDROID_GLASS, `value variant: MetaRow (ui/components/SheetOptionRows.kt)`),
     },
     leftovers: [
       { file: `apps/web/src/components/team/board-switcher-sheet.tsx`, note: `PLAIN_ROW re-derives the mobile picker row` },
+      {
+        file: `apps/web/src/components/issue-editor/mobile-properties.tsx`,
+        note: `the value variant is PropertyValueRow, ListRow asChild over a Button; ListRow itself has no variant prop yet`,
+      },
     ],
     island: () => (
       <div className="grid gap-4">
@@ -1076,8 +1096,87 @@ export const COMPONENTS: readonly ComponentSpec[] = [
             <span className="min-w-0 flex-1 truncate">APP-15 · Ship the usage sheet</span>
           </ListRow>
         </div>
+        {/* The value variant: the phone properties sheet. */}
+        <div className="w-[22rem]">
+          <GlassGroup>
+            <ValueRow
+              label="Status"
+              value={
+                <>
+                  <StatusGlyph icon="progress-2-4" colorClass="text-yellow-500" className="size-3.5" />
+                  In Progress
+                </>
+              }
+            />
+            <ValueRow
+              label="Priority"
+              value={
+                <>
+                  <PriorityHighGlyph className="size-3.5 text-orange-500" />
+                  High
+                </>
+              }
+            />
+            <ValueRow
+              label="Assignee"
+              value={
+                <>
+                  <UserAvatar size={16} user={{ id: `mina`, name: `Mina Kay`, image: null }} />
+                  <span className="max-w-[8rem] truncate">Mina Kay</span>
+                </>
+              }
+            />
+            <ValueRow
+              label="Labels"
+              value={
+                <>
+                  <LabelsGlyph className="size-3.5" />
+                  <span className="max-w-[8rem] truncate">bug, mobile</span>
+                </>
+              }
+            />
+            <ValueRow
+              label="Due date"
+              value={
+                <>
+                  <DueDateGlyph className="size-3.5" />
+                  Mar 8
+                </>
+              }
+            />
+          </GlassGroup>
+        </div>
       </div>
     ),
+  },
+  {
+    id: `list-item`,
+    title: `List item`,
+    kind: `Lists & rows`,
+    blurb: `EXP-1248 (fixture \`list-item.json\`, ×4): THE anatomy every entity row derives from, on a flat ListRow: [tree guides][lead glyph in a 14px box at x = 12 + 14·depth][mono identifier][title][caption, two-line rows only][trailing meta]. The lead box sits at the same x on EVERY row of a depth, so glyphs and titles align exactly and a child's connector elbow ends at its own lead. NO fold chevron (children always show), NO trailing chevron, NO buttons: a row opens, its menu is a context menu / long-press. Two densities: \`compact\` (one line, 28-32px: the sidebar's Running, pinned rows) and \`list\` (the page's rows: 36px one-liners, 52px with a caption). The derivations differ only in the lead and the trailing meta: SessionRow = the run mark + the host device's glyph (small = compact, big = list + caption); an issue row = the status glyph + the assignee; PrRow = the PR ring (a stack swaps the guides for its 1px rail).`,
+    status: {
+      web: ok(
+        `SessionRow / PrRow over ListRow`,
+        `packages/ui/src/session-row.tsx`,
+        `PrRow + StackRail in pr-row.tsx; the issue row is apps/web components/issue-list.tsx`
+      ),
+      desktop: ok(
+        `run_rows::run_row`,
+        `apps/desktop/crates/ui/src/run_rows.rs`,
+        `over surface::flat_row; pr_rows.rs = PrRow, issue_list.rs = the issue row`
+      ),
+      ios: ok(
+        `SessionRow / PrRow over .flatRow()`,
+        `apps/ios/ExpUI/Sources/SessionRow.swift`,
+        `PrRow.swift beside it; caption ExpCore Domain/SessionRow.swift`
+      ),
+      android: ok(
+        `SessionRow / PrRow over Modifier.flatRow()`,
+        `${ANDROID_COMPONENTS}/SessionRow.kt`,
+        `PrRow.kt beside it; caption domain/SessionRow.kt`
+      ),
+    },
+    island: () => <ListItemSpecimen />,
   },
   {
     id: `tree-guides`,
@@ -1142,20 +1241,20 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     kind: `Lists & rows`,
     blurb: `The rhythm every grouped row inherits: padding 12/16, gap 12, 14px text. The shell never draws a stroke — the group's hairlines do.`,
     status: {
-      web: ok(`GlassInputRow / GlassToggleRow / Combobox triggerVariant="row"`, WEB_GLASS_ROWS),
+      web: ok(`GlassInputRow / GlassToggleRow / Picker triggerVariant="row"`, WEB_GLASS_ROWS),
       desktop: ok(`surface::glass_row_shell`, DESKTOP_SDK_ROWS),
       ios: ok(`GlassPickerRow`, IOS_OPTION_ROWS),
       android: ok(`PickerRow`, ANDROID_SHEET_ROWS),
     },
     island: () => (
       <GlassGroup>
-        <Combobox
+        <Picker
+          mode="single"
           triggerVariant="row"
-          searchable={false}
           mobileTitle="Agent"
           value="claude"
           onChange={noop}
-          options={[{ value: `claude`, label: `claude` }]}
+          items={[{ value: `claude`, label: `claude` }]}
         />
         <GlassInputRow id="demo-shell-prefix" label="Branch prefix" defaultValue="exp/" />
         <GlassToggleRow
@@ -1175,8 +1274,8 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     blurb: `Label left, value right-aligned at 70% foreground, a 14px chevron at 50%. The whole row is the target, never just the value.`,
     status: {
       web: ok(
-        `Combobox triggerVariant="row"`,
-        `packages/ui/src/combobox.tsx`,
+        `Picker triggerVariant="row"`,
+        `packages/ui/src/picker/picker.tsx`,
         `EXP-958: the row IS the picker — its own Select and sheet are gone`
       ),
       desktop: ok(`surface::glass_picker_row`, DESKTOP_SDK_ROWS),
@@ -1185,29 +1284,29 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     },
     island: () => (
       <GlassGroup>
-        <Combobox
+        <Picker
+          mode="single"
           triggerVariant="row"
-          searchable={false}
           mobileTitle="Status"
           value="in_review"
           onChange={noop}
-          options={[{ value: `in_review`, label: `In review` }]}
+          items={[{ value: `in_review`, label: `In review` }]}
         />
-        <Combobox
+        <Picker
+          mode="single"
           triggerVariant="row"
-          searchable={false}
           mobileTitle="Assignee"
           value="danny"
           onChange={noop}
-          options={[{ value: `danny`, label: `Danny` }]}
+          items={[{ value: `danny`, label: `Danny` }]}
         />
-        <Combobox
+        <Picker
+          mode="single"
           triggerVariant="row"
-          searchable={false}
           mobileTitle="Due date"
           value={null}
           onChange={noop}
-          options={[]}
+          items={[]}
           triggerLabel="No date"
         />
       </GlassGroup>
@@ -1278,21 +1377,21 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           <TabsTrigger value="merged">Merged</TabsTrigger>
           <TabsTrigger value="all">All</TabsTrigger>
         </GlassTabsRow>
-        <Combobox
+        <Picker
+          mode="single"
           triggerVariant="row"
-          searchable={false}
           mobileTitle="APP-14"
           value="two"
           onChange={noop}
-          options={[{ value: `two`, label: `2 files` }]}
+          items={[{ value: `two`, label: `2 files` }]}
         />
-        <Combobox
+        <Picker
+          mode="single"
           triggerVariant="row"
-          searchable={false}
           mobileTitle="APP-21"
           value="seven"
           onChange={noop}
-          options={[{ value: `seven`, label: `7 files` }]}
+          items={[{ value: `seven`, label: `7 files` }]}
         />
       </GlassGroup>
     ),
@@ -2021,7 +2120,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `file-diff-card`,
     title: `File diff card`,
     kind: `Surfaces`,
-    blurb: `EXP-916: the ONE per-file unit every diff surface is made of — the review page, a Changes face and the transcript's edited-files card all stack THIS. A sticky glassy header (\`status letter · dimmed dir / name · +a −d · chevron\`) over the unified four-column body; the collapse threshold, the "Show N more lines" step and its wording are \`contract.diffUi\`, so nobody re-derives them. Two extra header states carry a live edit run: \`pending\` (the call is still going — no counts, an inert chevron, no body) and \`failed\` (rose, a trailing "failed", no body). \`flush\` drops the outer box so a card can be a ROW of a parent that divides its own children.`,
+    blurb: `EXP-916: the ONE per-file unit every diff surface is made of — a Guide section page, the complete diff and the transcript's edited-files card all stack THIS. A sticky glassy header (\`status letter · dimmed dir / name · +a −d · chevron\`) over the unified four-column body; the collapse threshold, the "Show N more lines" step and its wording are \`contract.diffUi\`, so nobody re-derives them. Two extra header states carry a live edit run: \`pending\` (the call is still going — no counts, an inert chevron, no body) and \`failed\` (rose, a trailing "failed", no body). \`flush\` drops the outer box so a card can be a ROW of a parent that divides its own children.`,
     status: {
       web: ok(`FileDiffCard`, WEB_DIFF_CARD),
       desktop: ok(`diff::render_file_card`, DESKTOP_DIFF),
@@ -2066,15 +2165,15 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `file-diff-list`,
     title: `File diff list`,
     kind: `Surfaces`,
-    blurb: `EXP-895: the ONE diff view — DiffFile[] in, the file tree column beside a stack of file diff cards, nothing else. The review page, a run's Changes face, an issue's Changes face and one tool call's patch are all this, differing only in \`nav\` (the md+ tree column, or none when a sheet or a top bar owns the list), \`density\` and whether the cards start collapsed. A pick in the tree scrolls the card into view and opens it; a publisher-cut diff ends in one "N more lines truncated" note. On a phone the file list is the changes sheet off the work bar, never a 64-wide column.`,
+    blurb: `EXP-895: the ONE diff view — DiffFile[] in, the file tree column beside a stack of file diff cards, nothing else. A Guide section page, the complete diff (an issue's or a run's) and one tool call's patch are all this, differing only in \`nav\` (the md+ tree column, or none when a sheet or a top bar owns the list), \`density\` and whether the cards start collapsed. A pick in the tree scrolls the card into view and opens it; a publisher-cut diff ends in one "N more lines truncated" note. On a phone the file list is the changes sheet off the work bar, never a 64-wide column.`,
     status: {
       web: ok(`FileDiffList`, `packages/ui/src/file-diff-list.tsx`),
       desktop: ok(`diff_pane::render`, DESKTOP_DIFF_PANE),
       ios: ok(`DiffFileList`, `apps/ios/Exponential/UI/Session/SessionDiffList.swift`),
       android: leftover(
-        `ChangesFace`,
+        `GuideSectionDiff`,
         `apps/android/app/src/main/java/com/exponential/app/ui/work/GuideSectionDiff.kt`,
-        `the card stack is inlined in the Changes face; no shared list composable`
+        `the card stack is inlined in the Guide section page (and EditedFilesCard); no shared list composable`
       ),
     },
     island: () => <FileDiffList files={[FIXTURE_FILE, ...TREE_FILES.slice(0, 2)]} truncatedLines={12} />,
@@ -2231,7 +2330,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `composer`,
     title: `Composer`,
     kind: `Surfaces`,
-    blurb: `ONE composer for comments, steering and reporter replies: a radius-16 card of card fill under a card hairline, holding an optional attachment strip, a borderless 36-min field and a tool row of 24px ghost glyph buttons with a right-aligned submit whose glyph is the primary tint. EXP-877's \`inline\` arm is the steer card — the round submit rides the field's own row instead of a tool row under it. The opaque variant swaps to the opaque card fill and the strong stroke — it floats over a feed on mobile, and an alpha fill there shows the conversation through it. EXP-961 moved it into @exp/ui: the card owns CHROME AND LAYOUT only, and every caller keeps its own field, upload and send.`,
+    blurb: `ONE composer for comments, steering and reporter replies: a radius-16 card of card fill under a card hairline, holding an optional attachment strip, a borderless 36-min field and a tool row of 24px ghost glyph buttons with a right-aligned submit whose glyph is the primary tint. EXP-877's \`inline\` arm is the steer card — the round submit rides the field's own row instead of a tool row under it. The opaque variant swaps to the opaque card fill and the strong stroke — it floats over a feed on mobile, and an alpha fill there shows the conversation through it. EXP-961 moved it into @exp/ui: the card owns CHROME AND LAYOUT only, and every caller keeps its own field, upload and send. EXP-1249: the Agent launcher's card carries ONE tool, the "+" menu (composer-menu.json ×4: issues, actions, files, the run's options and tools; see composer-dialog), and the options line under it has no overflow.`,
     status: {
       web: ok(`Composer / ComposerTool / ComposerSubmit`, `packages/ui/src/composer.tsx`),
       desktop: ok(`composer::glass_composer`, `apps/desktop/crates/ui/src/composer.rs`),
@@ -3370,14 +3469,14 @@ export const COMPONENTS: readonly ComponentSpec[] = [
   },
   {
     id: `combobox`,
-    title: `Combobox`,
+    title: `Picker surface`,
     kind: `Inputs & pickers`,
-    blurb: `The searchable picker SURFACE under the Picker family (internal since the UI cleanup: call sites use Picker and the typed pickers). MobilePopover over Command: a popover on a pointer, the bottom sheet on a phone. Selection speaks ONE language: SINGLE select marks the picked row with a trailing ui-check, MULTI marks a picked row by the row's own highlight wash (data-picked), and a bulk edit over rows that disagree marks the row mixed — never a checkbox and never a circle pair. value is the IDENTITY and keywords the search text, so two boards may share a name; noneLabel renders a row that reports null instead of a sentinel string. Single closes on pick, multi stays open. PickerMenuRows draws the same rows as items inside a menu (the issue menu's submenus, the bulk bar). The demo shows the triggers beside the bare ComboboxList, since a closed portal renders nothing.`,
+    blurb: `The searchable SURFACE every Picker opens (Picker = the only public picker; its internal engine is no longer exported). MobilePopover over Command: a popover on a pointer, the bottom sheet on a phone. Selection speaks ONE language: SINGLE select marks the picked row with a trailing ui-check, MULTI marks a picked row by the row's own highlight wash (data-picked), and a bulk edit over rows that disagree marks the row mixed — never a checkbox and never a circle pair. value is the IDENTITY and keywords the search text, so two boards may share a name; noneLabel renders a row that reports null instead of a sentinel string. Single closes on pick, multi stays open. PickerMenuRows draws the same rows as items inside a menu (the issue menu's submenus, the bulk bar). The demo shows Picker triggers beside the bare PickerList, since a closed portal renders nothing.`,
     status: {
       web: ok(
-        `Combobox / ComboboxList`,
-        `packages/ui/src/combobox.tsx`,
-        `PickerItem is the row shape; ComboboxList the body without the popover; PickerMenuRows the rows inside a menu`
+        `Picker / PickerList`,
+        `packages/ui/src/picker/picker.tsx`,
+        `PickerItem is the row shape; PickerList the body without the popover; PickerMenuRows the rows inside a menu`
       ),
       desktop: ok(
         `picker::Picker`,
@@ -3399,20 +3498,24 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       <div className="grid gap-4">
         <div className="flex flex-wrap items-center gap-2">
           <div className="w-[13rem]">
-            <Combobox
+            <Picker
+              mode="single"
+              search
+              onNone={noop}
               mobileTitle="Assignee"
               triggerVariant="field"
-              options={ASSIGNEE_OPTIONS}
+              items={ASSIGNEE_OPTIONS}
               value="jonas"
               onChange={noop}
               noneLabel="Unassign"
             />
           </div>
-          <Combobox
+          <Picker
+            mode="multi"
+            search
             mobileTitle="Labels"
             triggerLabel="Labels"
-            multiple
-            options={LABEL_OPTIONS}
+            items={LABEL_OPTIONS}
             value={[]}
             onChange={noop}
           />
@@ -3422,11 +3525,11 @@ export const COMPONENTS: readonly ComponentSpec[] = [
             one collapsed to plain text because there is nothing to choose. */}
         <div className="w-[20rem]">
           <GlassGroup>
-            <Combobox
+            <Picker
+              mode="single"
               triggerVariant="row"
-              searchable={false}
               mobileTitle="Runs on"
-              options={[
+              items={[
                 { value: `macbook`, label: `MacBook Pro` },
                 { value: `homeserver`, label: `homeserver` },
               ]}
@@ -3436,23 +3539,23 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           </GlassGroup>
         </div>
         <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-          <Combobox
+          <Picker
+            mode="single"
             triggerVariant="inline"
-            searchable={false}
             mobileTitle="Device"
             width="sm"
-            options={[
+            items={[
               { value: `macbook`, label: `MacBook Pro` },
               { value: `homeserver`, label: `homeserver` },
             ]}
             value="macbook"
             onChange={noop}
           />
-          <Combobox
+          <Picker
+            mode="single"
             triggerVariant="inline"
-            searchable={false}
             mobileTitle="Model"
-            options={[{ value: `default`, label: `CLI default` }]}
+            items={[{ value: `default`, label: `CLI default` }]}
             value="default"
             onChange={noop}
           />
@@ -3462,23 +3565,27 @@ export const COMPONENTS: readonly ComponentSpec[] = [
             the way the running list does. */}
         <div className="flex flex-wrap items-start gap-3 [&_[cmdk-empty]]:hidden">
           <div className="w-[14rem] overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card">
-            <ComboboxList
-              options={ASSIGNEE_OPTIONS}
+            <PickerList
+              mode="single"
+              search
+              onNone={noop}
+              items={ASSIGNEE_OPTIONS}
               value="jonas"
               onChange={noop}
               noneLabel="Unassign"
-              placeholder="Search people"
+              searchPlaceholder="Search people"
             />
           </div>
           {/* A bulk edit: "design" sits on SOME of the edited issues. */}
           <div className="w-[14rem] overflow-hidden rounded-lg border border-glass-stroke-card bg-glass-card">
-            <ComboboxList
-              multiple
-              options={BULK_LABEL_OPTIONS}
+            <PickerList
+              mode="multi"
+              search
+              items={BULK_LABEL_OPTIONS}
               value={[`bug`, `mobile`]}
               onChange={noop}
               max={3}
-              placeholder="Search labels"
+              searchPlaceholder="Search labels"
             />
           </div>
         </div>
@@ -3982,7 +4089,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-header`,
     title: `Work header`,
     kind: `Surfaces`,
-    blurb: `EXP-877: the ONE header the issue route and the session route share, on the 896px reading column every face uses (body, transcript, diff). EXP-1162 (contract \`detail-chrome.json\`, ×4): it is a compact BAR and the large title is a ROW of the issue face's scrolling body. At rest the bar floats over the scroller with its right cluster alone, on the title's own line; once the title row scrolled away it BREAKS (a threshold, 160ms, rising 4px) into the collapsed title — the mono identifier over the title on one truncated line. A face with no title row of its own (Run, diff, Results) is always collapsed, with the properties tray under the bar. No hairline closes it: content scrolls under an edge layer (page ground at 72% over an 8px blur) whose last 24px fade to nothing; the phone's header band and floating bottom bar (32px) wear the same edges.`,
+    blurb: `EXP-877: the ONE header the issue route and the session route share, on the 896px reading column every face uses (body, transcript, diff). EXP-1162 (contract \`detail-chrome.json\`, ×4): it is a compact BAR and the large title is a ROW of the issue face's scrolling body. At rest the bar floats over the scroller with its right cluster alone, on the title's own line; once the title row scrolled away it BREAKS (a threshold, 160ms, rising 4px) into the collapsed title — the mono identifier over the title on one truncated line. A face with no title row of its own (Run, Guide, a Guide section page) is always collapsed, with the properties tray under the bar. No hairline closes it: content scrolls under an edge layer (page ground at 72% over an 8px blur) whose last 24px fade to nothing; the phone's header band and floating bottom bar (32px) wear the same edges.`,
     status: {
       web: ok(
         `WorkHeader / CollapsedTitle`,
@@ -4059,7 +4166,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `changes-file-sheet`,
     title: `Changed files sheet`,
     kind: `Buttons & chips`,
-    blurb: `EXP-895: the phone's file list. A 64-wide column beside a diff leaves neither readable, so below md the Changes face's aside is gone and the tree lives in a bottom sheet hung off the work bar's LEADING slot. The trigger is the bar's own 52px circle carrying the files glyph over the COUNT, which is the whole affordance — a reader has to know how many files a PR touches before deciding to open it. A pick closes the sheet and reports the path; the card list scrolls to it. The sheet is a closed Radix portal at rest, so the specimen is the trigger.`,
+    blurb: `EXP-895: the phone's file list. A 64-wide column beside a diff leaves neither readable, so below md the Guide section page has no aside and the tree lives in a bottom sheet hung off the work bar's LEADING slot. The trigger is the bar's own 52px circle carrying the files glyph over the COUNT, which is the whole affordance — a reader has to know how many files a PR touches before deciding to open it. A pick closes the sheet and reports the path; the card list scrolls to it. The sheet is a closed Radix portal at rest, so the specimen is the trigger.`,
     status: {
       web: ok(
         `ChangesFileSheet`,
@@ -4091,9 +4198,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       web: ok(`PrGithubButton`, `packages/ui/src/pr-github-button.tsx`),
       desktop: ok(`work_header::github_button`, `apps/desktop/crates/ui/src/work_header.rs`),
       ios: leftover(
-        `PrChangesFace.githubToolbarButton`,
-        `apps/ios/Exponential/UI/Work/GuideFace.swift`,
-        `private; WorkScreen.swift holds a second inline copy under the same accessibility id`
+        `WorkScreen toolbar Button (changes-github-action)`,
+        `apps/ios/Exponential/UI/Work/WorkScreen.swift`,
+        `inline on the Guide face's toolbar; RunChangesView.swift holds a second copy under the same accessibility id`
       ),
       android: ok(
         `GithubHeaderAction`,
@@ -4351,9 +4458,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `the pure rules (grouping, tile width, the fitting factor) are session-results.ts, mirrored byte for byte ×4`
       ),
       desktop: ok(`session_results::render`, `apps/desktop/crates/ui/src/session_results.rs`),
-      ios: ok(`GuideFace`, `apps/ios/Exponential/UI/Work/GuideFace.swift`),
+      ios: ok(`GuideFace`, `apps/ios/Exponential/UI/Work/GuideFace.swift`, `the tiles are SessionResultTiles.swift`),
       android: ok(
-        `ResultsFace`,
+        `GuideFace`,
         `apps/android/app/src/main/java/com/exponential/app/ui/work/GuideFace.kt`,
         `ResultTile + ResultPreviewDialog sit in the same file`
       ),
@@ -4379,13 +4486,13 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       desktop: ok(`render_inline_picture`, `apps/desktop/crates/ui/src/steer_viewer.rs`, `the steer view method; Earlier band in session_results.rs`),
       ios: ok(
         `SessionInlinePicture`,
-        `apps/ios/Exponential/UI/Work/GuideFace.swift`,
+        `apps/ios/Exponential/UI/Work/SessionResultTiles.swift`,
         `AgentSessionView reads the run's results through the sessionResultsRaw environment value`
       ),
       android: ok(
         `ExpToolPicture`,
         `apps/android/app/src/main/java/com/exponential/app/ui/session/AgentSessionScreen.kt`,
-        `reuses ResultTile + ResultPreviewDialog from ui/work/ResultsFace.kt`
+        `reuses ResultTile + ResultPreviewDialog from ui/work/GuideFace.kt`
       ),
     },
     island: () => (
@@ -4455,7 +4562,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       android: leftover(
         `ChangesEmptyRow`,
         `apps/android/app/src/main/java/com/exponential/app/ui/work/GuideSectionDiff.kt`,
-        `private to one face; the emoji sheet writes its own line, and EmptyState (Scaffolding.kt) is page-sized`
+        `private to the Guide section page; the emoji sheet writes its own line, and EmptyState (Scaffolding.kt) is page-sized`
       ),
     },
     island: () => (
