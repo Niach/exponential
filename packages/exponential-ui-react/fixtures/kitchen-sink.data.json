@@ -1,5 +1,5 @@
 {
-  "$comment": "Round 1: the data model the kitchen sink (@exponential-at/ui fixtures/kitchen-sink.json) renders against in the React harness and the app's kitchen-sink view: the template list's posts and every bound macro / native input (Collapsible open, Pagination page, TabBar value, Progress value, the Table selection, the Form fields, the Toast).",
+  "$comment": "Round 1: the data model the kitchen sink (@exponential-at/ui fixtures/kitchen-sink.json) renders against in the React harness and the app's kitchen-sink view: the template list's posts and every bound macro / native input (Collapsible open, Pagination page, the bar Segmented value, Progress value, the Table selection, the Form fields, the Toast).",
   "draft": { "title": "" },
   "posts": [
     { "id": "p1", "title": "Show HN: a tiny CRDT", "score": 412 },

@@ -109,11 +109,15 @@ export function ListNative({ node, props, rootProps, scope, domId }: NativeProps
     [ctx, domId, rowOfIndex, windowed, horizontal]
   )
   const renderRow = (r: number) => <ListRowView row={rows[r]} node={node} tpl={tpl} sections={sections} childCount={childCount} part={part} />
+  // Round 3: a Section body with `tree` asks for role `tree` ($a11y); its
+  // items are then treeitems (a tree owns treeitems only).
+  const listRole = (rootProps as Record<string, unknown>).role === `tree` ? `tree` : `list`
+  const itemRole = listRole === `tree` ? `treeitem` : `listitem`
   const itemAttrs = (r: number): Record<string, unknown> => {
     const row = rows[r]
     // A section header is a listitem holding its heading (a list owns
     // listitems only); items carry their position among the ITEMS.
-    return `item` in row ? { role: `listitem`, "aria-setsize": itemCount, "aria-posinset": row.item + 1 } : { role: `listitem` }
+    return `item` in row ? { role: itemRole, "aria-setsize": itemCount, "aria-posinset": row.item + 1 } : { role: itemRole }
   }
   const divider = (r: number) => {
     const before = dividerBefore(r)
@@ -122,7 +126,7 @@ export function ListNative({ node, props, rootProps, scope, domId }: NativeProps
   if (windowed) {
     const headerRows = sticky ? rows.flatMap((row, r) => (`header` in row ? [r] : [])) : undefined
     return (
-      <div ref={rootRef} {...(rootProps as Record<string, unknown>)} style={style} role="list">
+      <div ref={rootRef} {...(rootProps as Record<string, unknown>)} style={style} role={listRole}>
         <WindowedList
           ref={windowRef}
           count={rows.length}
@@ -158,7 +162,7 @@ export function ListNative({ node, props, rootProps, scope, domId }: NativeProps
     )
   }
   return (
-    <div ref={rootRef} {...(rootProps as Record<string, unknown>)} style={style} role="list">
+    <div ref={rootRef} {...(rootProps as Record<string, unknown>)} style={style} role={listRole}>
       {out}
     </div>
   )

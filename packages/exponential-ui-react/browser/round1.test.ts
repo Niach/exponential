@@ -145,7 +145,7 @@ describe(`keyboard (a11y.json) in Chromium`, () => {
     expect(await focused(page)).toBe(`One`)
     await page.context().close()
   })
-  it(`Radio and ToggleGroup: a roving tab stop, arrows move and wrap`, async () => {
+  it(`Radio and Segmented: a roving tab stop, arrows move and wrap`, async () => {
     const page = await openPage(
       h,
       tree({
@@ -153,7 +153,7 @@ describe(`keyboard (a11y.json) in Chromium`, () => {
         component: `Box`,
         children: [
           { id: `r`, component: `Radio`, props: { name: `size`, label: `Size`, options: [{ label: `S`, value: `s` }, { label: `M`, value: `m` }], value: `s` } },
-          { id: `g`, component: `ToggleGroup`, props: { items: [{ label: `A`, value: `a` }, { label: `B`, value: `b` }], value: `a` } },
+          { id: `g`, component: `Segmented`, props: { items: [{ label: `A`, value: `a` }, { label: `B`, value: `b` }], value: `a` } },
         ],
       })
     )
@@ -187,9 +187,9 @@ describe(`keyboard (a11y.json) in Chromium`, () => {
     expect(await page.getAttribute(`.xui-Accordion-trigger >> nth=0`, `aria-expanded`)).toBe(`true`)
     await page.context().close()
   })
-  it(`DropdownMenu: Enter opens, arrows move, ArrowRight opens a submenu, a checkbox item toggles`, async () => {
-    const page = await openPage(h, tree({ id: `m`, component: `DropdownMenu`, props: { label: `View`, items: [{ label: `Copy`, value: `copy` }, { kind: `checkbox`, label: `Done`, value: `done`, checked: { path: `/done` } }, { kind: `submenu`, label: `More`, items: [{ label: `Deep`, value: `deep` }] }] }, on: { select: { event: { name: `sel` } } } }, { done: false }))
-    await page.focus(`.xui-DropdownMenu-trigger`)
+  it(`Menu (press): Enter opens, arrows move, ArrowRight opens a submenu, a checkbox item toggles`, async () => {
+    const page = await openPage(h, tree({ id: `m`, component: `Menu`, props: { label: `View`, items: [{ label: `Copy`, value: `copy` }, { kind: `checkbox`, label: `Done`, value: `done`, checked: { path: `/done` } }, { kind: `submenu`, label: `More`, items: [{ label: `Deep`, value: `deep` }] }] }, on: { select: { event: { name: `sel` } } } }, { done: false }))
+    await page.focus(`.xui-Menu-trigger`)
     await press(page, `Enter`)
     await page.waitForSelector(`[role="menu"]`)
     await press(page, `ArrowDown`)
@@ -198,11 +198,11 @@ describe(`keyboard (a11y.json) in Chromium`, () => {
     expect(await page.evaluate(() => (window.__xuiData!() as { done: boolean }).done)).toBe(true)
     await press(page, `ArrowDown`)
     await press(page, `ArrowRight`)
-    await page.waitForSelector(`[data-xui-overlay="DropdownMenu.sub"]`)
+    await page.waitForSelector(`[data-xui-overlay="Menu.sub"]`)
     expect(await focused(page)).toBe(`Deep`)
     await page.context().close()
   })
-  it(`Tooltip shows on keyboard focus; HoverCard (openOn hover) opens on hover and on focus`, async () => {
+  it(`Tooltip shows on keyboard focus; Popover openOn hover opens on hover and on focus`, async () => {
     const page = await openPage(
       h,
       tree({
@@ -211,7 +211,7 @@ describe(`keyboard (a11y.json) in Chromium`, () => {
         style: { display: `flex`, gap: 40, padding: 80 },
         children: [
           { id: `tip`, component: `Tooltip`, props: { content: `Hint text` }, children: [{ id: `tip-t`, component: `Text`, props: { text: `Hover me` } }] },
-          { id: `hc`, component: `HoverCard`, slots: { trigger: { id: `hc-t`, component: `Button`, props: { label: `Card` } } }, children: [{ id: `hc-c`, component: `Text`, props: { text: `Card body` } }] },
+          { id: `hc`, component: `Popover`, props: { openOn: `hover` }, slots: { trigger: { id: `hc-t`, component: `Button`, props: { label: `Card` } } }, children: [{ id: `hc-c`, component: `Text`, props: { text: `Card body` } }] },
         ],
       })
     )
@@ -225,7 +225,7 @@ describe(`keyboard (a11y.json) in Chromium`, () => {
     await page.waitForSelector(`[data-xui-overlay="Popover"]`, { timeout: 3000 })
     await page.context().close()
   })
-  it(`Select (plain): ArrowDown opens on the list, Enter chooses; ContextMenu: Shift+F10 opens`, async () => {
+  it(`Select (plain): ArrowDown opens on the list, Enter chooses; Menu (contextmenu): Shift+F10 opens`, async () => {
     const page = await openPage(
       h,
       tree({
@@ -234,7 +234,7 @@ describe(`keyboard (a11y.json) in Chromium`, () => {
         style: { display: `flex`, flexDirection: `column`, gap: 16 },
         children: [
           { id: `s`, component: `Select`, props: { name: `s`, label: `Pick`, options: [{ label: `Alpha`, value: `a` }, { label: `Beta`, value: `b` }] }, on: { change: { event: { name: `pick` } } } },
-          { id: `cm`, component: `ContextMenu`, props: { items: [{ label: `Rename`, value: `rename` }] }, children: [{ id: `area`, component: `Box`, props: { pressable: true }, style: { width: 120, height: 40 } }] },
+          { id: `cm`, component: `Menu`, props: { openOn: `contextmenu`, items: [{ label: `Rename`, value: `rename` }] }, children: [{ id: `area`, component: `Box`, props: { pressable: true }, style: { width: 120, height: 40 } }] },
         ],
       })
     )
@@ -248,7 +248,7 @@ describe(`keyboard (a11y.json) in Chromium`, () => {
     expect(log.find((l) => l.action === `pick`)?.context.value).toBe(`b`)
     await page.focus(`[data-xui-id="area"]`)
     await press(page, `Shift+F10`)
-    await page.waitForSelector(`[data-xui-overlay="ContextMenu"]`, { timeout: 3000 })
+    await page.waitForSelector(`[data-xui-overlay="Menu"][data-open-on="contextmenu"]`, { timeout: 3000 })
     await page.context().close()
   })
   it(`Toast sits in the toast layer above an open Dialog, bottom-centre on phones, bottom-end when wide`, async () => {
@@ -269,5 +269,71 @@ describe(`keyboard (a11y.json) in Chromium`, () => {
       if (edge === `centre`) expect(Math.abs(r.left - (r.vw - r.right))).toBeLessThanOrEqual(2)
       else expect(r.vw - r.right).toBeLessThan(r.left)
     }
+  })
+})
+
+describe(`round 3 (VAPP-102) in Chromium`, () => {
+  it(`Segmented bar: full width, tabBar tall, icon above the label, arrows rove`, async () => {
+    const page = await openPage(
+      h,
+      tree({ id: `root`, component: `Box`, style: { display: `flex`, flexDirection: `column`, width: 390 }, children: [{ id: `tb`, component: `Segmented`, props: { variant: `bar`, items: [{ label: `Inbox`, value: `inbox`, icon: `nav-inbox` }, { label: `Issues`, value: `issues`, icon: `nav-issues` }], value: `inbox` } }] })
+    )
+    const r = await page.evaluate(() => {
+      const bar = document.querySelector(`[data-xui-id="tb"]`)!.getBoundingClientRect()
+      const item = document.querySelector(`[data-xui-id="tb"] .xui-Segmented-item`)!
+      const icon = item.querySelector(`.xui-Segmented-icon`)!.getBoundingClientRect()
+      const label = item.querySelector(`.xui-Segmented-label`)!.getBoundingClientRect()
+      return { w: bar.width, h: bar.height, iconAbove: icon.bottom <= label.top + 0.5, centred: Math.abs(icon.left + icon.width / 2 - (label.left + label.width / 2)) < 1, role: document.querySelector(`[data-xui-id="tb"]`)!.tagName }
+    })
+    expect(r).toEqual({ w: 390, h: 56, iconAbove: true, centred: true, role: `NAV` })
+    await page.focus(`[data-xui-id="tb"] [aria-current="page"]`)
+    await press(page, `ArrowRight`)
+    expect(await focused(page)).toBe(`Issues`)
+    await press(page, `Enter`)
+    expect(await page.getAttribute(`[data-xui-id="tb"] [aria-current="page"]`, `aria-label`)).toBeNull()
+    expect(await page.textContent(`[data-xui-id="tb"] [aria-current="page"]`)).toBe(`Issues`)
+    await page.context().close()
+  })
+  it(`TreeGuides geometry: column 14, line at i·14+7, elbow stub to i·14+14, rounded corner, a 1 px bridge above the part's top`, async () => {
+    const rows = [0, 1, 2, 1].map((depth, i) => ({ id: `r${i}`, component: `Row`, props: { title: `Row ${i}`, depth } }))
+    const page = await openPage(h, tree({ id: `sec`, component: `Section`, props: { title: `Tree`, tree: true }, style: { width: 320 }, children: rows }))
+    const g = await page.evaluate(() => {
+      const box = (el: Element) => el.getBoundingClientRect()
+      const guides = document.querySelector(`[data-xui-id="r2"] [data-xui-c="TreeGuides"]`)!
+      const origin = box(guides)
+      const row = box(document.querySelector(`[data-xui-id="r2"]`)!)
+      const pass = box(guides.querySelector(`[data-col="0"] [data-vertical]`)!)
+      const elbowEl = guides.querySelector(`[data-col="1"] [data-elbow]`)!
+      const elbow = box(elbowEl)
+      const cs = getComputedStyle(elbowEl)
+      const divider = document.querySelector(`[data-xui-c="List"] [data-xui-part="List/divider"]`)
+      return {
+        width: origin.width,
+        passX: pass.left - origin.left + pass.width / 2,
+        passTop: pass.top - origin.top,
+        rowPad: origin.top - row.top,
+        elbowX: elbow.left - origin.left + parseFloat(cs.borderLeftWidth) / 2,
+        elbowEnd: elbow.right - origin.left,
+        elbowTop: elbow.top - origin.top,
+        elbowMid: elbow.bottom - parseFloat(cs.borderBottomWidth) / 2 - (origin.top + origin.height / 2),
+        radius: cs.borderBottomLeftRadius,
+        hasDivider: divider !== null,
+        overflow: getComputedStyle(guides).overflow,
+      }
+    })
+    await page.context().close()
+    expect(g.width).toBe(28)
+    expect(g.passX).toBeCloseTo(7, 1)
+    expect(g.elbowX).toBeCloseTo(21, 1)
+    expect(g.elbowEnd).toBeCloseTo(28, 1)
+    expect(g.passTop).toBeCloseTo(-1, 1)
+    expect(g.elbowTop).toBeCloseTo(-1, 1)
+    expect(Math.abs(g.elbowMid)).toBeLessThanOrEqual(1)
+    expect(g.radius).toBe(`3px`)
+    expect(g.hasDivider).toBe(true)
+    expect(g.overflow).toBe(`visible`)
+    // The part is the Row's CONTENT box: the bridge is measured from its top
+    // (the Row's flat paddingVertical = $spacing.xs sits above it).
+    expect(g.rowPad).toBe(4)
   })
 })

@@ -46,7 +46,7 @@ function Chat({ messages }) {
 | `src/box-css.ts` | a surface's node sheet (template subtrees included): the whitelisted `style`s, the `@media` grammar (width → container queries, height/orientation → `data-xq`, hover/reduced-motion → media), the state blocks, dynamic values → `var(--xd-n)` |
 | `src/base-css.ts` | layer `xui-base`: the three CSS-equals-taffy rules + each native's structure |
 | `src/node-view.tsx` | the BIND pass per node (`visible`, props, dynamic style values, recipe props, `$string`, responsive native props), painter picked, root attributes, the action runner (`set` then the event), keyed templates |
-| `src/natives/` | the 47 native painters (Box, Text, Button… Form, NumberField, ChipInput, Date/Range/TimePicker, FileUpload, CodeBlock, Table, Chart, ContextMenu, Toast, Resizable, Unknown); `natives.test.ts` gates them against the catalog |
+| `src/natives/` | the 46 native painters (Box, Text, Button… Form, NumberField, ChipInput, Date/Range/TimePicker, FileUpload, CodeBlock, Table, Chart, Menu, Segmented, Toast, Resizable, TreeGuides, Unknown); `natives.test.ts` gates them against the catalog |
 | `src/form.tsx` | the Form native + the field protocol every named control speaks (`useField`) |
 | `src/platform.ts` | live platform preferences (`matchMedia`) and the measured surface box |
 | `src/data.ts` | the data model (JSON pointers), `{path}` bindings, the basic + core client functions (the format functions through the surface Formatter), `bindTree` |
@@ -198,7 +198,7 @@ suite of the manifest; `test:conformance`).
 
 ## Overlays
 
-Dialog, Drawer, Popover, Tooltip, DropdownMenu, ContextMenu, Select and the
+Dialog, Drawer, Popover, Tooltip, Menu, Select and the
 pickers portal into the surface's OVERLAY LAYER inside the `xui` container
 (not `document.body`): the theme's variables and scope reach them, container
 breakpoints still match inside a Dialog (round 1), and an inline-size
@@ -227,7 +227,7 @@ controlled prop with a local mirror (`change` reports the user's toggles).
 | CodeBlock | the catalog tokenizer (`CodeBlock/token` per kind), gutter, highlighted lines, wrap, `maxLines`, copy + `copied` announced |
 | Table | typed cells (locale number/date, tick, badge, slot with the ROW as scope), sort (local or bound), single/multiple selection with select-all, striped odd rows, sticky header, windowing past 50; ONE roving row tab stop (focused, else first selected, else first), ArrowUp/Down + Home/End by index (through a windowed body), Enter presses, Space selects; slot edits over LITERAL rows stay table-local (never the data model, never a host path) |
 | Chart | measured width, `niceTicks` axes + grid, bar/stackedBar/line/area/pie/donut (a ring per series)/sparkline, values, legend (2+), tooltip on hover and ArrowLeft/Right, an sr-only data table; cartesian kinds MIRROR in RTL (first category on the right) |
-| ContextMenu, DropdownMenu | item / checkbox (bound `checked` written) / separator / label / submenu, shortcuts |
+| Menu | item / checkbox (bound `checked` written) / separator / label / submenu (bound `items` render like literal ones), shortcuts; `openOn: press` = its child (or a default outline button) is the trigger, `contextmenu` = right-click / long-press / Shift+F10 / Menu key over the child |
 | Toast | the toast layer, duration paused on hover/focus, `open` written false, `dismiss` + `change`, error = assertive |
 | Image / Textarea / Drawer / Popover / Text / Markdown | fallback glyph + focal point + `loading`; autosize; `dismissible` + drag-to-dismiss + responsive `side`; `openOn: hover` (+ keyboard focus); `live`; `lines` |
 
@@ -268,7 +268,7 @@ The numbers are the core's (`virtualWindow`, `scrollOffsetForIndex`,
 | a11y | every item `role=listitem` with `aria-setsize` / `aria-posinset` of the WHOLE list |
 | `scrollToIndex` | host command `{scrollToIndex: {id, index, align}}` on List and Table (data index); re-aimed once the revealed rows are measured |
 
-Bench (`fixtures/bench-list.json`: 100,000 `ListRow`s, 390 × 800, neutral;
+Bench (`fixtures/bench-list.json`: 100,000 `Row`s, 390 × 800, neutral;
 i9-13900K, Linux, Playwright 1.59 headless Chromium / jsdom 27; median of 3):
 
 | renderer | firstPaintMs | scrollStepMs | scrollToIndexMs | renderedItems |
@@ -293,7 +293,16 @@ A step = the scroll, the window's render flushed and the layout read back
 | text props | a bound number shows `412`, a boolean `true`, an object nothing (`displayString`) |
 | strings | `invalidValue`, `message`, `codeBlock`, `dialog`, `table`, `carousel`, `slide`, `resize` |
 | parts | every laid-out part carries `data-xui-id="<id>.<part>[.<i or row key>]"` + `data-xui-part`; inactive carousel pages are `inert` + `data-xui-inactive` |
-| §7 sizes | overlays = their trigger's box (`data-xui-overlay-root`), menu trigger without chevron, Chart `height` = the whole box, AudioPlayer track + controls row, Video / Image 16:9, Table and CodeBlock from recipes only (per-side border widths no longer pick up the UA's 3 px), Browse in the drop zone, TreeGuides 16 px columns, Switch label first, Checkbox gap, Radio items at the root gap, Accordion count part |
+| §7 sizes | overlays = their trigger's box (`data-xui-overlay-root`), menu trigger without chevron, Chart `height` = the whole box, AudioPlayer track + controls row, Video / Image 16:9, Table and CodeBlock from recipes only (per-side border widths no longer pick up the UA's 3 px), Browse in the drop zone, TreeGuides columns (round 3: 14 px), Switch label first, Checkbox gap, Radio items at the root gap, Accordion count part |
+
+## Round 3 (VAPP-102: Row, Section, Chip, Segmented, Menu)
+
+| item | web |
+|---|---|
+| macros | `Row`, `Section`, `Chip` and the 16 deprecated aliases (ListRow, CardRow, PropertyRow, PickerRow, NavRow, RowList, Band, Sheet, HoverCard, DropdownMenu, ContextMenu, ToggleGroup, TabBar, ButtonGroup, Pill, EntityChip) need no painter: they expand to Box/Text/Icon/List/TreeGuides/Badge/Button/Image and the two new natives. A `Section` body is a divided `List`; with `tree` it is `role=tree` of `treeitem`s |
+| Segmented | the rename of ToggleGroup (Radix ToggleGroup: radiogroup single / toolbar multiple, roving arrows), variants `segmented` (default) / `toggles` / `outline`; `bar` = a full-width `<nav>` of column buttons (icon above a caption label, `$control.tabBar` tall), `aria-current="page"`, the same roving keys; parts root, item, icon, label |
+| Menu | ONE painter for DropdownMenu + ContextMenu (`openOn`); builtin glyphs `Menu.check`, `Menu.submenuIndicator` |
+| TreeGuides | a Row's `guides` part the CORE fills (`elbowAt`, `tee`, `passThrough`); `TREE_GUIDE_COLUMN` 14 px columns, the line at i·14 + 7, the elbow = one element (left + bottom borders) to the column's right edge with a `TREE_GUIDE_RADIUS` 3 px corner, every vertical starting `TREE_GUIDE_BRIDGE` 1 px above the part's top (overflow visible) |
 
 ## The primitive set
 

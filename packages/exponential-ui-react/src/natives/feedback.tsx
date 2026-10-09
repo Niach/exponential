@@ -1,6 +1,6 @@
 // VAPP-87: Ring, Spinner, Skeleton, TreeGuides (Chart: chart.tsx).
 
-import { resolveRecipe, nativeRecipeProps, TREE_GUIDE_COLUMN } from "@exponential-at/ui"
+import { resolveRecipe, nativeRecipeProps, TREE_GUIDE_BRIDGE, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS } from "@exponential-at/ui"
 import { useSurfaceContext } from "../context"
 import { CHROME } from "../icons"
 import type { NativeProps } from "../node-view"
@@ -52,27 +52,50 @@ export function SkeletonNative({ props, rootProps }: NativeProps) {
   return <div {...(rootProps as Record<string, unknown>)} aria-hidden="true" style={mergeStyle(rootProps, { width, height, borderRadius: bool(props.rounded) ? 9999 : undefined })} />
 }
 
-/** TreeGuides (round 2 §7): `depth` columns of `treeGuideColumn` (16) px,
- *  stretched to the row; the `TreeGuides/line` recipe `width` is the
- *  STROKE of the lines drawn in them (pass-through, elbow, tee). */
+/** TreeGuides (round 3, a Row's `guides` part the CORE fills: `elbowAt`,
+ *  `tee`, `passThrough` arrive computed): `depth` columns of
+ *  `TREE_GUIDE_COLUMN` (14) px; column i's line sits at its centre
+ *  (x = i·14 + 7). The elbow = ONE element whose left + bottom borders are
+ *  the vertical (from `TREE_GUIDE_BRIDGE` px above the row's top to its
+ *  centre) and the stub (to the column's right edge), the corner rounded by
+ *  `TREE_GUIDE_RADIUS`; `tee` and pass-through columns = full-height
+ *  verticals from the same bridge (paint only: the overshoot covers a
+ *  Section's hairline divider, never layout). Stroke width + colour = the
+ *  `TreeGuides/line` recipe. Physical x (the gutter is not mirrored). */
 export function TreeGuidesNative({ node, props, rootProps }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  const depth = Math.max(0, num(props.depth, 0))
-  const elbowAt = props.elbowAt === undefined ? depth - 1 : num(props.elbowAt)
+  const depth = Math.max(0, Math.floor(num(props.depth, 0)))
+  const elbowAt = props.elbowAt === undefined || props.elbowAt === null ? depth - 1 : num(props.elbowAt)
   const tee = bool(props.tee)
   const pass = new Set(arr<number>(props.passThrough).map((v) => num(v)))
   const stroke = sizeOf(ctx, `TreeGuides`, `line`, props, 1)
   const line = part(`line`) as Record<string, string>
-  const vertical = (key: string, style: React.CSSProperties) => <i key={key} {...line} style={{ left: `calc(50% - ${stroke / 2}px)`, width: stroke, ...style }} />
+  const x = TREE_GUIDE_COLUMN / 2 - stroke / 2
+  const vertical = (key: string) => <i key={key} {...line} data-vertical="" style={{ left: x, width: stroke, top: -TREE_GUIDE_BRIDGE, bottom: 0 }} />
   const cols = []
   for (let i = 0; i < depth; i++) {
     const elbow = i === elbowAt
     cols.push(
       <span key={i} className="xui-tree-col" data-col={i} style={{ width: TREE_GUIDE_COLUMN }}>
-        {pass.has(i) ? vertical(`p`, { top: 0, bottom: 0 }) : null}
-        {elbow ? vertical(`e`, { top: 0, height: tee ? `100%` : `50%` }) : null}
-        {elbow ? <i {...line} style={{ left: `50%`, top: `calc(50% - ${stroke / 2}px)`, width: `50%`, height: stroke }} /> : null}
+        {pass.has(i) && !elbow ? vertical(`p`) : null}
+        {elbow && tee ? vertical(`t`) : null}
+        {elbow ? (
+          <i
+            key="e"
+            {...line}
+            data-elbow=""
+            style={{
+              left: x,
+              top: -TREE_GUIDE_BRIDGE,
+              width: TREE_GUIDE_COLUMN - x,
+              height: `calc(50% + ${TREE_GUIDE_BRIDGE + stroke / 2}px)`,
+              borderLeftWidth: stroke,
+              borderBottomWidth: stroke,
+              borderBottomLeftRadius: TREE_GUIDE_RADIUS,
+            }}
+          />
+        ) : null}
       </span>
     )
   }

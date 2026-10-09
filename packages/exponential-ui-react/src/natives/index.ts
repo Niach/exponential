@@ -17,8 +17,8 @@ import { RingNative, SkeletonNative, SpinnerNative, TreeGuidesNative } from "./f
 import { CheckboxNative, ComposerNative, InputNative, NumberFieldNative, RadioNative, SliderNative, SwitchNative, TextareaNative } from "./inputs"
 import { BoxNative, ListNative, UnknownNative } from "./layout"
 import { AudioPlayerNative, AvatarNative, CarouselNative, ImageNative, VideoNative } from "./media"
-import { AccordionNative, TabsNative, ToggleGroupNative } from "./nav"
-import { ContextMenuNative, DialogNative, DrawerNative, DropdownMenuNative, PopoverNative, ToastNative, TooltipNative } from "./overlays"
+import { AccordionNative, SegmentedNative, TabsNative } from "./nav"
+import { DialogNative, DrawerNative, MenuNative, PopoverNative, ToastNative, TooltipNative } from "./overlays"
 import { SelectNative } from "./select"
 import { TableNative } from "./table"
 import { IconNative, MarkdownNative, TextNative } from "./text"
@@ -38,14 +38,13 @@ export const NATIVES: Record<string, ComponentType<NativeProps>> = {
   Avatar: AvatarNative,
   Carousel: CarouselNative,
   Tabs: TabsNative,
-  ToggleGroup: ToggleGroupNative,
+  Segmented: SegmentedNative,
   Accordion: AccordionNative,
   Dialog: DialogNative,
   Drawer: DrawerNative,
   Popover: PopoverNative,
   Tooltip: TooltipNative,
-  DropdownMenu: DropdownMenuNative,
-  ContextMenu: ContextMenuNative,
+  Menu: MenuNative,
   Toast: ToastNative,
   Ring: RingNative,
   Spinner: SpinnerNative,

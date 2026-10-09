@@ -634,17 +634,145 @@ describe(`new natives`, () => {
     expect(ta.getAttribute(`data-autosize`)).toBe(`true`)
     expect(ta.style.height).toMatch(/px$/)
   })
-  it(`DropdownMenu kinds render: label, separator, checkbox (bound, writes), submenu trigger, shortcut`, () => {
-    const root = tree({ id: `m`, component: `DropdownMenu`, props: { label: `View`, items: [{ kind: `label`, label: `Show` }, { kind: `checkbox`, label: `Done`, value: `done`, checked: { path: `/done` } }, { kind: `separator` }, { label: `Copy`, value: `copy`, shortcut: `⌘C` }, { kind: `submenu`, label: `More`, items: [{ label: `A`, value: `a` }] }] }, on: { select: { event: { name: `sel` } } } })
+  it(`Menu kinds render: label, separator, checkbox (bound, writes), submenu trigger, shortcut`, () => {
+    const root = tree({ id: `m`, component: `Menu`, props: { label: `View`, items: [{ kind: `label`, label: `Show` }, { kind: `checkbox`, label: `Done`, value: `done`, checked: { path: `/done` } }, { kind: `separator` }, { label: `Copy`, value: `copy`, shortcut: `⌘C` }, { kind: `submenu`, label: `More`, items: [{ label: `A`, value: `a` }] }] }, on: { select: { event: { name: `sel` } } } })
     const events: SurfaceActionEvent[] = []
     const { container } = render(<ExponentialSurface root={root} data={{ done: false }} theme="neutral" id="dm" host={{ onAction: (e) => void events.push(e) }} />)
-    const trigger = container.querySelector(`.xui-DropdownMenu-trigger`)!
+    const trigger = container.querySelector(`.xui-Menu-trigger`)!
     fireEvent.pointerDown(trigger, { button: 0, ctrlKey: false, pointerType: `mouse` })
-    expect(document.querySelector(`.xui-DropdownMenu-label`)!.textContent).toBe(`Show`)
-    expect(document.querySelector(`.xui-DropdownMenu-shortcut`)!.textContent).toBe(`⌘C`)
-    expect(document.querySelector(`.xui-DropdownMenu-submenuIndicator`)).not.toBeNull()
+    expect(document.querySelector(`.xui-Menu-label`)!.textContent).toBe(`Show`)
+    expect(document.querySelector(`.xui-Menu-shortcut`)!.textContent).toBe(`⌘C`)
+    expect(document.querySelector(`.xui-Menu-submenuIndicator`)).not.toBeNull()
+    expect(document.querySelector(`[data-xui-overlay="Menu"]`)!.getAttribute(`data-open-on`)).toBe(`press`)
     fireEvent.click(document.querySelector(`[role="menuitemcheckbox"]`)!)
     expect(events[0].context).toEqual({ value: `done`, checked: true })
+  })
+})
+
+describe(`round 3 natives (VAPP-102)`, () => {
+  const open = (el: Element) => fireEvent.pointerDown(el, { button: 0, ctrlKey: false, pointerType: `mouse` })
+  it(`Menu openOn press: the ONE child is the trigger (no default button, no trigger part)`, () => {
+    const root = tree({ id: `m`, component: `Menu`, props: { items: [{ label: `Rename`, value: `rename` }] }, children: [{ id: `mt`, component: `Button`, props: { label: `More` } }] } as unknown as NestedNode)
+    const { container } = render(<ExponentialSurface root={root} theme="neutral" id="mp" />)
+    expect(container.querySelector(`.xui-Menu-trigger`)).toBeNull()
+    expect(container.querySelector(`[data-xui-id="m"]`)!.getAttribute(`data-xui-overlay-root`)).toBe(``)
+    open(container.querySelector(`[data-xui-id="mt"]`)!.closest(`.xui-trigger`)!)
+    expect(document.querySelector(`[data-xui-overlay="Menu"] [role="menuitem"]`)!.textContent).toBe(`Rename`)
+  })
+  it(`Menu openOn contextmenu: the child is the target region; right-click opens at the pointer, select fires`, () => {
+    const root = tree({ id: `cm`, component: `Menu`, props: { openOn: `contextmenu`, items: [{ label: `Copy`, value: `copy` }] }, on: { select: { event: { name: `sel` } } }, children: [{ id: `area`, component: `Text`, props: { text: `Target` } }] } as unknown as NestedNode)
+    const events: SurfaceActionEvent[] = []
+    const { container } = render(<ExponentialSurface root={root} theme="neutral" id="mc" host={{ onAction: (e) => void events.push(e) }} />)
+    const region = container.querySelector(`[data-xui-id="cm"]`)!
+    expect(region.querySelector(`[data-xui-id="area"]`)).not.toBeNull()
+    expect(container.querySelector(`.xui-Menu-trigger`)).toBeNull()
+    expect(document.querySelector(`[data-xui-overlay="Menu"]`)).toBeNull()
+    fireEvent.contextMenu(region, { clientX: 20, clientY: 20 })
+    const content = document.querySelector(`[data-xui-overlay="Menu"]`)!
+    expect(content.getAttribute(`data-open-on`)).toBe(`contextmenu`)
+    fireEvent.click(content.querySelector(`[role="menuitem"]`)!)
+    expect(events[0].context).toEqual({ value: `copy` })
+  })
+  it(`Menu contextmenu: Shift+F10 on the region opens it`, () => {
+    const root = tree({ id: `cm`, component: `Menu`, props: { openOn: `contextmenu`, items: [{ label: `Copy`, value: `copy` }] }, children: [{ id: `area`, component: `Text`, props: { text: `Target` } }] } as unknown as NestedNode)
+    const { container } = render(<ExponentialSurface root={root} theme="neutral" id="mk" />)
+    fireEvent.keyDown(container.querySelector(`[data-xui-id="cm"]`)!, { key: `F10`, shiftKey: true })
+    expect(document.querySelector(`[data-xui-overlay="Menu"]`)).not.toBeNull()
+  })
+  it(`a submenu's BOUND items ({path} inside a shaped array item) resolve and render like literal ones`, () => {
+    const node = { id: `m`, component: `Menu`, props: { label: `Set`, items: [{ kind: `submenu`, label: `Status`, items: { path: `/statuses` } }] } } as unknown as NestedNode
+    const root = tree(node)
+    const data = { statuses: [{ label: `Todo`, value: `todo` }, { label: `Done`, value: `done` }] }
+    // The bind pass (the renderer's and the core's reference) resolves it.
+    const bound = bindTree(root, { data, scope: `` } as never)!
+    expect((bound.props.items as { items: unknown }[])[0].items).toEqual(data.statuses)
+    const { container } = render(<ExponentialSurface root={root} data={data} theme="neutral" id="mb" />)
+    open(container.querySelector(`.xui-Menu-trigger`)!)
+    const sub = document.querySelector(`[data-xui-overlay="Menu"] [aria-haspopup="menu"]`)!
+    expect(sub.textContent).toContain(`Status`)
+    fireEvent.keyDown(sub, { key: `ArrowRight` })
+    const subContent = document.querySelector(`[data-xui-overlay="Menu.sub"]`)!
+    expect(Array.from(subContent.querySelectorAll(`[role="menuitem"]`)).map((e) => e.textContent)).toEqual([`Todo`, `Done`])
+  })
+  it(`Segmented (default segmented variant) = a radiogroup of radios; change writes the bound value`, () => {
+    const root = tree({ id: `s`, component: `Segmented`, props: { items: [{ label: `List`, value: `list` }, { label: `Board`, value: `board` }], value: { path: `/view` } }, on: { change: { event: { name: `view` } } } } as unknown as NestedNode)
+    const data = { view: `list` }
+    const events: SurfaceActionEvent[] = []
+    const { container } = render(<ExponentialSurface root={root} data={data} theme="neutral" id="sg" host={{ onAction: (e) => void events.push(e) }} />)
+    const el = container.querySelector(`[data-xui-id="s"]`)!
+    expect(el.getAttribute(`data-r-variant`)).toBe(`segmented`)
+    expect(el.querySelectorAll(`.xui-Segmented-label`).length).toBe(2)
+    const items = el.querySelectorAll(`.xui-Segmented-item`)
+    fireEvent.click(items[1])
+    expect(events[0].context).toEqual({ value: `board` })
+  })
+  it(`Segmented bar: role navigation, column items (icon over a label), aria-current=page, roving arrows`, () => {
+    const root = tree({ id: `tb`, component: `Segmented`, props: { variant: `bar`, items: [{ label: `Inbox`, value: `inbox`, icon: `nav-inbox` }, { label: `Issues`, value: `issues`, icon: `nav-issues` }, { label: `Settings`, value: `settings`, icon: `nav-settings` }], value: `issues` }, on: { change: { event: { name: `tab` } } } } as unknown as NestedNode)
+    const events: SurfaceActionEvent[] = []
+    const { container } = render(<ExponentialSurface root={root} theme="neutral" id="sb" host={{ onAction: (e) => void events.push(e) }} />)
+    const nav = container.querySelector(`[data-xui-id="tb"]`)!
+    expect(nav.tagName).toBe(`NAV`)
+    expect(nav.getAttribute(`data-r-variant`)).toBe(`bar`)
+    const items = Array.from(nav.querySelectorAll<HTMLButtonElement>(`.xui-Segmented-item`))
+    expect(items.map((b) => b.getAttribute(`aria-current`))).toEqual([null, `page`, null])
+    expect(items.map((b) => b.tabIndex)).toEqual([-1, 0, -1])
+    // icon BEFORE label (the column puts it above)
+    expect(Array.from(items[0].children).map((c) => c.className.split(` `).find((k) => k.startsWith(`xui-Segmented-`)))).toEqual([`xui-Segmented-icon`, `xui-Segmented-label`])
+    expect(items[1].querySelector(`.xui-Segmented-label`)!.getAttribute(`data-xs`)).toContain(`selected`)
+    items[1].focus()
+    fireEvent.keyDown(items[1], { key: `ArrowRight` })
+    expect(document.activeElement).toBe(items[2])
+    fireEvent.keyDown(items[2], { key: `ArrowRight` })
+    expect(document.activeElement).toBe(items[0])
+    fireEvent.click(items[0])
+    expect(events[0].context).toEqual({ value: `inbox` })
+    expect(items[0].getAttribute(`aria-current`)).toBe(`page`)
+  })
+  it(`a Section of nested Rows: the core-computed guides land in the DOM (the kitchen sink's row-2..row-5)`, () => {
+    const rows = [0, 1, 1, 2, 1, 0].map((depth, i) => ({ id: `row-${i + 1}`, component: `Row`, props: { title: `R${i + 1}`, depth } }))
+    const root = tree({ id: `sec`, component: `Section`, props: { title: `Sources`, tree: true }, children: rows } as unknown as NestedNode)
+    const { container } = render(<ExponentialSurface root={root} theme="neutral" id="tg" />)
+    const guides = (id: string) => container.querySelector(`[data-xui-id="${id}"]`)!.querySelector(`[data-xui-c="TreeGuides"]`)
+    const cols = (id: string) =>
+      Array.from(guides(id)!.querySelectorAll(`.xui-tree-col`)).map((c) => ({
+        elbow: c.querySelector(`[data-elbow]`) !== null,
+        vertical: c.querySelector(`[data-vertical]`) !== null,
+      }))
+    expect(guides(`row-1`)).toBeNull()
+    expect(guides(`row-6`)).toBeNull()
+    // row-2: elbow at 0 + tee (a sibling follows)
+    expect(cols(`row-2`)).toEqual([{ elbow: true, vertical: true }])
+    expect(guides(`row-2`)!.getAttribute(`data-tee`)).toBe(`true`)
+    // row-3: elbow at 0 + tee (row-5 follows at depth 1)
+    expect(cols(`row-3`)).toEqual([{ elbow: true, vertical: true }])
+    // row-4: pass-through at 0, elbow at 1, no tee
+    expect(cols(`row-4`)).toEqual([{ elbow: false, vertical: true }, { elbow: true, vertical: false }])
+    expect(guides(`row-4`)!.getAttribute(`data-tee`)).toBeNull()
+    // row-5: the last child, elbow at 0, no tee
+    expect(cols(`row-5`)).toEqual([{ elbow: true, vertical: false }])
+    // The body is a divided List with role tree.
+    expect(container.querySelector(`[data-xui-c="List"]`)!.getAttribute(`role`)).toBe(`tree`)
+  })
+  it(`TreeGuides geometry: 14 px columns, line at 7, elbow stub to 14, radius 3, 1 px bridge above the top`, () => {
+    const root = tree({ id: `sec`, component: `Section`, children: [{ id: `a`, component: `Row`, props: { title: `A`, depth: 0 } }, { id: `b`, component: `Row`, props: { title: `B`, depth: 1 } }, { id: `c`, component: `Row`, props: { title: `C`, depth: 2 } }, { id: `d`, component: `Row`, props: { title: `D`, depth: 1 } }] } as unknown as NestedNode)
+    const { container } = render(<ExponentialSurface root={root} theme="neutral" id="tgg" />)
+    const g = container.querySelector(`[data-xui-id="c"]`)!.querySelector(`[data-xui-c="TreeGuides"]`)!
+    const colEls = Array.from(g.querySelectorAll<HTMLElement>(`.xui-tree-col`))
+    expect(colEls.map((c) => c.style.width)).toEqual([`14px`, `14px`])
+    const pass = colEls[0].querySelector<HTMLElement>(`[data-vertical]`)!
+    expect(pass.style.left).toBe(`6.5px`)
+    expect(pass.style.width).toBe(`1px`)
+    expect(pass.style.top).toBe(`-1px`)
+    expect(pass.style.bottom).toBe(`0px`)
+    const elbow = colEls[1].querySelector<HTMLElement>(`[data-elbow]`)!
+    expect(elbow.style.left).toBe(`6.5px`)
+    expect(elbow.style.width).toBe(`7.5px`)
+    expect(elbow.style.top).toBe(`-1px`)
+    expect(elbow.style.height).toBe(`calc(50% + 1.5px)`)
+    expect(elbow.style.borderBottomLeftRadius).toBe(`3px`)
+    expect(elbow.style.borderLeftWidth).toBe(`1px`)
+    expect(elbow.style.borderBottomWidth).toBe(`1px`)
+    expect(elbow.className).toContain(`xui-TreeGuides-line`)
   })
 })
 
