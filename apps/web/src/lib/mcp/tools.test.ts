@@ -333,7 +333,7 @@ import {
 } from "@/lib/integrations/github-pr"
 import { insertRelationInTx } from "@/lib/issue-relations"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
-import { registerExponentialTools } from "@/lib/mcp/tools"
+import { registerExponentialTools, SESSION_SHOW_NEXT_STEP } from "@/lib/mcp/tools"
 import { verifySessionResultToken } from "@/lib/storage/session-result-token"
 import {
   builtinCreateAction,
@@ -3080,10 +3080,14 @@ describe(`exponential_sessions_show`, () => {
       id: string
       uploadUrl: string
       curl: string
+      next: string
       topic: string
       results: unknown
     }
     expect(payload.topic).toBe(`Progress`)
+    // EXP-1262: the call alone shows nothing; the answer says so.
+    expect(payload.next).toBe(SESSION_SHOW_NEXT_STEP)
+    expect(payload.next).toContain(`curl`)
     expect(payload.curl).toBe(
       `curl -sS --retry 4 -F file=@'/tmp/it'\\''s here.png' "${payload.uploadUrl}"`
     )
