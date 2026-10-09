@@ -130,10 +130,12 @@ pub(crate) fn implement_button_label(count: usize) -> String {
 /// EXP-1249: how tall the "+" menu may grow, for the side-with-room fit.
 const PLUS_MENU_WANTED_HEIGHT: f32 = 360.;
 
-/// EXP-1249: the faint brand mark behind the Agent page's headline: its
-/// edge and its ink (the foreground at ~3.5%).
+/// EXP-1249: the faint brand mark ABOVE the Agent page's composer column: its
+/// edge, the half of it that shows (a clip of half its height, the logo
+/// aligned to the clip's top, so only the top half peeks over the card) and
+/// its ink (the foreground at ~2.5%). The column gap keeps it off the card.
 const PAGE_MARK_SIZE: f32 = 520.;
-const PAGE_MARK_ALPHA: f32 = 0.035;
+const PAGE_MARK_ALPHA: f32 = 0.025;
 
 /// EXP-1249: the searchable picker a "+" menu row opens, anchored to the +.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -3230,18 +3232,18 @@ impl ChatScreenView {
             .on_click(cx.listener(|_, _: &ClickEvent, window, cx| {
                 crate::navigation::toggle_recent_runs(window, cx);
             }));
-        // EXP-1249: the faint brand mark behind the headline and the card —
-        // the page only (never the dialog), painted first so it sits under
-        // everything, and with no hitbox so it never takes a click.
+        // EXP-1249: the faint brand mark's TOP HALF above the card — the page
+        // only (never the dialog), the column's first row so the gap keeps
+        // it off the box, and with no hitbox so it never takes a click.
         let mark = div()
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .flex()
-            .items_center()
-            .justify_center()
+            .w(px(PAGE_MARK_SIZE))
+            .h(px(PAGE_MARK_SIZE / 2.))
+            .max_w_full()
+            .flex_shrink_0()
             .overflow_hidden()
+            .flex()
+            .justify_center()
+            .items_start()
             .child(
                 Icon::from(crate::icons::ExpIcon::Logo)
                     .size(px(PAGE_MARK_SIZE))
@@ -3253,7 +3255,6 @@ impl ChatScreenView {
             .min_h_0()
             .relative()
             .track_focus(&self.focus_handle)
-            .child(mark)
             .child(crate::scroll_pane::v_scroll_pane(
                 "chat-page-scroll",
                 &self.page_scroll,
@@ -3265,6 +3266,7 @@ impl ChatScreenView {
                     .gap_6()
                     .min_h_full()
                     .justify_center()
+                    .child(mark)
                     // The stack must NOT shrink: inside the scroll column a
                     // flex-shrinkable child gets squeezed to the viewport and
                     // its trailing rows (options, the blocker note) clipped.

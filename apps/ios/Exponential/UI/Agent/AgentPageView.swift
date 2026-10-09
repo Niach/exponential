@@ -58,9 +58,6 @@ struct AgentPageView: View {
     var body: some View {
         ZStack {
             AppBackground()
-            // EXP-1249: the faint brand mark behind the headline and the
-            // composer — the Agent page only, never the composer dialog.
-            brandMark
 
             if let sessions, let composer {
                 // EXP-862: with nothing running and nothing in Recent, the
@@ -75,6 +72,9 @@ struct AgentPageView: View {
                 GeometryReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
+                        // EXP-1249: the brand mark's TOP HALF above the
+                        // composer (the Agent page only, never the dialog).
+                        brandMark(width: proxy.size.width)
                         if steerEnabled == false {
                             relayOffNote
                         } else if steerEnabled == true {
@@ -308,18 +308,17 @@ struct AgentPageView: View {
         }
     }
 
-    /// EXP-1249: the logo in the foreground colour at ~3.5%, ~520pt, behind
-    /// the top of the page; never hit-testable, hidden from VoiceOver.
-    private var brandMark: some View {
-        // Drawn as an overlay of a zero-size colour so the 520pt mark never
-        // widens the page ZStack past a phone's width (it did: the column
-        // laid out off-screen and clipped at both edges).
-        Color.clear
-            .overlay(alignment: .top) {
-                ExpLogoMark(size: 520, color: .white.opacity(0.035))
-                    .offset(y: 40)
-            }
+    /// EXP-1249: the logo in the foreground colour at ~2.5%, min(520pt, 92%
+    /// of the width), as the column's first row showing its TOP HALF only (a
+    /// clip of half its height, the logo aligned to the clip's top) with a
+    /// 24pt gap to the card; never hit-testable, hidden from VoiceOver.
+    private func brandMark(width: CGFloat) -> some View {
+        let size = min(520, width * 0.92)
+        return ExpLogoMark(size: size, color: .white.opacity(0.025))
+            .frame(width: size, height: size / 2, alignment: .top)
             .clipped()
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 12)
             .allowsHitTesting(false)
             .accessibilityHidden(true)
             .accessibilityIdentifier(ComposerMenu.brandMarkTestId)

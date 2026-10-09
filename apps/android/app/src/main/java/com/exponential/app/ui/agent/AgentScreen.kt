@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.clickable
@@ -469,23 +470,6 @@ fun AgentScreen(
         },
     ) { padding ->
         Box(modifier = Modifier.padding(padding).fillMaxSize()) {
-        // EXP-1249: the faint brand mark behind the headline and the composer
-        // (the logo in the foreground colour at ~3.5%), Agent page only —
-        // centred on the page at min(520dp, 92% of its width), web
-        // `size-[min(520px,92vw)]`. The mark's drawable box is wider than the
-        // logo circle, so it is measured UNBOUNDED: clamped to the page width
-        // it shrank the circle to half of that.
-        BoxWithConstraints(modifier = Modifier.matchParentSize()) {
-            ExponentialMark(
-                size = minOf(520.dp, maxWidth * 0.92f),
-                tint = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier
-                    .align(Alignment.Center)
-                    .wrapContentSize(unbounded = true)
-                    .alpha(0.035f)
-                    .testTag(ComposerMenu.BRAND_MARK_TEST_ID),
-            )
-        }
         LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
@@ -504,6 +488,33 @@ fun AgentScreen(
                 Arrangement.spacedBy(6.dp)
             },
         ) {
+            // EXP-1249: the faint brand mark's TOP HALF above the composer
+            // (the logo in the foreground colour at ~2.5%, min(520dp, 92% of
+            // the width), a clip of half its height with the logo at its top,
+            // 24dp above the card), the Agent page only. Measured UNBOUNDED:
+            // clamped to the page width the circle shrank to half of that.
+            item(key = "__brand_mark__") {
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth().padding(bottom = 18.dp)) {
+                    val size = minOf(520.dp, maxWidth * 0.92f)
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopCenter)
+                            .width(size)
+                            .height(size / 2)
+                            .clipToBounds(),
+                    ) {
+                        ExponentialMark(
+                            size = size,
+                            tint = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .wrapContentSize(unbounded = true)
+                                .alpha(0.025f)
+                                .testTag(ComposerMenu.BRAND_MARK_TEST_ID),
+                        )
+                    }
+                }
+            }
             when (steerEnabled) {
                 // Web parity: without the relay nothing here can be started —
                 // the page still lists the sessions that synced in.

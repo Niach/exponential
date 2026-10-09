@@ -243,16 +243,6 @@ function AgentPage() {
       className="relative flex h-full min-h-0 flex-col"
       data-testid="agent-page"
     >
-      {/* EXP-1249: the faint brand mark behind the headline and the
-          composer — THIS page only (the composer dialog has none). Painted
-          first; the positioned scroller below stacks over it. */}
-      <div
-        aria-hidden
-        data-testid={COMPOSER_MENU_TEST_IDS.brandMark}
-        className="pointer-events-none absolute top-1/2 left-1/2 size-[min(520px,92vw)] -translate-x-1/2 -translate-y-1/2 text-foreground opacity-[0.035] select-none"
-      >
-        <ExponentialLogo variant="light" size={520} className="size-full" />
-      </div>
       {/* EXP-923: the page's ONE history control — it slides the sidebar's
           Recent panel in beside the compact rail (md+; the phone reaches the
           same list through the topbar's sheet). EXP-1119: hidden while the
@@ -289,6 +279,21 @@ function AgentPage() {
             listEmpty ? `min-h-full justify-center` : ``
           } ${TAB_BAR_CLEARANCE}`}
         >
+          {/* EXP-1249: the faint brand mark's TOP HALF above the composer —
+              THIS page only (the composer dialog has none): the column's
+              first row, a clip of half the mark's height with the logo at
+              its top, so the column gap keeps it 24px off the card. */}
+          <div
+            aria-hidden
+            data-testid={COMPOSER_MENU_TEST_IDS.brandMark}
+            className="pointer-events-none mx-auto h-[min(260px,46vw)] w-[min(520px,92vw)] overflow-hidden text-foreground opacity-[0.025] select-none"
+          >
+            <ExponentialLogo
+              variant="light"
+              size={520}
+              className="size-[min(520px,92vw)]"
+            />
+          </div>
           {steerEnabled ? (
             // Keyed by team: the composer's repo pick and seed latches are
             // one-shot per mount, so a /t/a/agent → /t/b/agent navigation
