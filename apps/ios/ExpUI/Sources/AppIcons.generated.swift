@@ -497,6 +497,8 @@ public enum AppIcons {
     public static let eventRelationRemoved: String = "unlink"
     /// Concept `event-status-changed`.
     public static let eventStatusChanged: String = "circle-dot"
+    /// Concept `guide-changes`.
+    public static let guideChanges: String = "code"
     /// Concept `media-fast-forward`.
     public static let mediaFastForward: String = "fast-forward"
     /// Concept `media-rewind`.

@@ -143,6 +143,12 @@ export interface DomainContract {
     showLess: string
     showMoreLines: string
     mergePr: string
+    mergeStack: string
+    mergeThrough: string
+    guideFace: string
+    guideChangesRow: string
+    guideOtherChanges: string
+    guideShowCompleteDiff: string
     closePr: string
     openOnGithub: string
     noChanges: string

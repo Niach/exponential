@@ -78,6 +78,12 @@ interface Contract {
     showLess: string
     showMoreLines: string
     mergePr: string
+    mergeStack: string
+    mergeThrough: string
+    guideFace: string
+    guideChangesRow: string
+    guideOtherChanges: string
+    guideShowCompleteDiff: string
     closePr: string
     openOnGithub: string
     noChanges: string
@@ -222,6 +228,12 @@ const diffUiStrings: [string, string][] = [
   ["showLess", diffUi.showLess],
   ["showMoreLines", diffUi.showMoreLines],
   ["mergePr", diffUi.mergePr],
+  ["mergeStack", diffUi.mergeStack],
+  ["mergeThrough", diffUi.mergeThrough],
+  ["guideFace", diffUi.guideFace],
+  ["guideChangesRow", diffUi.guideChangesRow],
+  ["guideOtherChanges", diffUi.guideOtherChanges],
+  ["guideShowCompleteDiff", diffUi.guideShowCompleteDiff],
   ["closePr", diffUi.closePr],
   ["openOnGithub", diffUi.openOnGithub],
   ["noChanges", diffUi.noChanges],

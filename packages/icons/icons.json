@@ -238,6 +238,7 @@
     "editor-italic": "italic",
     "editor-strikethrough": "strikethrough",
     "editor-code": "code",
+    "guide-changes": "code",
     "editor-heading-1": "heading-1",
     "editor-heading-2": "heading-2",
     "editor-heading-3": "heading-3",
