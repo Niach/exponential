@@ -2,8 +2,9 @@ import XCTest
 
 /// Automated App Store screenshots (fastlane snapshot).
 ///
-/// Drives the real app against a seeded local backend: sign in on the
-/// InstanceView/LoginView flow, wait for Electric to sync the demo team, then
+/// Drives the real app against a seeded local backend: sign in (a reused
+/// session handed to the app, EXP-1267; the InstanceView/LoginView flow only as
+/// the fallback), wait for Electric to sync the demo team, then
 /// capture the seven store shots — board, issue detail, Start-coding dialog,
 /// live steering, PR review, actions, inbox (the support inbox left with the
 /// helpdesk (gone, SLOP-4)). EXP-393 replaced
@@ -61,26 +62,27 @@ final class StoreScreenshots: XCTestCase {
     func testCaptureAppStoreScreenshots() throws {
         continueAfterFailure = false
 
-        let app = launchScreenshotApp()
-
-        signIn(app)
+        let app = makeScreenshotApp()
+        // EXP-1267: a reused session, no login UI; false = the UI fallback ran.
+        let injected = launchSignedIn(app)
 
         // The app lands on the Agent tab — switch to Issues for the board.
         let issuesTab = app.buttons["tab-issues"]
-        XCTAssertTrue(issuesTab.waitForExistence(timeout: 60), "Tab bar never appeared")
+        expect(issuesTab, within: Wait.sync, "Tab bar never appeared — did the sign-in land?")
         issuesTab.tap()
 
-        // Wait for the board: Electric sync can take a while right after the
-        // first login. 01_board itself is captured LAST — the save-password
-        // sheet pops at an unpredictable moment several seconds after login
-        // (it photobombed the iPad board shot twice); by the end of the run
-        // it has provably appeared and been dismissed.
+        // Wait for the board: the FIRST sync after sign-in is the one long
+        // wait of the run. 01_board itself is captured LAST — after a UI
+        // login the save-password sheet pops at an unpredictable moment
+        // several seconds later (it photobombed the iPad board shot twice);
+        // by the end of the run it has provably appeared and been dismissed.
         let showcaseRowTitle = app.staticTexts[Self.showcaseTitle]
-        XCTAssertTrue(
-            showcaseRowTitle.waitForExistence(timeout: 120),
+        expect(
+            showcaseRowTitle,
+            within: Wait.firstSync,
             "Issue list never synced (missing showcase issue \(Self.showcaseIdentifier))"
         )
-        dismissSavePasswordSheet(timeout: 3)
+        if !injected { dismissSavePasswordSheet(timeout: 3) }
 
         // ── 02: issue detail (APP-5) ────────────────────────────────────────
         // The detail ScrollView renders its whole content tree, so the comment
@@ -93,31 +95,32 @@ final class StoreScreenshots: XCTestCase {
         // (EXP-348 — it silently killed all three snapshot retries).
         let commentsHeader = app.staticTexts["comment-thread-header"]
         var detailOpened = false
-        for _ in 0..<3 {
+        for _ in 0..<2 {
             if showcaseRowTitle.exists && showcaseRowTitle.isHittable {
                 showcaseRowTitle.tap()
             }
-            // 30s per attempt: the comment thread renders only once the
-            // comments shape has synced, which can lag the issues shape by
-            // tens of seconds right after the first login.
-            if commentsHeader.waitForExistence(timeout: 30) {
+            // The comment thread renders once the comments shape has synced;
+            // a second tap only helps when the first one was swallowed (a
+            // save-password sheet after a UI login).
+            if commentsHeader.waitForExistence(timeout: Wait.sync) {
                 detailOpened = true
                 break
             }
-            dismissSavePasswordSheet(timeout: 2)
+            if !injected { dismissSavePasswordSheet(timeout: 2) }
         }
         if !detailOpened {
             print("EXP-DEBUG hierarchy after failed detail open:\n\(app.debugDescription)")
         }
-        XCTAssertTrue(detailOpened, "Issue detail did not open")
+        XCTAssertTrue(detailOpened, "Issue detail did not open — missing: \(commentsHeader.description)")
         // EXP-893/1150: the reader's OWN live run grows the Work screen's Run
         // TAB — that is what makes this shot say "an agent is coding on this
         // right now" rather than "live steering is unavailable on this
         // instance". Wait for the tab, never a caption.
         let runTab = app.descendants(matching: .any)
             .matching(identifier: "work-face-run").firstMatch
-        XCTAssertTrue(
-            runTab.waitForExistence(timeout: 30),
+        expect(
+            runTab,
+            within: Wait.sync,
             "No live session on \(Self.showcaseIdentifier) — is screenshots:desktop running against the relay?"
         )
         snapshot("02_issue-detail", settle: 2, popRects: app)
@@ -130,8 +133,9 @@ final class StoreScreenshots: XCTestCase {
         runTab.tap()
         let statusRow = app.descendants(matching: .any)
             .matching(identifier: "run-status-row").firstMatch
-        XCTAssertTrue(
-            statusRow.waitForExistence(timeout: 60),
+        expect(
+            statusRow,
+            within: Wait.nav,
             "The Run face never appeared — is screenshots:desktop publishing to the relay?"
         )
         // An EMPTY feed still renders the container (a dropped relay socket
@@ -142,8 +146,9 @@ final class StoreScreenshots: XCTestCase {
         let feedQuestion = app.descendants(matching: .any).matching(
             NSPredicate(format: "label CONTAINS %@", Self.feedQuestionFragment)
         ).firstMatch
-        XCTAssertTrue(
-            feedQuestion.waitForExistence(timeout: 60),
+        expect(
+            feedQuestion,
+            within: Wait.network,
             "The relay never replayed the transcript — is STEER_RELAY_URL reachable from the simulator?"
         )
         snapshot("04_steering", settle: 3, popRects: app)
@@ -155,15 +160,18 @@ final class StoreScreenshots: XCTestCase {
         // one it shows a notice instead of navigating. EXP-893: the run is a
         // face of the issue's screen, so ONE Back returns to the board.
         goBack(app)
-        XCTAssertTrue(showcaseRowTitle.waitForExistence(timeout: 20), "Did not return to the board")
+        expect(showcaseRowTitle, within: Wait.nav, "Did not return to the board")
         openIssue(app, title: Self.startCodingTitle)
         let startButton = app.buttons["Start coding"]
-        XCTAssertTrue(startButton.waitForExistence(timeout: 20), "Start-coding control missing")
+        // The circle offers the start action once the readiness inputs (the
+        // stand-in desktop's device row) have loaded.
+        expect(startButton, within: Wait.sync, "Start-coding control missing")
         startButton.tap()
         let composer = app.descendants(matching: .any)
             .matching(identifier: "agent-composer").firstMatch
-        XCTAssertTrue(
-            composer.waitForExistence(timeout: 20),
+        expect(
+            composer,
+            within: Wait.nav,
             "The Agent page did not open — is a desktop online on the relay?"
         )
         snapshot("03_start-coding", settle: 2, popRects: app)
@@ -178,15 +186,12 @@ final class StoreScreenshots: XCTestCase {
         // issues.prFiles — the seed points APP-14 at a real public PR so
         // there is an actual diff to show.
         let reviewsTab = app.buttons["tab-reviews"]
-        XCTAssertTrue(reviewsTab.waitForExistence(timeout: 15), "Reviews tab missing")
+        expect(reviewsTab, within: Wait.nav, "Reviews tab missing")
         reviewsTab.tap()
         let reviewPr = reviewRow(app, titled: Self.reviewTitle)
-        XCTAssertTrue(
-            reviewPr.waitForExistence(timeout: 60),
-            "Reviews tab never showed the seeded open PRs"
-        )
+        expect(reviewPr, within: Wait.sync, "Reviews tab never showed the seeded open PRs")
         reviewPr.tap()
-        openGuideDiff(
+        openGuideDiffPage(
             app,
             failure: "The PR diff never loaded — check SCREENSHOT_PR_URL is a reachable public PR"
         )
@@ -198,16 +203,14 @@ final class StoreScreenshots: XCTestCase {
         // ── 06: actions (EXP-253) — the seed inserts three team actions.
         // EXP-1187: Actions is a tab of its own; no builtins in the list.
         let actionsTab = app.buttons["tab-actions"]
-        XCTAssertTrue(actionsTab.waitForExistence(timeout: 15), "Actions tab missing")
+        expect(actionsTab, within: Wait.nav, "Actions tab missing")
         actionsTab.tap()
         let actionRow = app.descendants(matching: .any)
             .matching(identifier: "action-row").firstMatch
-        XCTAssertTrue(
-            actionRow.waitForExistence(timeout: 30),
-            "Actions list never showed the seeded actions"
-        )
-        XCTAssertTrue(
-            app.staticTexts["Update dependencies"].firstMatch.waitForExistence(timeout: 30),
+        expect(actionRow, within: Wait.sync, "Actions list never showed the seeded actions")
+        expect(
+            app.staticTexts["Update dependencies"].firstMatch,
+            within: Wait.sync,
             "Seeded team actions never synced"
         )
         snapshot("06_actions", settle: 2, popRects: app)
@@ -216,24 +219,22 @@ final class StoreScreenshots: XCTestCase {
         // Wait for a real notification group — capturing the "You're all
         // caught up" empty state would silently ship an empty store shot.
         let inboxTab = app.buttons["tab-mywork"]
-        XCTAssertTrue(inboxTab.waitForExistence(timeout: 15), "Inbox tab missing")
+        expect(inboxTab, within: Wait.nav, "Inbox tab missing")
         inboxTab.tap()
-        XCTAssertTrue(
-            app.staticTexts[Self.showcaseTitle].firstMatch.waitForExistence(timeout: 60),
+        expect(
+            app.staticTexts[Self.showcaseTitle].firstMatch,
+            within: Wait.sync,
             "Inbox never showed the seeded notifications"
         )
         snapshot("07_inbox", settle: 2, popRects: app)
 
         // ── 01: home issue list (captured last, see above) ──────────────────
         app.buttons["tab-issues"].tap()
-        XCTAssertTrue(
-            showcaseRowTitle.waitForExistence(timeout: 15),
-            "Board did not come back for the final capture"
-        )
+        expect(showcaseRowTitle, within: Wait.nav, "Board did not come back for the final capture")
         // Opening an issue earlier may have scrolled the list; the board shot
         // has to start at the top of the first group.
         for _ in 0..<3 { app.swipeDown() }
-        dismissSavePasswordSheet(timeout: 2)
+        if !injected { dismissSavePasswordSheet(timeout: 2) }
         snapshot("01_board", settle: 2, popRects: app)
 
         finished = true
@@ -245,46 +246,5 @@ final class StoreScreenshots: XCTestCase {
     @MainActor
     private func reviewRow(_ app: XCUIApplication, titled title: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
-    }
-
-    /// EXP-1251: a review lands on the Guide, which draws Changes rows, never
-    /// file cards: open the diff (the first Changes row, else Show complete
-    /// diff) as the section page and wait for its file cards.
-    /// The Guide body is a LazyVStack: a row below the fold is not in the
-    /// accessibility tree until it scrolls on screen. Swipe up until one of
-    /// `rows` exists or the deadline passes (a loading Guide just keeps
-    /// waiting; the swipes are harmless on a short page).
-    @MainActor
-    private func revealGuideRow(_ app: XCUIApplication, _ rows: [XCUIElement], deadline: Date) {
-        while Date() < deadline && !rows.contains(where: { $0.exists }) {
-            if rows.contains(where: { $0.waitForExistence(timeout: 2) }) { return }
-            app.swipeUp()
-        }
-    }
-
-    @MainActor
-    private func openGuideDiff(_ app: XCUIApplication, failure: String) {
-        // The catalog's review-diff view = the COMPLETE diff page ("Changes",
-        // section=all), as web — the Guide's last row, under every section.
-        // A report-less Guide has no such row: its ONE Changes section
-        // already is the whole diff.
-        let completeDiff = anyElement(app, identified: "guide-show-complete-diff")
-        let changesRow = anyElement(app, identified: "guide-changes-row")
-        revealGuideRow(app, [completeDiff], deadline: Date().addingTimeInterval(45))
-        if completeDiff.exists {
-            completeDiff.tap()
-        } else {
-            revealGuideRow(app, [changesRow], deadline: Date().addingTimeInterval(15))
-            XCTAssertTrue(changesRow.exists, failure)
-            changesRow.tap()
-        }
-        XCTAssertTrue(
-            anyElement(app, identified: "guide-section-page").waitForExistence(timeout: 30),
-            "The Guide section page did not open"
-        )
-        XCTAssertTrue(
-            anyElement(app, identified: "changes-file-row").waitForExistence(timeout: 60),
-            failure
-        )
     }
 }

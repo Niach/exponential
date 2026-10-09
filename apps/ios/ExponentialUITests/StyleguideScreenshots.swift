@@ -119,56 +119,57 @@ final class StyleguideScreenshots: XCTestCase {
     func testCaptureStyleguideScreenshots() throws {
         continueAfterFailure = false
 
-        let app = launchScreenshotApp()
+        let app = makeScreenshotApp()
 
         // ── sg_sign-in: the pre-login server chooser ─────────────────────────
-        // The Snapfile erases the simulator, so the app always boots onto
-        // InstanceView — its cloud (Apple / Google) buttons plus the "Use a
-        // self-hosted instance" link, untouched. `awaitLaunchStage`
-        // deliberately taps NOTHING, so this is the state a first-run user
-        // sees, and it is what the web/desktop `sign-in` shots show too.
+        // EXP-1267: the simulator is no longer erased; `launchSignedOut`
+        // relaunches the app in a fresh-install state with no account, so it
+        // always boots onto InstanceView — its cloud (Apple / Google) buttons
+        // plus the "Use a self-hosted instance" link, untouched.
+        // `awaitLaunchStage` deliberately taps NOTHING, so this is the state a
+        // first-run user sees, and it is what the web/desktop `sign-in` shots
+        // show too.
+        launchSignedOut(app)
         let launch = awaitLaunchStage(app)
-        if launch == .instancePicker {
-            snapshot("sg_sign-in", settle: 1)
-        } else {
-            print("EXP-566 sg_sign-in SKIPPED: the app booted already signed in (stale keychain — is erase_simulator on?)")
+        guard launch == .instancePicker else {
+            XCTFail("sg_sign-in: expected the untouched instance picker, found \(launch) — is the -uiTestingReset seam compiled in (DEBUG)?")
+            return
         }
+        snapshot("sg_sign-in", settle: 1)
 
         // The password form is deliberately NOT photographed any more
-        // (EXP-642) — the lane still drives it to get signed in.
-        let stage = presentLoginScreen(app)
-        if stage == .loginReady {
-            submitLogin(app)
-        } else {
-            print("EXP-566 sign-in SKIPPED: the app booted already signed in (stale keychain — is erase_simulator on?)")
-        }
+        // (EXP-642): relaunch signed in with the reused demo session (the
+        // login UI only as the fallback).
+        let injected = launchSignedIn(app)
 
         // The app lands on the Agent tab — switch to Issues for the board.
         let issuesTab = app.buttons["tab-issues"]
-        XCTAssertTrue(issuesTab.waitForExistence(timeout: 60), "Tab bar never appeared")
+        expect(issuesTab, within: Wait.sync, "Tab bar never appeared")
         issuesTab.tap()
 
-        // Wait for Electric to sync the board; the first login can take a while.
+        // The FIRST sync after sign-in: the one long wait of the run.
         let showcaseRowTitle = app.staticTexts[Self.showcaseTitle]
-        XCTAssertTrue(
-            showcaseRowTitle.waitForExistence(timeout: 120),
+        expect(
+            showcaseRowTitle,
+            within: Wait.firstSync,
             "Issue list never synced (missing showcase issue \(Self.showcaseTitle))"
         )
-        dismissSavePasswordSheet(timeout: 3)
+        if !injected { dismissSavePasswordSheet(timeout: 3) }
 
         // ── sg_board-switcher: the server → team → board bottom sheet ────────
         // The trigger is the board-name control in the pinned nav row; its
         // accessibility LABEL is the same string as the sheet's headline, so
         // scope the tap to the button and the assertion to staticTexts.
         let switcherButton = app.buttons["Switch board"]
-        XCTAssertTrue(switcherButton.waitForExistence(timeout: 20), "Board switcher trigger missing")
+        expect(switcherButton, within: Wait.nav, "Board switcher trigger missing")
         switcherButton.tap()
         let switcherHeadline = app.staticTexts["Switch board"]
-        XCTAssertTrue(switcherHeadline.waitForExistence(timeout: 15), "Board switcher sheet did not open")
+        expect(switcherHeadline, within: Wait.nav, "Board switcher sheet did not open")
         // The team block header is the real content — the sheet chrome alone
         // renders before the boards have been loaded off the synced rows.
-        XCTAssertTrue(
-            app.staticTexts[Self.teamName].firstMatch.waitForExistence(timeout: 30),
+        expect(
+            app.staticTexts[Self.teamName].firstMatch,
+            within: Wait.sync,
             "Board switcher never listed the seeded team"
         )
         snapshot("sg_board-switcher", settle: 2)
@@ -180,28 +181,31 @@ final class StyleguideScreenshots: XCTestCase {
         // transaction get dropped). So there is a dismissal animation in
         // between: wait on the sheet's own identifier, never on a delay.
         let newTeamRow = app.buttons["board-switcher-new-team"]
-        XCTAssertTrue(newTeamRow.waitForExistence(timeout: 15), "Board switcher has no New team row")
+        expect(newTeamRow, within: Wait.nav, "Board switcher has no New team row")
         // The sheet is fitted to its content, so the row is on screen for the
         // seeded team — scroll it up only if a longer board list ever pushes it
         // under the fold.
         scrollUntilVisible(app, newTeamRow, attempts: 3)
         newTeamRow.tap()
         let teamSetupSheet = app.descendants(matching: .any)["team-setup-sheet"].firstMatch
-        XCTAssertTrue(
-            teamSetupSheet.waitForExistence(timeout: 20),
+        expect(
+            teamSetupSheet,
+            within: Wait.nav,
             "New team row did not open the team setup sheet"
         )
         // The sheet opens on the choice page (polish round ×4); its "Create
         // a team" button PUSHES the create form this view photographs. Gate
         // on real content, not the container.
         let createTeamChoice = app.buttons["team-setup-create"]
-        XCTAssertTrue(
-            createTeamChoice.waitForExistence(timeout: 15),
+        expect(
+            createTeamChoice,
+            within: Wait.nav,
             "Team setup sheet never rendered its Create a team choice"
         )
         createTeamChoice.tap()
-        XCTAssertTrue(
-            app.staticTexts["Team name"].waitForExistence(timeout: 15),
+        expect(
+            app.staticTexts["Team name"],
+            within: Wait.nav,
             "Create a team never pushed its form"
         )
         snapshot("sg_onboarding-create-team", settle: 1)
@@ -209,8 +213,9 @@ final class StyleguideScreenshots: XCTestCase {
         // from the same board list. The switcher is already gone — this only
         // has to close the setup sheet.
         dismissSheet(app, whileVisible: app.staticTexts["Set up a team"].firstMatch)
-        XCTAssertTrue(
-            showcaseRowTitle.waitForExistence(timeout: 20),
+        expect(
+            showcaseRowTitle,
+            within: Wait.nav,
             "Dismissing the team setup sheet did not return to the board list"
         )
 
@@ -218,14 +223,16 @@ final class StyleguideScreenshots: XCTestCase {
         // The seed's second board ("Launch Marketing") is created empty for
         // exactly this shot, so nothing has to be deleted to reach the state.
         switchBoard(app, to: Self.emptyBoardName)
-        XCTAssertTrue(
-            app.staticTexts["No issues yet"].waitForExistence(timeout: 60),
+        expect(
+            app.staticTexts["No issues yet"],
+            within: Wait.sync,
             "\(Self.emptyBoardName) did not render its empty state"
         )
         snapshot("sg_board-empty", settle: 2)
         switchBoard(app, to: Self.seededBoardName)
-        XCTAssertTrue(
-            showcaseRowTitle.waitForExistence(timeout: 60),
+        expect(
+            showcaseRowTitle,
+            within: Wait.sync,
             "Did not get back to \(Self.seededBoardName)"
         )
 
@@ -240,8 +247,9 @@ final class StyleguideScreenshots: XCTestCase {
         )
         bulkFirst.press(forDuration: 1.0)
         let bulkBar = anyElement(app, identified: "bulk-selection-bar")
-        XCTAssertTrue(
-            bulkBar.waitForExistence(timeout: 15),
+        expect(
+            bulkBar,
+            within: Wait.nav,
             "Long-press did not enter multi-select"
         )
         let bulkSecond = app.staticTexts[Self.bulkSecondTitle]
@@ -253,18 +261,19 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_board-bulk-edit", settle: 2)
         // Leave selection mode — every later shot assumes the plain list.
         app.buttons["Clear selection"].firstMatch.tap()
-        _ = bulkBar.waitForNonExistence(timeout: 10)
+        _ = bulkBar.waitForNonExistence(timeout: Wait.nav)
 
         // ── sg_issue-comments: APP-5 scrolled to its comment thread ──────────
         // Tap the row's TITLE text, never the `issue-row-*` element (EXP-348).
-        XCTAssertTrue(showcaseRowTitle.waitForExistence(timeout: 20), "Did not return to the board")
+        expect(showcaseRowTitle, within: Wait.nav, "Did not return to the board")
         openIssue(app, title: Self.showcaseTitle)
         let commentsHeader = app.staticTexts["comment-thread-header"]
-        XCTAssertTrue(commentsHeader.waitForExistence(timeout: 60), "Issue detail did not open")
+        expect(commentsHeader, within: Wait.nav, "Issue detail did not open")
         // The comments shape can lag the issues shape by tens of seconds right
         // after the first login — gate on a real comment body, not the header.
-        XCTAssertTrue(
-            anyElement(app, containing: Self.showcaseCommentFragment).waitForExistence(timeout: 60),
+        expect(
+            anyElement(app, containing: Self.showcaseCommentFragment),
+            within: Wait.sync,
             "The comment thread on APP-5 never synced"
         )
         // The detail is one long ScrollView with no scroll-to anchor; walk down
@@ -288,19 +297,21 @@ final class StyleguideScreenshots: XCTestCase {
         // `isWanted` still records the id as reached for the typo check.
         if ScreenshotShots.isWanted("sg_issue-properties") {
             let propertiesButton = app.buttons["issue-properties-button"]
-            XCTAssertTrue(propertiesButton.waitForExistence(timeout: 20), "Properties button missing on the issue detail")
+            expect(propertiesButton, within: Wait.nav, "Properties button missing on the issue detail")
             let propertiesHeadline = app.staticTexts["Properties"]
             // ONE tap, on purpose (EXP-1160): this is the first sheet the
             // page presents since the screen opened, the case the paged
             // `TabView` broke (it presented the sheet twice and tore both
             // down). A retry here would hide that regression.
             propertiesButton.tap()
-            XCTAssertTrue(
-                propertiesHeadline.waitForExistence(timeout: 15),
+            expect(
+                propertiesHeadline,
+                within: Wait.nav,
                 "Properties sheet did not open on its first tap"
             )
-            XCTAssertTrue(
-                anyElement(app, containing: "Priority").waitForExistence(timeout: 15),
+            expect(
+                anyElement(app, containing: "Priority"),
+                within: Wait.nav,
                 "Properties sheet never showed its property rows"
             )
             snapshot("sg_issue-properties", settle: 2)
@@ -308,7 +319,7 @@ final class StyleguideScreenshots: XCTestCase {
             // finish animating out before the nav-bar back tap, or that tap
             // lands on the dismissing sheet.
             dismissSheet(app, whileVisible: propertiesHeadline)
-            _ = propertiesHeadline.waitForNonExistence(timeout: 10)
+            _ = propertiesHeadline.waitForNonExistence(timeout: Wait.nav)
             settle(1)
         }
         goBack(app)
@@ -319,12 +330,12 @@ final class StyleguideScreenshots: XCTestCase {
         // field takes focus on appear, so the page is captured with the
         // keyboard up — which is the state a user actually sees.
         app.buttons["tab-issues"].tap()
-        XCTAssertTrue(showcaseRowTitle.waitForExistence(timeout: 20), "Board did not come back for the compose shot")
+        expect(showcaseRowTitle, within: Wait.nav, "Board did not come back for the compose shot")
         let composeButton = app.buttons["compose-button"]
-        XCTAssertTrue(composeButton.waitForExistence(timeout: 15), "Compose button missing on the board")
+        expect(composeButton, within: Wait.nav, "Compose button missing on the board")
         composeButton.tap()
         let titleField = app.textFields["issue-title-field"]
-        XCTAssertTrue(titleField.waitForExistence(timeout: 15), "Create-issue page did not open")
+        expect(titleField, within: Wait.nav, "Create-issue page did not open")
         focus(titleField)
         titleField.typeText("Prefetch avatars before the first board paint")
         snapshot("sg_issue-create", settle: 2)
@@ -334,19 +345,20 @@ final class StyleguideScreenshots: XCTestCase {
         // autosave wrote (and writes nothing when none was written yet).
         clearText(of: titleField)
         app.buttons["Back"].firstMatch.tap()
-        _ = titleField.waitForNonExistence(timeout: 10)
+        _ = titleField.waitForNonExistence(timeout: Wait.nav)
 
         // ── sg_search: the search view with seeded results ───────────────────
         // EXP-686: Search lost its tab — it is a push off the board header.
         let searchButton = app.buttons["board-search"]
-        XCTAssertTrue(searchButton.waitForExistence(timeout: 15), "Board search button missing")
+        expect(searchButton, within: Wait.nav, "Board search button missing")
         searchButton.tap()
         let searchField = app.textFields["search-field"]
-        XCTAssertTrue(searchField.waitForExistence(timeout: 15), "Search field missing")
+        expect(searchField, within: Wait.nav, "Search field missing")
         focus(searchField)
         searchField.typeText(Self.searchQuery)
-        XCTAssertTrue(
-            app.staticTexts[Self.showcaseTitle].firstMatch.waitForExistence(timeout: 30),
+        expect(
+            app.staticTexts[Self.showcaseTitle].firstMatch,
+            within: Wait.sync,
             "Search never returned the seeded issue for \"\(Self.searchQuery)\""
         )
         snapshot("sg_search", settle: 2)
@@ -357,13 +369,14 @@ final class StyleguideScreenshots: XCTestCase {
         // accessibility LABEL. Its choice is persisted in @AppStorage, so the
         // tap is deliberately unconditional (it is idempotent).
         let myWorkTab = app.buttons["tab-mywork"]
-        XCTAssertTrue(myWorkTab.waitForExistence(timeout: 15), "Inbox tab missing")
+        expect(myWorkTab, within: Wait.nav, "Inbox tab missing")
         myWorkTab.tap()
         let myIssuesSegment = app.buttons["My issues"]
-        XCTAssertTrue(myIssuesSegment.waitForExistence(timeout: 15), "My issues segment missing")
+        expect(myIssuesSegment, within: Wait.nav, "My issues segment missing")
         myIssuesSegment.tap()
-        XCTAssertTrue(
-            app.staticTexts[Self.myIssueTitle].firstMatch.waitForExistence(timeout: 60),
+        expect(
+            app.staticTexts[Self.myIssueTitle].firstMatch,
+            within: Wait.sync,
             "My Issues never showed the issues assigned to the demo user"
         )
         snapshot("sg_my-issues", settle: 2)
@@ -375,14 +388,16 @@ final class StyleguideScreenshots: XCTestCase {
         // shot either. EXP-686 renamed the surface to Devices (the shot id
         // stays sg_agents).
         let devicesTab = app.buttons["tab-devices"]
-        XCTAssertTrue(devicesTab.waitForExistence(timeout: 15), "Devices tab missing")
+        expect(devicesTab, within: Wait.nav, "Devices tab missing")
         devicesTab.tap()
-        XCTAssertTrue(
-            app.navigationBars["Devices"].waitForExistence(timeout: 30),
+        expect(
+            app.navigationBars["Devices"],
+            within: Wait.nav,
             "Devices surface never appeared"
         )
-        XCTAssertTrue(
-            app.staticTexts[Self.demoDeviceName].firstMatch.waitForExistence(timeout: 60),
+        expect(
+            app.staticTexts[Self.demoDeviceName].firstMatch,
+            within: Wait.network,
             "No \(Self.demoDeviceName) row — is `bun run screenshots:desktop` running?"
         )
         // EXP-944: device rows are COLLAPSED by default; the shot opens the
@@ -390,12 +405,13 @@ final class StyleguideScreenshots: XCTestCase {
         let deviceRow = app.descendants(matching: .any)
             .matching(NSPredicate(format: "identifier BEGINSWITH 'device-row-'"))
             .firstMatch
-        XCTAssertTrue(deviceRow.waitForExistence(timeout: 30), "No foldable device row")
+        expect(deviceRow, within: Wait.nav, "No foldable device row")
         deviceRow.tap()
         // EXP-909: the machine's own logins sit under its row — the subject
         // the retired `sg_usage` shot used to have a section of its own for.
-        XCTAssertTrue(
-            anyElement(app, containing: Self.demoAccountEmail).waitForExistence(timeout: 60),
+        expect(
+            anyElement(app, containing: Self.demoAccountEmail),
+            within: Wait.network,
             "No \(Self.demoAccountEmail) login row — is the stub device reporting agent accounts?"
         )
         snapshot("sg_agents", settle: 2)
@@ -409,16 +425,18 @@ final class StyleguideScreenshots: XCTestCase {
         // builtin, its card's PR picked: EXP-1233). Nothing is ever submitted — a run
         // would land on a real machine.
         let chatButton = app.buttons["chat-button"].firstMatch
-        XCTAssertTrue(
-            chatButton.waitForExistence(timeout: 20),
+        expect(
+            chatButton,
+            within: Wait.sync,
             "The bar offers no Chat arm — is the demo team's device online with an agent?"
         )
         chatButton.tap()
         let composer = anyElement(app, identified: "agent-composer")
-        XCTAssertTrue(composer.waitForExistence(timeout: 20), "Agent page did not open")
+        expect(composer, within: Wait.nav, "Agent page did not open")
         // The submit label proves the composer resolved its subject (a chat).
-        XCTAssertTrue(
-            app.buttons["Start chat"].firstMatch.waitForExistence(timeout: 15),
+        expect(
+            app.buttons["Start chat"].firstMatch,
+            within: Wait.sync,
             "The composer never settled on the chat subject"
         )
         snapshot("sg_chat", settle: 2)
@@ -431,13 +449,13 @@ final class StyleguideScreenshots: XCTestCase {
         if ScreenshotShots.isWanted("sg_session-row") {
             anyElement(app, identified: "agent-history-button").tap()
             let recentSheet = anyElement(app, identified: "recent-runs-sheet")
-            XCTAssertTrue(recentSheet.waitForExistence(timeout: 20), "The Recent sheet did not open")
-            if !anyElement(app, identified: "past-run-row").waitForExistence(timeout: 30) {
+            expect(recentSheet, within: Wait.nav, "The Recent sheet did not open")
+            if !anyElement(app, identified: "past-run-row").waitForExistence(timeout: Wait.sync) {
                 print("EXP-1248 sg_session-row: no finished runs — reseed with `bun run seed:screenshots`")
             }
             snapshot("sg_session-row", settle: 2)
             dismissSheet(app, whileVisible: recentSheet)
-            _ = recentSheet.waitForNonExistence(timeout: 10)
+            _ = recentSheet.waitForNonExistence(timeout: Wait.nav)
             settle(1)
         }
 
@@ -446,77 +464,81 @@ final class StyleguideScreenshots: XCTestCase {
         // hands off to the issue picker once the sheet is gone.
         anyElement(app, identified: "agent-composer-plus-button").tap()
         let plusMenu = anyElement(app, identified: "agent-composer-menu")
-        XCTAssertTrue(plusMenu.waitForExistence(timeout: 20), "The + menu did not open")
+        expect(plusMenu, within: Wait.nav, "The + menu did not open")
         snapshot("sg_composer-menu", settle: 2)
         anyElement(app, identified: "agent-composer-menu-implement-issue").tap()
         let issuePicker = anyElement(app, identified: "agent-composer-issues-picker")
-        XCTAssertTrue(issuePicker.waitForExistence(timeout: 20), "Issue picker did not open")
+        expect(issuePicker, within: Wait.nav, "Issue picker did not open")
         for title in [Self.bulkFirstTitle, Self.bulkSecondTitle] {
             // EXP-1030: a picker row reads `IDENT Title` in ONE label (the ×4
             // contract), so it is matched on the title as a fragment.
             let row = anyElement(app, containing: title)
-            XCTAssertTrue(row.waitForExistence(timeout: 60), "Issue picker never listed \"\(title)\"")
+            expect(row, within: Wait.sync, "Issue picker never listed \"\(title)\"")
             row.tap()
         }
         // EXP-1030: the shared picker has no Done button — a multi pick stays
         // open across toggles and closes with the platform swipe (EXP-687).
         dismissSheet(app, whileVisible: issuePicker)
-        _ = issuePicker.waitForNonExistence(timeout: 10)
+        _ = issuePicker.waitForNonExistence(timeout: Wait.nav)
         let issueChip = app.descendants(matching: .any).matching(
             NSPredicate(format: "identifier BEGINSWITH %@", "agent-composer-chip-issue-")
         ).firstMatch
-        XCTAssertTrue(issueChip.waitForExistence(timeout: 15), "No issue chip after picking")
+        expect(issueChip, within: Wait.nav, "No issue chip after picking")
         snapshot("sg_chat-issues", settle: 2)
 
         anyElement(app, identified: "agent-composer-plus-button").tap()
-        XCTAssertTrue(
-            anyElement(app, identified: "agent-composer-menu").waitForExistence(timeout: 20),
+        expect(
+            anyElement(app, identified: "agent-composer-menu"),
+            within: Wait.nav,
             "The + menu did not reopen"
         )
         anyElement(app, identified: "agent-composer-menu-run-action").tap()
         let actionPicker = anyElement(app, identified: "agent-composer-actions-picker")
-        XCTAssertTrue(actionPicker.waitForExistence(timeout: 20), "Action picker did not open")
+        expect(actionPicker, within: Wait.nav, "Action picker did not open")
         let fixRow = app.staticTexts["Fix merge conflicts"].firstMatch
-        XCTAssertTrue(fixRow.waitForExistence(timeout: 20), "Action picker never listed the builtin")
+        expect(fixRow, within: Wait.nav, "Action picker never listed the builtin")
         fixRow.tap()
-        _ = actionPicker.waitForNonExistence(timeout: 10)
-        XCTAssertTrue(
-            anyElement(app, identified: "agent-composer-chip-action").waitForExistence(timeout: 15),
+        _ = actionPicker.waitForNonExistence(timeout: Wait.nav)
+        expect(
+            anyElement(app, identified: "agent-composer-chip-action"),
+            within: Wait.nav,
             "No action chip after picking"
         )
         // EXP-1233: the builtin draws its own card; picking the seeded open
         // PR (APP-14) completes it into the Fix merge conflicts look — the
         // headline's verb + the PR's issue chip, the card's PR row.
         let fixCard = anyElement(app, identified: "agent-composer-fix-conflicts")
-        XCTAssertTrue(fixCard.waitForExistence(timeout: 15), "No Fix merge conflicts card")
+        expect(fixCard, within: Wait.nav, "No Fix merge conflicts card")
         // The row is inert until the open-PR pool has synced: a tap that opens
         // nothing is retried once the sheet's title has had time to appear.
         let prSheet = app.staticTexts["Select a pull request"].firstMatch
         anyElement(app, identified: "agent-composer-fix-conflicts-pr").tap()
-        if !prSheet.waitForExistence(timeout: 10) {
+        if !prSheet.waitForExistence(timeout: Wait.nav) {
             anyElement(app, identified: "agent-composer-fix-conflicts-pr").tap()
-            XCTAssertTrue(prSheet.waitForExistence(timeout: 20), "The PR picker did not open")
+            expect(prSheet, within: Wait.nav, "The PR picker did not open")
         }
         // A sheet row is a Button whose label is the option's `#N · IDENT`
         // (the issue picker above matches its rows the same way, any type).
         let prRow = app.descendants(matching: .any).matching(
             NSPredicate(format: "label BEGINSWITH %@ AND label CONTAINS %@", "#", "APP-14")
         ).firstMatch
-        XCTAssertTrue(prRow.waitForExistence(timeout: 20), "The PR picker never listed APP-14's pull request")
+        expect(prRow, within: Wait.sync, "The PR picker never listed APP-14's pull request")
         prRow.tap()
-        _ = prRow.waitForNonExistence(timeout: 10)
-        XCTAssertTrue(
-            anyElement(app, identified: "agent-composer-chip-issue-APP-14").waitForExistence(timeout: 15),
+        _ = prRow.waitForNonExistence(timeout: Wait.nav)
+        expect(
+            anyElement(app, identified: "agent-composer-chip-issue-APP-14"),
+            within: Wait.nav,
             "No APP-14 chip after picking its pull request"
         )
         snapshot("sg_chat-action", settle: 2)
         // The Agent page is a bar root now (the chat arm switches to it) —
         // back to Devices through the bar.
         let devicesTabAgain = app.buttons["tab-devices"]
-        XCTAssertTrue(devicesTabAgain.waitForExistence(timeout: 15), "Devices tab missing")
+        expect(devicesTabAgain, within: Wait.nav, "Devices tab missing")
         devicesTabAgain.tap()
-        XCTAssertTrue(
-            app.navigationBars["Devices"].waitForExistence(timeout: 30),
+        expect(
+            app.navigationBars["Devices"],
+            within: Wait.nav,
             "Did not return to the Devices surface"
         )
         settle(1)
@@ -526,26 +548,28 @@ final class StyleguideScreenshots: XCTestCase {
         // only on own registered machines — which is why the relay stub is a
         // prerequisite. One tap, no menu hop.
         let machineSettings = app.buttons["machine-settings"].firstMatch
-        XCTAssertTrue(
-            machineSettings.waitForExistence(timeout: 20),
+        expect(
+            machineSettings,
+            within: Wait.sync,
             "No device settings gear — the stub device must be the demo user's OWN, registered machine"
         )
         machineSettings.tap()
         let deviceSheet = anyElement(app, identified: "device-settings-sheet")
-        XCTAssertTrue(deviceSheet.waitForExistence(timeout: 20), "Device settings sheet did not open")
+        expect(deviceSheet, within: Wait.nav, "Device settings sheet did not open")
         snapshot("sg_machine-settings", settle: 2)
         // EXP-694: the sheet autosaves and has no Done button — swipe it away.
         dismissSheet(app, whileVisible: deviceSheet)
-        _ = deviceSheet.waitForNonExistence(timeout: 10)
+        _ = deviceSheet.waitForNonExistence(timeout: Wait.nav)
         settle(1)
 
         // ── The Actions surface: five shots off one tab ──────────────────────
         // EXP-1187: Actions is a tab of its own (the More menu is gone).
         let actionsBarTab = app.buttons["tab-actions"]
-        XCTAssertTrue(actionsBarTab.waitForExistence(timeout: 15), "Actions tab missing")
+        expect(actionsBarTab, within: Wait.nav, "Actions tab missing")
         actionsBarTab.tap()
-        XCTAssertTrue(
-            app.navigationBars["Actions"].waitForExistence(timeout: 30),
+        expect(
+            app.navigationBars["Actions"],
+            within: Wait.nav,
             "Actions surface never appeared"
         )
         // The segment choice is persisted in @AppStorage, so a retry after a
@@ -554,10 +578,11 @@ final class StyleguideScreenshots: XCTestCase {
         // carry identifiers (EXP-686) because "Actions" also reads as the tab
         // and the nav bar title.
         let actionsSegment = anyElement(app, identified: "actions-segment-actions")
-        XCTAssertTrue(actionsSegment.waitForExistence(timeout: 15), "Actions segment missing")
+        expect(actionsSegment, within: Wait.nav, "Actions segment missing")
         actionsSegment.tap()
-        XCTAssertTrue(
-            app.staticTexts[Self.seededActionName].firstMatch.waitForExistence(timeout: 60),
+        expect(
+            app.staticTexts[Self.seededActionName].firstMatch,
+            within: Wait.sync,
             "The Actions segment never listed the seeded team actions"
         )
 
@@ -568,23 +593,26 @@ final class StyleguideScreenshots: XCTestCase {
         // run writes the action. Only photographed, never submitted —
         // submitting would start a real builtin run on somebody's machine.
         let newActionButton = app.buttons["New action"]
-        XCTAssertTrue(newActionButton.waitForExistence(timeout: 20), "New action entry missing")
+        expect(newActionButton, within: Wait.nav, "New action entry missing")
         newActionButton.tap()
         let createComposer = anyElement(app, identified: "agent-composer")
-        XCTAssertTrue(createComposer.waitForExistence(timeout: 20), "Agent page did not open")
-        XCTAssertTrue(
-            anyElement(app, identified: "agent-composer-chip-action").waitForExistence(timeout: 15),
+        expect(createComposer, within: Wait.nav, "Agent page did not open")
+        expect(
+            anyElement(app, identified: "agent-composer-chip-action"),
+            within: Wait.nav,
             "The composer never picked the Create action builtin"
         )
-        XCTAssertTrue(
-            app.buttons["Run action"].firstMatch.waitForExistence(timeout: 15),
+        expect(
+            app.buttons["Run action"].firstMatch,
+            within: Wait.nav,
             "The composer never settled on the action subject"
         )
         snapshot("sg_action-create", settle: 2)
         // A pushed detail: back pops to the Actions tab.
         goBack(app)
-        XCTAssertTrue(
-            app.navigationBars["Actions"].waitForExistence(timeout: 30),
+        expect(
+            app.navigationBars["Actions"],
+            within: Wait.nav,
             "Did not return to the Actions surface"
         )
         settle(1)
@@ -598,19 +626,20 @@ final class StyleguideScreenshots: XCTestCase {
         // a legitimate capture of this surface, unlike a half-synced list.
         let seededAction = app.staticTexts[Self.seededActionName].firstMatch
         seededAction.tap()
-        XCTAssertTrue(
-            anyElement(app, identified: "action-tabs").waitForExistence(timeout: 30),
+        expect(
+            anyElement(app, identified: "action-tabs"),
+            within: Wait.nav,
             "The action page did not open"
         )
         let triggersTab = anyElement(app, identified: "action-tab-triggers")
-        XCTAssertTrue(triggersTab.waitForExistence(timeout: 15), "Triggers tab missing")
+        expect(triggersTab, within: Wait.nav, "Triggers tab missing")
         triggersTab.tap()
         let triggerRow = anyElement(app, identified: "trigger-row")
-        if !triggerRow.waitForExistence(timeout: 45) {
+        if !triggerRow.waitForExistence(timeout: Wait.sync) {
             print("SLOP-2 sg_action-triggers: no trigger rows — reseed with `bun run seed:screenshots`")
-            XCTAssertTrue(
-                app.staticTexts["No triggers. This action runs when someone starts it."]
-                    .waitForExistence(timeout: 15),
+            expect(
+                app.staticTexts["No triggers. This action runs when someone starts it."],
+                within: Wait.nav,
                 "The Triggers tab rendered neither rows nor its empty note"
             )
         }
@@ -621,19 +650,21 @@ final class StyleguideScreenshots: XCTestCase {
         // has no STEER_RELAY_URL, since nothing could ever fire the trigger),
         // and so is a row's Edit — the form is the ONE trigger editor.
         let addTriggerButton = app.buttons["Add trigger"]
-        XCTAssertTrue(
-            addTriggerButton.waitForExistence(timeout: 15),
+        expect(
+            addTriggerButton,
+            within: Wait.nav,
             "No \"Add trigger\" entry — the demo user must own the team and the backend needs STEER_RELAY_URL"
         )
         addTriggerButton.tap()
         let triggerSheet = anyElement(app, identified: "trigger-form-sheet")
-        XCTAssertTrue(
-            triggerSheet.waitForExistence(timeout: 20),
+        expect(
+            triggerSheet,
+            within: Wait.nav,
             "The trigger form sheet did not open"
         )
         snapshot("sg_trigger-editor", settle: 2)
         dismissSheet(app, whileVisible: triggerSheet)
-        _ = triggerSheet.waitForNonExistence(timeout: 10)
+        _ = triggerSheet.waitForNonExistence(timeout: Wait.nav)
         settle(1)
 
         // ── sg_action-runs: the action page on its Runs tab ─────────────────
@@ -641,22 +672,24 @@ final class StyleguideScreenshots: XCTestCase {
         // reads "Scheduled run". Same gate as the Triggers tab: rows, or
         // the empty note on an older seed.
         let runsTab = anyElement(app, identified: "action-tab-runs")
-        XCTAssertTrue(runsTab.waitForExistence(timeout: 15), "Runs tab missing")
+        expect(runsTab, within: Wait.nav, "Runs tab missing")
         runsTab.tap()
         // EXP-1248: live and ended runs are the same SessionRow now.
         let actionRunRow = anyElement(app, identified: "action-run-row")
-        if !actionRunRow.waitForExistence(timeout: 45) {
+        if !actionRunRow.waitForExistence(timeout: Wait.sync) {
             print("SLOP-2 sg_action-runs: no run rows — reseed with `bun run seed:screenshots`")
-            XCTAssertTrue(
-                app.staticTexts["No runs yet."].waitForExistence(timeout: 15),
+            expect(
+                app.staticTexts["No runs yet."],
+                within: Wait.nav,
                 "The Runs tab rendered neither rows nor its empty note"
             )
         }
         snapshot("sg_action-runs", settle: 2)
         // A pushed detail: back pops to the Actions tab.
         goBack(app)
-        XCTAssertTrue(
-            app.navigationBars["Actions"].waitForExistence(timeout: 30),
+        expect(
+            app.navigationBars["Actions"],
+            within: Wait.nav,
             "Did not return to the Actions surface"
         )
         settle(1)
@@ -665,10 +698,11 @@ final class StyleguideScreenshots: XCTestCase {
         // Shipped constants (`ActionSuggestion.seeds`), not seeded rows — this
         // one can be gated hard on a row.
         let suggestionsSegment = anyElement(app, identified: "actions-segment-suggestions")
-        XCTAssertTrue(suggestionsSegment.waitForExistence(timeout: 15), "Suggestions segment missing")
+        expect(suggestionsSegment, within: Wait.nav, "Suggestions segment missing")
         suggestionsSegment.tap()
-        XCTAssertTrue(
-            anyElement(app, identified: "suggestion-row").waitForExistence(timeout: 20),
+        expect(
+            anyElement(app, identified: "suggestion-row"),
+            within: Wait.nav,
             "The Suggestions segment never rendered its seed cards"
         )
         snapshot("sg_action-suggestions", settle: 2)
@@ -677,10 +711,11 @@ final class StyleguideScreenshots: XCTestCase {
 
         // ── sg_reviews: the cross-board open-PR queue ───────────────────────
         let reviewsTab = app.buttons["tab-reviews"]
-        XCTAssertTrue(reviewsTab.waitForExistence(timeout: 15), "Reviews tab missing")
+        expect(reviewsTab, within: Wait.nav, "Reviews tab missing")
         reviewsTab.tap()
-        XCTAssertTrue(
-            reviewRow(app, titled: Self.reviewTitle).waitForExistence(timeout: 60),
+        expect(
+            reviewRow(app, titled: Self.reviewTitle),
+            within: Wait.sync,
             "Reviews tab never showed the seeded open PRs"
         )
         snapshot("sg_reviews", settle: 2)
@@ -688,8 +723,9 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_pr-row: THE pull-request row (EXP-1248) ──────────────────────
         // The same queue IS the PrRow surface: one line per PR, a tree nested
         // with guides, a stack on its rail over the base-branch row.
-        XCTAssertTrue(
-            anyElement(app, identified: "pr-row").waitForExistence(timeout: 30),
+        expect(
+            anyElement(app, identified: "pr-row"),
+            within: Wait.nav,
             "Reviews drew no PrRow"
         )
         snapshot("sg_pr-row", settle: 1)
@@ -703,12 +739,12 @@ final class StyleguideScreenshots: XCTestCase {
         if wantsGuide || wantsGuideSection {
             reviewRow(app, titled: Self.guideTitle).tap()
             let guideTab = anyElement(app, identified: "work-face-guide")
-            if guideTab.waitForExistence(timeout: 20) { guideTab.tap() }
+            if guideTab.waitForExistence(timeout: Wait.nav) { guideTab.tap() }
             let changesRow = anyElement(app, identified: "guide-changes-row")
             // Below the fold on a phone (the PR body comes first), so scroll
             // to it; the shot then shows the body's end, the Changes row and
             // Show complete diff.
-            revealGuideRow(app, [changesRow], deadline: Date().addingTimeInterval(60))
+            revealGuideRow(app, [changesRow], deadline: Date().addingTimeInterval(Wait.network))
             XCTAssertTrue(
                 changesRow.exists,
                 "The Guide drew no Changes row — are the seeded PR's files reachable on GitHub?"
@@ -716,13 +752,14 @@ final class StyleguideScreenshots: XCTestCase {
             snapshot("sg_guide", settle: 2)
             changesRow.tap()
             let sectionPage = anyElement(app, identified: "guide-section-page")
-            XCTAssertTrue(sectionPage.waitForExistence(timeout: 30), "The Guide section page did not open")
+            expect(sectionPage, within: Wait.nav, "The Guide section page did not open")
             snapshot("sg_guide-section", settle: 2)
             anyElement(app, identified: "guide-section-back").tap()
-            _ = anyElement(app, identified: "work-face-guide").waitForExistence(timeout: 15)
+            _ = anyElement(app, identified: "work-face-guide").waitForExistence(timeout: Wait.nav)
             goBack(app)
-            XCTAssertTrue(
-                reviewRow(app, titled: Self.reviewTitle).waitForExistence(timeout: 30),
+            expect(
+                reviewRow(app, titled: Self.reviewTitle),
+                within: Wait.nav,
                 "Back from the Guide did not land on Reviews"
             )
             settle(1)
@@ -735,12 +772,13 @@ final class StyleguideScreenshots: XCTestCase {
         // public PR the seed points the run at (SCREENSHOT_RUN_PR_URL). Its
         // Changes row opens the section page, where the file cards live.
         let runRow = reviewRow(app, titled: Self.runChangesTitle)
-        XCTAssertTrue(
-            runRow.waitForExistence(timeout: 60),
+        expect(
+            runRow,
+            within: Wait.sync,
             "Reviews tab never showed the seeded agent run"
         )
         runRow.tap()
-        openGuideDiff(
+        openGuideDiffPage(
             app,
             failure: "The run's PR diff never loaded — check SCREENSHOT_RUN_PR_URL is a reachable public PR"
         )
@@ -753,28 +791,31 @@ final class StyleguideScreenshots: XCTestCase {
         // SAME screen (EXP-566 split it out of the old sg_settings-personal).
         app.buttons["tab-issues"].tap()
         let settingsLink = app.buttons["nav-settings-link"]
-        XCTAssertTrue(settingsLink.waitForExistence(timeout: 20), "Settings toolbar link missing")
+        expect(settingsLink, within: Wait.nav, "Settings toolbar link missing")
         settingsLink.tap()
-        XCTAssertTrue(
-            app.staticTexts["Teams"].waitForExistence(timeout: 20),
+        expect(
+            app.staticTexts["Teams"],
+            within: Wait.nav,
             "Settings screen never appeared"
         )
-        XCTAssertTrue(
-            app.staticTexts["Servers"].waitForExistence(timeout: 20),
+        expect(
+            app.staticTexts["Servers"],
+            within: Wait.nav,
             "Settings screen never showed its Servers section"
         )
         // The team row aggregates an avatar + the name, so its own label is not
         // simply the team name — match the button by the staticText it contains.
         let teamRow = app.buttons.containing(.staticText, identifier: Self.teamName).firstMatch
-        XCTAssertTrue(teamRow.waitForExistence(timeout: 20), "Team \"\(Self.teamName)\" missing from Settings")
+        expect(teamRow, within: Wait.nav, "Team \"\(Self.teamName)\" missing from Settings")
         snapshot("sg_settings-root", settle: 2)
 
         // ── sg_settings-team: team settings ─────────────────────────────────
         teamRow.tap()
         // TeamSettingsView carries the nav title "Settings" too — anchor on the
         // seeded board listed in its Boards section instead.
-        XCTAssertTrue(
-            app.staticTexts[Self.seededBoardName].waitForExistence(timeout: 30),
+        expect(
+            app.staticTexts[Self.seededBoardName],
+            within: Wait.sync,
             "Team settings never listed the seeded boards"
         )
         snapshot("sg_settings-team", settle: 2)
@@ -785,49 +826,49 @@ final class StyleguideScreenshots: XCTestCase {
         // identity, sign out and delete account live on the server row's
         // detail view. The row is titled by the SERVER, with the email below,
         // so match on the email.
-        XCTAssertTrue(
-            app.staticTexts["Servers"].waitForExistence(timeout: 20),
+        expect(
+            app.staticTexts["Servers"],
+            within: Wait.nav,
             "Did not return to the Settings screen"
         )
         let serverRow = app.buttons.containing(.staticText, identifier: ScreenshotSeed.demoEmail).firstMatch
-        XCTAssertTrue(
-            serverRow.waitForExistence(timeout: 20),
+        expect(
+            serverRow,
+            within: Wait.nav,
             "No server row for \(ScreenshotSeed.demoEmail) in Settings"
         )
         serverRow.tap()
-        XCTAssertTrue(
-            app.buttons["Sign out"].waitForExistence(timeout: 20),
+        expect(
+            app.buttons["Sign out"],
+            within: Wait.nav,
             "Account settings did not open"
         )
         snapshot("sg_settings-account", settle: 2)
 
         // ── sg_onboarding: the first-run create-or-join wizard ───────────────
-        // LAST on purpose: it switches the signed-in identity. AppNavigator
-        // shows LoginView at the root only when EVERY account is tokenless, so
-        // "Add server" on the same instance can never reach a login while the
-        // demo user is signed in (its cover just re-points the pending row).
-        // Sign the demo account out instead — we are on its ServerDetail
-        // screen right after sg_settings-account — and the root becomes the
-        // LoginView for that instance.
+        // LAST on purpose: it switches the signed-in identity. EXP-1267: a
+        // relaunch signed in as the newcomer (their reused session; the login
+        // UI only as the fallback) replaces the old Sign out + login form.
         //
         // The newcomer (`newcomer@exponential.at`) is a member of nothing with
         // a null `onboardingCompletedAt`, so the app opens the wizard. NOTHING
         // is submitted: creating a team or accepting an invite would mutate the
         // seed and burn the invite the desktop/web lanes photograph.
-        app.buttons["Sign out"].firstMatch.tap()
-        submitLogin(
+        launchSignedIn(
             app,
             email: ScreenshotSeed.newcomerEmail,
             password: ScreenshotSeed.newcomerPassword
         )
         // The wizard opens on web's choice page: the mark over "Welcome to
         // Exponential" and the two outline buttons (polish round ×4).
-        XCTAssertTrue(
-            app.staticTexts["Welcome to Exponential"].waitForExistence(timeout: 90),
+        expect(
+            app.staticTexts["Welcome to Exponential"],
+            within: Wait.sync,
             "The onboarding wizard never appeared for \(ScreenshotSeed.newcomerEmail) — reseed with `bun run seed:screenshots`"
         )
-        XCTAssertTrue(
-            app.buttons["team-setup-create"].waitForExistence(timeout: 30),
+        expect(
+            app.buttons["team-setup-create"],
+            within: Wait.sync,
             "The team step never rendered its Create a team choice"
         )
         snapshot("sg_onboarding", settle: 2)
@@ -835,44 +876,38 @@ final class StyleguideScreenshots: XCTestCase {
         // ── sg_onboarding-invite / sg_onboarding-devices ─────────────────────
         // The wizard's last two steps (EXP-725) need a RESOLVED team, which
         // the newcomer has not got — creating one would mutate the seed. The
-        // starter identity owns one and is still un-onboarded, so signing in
-        // as them and relaunching with `-uiTestingOnboardingStep invite`
-        // parks the wizard on step 3. NOTHING is submitted here either: no
-        // invite is minted, no board is created.
-        //
-        // The wizard's persistent "Sign out" (EXP-725) is the way off the
-        // newcomer's session — the root becomes the LoginView for the same
-        // instance, exactly as the ServerDetail sign-out above did.
-        app.buttons["Sign out"].firstMatch.tap()
-        submitLogin(
+        // starter identity owns one and is still un-onboarded, so ONE
+        // relaunch signed in as them (EXP-1267: reused session, the login UI
+        // as the fallback) with `-uiTestingOnboardingStep invite` parks the
+        // wizard on step 3. NOTHING is submitted here either: no invite is
+        // minted, no board is created.
+        launchSignedIn(
             app,
             email: ScreenshotSeed.starterEmail,
-            password: ScreenshotSeed.starterPassword
+            password: ScreenshotSeed.starterPassword,
+            extraArguments: ["-uiTestingOnboardingStep", "invite"]
         )
 
-        // The keychain account survives the relaunch, so the app boots
-        // straight back into the wizard — with the capture hook armed.
-        app.terminate()
-        app.launchArguments += ["-uiTestingOnboardingStep", "invite"]
-        app.launch()
-
         let inviteStep = app.otherElements["onboarding-invite-step"]
-        XCTAssertTrue(
-            inviteStep.waitForExistence(timeout: 90),
+        expect(
+            inviteStep,
+            within: Wait.firstSync,
             "The wizard never parked on its invite step — is -uiTestingOnboardingStep wired?"
         )
         // Gate on the real control, not just the container: at the seat cap
         // the creator renders NOTHING (App Store 3.1.1) and the shot would be
         // a blank styleguide page.
-        XCTAssertTrue(
-            app.buttons["invite-generate"].waitForExistence(timeout: 30),
+        expect(
+            app.buttons["invite-generate"],
+            within: Wait.sync,
             "The invite step never rendered its Generate button — is the starter team over its seat cap?"
         )
         snapshot("sg_onboarding-invite", settle: 2)
 
         app.buttons["Skip for now"].firstMatch.tap()
-        XCTAssertTrue(
-            app.otherElements["onboarding-devices-step"].waitForExistence(timeout: 30),
+        expect(
+            app.otherElements["onboarding-devices-step"],
+            within: Wait.nav,
             "The wizard never reached its devices step"
         )
         snapshot("sg_onboarding-devices", settle: 2)
@@ -891,16 +926,16 @@ final class StyleguideScreenshots: XCTestCase {
     @MainActor
     private func switchBoard(_ app: XCUIApplication, to name: String) {
         let switcherButton = app.buttons["Switch board"]
-        XCTAssertTrue(switcherButton.waitForExistence(timeout: 20), "Board switcher trigger missing")
+        expect(switcherButton, within: Wait.nav, "Board switcher trigger missing")
         switcherButton.tap()
         let headline = app.staticTexts["Switch board"]
-        XCTAssertTrue(headline.waitForExistence(timeout: 15), "Board switcher sheet did not open")
+        expect(headline, within: Wait.nav, "Board switcher sheet did not open")
         let row = app.buttons.matching(
             NSPredicate(format: "label CONTAINS %@", name)
         ).firstMatch
-        XCTAssertTrue(row.waitForExistence(timeout: 30), "Board \"\(name)\" missing from the switcher")
+        expect(row, within: Wait.nav, "Board \"\(name)\" missing from the switcher")
         row.tap()
-        _ = headline.waitForNonExistence(timeout: 10)
+        _ = headline.waitForNonExistence(timeout: Wait.nav)
         settle(1)
     }
 
@@ -910,44 +945,5 @@ final class StyleguideScreenshots: XCTestCase {
     @MainActor
     private func reviewRow(_ app: XCUIApplication, titled title: String) -> XCUIElement {
         app.buttons.matching(NSPredicate(format: "label CONTAINS %@", title)).firstMatch
-    }
-
-    /// EXP-1251: a review lands on the Guide, which draws Changes rows, never
-    /// file cards: open the diff (the first Changes row, else Show complete
-    /// diff) as the section page and wait for its file cards.
-    /// The Guide body is a LazyVStack: a row below the fold is not in the
-    /// accessibility tree until it scrolls on screen. Swipe up until one of
-    /// `rows` exists or the deadline passes (a loading Guide just keeps
-    /// waiting; the swipes are harmless on a short page).
-    @MainActor
-    private func revealGuideRow(_ app: XCUIApplication, _ rows: [XCUIElement], deadline: Date) {
-        while Date() < deadline && !rows.contains(where: { $0.exists }) {
-            if rows.contains(where: { $0.waitForExistence(timeout: 2) }) { return }
-            app.swipeUp()
-        }
-    }
-
-    @MainActor
-    private func openGuideDiff(_ app: XCUIApplication, failure: String) {
-        // run-changes = the COMPLETE diff page (section=all), as web; a
-        // report-less Guide's one Changes section already is the whole diff.
-        let changesRow = anyElement(app, identified: "guide-changes-row")
-        let completeDiff = anyElement(app, identified: "guide-show-complete-diff")
-        revealGuideRow(app, [completeDiff], deadline: Date().addingTimeInterval(45))
-        if completeDiff.exists {
-            completeDiff.tap()
-        } else {
-            revealGuideRow(app, [changesRow], deadline: Date().addingTimeInterval(15))
-            XCTAssertTrue(changesRow.exists, failure)
-            changesRow.tap()
-        }
-        XCTAssertTrue(
-            anyElement(app, identified: "guide-section-page").waitForExistence(timeout: 30),
-            "The Guide section page did not open"
-        )
-        XCTAssertTrue(
-            anyElement(app, identified: "changes-file-row").waitForExistence(timeout: 60),
-            failure
-        )
     }
 }

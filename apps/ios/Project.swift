@@ -254,6 +254,14 @@ let project = Project(
             product: .uiTests,
             bundleId: "at.exponential.uitests",
             deploymentTargets: .iOS("17.4"),
+            // EXP-1267: the runner signs the suites in over plain HTTP
+            // (http://localhost:5173) before launching the app — the same
+            // local-networking allowance the app itself carries.
+            infoPlist: .extendingDefault(with: [
+                "NSAppTransportSecurity": .dictionary([
+                    "NSAllowsLocalNetworking": .boolean(true),
+                ]),
+            ]),
             sources: ["ExponentialUITests/**"],
             dependencies: [.target(name: "Exponential")],
             settings: .settings(base: baseSettings)

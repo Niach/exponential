@@ -83,8 +83,36 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
         /** Real-time pause between polls (and between [settle]'s pumps). */
         const val POLL_SLEEP_MS = 50L
 
-        const val NAV_TIMEOUT = 30_000L
-        const val SYNC_TIMEOUT = 60_000L
+        /*
+         * How long a step may take before the run FAILS (EXP-1267). A missing
+         * node must cost seconds, not minutes; pick the class by what the node
+         * waits ON. The failure names the matcher (see [pollUntil]).
+         */
+
+        /** A cold launch reaching its first screen. */
+        const val LAUNCH_TIMEOUT = 20_000L
+
+        /** UI navigation: a push, a sheet, a tab, a control on a screen already up. */
+        const val NAV_TIMEOUT = 8_000L
+
+        /**
+         * Synced content AFTER the first sync landed — every shape starts at
+         * sign-in, so once the board's rows are in the rest follow within
+         * seconds (and a reused session resumes from its local cache).
+         */
+        const val SYNC_TIMEOUT = 15_000L
+
+        /** The FIRST sync after sign-in, gated once on the board's showcase row. */
+        const val FIRST_SYNC_TIMEOUT = 60_000L
+
+        /**
+         * Loads beyond the local backend: PR files from GitHub, the relay
+         * replaying a transcript, the stand-in desktop's device + readiness.
+         */
+        const val NETWORK_TIMEOUT = 30_000L
+
+        /** An OPTIONAL node that renders together with one already on screen. */
+        const val SIBLING_TIMEOUT = 2_000L
 
         /**
          * Backend the emulator talks to. `instanceUrl` is passed through by the
@@ -205,7 +233,7 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
      * flow starts driving it.
      */
     fun awaitInstancePicker() {
-        waitFor(hasText(SELF_HOST_LINK), NAV_TIMEOUT)
+        waitFor(hasText(SELF_HOST_LINK), LAUNCH_TIMEOUT)
     }
 
     /**
@@ -230,7 +258,8 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
      * exists after the tap.
      */
     fun awaitLoginScreen() {
-        waitFor(hasTestTag("login-continue-with-email"), NAV_TIMEOUT)
+        // /api/auth-config is a request to the backend.
+        waitFor(hasTestTag("login-continue-with-email"), SYNC_TIMEOUT)
         composeRule.onNode(hasTestTag("login-continue-with-email")).performClick()
         waitFor(hasTestTag("login-email-field"), NAV_TIMEOUT)
     }
@@ -285,7 +314,7 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
 
     /** Poll (pumping frames, never requiring idleness) until [matcher] matches a node. */
     fun waitFor(matcher: SemanticsMatcher, timeoutMillis: Long) {
-        pollUntil(timeoutMillis, "waiting for $matcher") {
+        pollUntil(timeoutMillis, "no node matching ${matcher.description}") {
             composeRule.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty()
         }
     }
@@ -302,7 +331,7 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
             if (condition()) return
             if (System.currentTimeMillis() > deadline) {
                 throw androidx.compose.ui.test.ComposeTimeoutException(
-                    "Condition still not satisfied after $timeoutMillis ms: $what",
+                    "Missing after ${timeoutMillis / 1000}s — $what",
                 )
             }
             Thread.sleep(POLL_SLEEP_MS)
@@ -319,7 +348,7 @@ class ScreenshotFlow(private val composeRule: ComposeTestRule) {
 
     /** Poll until no node matches [matcher] anymore. */
     fun waitForGone(matcher: SemanticsMatcher, timeoutMillis: Long) {
-        pollUntil(timeoutMillis, "waiting for $matcher to disappear") {
+        pollUntil(timeoutMillis, "a node matching ${matcher.description} never went away") {
             composeRule.onAllNodes(matcher).fetchSemanticsNodes().isEmpty()
         }
     }
