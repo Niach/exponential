@@ -43,7 +43,7 @@ describe(`bound macro inputs (§1)`, () => {
 
   test(`catalog-macros.json carries a bound case per bindable macro prop and a responsive case per responsive prop`, () => {
     for (const [name, def] of Object.entries(coreCatalog.components)) {
-      if (def.kind !== `macro` || def.deprecated) continue // round 3: an alias keeps its example case only
+      if (def.kind !== `macro`) continue
       for (const [prop, schema] of Object.entries(def.props)) {
         if (schema.bindable) expect(cases.some((c) => c.name === `${name}/bound:${prop}`), `${name}/bound:${prop}`).toBe(true)
         if (schema.responsive) expect(cases.some((c) => c.name === `${name}/responsive:${prop}`), `${name}/responsive:${prop}`).toBe(true)
@@ -52,14 +52,14 @@ describe(`bound macro inputs (§1)`, () => {
     expect(canon(cases)).toContain(`"path":"/value"`)
   })
 
-  test(`the audit's bugs: Progress width, Pagination label, Collapsible body, Pill label`, () => {
+  test(`the audit's bugs: Progress width, Pagination label, Collapsible body, Chip label`, () => {
     const progress = expand({ id: `p`, component: `Progress`, props: { value: { path: `/upload` } } })
     expect(byId(progress, `p.track.fill`)!.style!.width).toEqual({ call: `percent`, args: { value: { path: `/upload` }, max: 100 } })
     const pager = expand({ id: `g`, component: `Pagination`, props: { totalPages: 5, page: { path: `/page` } } })
     expect(byId(pager, `g.label`)!.props.text).toEqual({ call: `concat`, args: { values: [{ call: `fallback`, args: { value: { path: `/page` }, default: 1 } }, ` / `, 5] } })
     const collapsible = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: { path: `/open` } }, children: [{ id: `c-x`, component: `Text`, props: { text: `x` } }] })
     expect(byId(collapsible, `c.body`)!.visible).toEqual({ path: `/open` })
-    const pill = expand({ id: `pl`, component: `Pill`, props: { label: { path: `/name` } } })
+    const pill = expand({ id: `pl`, component: `Chip`, props: { label: { path: `/name` } } })
     expect(byId(pill, `pl.label`)!.props.text).toEqual({ path: `/name` })
   })
 
@@ -86,12 +86,9 @@ describe(`bound macro inputs (§1)`, () => {
     expect(outcome.event).toEqual({ name: `toggled`, context: { open: true } })
     const literal = expand({ id: `c`, component: `Collapsible`, props: { title: `More`, open: false }, on: { change: { event: { name: `toggled` } } } })
     expect(byId(literal, `c.trigger`)!.on!.press).toEqual({ event: { name: `toggled`, context: { open: true } } })
-    // Round 3: a collapsible Section's header writes `open` back like Collapsible's trigger; a TabBar alias hands its bound value to the Segmented native.
+    // Round 3: a collapsible Section's header writes `open` back like Collapsible's trigger.
     const section = expand({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } } })
     expect(runAction(byId(section, `s.header`)!.on!.press, { open: true }).data).toEqual({ open: false })
-    const tabs = expand({ id: `t`, component: `TabBar`, props: { items: [{ label: `A`, value: `a`, icon: `nav-inbox` }, { label: `B`, value: `b`, icon: `nav-issues` }], value: { path: `/tab` } } })
-    expect(tabs.component).toBe(`Segmented`)
-    expect(tabs.props).toMatchObject({ variant: `bar`, fill: true, value: { path: `/tab` } })
     const alert = expand({ id: `a`, component: `AlertDialog`, props: { title: `Sure?`, open: { path: `/ask` } } })
     expect(runAction(alert.slots!.footer.children[1].on!.press, { ask: true }).data).toEqual({ ask: false })
   })
@@ -267,7 +264,6 @@ describe(`accessibility (§6)`, () => {
   test(`every component has a role and keys; interactive ones name their keys; entries name real components`, () => {
     for (const [name, def] of Object.entries(coreCatalog.components)) {
       expect(COMPONENT_A11Y[name], name).toBeDefined()
-      if (def.deprecated) continue // round 3: an alias defers to its replacement's entry
       if ((def.events?.length ?? 0) > 0 && name !== `Chart`) expect(COMPONENT_A11Y[name].keys.length, `${name} keys`).toBeGreaterThan(0)
     }
     for (const name of Object.keys(COMPONENT_A11Y)) expect(coreCatalog.components[name], name).toBeDefined()
@@ -347,7 +343,7 @@ describe(`reducer and schema additions`, () => {
     const flat: FlatComponent[] = [
       { id: `root`, component: `Stack`, children: [`list`, `t`, `x`] },
       { id: `list`, component: `List`, children: { componentId: `row`, path: `/rows`, key: `id` }, visible: { path: `/show` } },
-      { id: `row`, component: `ListRow`, title: { path: `name` } },
+      { id: `row`, component: `Row`, title: { path: `name` } },
       { id: `t`, component: `Table`, columns: [{ key: `s`, label: `S`, type: `slot`, slot: `status` }], rows: [], slots: { status: `cell` }, accessibility: { label: `Members` } },
       { id: `cell`, component: `Badge`, text: { path: `s` } },
       { id: `x`, component: `Text`, text: `x`, visible: `yes` as unknown as boolean, slots: { nope: `cell` } },

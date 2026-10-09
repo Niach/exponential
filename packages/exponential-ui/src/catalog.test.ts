@@ -37,44 +37,44 @@ describe(`catalog ids`, () => {
 })
 
 describe(`components`, () => {
-  test(`the issue's component table is in the catalog`, () => {
+  test(`the component table is in the catalog; the round-3 folds are gone (round 4: no aliases)`, () => {
     const expected = [
       `Box`, `Stack`, `Grid`, `Card`, `Separator`, `List`, `Heading`, `Text`, `Image`, `Icon`, `Video`, `AudioPlayer`,
-      `Avatar`, `Badge`, `Alert`, `Pill`, `EmptyState`, `Table`, `Carousel`, `Tabs`, `ToggleGroup`, `Accordion`,
-      `Collapsible`, `Pagination`, `ButtonGroup`, `Dialog`, `Drawer`, `Sheet`, `Popover`, `Tooltip`, `DropdownMenu`,
+      `Avatar`, `Badge`, `Alert`, `EmptyState`, `Table`, `Carousel`, `Tabs`, `Accordion`,
+      `Collapsible`, `Pagination`, `Dialog`, `Drawer`, `Popover`, `Tooltip`,
       `Progress`, `Meter`, `Ring`, `Spinner`, `Skeleton`, `Button`, `Link`, `Toggle`, `Input`, `Textarea`, `Checkbox`,
-      `Radio`, `Switch`, `Slider`, `Select`, `DatePicker`, `Band`, `RowList`, `Group`, `ListRow`, `CardRow`,
-      `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`, `Markdown`, `Composer`, `TreeGuides`, `Chart`,
+      `Radio`, `Switch`, `Slider`, `Select`, `DatePicker`, `Group`, `Markdown`, `Composer`, `TreeGuides`, `Chart`,
     ]
     // Round 1 (docs/round-1-contract.md §3): the renderer-hardening additions.
     const round1 = [
-      `ScrollArea`, `Sidebar`, `AppBar`, `CodeBlock`, `Kbd`, `Label`, `Breadcrumb`, `TabBar`, `Stepper`, `AlertDialog`,
-      `HoverCard`, `ContextMenu`, `Toast`, `Sparkline`, `Form`, `NumberField`, `Rating`, `ChipInput`, `DateRangePicker`,
+      `ScrollArea`, `Sidebar`, `AppBar`, `CodeBlock`, `Kbd`, `Label`, `Breadcrumb`, `Stepper`, `AlertDialog`,
+      `Toast`, `Sparkline`, `Form`, `NumberField`, `Rating`, `ChipInput`, `DateRangePicker`,
       `TimePicker`, `FileUpload`,
     ]
     // Round 2 (docs/round-2-contract.md §1).
     const round2 = [`Resizable`]
-    // Round 3 (docs/round-3-contract.md): the app's list / menu / chip vocabulary; the folded ones stay as deprecated aliases.
+    // Round 3 (docs/round-3-contract.md): the app's list / menu / chip vocabulary.
     const round3 = [`Row`, `Section`, `Chip`, `Segmented`, `Menu`]
-    const deprecated = [`Band`, `RowList`, `ToggleGroup`, `ButtonGroup`, `TabBar`, `Sheet`, `HoverCard`, `DropdownMenu`, `ContextMenu`, `Pill`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`]
+    // Round 4 (VAPP-103): the names round 3 folded are REMOVED, not aliased.
+    const removed = [`Band`, `RowList`, `ToggleGroup`, `ButtonGroup`, `TabBar`, `Sheet`, `HoverCard`, `DropdownMenu`, `ContextMenu`, `Pill`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`]
     for (const name of [...expected, ...round1, ...round2, ...round3]) expect(coreCatalog.components[name], name).toBeDefined()
-    for (const name of deprecated) expect(coreCatalog.components[name].deprecated, name).toBeDefined()
-    expect(Object.entries(coreCatalog.components).filter(([, d]) => d.deprecated).map(([n]) => n)).toEqual(deprecated)
+    for (const name of removed) expect(coreCatalog.components[name], name).toBeUndefined()
+    for (const def of Object.values(coreCatalog.components)) expect(`deprecated` in def).toBe(false)
     const hidden = [`TreeGuides`] // round 3: a Row part, never authored
-    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length - deprecated.length - hidden.length)
-    for (const name of deprecated) expect(componentNames()).not.toContain(name)
+    expect(Object.keys(coreCatalog.components)).toHaveLength(expected.length + round1.length + round2.length + round3.length + 1) // + the Unknown placeholder
+    expect(componentNames()).toHaveLength(expected.length + round1.length + round2.length + round3.length - hidden.length)
   })
 
   test(`kinds follow the issue's table`, () => {
     const kind = (name: string) => coreCatalog.components[name].kind
     for (const native of [`Box`, `List`, `Text`, `Image`, `Icon`, `Video`, `AudioPlayer`, `Avatar`, `Carousel`, `Tabs`, `Segmented`, `Accordion`, `Dialog`, `Drawer`, `Popover`, `Tooltip`, `Menu`, `Ring`, `Spinner`, `Skeleton`, `Button`, `Link`, `Toggle`, `Input`, `Textarea`, `Checkbox`, `Radio`, `Switch`, `Slider`, `Select`, `DatePicker`, `Markdown`, `Composer`, `TreeGuides`, `Chart`])
       expect(kind(native), native).toBe(`native`)
-    for (const macro of [`Stack`, `Grid`, `Card`, `Separator`, `Heading`, `Badge`, `Alert`, `Pill`, `EmptyState`, `Pagination`, `ButtonGroup`, `Progress`, `Meter`, `Band`, `RowList`, `Group`, `ListRow`, `CardRow`, `PropertyRow`, `PickerRow`, `NavRow`, `EntityChip`, `Collapsible`, `Sheet`, `Row`, `Section`, `Chip`, `ToggleGroup`, `DropdownMenu`, `ContextMenu`])
+    for (const macro of [`Stack`, `Grid`, `Card`, `Separator`, `Heading`, `Badge`, `Alert`, `EmptyState`, `Pagination`, `Progress`, `Meter`, `Group`, `Collapsible`, `Row`, `Section`, `Chip`])
       expect(kind(macro), macro).toBe(`macro`)
     // Round 1: natives only where a renderer must own behaviour, macros elsewhere.
     for (const native of [`Table`, `Form`, `NumberField`, `ChipInput`, `DateRangePicker`, `TimePicker`, `FileUpload`, `CodeBlock`, `Toast`])
       expect(kind(native), native).toBe(`native`)
-    for (const macro of [`ScrollArea`, `Sidebar`, `AppBar`, `Kbd`, `Label`, `Breadcrumb`, `TabBar`, `Stepper`, `AlertDialog`, `HoverCard`, `Sparkline`, `Rating`])
+    for (const macro of [`ScrollArea`, `Sidebar`, `AppBar`, `Kbd`, `Label`, `Breadcrumb`, `Stepper`, `AlertDialog`, `Sparkline`, `Rating`])
       expect(kind(macro), macro).toBe(`macro`)
     expect(([...NATIVE_COMPONENTS] as string[]).sort()).toEqual(components.filter(([, d]) => d.kind === `native`).map(([n]) => n).sort())
     expect(([...MACRO_COMPONENTS] as string[]).sort()).toEqual(components.filter(([, d]) => d.kind === `macro`).map(([n]) => n).sort())
@@ -100,7 +100,7 @@ describe(`components`, () => {
     // Round 3 (VAPP-102): the app deleted these primitives; they stay in the full catalog only.
     const rarer = [`Pagination`, `Accordion`, `Radio`, `Slider`, `Spinner`, `Table`, `Toggle`, `Carousel`]
     for (const [name, def] of components) {
-      if (def.hidden || def.deprecated) {
+      if (def.hidden) {
         expect(lite.includes(name), name).toBe(false)
         continue
       }

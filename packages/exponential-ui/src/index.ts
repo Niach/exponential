@@ -15,7 +15,6 @@ export {
   componentNames,
   coreLite,
   isOffered,
-  deprecatedComponents,
   parseTokenRef,
   isKnownToken,
 } from "./catalog"

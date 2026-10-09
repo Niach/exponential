@@ -96,19 +96,12 @@ struct ComponentCase {
 #[test]
 fn catalog_components_covers_every_visible_component_x_every_enum_value_x_both_booleans() {
     let cases: Vec<ComponentCase> = cases(&fixture("catalog-components.json"));
-    assert_eq!(cases.len(), 466);
+    assert_eq!(cases.len(), 450);
     let mut seen: Vec<String> = cases.iter().map(|c| c.node.component.clone()).collect::<HashSet<_>>().into_iter().collect();
     seen.sort();
-    let deprecated: Vec<String> = CORE.components.iter().filter(|(_, d)| d.deprecated.is_some()).map(|(n, _)| n.clone()).collect();
     let mut names = component_names(false);
-    names.extend(deprecated.iter().cloned());
     names.sort();
     assert_eq!(seen, names);
-    // Round 3: a deprecated alias keeps its example case only.
-    for name in &deprecated {
-        let named: Vec<&str> = cases.iter().filter(|c| &c.node.component == name).map(|c| c.name.as_str()).collect();
-        assert_eq!(named, vec![format!("{name}/example")], "{name}");
-    }
     let has = |name: &str| cases.iter().any(|c| c.name == name);
     for (name, def) in &CORE.components {
         if !def.is_offered() {
@@ -190,14 +183,7 @@ fn catalog_macros_expansion_is_pure_and_reaches_natives_only_ids_stay_unique_rec
         assert_eq!(ids.iter().collect::<HashSet<_>>().len(), ids.len(), "{}", c.name);
         assert_eq!(expanded.id, c.input.id);
         let recipe = expanded.recipe.as_ref().expect("recipe");
-        // Round 3: a deprecated alias over a MACRO is transparent (the
-        // replacement's root recipe wins); over a native the alias tags the root.
-        let def = &CORE.components[&c.input.component];
-        let replacement = match &def.deprecated {
-            Some(r) if CORE.components[r].is_macro() => r.as_str(),
-            _ => c.input.component.as_str(),
-        };
-        assert_eq!(recipe.macro_, replacement, "{}", c.name);
+        assert_eq!(recipe.macro_, c.input.component, "{}", c.name);
         assert_eq!(recipe.part, "root");
         assert_all_native(&expanded, &c.name);
     }

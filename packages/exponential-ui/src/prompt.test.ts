@@ -24,7 +24,7 @@ describe(`catalog prompt`, () => {
   test(`names the catalog, every visible component and prop, never the placeholder`, () => {
     expect(full.startsWith(`Catalog ${CORE_CATALOG_ID}.`)).toBe(true)
     for (const [name, def] of Object.entries(coreCatalog.components)) {
-      if (def.hidden || def.deprecated) {
+      if (def.hidden) {
         expect(full).not.toContain(`\n${name}:`)
         continue
       }

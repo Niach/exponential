@@ -104,23 +104,18 @@ export function componentDef(
   return catalogView(extensions).components[name]
 }
 
-/** True for a component a model is offered: neither the hidden placeholder
- *  nor a deprecated alias (round 3). */
+/** True for a component a model is offered: anything but the hidden
+ *  placeholder. */
 export function isOffered(def: ComponentDef): boolean {
-  return !def.hidden && !def.deprecated
+  return !def.hidden
 }
 
 /** Component names in source order, optionally the lite subset, never the
- *  hidden placeholder nor a deprecated alias. */
+ *  hidden placeholder. */
 export function componentNames(options: { lite?: boolean } = {}): string[] {
   return Object.entries(coreCatalog.components)
     .filter(([, def]) => isOffered(def) && (!options.lite || def.lite))
     .map(([name]) => name)
-}
-
-/** The deprecated aliases (round 3): name → its replacement. */
-export function deprecatedComponents(): Record<string, string> {
-  return Object.fromEntries(Object.entries(coreCatalog.components).filter(([, d]) => d.deprecated).map(([n, d]) => [n, d.deprecated!]))
 }
 
 /** The lite subset's names. */

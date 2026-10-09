@@ -58,10 +58,6 @@ export interface ComponentDef {
   slotScope?: `row`
   /** Never offered to a model (the Unknown placeholder, TreeGuides = a Row part). */
   hidden?: boolean
-  /** Round 3 (docs/round-3-contract.md): a ONE-RELEASE alias naming its
-   *  replacement; a macro that expands to it. Still reduces; never in the
-   *  prompt, the docs, the specimens or the lite subset. */
-  deprecated?: string
   /** `planned` = in the catalog, painters land later. */
   status?: string
   description: string

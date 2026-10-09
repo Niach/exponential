@@ -1,5 +1,5 @@
 {
-  "$comment": "VAPP-85: THE source of the Exponential UI core catalog. Everything else is generated from it (core.schema.json, src/catalog.generated.ts, the Swift/Kotlin/Rust constants, docs/components.generated.json, fixtures/catalog-components.json). Canonical names = shadcn's; the A2UI basic catalog maps onto them (basic-map.json). `kind`: `native` = a renderer paints it, `macro` = macros.json expands it into natives before painting. `lite`: the core-lite subset (the app-shaped vocabulary: no overlays, media, Chart, data tables or the rarer controls) for small prompts. Round 3 (VAPP-102, docs/round-3-contract.md): `deprecated: \"<Replacement>\"` = a ONE-RELEASE alias (a macro expanding to its replacement): still reduces, never in the prompt, docs, specimens or the lite subset. `children`: none | one | many; `slots` = named child slots. Prop `type`: string | markdown | number | boolean | enum (`enum` names a shared list) | icon (an icons.json name) | color (`#hex` or `$color.*`) | style (a Box style object) | array (`items`) | object (`shape` names a `defs` entry) | date (ISO yyyy-mm-dd) | url. `bindable` props take an A2UI data binding `{path}` or function call instead of a literal. Round 1 (docs/round-1-contract.md): `responsive` props ALSO take `{base, sm?, md?, lg?, xl?}` keyed by the `$breakpoint` token names (on a macro the expander turns them into `@media (min-width: $breakpoint.<bp>)` blocks; on a native the RENDERER picks the value of the active breakpoint, src/macros.ts responsiveAt + src/style.ts activeBreakpoint); EVERY component takes the common `visible` (a boolean or a binding; false = not rendered, no layout), `style` and `accessibility`; `slots: [\"*\"]` = any slot name (Table cell templates); a string default or value of the form `$string.<id>` is a built-in UI string (catalog/strings.json) the renderer shows in the surface locale; `object` props without a `shape` take any object. Descriptions are MODEL-FACING: one sentence, what and when. Variant/size LOOKS come from the theme's recipes (VAPP-92), never from here.",
+  "$comment": "VAPP-85: THE source of the Exponential UI core catalog. Everything else is generated from it (core.schema.json, src/catalog.generated.ts, the Swift/Kotlin/Rust constants, docs/components.generated.json, fixtures/catalog-components.json). Canonical names = shadcn's; the A2UI basic catalog maps onto them (basic-map.json). `kind`: `native` = a renderer paints it, `macro` = macros.json expands it into natives before painting. `lite`: the core-lite subset (the app-shaped vocabulary: no overlays, media, Chart, data tables or the rarer controls) for small prompts. Round 3 (VAPP-102, docs/round-3-contract.md) folded the app vocabulary onto Row, Section, Chip, Segmented and Menu; round 4 (VAPP-103) REMOVED the old names: there are no aliases: an old name reduces to the `unknownComponent` placeholder with an `unknown component <name>` issue. `children`: none | one | many; `slots` = named child slots. Prop `type`: string | markdown | number | boolean | enum (`enum` names a shared list) | icon (an icons.json name) | color (a `$color.*` token ONLY: a literal `#hex`/`rgb()` in a node is refused so light and dark themes both apply; themes keep literals) | style (a Box style object) | array (`items`) | object (`shape` names a `defs` entry) | date (ISO yyyy-mm-dd) | url. `bindable` props take an A2UI data binding `{path}` or function call instead of a literal. Round 1 (docs/round-1-contract.md): `responsive` props ALSO take `{base, sm?, md?, lg?, xl?}` keyed by the `$breakpoint` token names (on a macro the expander turns them into `@media (min-width: $breakpoint.<bp>)` blocks; on a native the RENDERER picks the value of the active breakpoint, src/macros.ts responsiveAt + src/style.ts activeBreakpoint); EVERY component takes the common `visible` (a boolean or a binding; false = not rendered, no layout), `style` and `accessibility`; `slots: [\"*\"]` = any slot name (Table cell templates); a string default or value of the form `$string.<id>` is a built-in UI string (catalog/strings.json) the renderer shows in the surface locale; `object` props without a `shape` take any object. Descriptions are MODEL-FACING: one sentence, what and when. Variant/size LOOKS come from the theme's recipes (VAPP-92), never from here.",
   "id": "https://ui.exponential.at/catalogs/core/v1",
   "liteId": "https://ui.exponential.at/catalogs/core-lite/v1",
   "name": "Exponential UI core",
@@ -348,25 +348,6 @@
       "events": ["change"],
       "example": { "title": "In progress", "icon": "nav-issues" }
     },
-    "Band": {
-      "kind": "macro", "group": "list", "lite": false, "deprecated": "Section", "children": "none",
-      "description": "Deprecated: a Section with no rows.",
-      "props": {
-        "title": { "type": "string", "required": true, "description": "The band's label." },
-        "count": { "type": "number", "description": "A count shown after the title." },
-                "icon": { "type": "icon", "description": "A glyph before the title." }
-      },
-      "example": { "title": "In progress", "count": 4 }
-    },
-    "RowList": {
-      "kind": "macro", "group": "list", "lite": false, "deprecated": "Section", "children": "many",
-      "description": "Deprecated: a Section without a title.",
-      "props": {
-        "guides": { "type": "boolean", "default": false, "description": "Reserves the gutter for nested rows' tree connectors." },
-        "style": { "type": "style", "description": "Extra Box styles for the list frame." }
-      },
-      "example": { "guides": false }
-    },
     "Group": {
       "kind": "macro", "group": "list", "lite": true, "children": "many",
       "description": "A form-field container: a rounded group of rows with an optional title and footnote.",
@@ -541,20 +522,6 @@
       "events": ["change"],
       "example": { "items": [{ "label": "List", "value": "list" }, { "label": "Board", "value": "board" }], "value": "list" }
     },
-    "ToggleGroup": {
-      "kind": "macro", "group": "navigation", "lite": false, "deprecated": "Segmented", "children": "none",
-      "description": "Deprecated: a Segmented (`toggles` by default).",
-      "props": {
-        "items": { "type": "array", "items": { "type": "object", "shape": "option" }, "required": true, "description": "The toggles in order." },
-        "type": { "type": "enum", "enum": "groupType", "default": "single", "description": "One active value or several." },
-        "value": { "type": "string", "bindable": true, "description": "The selected value (comma-joined when multiple); bind it." },
-        "variant": { "type": "enum", "values": ["default", "outline", "segmented"], "default": "default", "description": "Deprecated: Segmented `toggles`, `outline` or `segmented`." },
-        "size": { "type": "enum", "enum": "controlSize", "default": "default", "description": "Control height class." },
-        "fill": { "type": "boolean", "default": false, "description": "Stretches the items across the width." }
-      },
-      "events": ["change"],
-      "example": { "items": [{ "label": "List", "value": "list" }, { "label": "Board", "value": "board" }], "value": "list", "variant": "segmented" }
-    },
     "Accordion": {
       "kind": "native", "group": "navigation", "lite": false, "children": "many",
       "description": "Collapsible sections; the child at index i is the body of item i.",
@@ -587,17 +554,6 @@
       "events": ["change"],
       "example": { "totalPages": 5, "page": 2 }
     },
-    "ButtonGroup": {
-      "kind": "macro", "group": "navigation", "lite": false, "deprecated": "Segmented", "children": "none",
-      "description": "Deprecated: a Segmented `outline`.",
-      "props": {
-        "buttons": { "type": "array", "items": { "type": "object", "shape": "option" }, "required": true, "description": "The buttons in order." },
-        "selected": { "type": "string", "bindable": true, "description": "The selected button's value; bind it." },
-        "size": { "type": "enum", "enum": "controlSize", "default": "default", "description": "Control height class." }
-      },
-      "events": ["change"],
-      "example": { "buttons": [{ "label": "Day", "value": "day" }, { "label": "Week", "value": "week" }], "selected": "day" }
-    },
     "Breadcrumb": {
       "kind": "macro", "group": "navigation", "lite": true, "children": "none",
       "description": "The path to the current page; every item but the last is a link that fires `select` with its value.",
@@ -606,16 +562,6 @@
       },
       "events": ["select"],
       "example": { "items": [{ "label": "Boards", "value": "boards" }, { "label": "Sprint 12", "value": "sprint-12" }, { "label": "EXP-42", "value": "exp-42" }] }
-    },
-    "TabBar": {
-      "kind": "macro", "group": "navigation", "lite": false, "deprecated": "Segmented", "children": "none",
-      "description": "Deprecated: a Segmented `bar`.",
-      "props": {
-        "items": { "type": "array", "items": { "type": "object", "shape": "option" }, "required": true, "description": "The destinations in order, each with an icon." },
-        "value": { "type": "string", "bindable": true, "description": "The selected destination's value; bind it." }
-      },
-      "events": ["change"],
-      "example": { "items": [{ "label": "Inbox", "value": "inbox", "icon": "nav-inbox" }, { "label": "Issues", "value": "issues", "icon": "nav-issues" }], "value": "inbox" }
     },
     "Stepper": {
       "kind": "macro", "group": "navigation", "lite": true, "children": "none",
@@ -653,17 +599,6 @@
       "events": ["change"],
       "example": { "title": "Filters", "side": "bottom", "open": false }
     },
-    "Sheet": {
-      "kind": "macro", "group": "overlay", "lite": false, "deprecated": "Drawer", "children": "many", "slots": ["trigger", "footer"],
-      "description": "Deprecated: a Drawer from the bottom edge.",
-      "props": {
-        "title": { "type": "string", "description": "The sheet heading." },
-        "description": { "type": "string", "description": "A muted line under the heading." },
-        "open": { "type": "boolean", "default": false, "bindable": true, "description": "Whether it shows; bind it." }
-      },
-      "events": ["change"],
-      "example": { "title": "Details", "open": false }
-    },
     "AlertDialog": {
       "kind": "macro", "group": "overlay", "lite": false, "children": "many", "slots": ["trigger"],
       "description": "A modal that asks for a confirmation and ignores clicks outside; fires `confirm` or `cancel`.",
@@ -689,16 +624,6 @@
       "events": ["change"],
       "example": { "side": "bottom" }
     },
-    "HoverCard": {
-      "kind": "macro", "group": "overlay", "lite": false, "deprecated": "Popover", "children": "many", "slots": ["trigger"],
-      "description": "Deprecated: a Popover that opens on hover.",
-      "props": {
-        "side": { "type": "enum", "enum": "side", "default": "bottom", "description": "Preferred side of the trigger." },
-        "open": { "type": "boolean", "default": false, "bindable": true, "description": "Whether it shows; bind it to force it." }
-      },
-      "events": ["change"],
-      "example": { "side": "bottom" }
-    },
     "Tooltip": {
       "kind": "native", "group": "overlay", "lite": false, "children": "many",
       "description": "A short hint shown on hover or long-press over its children.",
@@ -719,26 +644,6 @@
       },
       "events": ["select"],
       "example": { "label": "More", "items": [{ "label": "Rename", "value": "rename" }, { "label": "Delete", "value": "delete", "destructive": true }] }
-    },
-    "DropdownMenu": {
-      "kind": "macro", "group": "overlay", "lite": false, "deprecated": "Menu", "children": "none", "slots": ["trigger"],
-      "description": "Deprecated: a Menu opened by pressing its trigger.",
-      "props": {
-        "label": { "type": "string", "description": "The default trigger's text when no trigger slot is given." },
-        "icon": { "type": "icon", "description": "The default trigger's icon." },
-        "items": { "type": "array", "items": { "type": "object", "shape": "menuItem" }, "required": true, "description": "The entries in order." }
-      },
-      "events": ["select"],
-      "example": { "label": "More", "items": [{ "label": "Rename", "value": "rename" }, { "label": "Delete", "value": "delete", "destructive": true }] }
-    },
-    "ContextMenu": {
-      "kind": "macro", "group": "overlay", "lite": false, "deprecated": "Menu", "children": "one",
-      "description": "Deprecated: a Menu with `openOn: contextmenu`.",
-      "props": {
-        "items": { "type": "array", "items": { "type": "object", "shape": "menuItem" }, "required": true, "description": "The entries in order." }
-      },
-      "events": ["select"],
-      "example": { "items": [{ "label": "Copy", "value": "copy", "shortcut": "⌘C" }, { "label": "Delete", "value": "delete", "destructive": true }] }
     },
     "Toast": {
       "kind": "native", "group": "overlay", "lite": false, "children": "none",
@@ -791,20 +696,6 @@
         "pressable": { "type": "boolean", "default": false, "description": "Makes it a press target that fires `press`." }
       },
       "events": ["press", "remove"],
-      "example": { "label": "Drafts", "selected": true }
-    },
-    "Pill": {
-      "kind": "macro", "group": "feedback", "lite": false, "deprecated": "Chip", "children": "none",
-      "description": "Deprecated: a pill Chip.",
-      "props": {
-        "label": { "type": "string", "required": true, "bindable": true, "description": "The chip text." },
-        "selected": { "type": "boolean", "default": false, "description": "Draws it as the active choice." },
-        "tone": { "type": "enum", "enum": "tone", "default": "neutral", "description": "Colour tone of the chip." },
-        "dot": { "type": "color", "description": "A colour dot before the text (a label chip)." },
-        "icon": { "type": "icon", "description": "An icon before the text." },
-        "pressable": { "type": "boolean", "default": false, "description": "Makes it a press target that fires `press`." }
-      },
-      "events": ["press"],
       "example": { "label": "Drafts", "selected": true }
     },
     "EmptyState": {
@@ -1222,80 +1113,6 @@
       },
       "events": ["press"],
       "example": { "title": "r/selfhosted", "meta": "312 posts", "pressable": true }
-    },
-    "ListRow": {
-      "kind": "macro", "group": "list", "lite": false, "deprecated": "Row", "children": "none",
-      "description": "Deprecated: a flat Row.",
-      "props": {
-        "title": { "type": "string", "required": true, "bindable": true, "description": "The main text." },
-        "subtitle": { "type": "string", "bindable": true, "description": "A muted second line." },
-        "meta": { "type": "string", "bindable": true, "description": "Trailing muted text (a count, a time)." },
-        "icon": { "type": "icon", "description": "A leading glyph." },
-        "selected": { "type": "boolean", "default": false, "description": "Draws it as the active row." },
-        "density": { "type": "enum", "enum": "density", "default": "default", "description": "Row height class." },
-        "chevron": { "type": "boolean", "default": false, "description": "A trailing disclosure chevron." }
-      },
-      "events": ["press"],
-      "example": { "title": "r/selfhosted", "meta": "312 posts" }
-    },
-    "CardRow": {
-      "kind": "macro", "group": "list", "lite": false, "deprecated": "Row", "children": "none",
-      "description": "Deprecated: a card Row.",
-      "props": {
-        "title": { "type": "string", "required": true, "bindable": true, "description": "The main text." },
-        "subtitle": { "type": "string", "bindable": true, "description": "A muted second line." },
-        "icon": { "type": "icon", "description": "A leading glyph." },
-        "meta": { "type": "string", "description": "Trailing muted text." }
-      },
-      "events": ["press"],
-      "example": { "title": "MacBook Pro", "subtitle": "Online · 2 runs", "icon": "ui-device" }
-    },
-    "PropertyRow": {
-      "kind": "macro", "group": "list", "lite": false, "deprecated": "Row", "children": "none",
-      "description": "Deprecated: a Row with a value.",
-      "props": {
-        "label": { "type": "string", "required": true, "description": "The property name." },
-        "value": { "type": "string", "required": true, "bindable": true, "description": "The property value." },
-        "icon": { "type": "icon", "description": "A glyph before the label." }
-      },
-      "example": { "label": "Assignee", "value": "Alex Chen" }
-    },
-    "PickerRow": {
-      "kind": "macro", "group": "list", "lite": false, "deprecated": "Row", "children": "none",
-      "description": "Deprecated: a Row with a value and a selector chevron.",
-      "props": {
-        "label": { "type": "string", "required": true, "description": "The field name." },
-        "value": { "type": "string", "bindable": true, "description": "The current choice's text." },
-        "placeholder": { "type": "string", "default": "$string.choose", "description": "Shown while nothing is chosen." },
-        "icon": { "type": "icon", "description": "A glyph before the label." }
-      },
-      "events": ["press"],
-      "example": { "label": "Status", "value": "In progress" }
-    },
-    "NavRow": {
-      "kind": "macro", "group": "list", "lite": false, "deprecated": "Row", "children": "none",
-      "description": "Deprecated: a Row with a trailing count Badge.",
-      "props": {
-        "label": { "type": "string", "required": true, "description": "The destination name." },
-        "icon": { "type": "icon", "required": true, "description": "The leading glyph." },
-        "selected": { "type": "boolean", "default": false, "description": "Draws it as the current destination." },
-        "count": { "type": "number", "description": "A trailing count badge." }
-      },
-      "events": ["press"],
-      "example": { "label": "Inbox", "icon": "nav-inbox", "count": 3, "selected": true }
-    },
-    "EntityChip": {
-      "kind": "macro", "group": "list", "lite": false, "deprecated": "Chip", "children": "none",
-      "description": "Deprecated: a rect Chip.",
-      "props": {
-        "label": { "type": "string", "required": true, "bindable": true, "description": "The entity name." },
-        "icon": { "type": "icon", "description": "The leading glyph." },
-        "image": { "type": "url", "description": "A leading picture instead of the icon." },
-        "detail": { "type": "string", "description": "Muted text after the name." },
-        "removable": { "type": "boolean", "default": false, "description": "Shows a remove control that fires `remove`." }
-      },
-      "events": ["press", "remove"],
-      "example": { "label": "Sprint 12", "icon": "nav-boards" }
     },
     "TreeGuides": {
       "kind": "native", "group": "list", "lite": true, "children": "none", "hidden": true,

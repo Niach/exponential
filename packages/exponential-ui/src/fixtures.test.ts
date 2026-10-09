@@ -29,12 +29,9 @@ describe(`catalog-components.json`, () => {
 
   test(`covers every visible component × every enum value × both booleans`, () => {
     const seen = new Set(cases.map((c) => c.node.component))
-    const deprecated = Object.entries(coreCatalog.components).filter(([, d]) => d.deprecated).map(([n]) => n)
-    expect([...seen].sort()).toEqual([...componentNames(), ...deprecated].sort())
-    // Round 3: a deprecated alias keeps its example case only.
-    for (const name of deprecated) expect(cases.filter((c) => c.node.component === name).map((c) => c.name)).toEqual([`${name}/example`])
+    expect([...seen].sort()).toEqual([...componentNames()].sort())
     for (const [name, def] of Object.entries(coreCatalog.components)) {
-      if (def.hidden || def.deprecated) continue
+      if (def.hidden) continue
       for (const [prop, schema] of Object.entries(def.props)) {
         if (schema.type === `enum`) {
           const values = schema.values ?? coreCatalog.enums[schema.enum!]
@@ -78,11 +75,7 @@ describe(`catalog-macros.json`, () => {
       const ids = preorder(expanded)
       expect(new Set(ids).size, c.name).toBe(ids.length)
       expect(expanded.id).toBe(c.input.id)
-      // Round 3: a deprecated alias over a MACRO is transparent (the
-      // replacement's root recipe wins); over a native the alias tags the root.
-      const def = coreCatalog.components[c.input.component]
-      const replacement = def.deprecated && coreCatalog.components[def.deprecated].kind === `macro` ? def.deprecated : c.input.component
-      expect(expanded.recipe?.macro, c.name).toBe(replacement)
+      expect(expanded.recipe?.macro, c.name).toBe(c.input.component)
       expect(expanded.recipe?.part).toBe(`root`)
     }
   })

@@ -100,10 +100,8 @@ function builtinIcons(): Record<string, string> {
 }
 
 const components = Object.entries(coreCatalog.components)
-/** What a model is offered: neither the hidden placeholder nor a deprecated alias (round 3). */
-const visible = components.filter(([, def]) => !def.hidden && !def.deprecated)
-/** Round 3: the one-release aliases; their example case stays in the fixtures so every renderer replays the alias. */
-const deprecated = components.filter(([, def]) => def.deprecated)
+/** What a model is offered: everything but the hidden placeholder. */
+const visible = components.filter(([, def]) => !def.hidden)
 const names = components.map(([name]) => name)
 const natives = components.filter(([, d]) => d.kind === `native`).map(([n]) => n)
 const macros = components.filter(([, d]) => d.kind === `macro`).map(([n]) => n)
@@ -188,8 +186,6 @@ const rows = {
   componentEvents: components.map(([, d]) => eventNames(d)),
   componentSlots: components.map(([, d]) => (d.slots ?? []).join(`,`)),
   componentSpecimenIds: names.map(specimenId),
-  // Round 3: the replacement an alias expands to ("" = a live component).
-  componentDeprecated: components.map(([, d]) => d.deprecated ?? ``),
   liteComponents: lite,
   nativeComponents: natives,
   macroComponents: macros,
@@ -230,7 +226,7 @@ const rows = {
   layoutConstantNames: Object.keys(LAYOUT_CONSTANTS),
   layoutConstantValues: Object.values(LAYOUT_CONSTANTS).map(String),
 }
-const liteFlags = components.map(([, d]) => d.lite && !d.hidden && !d.deprecated)
+const liteFlags = components.map(([, d]) => d.lite && !d.hidden)
 const scalars: [string, string][] = [
   [`catalogId`, CORE_CATALOG_ID],
   [`liteCatalogId`, CORE_LITE_CATALOG_ID],
@@ -362,8 +358,6 @@ function renderDocs() {
     catalogId: CORE_CATALOG_ID,
     liteCatalogId: CORE_LITE_CATALOG_ID,
     groups: [...new Set(components.map(([, d]) => d.group))],
-    /** Round 3: the one-release aliases and what replaces them. */
-    deprecated: Object.fromEntries(deprecated.map(([name, def]) => [name, def.deprecated])),
     components: visible.map(([name, def]) => ({
       name,
       kind: def.kind,
@@ -433,9 +427,6 @@ function boundMacroCases(): ComponentCase[] {
  *  prop and both values of every boolean prop, over the example. */
 function componentCases(): ComponentCase[] {
   const cases: ComponentCase[] = []
-  // Round 3: a deprecated alias keeps ONE case (its example) so every
-  // renderer proves it still expands.
-  for (const [name, def] of deprecated) cases.push(makeCase(name, def, `example`, { ...(def.example ?? {}) }))
   for (const [name, def] of visible) {
     const base = { ...(def.example ?? {}) }
     const make = (suffix: string, props: Record<string, unknown>) => makeCase(name, def, suffix, props)

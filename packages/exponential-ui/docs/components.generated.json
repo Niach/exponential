@@ -14,24 +14,6 @@
     "action",
     "input"
   ],
-  "deprecated": {
-    "Band": "Section",
-    "RowList": "Section",
-    "ToggleGroup": "Segmented",
-    "ButtonGroup": "Segmented",
-    "TabBar": "Segmented",
-    "Sheet": "Drawer",
-    "HoverCard": "Popover",
-    "DropdownMenu": "Menu",
-    "ContextMenu": "Menu",
-    "Pill": "Chip",
-    "ListRow": "Row",
-    "CardRow": "Row",
-    "PropertyRow": "Row",
-    "PickerRow": "Row",
-    "NavRow": "Row",
-    "EntityChip": "Chip"
-  },
   "components": [
     {
       "name": "Box",

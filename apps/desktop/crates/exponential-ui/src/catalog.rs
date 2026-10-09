@@ -181,7 +181,7 @@ impl CatalogView {
 }
 
 /// Component names in source order, optionally the lite subset, never the
-/// hidden placeholder nor a deprecated alias.
+/// hidden placeholder.
 pub fn component_names(lite: bool) -> Vec<String> {
     CORE.components
         .iter()

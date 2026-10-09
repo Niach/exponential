@@ -84,12 +84,6 @@ class ComponentSnapshotImagesTest {
          * dev machine). Empty this set once the workflow committed them.
          */
         val PENDING_IMAGES = emptySet<String>()
-
-        /** Deprecated aliases (round 3) only prove they expand: no image of their own. */
-        fun deprecated(component: String): Boolean {
-            val i = ExponentialUICatalog.componentNames.indexOf(component)
-            return i >= 0 && ExponentialUICatalog.componentDeprecated[i].isNotEmpty()
-        }
     }
 
     private fun model(id: String, theme: String, overlays: OverlayPresentation = OverlayPresentation.Native): SurfaceModel {
@@ -119,7 +113,6 @@ class ComponentSnapshotImagesTest {
         val firsts = LinkedHashMap<String, JsonValue>()
         for (c in cases) {
             val component = (c["name"]?.string ?: "?").substringBefore("/")
-            if (deprecated(component)) continue
             if (!firsts.containsKey(component)) firsts[component] = c
         }
         assertTrue("components ${firsts.size}", firsts.size >= 55)

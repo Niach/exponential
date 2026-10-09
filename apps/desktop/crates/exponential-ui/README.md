@@ -203,7 +203,7 @@ direction.
 | area | API |
 |---|---|
 | vocabulary | natives `Segmented` (ToggleGroup renamed; `variant` segmented \| toggles \| outline \| `bar`, content-sized unless `fill` or `bar`) and `Menu` (DropdownMenu + ContextMenu, `openOn` press \| contextmenu, glyphs `Menu.check` / `Menu.submenuIndicator`); macros `Row`, `Section`, `Chip` |
-| aliases | `ComponentDef::deprecated` names the replacement; `is_offered()` = neither hidden nor deprecated (`catalog::component_names` lists only offered ones); an alias still reduces and expands |
+| removed names | round 4 (VAPP-103) removed the folded names outright: no aliases; `is_offered()` = not hidden (`catalog::component_names` lists only offered ones) |
 | tree guides | `tree_guides::tree_guides(depths)` (the ×4 app rule) and `apply_tree_guides(root)`, run at the end of `macros::expand_macros`: every Row root's `guides` part (a hidden `TreeGuides`) gets `{depth, elbowAt?, tee, passThrough}` from its siblings; `layout::TREE_GUIDE_COLUMN` 14, `TREE_GUIDE_RADIUS` 3, `TREE_GUIDE_BRIDGE` 1 (paint only) |
 | bindable submenus | `menuItem.items` resolves along its schema: a `{path}` there becomes the submenu's rows |
 
