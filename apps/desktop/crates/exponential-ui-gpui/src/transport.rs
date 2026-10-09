@@ -627,6 +627,13 @@ mod net {
         }
     }
 
+    /// An MCP `initialize` / `tools/call` may take this long in total
+    /// (connect bounded by [`POST_CONNECT_TIMEOUT`]). Longer than a plain
+    /// client-message POST: a tool may legitimately run for a while. The
+    /// MCP thread serves calls in order, so past this the call fails (its
+    /// error is reported) instead of stalling every later client message.
+    const MCP_CALL_TIMEOUT: Duration = Duration::from_secs(120);
+
     struct Rpc {
         client: reqwest::blocking::Client,
         options: McpTransportOptions,
@@ -681,7 +688,7 @@ mod net {
             std::thread::Builder::new()
                 .name("exponential-ui mcp".into())
                 .spawn(move || {
-                    let mut rpc = Rpc { client: client(), options: options.clone(), id: 0, session: None };
+                    let mut rpc = Rpc { client: post_client(POST_CONNECT_TIMEOUT, MCP_CALL_TIMEOUT), options: options.clone(), id: 0, session: None };
                     let deliver = |result: &Value| {
                         if !closed.load(Ordering::SeqCst) {
                             messages_from_mcp_result(result).messages.into_iter().for_each(|m| sink.message(m));
@@ -700,8 +707,12 @@ mod net {
                     }
                     while let Ok(McpCommand::Send(message)) = rx.recv() {
                         let call = mcp_action_call(&message, options.action_tool.as_deref());
-                        if let Ok(result) = rpc.call(call["method"].as_str().unwrap_or("tools/call"), call["params"].clone()) {
-                            deliver(&result);
+                        // A failed or timed-out call drops that message and
+                        // reports why (the TS `McpTransport.send` rejects).
+                        match rpc.call(call["method"].as_str().unwrap_or("tools/call"), call["params"].clone()) {
+                            Ok(result) => deliver(&result),
+                            Err(e) if !closed.load(Ordering::SeqCst) => sink.status(TransportStatus::Error, Some(e)),
+                            Err(_) => {}
                         }
                     }
                 })
@@ -729,8 +740,31 @@ mod net {
 
         use serde_json::json;
 
-        use super::{poster, Utf8Chunks};
+        use super::{poster, post_client, McpTransportOptions, Rpc, Utf8Chunks};
         use crate::transport::{TransportEvent, TransportSink, TransportStatus};
+
+        /// Accepts every connection and never answers (a half-open server).
+        fn silent_server() -> String {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let url = format!("http://{}/mcp", listener.local_addr().unwrap());
+            std::thread::spawn(move || {
+                let mut held = Vec::new();
+                for conn in listener.incoming().flatten() {
+                    held.push(conn);
+                }
+            });
+            url
+        }
+
+        #[test]
+        fn a_hung_mcp_call_errors_within_the_timeout() {
+            let total = Duration::from_millis(300);
+            let mut rpc = Rpc { client: post_client(Duration::from_millis(300), total), options: McpTransportOptions::new(silent_server(), "surface"), id: 0, session: None };
+            let began = Instant::now();
+            let result = rpc.call("tools/call", json!({"name": "a2ui_event", "arguments": {}}));
+            assert!(result.is_err(), "a never-answering server returned {result:?}");
+            assert!(began.elapsed() < total + Duration::from_secs(2), "the call hung for {:?}", began.elapsed());
+        }
 
         #[test]
         fn a_hung_post_reports_an_error_within_the_timeout_and_close_ends_the_thread() {
