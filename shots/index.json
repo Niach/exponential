@@ -387,15 +387,15 @@
         "file": "shots/chat/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 34444,
-        "sha256": "1aff0aa25e787b498e0032d7001de32141ae6c8979f7a7f463f8dc560c397173"
+        "bytes": 33824,
+        "sha256": "156d9255dd2bdb6dd9139a6f04f6ead13d8671b95190c7c38a70876e58298d73"
       },
       "web-mobile": {
         "file": "shots/chat/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 40122,
-        "sha256": "134adf1abe9f488195f88a61af50de4150238bfc9db55bfbd9e5858c1820edbb"
+        "bytes": 40724,
+        "sha256": "783d25e75c21ed4de07143a38bd35ff391ead029acf06edd31d4cab515bdeb7c"
       }
     },
     "chat-action": {
@@ -424,8 +424,8 @@
         "file": "shots/chat-action/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 34924,
-        "sha256": "11a62c10d22bea28c07e3debdbddd370a86716c02713ccac39dda1036512cc0a"
+        "bytes": 36980,
+        "sha256": "908e2ec5728944e77105c6ccce1446b667394480dcb58aa3b328811e22c917bf"
       },
       "web-mobile": {
         "file": "shots/chat-action/web-mobile.webp",
@@ -650,8 +650,8 @@
         "file": "shots/exponential-ui-audio-player/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 6042,
-        "sha256": "989942bd2ffac187b98afe5404af5abb36f1c35b08249f6d45a56c1bd62d6677"
+        "bytes": 5966,
+        "sha256": "8b1dfe85bc78a1e8a36ac7b9b2baf232043b6a84df5ca45775c64226291e2f5b"
       }
     },
     "exponential-ui-avatar": {
@@ -980,8 +980,8 @@
         "file": "shots/exponential-ui-chart/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 12954,
-        "sha256": "901b9a1760d5cfb38b2cd54a6b2a4bdd37ddc18e7706b6b7fab24b6e00432e2d"
+        "bytes": 13836,
+        "sha256": "1020c965df204c99f9850c6b3feaec0dece5dc4dce1fffe2a39b215f001c5d2d"
       }
     },
     "exponential-ui-checkbox": {
@@ -1250,8 +1250,8 @@
         "file": "shots/exponential-ui-demo/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 15852,
-        "sha256": "4cbdf791c178bb451025448899c8d0e9d3170018910142b235d2973c319fce5c"
+        "bytes": 16816,
+        "sha256": "4953e1b186198b7a0008b8f77884ed525a95300e1e5e2b8bdeb5c59072868489"
       }
     },
     "exponential-ui-devices": {
@@ -1760,8 +1760,8 @@
         "file": "shots/exponential-ui-kitchen-sink/web-mobile.webp",
         "width": 832,
         "height": 1800,
-        "bytes": 47084,
-        "sha256": "95ada48381c67a3e56ed76a37f30dd823aa933f895a14c86c307152b2c5f8bec"
+        "bytes": 39306,
+        "sha256": "6ffc372156a81e7f3be93b9b8982eea8b775630a862962e301804dc2990e149a"
       }
     },
     "exponential-ui-label": {
@@ -3050,8 +3050,8 @@
         "file": "shots/exponential-ui-video/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 5468,
-        "sha256": "3fe31bda190c47057015b464f07dc4983b0ea713643ffc8a977c99b3df812729"
+        "bytes": 5576,
+        "sha256": "afd6f21310f417319af4dbecddbe0a51e73847abcdffff9e9a33cb237f377f36"
       }
     },
     "files": {
@@ -3581,8 +3581,8 @@
         "file": "shots/reviews/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 44160,
-        "sha256": "fdca0eabf4ce9cc15da8ebd5e1f015d17604a2c0c81d4551d55c00a5571035e0"
+        "bytes": 46056,
+        "sha256": "94b7f0adf550dea523dfa19c706c8cdb7ba00893c3d3bb6055d02cd3b2ec56b9"
       },
       "web-mobile": {
         "file": "shots/reviews/web-mobile.webp",
@@ -3618,8 +3618,8 @@
         "file": "shots/run-changes/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 103288,
-        "sha256": "6bd9270d667b06eb232992745177bd1be456b08ec975dde88c80998f675b766b"
+        "bytes": 106490,
+        "sha256": "ddf345fef715fa0c0ed7440d0d7adc273f122ac4cd33e1e66e8531ef6f7c618c"
       },
       "web-mobile": {
         "file": "shots/run-changes/web-mobile.webp",
@@ -4192,8 +4192,8 @@
         "file": "shots/trigger-editor/web.webp",
         "width": 1800,
         "height": 1200,
-        "bytes": 18856,
-        "sha256": "2dd3d2a5fa90cd9feda7c57094517b9151d65ce9ab41d7fa20a2704ba1892d74"
+        "bytes": 19064,
+        "sha256": "488b9029e5aba6c418b38b6c8aece10c1084ab2011f474929e4b87bca1d86bae"
       }
     }
   }
