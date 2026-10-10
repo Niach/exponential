@@ -360,11 +360,17 @@ export function ExponentialSurface({
   const templates = (surface ? surface.templates : templatesProp) ?? NO_TEMPLATES
   const templateNode = useCallback((componentId: string) => templates[componentId], [templates])
   const templateRoots = useMemo(() => Object.values(templates), [templates])
-  // VAPP-103: past `maxTemplateItems` per surface the rest is not rendered.
+  // VAPP-103: past `maxTemplateItems` items or `maxComponents` nodes per
+  // surface the rest is not rendered.
   const budget = useMemo(() => (root ? templateBudget(root, data, templateNode) : undefined), [root, data, templateNode])
   useEffect(() => {
     if (budget?.exceeded) console.warn(`[exponential-ui] ${surfaceId}: ${budget.exceeded}: ${LIMIT_ISSUES.templateItems}`)
   }, [surfaceId, budget?.exceeded])
+  // VAPP-103: template instances count against `maxComponents` nodes too
+  // (static tree + every built instance); past it the rest is not built.
+  useEffect(() => {
+    if (budget?.componentsExceeded) console.warn(`[exponential-ui] ${surfaceId}: ${budget.componentsExceeded}: ${LIMIT_ISSUES.components}`)
+  }, [surfaceId, budget?.componentsExceeded])
   useEffect(() => {
     if (IS_DEV && root) warnMissingTemplates(surfaceId, root, templates)
   }, [surfaceId, root, templates])

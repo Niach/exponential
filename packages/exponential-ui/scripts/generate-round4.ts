@@ -27,7 +27,20 @@ const json = (v: unknown) => `${JSON.stringify(v, null, 2)}\n`
 // validate
 // ---------------------------------------------------------------------------
 
+/** A chain of `depth` Cards around a Text: 2 levels per Card once
+ *  expanded (Box > body Box). */
+const cardChain = (depth: number): NestedNode => {
+  let n: NestedNode = { id: `leaf`, component: `Text`, props: { text: `deepest` } }
+  for (let i = depth - 1; i >= 0; i--) n = { id: `card${i}`, component: `Card`, children: [n] }
+  return n
+}
+
 const VALIDATE: { name: string; input: NestedNode }[] = [
+  // maxDepth holds AFTER macro expansion: 47 authored levels pass the
+  // authored check, the expanded chain is 95 deep; the first node past 48
+  // (card24, expanded depth 49) is the Unknown placeholder with the depth
+  // issue, its subtree dropped.
+  { name: `depth: counted after macro expansion (a 47-deep Card chain)`, input: cardChain(47) },
   { name: `style: a key outside the Box whitelist`, input: { id: `root`, component: `Box`, style: { fontColor: `$color.primary` } } },
   { name: `style: an unknown token`, input: { id: `root`, component: `Stack`, style: { gap: `$spacing.huge` } } },
   { name: `style: a literal colour (a node colour is a token)`, input: { id: `root`, component: `Box`, style: { backgroundColor: `#ff0000`, color: `$color.foreground` } } },

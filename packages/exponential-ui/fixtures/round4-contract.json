@@ -3,6 +3,304 @@
   "catalogId": "https://ui.exponential.at/catalogs/core/v1",
   "validate": [
     {
+      "name": "depth: counted after macro expansion (a 47-deep Card chain)",
+      "input": {
+        "id": "card0",
+        "component": "Card",
+        "children": [
+          {
+            "id": "card1",
+            "component": "Card",
+            "children": [
+              {
+                "id": "card2",
+                "component": "Card",
+                "children": [
+                  {
+                    "id": "card3",
+                    "component": "Card",
+                    "children": [
+                      {
+                        "id": "card4",
+                        "component": "Card",
+                        "children": [
+                          {
+                            "id": "card5",
+                            "component": "Card",
+                            "children": [
+                              {
+                                "id": "card6",
+                                "component": "Card",
+                                "children": [
+                                  {
+                                    "id": "card7",
+                                    "component": "Card",
+                                    "children": [
+                                      {
+                                        "id": "card8",
+                                        "component": "Card",
+                                        "children": [
+                                          {
+                                            "id": "card9",
+                                            "component": "Card",
+                                            "children": [
+                                              {
+                                                "id": "card10",
+                                                "component": "Card",
+                                                "children": [
+                                                  {
+                                                    "id": "card11",
+                                                    "component": "Card",
+                                                    "children": [
+                                                      {
+                                                        "id": "card12",
+                                                        "component": "Card",
+                                                        "children": [
+                                                          {
+                                                            "id": "card13",
+                                                            "component": "Card",
+                                                            "children": [
+                                                              {
+                                                                "id": "card14",
+                                                                "component": "Card",
+                                                                "children": [
+                                                                  {
+                                                                    "id": "card15",
+                                                                    "component": "Card",
+                                                                    "children": [
+                                                                      {
+                                                                        "id": "card16",
+                                                                        "component": "Card",
+                                                                        "children": [
+                                                                          {
+                                                                            "id": "card17",
+                                                                            "component": "Card",
+                                                                            "children": [
+                                                                              {
+                                                                                "id": "card18",
+                                                                                "component": "Card",
+                                                                                "children": [
+                                                                                  {
+                                                                                    "id": "card19",
+                                                                                    "component": "Card",
+                                                                                    "children": [
+                                                                                      {
+                                                                                        "id": "card20",
+                                                                                        "component": "Card",
+                                                                                        "children": [
+                                                                                          {
+                                                                                            "id": "card21",
+                                                                                            "component": "Card",
+                                                                                            "children": [
+                                                                                              {
+                                                                                                "id": "card22",
+                                                                                                "component": "Card",
+                                                                                                "children": [
+                                                                                                  {
+                                                                                                    "id": "card23",
+                                                                                                    "component": "Card",
+                                                                                                    "children": [
+                                                                                                      {
+                                                                                                        "id": "card24",
+                                                                                                        "component": "Card",
+                                                                                                        "children": [
+                                                                                                          {
+                                                                                                            "id": "card25",
+                                                                                                            "component": "Card",
+                                                                                                            "children": [
+                                                                                                              {
+                                                                                                                "id": "card26",
+                                                                                                                "component": "Card",
+                                                                                                                "children": [
+                                                                                                                  {
+                                                                                                                    "id": "card27",
+                                                                                                                    "component": "Card",
+                                                                                                                    "children": [
+                                                                                                                      {
+                                                                                                                        "id": "card28",
+                                                                                                                        "component": "Card",
+                                                                                                                        "children": [
+                                                                                                                          {
+                                                                                                                            "id": "card29",
+                                                                                                                            "component": "Card",
+                                                                                                                            "children": [
+                                                                                                                              {
+                                                                                                                                "id": "card30",
+                                                                                                                                "component": "Card",
+                                                                                                                                "children": [
+                                                                                                                                  {
+                                                                                                                                    "id": "card31",
+                                                                                                                                    "component": "Card",
+                                                                                                                                    "children": [
+                                                                                                                                      {
+                                                                                                                                        "id": "card32",
+                                                                                                                                        "component": "Card",
+                                                                                                                                        "children": [
+                                                                                                                                          {
+                                                                                                                                            "id": "card33",
+                                                                                                                                            "component": "Card",
+                                                                                                                                            "children": [
+                                                                                                                                              {
+                                                                                                                                                "id": "card34",
+                                                                                                                                                "component": "Card",
+                                                                                                                                                "children": [
+                                                                                                                                                  {
+                                                                                                                                                    "id": "card35",
+                                                                                                                                                    "component": "Card",
+                                                                                                                                                    "children": [
+                                                                                                                                                      {
+                                                                                                                                                        "id": "card36",
+                                                                                                                                                        "component": "Card",
+                                                                                                                                                        "children": [
+                                                                                                                                                          {
+                                                                                                                                                            "id": "card37",
+                                                                                                                                                            "component": "Card",
+                                                                                                                                                            "children": [
+                                                                                                                                                              {
+                                                                                                                                                                "id": "card38",
+                                                                                                                                                                "component": "Card",
+                                                                                                                                                                "children": [
+                                                                                                                                                                  {
+                                                                                                                                                                    "id": "card39",
+                                                                                                                                                                    "component": "Card",
+                                                                                                                                                                    "children": [
+                                                                                                                                                                      {
+                                                                                                                                                                        "id": "card40",
+                                                                                                                                                                        "component": "Card",
+                                                                                                                                                                        "children": [
+                                                                                                                                                                          {
+                                                                                                                                                                            "id": "card41",
+                                                                                                                                                                            "component": "Card",
+                                                                                                                                                                            "children": [
+                                                                                                                                                                              {
+                                                                                                                                                                                "id": "card42",
+                                                                                                                                                                                "component": "Card",
+                                                                                                                                                                                "children": [
+                                                                                                                                                                                  {
+                                                                                                                                                                                    "id": "card43",
+                                                                                                                                                                                    "component": "Card",
+                                                                                                                                                                                    "children": [
+                                                                                                                                                                                      {
+                                                                                                                                                                                        "id": "card44",
+                                                                                                                                                                                        "component": "Card",
+                                                                                                                                                                                        "children": [
+                                                                                                                                                                                          {
+                                                                                                                                                                                            "id": "card45",
+                                                                                                                                                                                            "component": "Card",
+                                                                                                                                                                                            "children": [
+                                                                                                                                                                                              {
+                                                                                                                                                                                                "id": "card46",
+                                                                                                                                                                                                "component": "Card",
+                                                                                                                                                                                                "children": [
+                                                                                                                                                                                                  {
+                                                                                                                                                                                                    "id": "leaf",
+                                                                                                                                                                                                    "component": "Text",
+                                                                                                                                                                                                    "props": {
+                                                                                                                                                                                                      "text": "deepest"
+                                                                                                                                                                                                    }
+                                                                                                                                                                                                  }
+                                                                                                                                                                                                ]
+                                                                                                                                                                                              }
+                                                                                                                                                                                            ]
+                                                                                                                                                                                          }
+                                                                                                                                                                                        ]
+                                                                                                                                                                                      }
+                                                                                                                                                                                    ]
+                                                                                                                                                                                  }
+                                                                                                                                                                                ]
+                                                                                                                                                                              }
+                                                                                                                                                                            ]
+                                                                                                                                                                          }
+                                                                                                                                                                        ]
+                                                                                                                                                                      }
+                                                                                                                                                                    ]
+                                                                                                                                                                  }
+                                                                                                                                                                ]
+                                                                                                                                                              }
+                                                                                                                                                            ]
+                                                                                                                                                          }
+                                                                                                                                                        ]
+                                                                                                                                                      }
+                                                                                                                                                    ]
+                                                                                                                                                  }
+                                                                                                                                                ]
+                                                                                                                                              }
+                                                                                                                                            ]
+                                                                                                                                          }
+                                                                                                                                        ]
+                                                                                                                                      }
+                                                                                                                                    ]
+                                                                                                                                  }
+                                                                                                                                ]
+                                                                                                                              }
+                                                                                                                            ]
+                                                                                                                          }
+                                                                                                                        ]
+                                                                                                                      }
+                                                                                                                    ]
+                                                                                                                  }
+                                                                                                                ]
+                                                                                                              }
+                                                                                                            ]
+                                                                                                          }
+                                                                                                        ]
+                                                                                                      }
+                                                                                                    ]
+                                                                                                  }
+                                                                                                ]
+                                                                                              }
+                                                                                            ]
+                                                                                          }
+                                                                                        ]
+                                                                                      }
+                                                                                    ]
+                                                                                  }
+                                                                                ]
+                                                                              }
+                                                                            ]
+                                                                          }
+                                                                        ]
+                                                                      }
+                                                                    ]
+                                                                  }
+                                                                ]
+                                                              }
+                                                            ]
+                                                          }
+                                                        ]
+                                                      }
+                                                    ]
+                                                  }
+                                                ]
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    ]
+                                  }
+                                ]
+                              }
+                            ]
+                          }
+                        ]
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "issues": [
+        {
+          "id": "card24",
+          "message": "nesting deeper than 48 levels"
+        }
+      ]
+    },
+    {
       "name": "style: a key outside the Box whitelist",
       "input": {
         "id": "root",

@@ -85,6 +85,23 @@ describe(`limits (catalog/limits.json)`, () => {
     expect(templateBudget(root, { rows: [] }, (id) => templates[id]).exceeded).toBeNull()
   })
 
+  test(`template instances count against maxComponents NODES: past it the rest is not built, ONE issue`, () => {
+    const node = (id: string, component: string, children: UiNode[] = [], template?: UiNode[`template`]): UiNode => ({ id, component, props: {}, children, ...(template ? { template } : {}) })
+    // 3 nodes per item; 2 static nodes + the later site's holder.
+    const row = node(`row`, `Box`, [node(`row-a`, `Text`), node(`row-b`, `Text`)])
+    const templates: Record<string, UiNode> = { row }
+    const root = node(`root`, `Box`, [node(`rows`, `Box`, [], { component: `row`, path: `/rows` }), node(`more`, `Box`, [], { component: `row`, path: `/more` })])
+    const b = templateBudget(root, { rows: Array(7000).fill(0), more: [0] }, (id) => templates[id])
+    const fits = Math.floor((MAX_COMPONENTS - 3) / 3)
+    expect(b.allowed.get(templateSiteKey(`rows`, ``))).toBe(fits)
+    expect(b.allowed.get(templateSiteKey(`more`, ``))).toBe(0)
+    expect(b.componentsExceeded).toBe(`row`)
+    expect(b.exceeded).toBeNull()
+    expect(3 + fits * 3).toBeLessThanOrEqual(MAX_COMPONENTS)
+    const ok = templateBudget(root, { rows: Array(10).fill(0), more: [0] }, (id) => templates[id])
+    expect([ok.componentsExceeded, ok.allowed.get(templateSiteKey(`more`, ``))]).toEqual([null, 1])
+  })
+
   test(`data pointers refuse gaps, huge indices, non-indices and long paths (iteratively)`, () => {
     const data = { a: [1, 2, 3] }
     expect(writePointer(data, `/a/4000000000`, 0)).toEqual({ data, error: `data: index 4000000000 is past the end of the array (3 items)` })

@@ -10,7 +10,7 @@ import { absolutePath, readPointer } from "./dynamic"
 import type { ChildTemplate, UiNode } from "./types"
 
 import { WINDOW_OVERSCAN, WINDOW_THRESHOLD } from "./layout"
-import { MAX_TEMPLATE_ITEMS } from "./limits"
+import { MAX_COMPONENTS, MAX_TEMPLATE_ITEMS } from "./limits"
 export { WINDOW_THRESHOLD, WINDOW_OVERSCAN } from "./layout"
 
 /** The instance key of every item: the value at `keyPointer` (relative to
@@ -80,18 +80,48 @@ export interface TemplateBudget {
   allowed: Map<string, number>
   /** The template component that hit `maxTemplateItems` first; null = none. */
   exceeded: string | null
+  /** The template component whose next item would take the surface past
+   *  `maxComponents` NODES (static tree + every built instance); null =
+   *  none. ONE issue: `LIMIT_ISSUES.components`. */
+  componentsExceeded: string | null
 }
 
-/** VAPP-103: the template items ONE surface instantiates, counted against
- *  `maxTemplateItems` in the Rust layout build's order (depth-first: a
- *  node's static children, then its template items, each item's own
- *  templates before the next item); past the limit the rest is not
- *  rendered. A windowed List (more than `WINDOW_THRESHOLD` rows) mounts its
- *  rows on demand: its items are not counted up front. Iterative. */
+/** Nodes one subtree builds by itself (children + slots; the items of a
+ *  template inside it count when they are instantiated). Iterative. */
+function staticSize(root: UiNode): number {
+  let n = 0
+  const stack: UiNode[] = [root]
+  while (stack.length) {
+    const node = stack.pop()!
+    n++
+    for (const slot of Object.values(node.slots ?? {})) stack.push(slot)
+    for (const child of node.children) stack.push(child)
+  }
+  return n
+}
+
+/** VAPP-103: the template items ONE surface instantiates, counted in the
+ *  Rust layout build's order (depth-first: a node's static children, then
+ *  its template items, each item's own templates before the next item)
+ *  against TWO limits: `maxTemplateItems` items, and `maxComponents` NODES
+ *  in all — the static tree plus every built instance's nodes (an item is
+ *  built only when its whole template subtree fits). Past either limit the
+ *  rest is not built: that item and every later one. A windowed List (more
+ *  than `WINDOW_THRESHOLD` rows) mounts its rows on demand: its items are
+ *  not counted up front. Iterative. */
 export function templateBudget(root: UiNode, data: unknown, templateNode: (componentId: string) => UiNode | undefined): TemplateBudget {
   const allowed = new Map<string, number>()
+  const sizes = new Map<UiNode, number>()
+  const sizeOf = (tpl: UiNode) => {
+    let n = sizes.get(tpl)
+    if (n === undefined) sizes.set(tpl, (n = staticSize(tpl)))
+    return n
+  }
   let left = MAX_TEMPLATE_ITEMS
+  let nodesLeft = MAX_COMPONENTS - staticSize(root)
   let exceeded: string | null = null
+  let componentsExceeded: string | null = null
+  let stopped = false
   const stack: { node: UiNode; scope: string }[] = [{ node: root, scope: `` }]
   while (stack.length) {
     const { node, scope } = stack.pop()!
@@ -104,15 +134,26 @@ export function templateBudget(root: UiNode, data: unknown, templateNode: (compo
     const list = template && tpl ? readPointer(data, path) : undefined
     const windowed = Array.isArray(list) && node.component === `List` && node.children.length + list.length > WINDOW_THRESHOLD
     if (template && tpl && Array.isArray(list) && !windowed) {
-      const count = Math.min(list.length, left)
+      const size = sizeOf(tpl)
+      let count = 0
+      while (count < list.length && count < left && size <= nodesLeft) {
+        nodesLeft -= size
+        count++
+      }
+      if (count < list.length && !stopped) {
+        if (count === left) exceeded = template.component
+        else componentsExceeded = template.component
+        // Past a limit nothing more is built (and nothing more reported).
+        stopped = true
+        left = 0
+        nodesLeft = -1
+      } else left -= count
       allowed.set(templateSiteKey(node.id, scope), count)
-      left -= count
-      if (count < list.length) exceeded ??= template.component
       for (let i = 0; i < count; i++) next.push({ node: tpl, scope: `${path}/${i}` })
     }
     for (let i = next.length - 1; i >= 0; i--) stack.push(next[i]!)
   }
-  return { allowed, exceeded }
+  return { allowed, exceeded, componentsExceeded }
 }
 
 // ---------------------------------------------------------------------------
