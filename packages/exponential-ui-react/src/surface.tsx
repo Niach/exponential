@@ -27,7 +27,6 @@ import {
   textDirection,
   DEFAULT_LOCALE,
   DEFAULT_THEME_ID,
-  LIMIT_ISSUES,
 } from "@exponential-at/ui"
 import type { ModeName, ResolvedTheme, ScrollAlign, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
 import { BASE_CSS } from "./base-css"
