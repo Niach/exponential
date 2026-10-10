@@ -206,7 +206,6 @@ pub fn wanted(data_dir: &Path) -> bool {
     }
     crate::agent_profiles::list(data_dir, CodingAgent::Codex)
         .into_iter()
-        .filter(|profile| !profile.is_system())
         .filter_map(|profile| {
             crate::agent_profiles::profile_dir(data_dir, CodingAgent::Codex, &profile.id)
         })

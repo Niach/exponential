@@ -54,8 +54,8 @@ const DEVICES = [
       claude: {
         signedIn: true,
         profiles: [
-          { id: `system`, signedIn: true, active: true, email: `dana@acme.test`, plan: `Max` },
-          { id: `a1b2c3d4`, label: `Claude Code account 2`, signedIn: true, health: `needs_relogin`, email: `ops@acme.test` },
+          { id: `9f8e7d6c`, signedIn: true, active: true, email: `dana@acme.test`, plan: `Max` },
+          { id: `a1b2c3d4`, signedIn: true, health: `needs_relogin`, email: `ops@acme.test` },
         ],
       },
       codex: { signedIn: false },

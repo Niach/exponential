@@ -1672,6 +1672,7 @@ describe(`devices.register / heartbeat doctor (EXP-1196)`, () => {
         state: `action`,
         detail: `Signed out`,
         action: `sign_in`,
+        import: `dev@acme.test`,
       },
       {
         key: `accessibility`,
@@ -1680,6 +1681,7 @@ describe(`devices.register / heartbeat doctor (EXP-1196)`, () => {
         state: `ok`,
         detail: null,
         action: null,
+        import: null,
       },
     ],
   }
@@ -1701,6 +1703,7 @@ describe(`devices.register / heartbeat doctor (EXP-1196)`, () => {
           state: `action`,
           detail: `Signed out`,
           action: `sign_in`,
+          import: `dev@acme.test`,
         },
         {
           key: `accessibility`,
@@ -1856,7 +1859,7 @@ describe(`retired agent ids (EXP-849)`, () => {
         pi: {
           signedIn: true,
           email: `danny@example.com`,
-          profiles: [{ id: `system`, signedIn: true, active: true }],
+          profiles: [{ id: `p1`, signedIn: true, active: true }],
         },
       },
       agentUsage: {
@@ -1980,7 +1983,9 @@ describe(`devices.createCommand — agent_login`, () => {
     })
   })
 
-  it(`carries newProfileLabel to create a profile first`, async () => {
+  // Profiles carry no names any more: an old build's label is accepted and
+  // dropped, never forwarded.
+  it(`accepts a retired newProfileLabel and drops it`, async () => {
     h.state.selectQueue = [...capableProbe(), []]
     h.state.insertReturning = [[{ id: `cmd-1` }]]
     await caller.createCommand({
@@ -1989,25 +1994,47 @@ describe(`devices.createCommand — agent_login`, () => {
       agent: `codex`,
       newProfileLabel: `  Codex account 2 `,
     })
-    expect(h.state.inserted[0]).toMatchObject({
-      payload: {
-        agent: `codex`,
-        switch: `false`,
-        newProfileLabel: `Codex account 2`,
-      },
+    expect((h.state.inserted[0] as { payload: object }).payload).toEqual({
+      agent: `codex`,
+      switch: `false`,
     })
-    expect((h.state.inserted[0] as { payload: object }).payload).not.toHaveProperty(`profileId`)
   })
 
-  it(`refuses profileId and newProfileLabel together`, async () => {
+  it(`queues an import on a machine with the agent-import cap`, async () => {
+    h.state.selectQueue = [
+      [{ id: `row-1`, caps: [`agent-login`, `agent-import`] }],
+      [],
+    ]
+    h.state.insertReturning = [[{ id: `cmd-1` }]]
+    await caller.createCommand({
+      deviceId: `dev-1`,
+      kind: `agent_login`,
+      agent: `claude`,
+      import: true,
+    })
+    expect(h.state.inserted[0]).toMatchObject({
+      payload: { agent: `claude`, switch: `false`, import: `true` },
+    })
+  })
+
+  it(`refuses an import without the cap, or beside a profileId`, async () => {
     h.state.selectQueue = capableProbe()
     await expect(
       caller.createCommand({
         deviceId: `dev-1`,
         kind: `agent_login`,
         agent: `claude`,
+        import: true,
+      })
+    ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
+    h.state.selectQueue = [[{ id: `row-1`, caps: [`agent-login`, `agent-import`] }]]
+    await expect(
+      caller.createCommand({
+        deviceId: `dev-1`,
+        kind: `agent_login`,
+        agent: `claude`,
         profileId: `p-work`,
-        newProfileLabel: `Claude account 2`,
+        import: true,
       })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
     expect(h.state.inserted).toHaveLength(0)
@@ -2168,7 +2195,7 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
     claude: {
       signedIn: true,
       profiles: [
-        { id: `system`, signedIn: true, active: true },
+        { id: `home`, signedIn: true, active: true },
         { id: `work`, signedIn: true },
       ],
     },
@@ -2187,8 +2214,7 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
       },
     ],
   ]
-  // EXP-1137: a build that also signs logins out (and so may remove its
-  // ambient one).
+  // EXP-1137: a build that also signs logins out.
   const signOutProbe = (
     agentAccounts: Record<string, unknown> = reportedAccounts()
   ) => [
@@ -2215,13 +2241,13 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
       deviceId: `dev-1`,
       kind: `agent_usage_refresh`,
       agent: `claude`,
-      profileId: `system`,
+      profileId: `home`,
     })
     expect(result).toEqual({ id: `cmd-7` })
     expect(h.state.inserted[0]).toMatchObject({
       deviceRowId: `row-1`,
       kind: `agent_usage_refresh`,
-      payload: { agent: `claude`, profileId: `system` },
+      payload: { agent: `claude`, profileId: `home` },
     })
     expect(h.relayPostNudge).toHaveBeenCalled()
   })
@@ -2240,7 +2266,7 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
       caller.createCommand({
         deviceId: `dev-1`,
         kind: `agent_usage_refresh`,
-        profileId: `system`,
+        profileId: `home`,
       })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
@@ -2252,7 +2278,7 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
         deviceId: `dev-1`,
         kind: `agent_usage_refresh`,
         agent: `claude`,
-        profileId: `system`,
+        profileId: `home`,
       })
     ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
     expect(h.state.inserted).toHaveLength(0)
@@ -2306,7 +2332,7 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
 
   // EXP-862: "Remove account" — the machine deletes its own copy of a login.
   // Same payload again, gated on `agent-login` + `account-remove`, refused for
-  // the ambient login and for a profile the machine never reported.
+  // a profile the machine never reported.
   it(`queues agent_profile_remove for a login the machine reported`, async () => {
     h.state.selectQueue = [...removeProbe(), []]
     h.state.insertReturning = [[{ id: `cmd-11` }]]
@@ -2324,44 +2350,20 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
     })
   })
 
-  // EXP-1137: the machine's own ambient login is taken too — it signs out
-  // there and hides — but ONLY on a build with the sign-out body, and the
-  // id lands normalized so the device reads one spelling.
-  it(`queues the ambient login on a build that can sign out, normalized`, async () => {
-    for (const profileId of [`system`, ` system `]) {
-      h.state.inserted.length = 0
-      h.state.selectQueue = [...signOutProbe(), []]
-      h.state.insertReturning = [[{ id: `cmd-12` }]]
+  // The CLI's ambient login is never a row, so `system` is a miss like any
+  // id the machine never reported, whatever caps it has.
+  it(`refuses the retired system id as unreported`, async () => {
+    for (const kind of [`agent_profile_remove`, `agent_profile_sign_out`] as const) {
+      h.state.selectQueue = signOutProbe()
       await expect(
         caller.createCommand({
           deviceId: `dev-1`,
-          kind: `agent_profile_remove`,
+          kind,
           agent: `claude`,
-          profileId,
+          profileId: `system`,
         })
-      ).resolves.toEqual({ id: `cmd-12` })
-      expect(h.state.inserted[0]).toMatchObject({
-        kind: `agent_profile_remove`,
-        payload: { agent: `claude`, profileId: `system` },
-      })
+      ).rejects.toMatchObject({ code: `NOT_FOUND` })
     }
-  })
-
-  it(`refuses the ambient login on a build without account-sign-out`, async () => {
-    // `account-remove` alone is the EXP-862 build: it would refuse the
-    // ambient login on the machine, so the round trip is refused here.
-    h.state.selectQueue = removeProbe()
-    await expect(
-      caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `agent_profile_remove`,
-        agent: `claude`,
-        profileId: `system`,
-      })
-    ).rejects.toMatchObject({
-      code: `PRECONDITION_FAILED`,
-      message: SIGN_OUT_OLD_APP,
-    })
     expect(h.state.inserted).toHaveLength(0)
   })
 
@@ -2425,9 +2427,9 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
   // state — the pending row is reused instead of failing the mutation with
   // "That command is already queued".
   // EXP-1137: "Sign out" — one login signed out on the machine, its row
-  // kept. Same gates as the ambient removal: both caps, a reported login.
-  it(`queues agent_profile_sign_out for a named and for the ambient login`, async () => {
-    for (const profileId of [`work`, `system`]) {
+  // kept. Gates: both caps, a reported login.
+  it(`queues agent_profile_sign_out for a reported login`, async () => {
+    for (const profileId of [`work`, `home`]) {
       h.state.inserted.length = 0
       h.state.selectQueue = [...signOutProbe(), []]
       h.state.insertReturning = [[{ id: `cmd-13` }]]
@@ -2447,38 +2449,16 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
     }
   })
 
-  it(`reads a profile-less report as the ambient login`, async () => {
-    // A machine that never added a second account reports the pre-profile
-    // payload: no rows, and the top-level fields ARE its ambient login.
-    h.state.selectQueue = [
-      ...signOutProbe({ codex: { signedIn: true } }),
-      [],
-    ]
-    h.state.insertReturning = [[{ id: `cmd-14` }]]
+  it(`refuses a profile-less report: there is no login to address`, async () => {
+    h.state.selectQueue = signOutProbe({ codex: { signedIn: true } })
     await expect(
       caller.createCommand({
         deviceId: `dev-1`,
         kind: `agent_profile_sign_out`,
         agent: `codex`,
-        profileId: `system`,
+        profileId: `work`,
       })
-    ).resolves.toEqual({ id: `cmd-14` })
-    // ...but a named id there is still a miss, and so is an agent it never
-    // reported at all.
-    for (const [agent, profileId] of [
-      [`codex`, `work`],
-      [`claude`, `system`],
-    ] as const) {
-      h.state.selectQueue = signOutProbe({ codex: { signedIn: true } })
-      await expect(
-        caller.createCommand({
-          deviceId: `dev-1`,
-          kind: `agent_profile_sign_out`,
-          agent,
-          profileId,
-        })
-      ).rejects.toMatchObject({ code: `NOT_FOUND` })
-    }
+    ).rejects.toMatchObject({ code: `NOT_FOUND` })
   })
 
   it(`refuses a sign-out on a build without both caps, naming the update`, async () => {
@@ -2586,13 +2566,13 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
         email: `danny@example.com`,
         profiles: [
           {
-            id: `system`,
-            label: `Default`,
+            id: `home`,
             signedIn: true,
             email: `danny@example.com`,
             plan: `Max`,
             active: true,
             checkedAt: `2026-09-09T11:59:00Z`,
+            lastLoginAt: `2026-09-09T11:00:00Z`,
             usage: {
               fetchedAt: `2026-09-09T11:58:00Z`,
               windows: [
@@ -2602,12 +2582,20 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
               ],
             },
           },
-          // Explicit nulls (the EXP-495 shape) degrade field-wise.
-          { id: `work`, label: null, signedIn: null, email: null, plan: null },
+          // Explicit nulls (the EXP-495 shape) degrade field-wise; a legacy
+          // `label` is dropped (profiles carry no names).
+          {
+            id: `work`,
+            label: `Claude account 2`,
+            signedIn: null,
+            email: null,
+            plan: null,
+            lastLoginAt: `not a date`,
+          } as never,
           // No id: nothing could address it — dropped.
-          { label: `ghost`, signedIn: true } as never,
+          { signedIn: true } as never,
           null,
-          // Fills the cap to its edge and one past it — `system` + `work`
+          // Fills the cap to its edge and one past it — `home` + `work`
           // already took two slots, so the last two of these are dropped.
           ...Array.from({ length: MAX_AGENT_PROFILES }, (_, index) => ({
             id: `p${index + 3}`,
@@ -2620,13 +2608,13 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
     expect(out.claude).toMatchObject({ signedIn: true, email: `danny@example.com` })
     expect(out.claude!.profiles).toHaveLength(MAX_AGENT_PROFILES)
     expect(out.claude!.profiles![0]).toEqual({
-      id: `system`,
-      label: `Default`,
+      id: `home`,
       signedIn: true,
       email: `danny@example.com`,
       plan: `Max`,
       active: true,
       checkedAt: `2026-09-09T11:59:00.000Z`,
+      lastLoginAt: `2026-09-09T11:00:00.000Z`,
       usage: {
         fetchedAt: `2026-09-09T11:58:00.000Z`,
         stale: false,
@@ -2635,7 +2623,7 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
     })
     expect(out.claude!.profiles![1]).toEqual({ id: `work`, signedIn: false })
     expect(out.claude!.profiles!.map((p) => p.id)).toEqual([
-      `system`,
+      `home`,
       `work`,
       ...Array.from({ length: MAX_AGENT_PROFILES - 2 }, (_, i) => `p${i + 3}`),
     ])
@@ -2652,6 +2640,23 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
     )
   })
 
+  // The CLI's ambient login the doctor offers to Import: present iff signed
+  // in, null-free.
+  it(`keeps the importable ambient login`, () => {
+    expect(
+      clampAgentAccounts({
+        claude: {
+          signedIn: false,
+          importable: { email: `dev@acme.test`, plan: null },
+        },
+        codex: { signedIn: false, importable: null },
+      })
+    ).toEqual({
+      claude: { signedIn: false, importable: { email: `dev@acme.test` } },
+      codex: { signedIn: false },
+    })
+  })
+
   // EXP-849: `health` is the device's probe verdict. The clamp keeps the four
   // contract values on the account AND on every profile, and DROPS anything
   // else — a machine reporting a health word this build has no name for keeps
@@ -2662,7 +2667,7 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
         signedIn: true,
         health: `needs_relogin`,
         profiles: [
-          { id: `system`, signedIn: true, health: `ok`, active: true },
+          { id: `home`, signedIn: true, health: `ok`, active: true },
           { id: `work`, signedIn: true, health: `needs_relogin` },
           { id: `old`, signedIn: false, health: `signed_out` },
           { id: `probe`, signedIn: true, health: `unknown` },
@@ -2691,7 +2696,7 @@ describe(`clampAgentAccounts — profiles (EXP-792)`, () => {
       claude: {
         signedIn: true,
         profiles: [
-          { id: `system`, signedIn: true, active: true, unmonitored: false },
+          { id: `home`, signedIn: true, active: true, unmonitored: false },
           { id: `spare`, signedIn: true, unmonitored: true },
           { id: `nothing-said`, signedIn: true, unmonitored: null },
         ],

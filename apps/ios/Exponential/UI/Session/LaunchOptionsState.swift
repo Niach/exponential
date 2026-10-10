@@ -180,7 +180,8 @@ final class LaunchOptionsState {
     ///
     /// A machine that reports NO login still offers a row per runnable agent,
     /// named by the agent itself — there is nothing better to say, and a
-    /// composer with no picker at all would hide which agent starts.
+    /// composer with no picker at all would hide which agent starts. Its id is
+    /// blank: the start names no account.
     func accountOptions(on device: SteerDevice?) -> [AccountOption] {
         let options = AccountOptions.flatten(
             accounts: device?.agentAccounts,
@@ -192,7 +193,7 @@ final class LaunchOptionsState {
         let lastUsedAgent = device?.defaultLaunchAgent ?? agents.first
         return agents.map { value in
             AccountOption(
-                id: Self.systemProfileId,
+                id: "",
                 agent: value,
                 email: LaunchVocabulary.agentLabel(value),
                 isLastUsed: value == lastUsedAgent
@@ -212,15 +213,11 @@ final class LaunchOptionsState {
 
     /// EXP-872: take BOTH halves of a picked option — the agent reseeds the
     /// per-agent options (`selectAgent` clears the account), then the login
-    /// lands on top, VERBATIM: `system` NAMES the ambient login (EXP-1158).
+    /// lands on top, VERBATIM (EXP-1158); a blank id = the last used login.
     func selectAccount(_ option: AccountOption, device: SteerDevice?) {
         selectAgent(option.agent, device: device)
         account = option.id
     }
-
-    /// The web's `SYSTEM_PROFILE_ID`: the machine's ambient login. A start
-    /// sends it by name; an ABSENT account means the last used login.
-    static let systemProfileId = "system"
 
     // MARK: - Wire
 
@@ -246,8 +243,8 @@ final class LaunchOptionsState {
                 ? (resume == true ? false : planMode)
                 : nil,
             resume: resume,
-            // EXP-1158: the picked id VERBATIM (`system` names the ambient
-            // login); blank = unnamed = the machine's last used login.
+            // EXP-1158: the picked id VERBATIM; blank (or a legacy `system`)
+            // = unnamed = the machine's last used login.
             account: AccountOptions.wireAccount(account),
             // EXP-792: omitted when nothing is picked.
             mcpServerIds: mcpServerIds.isEmpty ? nil : mcpServerIds,

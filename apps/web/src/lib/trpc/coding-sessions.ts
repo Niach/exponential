@@ -907,7 +907,7 @@ export const codingSessionsRouter = router({
           // windows). Absent on rows from clients that predate it.
           agent: z.enum(codingAgentValues).optional(),
           // EXP-792 (EXP-747 B7): the agent account profile the run launched
-          // on (`system` = the ambient login). EXP-909: synced, so every
+          // on. EXP-909: synced, so every
           // client's usage readout names the run's own login; a resume that
           // switches accounts stamps the NEW one on its continuation row.
           agentAccount: z.string().min(1).max(64).optional(),

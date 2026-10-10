@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState } from "react"
 import {
   AgentPicker,
-  agentLabel,
   Button,
   Dialog,
   DialogContent,
@@ -12,18 +11,15 @@ import {
   GlassGroup,
 } from "@exp/ui"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
-import {
-  addAccountLoginTarget,
-  addableAgents,
-  nextProfileLabel,
-} from "@/lib/agent-account-add"
+import { addableAgents } from "@/lib/agent-account-add"
 import type { SteerDevice } from "@/lib/steer-devices"
 
 // EXP-827: "Add account" — sign in with another account on a machine and hand
-// off to the shared sign-in dialog (`AgentLoginDialogHost`) with a
-// `newProfileLabel` (or the ambient login while that is still free): the
-// machine creates the profile, runs the CLI's own login in it and reports it
-// on its next probe, so the login appears under the device by itself.
+// off to the shared sign-in dialog (`AgentLoginDialogHost`) with NO profile:
+// the machine runs the CLI's own login in a fresh staging dir and lands it by
+// email (an address it already holds is refreshed, with the `alreadyAdded`
+// warning toast; a new one becomes a profile), so the login appears under the
+// device by itself.
 //
 // EXP-909: DEVICE-BOUND. The dialog used to pick the machine too, because it
 // hung off a cross-device Accounts section with no machine in hand; it is
@@ -53,15 +49,10 @@ export function AddAccountDialog({
 
   const submit = () => {
     if (!agent) return
-    const target = addAccountLoginTarget(
-      device,
-      agent,
-      nextProfileLabel(device, agent, agentLabel(agent))
-    )
     onOpenChange(false)
     // The sign-in dialog is hosted elsewhere in the tree; open it after this
     // one closed (the Radix close + focus return would swallow it otherwise).
-    setTimeout(() => requestAgentLogin({ device, agent, ...target }), 0)
+    setTimeout(() => requestAgentLogin({ device, agent }), 0)
   }
 
   return (

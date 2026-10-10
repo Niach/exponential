@@ -16,11 +16,9 @@
 //     (`agent_profile_sign_out`: claude's own `auth logout` inside that
 //     profile's config dir, codex's credential file deleted — never `codex
 //     logout`, which revokes the account server-wide). The row stays.
-//   - "Remove account": a named profile on a build with `account-remove`
-//     (deletes THIS machine's copy of the login: its profile dir and its
-//     index row); EXP-1137: the machine's own AMBIENT login too, on a build
-//     with the sign-out body — it is signed out there and hidden until it
-//     signs in again.
+//   - "Remove account": on a build with `account-remove` (deletes THIS
+//     machine's copy of the login: its profile dir and its index row). Every
+//     row is a profile dir; the CLI's own ambient login is never listed.
 //
 // EXP-1158: no entry picks the login the machine starts on — that is the
 // LAST USED one, moved only by a person's start or switch.
@@ -45,7 +43,6 @@ import type {
   DeviceAgentProfileEntry,
 } from "@/db/schema"
 import {
-  agentLabel,
   conceptIcon,
   Button,
   Input,
@@ -53,21 +50,15 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DEVICE_READINESS_COPY,
   Prompt,
   toast,
 } from "@exp/ui"
-import {
-  agentHealth,
-  parseAgentLoginResult,
-  SYSTEM_PROFILE_ID,
-  accountName,
-} from "@/lib/agent-usage"
+import { parseAgentLoginResult, accountName } from "@/lib/agent-usage"
 import {
   canRemoveAccountOn,
   canSignOutAccountOn,
-  isAmbientProfile,
   removeAccountConfirmCopy,
-  removeAmbientAccountConfirmCopy,
   signOutConfirmCopy,
 } from "@/lib/agent-account-remove"
 import {
@@ -115,8 +106,6 @@ export function agentOfLoginCodeKey(key: string): string | null {
 export interface AccountChipRow {
   agent: string
   profileId: string
-  /** The profile's label (`Default` for the ambient login). */
-  profileLabel: string
   email?: string | null
   plan?: string | null
   signedIn: boolean
@@ -134,8 +123,7 @@ export function chipSignsIn(row: AccountChipRow): boolean {
  * keeps "Sign in" as its first (and only repairing) entry, but it no longer
  * ENDS there — a dead named profile can be removed too, and codex logins,
  * which are signed out far more often than claude's, were left with a menu of
- * one. EXP-1137: a signed-in login offers "Sign out", and the ambient login
- * offers "Remove account" too, on a build with the sign-out body. */
+ * one. EXP-1137: a signed-in login offers "Sign out". */
 export function accountChipActions(
   device: Pick<SteerDevice, `caps`>,
   row: AccountChipRow
@@ -143,7 +131,7 @@ export function accountChipActions(
   const out: string[] = []
   if (chipSignsIn(row)) out.push(ACTION_SIGN_IN)
   if (canSignOutAccountOn(device, row)) out.push(ACTION_SIGN_OUT)
-  if (canRemoveAccountOn(device, row)) out.push(ACTION_REMOVE)
+  if (canRemoveAccountOn(device)) out.push(ACTION_REMOVE)
   return out
 }
 
@@ -165,51 +153,67 @@ export function accountChipLabel(row: AccountChipRow): string {
   return accountName(row)
 }
 
-/** EXP-862: has the login a sign-in was FOR landed on the device yet? The
- * login dialog closes on that transition, and "signed in" alone answers the
- * wrong question twice over:
- *
- *  - a credential the probe found revoked keeps `signedIn === true` the whole
- *    time (the CLI still claims a login, only the probe knows better), so a
- *    re-login would open already "signed in" and never close;
- *  - an "Add account" run names a profile the device has not created yet, so
- *    reading the account's own flag reports the AMBIENT login's state — true
- *    on any device that already holds one.
- *
- * Landed = signed in AND not revoked, on the profile that was targeted: by
- * id, or by the label the device was asked to create it under (the id is the
- * device's to mint, `agent_profiles::create`). */
-export function agentLoginLanded(
-  account:
-    | Pick<DeviceAgentAccount, `signedIn` | `health` | `profiles`>
-    | null
-    | undefined,
-  target: { profileId?: string; newProfileLabel?: string }
-): boolean {
-  if (!account) return false
-  const usable = (
-    entry: Pick<DeviceAgentProfileEntry, `signedIn` | `health`>
-  ): boolean =>
-    entry.signedIn === true && agentHealth(entry) !== `needs_relogin`
-  const profiles = (account.profiles ?? []).filter(
+/** profile id → the `lastLoginAt` the machine reported for it, captured when
+ * a sign-in (or import) is queued. */
+export type AgentLoginBaseline = Record<string, string | null>
+
+type LoginReporting = Pick<DeviceAgentAccount, `profiles`> | null | undefined
+
+function reportedProfiles(account: LoginReporting): DeviceAgentProfileEntry[] {
+  return (account?.profiles ?? []).filter(
     (profile): profile is DeviceAgentProfileEntry => Boolean(profile?.id)
   )
-  const label = target.newProfileLabel?.trim()
-  if (label) {
-    return profiles.some(
-      (profile) => (profile.label ?? ``).trim() === label && usable(profile)
-    )
+}
+
+export function agentLoginBaseline(account: LoginReporting): AgentLoginBaseline {
+  return Object.fromEntries(
+    reportedProfiles(account).map((profile) => [
+      profile.id,
+      profile.lastLoginAt ?? null,
+    ])
+  )
+}
+
+/** Where a sign-in landed: the profile and whether it was a DUPLICATE. */
+export interface AgentLoginLanding {
+  profileId: string
+  /** The landed login's name (`accountName`). */
+  email: string
+  /** The machine already held that email and refreshed it: the login was
+   *  "Add account" (no intended profile) or meant for ANOTHER profile. */
+  duplicate: boolean
+}
+
+/** Has a queued sign-in landed on the machine yet? The device lands every
+ * login on the profile whose EMAIL it signed in as (refreshing it, or adding
+ * a profile) and stamps that profile's `lastLoginAt`. So landed = a row whose
+ * `lastLoginAt` is set and differs from the `baseline` captured at queue time
+ * (or a new id that carries one). Never "signed in": a revoked credential
+ * keeps that flag, and the login may land on another profile than the one
+ * clicked. Hand-mirrored ×4. */
+export function agentLoginLanding(
+  account: LoginReporting,
+  baseline: AgentLoginBaseline,
+  intendedProfileId?: string
+): AgentLoginLanding | null {
+  for (const profile of reportedProfiles(account)) {
+    if (!profile.lastLoginAt) continue
+    const existed = profile.id in baseline
+    if (existed && baseline[profile.id] === profile.lastLoginAt) continue
+    return {
+      profileId: profile.id,
+      email: accountName(profile),
+      duplicate:
+        existed && (!intendedProfileId || intendedProfileId !== profile.id),
+    }
   }
-  const profileId = target.profileId
-  if (profileId && profileId !== SYSTEM_PROFILE_ID) {
-    return profiles.some(
-      (profile) => profile.id === profileId && usable(profile)
-    )
-  }
-  // The ambient login: a device that reports profiles carries it as the
-  // `system` row, and its top-level fields are the ACTIVE profile's.
-  const ambient = profiles.find((profile) => profile.id === SYSTEM_PROFILE_ID)
-  return usable(ambient ?? account)
+  return null
+}
+
+/** `{email} was already added. Refreshed it.` — the warning toast a duplicate
+ * landing raises (device-doctor.json `copy.alreadyAdded`, ×4). */
+export function alreadyAddedCopy(email: string): string {
+  return DEVICE_READINESS_COPY.alreadyAdded.replace(`{email}`, email)
 }
 
 /** THE account menu. The trigger is the caller's (the login rows draw a ghost
@@ -241,7 +245,6 @@ export function AccountChipMenu({
   const [confirmSignOut, setConfirmSignOut] = useState(false)
   const actions = accountChipActions(device, row)
   const deviceLabel = device.deviceLabel || device.deviceId
-  const ambient = isAmbientProfile(row.profileId)
   const loginLabel = accountLabel ?? accountChipLabel(row)
 
   const queue = async (
@@ -318,19 +321,13 @@ export function AccountChipMenu({
         </DropdownMenuContent>
       </DropdownMenu>
 
-      {/* EXP-1137: destructive too — a sign-out on the machine's own login
-          also signs the CLI in the person's terminal out, and the sentence
-          says so. */}
+      {/* EXP-1137: destructive too — the login needs a sign-in again. */}
       <Prompt
         open={confirmSignOut}
         onOpenChange={setConfirmSignOut}
         busy={busy}
         title={`${ACTION_SIGN_OUT}?`}
-        body={signOutConfirmCopy(
-          loginLabel,
-          deviceLabel,
-          ambient ? agentLabel(row.agent) : null
-        )}
+        body={signOutConfirmCopy(loginLabel, deviceLabel)}
         actions={[
           { label: `Cancel`, role: `cancel` },
           {
@@ -350,22 +347,13 @@ export function AccountChipMenu({
       />
 
       {/* Destructive, so it asks — and the sentence says in the same breath
-          that only this device's copy of the login goes (the ambient login:
-          signed out there and hidden, EXP-1137). */}
+          that only this device's copy of the login goes. */}
       <Prompt
         open={confirmRemove}
         onOpenChange={setConfirmRemove}
         busy={busy}
         title={`${ACTION_REMOVE}?`}
-        body={
-          ambient
-            ? removeAmbientAccountConfirmCopy(
-                loginLabel,
-                deviceLabel,
-                agentLabel(row.agent)
-              )
-            : removeAccountConfirmCopy(loginLabel, deviceLabel)
-        }
+        body={removeAccountConfirmCopy(loginLabel, deviceLabel)}
         actions={[
           { label: `Cancel`, role: `cancel` },
           {

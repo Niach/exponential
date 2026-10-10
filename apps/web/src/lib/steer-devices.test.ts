@@ -940,37 +940,41 @@ describe(`update blockers (FEED-36)`, () => {
   })
 })
 
-import { resolveStartAccount } from "./steer-devices"
+import {
+  deviceCanImportAgentLogin,
+  isUnpinnedAccount,
+  resolveStartAccount,
+} from "./steer-devices"
 
 describe(`resolveStartAccount (EXP-1138 gate split)`, () => {
   const accounts = (profiles: Array<Record<string, unknown>>) => ({
     agentAccounts: { claude: { signedIn: true, profiles } } as never,
   })
 
-  it(`stays ambient with no profiles reported or a signed-in default`, () => {
-    expect(resolveStartAccount({}, `claude`)).toEqual({ kind: `ambient` })
-    expect(resolveStartAccount({ agentAccounts: null }, `claude`)).toEqual({ kind: `ambient` })
-    expect(resolveStartAccount(accounts([]), `claude`)).toEqual({ kind: `ambient` })
+  it(`sends the frame as is when the last used profile is signed in`, () => {
     expect(
       resolveStartAccount(
         accounts([
-          { id: `system`, signedIn: true, active: true },
+          { id: `home`, signedIn: true, active: true },
           { id: `work`, signedIn: false },
         ]),
         `claude`
       )
-    ).toEqual({ kind: `ambient` })
-    // Another agent's profiles say nothing about this one.
-    expect(resolveStartAccount(accounts([{ id: `system`, signedIn: false, active: true }]), `codex`)).toEqual({
-      kind: `ambient`,
-    })
+    ).toEqual({ kind: `last_used` })
+    // An older build without profiles keeps its own resolution.
+    expect(
+      resolveStartAccount(
+        { agentAccounts: { claude: { signedIn: true } } as never },
+        `claude`
+      )
+    ).toEqual({ kind: `last_used` })
   })
 
-  it(`names the first signed-in profile when the default is signed out`, () => {
+  it(`names the first signed-in profile when the last used one is signed out or unset`, () => {
     expect(
       resolveStartAccount(
         accounts([
-          { id: `system`, signedIn: false, active: true },
+          { id: `home`, signedIn: false, active: true },
           { id: `old`, signedIn: false },
           { id: `work`, signedIn: true },
           { id: `other`, signedIn: true },
@@ -978,28 +982,58 @@ describe(`resolveStartAccount (EXP-1138 gate split)`, () => {
         `claude`
       )
     ).toEqual({ kind: `profile`, account: `work` })
-    // No `active` flag: the system profile is the default.
     expect(
       resolveStartAccount(
         accounts([
+          { id: `old`, signedIn: false },
           { id: `work`, signedIn: true },
-          { id: `system`, signedIn: false },
         ]),
         `claude`
       )
     ).toEqual({ kind: `profile`, account: `work` })
   })
 
-  it(`is none when the default is signed out and nothing else is signed in`, () => {
+  it(`leaves an unreported agent to the device`, () => {
+    expect(resolveStartAccount({}, `claude`)).toEqual({ kind: `last_used` })
+    expect(resolveStartAccount({ agentAccounts: null }, `claude`)).toEqual({ kind: `last_used` })
+  })
+
+  it(`is none when no profile is signed in, never the ambient login`, () => {
+    expect(
+      resolveStartAccount(
+        {
+          agentAccounts: {
+            claude: { signedIn: false, importable: { email: `dev@acme.test` } },
+          } as never,
+        },
+        `claude`
+      )
+    ).toEqual({ kind: `none` })
     expect(
       resolveStartAccount(
         accounts([
-          { id: `system`, signedIn: false, active: true },
+          { id: `home`, signedIn: false, active: true },
           { id: `work`, signedIn: false },
         ]),
         `claude`
       )
     ).toEqual({ kind: `none` })
+
+  })
+})
+
+describe(`unpinned accounts and the import cap`, () => {
+  it(`reads absent, blank and the retired system id as unpinned`, () => {
+    for (const account of [undefined, null, ``, `  `, `system`]) {
+      expect(isUnpinnedAccount(account)).toBe(true)
+    }
+    expect(isUnpinnedAccount(`a1b2c3d4`)).toBe(false)
+  })
+
+  it(`offers a remote import only behind the agent-import cap`, () => {
+    expect(deviceCanImportAgentLogin({ caps: [`agent-login`, `agent-import`] })).toBe(true)
+    expect(deviceCanImportAgentLogin({ caps: [`agent-login`] })).toBe(false)
+    expect(deviceCanImportAgentLogin({})).toBe(false)
   })
 })
 

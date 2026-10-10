@@ -3,7 +3,6 @@ package com.exponential.app.domain
 import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentAccountProfile
 import com.exponential.app.data.api.AgentUsage
-import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.DeviceEntity
 
@@ -22,9 +21,9 @@ import com.exponential.app.data.db.DeviceEntity
 
 /**
  * One device × agent × profile — what a machine reports about ONE login of
- * an agent. A device that reports no `profiles` (an older build) falls back
- * to its top-level account + `agentUsage[agent]` as the single `system` row,
- * so the section never goes blank on a pre-profile machine.
+ * an agent. Only the reported `profiles` are rows: the top-level fields are
+ * never turned into a login of their own (the ambient login is never run on;
+ * the doctor offers to import it).
  */
 data class AgentProfileUsageRow(
     /** `<deviceId>:<agent>:<profileId>` — stable enough to key a list. */
@@ -36,12 +35,7 @@ data class AgentProfileUsageRow(
     val online: Boolean,
     val agent: String,
     val profileId: String,
-    /** The profile's label (`Default` for the system profile when the device sent none). */
-    val profileLabel: String,
-    /**
-     * The machine's LAST USED login for this agent (wire `active`; the ambient
-     * login of a profile-less agent always is). Only the device moves it.
-     */
+    /** The machine's LAST USED login for this agent (wire `active`). Only the device moves it. */
     val active: Boolean,
     val signedIn: Boolean,
     /**
@@ -69,9 +63,6 @@ object AgentAccountsRows {
 
     /** The device cap a machine must advertise before a refresh is offered. */
     const val REFRESH_CAP = "agent-usage-refresh"
-
-    /** The label for the system profile when the device sent none. */
-    const val SYSTEM_PROFILE_LABEL = "Default"
 
     /**
      * The rows the page renders for [devices] — every login every machine
@@ -149,9 +140,8 @@ object AgentAccountsRows {
     }
 
     /**
-     * ONE machine's logins, appended to [out]. The union of "has an account"
-     * and "reported usage": a machine that only managed one of the two still
-     * gets its row.
+     * ONE machine's logins, appended to [out]: one row per reported
+     * profile, nothing for an agent that reports none.
      *
      * EXP-849: an agent this build has no name for (a retired `pi` still
      * beating off an old daemon) is never a row. The jsonb parse already drops
@@ -168,36 +158,10 @@ object AgentAccountsRows {
         usageMap: Map<String, AgentUsage>,
         usageAt: String?,
     ) {
-        val agents = LinkedHashSet<String>().apply {
-            addAll(accounts.keys)
-            addAll(usageMap.keys)
-        }.filterTo(LinkedHashSet(), AgentUsagePresentation::isContractAgent)
-        for (agent in agents) {
-            val account = accounts[agent]
-            val profiles = account?.profiles.orEmpty()
-            if (profiles.isEmpty()) {
-                out += AgentProfileUsageRow(
-                    key = "$deviceId:$agent:$SYSTEM_PROFILE_ID",
-                    deviceId = deviceId,
-                    deviceLabel = deviceLabel,
-                    mine = mine,
-                    online = online,
-                    agent = agent,
-                    profileId = SYSTEM_PROFILE_ID,
-                    profileLabel = SYSTEM_PROFILE_LABEL,
-                    active = true,
-                    signedIn = account?.signedIn == true,
-                    health = AgentHealthRules.of(account),
-                    email = nonEmpty(account?.email),
-                    plan = nonEmpty(account?.plan),
-                    usage = usageMap[agent],
-                    // The account's own probe stamp, else the row's usage
-                    // stamp; an empty string is nothing to say.
-                    checkedAt = nonEmpty(account?.checkedAt) ?: nonEmpty(usageAt),
-                )
-                continue
-            }
-            for (profile in profiles) {
+        for ((agent, account) in accounts) {
+            if (!AgentUsagePresentation.isContractAgent(agent)) continue
+            for (profile in account.profiles.orEmpty()) {
+                if (profile.id.isBlank()) continue
                 // The active profile's numbers ride BOTH the profile entry and
                 // the pre-profile `agentUsage[agent]` slot; prefer the
                 // profile's own and fall back for a device that only populated
@@ -211,15 +175,14 @@ object AgentAccountsRows {
                     online = online,
                     agent = agent,
                     profileId = profile.id,
-                    profileLabel = nonEmpty(profile.label)
-                        ?: if (profile.id == SYSTEM_PROFILE_ID) SYSTEM_PROFILE_LABEL else profile.id,
                     active = profile.active,
                     signedIn = profile.signedIn,
                     health = AgentHealthRules.of(profile),
                     email = nonEmpty(profile.email),
                     plan = nonEmpty(profile.plan),
                     usage = usage,
-                    checkedAt = nonEmpty(profile.checkedAt) ?: nonEmpty(account?.checkedAt),
+                    checkedAt = nonEmpty(profile.checkedAt) ?: nonEmpty(account.checkedAt)
+                        ?: nonEmpty(usageAt),
                 )
             }
         }
@@ -228,10 +191,8 @@ object AgentAccountsRows {
     /**
      * EXP-909: the order ONE device's logins list in — contract agent order
      * first (so claude's logins never interleave with codex's), then the
-     * machine's ACTIVE login for each agent, then the ones that need attention
-     * (a signed-out or expired credential), then the label and the id for a
-     * stable tail. A heartbeat can move the numbers without reshuffling the
-     * rows. Byte-identical ×4.
+     * order the device SENDS its profiles in (a stable sort). A heartbeat can
+     * move the numbers without reshuffling the rows. Byte-identical ×4.
      */
     fun sortDeviceLogins(rows: List<AgentProfileUsageRow>): List<AgentProfileUsageRow> {
         val order = DomainContract.codingAgentValues
@@ -239,18 +200,13 @@ object AgentAccountsRows {
             compareBy<AgentProfileUsageRow> {
                 order.indexOf(it.agent).let { rank -> if (rank == -1) Int.MAX_VALUE else rank }
             }
-                .thenBy { it.agent }
-                .thenByDescending { it.active }
-                .thenBy { attentionRank(it.signedIn, it.usage, it.health) }
-                .thenBy { it.profileLabel }
-                .thenBy { it.profileId },
+                .thenBy { it.agent },
         )
     }
 
     /**
      * EXP-909: a login row's identity line — WHO the login is: its email, else
-     * the bare plan an agent reports instead of an address, else the profile's
-     * own label.
+     * the bare plan an agent reports instead of an address ([accountName]).
      *
      * NEVER a status (EXP-862's rule, kept): the health badge beside it is the
      * single signed-out notice, and the brand mark says which agent. The device
@@ -266,8 +222,7 @@ object AgentAccountsRows {
      * sheets; ×4 `accountName`): its EMAIL, signed in or not (the device keeps
      * the last address a signed-out login answered with). An agent that
      * reports no address (codex's API-key login) is named by its plan; a login
-     * nobody ever signed in to is "No email". NEVER the profile's internal
-     * label ("Default", "Claude Code account 2").
+     * nobody ever signed in to is "No email". A login has no other name.
      */
     fun accountName(email: String?, plan: String?): String =
         nonEmpty(email) ?: nonEmpty(plan) ?: NO_EMAIL_LABEL
@@ -286,15 +241,11 @@ object AgentAccountsRows {
     const val ACTION_REMOVE = "Remove account"
 
     /**
-     * EXP-1137: the server's refusal for a sign-out (or an ambient removal,
-     * which signs out first) on a build without the body. Byte-identical ×4.
+     * EXP-1137: the server's refusal for a sign-out on a build without the
+     * body. Byte-identical ×4.
      */
     const val SIGN_OUT_OLD_APP =
         "That machine runs an older Exponential app that cannot sign agent accounts out. Update it first."
-
-    /** EXP-1137: the ambient login (`system`, or a blank id): the CLI's own config dir. */
-    fun isAmbient(profileId: String): Boolean =
-        profileId.isBlank() || profileId.trim() == SYSTEM_PROFILE_ID
 
     /**
      * EXP-862: what a login's chip menu offers, on a machine row or on an
@@ -302,9 +253,7 @@ object AgentAccountsRows {
      *  - signed out, or a credential that expired here: a sign-in first;
      *  - EXP-1137, signed in on a build with the sign-out body: sign it out
      *    (the row stays);
-     *  - remove: any NAMED login on a build with `account-remove`, and
-     *    (EXP-1137) the AMBIENT login on a build with the sign-out body, which
-     *    signs it out there and hides it until it signs in again.
+     *  - remove: any login on a build with `account-remove`.
      *
      * EXP-944: being signed OUT no longer ends the menu at its sign-in. A dead
      * profile is the thing people most want gone, the removal is a profile-dir
@@ -324,18 +273,15 @@ object AgentAccountsRows {
     fun chipActions(
         signedIn: Boolean,
         health: AgentHealth,
-        profileId: String,
         canRemoveAccount: Boolean,
         canAgentLogin: Boolean,
         canSignOutAccount: Boolean = false,
     ): List<String> {
         val signsIn = !signedIn || health == AgentHealth.NeedsRelogin
-        val ambient = isAmbient(profileId)
         val out = mutableListOf<String>()
         if (signsIn) out += ACTION_SIGN_IN
         if (signedIn && canAgentLogin && canSignOutAccount) out += ACTION_SIGN_OUT
-        val removes = if (ambient) canSignOutAccount else canRemoveAccount
-        if (removes && canAgentLogin) out += ACTION_REMOVE
+        if (canRemoveAccount && canAgentLogin) out += ACTION_REMOVE
         return out
     }
 
@@ -348,7 +294,6 @@ object AgentAccountsRows {
     ): List<String> = chipActions(
         signedIn = row.signedIn,
         health = row.health,
-        profileId = row.profileId,
         canRemoveAccount = canRemoveAccount,
         canAgentLogin = canAgentLogin,
         canSignOutAccount = canSignOutAccount,
@@ -365,37 +310,12 @@ object AgentAccountsRows {
             "only; the account itself is untouched."
 
     /**
-     * EXP-1137: the AMBIENT login's remove confirm, pinned ×4 (web
-     * `removeAmbientAccountConfirmCopy`). [agentLabel] is the agent's display
-     * name (`Claude` / `Codex`): the sentence says that the CLI in the person's
-     * own terminal signs out along with it.
+     * EXP-1137: the sign-out confirm, pinned ×4 (web `signOutConfirmCopy`):
+     * the login keeps its row.
      */
-    fun removeAmbientAccountConfirm(
-        accountLabel: String,
-        deviceLabel: String,
-        agentLabel: String,
-    ): String =
-        "Remove $accountLabel from $deviceLabel? The machine's own $agentLabel login is " +
-            "signed out there, including for the $agentLabel CLI in the terminal, and hidden " +
-            "here until it signs in again; the account itself is untouched."
-
-    /**
-     * EXP-1137: the sign-out confirm, pinned ×4 (web `signOutConfirmCopy`).
-     * [ambientAgentLabel] names the agent when the login is the machine's own
-     * (the terminal CLI signs out too); a named profile keeps its row.
-     */
-    fun signOutConfirm(
-        accountLabel: String,
-        deviceLabel: String,
-        ambientAgentLabel: String? = null,
-    ): String = if (ambientAgentLabel != null) {
-        "Sign $accountLabel out on $deviceLabel? That is the machine's own $ambientAgentLabel " +
-            "login, so the $ambientAgentLabel CLI there is signed out too; the account itself " +
-            "is untouched."
-    } else {
+    fun signOutConfirm(accountLabel: String, deviceLabel: String): String =
         "Sign $accountLabel out on $deviceLabel? The login stays listed so it can sign in " +
             "again; the account itself is untouched."
-    }
 
     /**
      * The agents an "Add account" flow may sign in on the machine: every
@@ -411,77 +331,50 @@ object AgentAccountsRows {
     }
 
     /**
-     * Where a new login lands on a machine (web `addAccountLoginTarget`): the
-     * AMBIENT login while it is still signed out — nothing to keep beside it —
-     * otherwise a new profile carrying [label], which the machine creates.
-     * Exactly one of the two is ever set.
+     * What an open sign-in sheet compares against: profile id → its
+     * `lastLoginAt`, captured when the `agent_login` command is queued.
      */
-    data class LoginTarget(val profileId: String?, val newProfileLabel: String?)
-
-    fun addAccountLoginTarget(device: SteerDevice, agent: String, label: String): LoginTarget {
-        val account = device.agentAccounts?.get(agent)
-        val ambient = account?.profiles.orEmpty().firstOrNull { it.id == SYSTEM_PROFILE_ID }
-        val ambientSignedIn = ambient?.signedIn ?: (account?.signedIn == true)
-        return if (ambientSignedIn) {
-            LoginTarget(profileId = null, newProfileLabel = label)
-        } else {
-            LoginTarget(profileId = SYSTEM_PROFILE_ID, newProfileLabel = null)
-        }
-    }
+    fun loginBaseline(account: AgentAccount?): Map<String, String?> =
+        account?.profiles.orEmpty()
+            .filter { it.id.isNotBlank() }
+            .associate { it.id to nonEmpty(it.lastLoginAt) }
 
     /**
-     * EXP-862: has the login a sign-in was FOR landed on the device yet? The
-     * ONE self-close rule of the sign-in sheet (web `agentLoginLanded`, iOS
-     * `loginLanded`), evaluated on the TARGETED login:
-     *  - a NEW profile (the "+ Add account" path): a profile carrying the
-     *    asked-for label is now usable; the ambient flag is useless here, it
-     *    is already true, which is why a new profile was asked for;
-     *  - an existing profile: that profile's own state;
-     *  - the ambient login: its `system` entry, else the top-level fields.
-     * "Usable" is signed in AND not `needs_relogin`.
+     * A sign-in that committed on the device: the profile it landed on, its
+     * email, and whether that profile was ALREADY there under another intent
+     * (a duplicate — the device refreshed it, and the sheet says so).
      */
-    fun loginLanded(account: AgentAccount?, profileId: String?, newProfileLabel: String?): Boolean {
-        if (account == null) return false
-        val profiles = account.profiles.orEmpty().filter { it.id.isNotEmpty() }
-        if (newProfileLabel != null) {
-            val wanted = newProfileLabel.trim()
-            if (wanted.isEmpty()) return false
-            return profiles.any { it.label.orEmpty().trim() == wanted && usableLogin(it) }
-        }
-        if (profileId != null && profileId != SYSTEM_PROFILE_ID) {
-            return profiles.any { it.id == profileId && usableLogin(it) }
-        }
-        profiles.firstOrNull { it.id == SYSTEM_PROFILE_ID }?.let { return usableLogin(it) }
-        return account.signedIn && AgentHealthRules.of(account) != AgentHealth.NeedsRelogin
-    }
-
-    private fun usableLogin(profile: AgentAccountProfile): Boolean =
-        profile.signedIn && AgentHealthRules.of(profile) != AgentHealth.NeedsRelogin
-
-    /** The server's clamp on a profile label (web `MAX_PROFILE_LABEL`). */
-    const val MAX_PROFILE_LABEL = 64
+    data class LoginLanding(val profileId: String, val email: String?, val duplicate: Boolean)
 
     /**
-     * Trimmed and cut to the server's limit, so the label the machine names
-     * its new config dir with is the one that was asked for. Web/iOS
-     * `clampProfileLabel`.
+     * Has a sign-in landed since [baseline] was taken? The ONE self-close rule
+     * of the sign-in sheet (web `agentLoginLanding`, iOS `loginLanding`):
+     * landed = a profile whose `lastLoginAt` is set and differs from the
+     * baseline (a new id with one counts). A landing on a profile the baseline
+     * already held is a DUPLICATE unless it is the very login the sign-in was
+     * for ([intendedProfileId]; null = "Add account", where any existing
+     * profile is a duplicate). Null while nothing has landed.
      */
-    fun clampProfileLabel(label: String): String = label.trim().take(MAX_PROFILE_LABEL)
-
-    /**
-     * `Claude Code account 2` — the smallest N >= 2 whose label is not already
-     * one of the machine's logins for the agent (exact match), so a removed
-     * "account 2" is reused rather than colliding with a surviving "account 3".
-     * Web/iOS `nextProfileLabel`, same rule.
-     */
-    fun nextProfileLabel(device: SteerDevice, agent: String, agentLabel: String): String {
-        val taken = device.agentAccounts?.get(agent)?.profiles.orEmpty()
-            .map { it.label.orEmpty() }
-            .toSet()
-        var n = 2
-        while ("$agentLabel account $n" in taken) n += 1
-        return clampProfileLabel("$agentLabel account $n")
+    fun loginLanding(
+        account: AgentAccount?,
+        baseline: Map<String, String?>,
+        intendedProfileId: String?,
+    ): LoginLanding? {
+        val landed = account?.profiles.orEmpty().firstOrNull { profile ->
+            val stamp = nonEmpty(profile.lastLoginAt) ?: return@firstOrNull false
+            profile.id.isNotBlank() && stamp != baseline[profile.id]
+        } ?: return null
+        val existed = landed.id in baseline
+        val intended = intendedProfileId?.trim()?.takeIf { it.isNotEmpty() }
+        return LoginLanding(
+            profileId = landed.id,
+            email = nonEmpty(landed.email),
+            duplicate = existed && (intended == null || landed.id != intended),
+        )
     }
+
+    /** The duplicate sign-in's warning toast, byte-identical ×4 (device-doctor.json `alreadyAdded`). */
+    fun alreadyAddedToast(email: String): String = "$email was already added. Refreshed it."
 
     /** The fullest window's percent, or 0 for a row with no usage at all. */
     fun peakPercent(usage: AgentUsage?): Int =

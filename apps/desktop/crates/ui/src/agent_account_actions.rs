@@ -24,7 +24,7 @@ use gpui_component::{button::ButtonVariant};
 use coding::CodingAgent;
 
 use crate::queries;
-use crate::usage_bar::{remove_account_confirm, remove_ambient_account_confirm, sign_out_confirm};
+use crate::usage_bar::{remove_account_confirm, sign_out_confirm};
 
 /// The device row's menu entry AND the login rows' way into it — one string
 /// ×4 (it replaced "Edit" with EXP-862).
@@ -50,14 +50,7 @@ pub(crate) fn remove_account(
     window: &mut Window,
     cx: &mut App,
 ) {
-    // EXP-1137: the ambient login is signed out there and hidden, and the
-    // sentence says so (the CLI in the person's own terminal goes with it).
-    let ambient = coding::agent_profiles::is_system(Some(&profile_id));
-    let confirm = if ambient {
-        remove_ambient_account_confirm(&account_label, &device_label, agent.label())
-    } else {
-        remove_account_confirm(&account_label, &device_label)
-    };
+    let confirm = remove_account_confirm(&account_label, &device_label);
     confirmed_account_change(
         AccountChange {
             device_id,
@@ -81,8 +74,7 @@ pub(crate) fn remove_account(
 /// EXP-1137 — "Sign out": sign the DEVICE's copy of a login out and keep its
 /// row (claude's own `auth logout` in that profile's config dir, codex's
 /// credential file deleted — never `codex logout`). The ACCOUNT is untouched,
-/// which is what the confirm says; for the machine's own ambient login it
-/// also says that the CLI in the person's terminal signs out with it.
+/// which is what the confirm says.
 ///
 /// Destructive, so it confirms first with the pinned ×4 sentence
 /// ([`sign_out_confirm`]). This device signs out directly; another of mine
@@ -99,12 +91,7 @@ pub(crate) fn sign_out_account(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let ambient = coding::agent_profiles::is_system(Some(&profile_id));
-    let confirm = sign_out_confirm(
-        &account_label,
-        &device_label,
-        ambient.then(|| agent.label()),
-    );
+    let confirm = sign_out_confirm(&account_label, &device_label);
     confirmed_account_change(
         AccountChange {
             device_id,

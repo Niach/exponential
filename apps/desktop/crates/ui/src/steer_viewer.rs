@@ -8006,12 +8006,12 @@ fn show_work_user(cx: &App) -> String {
 }
 
 /// EXP-909 — the account a run hosted HERE is spending, as the launcher
-/// recorded it (`runs.json`): `system` for the ambient login, a profile id
-/// otherwise. `None` when this machine has no record of the run at all — and
-/// then nothing is guessed, the sheet falls back to the machine's own report.
+/// recorded it (`runs.json`): its profile id. `None` when this machine has no
+/// record of the run (or a legacy one naming none) — and then nothing is
+/// guessed, the sheet falls back to the machine's own report.
 fn run_account(session_id: &str, cx: &App) -> Option<String> {
     coding::run_registry::get(&crate::coding_flow::coding_data_dir(cx), session_id)
-        .map(|record| coding::profile_id(record.account().as_deref()))
+        .and_then(|record| record.account())
 }
 
 /// EXP-909 — the one refresh the usage sheet asks for when it OPENS: read the
@@ -8032,8 +8032,8 @@ fn refresh_run_usage(
     cx: &mut App,
 ) {
     if local {
-        let profile = run_account(session_id, cx)
-            .unwrap_or_else(|| coding::SYSTEM_PROFILE.to_string());
+        // No recorded account (a legacy run): the device's last used login.
+        let profile = run_account(session_id, cx).unwrap_or_default();
         crate::device_sync::refresh_agent_usage_here(agent, profile, cx);
         return;
     }

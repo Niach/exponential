@@ -307,34 +307,38 @@ class DevicesApi @Inject constructor(private val trpc: TrpcClient) {
  * machine to run [agent]'s OWN sign-in flow and publish the login URL (plus
  * the codex device code) back as the command result. [switchAccount] signs the
  * current account out first. Gated on [SteerDevice.canAgentLogin].
+ *
+ * The login lands on the profile whose EMAIL it signs in as (a new email adds
+ * one); [profileId] only names the login the sign-in was FOR, so the device can
+ * tell a duplicate apart. Absent = "Add account".
  */
 fun agentLoginCommand(
     deviceId: String,
     agent: String,
     switchAccount: Boolean,
     profileId: String? = null,
-    /**
-     * EXP-827/EXP-862: "Add account" — the machine CREATES a profile under
-     * this label and runs the login in it. Mutually exclusive with
-     * [profileId]; the server refuses both at once.
-     */
-    newProfileLabel: String? = null,
 ): JsonObject =
     buildJsonObject {
         put("deviceId", deviceId)
         put("kind", "agent_login")
         put("agent", agent)
         put("switch", switchAccount)
-        // EXP-827/EXP-849: WHICH login on the machine this lands on — one of
-        // `agentAccounts[agent].profiles` (`system` = the ambient login). Absent
-        // means the ambient one.
         profileId?.trim()?.takeIf { it.isNotEmpty() }?.let { put("profileId", it) }
-        newProfileLabel?.trim()?.takeIf { it.isNotEmpty() }
-            ?.let { put("newProfileLabel", it.take(MAX_PROFILE_LABEL)) }
     }
 
-/** The server clamps a profile label at 64 (web `MAX_PROFILE_LABEL`). */
-const val MAX_PROFILE_LABEL = 64
+/**
+ * The import form of `agent_login`: the machine MOVES [agent]'s ambient login
+ * into a profile (an existing same-email profile is refreshed, else a new one).
+ * Gated on [SteerDevice.canImportAccount]; the device completes it with a plain
+ * sentence (`Imported {email}.` or why not).
+ */
+fun agentImportCommand(deviceId: String, agent: String): JsonObject =
+    buildJsonObject {
+        put("deviceId", deviceId)
+        put("kind", "agent_login")
+        put("agent", agent)
+        put("import", true)
+    }
 
 /**
  * The `agent_profile_remove` input for [DevicesApi.createCommand] (EXP-862) —
@@ -344,8 +348,7 @@ const val MAX_PROFILE_LABEL = 64
  * revoke it server-wide, and nothing about it leaves the machine.
  *
  * Gated on BOTH [SteerDevice.canAgentLogin] and [SteerDevice.canRemoveAccount]:
- * the server refuses the command without either cap, and the ambient login
- * (`system`) is refused outright — it is the CLI's own, not ours to delete.
+ * the server refuses the command without either cap.
  */
 fun agentProfileRemoveCommand(deviceId: String, agent: String, profileId: String): JsonObject =
     buildJsonObject {
@@ -360,7 +363,7 @@ fun agentProfileRemoveCommand(deviceId: String, agent: String, profileId: String
  * the machine signs the login [profileId] for [agent] OUT and keeps its row:
  * claude's own `auth logout` inside that profile's config dir, codex's
  * credential file deleted (never `codex logout`). The ACCOUNT is untouched.
- * The ambient login (`system`) is taken too. Gated on BOTH
+ * Gated on BOTH
  * [SteerDevice.canAgentLogin] and [SteerDevice.canSignOutAccount].
  */
 fun agentProfileSignOutCommand(deviceId: String, agent: String, profileId: String): JsonObject =

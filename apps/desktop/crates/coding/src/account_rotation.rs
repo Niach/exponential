@@ -117,19 +117,15 @@ impl UsageWindows {
 /// One account profile of one agent on this device, with its usage.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProfileUsage {
-    /// A device-local profile id (`system` = the ambient login).
+    /// A device-local profile id.
     pub profile_id: String,
     pub agent: CodingAgent,
     pub signed_in: bool,
     pub health: Health,
     pub windows: UsageWindows,
-    /// The profile's own label (`Default`, `Work`) — what the devices row
-    /// shows. Rides every message that leaves the device; never a decision
-    /// input.
-    pub label: String,
-    /// The login's email when the probe named one. Local only: the run's
-    /// own switch note and this device's log lines.
-    pub email: Option<String>,
+    /// What every surface calls the login (`accountName`: its email, else
+    /// its plan). Never a decision input.
+    pub name: String,
 }
 
 impl ProfileUsage {
@@ -137,10 +133,9 @@ impl ProfileUsage {
         self.agent == agent && self.signed_in && self.health == Health::Ok
     }
 
-    /// What a person on THIS device calls the login: the email when known,
-    /// else the label.
+    /// What a person calls the login.
     fn local_name(&self) -> &str {
-        self.email.as_deref().unwrap_or(&self.label)
+        &self.name
     }
 
     /// The ordering key — lowest 5h percent, then weekly, then the model
@@ -387,13 +382,12 @@ pub fn weigh_live_runs(
 /// What the start pick changed, for the log line and the run note.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StartPick {
-    /// The profile the launch named (`system` for the ambient login).
+    /// The profile the launch named.
     pub from: String,
     /// The profile it runs on instead.
     pub to: String,
-    pub to_label: String,
-    /// One sentence: which account, why (the log line and the run note) —
-    /// profile labels only.
+    pub to_name: String,
+    /// One sentence: which account, why (the log line and the run note).
     pub message: String,
 }
 
@@ -406,7 +400,7 @@ impl StartPick {
 }
 
 /// The pick for a launch on `agent`/`model` whose options name `account`
-/// (`None` = the ambient login), off the usage cache. `None` = the launch's
+/// (`None` = unpinned), off the usage cache. `None` = the launch's
 /// own account stands: rotation is off, the agent never rotates, no
 /// eligible profile has more headroom, or the launch's account IS the pick.
 ///
@@ -415,10 +409,7 @@ impl StartPick {
 /// — keeps it unless that login is WALLED (spent on a
 /// window the run would draw on); "less headroom" never overrides a person's
 /// choice. Only an unpinned launch (`None`, or [`start_pick_from`] told so)
-/// goes to the most headroom. The
-/// ambient login rides as `None` on every path (`LaunchOptions::defaults`,
-/// `AccountOption::wire_account`), so an explicit pick of it is not told
-/// apart from no pick and reads as unpinned.
+/// goes to the most headroom.
 ///
 /// The launch's own account is listed FIRST, so a tie keeps it.
 pub fn start_pick(
@@ -429,7 +420,7 @@ pub fn start_pick(
     account: Option<&str>,
     now_ms: i64,
 ) -> Option<StartPick> {
-    let pinned = !crate::agent_profiles::is_system(account);
+    let pinned = !crate::agent_profiles::is_unpinned(account);
     start_pick_from(profiles, auto_rotate, agent, model, account, pinned, now_ms)
 }
 
@@ -467,18 +458,18 @@ pub fn start_pick_from(
         let (key, window) = spent_window(own, model, now_ms);
         format!(
             "{} hit its {} limit{}",
-            own.label,
+            own.name,
             window_label(key),
             until_suffix(window.and_then(|w| w.resets_at))
         )
     } else {
-        format!("{} has less headroom", own.label)
+        format!("{} has less headroom", own.name)
     };
-    let message = format!("Starting on {} — {reason}", target.label);
+    let message = format!("Starting on {} — {reason}", target.name);
     Some(StartPick {
         from,
         to: to.clone(),
-        to_label: target.label.clone(),
+        to_name: target.name.clone(),
         message,
     })
 }
@@ -497,10 +488,10 @@ pub fn apply_start_pick(
     model: Option<&str>,
     now_ms: i64,
 ) -> Option<StartPick> {
-    let pinned = named && !crate::agent_profiles::is_system(account.as_deref());
+    let pinned = named && !crate::agent_profiles::is_unpinned(account.as_deref());
     let pick =
         start_pick_from(profiles, auto_rotate, agent, model, account.as_deref(), pinned, now_ms)?;
-    *account = (!crate::agent_profiles::is_system(Some(&pick.to))).then(|| pick.to.clone());
+    *account = Some(pick.to.clone());
     Some(pick)
 }
 
@@ -558,7 +549,7 @@ pub struct WalledRun {
     /// must follow the chain, not the row.
     pub chain_key: String,
     pub agent: CodingAgent,
-    /// The profile the run is ON (`system` for the ambient login).
+    /// The profile the run is ON.
     pub account: String,
     /// The model the run spends (the run registry's), for the model window.
     pub model: Option<String>,
@@ -614,7 +605,7 @@ pub enum Decision {
     /// resume's own first message.
     Switch {
         target: String,
-        target_label: String,
+        target_name: String,
         prompt: String,
     },
     /// No profile has headroom on the window the run hit: stay walled until
@@ -892,7 +883,6 @@ impl RotationTracker {
         ) {
             Some(target) => {
                 let to = profiles.iter().find(|profile| profile.profile_id == target);
-                let target_label = to.map(|profile| profile.label.clone()).unwrap_or_else(|| target.clone());
                 let target_name = to.map(|profile| profile.local_name().to_string()).unwrap_or_else(|| target.clone());
                 state.rotations.retain(|at| now_ms - *at < ROTATION_WINDOW_MS);
                 state.rotations.push(now_ms);
@@ -902,7 +892,7 @@ impl RotationTracker {
                 Decision::Switch {
                     prompt: switch_prompt(&from_name, &target_name, &run.window, run.resets_at_ms),
                     target,
-                    target_label,
+                    target_name,
                 }
             }
             None => {
@@ -1057,8 +1047,7 @@ mod tests {
                 }),
                 model: BTreeMap::new(),
             },
-            label: id.to_string(),
-            email: Some(format!("{id}@example.com")),
+            name: format!("{id}@example.com"),
         }
     }
 
@@ -1129,32 +1118,42 @@ mod tests {
         let live = |pairs: &[(&str, u32)]| -> BTreeMap<String, u32> {
             pairs.iter().map(|(id, runs)| (id.to_string(), *runs)).collect()
         };
+        // `None` = an unpinned launch starting from the home login.
         let pick = |profiles: Vec<ProfileUsage>, live: &BTreeMap<String, u32>, account: Option<&str>| {
             let weighed = weigh_live_runs(profiles, live, NOW);
-            start_pick(&weighed, true, CodingAgent::Claude, None, account, NOW).map(|pick| pick.to)
+            start_pick_from(
+                &weighed,
+                true,
+                CodingAgent::Claude,
+                None,
+                Some(account.unwrap_or("home")),
+                account.is_some(),
+                NOW,
+            )
+            .map(|pick| pick.to)
         };
-        // Equal cached usage, one run live on the ambient login: the next
+        // Equal cached usage, one run live on the home login: the next
         // unpinned start goes to the other one.
-        let both = || vec![profile("system", 40, 10), profile("work", 45, 10)];
+        let both = || vec![profile("home", 40, 10), profile("work", 45, 10)];
         assert_eq!(pick(both(), &live(&[]), None), None);
-        assert_eq!(pick(both(), &live(&[("system", 1)]), None).as_deref(), Some("work"));
+        assert_eq!(pick(both(), &live(&[("home", 1)]), None).as_deref(), Some("work"));
         // ...and stays put once both carry one.
-        assert_eq!(pick(both(), &live(&[("system", 1), ("work", 1)]), None), None);
+        assert_eq!(pick(both(), &live(&[("home", 1), ("work", 1)]), None), None);
         // A pinned launch keeps its busy login: busy is never walled.
         assert_eq!(pick(both(), &live(&[("work", 9)]), Some("work")), None);
         // A lone login takes every run, however many it carries.
-        let alone = weigh_live_runs(vec![profile("system", 40, 10)], &live(&[("system", 20)]), NOW);
+        let alone = weigh_live_runs(vec![profile("home", 40, 10)], &live(&[("home", 20)]), NOW);
         assert_eq!(alone[0].windows.session.as_ref().unwrap().percent, 99);
         assert_eq!(
             pick_start_account(&alone, CodingAgent::Claude, None, NOW).as_deref(),
-            Some("system")
+            Some("home")
         );
         // A walled login stays walled, and a passed reset counts from zero.
-        let mut spent = profile("system", 100, 10);
-        let kept = weigh_live_runs(vec![spent.clone()], &live(&[("system", 1)]), NOW);
+        let mut spent = profile("home", 100, 10);
+        let kept = weigh_live_runs(vec![spent.clone()], &live(&[("home", 1)]), NOW);
         assert_eq!(kept[0].windows.session.as_ref().unwrap().percent, 100);
         spent.windows.session.as_mut().unwrap().resets_at = Some(NOW - 1);
-        let reopened = weigh_live_runs(vec![spent], &live(&[("system", 2)]), NOW);
+        let reopened = weigh_live_runs(vec![spent], &live(&[("home", 2)]), NOW);
         assert_eq!(reopened[0].windows.session.as_ref().unwrap().effective_percent(NOW), 20);
     }
 
@@ -1270,30 +1269,29 @@ mod tests {
 
     #[test]
     fn start_pick_keeps_the_launch_account_on_a_tie_and_says_why_it_moved() {
-        let profiles = vec![profile("system", 20, 10), profile("b", 20, 10)];
-        assert_eq!(start_pick(&profiles, true, CodingAgent::Claude, None, None, NOW), None);
+        let profiles = vec![profile("home", 20, 10), profile("b", 20, 10)];
+        assert_eq!(start_pick_from(&profiles, true, CodingAgent::Claude, None, Some("home"), false, NOW), None);
         // Off, or codex: nothing.
-        assert_eq!(start_pick(&profiles, false, CodingAgent::Claude, None, None, NOW), None);
-        assert_eq!(start_pick(&profiles, true, CodingAgent::Codex, None, None, NOW), None);
+        assert_eq!(start_pick_from(&profiles, false, CodingAgent::Claude, None, Some("home"), false, NOW), None);
+        assert_eq!(start_pick_from(&profiles, true, CodingAgent::Codex, None, Some("home"), false, NOW), None);
         // The default is walled: move, and say so.
-        let walled = vec![profile("system", 100, 10), profile("b", 20, 10)];
-        let pick = start_pick(&walled, true, CodingAgent::Claude, None, None, NOW).unwrap();
-        assert_eq!(pick.from, "system");
+        let walled = vec![profile("home", 100, 10), profile("b", 20, 10)];
+        let pick = start_pick_from(&walled, true, CodingAgent::Claude, None, Some("home"), false, NOW).unwrap();
+        assert_eq!(pick.from, "home");
         assert_eq!(pick.to, "b");
-        // Labels, never emails.
-        assert!(pick.run_note().starts_with("Note: Exponential moved this run to another account before it started — Starting on b"), "{}", pick.run_note());
-        assert!(pick.message.starts_with("Starting on b — system hit its 5h limit"), "{}", pick.message);
-        assert!(!pick.message.contains("@example.com"), "{}", pick.message);
+        // Named by email.
+        assert!(pick.run_note().starts_with("Note: Exponential moved this run to another account before it started — Starting on b@example.com"), "{}", pick.run_note());
+        assert!(pick.message.starts_with("Starting on b@example.com — home@example.com hit its 5h limit"), "{}", pick.message);
         // Less headroom, not walled, UNPINNED: move too (most headroom).
-        let less = vec![profile("system", 60, 10), profile("b", 20, 10)];
-        let pick = start_pick(&less, true, CodingAgent::Claude, None, None, NOW).unwrap();
+        let less = vec![profile("home", 60, 10), profile("b", 20, 10)];
+        let pick = start_pick_from(&less, true, CodingAgent::Claude, None, Some("home"), false, NOW).unwrap();
         assert!(pick.message.ends_with("has less headroom"), "{}", pick.message);
-        // Applied: the ambient login becomes `None`, a profile its id.
+        // Applied: the account becomes the pick's id.
         let mut account = Some("b".to_string());
-        let back = vec![profile("b", 100, 10), profile("system", 5, 5)];
+        let back = vec![profile("b", 100, 10), profile("home", 5, 5)];
         let pick = apply_start_pick(&mut account, true, &back, true, CodingAgent::Claude, None, NOW).unwrap();
-        assert_eq!(pick.to, "system");
-        assert_eq!(account, None);
+        assert_eq!(pick.to, "home");
+        assert_eq!(account.as_deref(), Some("home"));
     }
 
     /// EXP-1107 (owner decision): a launch that NAMES its account keeps it
@@ -1301,7 +1299,7 @@ mod tests {
     /// still goes to the most headroom.
     #[test]
     fn a_pinned_account_moves_only_when_walled() {
-        let profiles = vec![profile("system", 5, 5), profile("work", 90, 10)];
+        let profiles = vec![profile("home", 5, 5), profile("work", 90, 10)];
         // Pinned, open, far less headroom: kept, nothing rewritten.
         assert_eq!(start_pick(&profiles, true, CodingAgent::Claude, None, Some("work"), NOW), None);
         let mut account = Some("work".to_string());
@@ -1309,13 +1307,13 @@ mod tests {
         assert_eq!(account.as_deref(), Some("work"));
         // The SAME profile unpinned goes to the most headroom.
         let pick = apply_start_pick(&mut account, false, &profiles, true, CodingAgent::Claude, None, NOW).unwrap();
-        assert_eq!(pick.to, "system");
-        assert_eq!(account, None);
+        assert_eq!(pick.to, "home");
+        assert_eq!(account.as_deref(), Some("home"));
         // Pinned and walled on the 5h window: moved, and said why.
-        let walled = vec![profile("system", 5, 5), profile("work", 100, 10)];
+        let walled = vec![profile("home", 5, 5), profile("work", 100, 10)];
         let pick = start_pick(&walled, true, CodingAgent::Claude, None, Some("work"), NOW).unwrap();
-        assert_eq!(pick.to, "system");
-        assert!(pick.message.contains("work hit its 5h limit"), "{}", pick.message);
+        assert_eq!(pick.to, "home");
+        assert!(pick.message.contains("work@example.com hit its 5h limit"), "{}", pick.message);
         // Walled on the MODEL window the run needs: moved; another model's
         // run keeps the pin.
         let mut fable_spent = profile("work", 10, 10);
@@ -1323,21 +1321,20 @@ mod tests {
             .windows
             .model
             .insert("fable".into(), Window { percent: 100, resets_at: Some(NOW + 1000) });
-        let model_walled = vec![profile("system", 50, 50), fable_spent];
+        let model_walled = vec![profile("home", 50, 50), fable_spent];
         assert_eq!(
             start_pick(&model_walled, true, CodingAgent::Claude, Some("fable"), Some("work"), NOW)
                 .map(|pick| pick.to)
                 .as_deref(),
-            Some("system")
+            Some("home")
         );
         assert_eq!(start_pick(&model_walled, true, CodingAgent::Claude, Some("opus"), Some("work"), NOW), None);
         // Unpinned: most headroom, as before.
-        let unpinned = vec![profile("system", 90, 10), profile("work", 5, 5)];
-        let pick = start_pick(&unpinned, true, CodingAgent::Claude, None, None, NOW).unwrap();
+        let unpinned = vec![profile("home", 90, 10), profile("work", 5, 5)];
+        let pick = start_pick_from(&unpinned, true, CodingAgent::Claude, None, Some("home"), false, NOW).unwrap();
         assert_eq!(pick.to, "work");
-        // `system` named explicitly rides as the ambient login: unpinned.
-        let pick = start_pick(&unpinned, true, CodingAgent::Claude, None, Some("system"), NOW).unwrap();
-        assert_eq!(pick.to, "work");
+        // The retired `system` is an unpinned slot.
+        assert_eq!(start_pick(&unpinned, true, CodingAgent::Claude, None, Some("system"), NOW), None);
     }
 
     fn walled_on(chain: &str, account: &str) -> WalledRun {

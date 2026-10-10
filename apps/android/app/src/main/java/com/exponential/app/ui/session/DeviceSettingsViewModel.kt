@@ -5,7 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.DeviceCommandDto
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DevicesApi
-import com.exponential.app.data.api.SYSTEM_PROFILE_ID
+import com.exponential.app.data.api.agentImportCommand
 import com.exponential.app.data.api.agentLoginCodeCommand
 import com.exponential.app.data.api.agentLoginCommand
 import com.exponential.app.data.api.agentUpdateCommand
@@ -56,21 +56,23 @@ sealed interface DeviceCommandUiState {
 
 /**
  * WHICH sign-in a login slot belongs to: device × agent × login, the
- * [accountCommandKey] shape. A new profile has no id yet, so its asked-for
- * label names it; neither = the ambient login. Keyed this finely because a
- * login's poll (up to 90s) outlives its sheet: keyed per agent alone, an
- * abandoned sign-in on one machine landed its link in another machine's sheet.
+ * [accountCommandKey] shape; no intended profile (Add account) = `new`. Keyed
+ * this finely because a login's poll (up to 90s) outlives its sheet: keyed per
+ * agent alone, an abandoned sign-in on one machine landed its link in another
+ * machine's sheet.
  */
 internal fun agentLoginSlot(
     deviceId: String,
     agent: String,
     profileId: String?,
-    newProfileLabel: String? = null,
 ): String = accountCommandKey(
     deviceId,
     agent,
-    profileId ?: newProfileLabel?.let { "new:$it" } ?: SYSTEM_PROFILE_ID,
+    profileId?.trim()?.takeIf { it.isNotEmpty() } ?: ADD_ACCOUNT_SLOT,
 )
+
+/** [agentLoginSlot]'s login part for an "Add account" sign-in. */
+private const val ADD_ACCOUNT_SLOT = "new"
 
 /**
  * One sign-in's command key in [DeviceSettingsViewModel.commandStates]
@@ -82,8 +84,7 @@ fun agentLoginCommandKey(
     deviceId: String,
     agent: String,
     profileId: String?,
-    newProfileLabel: String? = null,
-): String = LOGIN_KEY_PREFIX + agentLoginSlot(deviceId, agent, profileId, newProfileLabel)
+): String = LOGIN_KEY_PREFIX + agentLoginSlot(deviceId, agent, profileId)
 
 /**
  * The same sign-in's CODE command key (EXP-765). Its own prefix keeps the
@@ -94,8 +95,10 @@ fun agentLoginCodeCommandKey(
     deviceId: String,
     agent: String,
     profileId: String?,
-    newProfileLabel: String? = null,
-): String = LOGIN_CODE_KEY_PREFIX + agentLoginSlot(deviceId, agent, profileId, newProfileLabel)
+): String = LOGIN_CODE_KEY_PREFIX + agentLoginSlot(deviceId, agent, profileId)
+
+/** One import (`agent_login` with `import`) command's key; its result is plain text. */
+fun agentImportCommandKey(deviceId: String, agent: String): String = "import:$deviceId:$agent"
 
 /** One `agent_update` command's key in [DeviceSettingsViewModel.commandStates] (EXP-1196). */
 fun agentUpdateCommandKey(deviceId: String, agent: String): String = "update:$deviceId:$agent"
@@ -297,29 +300,32 @@ class DeviceSettingsViewModel @Inject constructor(
         switchAccount: Boolean,
         deviceOnline: Boolean,
         /**
-         * EXP-827/EXP-849: WHICH login on the machine this lands on — one of
-         * `agentAccounts[agent].profiles` (`system` = the ambient login). Null
-         * = the ambient one. The command KEY is per device × agent × login
-         * ([agentLoginCommandKey]), so an abandoned sign-in's late result never
-         * lands in another sheet.
+         * The login this sign-in is FOR — one of `agentAccounts[agent].profiles`;
+         * null = "Add account". The device lands it on the profile its email
+         * names either way; this only tells a duplicate apart. The command KEY
+         * is per device × agent × login ([agentLoginCommandKey]), so an
+         * abandoned sign-in's late result never lands in another sheet.
          */
         profileId: String? = null,
-        /**
-         * EXP-862 "Add account": the machine CREATES a profile under this
-         * label and runs the login inside it, instead of signing into one it
-         * already holds. Mutually exclusive with [profileId].
-         */
-        newProfileLabel: String? = null,
     ) {
         issueCommand(
-            key = agentLoginCommandKey(deviceId, agent, profileId, newProfileLabel),
-            command = agentLoginCommand(
-                deviceId,
-                agent,
-                switchAccount,
-                profileId,
-                newProfileLabel,
-            ),
+            key = agentLoginCommandKey(deviceId, agent, profileId),
+            command = agentLoginCommand(deviceId, agent, switchAccount, profileId),
+            deviceOnline = deviceOnline,
+        )
+    }
+
+    /**
+     * The readiness block's `import` pill (after its confirm): the machine
+     * MOVES [agent]'s ambient login into a profile (`agent_login` with
+     * `import`). Keyed per device × agent ([agentImportCommandKey]); the
+     * device answers with a plain sentence, and the new login rides the next
+     * heartbeat.
+     */
+    fun agentImport(deviceId: String, agent: String, deviceOnline: Boolean) {
+        issueCommand(
+            key = agentImportCommandKey(deviceId, agent),
+            command = agentImportCommand(deviceId, agent),
             deviceOnline = deviceOnline,
         )
     }
@@ -338,10 +344,9 @@ class DeviceSettingsViewModel @Inject constructor(
         deviceOnline: Boolean,
         /** The sign-in this code belongs to — the same login [agentLogin] targeted. */
         profileId: String? = null,
-        newProfileLabel: String? = null,
     ) {
         issueCommand(
-            key = agentLoginCodeCommandKey(deviceId, agent, profileId, newProfileLabel),
+            key = agentLoginCodeCommandKey(deviceId, agent, profileId),
             command = agentLoginCodeCommand(deviceId, agent, code),
             deviceOnline = deviceOnline,
         )

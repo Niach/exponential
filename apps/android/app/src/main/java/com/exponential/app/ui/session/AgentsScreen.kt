@@ -280,17 +280,7 @@ fun AgentsScreen(
     // The confirm names the login and the machine and says in the same breath
     // that the account itself survives (the pinned sentence ×4).
     removeTargetAccount?.let { (device, row) ->
-        // EXP-1137: the ambient login's sentence says it is signed out on the
-        // machine (terminal CLI included) and hidden.
-        val text = if (AgentAccountsRows.isAmbient(row.profileId)) {
-            AgentAccountsRows.removeAmbientAccountConfirm(
-                AgentAccountsRows.loginLabel(row),
-                device.displayLabel,
-                agentLabel(row.agent),
-            )
-        } else {
-            AgentAccountsRows.removeAccountConfirm(AgentAccountsRows.loginLabel(row), device.displayLabel)
-        }
+        val text = AgentAccountsRows.removeAccountConfirm(AgentAccountsRows.loginLabel(row), device.displayLabel)
         AccountConfirmDialog(
             // The question form of the menu label, as web/iOS ask it.
             title = "${AgentAccountsRows.ACTION_REMOVE}?",
@@ -304,15 +294,13 @@ fun AgentsScreen(
         )
     }
 
-    // EXP-1137: "Sign out" — the machine signs the login out and keeps the
-    // row; the machine's own login names the terminal CLI that goes with it.
+    // EXP-1137: "Sign out" — the machine signs the login out and keeps the row.
     signOutTargetAccount?.let { (device, row) ->
         AccountConfirmDialog(
             title = "${AgentAccountsRows.ACTION_SIGN_OUT}?",
             text = AgentAccountsRows.signOutConfirm(
                 AgentAccountsRows.loginLabel(row),
                 device.displayLabel,
-                if (AgentAccountsRows.isAmbient(row.profileId)) agentLabel(row.agent) else null,
             ),
             confirmLabel = "Sign out",
             onConfirm = {
@@ -326,23 +314,14 @@ fun AgentsScreen(
     // EXP-862/EXP-909: "Add account" — pick the agent to sign in on THIS
     // machine, then hand off to the sign-in sheet, which is the ONE place a
     // login renders on this client. The machine is no longer a pick: the row
-    // the control sits under already named it.
+    // the control sits under already named it. No intended profile: the login
+    // lands on whichever profile its email names (a new email adds one).
     addAccountDevice?.let { device ->
         AddAccountSheet(
             device = device,
             onPick = { agent ->
                 addAccountDevice = null
-                val target = AgentAccountsRows.addAccountLoginTarget(
-                    device,
-                    agent,
-                    AgentAccountsRows.nextProfileLabel(device, agent, agentLabel(agent)),
-                )
-                loginTarget = AgentLoginTarget(
-                    device = device,
-                    agent = agent,
-                    profileId = target.profileId,
-                    newProfileLabel = target.newProfileLabel,
-                )
+                loginTarget = AgentLoginTarget(device = device, agent = agent)
             },
             onDismiss = { addAccountDevice = null },
         )
@@ -358,8 +337,7 @@ fun AgentsScreen(
 }
 
 /**
- * The pinned confirms ×4 — see [AgentAccountsRows.removeAccountConfirm],
- * [AgentAccountsRows.removeAmbientAccountConfirm] and
+ * The pinned confirms ×4 — see [AgentAccountsRows.removeAccountConfirm] and
  * [AgentAccountsRows.signOutConfirm]: a destructive account entry never fires
  * straight off a menu row.
  */
@@ -803,7 +781,7 @@ private fun DeviceLoginRow(
     canRemove: Boolean,
     /** …and `agent-login`, which a removal needs as well. */
     canAgentLogin: Boolean,
-    /** EXP-1137: …and `account-sign-out`, for the sign-out and the ambient removal. */
+    /** EXP-1137: …and `account-sign-out`, for the sign-out. */
     canSignOut: Boolean,
     state: DeviceCommandUiState?,
     onRemove: () -> Unit,

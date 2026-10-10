@@ -5,7 +5,8 @@ import SwiftUI
 // EXP-1196/1218/1219: THE device readiness block (contract fixture
 // `device-doctor.json`, row model `DeviceReadiness` in ExpCore). Groups are
 // filled bands over flat hairline-divided rows: state glyph, label, the
-// device-written detail, at most ONE trailing pill. The `computer_use` item
+// device-written detail, at most ONE trailing action pill (an agent row with
+// an ambient login adds the plain Import pill before it). The `computer_use` item
 // IS a plain switch row. No subtitles, no footers. EXP-1236: the block form
 // may close the switch's band with the Computer use model picker row, drawn
 // only while the switch is on (the host binds it beside the switch).
@@ -27,18 +28,21 @@ struct DeviceReadinessView: View {
     private let computerUseModel: Binding<String>?
     private let busyActions: Set<String>
     private let onAction: (DeviceReadiness.Row) -> Void
+    /// The Import pill's tap (the host confirms first); nil = no Import pill.
+    private let onImport: ((DeviceReadiness.Row) -> Void)?
 
     /// The whole block. `computerUse` drives the switch row (nil = read-only
     /// at the report's state); `computerUseModel` (EXP-1236) adds the model
     /// picker as the switch band's last row while the switch is on (nil = no
-    /// row); `busyActions` = row keys whose action is in flight (their pill
-    /// disables).
+    /// row); `busyActions` = row keys whose action is in flight (their pills
+    /// disable); `onImport` = the Import pill's tap (nil = none).
     init(
         groups: [DeviceReadiness.Group],
         computerUse: Binding<Bool>? = nil,
         computerUseModel: Binding<String>? = nil,
         busyActions: Set<String> = [],
-        onAction: @escaping (DeviceReadiness.Row) -> Void
+        onAction: @escaping (DeviceReadiness.Row) -> Void,
+        onImport: ((DeviceReadiness.Row) -> Void)? = nil
     ) {
         content = .block(groups)
         showsActions = true
@@ -46,13 +50,15 @@ struct DeviceReadinessView: View {
         self.computerUseModel = computerUseModel
         self.busyActions = busyActions
         self.onAction = onAction
+        self.onImport = onImport
     }
 
-    /// One row with its action (the composer).
+    /// One row with its action and Import pill (the composer).
     init(
         row: DeviceReadiness.Row,
         busy: Bool = false,
-        onAction: @escaping (DeviceReadiness.Row) -> Void
+        onAction: @escaping (DeviceReadiness.Row) -> Void,
+        onImport: ((DeviceReadiness.Row) -> Void)? = nil
     ) {
         content = .rows([row])
         showsActions = true
@@ -60,6 +66,7 @@ struct DeviceReadinessView: View {
         computerUseModel = nil
         busyActions = busy ? [row.key] : []
         self.onAction = onAction
+        self.onImport = onImport
     }
 
     /// Bare rows, no pills (device setup).
@@ -70,6 +77,7 @@ struct DeviceReadinessView: View {
         computerUseModel = nil
         busyActions = []
         onAction = { _ in }
+        onImport = nil
     }
 
     var body: some View {
@@ -180,6 +188,15 @@ struct DeviceReadinessView: View {
                     .truncationMode(.middle)
             }
             Spacer(minLength: 8)
+            if showsActions, let onImport, row.importEmail != nil {
+                GlassPill(
+                    DeviceReadiness.actions[DeviceReadiness.importAction]?.label ?? "Import",
+                    mode: .action { onImport(row) },
+                    primary: false,
+                    enabled: !busyActions.contains(row.key)
+                )
+                .accessibilityIdentifier("device-readiness-action-import-\(row.key)")
+            }
             if showsActions, let action = row.action, let label = row.actionLabel {
                 GlassPill(
                     label,

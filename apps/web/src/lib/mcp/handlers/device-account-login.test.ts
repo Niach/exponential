@@ -5,8 +5,8 @@ import {
   type DeviceCommandRow,
 } from "./device-account-login"
 
-// EXP-1199: the MCP half of a remote sign-in — the target rule shared with
-// every client's Add account, the bounded wait on the device's early answer,
+// EXP-1199: the MCP half of a remote sign-in — the same command as every
+// client's Add account / Sign in, the bounded wait on the device's early answer,
 // and the code hand-off.
 
 const URL_RESULT = JSON.stringify({
@@ -16,14 +16,10 @@ const URL_RESULT = JSON.stringify({
   profileId: `a1b2c3d4`,
 })
 
-function deps(
-  answers: Array<Partial<DeviceCommandRow>>,
-  accounts: unknown = { claude: { signedIn: true, profiles: [{ id: `system`, signedIn: true }] } }
-) {
+function deps(answers: Array<Partial<DeviceCommandRow>>) {
   let tick = 0
   const created: unknown[] = []
   const built: DeviceAccountLoginDeps = {
-    loadAccounts: vi.fn(async () => accounts as never),
     createCommand: vi.fn(async (input) => {
       created.push(input)
       return { id: `cmd-1` }
@@ -39,7 +35,7 @@ function deps(
 }
 
 describe(`deviceAccountLogin (EXP-1199)`, () => {
-  it(`adds a NEW profile beside a signed-in default login and returns the URL`, async () => {
+  it(`adds an account with no profile (it lands by email) and returns the URL`, async () => {
     const { built, created } = deps([{}, { status: `done`, result: URL_RESULT }])
     const result = await deviceAccountLogin({ deviceId: `dev`, agent: `claude` }, built)
     expect(created[0]).toEqual({
@@ -47,7 +43,6 @@ describe(`deviceAccountLogin (EXP-1199)`, () => {
       kind: `agent_login`,
       agent: `claude`,
       switch: false,
-      newProfileLabel: `Claude Code account 2`,
     })
     expect(result).toMatchObject({
       status: `url`,
@@ -58,24 +53,10 @@ describe(`deviceAccountLogin (EXP-1199)`, () => {
     })
   })
 
-  it(`signs the default login in while it is still signed out`, async () => {
-    const { built, created } = deps([{ status: `done`, result: URL_RESULT }], {
-      codex: { signedIn: false },
-    })
-    await deviceAccountLogin({ deviceId: `dev`, agent: `codex` }, built)
-    expect(created[0]).toMatchObject({ profileId: `system` })
-  })
-
-  it(`names the new login after name, or re-signs profileId`, async () => {
-    const named = deps([{ status: `done`, result: URL_RESULT }])
-    await deviceAccountLogin({ deviceId: `dev`, agent: `claude`, name: ` Work ` }, named.built)
-    expect(named.created[0]).toMatchObject({ newProfileLabel: `Work` })
+  it(`re-signs profileId`, async () => {
     const resign = deps([{ status: `done`, result: URL_RESULT }])
     await deviceAccountLogin({ deviceId: `dev`, agent: `claude`, profileId: `p1` }, resign.built)
     expect(resign.created[0]).toMatchObject({ profileId: `p1` })
-    await expect(
-      deviceAccountLogin({ deviceId: `dev`, agent: `claude`, name: `a`, profileId: `p1` }, resign.built)
-    ).rejects.toThrow(/not both/)
   })
 
   it(`hands back the commandId when the machine has not answered in time`, async () => {
@@ -117,12 +98,13 @@ describe(`deviceAccountLogin (EXP-1199)`, () => {
     )
     expect(created[0]).toEqual({ deviceId: `dev`, kind: `agent_login_code`, agent: `claude`, code: `abc#123` })
     expect(result).toMatchObject({ status: `signing_in` })
-    expect(built.loadAccounts).not.toHaveBeenCalled()
   })
 
-  it(`refuses a device that is not the caller's`, async () => {
-    const { built } = deps([{}], undefined)
-    built.loadAccounts = vi.fn(async () => undefined)
+  it(`surfaces the server's refusal for a device that is not the caller's`, async () => {
+    const { built } = deps([{}])
+    built.createCommand = vi.fn(async () => {
+      throw new Error(`Device not found`)
+    })
     await expect(deviceAccountLogin({ deviceId: `dev`, agent: `claude` }, built)).rejects.toThrow(
       /Device not found/
     )

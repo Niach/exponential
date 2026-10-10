@@ -25,7 +25,6 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { CLI_DEFAULT_EFFORT } from "@/components/launch-dialog/launch-options-pane"
-import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import {
   accountOptionKey,
   flattenAccounts,
@@ -373,9 +372,9 @@ export function useLaunchOptions({
     (computerUsePick !== null || computerUse !== deviceComputerUseDefault(device))
       ? { computerUse }
       : {}),
-    // EXP-1158: the picked login rides out VERBATIM, `system` included (it
-    // NAMES the ambient login; an absent account = the last used one).
-    ...(pickedOption && pickedOption.agent === agent
+    // EXP-1158: the picked profile rides out VERBATIM; an unpinned option
+    // (id ``) sends none = the machine's last used profile.
+    ...(pickedOption && pickedOption.agent === agent && pickedOption.id
       ? { account: pickedOption.id }
       : {}),
   })
@@ -414,9 +413,10 @@ export function useLaunchOptions({
 }
 
 /** EXP-872: the device's flattened logins, or — for a machine that reports
- * none at all (a build before profiles, a heartbeat not landed yet) — one
- * ambient option per runnable agent, labelled by the agent's name, the
- * device's last used agent first. */
+ * no profile at all (a build before profiles, a heartbeat not landed yet) —
+ * one UNPINNED option (id ``, no `account` sent) per runnable agent,
+ * labelled by the agent's name, the device's last used agent first. A
+ * current machine with no signed-in profile runs no agent, so it gets none. */
 export function accountOptionsOf(
   device: SteerDevice | undefined
 ): AccountOption[] {
@@ -427,7 +427,7 @@ export function accountOptionsOf(
   const preferred = deviceDefaultAgent(device) ?? agents[0]
   return agents
     .map((agent) => ({
-      id: SYSTEM_PROFILE_ID,
+      id: ``,
       agent: agent as AccountOption[`agent`],
       email: agentLabel(agent),
       isLastUsed: agent === preferred,

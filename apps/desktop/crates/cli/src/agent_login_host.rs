@@ -39,20 +39,27 @@
 //! drops it into the [`CodeInbox`] slot the live login registered for its
 //! agent, and the poll loop types it into the PTY on its next tick.
 //!
-//! EXP-827: the payload may name an account PROFILE (`profileId`, an
-//! existing one) or ask for a new one (`newProfileLabel`); the run points
-//! the CLI's config-dir variable at that profile's dir for the logout and
-//! the login (`coding::agent_login::parse_login_payload` +
-//! `resolve_login_profile`), and the published result names the id it
-//! signed into. The doctor re-probe on the way out re-reads the profile
-//! index, so a freshly created profile rides the next heartbeat by itself.
+//! Every login runs in a fresh STAGING dir (`coding::agent_login::
+//! begin_login`) and, once the CLI exits signed in, is COMMITTED into the
+//! profile of the email it signed in as (`commit_login`): a known address
+//! refreshes that profile, a new one adds a profile. The payload's
+//! `profileId` is only the INTENDED profile (the duplicate check); the
+//! requester learns where the login landed off the heartbeat (`lastLoginAt`
+//! moving), since the command already completed with the link. The doctor
+//! re-probe on the way out re-reads the profile index, so a new profile
+//! rides the next heartbeat by itself.
+//!
+//! `import: "true"` moves the machine's AMBIENT login into a profile
+//! (`import_ambient`, the same commit by email) — no PTY at all — and
+//! completes with a plain sentence (`Imported {email}.`, or the
+//! already-added warning).
 
 use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use coding::agent_login::{self, LoginProgress};
+use coding::agent_login::{self, LoginProgress, LoginTarget};
 use coding::{CodingAgent, Settings};
 use steer::agent_login_driver::{observe_login_screen, LoginObservation};
 use terminal::emulator::Emulator;
@@ -132,7 +139,6 @@ pub fn run(
         }
     };
     let agent = request.agent;
-    let switch = request.switch;
     let target = request.target;
 
     // The redelivery gate. Claimed here, on the serialized worker, so two
@@ -155,49 +161,20 @@ pub fn run(
     let thread = std::thread::Builder::new()
         .name("exp-agent-login".to_string())
         .spawn(move || {
-            // EXP-827: the profile this login lands on, created here when
-            // the payload asked for a new one. A refused target (unknown
-            // id) is the completion; nothing is spawned.
-            // The login this run landed on, for the cache drop below (a
-            // refused target never reached one).
-            let mut login_profile: Option<String> = None;
-            let outcome = match agent_login::resolve_login_profile(&data_dir, agent, &target) {
-                Err(message) => Some((false, message)),
-                // EXP-1232: a managed Codex sign-in fetches the pinned build
-                // first; a failed fetch is the completion.
-                Ok(profile_id) => match coding::managed_codex::ensure_for(&settings, &data_dir, agent) {
-                    Err(message) => Some((false, message)),
-                    Ok(()) => {
-                        login_profile = Some(profile_id.clone());
-                        let env = agent_login::login_env(&data_dir, agent, &profile_id);
-                        // EXP-765: the slot the requester's code lands in while
-                        // this login runs. Keyed by agent — one login per agent
-                        // at a time is what the server's pending-dedupe already
-                        // guarantees.
-                        let (code_tx, code_rx) = flume::unbounded::<String>();
-                        if let Ok(mut inbox) = codes.lock() {
-                            inbox.insert(agent.id().to_string(), code_tx.clone());
-                        }
-                        let outcome = drive(
-                            &trpc,
-                            &settings,
-                            agent,
-                            switch,
-                            &profile_id,
-                            env.as_ref(),
-                            &command_id,
-                            &code_rx,
-                        );
-                        if let Ok(mut inbox) = codes.lock() {
-                            // Only OUR slot — a login started after this one
-                            // exited must keep its own.
-                            if inbox.get(agent.id()).is_some_and(|tx| tx.same_channel(&code_tx)) {
-                                inbox.remove(agent.id());
-                            }
-                        }
-                        outcome
-                    }
-                },
+            let outcome = match &target {
+                LoginTarget::Import => Some(match agent_login::import_ambient(&settings, &data_dir, agent) {
+                    Ok(commit) => (true, commit.import_result_text()),
+                    Err(message) => (false, message),
+                }),
+                LoginTarget::Add | LoginTarget::Profile(_) => sign_in(
+                    &trpc,
+                    &settings,
+                    &data_dir,
+                    agent,
+                    target.intended(),
+                    &command_id,
+                    &codes,
+                ),
             };
             if let Some((ok, message)) = outcome {
                 complete_with(&trpc, &command_id, ok, &message);
@@ -205,23 +182,10 @@ pub fn run(
             if let Ok(mut guard) = inflight.lock() {
                 guard.remove(&command_id);
             }
-            // A switch leaves the OLD account cached (email, plan, numbers)
-            // behind its poll backoff — up to 10 minutes of naming the
-            // person who just signed out. Drop the LOGIN's entry so the next
-            // collect asks afresh. EXP-849: the login's, not the agent's —
-            // dropping every profile would blank its siblings' health and
-            // numbers for a sign-in that never touched them. EXP-862: an
-            // entry-less login also skips the rotation queue, so the account
-            // this sign-in created is read on the very next collection pass
-            // rather than after a stagger window. A run that never resolved a
-            // target signed nothing in, so it drops NOTHING: forgetting the
-            // agent there would put every one of its logins on a first read
-            // at once, which is the fan-out the stagger exists to prevent.
-            if let Some(profile) = &login_profile {
-                coding::usage_cache::forget_profile(&data_dir, agent.id(), profile);
-            }
             // Whatever happened, what the machine's agents look like just
-            // changed (or was meant to) — re-probe on the next tick.
+            // changed (or was meant to) — re-probe on the next tick. (A
+            // committed login already dropped ITS usage cache entry, so the
+            // account is read afresh on the very next pass.)
             doctor_soon.store(true, Ordering::SeqCst);
         });
     if let Err(err) = thread {
@@ -233,56 +197,93 @@ pub fn run(
     }
 }
 
-/// Run the login to its end. Returns the completion to post, or `None` when
-/// the command was already completed early (the URL went out).
-///
-/// EXP-827: `profile_id` names the account the login lands on and rides the
-/// published result; `env` is that profile's config-dir pair (`None` for
-/// the ambient login), set on the logout AND the login so both act inside
-/// the same profile dir.
-#[allow(clippy::too_many_arguments)]
+/// One remote sign-in: fetch a managed Codex if needed, run the CLI's login
+/// in a fresh staging dir, and COMMIT it by email once the CLI exits signed
+/// in. Returns the completion still owed, `None` when the command already
+/// completed with the link.
+fn sign_in(
+    trpc: &Arc<api::trpc::TrpcClient>,
+    settings: &Settings,
+    data_dir: &std::path::Path,
+    agent: CodingAgent,
+    intended: Option<&str>,
+    command_id: &str,
+    codes: &CodeInbox,
+) -> Option<(bool, String)> {
+    // EXP-1232: a managed Codex sign-in fetches the pinned build first; a
+    // failed fetch is the completion.
+    if let Err(message) = coding::managed_codex::ensure_for(settings, data_dir, agent) {
+        return Some((false, message));
+    }
+    let (staging, env) = match agent_login::begin_login(data_dir, agent) {
+        Ok(started) => started,
+        Err(message) => return Some((false, message)),
+    };
+    // EXP-765: the slot the requester's code lands in while this login runs.
+    // Keyed by agent — one login per agent at a time is what the server's
+    // pending-dedupe already guarantees.
+    let (code_tx, code_rx) = flume::unbounded::<String>();
+    if let Ok(mut inbox) = codes.lock() {
+        inbox.insert(agent.id().to_string(), code_tx.clone());
+    }
+    let run = drive(trpc, settings, agent, &env, command_id, &code_rx);
+    if let Ok(mut inbox) = codes.lock() {
+        // Only OUR slot — a login started after this one exited must keep
+        // its own.
+        if inbox.get(agent.id()).is_some_and(|tx| tx.same_channel(&code_tx)) {
+            inbox.remove(agent.id());
+        }
+    }
+    if !run.signed_in {
+        agent_login::abandon_login(agent, &staging);
+        return run.completion;
+    }
+    match agent_login::commit_login(settings, data_dir, agent, &staging, intended) {
+        Ok(commit) => {
+            match commit.duplicate_warning() {
+                Some(warning) => log::info!("agent_login: {warning}"),
+                None => log::info!("agent_login: {} signed in ({})", agent.id(), commit.profile_id),
+            }
+            run.completion.map(|(_, message)| (true, message))
+        }
+        Err(message) => {
+            log::warn!("agent_login: the sign-in did not commit: {message}");
+            run.completion.map(|_| (false, message))
+        }
+    }
+}
+
+/// What [`drive`] saw.
+struct DriveOutcome {
+    /// The completion still owed (`None` = completed early with the link).
+    completion: Option<(bool, String)>,
+    /// The CLI exited cleanly: there is a login to commit.
+    signed_in: bool,
+}
+
+/// Run the login to its end, inside the staging dir `env` points the CLI's
+/// config-dir variable at.
 fn drive(
     trpc: &Arc<api::trpc::TrpcClient>,
     settings: &Settings,
     agent: CodingAgent,
-    switch: bool,
-    profile_id: &str,
-    env: Option<&(String, String)>,
+    env: &(String, String),
     command_id: &str,
     code_rx: &flume::Receiver<String>,
-) -> Option<(bool, String)> {
-    // A switch signs OUT first — otherwise every agent CLI here would just
-    // report the account already signed in and exit.
-    //
-    // EXP-849 (interface E): except when signing out would revoke a login
-    // this machine only SHARES — `codex logout` on the ambient login kills it
-    // with OpenAI for every machine using it. That switch is refused here
-    // rather than performed; the fix is a profile.
-    if switch {
-        if let Some(message) = agent_login::switch_logout_blocker(agent, profile_id) {
-            return Some((false, message));
-        }
-        if let Err(err) = agent_login::logout_in(settings, agent, env) {
-            // Not fatal: the login below may still prompt.
-            log::info!("agent_login: sign-out before the switch failed: {err}");
-        }
-    }
-
+) -> DriveOutcome {
     // Always a remote sign-in here (EXP-695): the daemon must never pop a
     // browser on the machine — the requester opens the published link.
     let mut plan = agent_login::login_plan(settings, agent, true);
-    if let Some((key, value)) = env {
-        plan.spawn.env.push((key.clone(), value.clone()));
-    }
+    plan.spawn.env.push(env.clone());
     let mut emulator = Emulator::new(COLS, ROWS);
     let mut pty = match pty::open(&plan.spawn, COLS, ROWS) {
         Ok(pty) => pty,
         Err(err) => {
             log::warn!("agent_login: {} would not start: {err:#}", agent.id());
-            return Some((
-                false,
-                format!("Could not start {} on this machine.", agent.id()),
-            ));
+            return DriveOutcome {
+                completion: Some((false, format!("Could not start {} on this machine.", agent.id()))),
+                signed_in: false,
+            };
         }
     };
     let (wake_tx, wake_rx) = flume::unbounded();
@@ -305,6 +306,7 @@ fn drive(
     // not a real child exit has to kill, or a signed-out `codex login` and
     // its two threads linger on the machine forever.
     let mut exited = false;
+    let mut clean_exit = false;
     loop {
         std::thread::sleep(POLL_INTERVAL);
         // Nobody paints this grid — the wakes exist only to keep the read
@@ -318,7 +320,7 @@ fn drive(
         if !published {
             match observe_login_screen(agent.id(), &lines) {
                 LoginObservation::Url { url, code } => {
-                    let progress = LoginProgress::url(agent, url, code).with_profile(profile_id);
+                    let progress = LoginProgress::url(agent, url, code);
                     complete_with(trpc, command_id, true, &progress.to_result_text());
                     published = true;
                 }
@@ -346,11 +348,12 @@ fn drive(
             pty.writer_write(format!("{code}\r").as_bytes());
         }
 
-        exited = exit_slot
+        let exit = exit_slot
             .as_ref()
-            .and_then(|slot| slot.lock().ok().map(|slot| slot.is_some()))
-            .unwrap_or(false);
-        if exited {
+            .and_then(|slot| slot.lock().ok().and_then(|slot| slot.clone()));
+        if let Some(exit) = exit {
+            exited = true;
+            clean_exit = exit.success;
             break;
         }
         // EOF with no reaped exit: the child closed the PTY (or double-
@@ -369,16 +372,21 @@ fn drive(
         pty.kill();
     }
 
+    let signed_in = clean_exit && failure.is_none();
     if published {
         // Already completed the moment the link appeared.
-        return None;
+        return DriveOutcome { completion: None, signed_in };
     }
     // A failed row's `result` IS the error caption on every client — plain
-    // text, never the JSON the success path publishes.
-    Some((
-        false,
-        failure.unwrap_or_else(|| "The sign-in ended before a link appeared".to_string()),
-    ))
+    // text, never the JSON the success path publishes. (A clean exit with no
+    // link — a login that needed none — is settled by the commit.)
+    DriveOutcome {
+        completion: Some((
+            false,
+            failure.unwrap_or_else(|| "The sign-in ended before a link appeared".to_string()),
+        )),
+        signed_in,
+    }
 }
 
 fn complete(ctx: &Ctx, command_id: &str, ok: bool, message: &str) {
@@ -428,12 +436,12 @@ mod tests {
     }
 
     /// An unknown agent never reaches a PTY, with the sentence the clients
-    /// show verbatim. EXP-827: the same parse
-    /// reads the profile half of the payload: an existing id, a new
-    /// label, or neither (the ambient login).
+    /// show verbatim. The same parse reads the target: Add account, an
+    /// intended profile, or an import (a legacy `newProfileLabel` is read
+    /// past).
     #[test]
     fn only_claude_and_codex_are_runnable_agents() {
-        use coding::agent_login::{parse_login_payload, LoginTarget};
+        use coding::agent_login::parse_login_payload;
         // EXP-849: a retired agent id is simply unknown now.
         assert_eq!(
             parse_login_payload(&serde_json::json!({"agent": "pi", "switch": "false"})),
@@ -443,22 +451,24 @@ mod tests {
         let claude = parse_login_payload(&serde_json::json!({"agent": "claude", "switch": "true"}))
             .unwrap();
         assert_eq!(claude.agent, CodingAgent::Claude);
-        assert!(claude.switch);
-        assert_eq!(claude.target, LoginTarget::System);
+        assert_eq!(claude.target, LoginTarget::Add);
         let codex = parse_login_payload(&serde_json::json!({
             "agent": "codex", "switch": "false", "profileId": "0badf00d"
         }))
         .unwrap();
         assert_eq!(codex.agent, CodingAgent::Codex);
         assert_eq!(codex.target, LoginTarget::Profile("0badf00d".to_string()));
-        let fresh = parse_login_payload(&serde_json::json!({
+        let legacy = parse_login_payload(&serde_json::json!({
             "agent": "claude", "switch": "false", "newProfileLabel": "Work"
         }))
         .unwrap();
-        assert_eq!(fresh.target, LoginTarget::NewProfile("Work".to_string()));
-        // An unknown agent is refused before its profile half is looked at.
+        assert_eq!(legacy.target, LoginTarget::Add);
+        let import = parse_login_payload(&serde_json::json!({"agent": "claude", "import": "true"}))
+            .unwrap();
+        assert_eq!(import.target, LoginTarget::Import);
+        // An unknown agent is refused before its target is looked at.
         assert!(parse_login_payload(&serde_json::json!({
-            "agent": "gemini", "newProfileLabel": "Work"
+            "agent": "gemini", "import": "true"
         }))
         .is_err());
     }

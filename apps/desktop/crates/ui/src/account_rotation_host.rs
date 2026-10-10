@@ -349,11 +349,11 @@ fn act(run: &WalledRun, decision: Decision, cx: &mut App) -> bool {
     match decision {
         Decision::Switch {
             target,
-            target_label,
+            target_name,
             prompt,
         } => {
             log::info!(
-                "account rotation [{}]: switching {} -> {target} ({target_label})",
+                "account rotation [{}]: switching {} -> {target} ({target_name})",
                 run.session_id,
                 run.account
             );
@@ -416,7 +416,7 @@ mod tests {
         .expect("a rate-limit wall");
         assert_eq!(run.model, None);
         assert_eq!(run.chain_key, "/tmp/wt");
-        assert_eq!(run.account, coding::SYSTEM_PROFILE);
+        assert_eq!(run.account, "", "no record names no profile");
         assert_eq!(run.window, "weekly");
         assert!(run.resets_at_ms.is_some());
         // No record: nothing to resume into, so the run is held like a

@@ -177,8 +177,14 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
     /// `agentAccounts[agent].profiles`) — the Account picker offers them
     /// when there are two or more. Decoded LENIENTLY: a profile entry of a
     /// shape this build does not know must not throw the whole accounts map
-    /// away (nil = the device reported none).
+    /// away (nil = the device reported none). These are the ONLY logins a
+    /// client lists: the top-level fields mirror the active one, and no row is
+    /// ever synthesized from them.
     public let profiles: [AgentAccountProfile]?
+    /// The agent CLI's AMBIENT login (~/.claude, ~/.codex), present only
+    /// while it is signed in. Never used for a run: the doctor offers to
+    /// IMPORT it into a profile.
+    public let importable: AgentImportable?
 
     public init(
         signedIn: Bool? = nil,
@@ -186,7 +192,8 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
         plan: String? = nil,
         checkedAt: String? = nil,
         profiles: [AgentAccountProfile]? = nil,
-        health: String? = nil
+        health: String? = nil,
+        importable: AgentImportable? = nil
     ) {
         self.signedIn = signedIn
         self.email = email
@@ -194,10 +201,11 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
         self.checkedAt = checkedAt
         self.profiles = profiles
         self.health = health
+        self.importable = importable
     }
 
     private enum CodingKeys: String, CodingKey {
-        case signedIn, email, plan, checkedAt, profiles, health
+        case signedIn, email, plan, checkedAt, profiles, health, importable
     }
 
     public init(from decoder: Decoder) throws {
@@ -208,17 +216,35 @@ public struct AgentAccount: Decodable, Equatable, Sendable {
         checkedAt = try c.decodeIfPresent(String.self, forKey: .checkedAt)
         profiles = (try? c.decodeIfPresent([AgentAccountProfile].self, forKey: .profiles)) ?? nil
         health = try? c.decodeIfPresent(String.self, forKey: .health)
+        importable = (try? c.decodeIfPresent(AgentImportable.self, forKey: .importable)) ?? nil
+    }
+}
+
+/// The ambient login a machine could import (`agentAccounts[agent].importable`).
+public struct AgentImportable: Decodable, Equatable, Sendable {
+    public let email: String?
+    public let plan: String?
+
+    public init(email: String? = nil, plan: String? = nil) {
+        self.email = email
+        self.plan = plan
+    }
+
+    private enum CodingKeys: String, CodingKey { case email, plan }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        email = try? c.decodeIfPresent(String.self, forKey: .email)
+        plan = try? c.decodeIfPresent(String.self, forKey: .plan)
     }
 }
 
 /// EXP-825: one login profile of an agent on a machine (`id` is what a start
 /// sends as `account`; `active` marks the machine's current login; `email`
-/// names it). Every field but the id optional — the sender's vintage varies.
+/// names it — a profile has no other name). Every field but the id optional
+/// — the sender's vintage varies. A legacy `label` key is ignored.
 public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable {
     public let id: String
-    /// EXP-829: the profile's display name (`Default` for the ambient login
-    /// when the device sent none — `AgentAccountsRows` applies that fallback).
-    public let label: String?
     public let active: Bool?
     /// EXP-829: the profile's OWN sign-in state, plan, probe stamp and usage
     /// report (web `DeviceAgentProfileEntry`). The Accounts section reads one
@@ -232,20 +258,23 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
     /// `AgentAccount.health`, read through
     /// `AgentAccountHealth.resolve(_:signedIn:)`.
     public let health: String?
+    /// When a sign-in or an import last COMMITTED into this profile (ISO
+    /// string, device-stamped) — what a sign-in sheet watches to see its
+    /// login land (`AgentAccountsRows.loginLanding`).
+    public let lastLoginAt: String?
 
     public init(
         id: String,
-        label: String? = nil,
         active: Bool? = nil,
         signedIn: Bool? = nil,
         email: String? = nil,
         plan: String? = nil,
         checkedAt: String? = nil,
         usage: AgentUsage? = nil,
-        health: String? = nil
+        health: String? = nil,
+        lastLoginAt: String? = nil
     ) {
         self.id = id
-        self.label = label
         self.active = active
         self.signedIn = signedIn
         self.email = email
@@ -253,10 +282,11 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
         self.checkedAt = checkedAt
         self.usage = usage
         self.health = health
+        self.lastLoginAt = lastLoginAt
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, label, active, signedIn, email, plan, checkedAt, usage, health
+        case id, active, signedIn, email, plan, checkedAt, usage, health, lastLoginAt
     }
 
     /// Only the id is load-bearing; every other field degrades on its own so
@@ -264,7 +294,6 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
     public init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         id = try c.decode(String.self, forKey: .id)
-        label = try? c.decodeIfPresent(String.self, forKey: .label)
         active = try? c.decodeIfPresent(Bool.self, forKey: .active)
         signedIn = try? c.decodeIfPresent(Bool.self, forKey: .signedIn)
         email = try? c.decodeIfPresent(String.self, forKey: .email)
@@ -272,6 +301,7 @@ public struct AgentAccountProfile: Decodable, Equatable, Sendable, Identifiable 
         checkedAt = try? c.decodeIfPresent(String.self, forKey: .checkedAt)
         usage = try? c.decodeIfPresent(AgentUsage.self, forKey: .usage)
         health = try? c.decodeIfPresent(String.self, forKey: .health)
+        lastLoginAt = try? c.decodeIfPresent(String.self, forKey: .lastLoginAt)
     }
 }
 
@@ -691,11 +721,15 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     public var canRemoveAccount: Bool { caps?.contains("account-remove") == true }
 
     /// EXP-1137: whether this machine runs `agent_profile_sign_out` (sign one
-    /// login out, keep its row) and takes `agent_profile_remove` for its
-    /// AMBIENT login (sign it out and hide the row). Same reasoning as the
-    /// removal: an older build would leave the command pending forever, so
-    /// the chip menu hides both entries instead.
+    /// login out, keep its row). Same reasoning as the removal: an older
+    /// build would leave the command pending forever, so the chip menu hides
+    /// the entry instead.
     public var canSignOutAccount: Bool { caps?.contains("account-sign-out") == true }
+
+    /// Whether this machine takes `agent_login {agent, import: true}` (MOVE
+    /// its ambient login into a profile). The readiness block offers the
+    /// remote Import pill only then; the server refuses it without the cap.
+    public var canImportAgent: Bool { caps?.contains(AgentAccountsRows.importCap) == true }
 
     /// EXP-530: whether this machine runs action triggers locally (watches
     /// its own sync and fires the schedule/event ones bound to it; the cap

@@ -18,20 +18,21 @@ import SwiftUI
 /// link it puts on its own screen (EXP-484). EXP-765 closes the loop for
 /// Claude, whose browser hands an authorization code back to a CLI still
 /// waiting on the machine.
+///
+/// WHERE the login lands is the machine's call, by EMAIL: the profile already
+/// holding the address the person signed in as is refreshed (and only it), a
+/// new address becomes a new profile. Signing in as somebody the machine
+/// already has raises the `alreadyAdded` warning toast.
 struct AgentLoginTarget: Identifiable {
     let deviceId: String
     let deviceLabel: String
     let agent: String
-    /// The EXISTING login to sign in again, `system`/nil for the machine's
-    /// ambient one.
+    /// The login whose Sign in was tapped (the INTENDED profile); nil = "Add
+    /// account". It only decides whether the landing is a duplicate.
     var profileId: String? = nil
-    /// EXP-827: create a new profile with this label first and sign into that
-    /// one ("+ Add account" on a machine whose ambient login is taken). Never
-    /// together with `profileId` — the server refuses that pair.
-    var newProfileLabel: String? = nil
 
     var id: String {
-        "\(deviceId):\(agent):\(profileId ?? newProfileLabel ?? "active")"
+        "\(deviceId):\(agent):\(profileId ?? "new")"
     }
 }
 
@@ -46,6 +47,7 @@ struct AgentLoginSheet: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.toaster) private var toaster
 
     /// The queued `agent_login` command id, while one is in flight.
     @State private var pendingLogin = false
@@ -59,6 +61,9 @@ struct AgentLoginSheet: View {
     @State private var pendingCode = false
     @State private var codeResult: String?
     @State private var started = false
+    /// Every profile's `lastLoginAt` when the command was queued — what a
+    /// landing is measured against (`AgentAccountsRows.loginLanding`).
+    @State private var baseline: [String: String]?
 
     var body: some View {
         GlassSheetChrome(title: "Sign in") {
@@ -88,12 +93,16 @@ struct AgentLoginSheet: View {
             started = true
             queueLogin()
         }
-        // Closes itself on success: the machine re-probes after the login and
-        // its next heartbeat reports the login as signed in — the NEW profile
-        // on the "+ Add account" path, whose ambient flag was already true
-        // (`AgentAccountsRows.loginLanded`).
-        .onChange(of: signedIn) { was, now in
-            if !was, now { finish() }
+        // Closes itself on success: the machine stamps `lastLoginAt` on the
+        // profile the login COMMITTED into and its next heartbeat reports it
+        // (`AgentAccountsRows.loginLanding`). Landing on a login the machine
+        // already had (not the one tapped) says so.
+        .onChange(of: landing) { was, now in
+            guard was == nil, let now else { return }
+            if now.duplicate {
+                toaster.warning(AgentAccountsRows.alreadyAddedToast(now))
+            }
+            finish()
         }
     }
 
@@ -195,15 +204,19 @@ struct AgentLoginSheet: View {
 
     // MARK: - Commands
 
-    /// The machine's live report for the login this sheet is signing in — the
-    /// shared rule, so the "+ Add account" path watches for the NEW profile
-    /// instead of the ambient flag it never changes.
-    private var signedIn: Bool {
-        let device = viewModel.devices?.first { $0.deviceId == target.deviceId }
-        return AgentAccountsRows.loginLanded(
-            account: device?.agentAccounts?[target.agent],
-            profileId: target.profileId,
-            newProfileLabel: target.newProfileLabel
+    /// The machine's live report for this agent.
+    private var liveAccount: AgentAccount? {
+        viewModel.devices?.first { $0.deviceId == target.deviceId }?.agentAccounts?[target.agent]
+    }
+
+    /// Where the login landed, once it has — the shared rule, measured
+    /// against the baseline captured when the command was queued.
+    private var landing: AgentAccountsRows.LoginLanding? {
+        guard let baseline else { return nil }
+        return AgentAccountsRows.loginLanding(
+            account: liveAccount,
+            baseline: baseline,
+            intendedProfileId: target.profileId
         )
     }
 
@@ -222,12 +235,9 @@ struct AgentLoginSheet: View {
         codeResult = nil
         codeDraft = ""
         pendingLogin = true
+        baseline = AgentAccountsRows.loginBaseline(liveAccount)
         Task {
-            let outcome = await run(
-                kind: "agent_login",
-                profileId: target.newProfileLabel == nil ? target.profileId : nil,
-                newProfileLabel: target.newProfileLabel
-            )
+            let outcome = await run(kind: "agent_login", profileId: target.profileId)
             pendingLogin = false
             switch outcome {
             case let .done(result): loginResult = result
@@ -271,8 +281,7 @@ struct AgentLoginSheet: View {
     private func run(
         kind: String,
         code: String? = nil,
-        profileId: String? = nil,
-        newProfileLabel: String? = nil
+        profileId: String? = nil
     ) async -> CommandOutcome {
         do {
             let created = try await deps.devicesApi.createCommand(
@@ -281,8 +290,7 @@ struct AgentLoginSheet: View {
                 kind: kind,
                 agent: target.agent,
                 code: code,
-                profileId: profileId,
-                newProfileLabel: newProfileLabel
+                profileId: profileId
             )
             for _ in 0..<60 {
                 try? await Task.sleep(for: .seconds(2))
@@ -305,9 +313,9 @@ struct AgentLoginSheet: View {
 /// EXP-862/EXP-909: "Add account" — the mobile twin of web's
 /// `AddAccountDialog`, now DEVICE-BOUND: it is opened from the row under ONE
 /// machine, so the machine is decided before the sheet exists and its picker
-/// is gone. Pick the agent, and the login runs there. A machine whose ambient
-/// login is still free takes it; otherwise the machine creates a NEW profile
-/// first (EXP-792's per-agent config dirs) and signs into that one.
+/// is gone. Pick the agent, and the login runs there: the machine signs in
+/// fresh and lands it by email (a new address = a new profile, a known one
+/// refreshes that profile and warns).
 struct AddAccountSheet: View {
     let viewModel: AgentsViewModel
     /// The machine the sign-in lands on — the row that opened this sheet only
@@ -377,21 +385,11 @@ struct AddAccountSheet: View {
             },
             primaryAction: {
                 GlassSubmitButton("Sign in", enabled: !resolvedAgent.isEmpty) {
-                    let agent = resolvedAgent
-                    let account = device.agentAccounts?[agent]
-                    let placement = AgentAccountsRows.addAccountLoginTarget(
-                        account,
-                        label: AgentAccountsRows.nextProfileLabel(
-                            account,
-                            agentLabel: LaunchVocabulary.agentLabel(agent)
-                        )
-                    )
+                    // No intended profile: "Add account" names none.
                     loginTarget = AgentLoginTarget(
                         deviceId: device.deviceId,
                         deviceLabel: LaunchVocabulary.deviceName(device),
-                        agent: agent,
-                        profileId: placement.profileId,
-                        newProfileLabel: placement.newProfileLabel
+                        agent: resolvedAgent
                     )
                 }
             }

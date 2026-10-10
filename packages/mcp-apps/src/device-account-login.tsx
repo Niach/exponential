@@ -1,5 +1,11 @@
 import { useEffect, useRef, useState } from "react"
-import { AgentPicker, Button, Input, conceptIcon } from "@exp/ui"
+import {
+  AgentPicker,
+  Button,
+  DEVICE_READINESS_COPY,
+  Input,
+  conceptIcon,
+} from "@exp/ui"
 import { useMcpActions } from "./actions"
 import {
   ACCOUNT_LOGIN_TOOL,
@@ -8,9 +14,9 @@ import {
   SIGNED_IN,
   SIGNING_IN,
   SIGN_IN_TIMED_OUT,
-  addAccountTarget,
   addableAgents,
-  loginLanded,
+  loginBaseline,
+  loginLanding,
   parseLoginStep,
   type DeviceListRow,
   type LoginTarget,
@@ -28,8 +34,10 @@ const SignInIcon = conceptIcon(`ui-sign-in`)
 // inline under a device, driven by `exponential_devices_account_login`: the
 // machine publishes the sign-in link (+ codex's code), claude's browser code
 // goes back through the same tool, and the view re-reads
-// `exponential_devices_list` until the targeted login lands. Only the link
-// and the typed code travel; the credential stays on the machine.
+// `exponential_devices_list` until a profile's `lastLoginAt` moves (the login
+// lands on the profile with its email; an email the machine already held
+// says `alreadyAdded`). Only the link and the typed code travel; the
+// credential stays on the machine.
 
 /** Re-read the devices while a sign-in is open (hosts allow ~30 calls/min). */
 export const LOGIN_DEVICES_POLL_MS = 5_000
@@ -43,7 +51,7 @@ type Phase =
   | { kind: `waiting` }
   | { kind: `url`; url: string; code: string | null }
   | { kind: `signing` }
-  | { kind: `signed` }
+  | { kind: `signed`; alreadyAdded: string | null }
   | { kind: `failed`; message: string }
 
 /** "Add account" under one of your own machines: pick the agent, then the
@@ -82,7 +90,7 @@ export function AddAccountRow({
         className="h-6 w-fit px-1 text-[11px] text-muted-foreground"
         onClick={() => {
           // One agent: nothing to ask, the sign-in starts at once.
-          if (agents.length === 1) setTarget(addAccountTarget(device, agents[0]))
+          if (agents.length === 1) setTarget({})
           else setOpen(true)
         }}
         data-testid={`add-account-${device.deviceId}`}
@@ -101,7 +109,7 @@ export function AddAccountRow({
         size="sm"
         className="h-6 px-2 text-[11px]"
         disabled={!agent}
-        onClick={() => setTarget(addAccountTarget(device, agent))}
+        onClick={() => setTarget({})}
         data-testid="add-account-continue"
       >
         Continue
@@ -138,9 +146,9 @@ export function AccountLoginFlow({
   const deviceId = device.deviceId
   const machine = device.label || deviceId
   const agentName = DEVICE_AGENT_LABEL[agent] ?? agent
-  // Only a TRANSITION counts (`agent-login-dialog.tsx`): a login that already
-  // read as landed when the flow opened must land again.
-  const landedAtStart = useRef(loginLanded(device, agent, target))
+  // `agent-login-dialog.tsx`: the baseline is captured when the sign-in is
+  // queued (each attempt), and only a `lastLoginAt` that moves past it lands.
+  const baseline = useRef(loginBaseline(device, agent))
 
   // The flow opening IS the sign-in request; a pending answer is checked on
   // by its commandId until the machine publishes the link.
@@ -150,7 +158,7 @@ export function AccountLoginFlow({
       let args: Record<string, unknown> = {
         deviceId,
         agent,
-        ...(`name` in target ? { name: target.name } : { profileId: target.profileId }),
+        ...(target.profileId ? { profileId: target.profileId } : {}),
       }
       for (let n = 0; n < MAX_PENDING_CALLS && live; n += 1) {
         const result = await call(ACCOUNT_LOGIN_TOOL, args)
@@ -175,6 +183,7 @@ export function AccountLoginFlow({
       if (live) setPhase({ kind: `failed`, message: SIGN_IN_TIMED_OUT })
     }
     setPhase({ kind: `waiting` })
+    baseline.current = loginBaseline(device, agent)
     void run()
     return () => {
       live = false
@@ -183,7 +192,7 @@ export function AccountLoginFlow({
   }, [attempt])
 
   // While the link is out (codex lands without a code) or the code is in,
-  // re-read the machines until the targeted login lands.
+  // re-read the machines until the login lands.
   const watching = phase.kind === `url` || phase.kind === `signing`
   useEffect(() => {
     if (!watching) return
@@ -193,10 +202,15 @@ export function AccountLoginFlow({
       if (!live || result.kind !== `ok` || !Array.isArray(result.data)) return
       onDevices(result.data)
       const fresh = result.data.find((row) => row.deviceId === deviceId)
-      if (fresh && loginLanded(fresh, agent, target) && !landedAtStart.current) {
-        setPhase({ kind: `signed` })
+      const landing = fresh ? loginLanding(fresh, agent, baseline.current, target) : null
+      if (landing) {
+        setPhase({
+          kind: `signed`,
+          alreadyAdded: landing.duplicate
+            ? DEVICE_READINESS_COPY.alreadyAdded.replace(`{email}`, landing.email)
+            : null,
+        })
       }
-      if (fresh && !loginLanded(fresh, agent, target)) landedAtStart.current = false
     }
     const timer = setInterval(() => void tick(), LOGIN_DEVICES_POLL_MS)
     return () => {
@@ -248,7 +262,7 @@ export function AccountLoginFlow({
       {phase.kind === `signed` && (
         <p className="flex items-center gap-1.5 text-xs text-foreground">
           <CheckIcon className="size-3.5 shrink-0 text-emerald-500" />
-          {SIGNED_IN}
+          {phase.alreadyAdded ?? SIGNED_IN}
         </p>
       )}
       {phase.kind === `signing` && (

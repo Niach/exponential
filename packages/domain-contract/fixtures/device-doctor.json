@@ -24,6 +24,7 @@
     "install": { "label": "Install", "remote": false },
     "update": { "label": "Update", "remote": true },
     "sign_in": { "label": "Sign in", "remote": true },
+    "import": { "label": "Import", "remote": true },
     "grant": { "label": "Open System Settings", "remote": false }
   },
   "copy": {
@@ -40,7 +41,10 @@
     "notResponding": "Not responding",
     "downloading": "Downloading…",
     "downloadFailed": "Download failed",
-    "needsVersion": "{version} · needs {min}"
+    "needsVersion": "{version} · needs {min}",
+    "importTitle": "Import {email}?",
+    "importBody": "Your login moves into Exponential. Sign in again outside of it.",
+    "alreadyAdded": "{email} was already added. Refreshed it."
   },
   "rules": [
     "The computer_use item IS the switch row: label + switch, no glyph, no detail. Its switch writes launch_defaults.computerUse. state off = switch off; ok/action = on.",
@@ -54,7 +58,9 @@
     "The composer shows, for the picked device + agent when that agent cannot run there, ONLY that agent's row (same row, same action) under the composer; when Git is the failure, the Git row.",
     "The first-run footer shows `continue` (filled) instead of `skip` when Git is ok and at least one agent is runnable; `recheck` always.",
     "A device row with doctor = null (an older build) renders no block; device settings then still shows the bare Computer use switch row (no description) so the switch stays reachable.",
-    "EXP-1232: Codex is a MANAGED download — the device fetches the pinned build on the first sign-in, so its row never reads Not installed and never offers install. No login and no binary = missing · Signed out · sign_in (grey, never a problem; the sign-in fetches). A stored login with the fetch running = action · Downloading… with no pill. A failed fetch = action · Download failed · update (re-fetches; agent_update codex on another device)."
+    "EXP-1232: Codex is a MANAGED download — the device fetches the pinned build on the first sign-in, so its row never reads Not installed and never offers install. No login and no binary = missing · Signed out · sign_in (grey, never a problem; the sign-in fetches). A stored login with the fetch running = action · Downloading… with no pill. A failed fetch = action · Download failed · update (re-fetches; agent_update codex on another device).",
+    "No ambient logins: runs only ever use the device's account profiles (one per email). An agent row whose CLI has an AMBIENT login (~/.claude, ~/.codex) carries `import` = that login's email: it renders an `import` pill BEFORE its action pill (same offer rules; on another device -> agent_login {agent, import: true}, cap agent-import). The pill confirms first: title importTitle, body importBody, buttons Cancel / Import. Import MOVES the login (the ambient one is signed out).",
+    "Every sign-in lands on the profile whose email it signed in as: an email already on the device refreshes THAT profile (and only it) and shows the alreadyAdded warning toast; a new email adds a profile."
   ],
   "cases": [
     {
@@ -133,6 +139,22 @@
       "runnable": ["claude"],
       "localPrimary": "codex",
       "remotePills": { "codex": "update" }
+    },
+    {
+      "name": "claude signed out with an ambient login to import, codex missing",
+      "doctor": {
+        "checkedAt": "2026-10-10T19:00:00.000Z",
+        "items": [
+          { "key": "git", "group": "required", "state": "ok", "detail": "2.55.0" },
+          { "key": "claude", "group": "agents", "state": "action", "detail": "Signed out", "action": "sign_in", "import": "dev@acme.test" },
+          { "key": "codex", "group": "agents", "state": "missing", "detail": "Signed out", "action": "sign_in" },
+          { "key": "computer_use", "group": "computer_use", "state": "off" }
+        ]
+      },
+      "runnable": [],
+      "localPrimary": "claude",
+      "remotePills": { "claude": "sign_in", "codex": "sign_in" },
+      "importPills": { "claude": "dev@acme.test" }
     }
   ]
 }

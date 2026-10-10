@@ -418,9 +418,8 @@ struct ClaudeSession {
     /// two CLIs, the second silently orphaning the first.
     start_gate: tokio::sync::Mutex<()>,
     /// EXP-909: the LOGIN this run spends (`coding::profile_id` of the
-    /// launch's `account`, so `system` = the ambient one). Every live usage
-    /// publish is keyed by it, so a run on a secondary account never moves
-    /// the ambient login's numbers.
+    /// launch's `account`). Every live usage publish is keyed by it, so a run
+    /// on one account never moves another's numbers.
     account_profile: String,
     /// EXP-819: this session's slot in the machine's live usage registry
     /// (`coding::agent_usage::live`), held for the run like codex's. Released

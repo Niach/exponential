@@ -350,7 +350,7 @@ describe(`notifySessionBlocked — the run's owner gets a row and a push that ro
           createdAt: minutesAgo(5),
           deviceId: `dev-1`,
           agent: `claude`,
-          agentAccount: null, // the ambient `system` login
+          agentAccount: null, // an unrecorded account
         },
         {
           createdAt: minutesAgo(5),

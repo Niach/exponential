@@ -2,7 +2,6 @@ package com.exponential.app.domain
 
 import com.exponential.app.data.api.AgentAccount
 import com.exponential.app.data.api.AgentUsage
-import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 
 // EXP-849 phase 3: the MID-SESSION account switch, as the rule the session
 // screen's account rows render.
@@ -21,10 +20,8 @@ import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 
 /** One login the live run could continue under. */
 data class SessionAccountOption(
-    /** What a start sends as `account` (`system` = the machine's ambient login). */
+    /** What a start sends as `account`. */
     val profileId: String,
-    /** The chip label (`Default` for the ambient login when the device sent none). */
-    val label: String,
     val email: String?,
     val plan: String?,
     val signedIn: Boolean,
@@ -35,14 +32,13 @@ data class SessionAccountOption(
      * EXP-909: the login THIS RUN is on — resolved once in
      * [SessionAccountSwitch.options] from the synced `agent_account`, else the
      * machine's reported email, else its active login. Exactly one option ever
-     * carries it, and none does when the run's account is unknowable (which is
-     * NOT the same as "the ambient login").
+     * carries it, and none does when the run's account is unknowable.
      */
     val current: Boolean,
     /** This login's own rate-limit windows, when the machine reported them. */
     val usage: AgentUsage?,
 ) {
-    /** The identity line: the email, else the plan, else the profile label. */
+    /** The identity line: the email, else the plan ([AgentAccountsRows.accountName]). */
     val caption: String get() = AgentAccountsRows.accountName(email, plan)
 }
 
@@ -97,9 +93,8 @@ object SessionAccountSwitch {
 
     /**
      * The logins the session screen lists for the run's [agent] on its host
-     * machine: every profile the machine reported, or the single ambient
-     * account for a pre-profile machine. Empty when the machine said nothing
-     * about the agent — there is then nothing to switch between.
+     * machine: every profile the machine reported. Empty when it reported
+     * none — there is then nothing to switch between.
      *
      * EXP-909: [currentAccount] is the run's synced `coding_sessions.
      * agent_account`, and [activeAccountIndex] marks exactly one option (or
@@ -112,36 +107,17 @@ object SessionAccountSwitch {
     ): List<SessionAccountOption> {
         val id = agent?.takeIf { it.isNotBlank() } ?: return emptyList()
         val account = accounts?.get(id) ?: return emptyList()
-        val profiles = account.profiles.orEmpty()
-        val listed = if (profiles.isEmpty()) {
-            listOf(
-                SessionAccountOption(
-                    profileId = SYSTEM_PROFILE_ID,
-                    label = "Default",
-                    email = account.email?.trim()?.takeIf { it.isNotEmpty() },
-                    plan = account.plan?.trim()?.takeIf { it.isNotEmpty() },
-                    signedIn = account.signedIn,
-                    health = AgentHealthRules.of(account),
-                    active = true,
-                    current = false,
-                    usage = null,
-                ),
+        val listed = account.profiles.orEmpty().filter { it.id.isNotBlank() }.map { profile ->
+            SessionAccountOption(
+                profileId = profile.id,
+                email = profile.email?.trim()?.takeIf { it.isNotEmpty() },
+                plan = profile.plan?.trim()?.takeIf { it.isNotEmpty() },
+                signedIn = profile.signedIn,
+                health = AgentHealthRules.of(profile),
+                active = profile.active,
+                current = false,
+                usage = profile.usage,
             )
-        } else {
-            profiles.map { profile ->
-                SessionAccountOption(
-                    profileId = profile.id,
-                    label = profile.label?.trim()?.takeIf { it.isNotEmpty() }
-                        ?: if (profile.id == SYSTEM_PROFILE_ID) "Default" else profile.id,
-                    email = profile.email?.trim()?.takeIf { it.isNotEmpty() },
-                    plan = profile.plan?.trim()?.takeIf { it.isNotEmpty() },
-                    signedIn = profile.signedIn,
-                    health = AgentHealthRules.of(profile),
-                    active = profile.active,
-                    current = false,
-                    usage = profile.usage,
-                )
-            }
         }
         val index = activeAccountIndex(
             listed,
@@ -162,8 +138,8 @@ object SessionAccountSwitch {
      *     there);
      *  3. else the machine's active login.
      *
-     * -1 = unknown, and unknown is NOT `system`: guessing the ambient login is
-     * exactly the bug EXP-875 §1 was (a run on dennis@ headed danny@, with a
+     * -1 = unknown, and unknown is never guessed: guessing is exactly the bug
+     * EXP-875 §1 was (a run on dennis@ headed danny@, with a
      * stale "Needs re-login" badge borrowed from the wrong account).
      */
     fun activeAccountIndex(
@@ -221,17 +197,10 @@ object SessionAccountSwitch {
     }
 
     /**
-     * What the switch carries as `account` — the picked profile VERBATIM,
-     * `system` included.
-     *
-     * A fresh start omits the ambient login (`system` is the absence of an
-     * account there), but a switch may not: the server reads the PRESENCE of
-     * `account` as "this resume is a switch" and is the only thing that lets a
-     * resume ride a LIVE run, so an omitted field would be refused with "That
-     * run is still live — stop it first, or name an account to continue it on".
-     * `system` is accepted there explicitly and skips the profile-membership
-     * check (web `session-account-switch.tsx` sends the profile id verbatim
-     * too).
+     * What the switch carries as `account` — the picked profile VERBATIM.
+     * Always present: the server reads the PRESENCE of `account` as "this
+     * resume is a switch", the only thing that lets a resume ride a LIVE run
+     * (web `session-account-switch.tsx` sends the profile id verbatim too).
      */
     fun wireAccount(option: SessionAccountOption): String = option.profileId
 }

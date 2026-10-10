@@ -11,9 +11,11 @@ import {
   accountChipActions,
   accountChipLabel,
   agentLoginCodeKey,
+  agentLoginBaseline,
   agentLoginKey,
-  agentLoginLanded,
+  agentLoginLanding,
   agentOfLoginCodeKey,
+  alreadyAddedCopy,
   type AccountChipRow,
 } from "@/components/device-agent-account"
 import type { SteerDevice } from "@/lib/steer-devices"
@@ -22,7 +24,6 @@ function chip(patch: Partial<AccountChipRow> = {}): AccountChipRow {
   return {
     agent: `claude`,
     profileId: `work`,
-    profileLabel: `Work`,
     email: null,
     signedIn: true,
     active: false,
@@ -55,7 +56,7 @@ function device(patch: Partial<SteerDevice> = {}): SteerDevice {
 describe(`accountChipActions`, () => {
   it(`offers the repairs that state allows`, () => {
     // Signed out or expired: the sign-in leads, and (EXP-944) the removal
-    // rides along — a dead named profile is exactly what people want gone.
+    // rides along — a dead profile is exactly what people want gone.
     expect(
       accountChipActions(
         device(),
@@ -65,14 +66,6 @@ describe(`accountChipActions`, () => {
     expect(
       accountChipActions(device(), chip({ health: `needs_relogin` }))
     ).toEqual([ACTION_SIGN_IN, ACTION_REMOVE])
-    // The ambient login stays a sign-in and nothing else on an EXP-862 build:
-    // its config dir is the CLI's own, and that build cannot sign it out.
-    expect(
-      accountChipActions(
-        device(),
-        chip({ profileId: `system`, signedIn: false, health: `signed_out` })
-      )
-    ).toEqual([ACTION_SIGN_IN])
     // Healthy: only the removal, last used or not (EXP-1158: nothing picks
     // the login the machine starts on).
     expect(accountChipActions(device(), chip())).toEqual([ACTION_REMOVE])
@@ -81,7 +74,7 @@ describe(`accountChipActions`, () => {
     ])
   })
 
-  it(`gates each entry on its own cap, and never removes the ambient login without the sign-out body`, () => {
+  it(`gates each entry on its own cap`, () => {
     expect(
       accountChipActions(
         device({ caps: [`agent-login`, `account-remove`] }),
@@ -94,57 +87,28 @@ describe(`accountChipActions`, () => {
         chip()
       )
     ).toEqual([])
-    // The ambient login is the agent CLI's own config dir: an EXP-862 build
-    // cannot sign it out, so nothing is left.
-    expect(
-      accountChipActions(
-        device(),
-        chip({ profileId: `system`, profileLabel: `Default`, active: true })
-      )
-    ).toEqual([])
   })
 
   // EXP-1137: a build with the sign-out body offers "Sign out" on every
-  // signed-in login, and "Remove account" on the ambient one too. The order
-  // is fixed ×4: sign in, sign out, remove.
-  it(`offers a sign-out and the ambient removal on a build that signs out`, () => {
+  // signed-in login. The order is fixed ×4: sign in, sign out, remove.
+  it(`offers a sign-out on a build that signs out`, () => {
     const machine = device({ caps: SIGN_OUT_CAPS })
-    // A named login, healthy: every entry but the sign-in.
     expect(accountChipActions(machine, chip())).toEqual([
       ACTION_SIGN_OUT,
       ACTION_REMOVE,
     ])
-    // The ambient login, healthy and active (the screenshot's first row): a
-    // sign-out and a removal instead of no menu at all.
-    expect(
-      accountChipActions(machine, chip({ profileId: `system`, active: true }))
-    ).toEqual([ACTION_SIGN_OUT, ACTION_REMOVE])
-    // The ambient login, signed out (the screenshot's second row): the
-    // sign-in and, new, the removal that hides it.
-    expect(
-      accountChipActions(
-        machine,
-        chip({
-          profileId: `system`,
-          active: true,
-          signedIn: false,
-          health: `signed_out`,
-        })
-      )
-    ).toEqual([ACTION_SIGN_IN, ACTION_REMOVE])
     // A revoked credential still signs out: that is how it leaves.
     expect(
       accountChipActions(machine, chip({ health: `needs_relogin` }))
     ).toEqual([ACTION_SIGN_IN, ACTION_SIGN_OUT, ACTION_REMOVE])
-    // A signed-out named login has nothing to sign out of.
+    // A signed-out login has nothing to sign out of.
     expect(
       accountChipActions(
         machine,
         chip({ signedIn: false, health: `signed_out` })
       )
     ).toEqual([ACTION_SIGN_IN, ACTION_REMOVE])
-    // The sign-out cap alone (no `account-remove`) still removes only the
-    // ambient login.
+    // The sign-out cap alone (no `account-remove`) removes nothing.
     expect(
       accountChipActions(
         device({ caps: [`agent-login`, `account-sign-out`] }),
@@ -169,23 +133,13 @@ describe(`accountChipActionable`, () => {
     ).toBe(false)
     // Nothing to offer = a statement, not a control.
     expect(
-      accountChipActionable(
-        device(),
-        chip({ profileId: `system`, active: true })
-      )
+      accountChipActionable(device({ caps: [`agent-login`] }), chip())
     ).toBe(false)
-    // EXP-1137: the same row IS a control on a build that signs out.
-    expect(
-      accountChipActionable(
-        device({ caps: SIGN_OUT_CAPS }),
-        chip({ profileId: `system`, active: true })
-      )
-    ).toBe(true)
   })
 })
 
 describe(`accountChipLabel`, () => {
-  it(`names the login by its address, never by its profile label`, () => {
+  it(`names the login by its address`, () => {
     expect(accountChipLabel(chip({ email: `dev@acme.test` }))).toBe(
       `dev@acme.test`
     )
@@ -193,76 +147,71 @@ describe(`accountChipLabel`, () => {
   })
 })
 
-describe(`agentLoginLanded`, () => {
-  it(`reads the TARGETED login, not the account's own flag`, () => {
-    // Nothing reported for the agent at all.
-    expect(agentLoginLanded(null, {})).toBe(false)
-    // A re-login: the CLI still claims a login the probe found revoked, so
-    // `signedIn` never moves and only the health says it landed.
-    const revoked = {
-      signedIn: true,
-      profiles: [
-        { id: `work`, label: `Work`, signedIn: true, health: `needs_relogin` as const },
-      ],
-    }
-    expect(agentLoginLanded(revoked, { profileId: `work` })).toBe(false)
-    expect(
-      agentLoginLanded(
-        {
-          signedIn: true,
-          profiles: [
-            { id: `work`, label: `Work`, signedIn: true, health: `ok` as const },
-          ],
-        },
-        { profileId: `work` }
-      )
-    ).toBe(true)
-    // Add account: the device has not created the profile yet, and the
-    // account it already holds is signed in.
-    const held = {
-      signedIn: true,
-      profiles: [
-        { id: `system`, label: `Default`, signedIn: true, health: `ok` as const },
-      ],
-    }
-    expect(agentLoginLanded(held, { newProfileLabel: `Claude account 2` })).toBe(
-      false
-    )
-    expect(
-      agentLoginLanded(
-        {
-          signedIn: true,
-          profiles: [
-            ...held.profiles,
-            { id: `0a1b`, label: `Claude account 2`, signedIn: true },
-          ],
-        },
-        { newProfileLabel: `Claude account 2` }
-      )
-    ).toBe(true)
+// The landing rule ×4: accounts A, B, C on the machine, C expired.
+describe(`agentLoginLanding`, () => {
+  const T0 = `2026-10-01T10:00:00.000Z`
+  const T1 = `2026-10-10T19:00:00.000Z`
+  const before = {
+    profiles: [
+      { id: `a`, signedIn: true, email: `a@acme.test`, lastLoginAt: T0 },
+      { id: `b`, signedIn: true, email: `b@acme.test` },
+      {
+        id: `c`,
+        signedIn: true,
+        email: `c@acme.test`,
+        health: `needs_relogin` as const,
+        lastLoginAt: T0,
+      },
+    ],
+  }
+  const baseline = agentLoginBaseline(before)
+  const after = (id: string) => ({
+    profiles: before.profiles.map((profile) =>
+      profile.id === id ? { ...profile, lastLoginAt: T1 } : profile
+    ),
   })
 
-  it(`answers for the ambient login off its own row`, () => {
-    expect(agentLoginLanded({ signedIn: false }, { profileId: `system` })).toBe(
-      false
+  it(`captures every profile's lastLoginAt`, () => {
+    expect(baseline).toEqual({ a: T0, b: null, c: T0 })
+    expect(agentLoginBaseline(null)).toEqual({})
+  })
+
+  it(`has not landed while nothing moved, whatever signedIn says`, () => {
+    expect(agentLoginLanding(before, baseline, `c`)).toBeNull()
+    expect(agentLoginLanding(null, baseline)).toBeNull()
+  })
+
+  it(`lands on the intended profile without a warning`, () => {
+    expect(agentLoginLanding(after(`c`), baseline, `c`)).toEqual({
+      profileId: `c`,
+      email: `c@acme.test`,
+      duplicate: false,
+    })
+  })
+
+  it(`Sign in on C as A: A is refreshed and it is a duplicate`, () => {
+    const landing = agentLoginLanding(after(`a`), baseline, `c`)
+    expect(landing).toEqual({ profileId: `a`, email: `a@acme.test`, duplicate: true })
+    expect(alreadyAddedCopy(landing!.email)).toBe(
+      `a@acme.test was already added. Refreshed it.`
     )
-    expect(agentLoginLanded({ signedIn: true }, { profileId: `system` })).toBe(
-      true
-    )
-    // A device that reports profiles keeps its ACTIVE profile in the top-level
-    // fields, so the ambient login is read off the `system` row.
+    // A profile with no stamp before counts once it gets one.
+    expect(agentLoginLanding(after(`b`), baseline, `c`)?.profileId).toBe(`b`)
+  })
+
+  it(`Add account: an existing email is a duplicate, a new profile is not`, () => {
+    expect(agentLoginLanding(after(`a`), baseline)?.duplicate).toBe(true)
     expect(
-      agentLoginLanded(
+      agentLoginLanding(
         {
-          signedIn: true,
           profiles: [
-            { id: `system`, label: `Default`, signedIn: false },
-            { id: `0a1b`, label: `Work`, signedIn: true, active: true },
+            ...before.profiles,
+            { id: `d`, signedIn: true, email: `d@acme.test`, lastLoginAt: T1 },
           ],
         },
-        { profileId: `system` }
+        baseline
       )
-    ).toBe(false)
+    ).toEqual({ profileId: `d`, email: `d@acme.test`, duplicate: false })
   })
 })
 

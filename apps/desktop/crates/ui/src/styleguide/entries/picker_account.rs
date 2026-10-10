@@ -15,7 +15,7 @@ pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
         |window, cx| {
             let accounts = vec![
                 coding::AccountOption {
-                    id: "system".to_string(),
+                    id: "4e5f6a7b".to_string(),
                     agent: coding::CodingAgent::Claude,
                     email: "ada@example.com".to_string(),
                     is_last_used: true,

@@ -1503,7 +1503,7 @@ impl ChatScreenView {
         let props = match target {
             None => device_readiness::local_props("chat-readiness", cx),
             Some((device_id, label)) => {
-                device_readiness::remote_props("chat-readiness", device_id, label)
+                device_readiness::remote_props("chat-readiness", device_id, label, cx)
             }
         };
         device_readiness::render_single(row, props, cx)

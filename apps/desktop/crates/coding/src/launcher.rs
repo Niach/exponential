@@ -175,11 +175,8 @@ fn apply_start_pick(
     deps: &CodingDeps,
     check: &ToolCheck,
 ) -> Option<crate::account_rotation::StartPick> {
-    // EXP-1138: a launch bound for a REMOVED ambient login lands on the
-    // last used login first, and one bound for a SIGNED-OUT ambient login on
-    // the profile the doctor found signed in, so the rotation below judges a
-    // login that exists (a hidden `system` has no usage row, and an unlisted
-    // launch account is never moved).
+    // Settle the profile first, so the rotation below judges a login that
+    // exists (an unlisted launch account is never moved).
     resolve_launch_account(options, deps, check);
     let now_ms = chrono::Utc::now().timestamp_millis();
     // FEED-61: the runs already live on each login count against it, so
@@ -207,15 +204,14 @@ fn apply_start_pick(
 /// runs on ([`crate::agent_profiles::resolve_launch_account`]) and say
 /// whether the caller NAMED it. An unnamed launch's last used profile is
 /// judged by the doctor's account gate here, so a signed-out one is skipped
-/// rather than refused.
+/// rather than refused; `None` = no profile can take it (the gate refuses).
 fn resolve_launch_account(options: &mut LaunchOptions, deps: &CodingDeps, check: &ToolCheck) -> bool {
     let agent = options.agent;
     let resolved = crate::agent_profiles::resolve_launch_account(
         &deps.data_dir,
         agent,
         options.account.take(),
-        Some(check),
-        |profile| profile_signed_out(deps, agent, check, profile),
+        |profile| profile_signed_out(deps, agent, Some(check), profile),
     );
     options.account = resolved.account;
     resolved.named
@@ -223,9 +219,15 @@ fn resolve_launch_account(options: &mut LaunchOptions, deps: &CodingDeps, check:
 
 /// Whether the named `profile` of `agent` is PROVABLY signed out — the
 /// probe [`crate::doctor::DoctorReport::account_failure`] refuses on (an
-/// unreadable answer fails open, like the gate).
-fn profile_signed_out(deps: &CodingDeps, agent: CodingAgent, check: &ToolCheck, profile: &str) -> bool {
-    if check.signed_in_profile.as_deref() == Some(profile) {
+/// unreadable answer fails open, like the gate). `check` = the doctor's,
+/// when at hand: the profile it found signed in needs no second probe.
+fn profile_signed_out(
+    deps: &CodingDeps,
+    agent: CodingAgent,
+    check: Option<&ToolCheck>,
+    profile: &str,
+) -> bool {
+    if check.and_then(|check| check.signed_in_profile.as_deref()) == Some(profile) {
         return false;
     }
     let Some(dir) = crate::agent_profiles::profile_dir(&deps.data_dir, agent, profile) else {
@@ -1088,7 +1090,7 @@ fn acp_gate(
 /// EXP-758: the step-0 doctor gate for the launch's agent — the agent's own
 /// CLI check, plus git when the launch clones (`needs_git`). EXP-1138: then
 /// the LOGIN the launch spends (`account`, [`DoctorReport::account_failure`])
-/// — a signed-out ambient login refuses only a launch ON it.
+/// — no profile, or a signed-out one, refuses.
 fn doctor_gate(
     report: &crate::doctor::DoctorReport,
     deps: &CodingDeps,
@@ -1249,9 +1251,9 @@ fn apply_mcp_env(
 /// EXP-792 (EXP-747 B2): the account PROFILE half of the spawn env — ONLY
 /// the agent's config-dir variable (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`)
 /// pointed at the profile's dir under `{data_dir}/agents/<agent>/<id>/`.
-/// Nothing at all for `None`/`system` (the ambient login) and for an id no
-/// profile answers to — a stale pick degrades to the ambient login rather
-/// than a spawn that cannot find its credentials.
+/// Nothing at all for an unpinned slot and for an id no profile answers to —
+/// never reached by a launch, which resolves a profile first and is refused
+/// without one ([`DoctorReport::account_failure`]).
 pub fn apply_account_env(
     spawn: SpawnSpec,
     agent: CodingAgent,
@@ -1457,8 +1459,8 @@ fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingErr
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct LastUsedStamp {
     agent: CodingAgent,
-    /// The account the person NAMED (`system` = the ambient login); `None` =
-    /// nothing named, so only the agent is stamped.
+    /// The account the person NAMED; `None` = nothing named, so only the
+    /// agent is stamped.
     account: Option<String>,
 }
 
@@ -1503,8 +1505,8 @@ fn apply_last_used_stamp(stamp: &LastUsedStamp, data_dir: &Path) {
 }
 
 /// EXP-1158 — record that a PERSON started or switched a run on `agent` /
-/// `account` (`system` = the ambient login; `None` = nothing named, the agent
-/// alone): the login (`profiles.json`'s `active`) and `settings.json`'s
+/// `account` (`None` = nothing named, the agent alone; the retired `system`
+/// clears the login pointer): the login (`profiles.json`'s `active`) and `settings.json`'s
 /// `defaultAgent`, each only on a change. [`prepare`] calls it for every
 /// person-started launch; the desktop's LOCAL mid-run switch calls it itself
 /// (a local resume is also what a rotation hop is, so `prepare` cannot tell
@@ -1586,16 +1588,15 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
     // profile of its agent with the MOST headroom, read off the usage cache
     // (`Settings.auto_rotate_accounts`, default on, turns it off; codex
     // never moves). The launch's own account stands on a tie.
-    // The doctor runs FIRST (EXP-1138): the pick lands an ambient launch on
-    // the signed-in profile it found; the gate below judges the result.
+    // The doctor runs FIRST (EXP-1138): the pick lands an unnamed launch on
+    // a signed-in profile; the gate below judges the result.
     let report = run_doctor(&deps.settings, &deps.data_dir);
     let agent = options.agent;
     let account_pick = apply_start_pick(&mut options, deps, report.check_for(agent));
     note_start_pick(account_pick.as_ref());
     let options = &options;
     // EXP-909: the LOGIN this run spends, in the vocabulary the server column
-    // and the usage cache share — `system` for the ambient login, else the
-    // device-local profile id. Hoisted once so the row, the heartbeat and
+    // and the usage cache share — the device-local profile id. Hoisted once so the row, the heartbeat and
     // `apply_account_env` can never name different accounts.
     let agent_account = crate::agent_profiles::profile_id(options.account.as_deref());
 
@@ -3013,18 +3014,24 @@ fn prepare_resume_run(
 ) -> Result<Prepared, CodingError> {
     let record = &req.record;
     let agent = record.agent;
-    // EXP-849: what account this resume runs on. `Some(None)` is an explicit
-    // ask for the AMBIENT login (switching back), which is why this is a
-    // nested option and not a plain `Option<String>`: the ambient login is a
-    // legal switch TARGET, not the absence of one.
-    let requested_account: Option<Option<String>> = req.account.as_deref().map(|id| {
-        (!crate::agent_profiles::is_system(Some(id))).then(|| id.trim().to_string())
-    });
+    // EXP-849: what account this resume runs on — the one asked for (a
+    // mid-run switch), else the recorded one. A LEGACY record that ran on the
+    // retired ambient login names none: it resumes on the device's resolved
+    // profile (no run ever spends the ambient login), its claude transcript
+    // handed over from `~/.claude/projects` below.
+    let requested_account = req
+        .account
+        .as_deref()
+        .filter(|id| !crate::agent_profiles::is_unpinned(Some(id)))
+        .map(|id| id.trim().to_string());
     let recorded_account = record.account();
-    let resume_account = match &requested_account {
-        Some(wanted) => wanted.clone(),
-        None => recorded_account.clone(),
-    };
+    let legacy_ambient = requested_account.is_none() && recorded_account.is_none();
+    let resume_account = requested_account.clone().or_else(|| recorded_account.clone()).or_else(|| {
+        crate::agent_profiles::resolve_launch_account(&deps.data_dir, agent, None, |profile| {
+            profile_signed_out(deps, agent, None, profile)
+        })
+        .account
+    });
     // A switch is a request that names a DIFFERENT login than the run used;
     // "resume on the account it already ran on" is an ordinary resume,
     // however the caller spelled it.
@@ -3238,7 +3245,7 @@ fn prepare_resume_run(
                 .into_iter()
                 .chain(acp_native.clone())
                 .find(|id| {
-                    if switching {
+                    if switching || legacy_ambient {
                         copy_claude_transcript(
                             deps,
                             source_profile_dir.as_deref(),
@@ -4221,6 +4228,8 @@ mod tests {
             account: None,
             usage_eligible: false,
             signed_in_profile: None,
+            importable: None,
+            profiles: Vec::new(),
             acp: Some(true),
             acp_note: None,
         };
@@ -4687,8 +4696,8 @@ mod tests {
             std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
         ));
         std::fs::create_dir_all(&data_dir).unwrap();
-        let work = crate::agent_profiles::create(&data_dir, CodingAgent::Claude, "Work").unwrap();
-        let codex_work = crate::agent_profiles::create(&data_dir, CodingAgent::Codex, "Work").unwrap();
+        let work = crate::agent_profiles::create(&data_dir, CodingAgent::Claude).unwrap();
+        let codex_work = crate::agent_profiles::create(&data_dir, CodingAgent::Codex).unwrap();
         let base = SpawnSpec::new("agent").env("KEEP", "1");
         let claude = CodingAgent::Claude;
 
@@ -5017,8 +5026,11 @@ mod tests {
         assert!(requests[0].starts_with("POST /api/trpc/codingSessions.start"));
         assert!(requests[0].contains(r#""actionId":"act-1""#));
         // EXP-909: the row names the LOGIN it spends — an account-less launch
-        // is the AMBIENT login, spelled `system`, never "unknown".
-        assert!(requests[0].contains(r#""agentAccount":"system""#), "{requests:?}");
+        // runs on the device's resolved profile, never the ambient login.
+        assert!(
+            requests[0].contains(&format!(r#""agentAccount":"{}""#, crate::test_support::TEST_PROFILE)),
+            "{requests:?}"
+        );
 
         // EXP-773: claude's session id is the ACP adapter's to mint, and a
         // claude run has no codex originator.
@@ -5995,7 +6007,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             last_used_stamp(&PrepareRequest::Issue(person.clone())),
             Some(LastUsedStamp { agent: CodingAgent::Codex, account: None })
         );
-        // `system` NAMES the ambient login.
+        // The retired `system` rides through (the stamp clears the pointer).
         let mut batch = batch_request();
         batch.options.account = Some("system".to_string());
         assert_eq!(
@@ -6045,22 +6057,23 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert_eq!(last_used_stamp(&PrepareRequest::ResumeRun(agent)), None);
     }
 
-    /// The stamp writes the login pointer and `defaultAgent`; `system`
-    /// clears the pointer back to the ambient login.
+    /// The stamp writes the login pointer and `defaultAgent`; the retired
+    /// `system` clears the pointer (back to the first profile).
     #[test]
     fn the_stamp_records_the_login_and_the_agent() {
         let dir = temp_dir("stamp-apply");
-        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
+        let first = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
         apply_last_used_stamp(
             &LastUsedStamp { agent: CodingAgent::Codex, account: Some(work.id.clone()) },
             &dir.0,
         );
-        assert_eq!(crate::agent_profiles::active_profile(&dir.0, CodingAgent::Codex), work.id);
+        assert_eq!(crate::agent_profiles::active_profile(&dir.0, CodingAgent::Codex), Some(work.id.clone()));
         let path = Settings::default_path(&dir.0);
         assert_eq!(Settings::load(&path).default_agent, CodingAgent::Codex);
         // An agent-only stamp leaves the login alone.
         apply_last_used_stamp(&LastUsedStamp { agent: CodingAgent::Codex, account: None }, &dir.0);
-        assert_eq!(crate::agent_profiles::active_profile(&dir.0, CodingAgent::Codex), work.id);
+        assert_eq!(crate::agent_profiles::active_profile(&dir.0, CodingAgent::Codex), Some(work.id.clone()));
         apply_last_used_stamp(
             &LastUsedStamp { agent: CodingAgent::Claude, account: Some("system".to_string()) },
             &dir.0,
@@ -6070,10 +6083,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             &LastUsedStamp { agent: CodingAgent::Codex, account: Some("system".to_string()) },
             &dir.0,
         );
-        assert_eq!(
-            crate::agent_profiles::active_profile(&dir.0, CodingAgent::Codex),
-            crate::agent_profiles::SYSTEM_PROFILE
-        );
+        assert_eq!(crate::agent_profiles::active_profile(&dir.0, CodingAgent::Codex), Some(first.id));
     }
 
     /// The claude native path: the recorded transcript still exists under
@@ -6157,7 +6167,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         fs::write(project_dir.join("claude-1.jsonl"), "{\"turn\":1}\n").unwrap();
         deps.claude_projects_root = Some(projects);
         let target =
-            crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "Work").unwrap();
+            crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
         // A credential in the SOURCE tree must stay exactly where it is.
         let credential = dir.0.join("claude-projects").join("..").join("creds.json");
         fs::write(&credential, "secret").unwrap();
@@ -6272,7 +6282,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         });
         let mut deps = make_deps(&base, &dir.0, worktrees);
         seed_projects(&dir.0, &mut deps);
-        let target = crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "Work").unwrap();
+        let target = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
         let mut req = resume_request(resume_record(&dir.0, "sess-old"));
         req.account = Some(target.id.clone());
         let switched = match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
@@ -6295,7 +6305,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         });
         let mut deps = make_deps(&base, &both_dir.0, worktrees);
         seed_projects(&both_dir.0, &mut deps);
-        let target = crate::agent_profiles::create(&both_dir.0, CodingAgent::Claude, "Work").unwrap();
+        let target = crate::agent_profiles::create(&both_dir.0, CodingAgent::Claude).unwrap();
         let mut req = resume_request(resume_record(&both_dir.0, "sess-old"));
         req.account = Some(target.id.clone());
         req.prompt = Some("and rerun the tests".to_string());
@@ -6325,8 +6335,8 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             seen: Default::default(),
         });
         let deps = make_deps(&base, &dir.0, worktrees);
-        let from = crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "From").unwrap();
-        let to = crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "To").unwrap();
+        let from = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
+        let to = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
 
         // The run happened on `from`; the resume asks for `to`.
         let mut record = resume_record(&dir.0, "sess-old");
@@ -6380,7 +6390,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         }
 
         let target =
-            crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
+            crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
         let mut record = resume_record(&dir.0, "sess-old");
         record.agent = CodingAgent::Codex;
         let mut req = resume_request(record);
@@ -6930,10 +6940,13 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             .iter()
             .find(|r| r.contains("codingSessions.start"))
             .expect("start mutation");
-        assert!(start.contains(r#""agentAccount":"system""#), "{start}");
+        assert!(
+            start.contains(&format!(r#""agentAccount":"{}""#, crate::test_support::TEST_PROFILE)),
+            "{start}"
+        );
         assert_eq!(
             prepared.heartbeat_scope.agent_account.as_deref(),
-            Some("system"),
+            Some(crate::test_support::TEST_PROFILE),
             "the heartbeat echoes it, so a resurrected row keeps it"
         );
     }
@@ -8106,6 +8119,8 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             seen: Default::default(),
         });
         let mut deps = make_deps(base, dir, worktrees);
+        // Only the profiles each test creates.
+        let _ = fs::remove_dir_all(dir.join("agents"));
         deps.settings.claude_path =
             crate::test_support::auth_stub(dir, "claude", "9.9.9 (Claude Code)");
         deps.settings.codex_path = crate::test_support::auth_stub(dir, "codex", "9.9.9");
@@ -8128,39 +8143,39 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         req
     }
 
-    /// The agent is runnable (a named profile is signed in) and THIS launch
-    /// names no account: the ambient login it would spend is signed out, so
-    /// the launch lands on the signed-in profile (EXP-1138 gate split — a
-    /// server-accepted frame with no account, an MCP `sessions_start` or an
-    /// automation with a null account, must not die on the device with
-    /// "Pick another account"). A launch that NAMES the ambient login of an
-    /// agent with no signed-in profile is still refused by name
-    /// (`a_signed_out_ambient_login_with_no_profile_refuses_by_name`).
+    /// THIS launch names no account (a server-accepted frame with no
+    /// account, an MCP `sessions_start`, an automation with a null account)
+    /// and lands on the signed-in profile — never the ambient login. The
+    /// retired `system` reads the same.
     #[cfg(unix)]
     #[test]
-    fn a_signed_out_ambient_login_moves_an_ambient_launch_to_the_signed_in_profile() {
-        let dir = temp_dir("gate-ambient");
-        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
-        let deps = auth_deps(&base, &dir.0);
-        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
-        crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &work.id);
+    fn an_unnamed_launch_lands_on_the_signed_in_profile() {
+        for account in [None, Some("system".to_string())] {
+            let dir = temp_dir("gate-unnamed");
+            let (base, _captured) =
+                canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
+            let deps = auth_deps(&base, &dir.0);
+            let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
+            crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &work.id);
 
-        let prepared = match prepare(&PrepareRequest::Action(codex_action(None)), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        let work_dir = crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Codex, &work.id)
-            .unwrap()
-            .to_string_lossy()
-            .into_owned();
-        assert!(prepared
-            .spawn
-            .env
-            .contains(&("CODEX_HOME".to_string(), work_dir)));
-        assert_eq!(
-            prepared.heartbeat_scope.agent_account.as_deref(),
-            Some(work.id.as_str())
-        );
+            let prepared =
+                match prepare(&PrepareRequest::Action(codex_action(account.clone())), &deps).unwrap() {
+                    Prepared::Ready(prepared) => prepared,
+                    other => panic!("{account:?}: expected Ready, got {other:?}"),
+                };
+            let work_dir = crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Codex, &work.id)
+                .unwrap()
+                .to_string_lossy()
+                .into_owned();
+            assert!(prepared
+                .spawn
+                .env
+                .contains(&("CODEX_HOME".to_string(), work_dir)));
+            assert_eq!(
+                prepared.heartbeat_scope.agent_account.as_deref(),
+                Some(work.id.as_str())
+            );
+        }
     }
 
     /// EXP-1158: an UNNAMED launch whose LAST USED profile is signed out is
@@ -8172,8 +8187,8 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         let dir = temp_dir("gate-last-used-signed-out");
         let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
         let deps = auth_deps(&base, &dir.0);
-        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
-        let home = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Home").unwrap();
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
+        let home = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
         crate::agent_profiles::note_last_used(&dir.0, CodingAgent::Codex, &work.id).unwrap();
         crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &home.id);
 
@@ -8191,12 +8206,12 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         );
     }
 
-    /// With NO signed-in profile the hop has nowhere to go: the agent has no
-    /// login at all, so its own doctor check refuses before any network call.
+    /// With NO signed-in profile there is nothing to run on: the agent's own
+    /// doctor check refuses before any network call.
     #[cfg(unix)]
     #[test]
-    fn a_signed_out_ambient_login_with_no_profile_refuses_by_name() {
-        let dir = temp_dir("gate-ambient-bare");
+    fn no_signed_in_profile_refuses_the_launch() {
+        let dir = temp_dir("gate-bare");
         let deps = auth_deps("http://127.0.0.1:1", &dir.0);
 
         match prepare(&PrepareRequest::Issue(request("EXP-42")), &deps).unwrap() {
@@ -8210,15 +8225,14 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         }
     }
 
-    /// The fix the issue asks for: a launch ON the signed-in profile starts
-    /// while the ambient login is signed out, inside that profile's dir.
+    /// A launch NAMING the signed-in profile starts inside that profile's dir.
     #[cfg(unix)]
     #[test]
-    fn a_signed_in_profile_launches_while_the_ambient_login_is_signed_out() {
+    fn a_named_signed_in_profile_launches_in_its_dir() {
         let dir = temp_dir("gate-profile");
         let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
         let deps = auth_deps(&base, &dir.0);
-        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
         crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &work.id);
 
         let prepared = match prepare(
@@ -8244,38 +8258,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         );
     }
 
-    /// EXP-1137's "Remove account" on the ambient login: a launch that
-    /// names no account lands on the last used login (the first named
-    /// profile) instead of the removed login.
-    #[cfg(unix)]
-    #[test]
-    fn a_hidden_ambient_login_moves_an_ambient_launch_to_the_last_used_login() {
-        let dir = temp_dir("gate-hidden");
-        let (base, _captured) = canned_server_recording(vec![(200, START_ACTION_OK.to_string())]);
-        let deps = auth_deps(&base, &dir.0);
-        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
-        crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &work.id);
-        crate::agent_profiles::set_ambient_hidden(&dir.0, CodingAgent::Codex, true).unwrap();
-
-        let prepared = match prepare(&PrepareRequest::Action(codex_action(None)), &deps).unwrap() {
-            Prepared::Ready(prepared) => prepared,
-            other => panic!("expected Ready, got {other:?}"),
-        };
-        let work_dir = crate::agent_profiles::profile_dir(&dir.0, CodingAgent::Codex, &work.id)
-            .unwrap()
-            .to_string_lossy()
-            .into_owned();
-        assert!(prepared
-            .spawn
-            .env
-            .contains(&("CODEX_HOME".to_string(), work_dir)));
-        assert_eq!(
-            prepared.heartbeat_scope.agent_account.as_deref(),
-            Some(work.id.as_str())
-        );
-    }
-
-    /// A named account that is signed out refuses by its label — the agent
+    /// A named account that is signed out refuses by its email — the agent
     /// stays runnable on its other profile, so the copy asks for a sign-in
     /// OR another pick.
     #[cfg(unix)]
@@ -8283,50 +8266,54 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     fn a_signed_out_named_account_refuses_the_launch() {
         let dir = temp_dir("gate-named-out");
         let deps = auth_deps("http://127.0.0.1:1", &dir.0);
-        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Work").unwrap();
-        let home = crate::agent_profiles::create(&dir.0, CodingAgent::Codex, "Home").unwrap();
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
+        let home = crate::agent_profiles::create(&dir.0, CodingAgent::Codex).unwrap();
+        crate::agent_profiles::stamp_login(&dir.0, CodingAgent::Codex, &home.id, Some("h@acme.test"))
+            .unwrap();
         crate::test_support::sign_in_profile(&dir.0, CodingAgent::Codex, &work.id);
 
         match prepare(&PrepareRequest::Action(codex_action(Some(home.id))), &deps).unwrap() {
             Prepared::Disabled(reason @ DisabledReason::DoctorFailed(_)) => {
                 assert_eq!(
                     reason.message(),
-                    "codex account «Home» is signed out on this machine. Sign in from Settings → Agents, or pick another account."
+                    "codex account h@acme.test is signed out on this machine. Sign in from Settings → Agents, or pick another account."
                 );
             }
             other => panic!("expected DoctorFailed, got {other:?}"),
         }
     }
 
-    /// A resume keeps its recorded login: on a signed-out ambient login it is
-    /// refused (never silently moved), the switch path being the way back.
+    /// A LEGACY record that ran on the retired ambient login resumes on the
+    /// device's signed-in profile: it passes the gate rather than being
+    /// refused on a login no run may spend.
     #[cfg(unix)]
     #[test]
-    fn a_resume_on_a_signed_out_ambient_login_is_refused() {
+    fn a_legacy_ambient_record_resumes_on_the_signed_in_profile() {
         let dir = temp_dir("gate-resume");
         let deps = auth_deps("http://127.0.0.1:1", &dir.0);
-        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "Work").unwrap();
+        let record = resume_record(&dir.0, "sess-old");
+        assert_eq!(record.account(), None, "a legacy ambient record");
+        let req = resume_request(record);
+        if let Ok(Prepared::Disabled(reason)) = prepare(&PrepareRequest::ResumeRun(req.clone()), &deps) {
+            assert!(
+                reason.message().starts_with("claude is installed but not signed in"),
+                "no profile: refused for that, {}",
+                reason.message()
+            );
+        }
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
         crate::test_support::sign_in_profile(&dir.0, CodingAgent::Claude, &work.id);
-        crate::agent_profiles::set_ambient_hidden(&dir.0, CodingAgent::Claude, true).unwrap();
-
-        let req = resume_request(resume_record(&dir.0, "sess-old"));
-        match prepare(&PrepareRequest::ResumeRun(req), &deps).unwrap() {
-            Prepared::Disabled(reason @ DisabledReason::DoctorFailed(_)) => {
-                assert!(
-                    reason.message().starts_with("claude's Default login is signed out"),
-                    "{}",
-                    reason.message()
-                );
-            }
-            other => panic!("expected DoctorFailed, got {other:?}"),
+        if let Ok(Prepared::Disabled(DisabledReason::DoctorFailed(failed))) =
+            prepare(&PrepareRequest::ResumeRun(req), &deps)
+        {
+            panic!("the legacy resume must pass the gate: {:?}", failed.error);
         }
     }
 
-    /// The agent shell takes the same rules as a session launch: an ambient
-    /// shell on a signed-out login opens on the signed-in profile (the gate
-    /// passes and the prepare reaches the network — the fake server refuses
-    /// the connection, never the doctor); with no signed-in profile it is
-    /// refused by name.
+    /// The agent shell takes the same rules as a session launch: with no
+    /// signed-in profile it is refused by name; with one it opens on it (the
+    /// gate passes and the prepare reaches the network — the fake server
+    /// refuses the connection, never the doctor).
     #[cfg(unix)]
     #[test]
     fn an_agent_shell_judges_its_login_like_a_session() {
@@ -8343,18 +8330,8 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
             other => panic!("expected DoctorFailed, got {other:?}"),
         }
 
-        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Claude, "Work").unwrap();
+        let work = crate::agent_profiles::create(&dir.0, CodingAgent::Claude).unwrap();
         crate::test_support::sign_in_profile(&dir.0, CodingAgent::Claude, &work.id);
-        let report = run_doctor(&deps.settings, &deps.data_dir);
-        assert_eq!(
-            crate::agent_profiles::launch_account(
-                &deps.data_dir,
-                CodingAgent::Claude,
-                None,
-                Some(report.check_for(CodingAgent::Claude)),
-            ),
-            Some(work.id.clone())
-        );
         match prepare_agent_shell(&agent_shell_request(None), &deps) {
             Err(CodingError::Api(ApiError::Transport { .. })) => {}
             other => panic!("expected the launch to pass the gate and reach the network, got {other:?}"),

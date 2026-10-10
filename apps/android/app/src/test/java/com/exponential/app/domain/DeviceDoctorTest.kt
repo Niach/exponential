@@ -151,6 +151,53 @@ class DeviceDoctorTest {
     }
 
     @Test
+    fun `import pills ride the agent rows that carry an ambient login`() {
+        for (case in cases) {
+            val name = case.strOrNull("name")
+            val expected = case["importPills"]?.jsonObject
+                ?.mapValues { it.value.jsonPrimitive.content }
+                .orEmpty()
+            fun pills(rows: List<DoctorRow>) =
+                rows.mapNotNull { row -> row.importEmail?.let { row.key to it } }.toMap()
+            // On the device itself, and on another device declaring `agent-import`.
+            val local = DeviceReadiness.groups(doctorOf(case), remote = false).flatMap { it.rows }
+            assertEquals(name, expected, pills(local))
+            val capable = DeviceReadiness.groups(doctorOf(case), remote = true, canImport = true)
+                .flatMap { it.rows }
+            assertEquals(name, expected, pills(capable))
+            // Another device without the cap: no import pill, the action stays.
+            val old = DeviceReadiness.groups(doctorOf(case), remote = true).flatMap { it.rows }
+            assertEquals(name, emptyMap<String, String>(), pills(old))
+            // The import never takes the primary pill: it is always plain.
+            assertEquals(
+                name,
+                case.strOrNull("localPrimary"),
+                local.firstOrNull { it.primary }?.key,
+            )
+        }
+        // The composer's single row carries it too.
+        val imported = cases.first { it["importPills"] != null }
+        val row = DeviceReadiness.failingRow(doctorOf(imported), "claude", canImport = true)!!
+        assertEquals("dev@acme.test", row.importEmail)
+        assertEquals("sign_in", row.action)
+        assertNull(DeviceReadiness.failingRow(doctorOf(imported), "claude")!!.importEmail)
+    }
+
+    @Test
+    fun `the import confirm and the duplicate toast are the fixture copy`() {
+        val copy = fixture["copy"]!!.jsonObject.mapValues { it.value.jsonPrimitive.content }
+        assertEquals(
+            copy["importTitle"]!!.replace("{email}", "a@x.test"),
+            DeviceReadiness.importTitle("a@x.test"),
+        )
+        assertEquals(copy["importBody"], DeviceReadiness.IMPORT_BODY)
+        assertEquals(
+            copy["alreadyAdded"]!!.replace("{email}", "a@x.test"),
+            DeviceReadiness.alreadyAdded("a@x.test"),
+        )
+    }
+
+    @Test
     fun `runnable agents are the ok agent rows`() {
         for (case in cases) {
             val expected = case["runnable"]!!.jsonArray.map { it.jsonPrimitive.content }

@@ -1305,15 +1305,21 @@ export interface DeviceAgentAccount {
    * the top-level row only. The device settings' Update section shows it
    * beside the per-agent "Update" control. */
   version?: string
+  /** Present iff the agent CLI's AMBIENT login (~/.claude, ~/.codex) is
+   * signed in. Runs never use it; the doctor offers to Import (move) it into
+   * a profile. */
+  importable?: { email?: string; plan?: string }
 }
 export interface DeviceAgentProfileEntry {
   id: string
-  label?: string
   signedIn: boolean
   email?: string
   plan?: string
   active?: boolean
   checkedAt?: string
+  /** When a sign-in or import last COMMITTED into this profile (ISO). An open
+   * sign-in dialog lands when this moves. */
+  lastLoginAt?: string
   /** EXP-849: this profile's own health, same vocabulary + same fallback as
    * the account's. */
   health?: DeviceAgentHealth
@@ -1360,16 +1366,18 @@ export type DeviceAgentUsageMap = Record<string, DeviceAgentUsage>
 // EXP-792 (EXP-747 B5): N accounts per agent ride the SAME jsonb value —
 // `signedIn`/`email`/`plan`/`checkedAt` stay the ACTIVE profile (old clients
 // see exactly the pre-profile payload), `profiles` lists every profile the
-// device holds (≤`MAX_AGENT_PROFILES`, `system` = the ambient login). No new
-// column: an unknown devices column bricks older native sync.
+// device holds (≤`MAX_AGENT_PROFILES`, exactly its profile dirs; a login is
+// named by its email, never a label). No new column: an unknown devices
+// column bricks older native sync. A legacy `label` key is stripped.
 export const deviceAgentProfileSchema = z.object({
   id: z.string().max(64),
-  label: z.string().max(64).nullish(),
   signedIn: z.boolean().nullish(),
   email: z.string().max(320).nullish(),
   plan: z.string().max(64).nullish(),
   active: z.boolean().nullish(),
   checkedAt: z.string().max(64).nullish(),
+  // When a sign-in or import last COMMITTED into this profile (ISO).
+  lastLoginAt: z.string().max(64).nullish(),
   // EXP-849: a STRING, not a z.enum — a device reporting a health value this
   // build has no name for must lose the field in the clamp, not 400 the
   // whole register (`clampAgentAccounts` owns the vocabulary).
@@ -1418,6 +1426,13 @@ export const deviceAgentAccountsSchema = z.record(
       profiles: z.array(deviceAgentProfileSchema.nullish()).nullish(),
       // The install's CLI version (`DeviceAgentAccount.version`).
       version: z.string().max(64).nullish(),
+      // `DeviceAgentAccount.importable`.
+      importable: z
+        .object({
+          email: z.string().max(320).nullish(),
+          plan: z.string().max(64).nullish(),
+        })
+        .nullish(),
     })
     .nullish()
 )
@@ -1471,6 +1486,7 @@ export const deviceDoctorActions = [
   `install`,
   `update`,
   `sign_in`,
+  `import`,
   `grant`,
 ] as const
 export type DeviceDoctorKey = (typeof deviceDoctorKeys)[number]
@@ -1484,6 +1500,9 @@ export interface DeviceDoctorItem {
   state: DeviceDoctorState | (string & {})
   detail?: string
   action?: DeviceDoctorAction | (string & {})
+  /** The agent's AMBIENT login email: renders an `import` pill before the
+   * action pill. */
+  import?: string
 }
 export interface DeviceDoctor {
   checkedAt: string
@@ -1501,6 +1520,7 @@ export const deviceDoctorItemSchema = z.object({
     .nullish()
     .transform((v) => (v == null ? v : v.slice(0, 120))),
   action: z.string().max(32).nullish(),
+  import: z.string().max(320).nullish(),
 })
 export const deviceDoctorSchema = z.object({
   checkedAt: z.string().max(64),

@@ -441,12 +441,12 @@ pub struct LaunchOptions {
     /// own credentials); an unconnected or unpicked one is skipped with a
     /// warning, never a launch blocker.
     pub mcp_server_ids: Vec<String>,
-    /// EXP-792 (EXP-747 B7): the agent ACCOUNT PROFILE to run on — `system`
-    /// = the ambient login; else a device-local profile id under
-    /// `{data_dir}/agents/<agent>/<id>/` (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`).
-    /// EXP-1158: `None` on a fresh launch = UNNAMED = the login last used on
-    /// this device; `crate::agent_profiles::launch_account` resolves it (and
-    /// rides every ambient result back as `None`).
+    /// EXP-792 (EXP-747 B7): the agent ACCOUNT PROFILE to run on — a
+    /// device-local profile id under `{data_dir}/agents/<agent>/<id>/`
+    /// (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`). EXP-1158: `None` (or the retired
+    /// `system`) on a fresh launch = UNNAMED = the login last used on this
+    /// device; `crate::agent_profiles::resolve_launch_account` resolves it to
+    /// a profile — a launch never runs without one.
     pub account: Option<String>,
     /// EXP-1249: computer use for THIS run (the composer "+" menu's toggle,
     /// the start frame's `computerUse`). `None` = the device's own switch
@@ -502,8 +502,8 @@ impl LaunchOptions {
     /// - Capabilities mask everything: a non-claude agent can never carry
     ///   ultracode, codex never carries plan.
     /// - EXP-849: `account` is the composer's account pick (a device-local
-    ///   profile id), normalized by [`Self::with_account`]. EXP-1158:
-    ///   `system` names the ambient login; absent/blank = the last used one.
+    ///   profile id), normalized by [`Self::with_account`]; absent/blank =
+    ///   the last used one.
     pub fn remote(
         settings: &Settings,
         agent: Option<&str>,
@@ -607,8 +607,7 @@ impl LaunchOptions {
     }
 
     /// EXP-792 (EXP-747 B7): the remote frame's account profile pick,
-    /// trimmed. EXP-1158: `system` is KEPT — it names the ambient login —
-    /// while blank is unnamed (`None` = the last used login).
+    /// trimmed; blank is unnamed (`None` = the last used login).
     pub fn with_account(mut self, account: Option<&str>) -> Self {
         self.account = account
             .map(str::trim)
@@ -1134,7 +1133,8 @@ mod tests {
         assert_eq!(opts.effort, "minimal");
         assert!(!opts.ultracode);
         assert!(!opts.plan_mode);
-        // EXP-1158: `system` NAMES the ambient login; blank is unnamed.
+        // A legacy `system` rides through (the launcher reads it as
+        // unpinned); blank is unnamed.
         assert_eq!(opts.account.as_deref(), Some("system"));
         assert_eq!(LaunchOptions::remote(&settings, None, None, None, None, None, Some(" ")).account, None);
 

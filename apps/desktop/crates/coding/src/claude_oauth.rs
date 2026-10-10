@@ -1456,6 +1456,104 @@ fn legacy_lock_path(root: &Path) -> std::io::Result<PathBuf> {
     Ok(PathBuf::from(format!("{}.lock", real.to_string_lossy())))
 }
 
+// ---------------------------------------------------------------------------
+// Moving a login between config dirs (sign-in commit, ambient import)
+// ---------------------------------------------------------------------------
+//
+// The ONE place this module relocates or deletes a credential, and only on a
+// person's explicit sign-in or Import: the keep-alive above still never
+// migrates. A move is always a MOVE — the source is deleted once the target
+// holds the document — because two stores holding one credential is a revoked
+// login the first time either side refreshes.
+
+/// Write `document` as the credential of the PROFILE at `profile_dir`: into
+/// the store that profile already reads (its keychain item, when it has one
+/// on macOS — the CLI there reads that before the file), else its
+/// `.credentials.json`. Under the profile's `.storage-write.lock`.
+pub fn write_profile_credential(profile_dir: &Path, document: &Value) -> Result<(), StoreError> {
+    let target = match read_store(Some(profile_dir)) {
+        #[cfg(target_os = "macos")]
+        StoreRead::Found(ClaudeCredentialStore {
+            source: source @ CredentialSource::Keychain { .. },
+            ..
+        }) => source,
+        _ => CredentialSource::File(profile_dir.join(CREDENTIALS_FILE)),
+    };
+    with_storage_lock(profile_dir, || write_store(&target, document))
+}
+
+/// Delete ONE credential store: a file (a missing one is already gone), or a
+/// macOS keychain item. Never `claude auth logout`.
+pub fn delete_store(source: &CredentialSource) -> Result<(), StoreError> {
+    match source {
+        CredentialSource::File(path) => match std::fs::remove_file(path) {
+            Ok(()) => Ok(()),
+            Err(err) if err.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(err) => Err(StoreError::Io(err)),
+        },
+        #[cfg(target_os = "macos")]
+        CredentialSource::Keychain { service, account } => {
+            let mut cmd = terminal::process::background_command("/usr/bin/security");
+            cmd.args(["delete-generic-password", "-a", account, "-s", service]);
+            match crate::doctor::output_with_timeout(cmd, KEYCHAIN_WRITE_TIMEOUT) {
+                // 44 = no such item: already gone.
+                Ok(out) if out.status.success() || out.status.code() == Some(44) => Ok(()),
+                Ok(out) => Err(StoreError::Failed(format!(
+                    "security exited {}",
+                    out.status.code().unwrap_or(-1)
+                ))),
+                Err(err) if err.kind() == std::io::ErrorKind::TimedOut => Err(StoreError::Timeout),
+                Err(err) => Err(StoreError::Io(err)),
+            }
+        }
+    }
+}
+
+/// Move the login a CLI wrote under `from_dir` (a sign-in's staging dir) into
+/// the profile at `to_dir`: [`write_profile_credential`], then the source
+/// store is deleted. `Ok(false)` = there was no credential to move.
+pub fn move_credential(from_dir: &Path, to_dir: &Path) -> Result<bool, StoreError> {
+    let store = match read_store(Some(from_dir)) {
+        StoreRead::Found(store) => store,
+        StoreRead::Missing => return Ok(false),
+        StoreRead::Denied => {
+            return Err(StoreError::Failed("the credential store refused the read".to_string()))
+        }
+    };
+    write_profile_credential(to_dir, &store.document)?;
+    delete_store(&store.source)?;
+    Ok(true)
+}
+
+/// A dir's credential lives somewhere its NAME is part of — the macOS keychain
+/// item is named after the dir's path — so a dir that is RENAMED into place
+/// leaves that item behind under the old name. Re-home it as the new dir's
+/// file. A file credential moved with the dir and needs nothing. Not macOS:
+/// nothing to do.
+pub fn rehome_after_rename(old_dir: &Path, new_dir: &Path) -> Result<(), StoreError> {
+    #[cfg(target_os = "macos")]
+    if let StoreRead::Found(store) = read_store(Some(old_dir)) {
+        if matches!(store.source, CredentialSource::Keychain { .. }) {
+            write_profile_credential(new_dir, &store.document)?;
+            delete_store(&store.source)?;
+        }
+    }
+    let _ = (old_dir, new_dir);
+    Ok(())
+}
+
+/// Drop whatever credential a dir about to be deleted left in a store outside
+/// it (the macOS keychain item named after it). Best effort.
+pub fn forget_dir_credential(dir: &Path) {
+    #[cfg(target_os = "macos")]
+    if let StoreRead::Found(store) = read_store(Some(dir)) {
+        if matches!(store.source, CredentialSource::Keychain { .. }) {
+            let _ = delete_store(&store.source);
+        }
+    }
+    let _ = dir;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

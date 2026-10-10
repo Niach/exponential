@@ -13,6 +13,7 @@ final class DeviceReadinessTests: XCTestCase {
         let labels: [String: String]
         let states: [String: FixtureState]
         let actions: [String: FixtureAction]
+        let copy: [String: String]
         let cases: [FixtureCase]
     }
 
@@ -38,6 +39,9 @@ final class DeviceReadinessTests: XCTestCase {
         let runnable: [String]
         let localPrimary: String?
         let remotePills: [String: String]
+        /// Agent → the ambient login's email the `import` pill offers (on
+        /// the device and, with `agent-import`, on another one). Absent = none.
+        let importPills: [String: String]?
     }
 
     private func fixture() throws -> Fixture {
@@ -69,6 +73,16 @@ final class DeviceReadinessTests: XCTestCase {
             XCTAssertEqual(DeviceReadiness.actions[key]?.label, action.label, key)
             XCTAssertEqual(DeviceReadiness.actions[key]?.remote, action.remote, key)
         }
+        // The Import confirm and the duplicate toast, byte-identical ×4.
+        XCTAssertEqual(DeviceReadiness.importTitle(email: "{email}"), f.copy["importTitle"])
+        XCTAssertEqual(DeviceReadiness.importBody, f.copy["importBody"])
+        XCTAssertEqual(
+            AgentAccountsRows.alreadyAddedToast(
+                AgentAccountsRows.LoginLanding(profileId: "p", email: "{email}", duplicate: true)
+            ),
+            f.copy["alreadyAdded"]
+        )
+        XCTAssertEqual(DeviceReadiness.actions[DeviceReadiness.importAction]?.label, "Import")
     }
 
     func testRendersEveryCase() throws {
@@ -123,6 +137,22 @@ final class DeviceReadinessTests: XCTestCase {
             for row in remoteRows { if let action = row.action { pills[row.key] = action } }
             XCTAssertEqual(pills, c.remotePills, c.name)
             XCTAssertLessThanOrEqual(remoteRows.filter(\.primary).count, 1, c.name)
+
+            // The import pill: on the device, and on another device that
+            // declares `agent-import` — never on one that does not.
+            let expectedImports = c.importPills ?? [:]
+            func imports(_ rows: [DeviceReadiness.Row]) -> [String: String] {
+                var out: [String: String] = [:]
+                for row in rows { if let email = row.importEmail { out[row.key] = email } }
+                return out
+            }
+            XCTAssertEqual(imports(rows), expectedImports, c.name)
+            XCTAssertEqual(imports(remoteRows), expectedImports, c.name)
+            XCTAssertEqual(
+                imports(DeviceReadiness.groups(c.doctor, remote: true, canImport: false).flatMap(\.rows)),
+                [:],
+                c.name
+            )
 
             XCTAssertEqual(DeviceReadiness.runnableAgents(c.doctor), c.runnable, c.name)
         }

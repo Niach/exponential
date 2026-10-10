@@ -13,7 +13,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.domain.AccountLimits
 import com.exponential.app.domain.AccountOption
@@ -100,9 +99,10 @@ internal fun AccountLimitBars(
 /**
  * EXP-872 (web `accountOptionsOf`): the machine's flattened logins, or — for a
  * machine that reports NONE at all (a build before profiles, a heartbeat that
- * has not landed) — one AMBIENT option per agent in [fallbackAgents], labelled
- * by the agent's own name, the machine's last used agent first. The picker never
- * goes empty while a run could still start on that machine.
+ * has not landed) — one UNPINNED option per agent in [fallbackAgents] (the
+ * machine picks its last used login), labelled by the agent's own name, the
+ * machine's last used agent first. The picker never goes empty while a run
+ * could still start on that machine.
  */
 internal fun accountOptionsFor(
     device: SteerDevice?,
@@ -111,19 +111,19 @@ internal fun accountOptionsFor(
     if (device == null) return emptyList()
     val flat = AccountOptions.flatten(device)
     if (flat.isNotEmpty()) return flat
-    return ambientAccountOptions(
+    return unpinnedAccountOptions(
         fallbackAgents,
         device.launchDefaults?.defaultAgent?.takeIf { it in fallbackAgents },
     )
 }
 
 /**
- * The ambient fallback on its own — one `system` option per agent, the
+ * The unpinned fallback on its own — one option per agent (id ""), the
  * [preferred] one first. Split out for the surface that must stay editable
  * with NO machine bound at all (a workflow's runner block, where the agent is
  * configured before a runner is picked).
  */
-internal fun ambientAccountOptions(
+internal fun unpinnedAccountOptions(
     agents: List<String>,
     preferred: String?,
 ): List<AccountOption> {
@@ -131,7 +131,7 @@ internal fun ambientAccountOptions(
     return agents
         .map { agent ->
             AccountOption(
-                id = SYSTEM_PROFILE_ID,
+                id = "",
                 agent = agent,
                 email = agentLabel(agent),
                 isLastUsed = agent == first,

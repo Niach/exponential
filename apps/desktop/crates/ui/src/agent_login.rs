@@ -1,21 +1,25 @@
 //! EXP-484 (C1 + D): signing an agent CLI in FROM the IDE — locally from a
-//! Login button, or remotely off an `agent_login` device command.
+//! Sign in button, or remotely off an `agent_login` device command.
 //!
-//! The product never holds, copies or refreshes a credential: this opens the
+//! The product never holds or copies a credential of its own: this opens the
 //! agent's OWN login command in a visible terminal tab and lets the CLI do
 //! its thing. What the desktop adds is choreography:
 //!
-//! * a switch signs OUT first (`coding::agent_login::logout`); codex's logout
-//!   revokes the token server-side, so a LOCAL switch confirms first (a
-//!   REMOTE one was already confirmed by the requester);
+//! * every login runs in a fresh STAGING dir (`coding::agent_login::
+//!   begin_login`), never inside an existing profile or the ambient login, so
+//!   there is nothing to sign out of first;
+//! * a CLEAN exit COMMITS the login by email (`commit_login`): the profile
+//!   already signed in as that address takes the fresh credential (a
+//!   `{email} was already added. Refreshed it.` warning when the person aimed
+//!   elsewhere), a new address becomes a new profile;
 //! * a REMOTE run watches the grid and completes its device command EARLY,
 //!   the moment the sign-in URL (+ codex's device code) is up — the
-//!   requester needs the link, not the eventual outcome. The signed-in flip
-//!   itself arrives through the synced `devices` row after the exit re-probe.
+//!   requester needs the link, not the eventual outcome. Where it landed
+//!   reaches the requester through the synced `devices` row (`lastLoginAt`).
 //!
 //! Every path ends the same way, through [`LoginRun::finish`]: the child
 //! exits — OR the user closes the tab, which never fires an exit hook — and
-//! the run answers its command, drops the agent's cached identity and
+//! the run answers its command, commits (or drops) the staging dir and
 //! re-probes, so the machine's row (and the Tools pane) tells the truth
 //! within a beat. A CLEAN exit also closes the tab itself (EXP-695): a
 //! finished sign-in has nothing left to read, while a failed one keeps its
@@ -27,16 +31,13 @@
 //! back as an `agent_login_code` command; [`enter_remote_code`] finds the
 //! agent's live login tab in [`LoginTabs`] and types it there.
 //!
-//! EXP-827: a remote login may target an account PROFILE (`profileId`, an
-//! existing one) or ask for a new one (`newProfileLabel`). The run points
-//! the CLI's config-dir variable at that profile's dir for the sign-out and
-//! the login tab it spawns (`coding::agent_login::resolve_login_profile` +
-//! `login_env`), and the published result names the id it signed into. The
-//! exit re-probe re-reads the profile index, so a fresh profile rides the
-//! next heartbeat by itself.
+//! IMPORT (`agent_login {agent, import: "true"}`, or the doctor's Import pill
+//! here) moves the agent's AMBIENT login into a profile by the same commit,
+//! with no tab at all ([`import_ambient_login`]).
 
 use crate::toast::Toast;
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
+use std::path::PathBuf;
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
@@ -47,7 +48,7 @@ use gpui::{
     Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _, ButtonVariant},
+    button::{Button, ButtonVariants as _},
     h_flex,
     spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
@@ -59,7 +60,7 @@ use coding::CodingAgent;
 
 use crate::agent_login_outcome::{EnterCode, LoginOutcome};
 use crate::coding_flow::CodingHub;
-use crate::native_dialog::{self, AlertSpec};
+use crate::native_dialog;
 use crate::queries;
 
 /// Grid poll cadence — the sign-in URL lands within a second or two of the
@@ -70,13 +71,6 @@ const POLL: Duration = Duration::from_millis(250);
 /// How long a remote login may run without ever showing a URL before the
 /// command is failed back to the requester.
 const REMOTE_URL_TIMEOUT: Duration = Duration::from_secs(600);
-
-/// Copy shared with the web dialog (`device-settings-dialog.tsx`) — the
-/// codex switch warning, byte-identical on both.
-const CODEX_SWITCH_TITLE: &str = "Switch Codex account";
-const CODEX_SWITCH_BODY: &str =
-    "Codex logout revokes the token server-side; you'll sign in again on that machine.";
-const CODEX_SWITCH_OK: &str = "Sign out and sign in";
 
 /// The two sentences a code command completes with — byte-identical to the
 /// daemon executor (`cli::agent_login_host`); the clients show a failed
@@ -147,41 +141,27 @@ struct RemoteLogin {
     published: Arc<AtomicBool>,
 }
 
-/// Open a login tab for `agent` on this machine (the local Login / Switch
-/// account buttons). `switch` signs out first.
-pub(crate) fn open_login_tab(agent: CodingAgent, switch: bool, cx: &mut App) {
-    if switch {
-        confirm_switch_then(agent, cx, move |cx| {
-            start(agent, true, LoginTarget::System, None, cx)
-        });
-        return;
-    }
-    start(agent, false, LoginTarget::System, None, cx);
+/// Open a login tab for `agent` on this machine. `intended` = the profile
+/// the person clicked "Sign in" on (`None` = "Add account"); it only decides
+/// whether a login that lands on ANOTHER known email warns.
+pub(crate) fn open_login_tab(agent: CodingAgent, intended: Option<String>, cx: &mut App) {
+    let target = match intended {
+        Some(id) => LoginTarget::Profile(id),
+        None => LoginTarget::Add,
+    };
+    start(agent, target, None, cx);
 }
 
-/// EXP-849 — "+ Add account": create a FRESH account profile for `agent` on
-/// this machine and sign into it, in one go.
-///
-/// No sign-OUT is involved, which is the whole point of a profile: the new
-/// login lands in its own `CLAUDE_CONFIG_DIR`/`CODEX_HOME`, so the accounts
-/// already on this machine (and, for codex, every other machine sharing the
-/// ambient login) are untouched. The profile is created by
-/// `agent_login::resolve_login_profile` from [`LoginTarget::NewProfile`], so
-/// a login the person abandons leaves one empty directory and nothing else.
-pub(crate) fn open_add_account_tab(agent: CodingAgent, label: String, cx: &mut App) {
-    start(agent, false, LoginTarget::NewProfile(label), None, cx);
-}
-
-/// EXP-849 — sign in to an EXISTING profile (a `needs_relogin` repair, or a
-/// profile created and abandoned). Never a switch: the target profile holds
-/// its own credential, so there is nothing to sign out of.
-pub(crate) fn open_profile_login_tab(agent: CodingAgent, profile_id: String, cx: &mut App) {
-    start(agent, false, LoginTarget::Profile(profile_id), None, cx);
+/// Import `agent`'s AMBIENT login on this machine (the doctor's Import pill,
+/// after its confirm).
+pub(crate) fn import_ambient_login(agent: CodingAgent, cx: &mut App) {
+    start(agent, LoginTarget::Import, None, cx);
 }
 
 /// EXP-484 (D): run an `agent_login` device command. The payload was already
 /// validated and claimed by [`crate::device_sync`]; this opens the same tab
-/// the local button does and answers the command the moment a URL is up.
+/// the local button does and answers the command the moment a URL is up (an
+/// import answers with its outcome sentence).
 pub(crate) fn start_remote_login(command: api::devices::PendingCommand, cx: &mut App) {
     // The beat already refused a malformed payload; this is the belt.
     let request = match agent_login::parse_login_payload(&command.payload) {
@@ -192,11 +172,8 @@ pub(crate) fn start_remote_login(command: api::devices::PendingCommand, cx: &mut
             return;
         }
     };
-    // No local confirm: the requester's own dialog already carried the codex
-    // warning, and nobody is necessarily sitting at this machine.
     start(
         request.agent,
-        request.switch,
         request.target,
         Some(RemoteLogin {
             command_id: command.id,
@@ -206,91 +183,60 @@ pub(crate) fn start_remote_login(command: api::devices::PendingCommand, cx: &mut
     );
 }
 
-/// Run `then` once the user has confirmed switching `agent`'s account —
-/// immediately for the agents whose sign-out is local (claude), behind a
-/// confirm for codex, whose `logout` REVOKES the
-/// session with OpenAI so every other machine signed in with it loses
-/// access. The copy is byte-identical to the web dialog's.
-///
-/// The device-settings dialog uses this for REMOTE switches too, so both
-/// clients warn with the same words before the same act.
-///
-/// `then` NEVER runs on the caller's stack (FEED-39). The confirmed path
-/// runs it from the alert's OK, long after the click handler returned; the
-/// unconfirmed one used to call it inline, and a caller sitting inside its
-/// own entity's update (the device-settings dialog handing itself a weak
-/// handle) then re-entered that entity — gpui's double lease, a hard panic
-/// that took the Linux app down on a remote claude "Switch account". Deferred,
-/// both paths reach `then` with every entity released.
-pub(crate) fn confirm_switch_then(
-    agent: CodingAgent,
-    cx: &mut App,
-    then: impl Fn(&mut App) + 'static,
-) {
-    if agent_login::warn_on_switch(agent).is_none() {
-        cx.defer(move |cx| then(cx));
-        return;
+/// Answer a remote command that never got a run (or ran no tab) and drop its
+/// claim.
+fn answer_unstarted(remote: Option<&RemoteLogin>, ok: bool, message: String, cx: &mut App) {
+    if let Some(remote) = remote {
+        complete(&remote.command_id, ok, message, cx);
+        crate::device_sync::release_login(&remote.command_id, cx);
     }
-    crate::navigation::on_active_window(cx, move |window, cx| {
-        let spec = AlertSpec::new(CODEX_SWITCH_TITLE, CODEX_SWITCH_BODY, CODEX_SWITCH_OK)
-            .ok_variant(ButtonVariant::Danger)
-            .on_ok(move |_, cx| {
-                then(cx);
-                true
-            });
-        native_dialog::open_alert(window, cx, spec);
-    });
 }
 
-/// The one sequence: profile resolve → (optional) logout → login tab → grid
-/// watch → exit re-probe. Deferred, because the caller is typically inside
-/// its own window's update and [`crate::coding_flow::any_terminal_dock`]
-/// has to update windows to find the dock.
-///
-/// EXP-827: `target` picks the account profile. It resolves first (a new
-/// label creates the profile dir); a refused target answers the requester
-/// and starts nothing. The profile's config-dir pair goes on the sign-out
-/// AND the login tab, so both act inside the same profile dir.
-fn start(
-    agent: CodingAgent,
-    switch: bool,
-    target: LoginTarget,
-    remote: Option<RemoteLogin>,
-    cx: &mut App,
-) {
+/// What a committed sign-in or import says here: the duplicate warning, or
+/// the plain line.
+fn commit_toast(commit: &agent_login::LoginCommit, fallback: String) -> Toast {
+    match commit.duplicate_warning() {
+        Some(warning) => Toast::warning(warning),
+        None => Toast::info(fallback),
+    }
+}
+
+/// The one sequence: (import, done) | codex fetch → staging dir → login tab
+/// → grid watch → commit on a clean exit → re-probe. Deferred, because the
+/// caller is typically inside its own window's update and
+/// [`crate::coding_flow::any_terminal_dock`] has to update windows to find
+/// the dock.
+fn start(agent: CodingAgent, target: LoginTarget, remote: Option<RemoteLogin>, cx: &mut App) {
     let settings = CodingHub::global(cx).read(cx).settings.clone();
     let data_dir = crate::coding_flow::coding_data_dir(cx);
     // EXP-695: a REMOTE sign-in must not pop a browser on this machine —
     // the requester gets the link through the command result instead.
     let mut plan = agent_login::login_plan(&settings, agent, remote.is_some());
     cx.spawn(async move |cx| {
-        let resolved = {
-            let data_dir = data_dir.clone();
-            cx.background_executor()
-                .spawn(async move {
-                    agent_login::resolve_login_profile(&data_dir, agent, &target).map(|id| {
-                        let env = agent_login::login_env(&data_dir, agent, &id);
-                        (id, env)
-                    })
-                })
-                .await
-        };
-        let (profile_id, env) = match resolved {
-            Ok(resolved) => resolved,
-            Err(message) => {
-                log::warn!("[agent-login] {agent:?} profile refused: {message}");
-                let _ = cx.update(|cx| {
-                    notify(Toast::error(message.clone()), cx);
-                    // Never started: answer the requester and drop the claim
-                    // (no run exists to do it on exit).
-                    if let Some(remote) = remote.as_ref() {
-                        complete(&remote.command_id, false, message, cx);
-                        crate::device_sync::release_login(&remote.command_id, cx);
+        if target == LoginTarget::Import {
+            let imported = {
+                let (settings, data_dir) = (settings.clone(), data_dir.clone());
+                cx.background_executor()
+                    .spawn(async move { agent_login::import_ambient(&settings, &data_dir, agent) })
+                    .await
+            };
+            let _ = cx.update(|cx| {
+                match imported {
+                    Ok(commit) => {
+                        let text = commit.import_result_text();
+                        notify(commit_toast(&commit, text.clone()), cx);
+                        answer_unstarted(remote.as_ref(), true, text, cx);
                     }
-                });
-                return;
-            }
-        };
+                    Err(message) => {
+                        notify(Toast::error(message.clone()), cx);
+                        answer_unstarted(remote.as_ref(), false, message, cx);
+                    }
+                }
+                let hub = CodingHub::global(cx);
+                CodingHub::refresh_agent_usage(&hub, cx);
+            });
+            return;
+        }
         // EXP-1232: a managed Codex sign-in fetches the pinned build first
         // (one toast; the doctor row reads Downloading… meanwhile). A failed
         // fetch answers the requester and starts nothing.
@@ -312,45 +258,39 @@ fn start(
                 log::warn!("[agent-login] codex fetch failed: {message}");
                 let _ = cx.update(|cx| {
                     notify(Toast::error(message.clone()), cx);
-                    if let Some(remote) = remote.as_ref() {
-                        complete(&remote.command_id, false, message, cx);
-                        crate::device_sync::release_login(&remote.command_id, cx);
-                    }
+                    answer_unstarted(remote.as_ref(), false, message, cx);
                 });
                 return;
             }
         }
-        if let Some((key, value)) = env.as_ref() {
-            plan.spawn.env.push((key.clone(), value.clone()));
-        }
-        if switch {
-            // EXP-849 (interface E): a codex switch may only sign out a
-            // PROFILE — `codex logout` on the ambient login revokes it with
-            // OpenAI for every machine sharing it. Refuse rather than do it.
-            if let Some(message) = agent_login::switch_logout_blocker(agent, &profile_id) {
+        let staged = {
+            let data_dir = data_dir.clone();
+            cx.background_executor()
+                .spawn(async move { agent_login::begin_login(&data_dir, agent) })
+                .await
+        };
+        let (staging, env) = match staged {
+            Ok(staged) => staged,
+            Err(message) => {
+                log::warn!("[agent-login] {agent:?} staging refused: {message}");
                 let _ = cx.update(|cx| {
                     notify(Toast::error(message.clone()), cx);
-                    if let Some(remote) = remote.as_ref() {
-                        complete(&remote.command_id, false, message, cx);
-                        crate::device_sync::release_login(&remote.command_id, cx);
-                    }
+                    answer_unstarted(remote.as_ref(), false, message, cx);
                 });
                 return;
             }
-            let settings = settings.clone();
-            let env = env.clone();
-            let logout = cx
-                .background_executor()
-                .spawn(async move { agent_login::logout_in(&settings, agent, env.as_ref()) })
-                .await;
-            if let Err(message) = logout {
-                // A failed sign-out still lets the login run (the CLI may
-                // simply have been signed out already) — say so and continue.
-                log::warn!("[agent-login] {agent:?} logout failed: {message}");
-                let _ = cx.update(|cx| notify(Toast::warning(message), cx));
-            }
-        }
-        let _ = cx.update(|cx| spawn_login_tab(agent, plan, profile_id, remote, cx));
+        };
+        plan.spawn.env.push(env);
+        let run = LoginRun {
+            agent,
+            settings,
+            staging,
+            intended: target.intended().map(str::to_string),
+            remote,
+            finished: AtomicBool::new(false),
+            tab: OnceLock::new(),
+        };
+        let _ = cx.update(|cx| spawn_login_tab(plan, run, cx));
     })
     .detach();
 }
@@ -368,9 +308,11 @@ fn start(
 ///   can be released around it).
 struct LoginRun {
     agent: CodingAgent,
-    /// EXP-827: the profile the login lands on (`system` for the ambient
-    /// login), named in the published result.
-    profile_id: String,
+    settings: coding::Settings,
+    /// The fresh dir the CLI signs in inside; committed (or dropped) on finish.
+    staging: PathBuf,
+    /// The profile the person clicked "Sign in" on (`None` = Add account).
+    intended: Option<String>,
     remote: Option<RemoteLogin>,
     finished: AtomicBool,
     /// EXP-765: the tab this run opened — set once it exists, so `finish`
@@ -380,9 +322,11 @@ struct LoginRun {
 
 impl LoginRun {
     /// The run ended: answer an unanswered remote command, release the
-    /// in-flight claim, drop the agent's cached identity, and re-probe so
-    /// the row and the Tools pane tell the truth again.
-    fn finish(&self, cx: &mut App) {
+    /// in-flight claim, then — on a CLEAN exit — COMMIT the login by email
+    /// (the commit drops the landed login's cached usage, so it is read
+    /// afresh) and re-probe so the row and the Tools pane tell the truth
+    /// again. Anything else drops the staging dir and touches nothing.
+    fn finish(&self, clean: bool, cx: &mut App) {
         if self.finished.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -393,36 +337,40 @@ impl LoginRun {
             }
         }
         self.answer_remote("The sign-in ended before a link appeared.", cx);
-        // EXP-484: a SWITCH leaves the cache naming the previous account
-        // (and its numbers) — drop the entry so the next beat polls afresh
-        // instead of re-reporting the identity the user just replaced.
-        //
-        // EXP-862: the LOGIN's entry, not the agent's: a sign-in into a named
-        // profile must not blank its siblings' numbers and health. Dropping
-        // it is also what re-reads it at once — a login with no cache entry
-        // skips the rotation queue (`coding::agent_usage`), so the account
-        // this sign-in just created shows its usage on the very next pass
-        // instead of after a stagger window.
         let agent = self.agent;
-        let profile = self.profile_id.clone();
+        let staging = self.staging.clone();
+        if !clean {
+            cx.background_executor()
+                .spawn(async move { agent_login::abandon_login(agent, &staging) })
+                .detach();
+            return;
+        }
+        let settings = self.settings.clone();
+        let intended = self.intended.clone();
         let data_dir = crate::coding_flow::coding_data_dir(cx);
-        cx.background_executor()
-            .spawn(async move {
-                coding::usage_cache::forget_profile(&data_dir, agent.id(), &profile)
-            })
-            .detach();
-        // The re-probe carries the beat with it: the collector's input IS
-        // the doctor report, so `refresh_agent_usage` nudges the beat only
-        // once the fresh report has landed.
-        let hub = CodingHub::global(cx);
-        CodingHub::refresh_agent_usage(&hub, cx);
-        notify(
-            Toast::info(format!(
-                "{} sign-in finished — rechecking.",
-                self.agent.label()
-            )),
-            cx,
-        );
+        cx.spawn(async move |cx| {
+            let committed = cx
+                .background_executor()
+                .spawn(async move {
+                    agent_login::commit_login(&settings, &data_dir, agent, &staging, intended.as_deref())
+                })
+                .await;
+            let _ = cx.update(|cx| {
+                match committed {
+                    Ok(commit) => notify(
+                        commit_toast(&commit, format!("{} sign-in finished — rechecking.", agent.label())),
+                        cx,
+                    ),
+                    Err(message) => notify(Toast::error(message), cx),
+                }
+                // The re-probe carries the beat with it: the collector's input
+                // IS the doctor report, so `refresh_agent_usage` nudges the
+                // beat only once the fresh report has landed.
+                let hub = CodingHub::global(cx);
+                CodingHub::refresh_agent_usage(&hub, cx);
+            });
+        })
+        .detach();
     }
 
     /// The run never got off the ground (no window, a failed spawn): answer
@@ -433,6 +381,10 @@ impl LoginRun {
             return;
         }
         self.answer_remote(message, cx);
+        let (agent, staging) = (self.agent, self.staging.clone());
+        cx.background_executor()
+            .spawn(async move { agent_login::abandon_login(agent, &staging) })
+            .detach();
     }
 
     /// Complete the device command with `message` when the watch loop never
@@ -454,20 +406,9 @@ impl LoginRun {
 
 /// Open the tab in whichever window owns a terminal dock, then start the
 /// grid watch.
-fn spawn_login_tab(
-    agent: CodingAgent,
-    plan: coding::LoginPlan,
-    profile_id: String,
-    remote: Option<RemoteLogin>,
-    cx: &mut App,
-) {
-    let run = Arc::new(LoginRun {
-        agent,
-        profile_id,
-        remote,
-        finished: AtomicBool::new(false),
-        tab: OnceLock::new(),
-    });
+fn spawn_login_tab(plan: coding::LoginPlan, run: LoginRun, cx: &mut App) {
+    let agent = run.agent;
+    let run = Arc::new(run);
     let Some(handle) = crate::coding_flow::any_terminal_dock(cx) else {
         notify(
             Toast::error(
@@ -488,7 +429,7 @@ fn spawn_login_tab(
         let exit_run = Arc::clone(&run);
         let exit_manager = manager.clone();
         let exit_hook: terminal::tab::ExitHook = Box::new(move |tab, exit, cx| {
-            exit_run.finish(cx);
+            exit_run.finish(exit.success, cx);
             if exit.success {
                 let manager = exit_manager.clone();
                 cx.defer(move |cx| {
@@ -518,7 +459,8 @@ fn spawn_login_tab(
             let closed_run = Arc::clone(&run);
             cx.subscribe(&manager, move |_, event: &TerminalManagerEvent, cx| {
                 if *event == TerminalManagerEvent::TabClosed(tab) {
-                    closed_run.finish(cx);
+                    // Closed by hand before the CLI exited: nothing to commit.
+                    closed_run.finish(false, cx);
                 }
             })
             .detach();
@@ -561,14 +503,16 @@ fn watch_login(
                 // The tab is gone (closed by hand, or its window released) —
                 // the `TabClosed` watch normally beats us here; finishing
                 // again is a no-op.
-                let _ = cx.update(|cx| run.finish(cx));
+                let _ = cx.update(|cx| run.finish(false, cx));
                 return;
             };
             if !running {
-                // Exited but kept open: the exit hook already finished the
-                // run — stop polling instead of burning the whole 10-minute
-                // budget on a dead grid.
-                let _ = cx.update(|cx| run.finish(cx));
+                // Exited but kept open: the exit hook normally finished the
+                // run already — stop polling instead of burning the whole
+                // 10-minute budget on a dead grid. Should this edge win, it
+                // reads the same exit the hook would have.
+                let clean = cx.update(|cx| tab_exit_code(&manager, tab, cx) == Some(0));
+                let _ = cx.update(|cx| run.finish(clean, cx));
                 return;
             }
             if let Some(remote) = run.remote.as_ref() {
@@ -582,8 +526,7 @@ fn watch_login(
                             .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
                             .is_ok()
                         {
-                            let progress = LoginProgress::url(agent, url, code)
-                                .with_profile(run.profile_id.clone());
+                            let progress = LoginProgress::url(agent, url, code);
                             let _ = cx.update(|cx| {
                                 complete(&remote.command_id, true, progress.to_result_text(), cx)
                             });
@@ -647,6 +590,11 @@ fn tab_state(
     Some((lines, running))
 }
 
+/// The tab's captured exit code, `None` while it runs (or once it is gone).
+fn tab_exit_code(manager: &Entity<TerminalManager>, tab: TabId, cx: &App) -> Option<i32> {
+    manager.read(cx).tab(tab)?.exit_code()
+}
+
 fn write_input(manager: &Entity<TerminalManager>, tab: TabId, bytes: &[u8], cx: &App) {
     if let Some(view) = manager.read(cx).tab(tab).map(|tab| tab.view.clone()) {
         view.read(cx).session().borrow().write(bytes);
@@ -699,63 +647,6 @@ pub(crate) struct LoginDevice {
     pub own: bool,
     /// The agents installed there, runnable or signed out, in contract order.
     pub agents: Vec<CodingAgent>,
-    /// What the machine reported about those agents — where a NEW login lands.
-    accounts: std::collections::BTreeMap<String, coding::AgentAccount>,
-}
-
-impl LoginDevice {
-    /// Whether the machine's AMBIENT login for `agent` is already taken — a
-    /// new account then lands in a profile of its own.
-    fn ambient_signed_in(&self, agent: CodingAgent) -> bool {
-        let Some(account) = self.accounts.get(agent.id()) else {
-            return false;
-        };
-        match account
-            .profiles
-            .iter()
-            .find(|profile| profile.id == coding::SYSTEM_PROFILE)
-        {
-            Some(ambient) => ambient.signed_in,
-            None => account.signed_in,
-        }
-    }
-
-    /// `Claude Code account 2` — the smallest N ≥ 2 whose label the machine
-    /// does not already report for the agent (the ambient login is the
-    /// unnamed first), clamped at the server's 64 (web `nextProfileLabel`).
-    /// Counting profiles instead would re-mint "account 3" after "account 2"
-    /// was removed, and the login-landed rule then closes the sheet at open.
-    fn next_profile_label(&self, agent: CodingAgent) -> String {
-        let taken: std::collections::HashSet<&str> = self
-            .accounts
-            .get(agent.id())
-            .map(|account| {
-                account
-                    .profiles
-                    .iter()
-                    .filter_map(|profile| profile.label.as_deref())
-                    .collect()
-            })
-            .unwrap_or_default();
-        (2u32..)
-            .map(|n| format!("{} account {}", agent.label(), n))
-            .find(|label| !taken.contains(label.as_str()))
-            .expect("an unbounded range always yields a free label")
-            .chars()
-            .take(64)
-            .collect()
-    }
-
-    /// Where a new login lands on the machine (web `addAccountLoginTarget`):
-    /// the ambient login while it is still free — nothing to keep beside it —
-    /// otherwise a new profile the machine creates.
-    pub(crate) fn add_account_target(&self, agent: CodingAgent) -> LoginTarget {
-        if self.ambient_signed_in(agent) {
-            LoginTarget::NewProfile(self.next_profile_label(agent))
-        } else {
-            LoginTarget::System
-        }
-    }
 }
 
 /// The machines a sign-in can be queued on, newest rules first: MINE, online,
@@ -811,9 +702,6 @@ pub(crate) fn add_account_devices(
                 label
             }),
             agents,
-            accounts: crate::device_settings::parse_agent_map::<coding::AgentAccount>(
-                row.agent_accounts.as_ref(),
-            ),
             device_id,
         });
     }
@@ -824,92 +712,62 @@ pub(crate) fn add_account_devices(
 /// EXP-862 — start a sign-in for `agent` on `device`, wherever it is: the CLI's
 /// own login tab on THIS machine, an `agent_login` command plus the status
 /// dialog on another of mine. The ONE entry point every chip, menu and dialog
-/// uses, so "Sign in" means the same thing everywhere.
+/// uses, so "Sign in" means the same thing everywhere. `intended` = the row
+/// the person clicked (`None` = "Add account"); the login still lands on the
+/// profile of the email it signs in as.
 pub(crate) fn sign_in_on_device(
     device_id: String,
     device_label: SharedString,
     own: bool,
     agent: CodingAgent,
-    target: LoginTarget,
+    intended: Option<String>,
     window: &mut Window,
     cx: &mut App,
 ) {
+    let intended = intended
+        .map(|id| id.trim().to_string())
+        .filter(|id| !coding::agent_profiles::is_unpinned(Some(id)));
     if own {
-        // The named helpers, so "add an account" and "repair this profile"
-        // stay one call each on this machine too.
-        match normalize_own_target(target) {
-            LoginTarget::System => open_login_tab(agent, false, cx),
-            LoginTarget::Profile(profile_id) => open_profile_login_tab(agent, profile_id, cx),
-            LoginTarget::NewProfile(label) => open_add_account_tab(agent, label, cx),
-        }
+        open_login_tab(agent, intended, cx);
         return;
     }
-    open_login_dialog(device_id, device_label, agent, target, window, cx);
+    open_login_dialog(device_id, device_label, agent, intended, window, cx);
 }
 
-/// The ambient login is the ABSENCE of a profile, on this machine exactly as
-/// it is on the wire (`queue_login_command` drops a `system`/blank id): every
-/// chip hands over the row's raw `profile_id`, which IS `system` for the
-/// ambient account, and `coding::agent_login::resolve_login_profile` has no
-/// directory for that id — so a raw pass-through would refuse the most common
-/// sign-in there is ("This machine has no Claude Code profile system.").
-fn normalize_own_target(target: LoginTarget) -> LoginTarget {
-    match target {
-        LoginTarget::Profile(id) if coding::agent_profiles::is_system(Some(&id)) => {
-            LoginTarget::System
-        }
-        other => other,
-    }
+/// A remote sign-in's landing (accounts contract E): the dialog captures each
+/// profile's `lastLoginAt` when it queues the command, and the login has
+/// landed on the first row whose stamp is set and MOVED (or a new row that
+/// carries one). `None` = nothing landed yet.
+fn landed_login<'a>(
+    baseline: &BTreeMap<String, Option<String>>,
+    rows: &'a [coding::AgentProfileEntry],
+) -> Option<&'a coding::AgentProfileEntry> {
+    rows.iter().find(|row| {
+        row.last_login_at.is_some()
+            && baseline.get(&row.id).is_none_or(|before| *before != row.last_login_at)
+    })
 }
 
-/// `devices.createCommand` for an `agent_login` that names WHERE the login
-/// lands: an existing profile, or a fresh one the machine creates
-/// (`newProfileLabel`, EXP-827).
-///
-/// The payload is built here rather than in `api::devices` because that
-/// crate's `create_agent_login_command` has no `newProfileLabel` parameter
-/// yet (iOS and Android grew one in this wave); folding this into
-/// `api::devices::create_agent_login_command` is a follow-up.
-fn queue_login_command(
-    trpc: &api::TrpcClient,
-    device_id: &str,
-    agent: CodingAgent,
-    target: &LoginTarget,
-) -> Result<String, api::ApiError> {
-    #[derive(serde::Serialize)]
-    #[serde(rename_all = "camelCase")]
-    struct Input<'a> {
-        device_id: &'a str,
-        kind: &'a str,
-        agent: &'a str,
-        switch: bool,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        profile_id: Option<&'a str>,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        new_profile_label: Option<&'a str>,
-    }
-    // The ambient login is the ABSENCE of a profile on this wire (the device's
-    // `resolve_login_profile` reads `system`/blank the same way).
-    let (profile_id, new_profile_label) = match target {
-        LoginTarget::System => (None, None),
-        LoginTarget::Profile(id) => (
-            Some(id.trim()).filter(|id| !id.is_empty() && *id != coding::SYSTEM_PROFILE),
-            None,
-        ),
-        LoginTarget::NewProfile(label) => (None, Some(label.trim()).filter(|l| !l.is_empty())),
-    };
-    let created: api::devices::CreatedCommand = trpc.mutation(
-        "devices.createCommand",
-        &Input {
-            device_id,
-            kind: "agent_login",
-            agent: agent.id(),
-            switch: false,
-            profile_id,
-            new_profile_label,
-        },
-    )?;
-    Ok(created.id)
+/// The already-added warning a landing earns: the row EXISTED before the
+/// sign-in and is not the one the person aimed at (or they aimed at none).
+fn landing_warning(
+    baseline: &BTreeMap<String, Option<String>>,
+    landed: &coding::AgentProfileEntry,
+    intended: Option<&str>,
+) -> Option<String> {
+    let existed = baseline.contains_key(&landed.id);
+    let aimed_here = intended == Some(landed.id.as_str());
+    (existed && !aimed_here)
+        .then(|| landed.email.as_deref().map(agent_login::already_added))
+        .flatten()
+}
+
+/// What the device reports for `agent`'s logins, by profile id → its
+/// `lastLoginAt` (the baseline [`landed_login`] compares against).
+fn login_stamps(rows: &[coding::AgentProfileEntry]) -> BTreeMap<String, Option<String>> {
+    rows.iter()
+        .map(|row| (row.id.clone(), row.last_login_at.clone()))
+        .collect()
 }
 
 /// How often the sign-in dialog asks the server what the machine answered.
@@ -975,12 +833,11 @@ pub(crate) fn open_login_dialog(
     device_id: String,
     device_label: SharedString,
     agent: CodingAgent,
-    target: LoginTarget,
+    intended: Option<String>,
     window: &mut Window,
     cx: &mut App,
 ) {
-    let adds_account = matches!(target, LoginTarget::NewProfile(_));
-    let title = if adds_account {
+    let title = if intended.is_none() {
         format!("Add a {} account", agent.label())
     } else {
         format!("Sign in to {}", agent.label())
@@ -988,7 +845,7 @@ pub(crate) fn open_login_dialog(
     let spec = native_dialog::DialogSpec::new(title, size(px(460.), px(180.)));
     native_dialog::open_dialog_window(window, cx, spec, move |window, cx| {
         let view = cx.new(|cx| {
-            LoginDialogView::new(device_id, device_label, agent, target, window, cx)
+            LoginDialogView::new(device_id, device_label, agent, intended, window, cx)
         });
         native_dialog::DialogContent::new(view)
     });
@@ -998,8 +855,9 @@ struct LoginDialogView {
     device_id: String,
     device_label: SharedString,
     agent: CodingAgent,
-    /// EXP-940: kept so "Try again" can re-queue the SAME login.
-    target: LoginTarget,
+    /// The profile the person aimed at (`None` = Add account) — kept so "Try
+    /// again" re-queues the SAME login, and read by the duplicate warning.
+    intended: Option<String>,
     state: LoginDialogState,
     /// EXP-940: which attempt the phases belong to. A retry bumps it, so the
     /// abandoned attempt's poll and its timeout land on a stale generation and
@@ -1010,10 +868,9 @@ struct LoginDialogView {
     /// "Try again" never leaves a poller behind (release review R5); the
     /// loop also bails on its own once the attempt moved on.
     poll: Option<gpui::Task<()>>,
-    /// What the device reported about the agent's logins when the dialog
-    /// opened. The report MOVING is the success this dialog waits for — a new
-    /// profile appearing, or an expired one going healthy again.
-    baseline: Vec<(String, bool, coding::agent_accounts::Health)>,
+    /// Each profile's `lastLoginAt` when the command was queued. A stamp
+    /// MOVING is the success this dialog waits for ([`landed_login`]).
+    baseline: BTreeMap<String, Option<String>>,
     /// EXP-1000: the published link, rendered by the SHARED outcome block
     /// (link · device code · claude's code field · caption). Built when the
     /// login's command lands its URL, dropped by a retry.
@@ -1026,12 +883,12 @@ impl LoginDialogView {
         device_id: String,
         device_label: SharedString,
         agent: CodingAgent,
-        target: LoginTarget,
+        intended: Option<String>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let devices = sync::Store::global(cx).collections().devices.clone();
-        let baseline = login_fingerprint(&device_id, agent, cx);
+        let baseline = login_stamps(&device_logins(&device_id, agent, cx));
         // EXP-940: the landing no longer makes the dialog VANISH mid-sentence.
         // It turns into "Signed in", and the dialog closes a beat later — so
         // the flow ends with an answer.
@@ -1042,7 +899,15 @@ impl LoginDialogView {
                 if this.state == LoginDialogState::SignedIn {
                     return;
                 }
-                if login_fingerprint(&this.device_id, this.agent, cx) != this.baseline {
+                let rows = device_logins(&this.device_id, this.agent, cx);
+                if let Some(landed) = landed_login(&this.baseline, &rows) {
+                    // Signed in as an email the machine already had: that
+                    // login was refreshed, the one aimed at was not.
+                    if let Some(warning) =
+                        landing_warning(&this.baseline, landed, this.intended.as_deref())
+                    {
+                        notify(Toast::warning(warning), cx);
+                    }
                     this.state = LoginDialogState::SignedIn;
                     // Nothing this attempt still has in flight may speak now.
                     this.attempt = this.attempt.wrapping_add(1);
@@ -1066,7 +931,7 @@ impl LoginDialogView {
             device_id,
             device_label,
             agent,
-            target,
+            intended,
             state: LoginDialogState::Queueing,
             attempt: 0,
             poll: None,
@@ -1094,7 +959,7 @@ impl LoginDialogView {
         self.outcome = None;
         // The baseline is re-read: a retry must not treat the report the LAST
         // attempt already moved as this one's success.
-        self.baseline = login_fingerprint(&self.device_id, self.agent, cx);
+        self.baseline = login_stamps(&device_logins(&self.device_id, self.agent, cx));
         cx.notify();
         if queries::trpc_client(cx).is_none() {
             self.state = LoginDialogState::Failed("Not signed in.".into());
@@ -1102,7 +967,7 @@ impl LoginDialogView {
         }
         let device_id = self.device_id.clone();
         let agent = self.agent;
-        let target = self.target.clone();
+        let intended = self.intended.clone();
         self.poll = Some(cx.spawn_in(window, async move |this, cx| {
             // A fresh client per call: `TrpcClient` is not shareable, and
             // building one is a token-provider lookup, not a connection.
@@ -1113,7 +978,16 @@ impl LoginDialogView {
                 .background_executor()
                 .spawn({
                     let device_id = device_id.clone();
-                    async move { queue_login_command(&trpc, &device_id, agent, &target) }
+                    async move {
+                        api::devices::create_agent_login_command(
+                            &trpc,
+                            &device_id,
+                            agent.id(),
+                            intended.as_deref(),
+                            false,
+                        )
+                        .map(|created| created.id)
+                    }
                 })
                 .await;
             let command_id = match queued {
@@ -1359,18 +1233,9 @@ fn login_dialog_result(row: &api::devices::CommandRow) -> LoginDialogState {
     }
 }
 
-/// What the device currently reports about `agent`'s logins: one entry per
-/// profile, each with its signed-in flag and its health. A device that reported
-/// no profiles (an older build) yields its single ambient account.
-///
-/// The sign-in dialog watches this: a SIGN-IN lands as a new entry (a fresh
-/// profile) or as an existing one turning healthy (a `needs_relogin` repair),
-/// and either is the moment the dialog has nothing left to say.
-fn login_fingerprint(
-    device_id: &str,
-    agent: CodingAgent,
-    cx: &App,
-) -> Vec<(String, bool, coding::agent_accounts::Health)> {
+/// What the device currently reports about `agent`'s logins: its profile
+/// rows (the only rows there are — no ambient login is ever one).
+fn device_logins(device_id: &str, agent: CodingAgent, cx: &App) -> Vec<coding::AgentProfileEntry> {
     let Some(store) = sync::Store::try_global(cx) else {
         return Vec::new();
     };
@@ -1381,24 +1246,10 @@ fn login_fingerprint(
     else {
         return Vec::new();
     };
-    let accounts = crate::device_settings::parse_agent_map::<coding::AgentAccount>(
-        row.agent_accounts.as_ref(),
-    );
-    let Some(account) = accounts.get(agent.id()) else {
-        return Vec::new();
-    };
-    if account.profiles.is_empty() {
-        return vec![(
-            coding::SYSTEM_PROFILE.to_string(),
-            account.signed_in,
-            account.health(),
-        )];
-    }
-    account
-        .profiles
-        .iter()
-        .map(|profile| (profile.id.clone(), profile.signed_in, profile.health()))
-        .collect()
+    crate::device_settings::parse_agent_map::<coding::AgentAccount>(row.agent_accounts.as_ref())
+        .remove(agent.id())
+        .map(|account| account.profiles)
+        .unwrap_or_default()
 }
 
 impl Render for LoginDialogView {
@@ -1559,14 +1410,13 @@ impl AddAccountDialogView {
         let (Some(device), Some(agent)) = (self.selected().cloned(), self.agent) else {
             return;
         };
-        let target = device.add_account_target(agent);
         native_dialog::close_then(window, cx, move |window, cx| {
             sign_in_on_device(
                 device.device_id.clone(),
                 device.label.clone(),
                 device.own,
                 agent,
-                target,
+                None,
                 window,
                 cx,
             );
@@ -1721,192 +1571,52 @@ mod tests {
         }
     }
 
-    /// EXP-862: every chip on the Devices and Accounts pages hands
-    /// [`sign_in_on_device`] the row's RAW `profile_id`, and the ambient
-    /// login's is `system` — which has no profile directory, so the own-device
-    /// branch has to read it as "the ambient login" exactly like the wire
-    /// does, or "Sign in" on the commonest chip there is dies in
-    /// `resolve_login_profile`.
-    #[test]
-    fn the_ambient_profile_id_is_the_ambient_login() {
-        assert!(matches!(
-            normalize_own_target(LoginTarget::Profile(coding::SYSTEM_PROFILE.to_string())),
-            LoginTarget::System
-        ));
-        assert!(matches!(
-            normalize_own_target(LoginTarget::Profile("  ".to_string())),
-            LoginTarget::System
-        ));
-        assert!(matches!(
-            normalize_own_target(LoginTarget::Profile(String::new())),
-            LoginTarget::System
-        ));
-        // A real profile still signs into ITSELF.
-        assert!(matches!(
-            normalize_own_target(LoginTarget::Profile("0a1b2c3d".to_string())),
-            LoginTarget::Profile(id) if id == "0a1b2c3d"
-        ));
-        assert!(matches!(
-            normalize_own_target(LoginTarget::NewProfile("Work".to_string())),
-            LoginTarget::NewProfile(label) if label == "Work"
-        ));
-    }
-
-    /// A stand-in for the device-settings dialog: an entity whose click
-    /// handler starts a switch and, in the callback, updates ITSELF through
-    /// a weak handle (the real dialog queues the `agent_login` command that
-    /// way).
-    struct Requester {
-        queued: usize,
-    }
-
-    /// FEED-39: a remote claude "Switch account" crashed the requesting app.
-    /// claude needs no confirm, so `confirm_switch_then` ran the callback
-    /// inline — inside the dialog's own update — and the callback's
-    /// `view.update` double-leased the entity (gpui panics, the app dies).
-    /// The callback must reach the entity only once the handler has returned.
-    #[gpui::test]
-    async fn unconfirmed_switch_callback_runs_off_the_callers_stack(
-        cx: &mut gpui::TestAppContext,
-    ) {
-        let requester = cx.new(|_| Requester { queued: 0 });
-        requester.update(cx, |this, cx| {
-            let view = cx.entity().downgrade();
-            confirm_switch_then(CodingAgent::Claude, cx, move |cx| {
-                let _ = view.update(cx, |this, _| this.queued += 1);
-            });
-            // Still inside the handler: nothing may have touched the entity.
-            assert_eq!(this.queued, 0);
-        });
-        cx.run_until_parked();
-        assert_eq!(
-            requester.read_with(cx, |this, _| this.queued),
-            1,
-            "the deferred callback queues exactly one login"
-        );
-    }
-
-    fn device(profiles: Vec<coding::AgentProfileEntry>, ambient_signed_in: bool) -> LoginDevice {
-        let mut accounts = std::collections::BTreeMap::new();
-        accounts.insert(
-            CodingAgent::Claude.id().to_string(),
-            coding::AgentAccount {
-                signed_in: ambient_signed_in,
-                profiles,
-                ..coding::AgentAccount::default()
-            },
-        );
-        LoginDevice {
-            device_id: "dev-1".to_string(),
-            label: "Studio".into(),
-            own: false,
-            agents: vec![CodingAgent::Claude],
-            accounts,
-        }
-    }
-
-    fn profile(id: &str, signed_in: bool) -> coding::AgentProfileEntry {
+    fn row(id: &str, stamp: Option<&str>, email: &str) -> coding::AgentProfileEntry {
         coding::AgentProfileEntry {
-            id: id.to_string(),
-            signed_in,
-            checked_at: "2026-09-12T10:00:00.000Z".to_string(),
+            id: id.into(),
+            signed_in: true,
+            email: Some(email.into()),
+            last_login_at: stamp.map(str::to_string),
             ..coding::AgentProfileEntry::default()
         }
     }
 
-    fn labelled(id: &str, label: &str) -> coding::AgentProfileEntry {
-        coding::AgentProfileEntry {
-            label: Some(label.to_string()),
-            ..profile(id, true)
-        }
-    }
-
-    /// The next label is the smallest FREE "account N" (N ≥ 2), not one past
-    /// the profile count: after "account 2" was removed, `[system, account 3]`
-    /// must mint "account 2" again — never a label that already exists, which
-    /// the login-landed rule would treat as done before the login ran.
+    /// Accounts contract E: a remote sign-in lands on the row whose
+    /// `lastLoginAt` moved (or a new row carrying one); nothing moving is
+    /// nothing landed. A landing on a row that EXISTED and is not the one
+    /// aimed at — or any existing row for "Add account" — warns.
     #[test]
-    fn a_new_profile_takes_the_smallest_free_label() {
-        let gap = device(
-            vec![
-                profile(coding::SYSTEM_PROFILE, true),
-                labelled("0a1b2c3d", "Claude Code account 3"),
-            ],
-            true,
+    fn a_remote_sign_in_lands_where_last_login_at_moved() {
+        let before = vec![
+            row("aaaa0001", Some("T1"), "a@acme.test"),
+            row("bbbb0002", None, "b@acme.test"),
+            row("cccc0003", Some("T0"), "c@acme.test"),
+        ];
+        let baseline = login_stamps(&before);
+        assert_eq!(landed_login(&baseline, &before), None, "nothing moved yet");
+
+        // "Sign in" on C, signed in as A: A's stamp moves, B and C stay.
+        let mut after = before.clone();
+        after[0].last_login_at = Some("T2".into());
+        let landed = landed_login(&baseline, &after).expect("A landed");
+        assert_eq!(landed.id, "aaaa0001");
+        assert_eq!(
+            landing_warning(&baseline, landed, Some("cccc0003")).as_deref(),
+            Some("a@acme.test was already added. Refreshed it.")
         );
-        match gap.add_account_target(CodingAgent::Claude) {
-            LoginTarget::NewProfile(label) => assert_eq!(label, "Claude Code account 2"),
-            other => panic!("expected a new profile, got {other:?}"),
-        }
+        // Aimed at A: no warning. Add account onto A: a warning.
+        assert_eq!(landing_warning(&baseline, landed, Some("aaaa0001")), None);
+        assert!(landing_warning(&baseline, landed, None).is_some());
 
-        let full = device(
-            vec![
-                profile(coding::SYSTEM_PROFILE, true),
-                labelled("0a1b2c3d", "Claude Code account 2"),
-                labelled("4e5f6a7b", "Claude Code account 3"),
-            ],
-            true,
-        );
-        match full.add_account_target(CodingAgent::Claude) {
-            LoginTarget::NewProfile(label) => assert_eq!(label, "Claude Code account 4"),
-            other => panic!("expected a new profile, got {other:?}"),
-        }
-
-        // Exact, case-sensitive: a differently-cased label does not reserve N.
-        let cased = device(
-            vec![
-                profile(coding::SYSTEM_PROFILE, true),
-                labelled("0a1b2c3d", "claude code account 2"),
-            ],
-            true,
-        );
-        match cased.add_account_target(CodingAgent::Claude) {
-            LoginTarget::NewProfile(label) => assert_eq!(label, "Claude Code account 2"),
-            other => panic!("expected a new profile, got {other:?}"),
-        }
-    }
-
-    /// EXP-862 — where a new login lands (web `addAccountLoginTarget`): the
-    /// AMBIENT login while it is still free (nothing to keep beside it),
-    /// otherwise a profile of its own, named one past the logins the device
-    /// already reports.
-    #[test]
-    fn a_new_login_takes_the_ambient_slot_only_while_it_is_free() {
-        let free = device(vec![profile(coding::SYSTEM_PROFILE, false)], false);
-        assert!(matches!(
-            free.add_account_target(CodingAgent::Claude),
-            LoginTarget::System
-        ));
-        // A device that reported no profiles at all, signed out: same thing.
-        let bare = device(Vec::new(), false);
-        assert!(matches!(
-            bare.add_account_target(CodingAgent::Claude),
-            LoginTarget::System
-        ));
-
-        let taken = device(vec![profile(coding::SYSTEM_PROFILE, true)], true);
-        match taken.add_account_target(CodingAgent::Claude) {
-            LoginTarget::NewProfile(label) => assert_eq!(label, "Claude Code account 2"),
-            other => panic!("expected a new profile, got {other:?}"),
-        }
-        // The first free N past the labels on record (the ambient one is the
-        // unnamed first).
-        let two = device(
-            vec![
-                profile(coding::SYSTEM_PROFILE, true),
-                labelled("0a1b2c3d", "Claude Code account 2"),
-            ],
-            true,
-        );
-        match two.add_account_target(CodingAgent::Claude) {
-            LoginTarget::NewProfile(label) => assert_eq!(label, "Claude Code account 3"),
-            other => panic!("expected a new profile, got {other:?}"),
-        }
-
-        // An agent the device never reported has a free ambient login.
-        assert!(matches!(
-            two.add_account_target(CodingAgent::Codex),
-            LoginTarget::System
-        ));
+        // A NEW email: a new row with a stamp, never a warning.
+        let mut grown = before.clone();
+        grown.push(row("dddd0004", Some("T3"), "d@acme.test"));
+        let landed = landed_login(&baseline, &grown).expect("the new row landed");
+        assert_eq!(landed.id, "dddd0004");
+        assert_eq!(landing_warning(&baseline, landed, None), None);
+        // A new row with no stamp yet (an older build) is not a landing.
+        let mut unstamped = before.clone();
+        unstamped.push(row("eeee0005", None, "e@acme.test"));
+        assert_eq!(landed_login(&baseline, &unstamped), None);
     }
 }

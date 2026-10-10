@@ -575,7 +575,7 @@ describe(`shape column + trash contracts`, () => {
       `device_id`,
       `agent`,
       // EXP-909: the login the run SPENDS — every client resolves the run's
-      // account off it (`system` = the ambient login).
+      // account off it.
       `agent_account`,
       `status`,
       `branch`,

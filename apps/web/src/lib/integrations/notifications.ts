@@ -976,7 +976,7 @@ export async function notifySessionBlocked(
     if (!session) return
 
     // EXP-1005 throttle: at most ONE wall notification per PROFILE (device ×
-    // agent × account, `system` = the ambient login) per hour — parallel runs
+    // agent × account, unrecorded = one bucket) per hour — parallel runs
     // on one login hit the same wall together, and one row says it all.
     const since = new Date(Date.now() - SESSION_BLOCKED_THROTTLE_MS)
     const recent = await db

@@ -131,40 +131,49 @@ data class AgentAccount(
      * them when there are two or more. Absent = the device reported none.
      */
     @SerialName("profiles") val profiles: List<AgentAccountProfile>? = null,
+    /**
+     * The CLI's AMBIENT login (`~/.claude`, `~/.codex`), present only while it
+     * is signed in. Never run on: runs use the profiles alone, and the
+     * device's doctor offers to IMPORT this one (it moves into a profile).
+     */
+    @SerialName("importable") val importable: AgentImportable? = null,
+)
+
+/** What an agent's ambient login says about itself — see [AgentAccount.importable]. */
+@Serializable
+data class AgentImportable(
+    @SerialName("email") val email: String? = null,
+    @SerialName("plan") val plan: String? = null,
 )
 
 /**
  * EXP-825: one login profile of an agent on a machine — [id] is what a start
  * sends as `account`, [active] marks the machine's current login, [email]
- * names it. Everything but the id is optional (the sender's vintage varies),
- * and the shared decoder ignores unknown keys, so a richer profile from a
- * newer desktop still decodes.
+ * names it (a login has no other name). Everything but the id is optional
+ * (the sender's vintage varies), and the shared decoder ignores unknown keys,
+ * so an older device's `label` is simply dropped.
  *
- * EXP-829: the Devices page's Accounts section reads the rest of the entry
- * too (web `DeviceAgentProfileEntry`): [label] for the chip, [signedIn] /
- * [plan] / [checkedAt] for the identity line, and the profile's OWN [usage]
- * — the active profile's numbers also ride the pre-profile `agentUsage`
- * slot, which is the fallback for a device that only populated that one.
+ * EXP-829: the Devices page reads the rest of the entry too (web
+ * `DeviceAgentProfileEntry`): [signedIn] / [plan] / [checkedAt] for the
+ * identity line, and the profile's OWN [usage] — the active profile's numbers
+ * also ride the pre-profile `agentUsage` slot, which is the fallback for a
+ * device that only populated that one. [lastLoginAt] is stamped by the device
+ * when a sign-in or import COMMITS into this profile: what an open sign-in
+ * sheet watches to see its login land.
  */
 @Serializable
 data class AgentAccountProfile(
     @SerialName("id") val id: String,
     @SerialName("active") val active: Boolean = false,
     @SerialName("email") val email: String? = null,
-    @SerialName("label") val label: String? = null,
     @SerialName("signedIn") val signedIn: Boolean = false,
     @SerialName("plan") val plan: String? = null,
     @SerialName("checkedAt") val checkedAt: String? = null,
     /** EXP-849: this profile's own health — see [AgentAccount.health]. */
     @SerialName("health") val health: String? = null,
     @SerialName("usage") val usage: AgentUsage? = null,
+    @SerialName("lastLoginAt") val lastLoginAt: String? = null,
 )
-
-/**
- * The web's `SYSTEM_PROFILE_ID`: the machine's ambient login, which a start
- * never names explicitly — a picked "Active login" sends no `account`.
- */
-const val SYSTEM_PROFILE_ID = "system"
 
 /**
  * One rate-limit window of an agent's usage (EXP-484). [key] is stable
@@ -425,6 +434,13 @@ data class SteerDevice(
     val canSignOutAccount: Boolean get() = caps?.contains("account-sign-out") == true
 
     /**
+     * Whether this machine can IMPORT an agent's ambient login into a profile
+     * (`agent_login` with `import`). The server refuses the import without
+     * the cap, so the doctor's remote Import pill is offered only with it.
+     */
+    val canImportAccount: Boolean get() = caps?.contains(AGENT_IMPORT_CAP) == true
+
+    /**
      * EXP-746: whether this machine runs coding sessions through the
      * in-process ACP engine. Read-only here and no longer a gate: every build
      * above the version floor advertises it (EXP-773 left no other transport),
@@ -435,6 +451,9 @@ data class SteerDevice(
     companion object {
         const val KIND_DESKTOP = "desktop"
         const val KIND_SERVER = "server"
+
+        /** The build cap behind [canImportAccount]. */
+        const val AGENT_IMPORT_CAP = "agent-import"
 
         /** What a sender that advertises no agents at all can run. */
         private const val FALLBACK_AGENT = "claude"
@@ -495,7 +514,7 @@ data class SteerStartOptions(
     /**
      * EXP-825 (EXP-792): the agent login profile to launch under — one of the
      * machine's `agentAccounts[agent].profiles` ids. Null = the machine's
-     * active login (never [SYSTEM_PROFILE_ID] on the wire).
+     * last used login.
      */
     val account: String? = null,
     /**
@@ -600,8 +619,7 @@ private data class ResumeSessionInput(
     /**
      * EXP-849 phase 3: the login the resumed run re-enters under — a remote
      * "switch account" IS a resume that names an account. Null = the run's own
-     * recorded account (the plain Resume), and the ambient login is never named
-     * (`system` is the absence of the field).
+     * recorded account (the plain Resume).
      */
     @SerialName("account") val account: String? = null,
 )

@@ -556,9 +556,7 @@ final class AgentsViewModel {
     }
 
     /// EXP-862's command kind, handled by the desktop and the headless daemon
-    /// (`coding::agent_usage::remove_profile`). EXP-1137: the ambient login
-    /// (`system`) is taken too — signed out there and hidden until it signs
-    /// in again — on a machine with `account-sign-out`.
+    /// (`coding::agent_usage::remove_profile`).
     private static let removeAccountCommandKind = "agent_profile_remove"
 
     /// EXP-1137: sign ONE login out on the machine and keep its row — the

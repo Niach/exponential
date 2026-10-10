@@ -41,21 +41,21 @@ import com.exponential.app.domain.parseAgentLoginResult
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.agentLabel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
- * EXP-862: WHERE a sign-in lands — the machine, the agent, and either an
- * EXISTING login of that agent ([profileId]) or a NEW profile the machine
- * creates first ([newProfileLabel], the "Add account" path). Exactly one of the
- * two is ever set; the ambient login is `system`.
+ * EXP-862: WHAT a sign-in is for — the machine, the agent, and the EXISTING
+ * login it repairs ([profileId]), or null for "Add account". The device lands
+ * the login on the profile its email names either way; [profileId] only tells
+ * a duplicate apart.
  */
 internal data class AgentLoginTarget(
     val device: SteerDevice,
     val agent: String,
     val profileId: String? = null,
-    val newProfileLabel: String? = null,
 )
 
 /**
@@ -81,22 +81,34 @@ internal fun AgentLoginSheet(
 ) {
     val device = target.device
     val commandStates by viewModel.commandStates.collectAsStateWithLifecycle()
+    val toaster = LocalToaster.current
 
-    // EXP-862: the sheet closes itself once the login it asked for is usable
-    // on the device (web/desktop/iOS do the same). The FIRST observation is
-    // the baseline: a login that was already there never counts as landing.
-    val landed = AgentAccountsRows.loginLanded(
+    // EXP-862: the sheet closes itself once a login COMMITS on the device
+    // (web/desktop/iOS do the same). The baseline = every profile's
+    // `lastLoginAt` when the command is queued (this first composition); a
+    // fresh stamp is the landing. A landing on a profile that was already
+    // there under another intent is a duplicate: the device refreshed it, and
+    // the warning toast says so.
+    val baseline = remember(target) {
+        AgentAccountsRows.loginBaseline(
+            (liveDevice ?: device).agentAccounts?.get(target.agent),
+        )
+    }
+    val landing = AgentAccountsRows.loginLanding(
         liveDevice?.agentAccounts?.get(target.agent),
+        baseline,
         target.profileId,
-        target.newProfileLabel,
     )
-    var baseline by remember(target) { mutableStateOf<Boolean?>(null) }
-    LaunchedEffect(landed) {
-        when (baseline) {
-            null -> baseline = landed
-            false -> if (landed) onDismiss()
-            else -> Unit
+    LaunchedEffect(landing) {
+        val landed = landing ?: return@LaunchedEffect
+        if (landed.duplicate) {
+            toaster.warning(
+                AgentAccountsRows.alreadyAddedToast(
+                    landed.email ?: AgentAccountsRows.NO_EMAIL_LABEL,
+                ),
+            )
         }
+        onDismiss()
     }
 
     // The sheet IS the request: it queues the login once, on the machine the
@@ -110,16 +122,11 @@ internal fun AgentLoginSheet(
             switchAccount = false,
             deviceOnline = device.online,
             profileId = target.profileId,
-            newProfileLabel = target.newProfileLabel,
         )
     }
 
-    val state = commandStates[
-        agentLoginCommandKey(device.deviceId, target.agent, target.profileId, target.newProfileLabel)
-    ]
-    val codeState = commandStates[
-        agentLoginCodeCommandKey(device.deviceId, target.agent, target.profileId, target.newProfileLabel)
-    ]
+    val state = commandStates[agentLoginCommandKey(device.deviceId, target.agent, target.profileId)]
+    val codeState = commandStates[agentLoginCodeCommandKey(device.deviceId, target.agent, target.profileId)]
     GlassSheet(
         title = "Sign in",
         onDismiss = onDismiss,
@@ -146,7 +153,6 @@ internal fun AgentLoginSheet(
                         code,
                         device.online,
                         profileId = target.profileId,
-                        newProfileLabel = target.newProfileLabel,
                     )
                 },
             )

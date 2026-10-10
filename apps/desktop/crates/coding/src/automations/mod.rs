@@ -69,10 +69,9 @@ pub use trigger::{
 /// EXP-995: `account` is the agent PROFILE the run spends
 /// ([`crate::agent_profiles`]); it belongs to the pinned agent, so it only
 /// applies when that agent is one this build knows — a profile id names a
-/// directory under ONE agent's config root. The launcher itself falls back to
-/// the ambient login for a profile this machine no longer holds. EXP-1158:
-/// `system` is kept (it names the ambient login); NULL = unpinned = the
-/// login last used on this device, resolved by the launcher.
+/// directory under ONE agent's config root. The launcher itself resolves a
+/// profile this machine no longer holds — like NULL, blank or the retired
+/// `system` — as unpinned: the login last used on this device.
 pub fn launch_options(
     settings: &crate::Settings,
     agent: Option<&str>,
@@ -546,8 +545,8 @@ mod tests {
     }
 
     /// EXP-995: the account pin is a PROFILE of the pinned agent — it rides
-    /// only beside an agent this build knows. EXP-1158: `system` NAMES the
-    /// ambient login; NULL/blank is unpinned (the last used login).
+    /// only beside an agent this build knows; the launcher reads NULL, blank
+    /// and the retired `system` as unpinned (the last used login).
     #[test]
     fn launch_options_take_the_account_pin_beside_its_agent() {
         let mut settings = crate::Settings::default();
@@ -563,9 +562,10 @@ mod tests {
         assert_eq!(bare.agent, crate::CodingAgent::Claude);
         assert_eq!(bare.account, None);
 
-        // `system` names the ambient login; blank is unpinned.
-        let ambient = launch_options(&settings, Some("claude"), None, None, Some("system"));
-        assert_eq!(ambient.account.as_deref(), Some("system"));
+        // A legacy `system` rides through (the launcher reads it as
+        // unpinned); blank is unpinned.
+        let legacy = launch_options(&settings, Some("claude"), None, None, Some("system"));
+        assert_eq!(legacy.account.as_deref(), Some("system"));
         let blank = launch_options(&settings, Some("codex"), None, None, Some(" "));
         assert_eq!(blank.account, None);
     }

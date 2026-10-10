@@ -379,11 +379,11 @@ fn one_session_at_a_time() -> std::sync::MutexGuard<'static, ()> {
     }
 }
 
-/// What this machine's codex sessions on the AMBIENT login have published so
+/// What this machine's codex account-less sessions have published so
 /// far (EXP-909: the registry is keyed by `(agent, profile)`, and every spec
 /// here launches account-less).
 fn live_usage() -> coding::agent_usage::live::LiveUsage {
-    live_usage_on(coding::SYSTEM_PROFILE)
+    live_usage_on(&coding::profile_id(None))
 }
 
 /// The same, for a named account profile.

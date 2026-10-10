@@ -100,9 +100,8 @@ pub(crate) struct SwitchTarget {
 /// 3. else the machine's ACTIVE login;
 /// 4. else none — and then every row is simply "another account".
 ///
-/// Never `system` as a fallback: the ambient login is one account among
-/// several, and guessing it mis-labels the header (EXP-875 §1 — a run on
-/// dennis@ read as danny@, stale re-login badge and all).
+/// Never a guess beyond these: guessing mis-labels the header (EXP-875 §1 —
+/// a run on dennis@ read as danny@, stale re-login badge and all).
 fn current_profile(
     rows: &[&crate::usage_bar::AgentProfileUsageRow],
     current_account: Option<&str>,
@@ -175,7 +174,7 @@ pub(crate) fn switch_targets(
                 });
             SwitchTarget {
                 profile_id: row.profile_id.clone(),
-                label: row.profile_label.clone(),
+                label: crate::usage_bar::login_label(row),
                 caption: caption_of(row),
                 plan: row.plan.clone(),
                 health: row.health,
@@ -191,14 +190,9 @@ pub(crate) fn switch_targets(
             }
         })
         .collect();
-    // The current account first, then by label — a heartbeat cannot reorder
-    // the sheet under the pointer.
-    targets.sort_by(|a, b| {
-        b.current
-            .cmp(&a.current)
-            .then_with(|| a.label.cmp(&b.label))
-            .then_with(|| a.profile_id.cmp(&b.profile_id))
-    });
+    // The current account first, then the order the machine sent them (a
+    // stable sort) — a heartbeat cannot reorder the sheet under the pointer.
+    targets.sort_by(|a, b| b.current.cmp(&a.current));
     // EXP-1051: no footer note any more. Every refusal — the run's own facts
     // as much as the account's — is already ON its row, and the row's switch
     // control wears it as its tooltip: the sentence sits where the thing it
@@ -253,16 +247,17 @@ impl SwitchContext {
     /// the synced `coding_sessions.agent_account` the host stamped at start.
     ///
     /// `None` = genuinely unknown — an older host that never stamped the
-    /// column, or a row that has not synced yet. It is NEVER guessed to be
-    /// the ambient login: [`current_profile`] falls back to the machine's own
-    /// report instead.
+    /// column, or a row that has not synced yet. It is never guessed:
+    /// [`current_profile`] falls back to the machine's own report instead.
     fn current_account(&self, cx: &App) -> Option<String> {
         if self.local {
             if let Some(record) = coding::run_registry::get(
                 &crate::coding_flow::coding_data_dir(cx),
                 &self.session_id,
             ) {
-                return Some(coding::profile_id(record.account().as_deref()));
+                if let Some(account) = record.account() {
+                    return Some(account);
+                }
             }
         }
         let store = sync::Store::try_global(cx)?;
@@ -463,9 +458,8 @@ impl SwitchContext {
 /// resumes straight away. A run this machine does not host goes over the relay
 /// as a resume naming the account, exactly like a remote start.
 ///
-/// `profile_id` rides VERBATIM, `system` included: a start omits the ambient
-/// login (there, `system` IS the absence of an account), but a switch may not —
-/// the server reads the PRESENCE of `account` as "this resume is a switch" and
+/// `profile_id` rides VERBATIM: a switch always names its account — the
+/// server reads the PRESENCE of `account` as "this resume is a switch" and
 /// that is the only thing that lets a resume ride a LIVE run (×4
 /// `SessionAccountSwitch.wireAccount`).
 pub(crate) fn switch_to(
@@ -620,6 +614,9 @@ mod tests {
     use super::*;
     use crate::usage_bar::AgentProfileUsageRow;
 
+    /// The machine's last used login in these fixtures.
+    const HOME: &str = "4e5f6a7b";
+
     fn row(profile: &str, signed_in: bool, health: Health) -> AgentProfileUsageRow {
         AgentProfileUsageRow {
             key: format!("dev-1:claude:{profile}"),
@@ -629,8 +626,7 @@ mod tests {
             online: true,
             agent: "claude".into(),
             profile_id: profile.into(),
-            profile_label: profile.into(),
-            active: profile == coding::SYSTEM_PROFILE,
+            active: profile == HOME,
             signed_in,
             email: Some(format!("{profile}@acme.test")),
             plan: None,
@@ -647,18 +643,18 @@ mod tests {
     #[test]
     fn switch_targets_enforce_the_three_rules() {
         let rows = vec![
-            row(coding::SYSTEM_PROFILE, true, Health::Ok),
+            row(HOME, true, Health::Ok),
             row("0a1b2c3d", true, Health::Ok),
             row("deadbeef", false, Health::SignedOut),
             row("badc0ffe", true, Health::NeedsRelogin),
         ];
 
-        // Idle claude on the ambient login: the other healthy account is
+        // Idle claude on the home login: the other healthy account is
         // offerable, the broken ones are listed with their own sentence.
         let targets = switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, false);
         assert_eq!(targets.len(), 4);
         assert!(targets[0].current, "the run's own account leads");
-        assert_eq!(targets[0].profile_id, coding::SYSTEM_PROFILE);
+        assert_eq!(targets[0].profile_id, HOME);
         let by_id = |id: &str| targets.iter().find(|t| t.profile_id == id).unwrap().clone();
         assert_eq!(by_id("0a1b2c3d").blocked, None);
         assert_eq!(
@@ -746,7 +742,7 @@ mod tests {
     #[test]
     fn the_runs_account_is_resolved_never_guessed() {
         let rows = vec![
-            row(coding::SYSTEM_PROFILE, true, Health::Ok),
+            row(HOME, true, Health::Ok),
             row("0a1b2c3d", true, Health::Ok),
         ];
         let current = |targets: &[SwitchTarget]| {
@@ -796,10 +792,10 @@ mod tests {
         // 3. The machine's ACTIVE login, when neither is known.
         let targets =
             switch_targets(&rows, "dev-1", CodingAgent::Claude, None, None, true, false);
-        assert_eq!(current(&targets).as_deref(), Some(coding::SYSTEM_PROFILE));
+        assert_eq!(current(&targets).as_deref(), Some(HOME));
 
-        // 4. Nothing to go on at all: no row claims to be the run's, and the
-        //    ambient login is NOT assumed.
+        // 4. Nothing to go on at all: no row claims to be the run's, and
+        //    none is assumed.
         let named_only = vec![
             row("0a1b2c3d", true, Health::Ok),
             row("deadbeef", true, Health::Ok),
@@ -826,7 +822,7 @@ mod tests {
     #[test]
     fn every_refusal_rides_the_control_it_refuses() {
         let rows = vec![
-            row(coding::SYSTEM_PROFILE, true, Health::Ok),
+            row(HOME, true, Health::Ok),
             row("0a1b2c3d", true, Health::Ok),
             row("deadbeef", false, Health::SignedOut),
             row("badc0ffe", true, Health::NeedsRelogin),
@@ -848,8 +844,8 @@ mod tests {
         );
         assert_eq!(by_id(&targets, "0a1b2c3d").blocked, None);
         // The run's own account is never a target, so it never refuses.
-        assert_eq!(by_id(&targets, coding::SYSTEM_PROFILE).blocked, None);
-        assert!(by_id(&targets, coding::SYSTEM_PROFILE).current);
+        assert_eq!(by_id(&targets, HOME).blocked, None);
+        assert!(by_id(&targets, HOME).current);
 
         // Mid-turn: the run-level sentence lands on EVERY other row's control,
         // outranking the accounts' own (the ×4 refusal order).
@@ -858,7 +854,7 @@ mod tests {
         for id in ["0a1b2c3d", "deadbeef", "badc0ffe"] {
             assert_eq!(by_id(&targets, id).blocked.as_deref(), Some(busy), "{id}");
         }
-        assert_eq!(by_id(&targets, coding::SYSTEM_PROFILE).blocked, None);
+        assert_eq!(by_id(&targets, HOME).blocked, None);
     }
 
     /// The copy is the ×4 copy, byte for byte (Android

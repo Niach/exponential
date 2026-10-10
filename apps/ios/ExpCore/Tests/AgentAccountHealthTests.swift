@@ -96,9 +96,9 @@ final class AgentAccountHealthTests: XCTestCase {
 
     // MARK: - Off the devices shape
 
-    // The rows the Accounts/Devices surfaces draw carry the DERIVED health:
-    // the profile's own report, the top-level account's for a pre-profile
-    // machine, and `unknown` for an agent the machine only reported usage for.
+    // The rows the Devices surfaces draw carry the DERIVED health: each
+    // profile's own report (or its `signedIn` when it sent none). An agent
+    // with no profiles has no row, so its top-level fields badge nothing.
     func testProfileRowsCarryHealth() {
         let device = DeviceEntity(
             id: "row-1",
@@ -107,11 +107,11 @@ final class AgentAccountHealthTests: XCTestCase {
             label: "Studio",
             agentAccounts: #"""
             {"claude":{"signedIn":true,"email":"dev@acme.test","health":"needs_relogin",
-              "profiles":[{"id":"system","label":"Default","active":true,"signedIn":true,
+              "profiles":[{"id":"dev1","active":true,"signedIn":true,
                            "email":"dev@acme.test","health":"needs_relogin"},
-                          {"id":"work","label":"Work","signedIn":true,
+                          {"id":"work","signedIn":true,
                            "email":"work@acme.test","health":"ok"}]},
-             "codex":{"signedIn":false}}
+             "codex":{"signedIn":false,"profiles":[{"id":"cx","signedIn":false}]}}
             """#,
             agentUsage: nil,
             agentUsageAt: nil,
@@ -121,9 +121,10 @@ final class AgentAccountHealthTests: XCTestCase {
             devices: [device], currentUserId: "me", isOnline: { _ in true }
         )
         let byKey = Dictionary(rows.map { ($0.key, $0) }, uniquingKeysWith: { a, _ in a })
-        XCTAssertEqual(byKey["dev-1:claude:system"]?.health, .needsRelogin)
+        XCTAssertEqual(rows.count, 3)
+        XCTAssertEqual(byKey["dev-1:claude:dev1"]?.health, .needsRelogin)
         XCTAssertEqual(byKey["dev-1:claude:work"]?.health, .ok)
-        XCTAssertEqual(byKey["dev-1:codex:system"]?.health, .signedOut)
+        XCTAssertEqual(byKey["dev-1:codex:cx"]?.health, .signedOut)
 
         // The machine badges the worst of them.
         XCTAssertEqual(AgentAccountsRows.deviceHealth(rows, deviceId: "dev-1"), .needsRelogin)

@@ -49,6 +49,8 @@ struct AgentPageView: View {
     @State private var keyboardVisible = false
     /// EXP-1196: the not-ready row's Sign in pill → the remote sign-in.
     @State private var loginTarget: AgentLoginTarget?
+    /// The not-ready row's Import pill (`agentImportFlow`).
+    @State private var importTarget: AgentImportTarget?
     /// EXP-1196: the not-ready row's Update while `agent_update` is out.
     @State private var updatingAgent: String?
     @Environment(\.toaster) private var toaster
@@ -152,6 +154,7 @@ struct AgentPageView: View {
                 AgentLoginSheet(viewModel: sessions, target: target)
             }
         }
+        .agentImportFlow($importTarget, devices: sessions?.devices ?? [])
         .sheet(isPresented: $showRecent, onDismiss: pushPendingRecent) {
             if let sessions {
                 RecentRunsSheet(
@@ -316,10 +319,13 @@ struct AgentPageView: View {
         VStack(alignment: .leading, spacing: 4) {
             if let row = composer.notReadyRow, let device = composer.device {
                 // EXP-1196/1219: the machine's failing doctor row, same row
-                // and action as its readiness block.
-                DeviceReadinessView(row: row, busy: updatingAgent == row.key) { row in
-                    runNotReadyAction(row, device: device)
-                }
+                // and action (Import pill included) as its readiness block.
+                DeviceReadinessView(
+                    row: row,
+                    busy: updatingAgent == row.key,
+                    onAction: { row in runNotReadyAction(row, device: device) },
+                    onImport: { row in importTarget = AgentImportTarget(row: row, device: device) }
+                )
                 .accessibilityIdentifier("launch-not-ready-row")
             } else if let blocker = composer.blocker {
                 Text(blocker)

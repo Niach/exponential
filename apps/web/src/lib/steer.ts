@@ -224,8 +224,8 @@ export interface SteerStartOptions {
   /** EXP-1249: computer use for this run; absent = the device's
    * `launch_defaults.computerUse`. */
   computerUse?: boolean
-  /** EXP-792 (EXP-747 B7): the agent account profile to run on; absent or
-   * `system` = the ambient login. */
+  /** EXP-792 (EXP-747 B7): the agent account profile to run on; absent =
+   * the machine's last used profile. */
   account?: string
 }
 

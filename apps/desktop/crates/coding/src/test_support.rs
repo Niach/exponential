@@ -244,11 +244,21 @@ pub(crate) fn acp_ready_stub(_data_dir: &Path, _name: &str, _version: &str) -> S
     "git".to_string()
 }
 
+/// The account profile [`make_deps`] gives each agent: a launch never runs
+/// outside one, and the ACP-ready stubs answer its sign-in probe unreadably
+/// (the gate fails open on it).
+pub(crate) const TEST_PROFILE: &str = "0000beef";
+
 pub(crate) fn make_deps(
     base: &str,
     data_dir: &Path,
     worktrees: Arc<dyn WorktreeProvider>,
 ) -> CodingDeps {
+    for agent in crate::agent::CodingAgent::ALL {
+        if crate::agent_profiles::get(data_dir, agent, TEST_PROFILE).is_none() {
+            crate::agent_profiles::create_with_id(data_dir, agent, TEST_PROFILE).unwrap();
+        }
+    }
     let store = TokenStore::file_only(data_dir.to_path_buf());
     store
         .set("acct", SecretKind::PersonalApiKey, "expu_seeded")

@@ -46,21 +46,22 @@ final class PickerContractTests: XCTestCase {
     }
 
     /// An account row is keyed by the option's `key`, never the bare profile
-    /// id (`system` repeats across agents), searches on the email AND the
+    /// id (a no-login machine's per-agent fallback rows share a blank id),
+    /// searches on the email AND the
     /// agent, and falls back to the health badge as its second line — the
     /// EXP-992 bars replace that line when the row draws its own body.
     func testAnAccountRowIsKeyedByItsAgentAndProfile() {
         let rows = AccountPicker<EmptyView>.items([
             AccountOption(
-                id: "system",
+                id: "",
                 agent: "claude",
                 email: "ada@exp.dev",
                 isLastUsed: true,
                 health: .needsRelogin
             ),
-            AccountOption(id: "system", agent: "codex", email: "ada@exp.dev", isLastUsed: false),
+            AccountOption(id: "", agent: "codex", email: "ada@exp.dev", isLastUsed: false),
         ])
-        XCTAssertEqual(rows.map(\.value), ["claude:system", "codex:system"])
+        XCTAssertEqual(rows.map(\.value), ["claude:", "codex:"])
         XCTAssertEqual(rows.map(\.label), ["ada@exp.dev", "ada@exp.dev"])
         XCTAssertEqual(rows[0].description, AgentAccountHealth.needsRelogin.badgeLabel)
         XCTAssertNil(rows[1].description)

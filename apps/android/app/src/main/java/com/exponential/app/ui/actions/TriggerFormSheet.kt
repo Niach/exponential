@@ -22,6 +22,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.domain.ActionTrigger
+import com.exponential.app.domain.AccountOptions
 import com.exponential.app.domain.AutomationTrigger
 import com.exponential.app.ui.agent.AgentLaunchDataViewModel
 import com.exponential.app.ui.components.GlassSheet
@@ -76,7 +77,8 @@ fun TriggerFormSheet(
             } else {
                 triggerDraftFor(editing.whenPart, deviceId = editing.deviceId).copy(
                     agent = editing.agent.orEmpty(),
-                    account = editing.account.orEmpty(),
+                    // A legacy `system` pin reads as unpinned.
+                    account = AccountOptions.pinnedAccount(editing.account).orEmpty(),
                     model = editing.model.orEmpty(),
                     effort = editing.effort.orEmpty(),
                 )

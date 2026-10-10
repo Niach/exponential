@@ -22,7 +22,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::agent_accounts::AgentAccount;
-use crate::agent_profiles::SYSTEM_PROFILE;
 use crate::agent_usage::{AgentUsage, UsageWindow};
 
 /// The floor between two fetches for the SAME agent, shared across every
@@ -129,8 +128,8 @@ pub const MAX_DEAD_REFRESH_TOKENS: usize = 4;
 
 /// EXP-792 (EXP-747 B3): entries are keyed `agent:profileId` — one poll
 /// policy per LOGIN, so a 429 on one profile never backs off its siblings.
-/// A pre-profile file's bare `agent` key is the ambient login's
-/// (`agent:system`) and migrates on load.
+/// An older file's ambient-login rows (bare `agent`, `agent:system`) are
+/// dropped on load.
 pub fn entry_key(agent: &str, profile: &str) -> String {
     format!("{agent}:{profile}")
 }
@@ -301,13 +300,12 @@ fn load_unlocked(data_dir: &Path) -> UsageCache {
         return UsageCache::default();
     };
     let mut cache = UsageCache::default();
-    let mut legacy: Vec<(String, AgentCacheEntry)> = Vec::new();
     for (key, value) in object {
         match serde_json::from_value::<AgentCacheEntry>(value.clone()) {
-            // EXP-792: a bare `claude` row is the ambient login's; it moves
-            // under `claude:system` unless a row already sits there (the
-            // row a profile-aware host wrote is the fresher one).
-            Ok(entry) if !key.contains(':') => legacy.push((entry_key(&key, SYSTEM_PROFILE), entry)),
+            // The AMBIENT login's rows — a bare `claude` (pre-profile) or
+            // `claude:system` — are dropped: no ambient login is ever
+            // probed, and the next save leaves them out.
+            Ok(_) if is_ambient_key(&key) => {}
             Ok(entry) => {
                 cache.entries.insert(key, entry);
             }
@@ -315,9 +313,6 @@ fn load_unlocked(data_dir: &Path) -> UsageCache {
                 cache.unknown.insert(key, value);
             }
         }
-    }
-    for (key, entry) in legacy {
-        cache.entries.entry(key).or_insert(entry);
     }
     cache
 }
@@ -347,23 +342,23 @@ pub fn save(data_dir: &Path, cache: &UsageCache) {
     }
 }
 
-/// A login just ended on this machine for `agent`: drop its cached identity
-/// and numbers so the next beat polls afresh and names the NEW account,
-/// instead of the old email riding out its backoff (up to 10 min).
-pub fn forget(data_dir: &Path, agent: &str) {
-    forget_profile(data_dir, agent, SYSTEM_PROFILE);
+/// A key the AMBIENT login's numbers were cached under by an older build:
+/// the bare agent id, or `<agent>:system`.
+fn is_ambient_key(key: &str) -> bool {
+    match key.split_once(':') {
+        None => true,
+        Some((_, profile)) => profile == "system",
+    }
 }
 
-/// EXP-792: [`forget`] for ONE account profile of `agent` — a login just
-/// ended in that profile's dir; its siblings keep their numbers.
+/// EXP-792: a login just changed in ONE account profile's dir of `agent`
+/// (a sign-out, a sign-in commit): drop its cached identity and numbers so
+/// the next beat polls afresh and names the NEW account, instead of the old
+/// email riding out its backoff (up to 10 min). Its siblings keep theirs.
 pub fn forget_profile(data_dir: &Path, agent: &str, profile: &str) {
     let key = entry_key(agent, profile);
     let mut cache = load(data_dir);
-    let mut removed = cache.entries.remove(&key).is_some() | cache.unknown.remove(&key).is_some();
-    if profile == SYSTEM_PROFILE {
-        // The pre-profile key, should an older host have written it since.
-        removed |= cache.unknown.remove(agent).is_some();
-    }
+    let removed = cache.entries.remove(&key).is_some() | cache.unknown.remove(&key).is_some();
     if removed {
         save(data_dir, &cache);
     }
@@ -903,51 +898,44 @@ mod tests {
     use super::*;
 
     #[test]
-    fn forget_drops_one_agent_and_makes_its_poll_due() {
-        let dir = std::env::temp_dir().join(format!("exp-usage-cache-forget-{}", std::process::id()));
-        let _ = std::fs::remove_dir_all(&dir);
+    fn forget_drops_one_login_and_makes_its_poll_due() {
+        let dir = temp_dir("forget");
         let mut cache = UsageCache::default();
         let mut entry = AgentCacheEntry::default();
         entry.next_poll_at_secs = 10_000;
-        cache.insert(entry_key("codex", "system"), entry.clone());
-        cache.insert(entry_key("claude", "system"), entry.clone());
-        cache.insert(entry_key("claude", "0a1b2c3d"), entry);
+        cache.insert(entry_key("codex", "4e5f6a7b"), entry.clone());
+        cache.insert(entry_key("claude", "0a1b2c3d"), entry.clone());
+        cache.insert(entry_key("claude", "4e5f6a7b"), entry);
         save(&dir, &cache);
-        forget(&dir, "codex");
-        let reloaded = load(&dir);
-        assert!(reloaded.get(&entry_key("codex", "system")).is_none());
-        assert!(reloaded.get(&entry_key("claude", "system")).is_some());
-        assert!(poll_due(&AgentCacheEntry::default(), 5_000));
-        // A profile's forget leaves the ambient login's row alone.
         forget_profile(&dir, "claude", "0a1b2c3d");
         let reloaded = load(&dir);
         assert!(reloaded.get(&entry_key("claude", "0a1b2c3d")).is_none());
-        assert!(reloaded.get(&entry_key("claude", "system")).is_some());
+        assert!(reloaded.get(&entry_key("claude", "4e5f6a7b")).is_some(), "its sibling stays");
+        assert!(reloaded.get(&entry_key("codex", "4e5f6a7b")).is_some());
+        assert!(poll_due(&AgentCacheEntry::default(), 5_000));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// EXP-792: a pre-profile file keys rows by bare agent id; they load as
-    /// the ambient login's (`agent:system`) — and a row already under the
-    /// new key wins over the legacy one.
+    /// The AMBIENT login's rows an older build wrote — bare `claude` keys and
+    /// `<agent>:system` — are dropped on load and gone after the next save;
+    /// profile rows and unparseable foreign rows survive.
     #[test]
-    fn load_migrates_legacy_agent_keys_to_the_system_profile() {
-        let dir = temp_dir("migrate");
-        let legacy = AgentCacheEntry { unchanged_streak: 7, ..AgentCacheEntry::default() };
-        let native = AgentCacheEntry { unchanged_streak: 1, ..AgentCacheEntry::default() };
+    fn load_drops_the_ambient_logins_rows() {
+        let dir = temp_dir("ambient");
+        let entry = AgentCacheEntry { unchanged_streak: 7, ..AgentCacheEntry::default() };
         let mut object = serde_json::Map::new();
-        object.insert("claude".into(), serde_json::to_value(&legacy).unwrap());
-        object.insert("codex".into(), serde_json::to_value(&legacy).unwrap());
-        object.insert("codex:system".into(), serde_json::to_value(&native).unwrap());
+        object.insert("claude".into(), serde_json::to_value(&entry).unwrap());
+        object.insert("codex:system".into(), serde_json::to_value(&entry).unwrap());
+        object.insert("codex:0a1b2c3d".into(), serde_json::to_value(&entry).unwrap());
         std::fs::write(cache_path(&dir), serde_json::to_string(&object).unwrap()).unwrap();
         let loaded = load(&dir);
-        assert_eq!(loaded.get("claude"), None, "bare keys are gone");
-        assert_eq!(loaded.get(&entry_key("claude", "system")), Some(&legacy));
-        assert_eq!(loaded.get(&entry_key("codex", "system")), Some(&native), "the native row wins");
-        // Saving writes the new keys only.
+        assert_eq!(loaded.get("claude"), None);
+        assert_eq!(loaded.get(&entry_key("codex", "system")), None);
+        assert_eq!(loaded.get(&entry_key("codex", "0a1b2c3d")), Some(&entry));
         save(&dir, &loaded);
         let raw = std::fs::read_to_string(cache_path(&dir)).unwrap();
-        assert!(!raw.contains("\"claude\":"), "{raw}");
-        assert!(raw.contains("\"claude:system\""), "{raw}");
+        assert!(!raw.contains("system"), "{raw}");
+        assert!(!raw.contains("\"claude\""), "{raw}");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -962,12 +950,12 @@ mod tests {
         apply_outcome(&mut limited, PollOutcome::RateLimited, None, now, "T");
         cache.insert(entry_key("claude", "0a1b2c3d"), limited);
         let sibling = AgentCacheEntry { fetched_at_secs: now - 400, ..AgentCacheEntry::default() };
-        cache.insert(entry_key("claude", "system"), sibling);
+        cache.insert(entry_key("claude", "4e5f6a7b"), sibling);
 
         let limited = cache.get(&entry_key("claude", "0a1b2c3d")).unwrap();
         assert!(!poll_due(limited, now + 10));
         assert_eq!(force_due(&mut limited.clone(), now + 10), Err(now + RATE_LIMITED_FLOOR_SECS));
-        let sibling = cache.get(&entry_key("claude", "system")).unwrap();
+        let sibling = cache.get(&entry_key("claude", "4e5f6a7b")).unwrap();
         assert!(poll_due(sibling, now + 10), "the sibling profile is untouched");
         assert_eq!(force_due(&mut sibling.clone(), now + 10), Ok(()));
     }
@@ -985,7 +973,7 @@ mod tests {
         // The sibling process (same login) is refused…
         assert!(claim_refresh(&dir, "codex", "0a1b2c3d", now).is_none());
         // …but ANOTHER login's keep-alive is independent.
-        let sibling = claim_refresh(&dir, "codex", "system", now)
+        let sibling = claim_refresh(&dir, "codex", "4e5f6a7b", now)
             .expect("one claim per login, not per agent");
         assert_ne!(first.path(), sibling.path());
         // Releasing hands it on, and leaves no file behind.
@@ -1854,10 +1842,8 @@ mod tests {
         entry
             .extra
             .insert("futureField".into(), Value::String("keep me".into()));
-        // EXP-792: entries are keyed per login now; the bare `claude` form
-        // is what a pre-profile build wrote and is covered by the migration
-        // test below.
-        cache.insert(entry_key("claude", SYSTEM_PROFILE), entry.clone());
+        // EXP-792: entries are keyed per login.
+        cache.insert(entry_key("claude", "0a1b2c3d"), entry.clone());
         save(&dir, &cache);
 
         // A row a NEWER build wrote, of a shape this one cannot parse.
@@ -1868,9 +1854,9 @@ mod tests {
         std::fs::write(&path, serde_json::to_string(&object).unwrap()).unwrap();
 
         let reloaded = load(&dir);
-        assert_eq!(reloaded.get(&entry_key("claude", SYSTEM_PROFILE)), Some(&entry));
+        assert_eq!(reloaded.get(&entry_key("claude", "0a1b2c3d")), Some(&entry));
         assert_eq!(
-            reloaded.get(&entry_key("claude", SYSTEM_PROFILE)).unwrap().extra["futureField"],
+            reloaded.get(&entry_key("claude", "0a1b2c3d")).unwrap().extra["futureField"],
             Value::String("keep me".into())
         );
         // Rewriting must not drop the foreign row.

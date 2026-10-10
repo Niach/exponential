@@ -8,7 +8,8 @@ import Foundation
 /// left is the derivation that always mattered — one row per machine × agent ×
 /// login profile, listed under the machine that holds it — hand-mirrored
 /// against web `lib/agent-usage.ts` (`agentProfileUsageRows` /
-/// `deviceLoginRows` / `sortDeviceLogins` / `loginLabel` / `refreshAllowedAt`)
+/// `deviceLoginRows` / `sortDeviceLogins` / `loginLabel` / `refreshAllowedAt`
+/// / the sign-in landing)
 /// and desktop `ui/src/usage_bar.rs`: same names, same fallbacks, same test
 /// names. Change a rule here, change it there.
 ///
@@ -28,9 +29,6 @@ public struct AgentProfileUsageRow: Equatable, Sendable, Identifiable {
     public let online: Bool
     public let agent: String
     public let profileId: String
-    /// The profile's label (`Default` for the ambient login when the device
-    /// sent none).
-    public let profileLabel: String
     /// Whether this profile is the machine's CURRENT login for the agent.
     public let active: Bool
     public let signedIn: Bool
@@ -54,7 +52,6 @@ public struct AgentProfileUsageRow: Equatable, Sendable, Identifiable {
         online: Bool,
         agent: String,
         profileId: String,
-        profileLabel: String,
         active: Bool,
         signedIn: Bool,
         email: String?,
@@ -70,7 +67,6 @@ public struct AgentProfileUsageRow: Equatable, Sendable, Identifiable {
         self.online = online
         self.agent = agent
         self.profileId = profileId
-        self.profileLabel = profileLabel
         self.active = active
         self.signedIn = signedIn
         self.email = email
@@ -82,15 +78,6 @@ public struct AgentProfileUsageRow: Equatable, Sendable, Identifiable {
 }
 
 public enum AgentAccountsRows {
-    /// The ambient login's profile id — byte-identical with web
-    /// `SYSTEM_PROFILE_ID` and the desktop's `agent_profiles::SYSTEM_PROFILE`.
-    public static let systemProfileId = "system"
-
-    /// What the ambient login is CALLED when the device sent no label —
-    /// Android's `SYSTEM_PROFILE_LABEL`, and the last fallback an account row's
-    /// title takes.
-    public static let systemProfileLabel = "Default"
-
     /// The `agent-usage-refresh` device cap: the machine runs
     /// `agent_usage_refresh` (web `deviceCanRefreshUsage`).
     public static let refreshCap = "agent-usage-refresh"
@@ -103,13 +90,11 @@ public enum AgentAccountsRows {
     // MARK: - Rows off the devices shape
 
     /// The rows the section renders for `devices` — one per machine × agent ×
-    /// profile. A device that reports no profiles (an older build, or a
-    /// single-login install) gets exactly one row per agent: the ambient
-    /// `system` profile, labelled "Default", carrying the top-level account
-    /// and the pre-profile `agentUsage` slot; an agent that reported ONLY
-    /// usage still gets its row, signed out, dated by the row's
-    /// `agent_usage_at`. `isOnline` is the caller's clock (`DeviceLiveness`),
-    /// passed in so the derivation stays a pure function of the rows.
+    /// profile, and ONLY the profiles the machine reports: no ambient login is
+    /// ever used, so nothing is synthesized off the top-level fields (no
+    /// `system` / "Default" row). An agent with no profiles has no rows.
+    /// `isOnline` is the caller's clock (`DeviceLiveness`), passed in so the
+    /// derivation stays a pure function of the rows.
     public static func profileRows(
         devices: [DeviceEntity],
         currentUserId: String?,
@@ -122,8 +107,7 @@ public enum AgentAccountsRows {
                 mine: currentUserId != nil && device.userId == currentUserId,
                 online: isOnline(device.lastSeenAt),
                 accounts: AgentUsagePresentation.parseAccounts(device.agentAccounts) ?? [:],
-                usageMap: AgentUsagePresentation.parseMap(device.agentUsage) ?? [:],
-                agentUsageAt: device.agentUsageAt
+                usageMap: AgentUsagePresentation.parseMap(device.agentUsage) ?? [:]
             )
         }
     }
@@ -142,21 +126,20 @@ public enum AgentAccountsRows {
             mine: device.isMine,
             online: device.isOnline,
             accounts: device.agentAccounts ?? [:],
-            usageMap: device.agentUsage ?? [:],
-            agentUsageAt: device.agentUsageAt
+            usageMap: device.agentUsage ?? [:]
         ))
     }
 
     /// The shared core both entry points run: one machine's reported accounts
-    /// and usage → its rows, in contract agent order, unsorted otherwise.
+    /// and usage → its rows, in contract agent order, then the order the
+    /// machine sent its profiles in.
     private static func rows(
         deviceId: String,
         deviceLabel: String,
         mine: Bool,
         online: Bool,
         accounts: [String: AgentAccount],
-        usageMap: [String: AgentUsage],
-        agentUsageAt: String?
+        usageMap: [String: AgentUsage]
     ) -> [AgentProfileUsageRow] {
         var out: [AgentProfileUsageRow] = []
         // EXP-849: an agent this build has no name for (a retired `pi`
@@ -165,35 +148,11 @@ public enum AgentAccountsRows {
         // filtered here too, so a caller that parsed the jsonb itself
         // cannot smuggle one in.
         let agents = orderedAgents(
-            Set(accounts.keys).union(usageMap.keys)
-                .filter(AgentUsagePresentation.isContractAgent)
+            Set(accounts.keys).filter(AgentUsagePresentation.isContractAgent)
         )
         for agent in agents {
             let account = accounts[agent]
             let profiles = account?.profiles ?? []
-            if profiles.isEmpty {
-                out.append(AgentProfileUsageRow(
-                    key: "\(deviceId):\(agent):\(systemProfileId)",
-                    deviceId: deviceId,
-                    deviceLabel: deviceLabel,
-                    mine: mine,
-                    online: online,
-                    agent: agent,
-                    profileId: systemProfileId,
-                    profileLabel: systemProfileLabel,
-                    active: true,
-                    signedIn: account?.signedIn == true,
-                    email: nonEmpty(account?.email),
-                    plan: nonEmpty(account?.plan),
-                    usage: usageMap[agent],
-                    checkedAt: nonEmpty(account?.checkedAt) ?? nonEmpty(agentUsageAt),
-                    // EXP-849: an agent the machine reported ONLY usage
-                    // for has no account entry at all, which is `unknown`
-                    // — `AgentAccountHealth.of(nil)` says exactly that.
-                    health: AgentAccountHealth.of(account)
-                ))
-                continue
-            }
             for profile in profiles {
                 // The active profile's numbers ride BOTH the profile entry
                 // and the pre-profile `agentUsage[agent]` slot; prefer the
@@ -209,8 +168,6 @@ public enum AgentAccountsRows {
                     online: online,
                     agent: agent,
                     profileId: profile.id,
-                    profileLabel: nonEmpty(profile.label)
-                        ?? (profile.id == systemProfileId ? systemProfileLabel : profile.id),
                     active: profile.active == true,
                     signedIn: profile.signedIn == true,
                     email: nonEmpty(profile.email),
@@ -263,15 +220,17 @@ public enum AgentAccountsRows {
     /// The order a machine's logins read in under its Devices row: contract
     /// agent order first (claude before codex, an unknown agent last), then
     /// the machine's ACTIVE login for that agent, then `attentionRank` (a
-    /// signed-out or refused login leads the rest), then the profile label and
-    /// its id — so a heartbeat can never reshuffle equal rows.
+    /// signed-out or refused login leads the rest), then the order the
+    /// machine SENT them in — a login has no name to sort by, and the device's
+    /// order is stable across heartbeats.
     ///
     /// The active login leads DELIBERATELY, before attention: this list
     /// answers "what is this machine running right now", and the broken
     /// sibling below it still wears its badge. Locked ×4 by `device logins
     /// lead with the active login, in contract agent order`.
     public static func sortDeviceLogins(_ rows: [AgentProfileUsageRow]) -> [AgentProfileUsageRow] {
-        rows.sorted { a, b in
+        rows.enumerated().sorted { lhs, rhs in
+            let (a, b) = (lhs.element, rhs.element)
             if a.agent != b.agent {
                 let rankA = agentRank(a.agent)
                 let rankB = agentRank(b.agent)
@@ -282,9 +241,8 @@ public enum AgentAccountsRows {
             let attentionA = attentionRank(signedIn: a.signedIn, usage: a.usage, health: a.health)
             let attentionB = attentionRank(signedIn: b.signedIn, usage: b.usage, health: b.health)
             if attentionA != attentionB { return attentionA < attentionB }
-            if let ordered = before(a.profileLabel, b.profileLabel) { return ordered }
-            return before(a.profileId, b.profileId) ?? false
-        }
+            return lhs.offset < rhs.offset
+        }.map(\.element)
     }
 
     /// EXP-1013: what a login with no known address and no plan is called.
@@ -295,8 +253,8 @@ public enum AgentAccountsRows {
     /// sheets; ×4 `accountName`): its EMAIL, signed in or not (the device
     /// keeps the last address a signed-out login answered with). An agent that
     /// reports no address (codex's API-key login) is named by its plan; a
-    /// login nobody ever signed in to is "No email". NEVER the profile's
-    /// internal label ("Default", "Claude Code account 2").
+    /// login nobody ever signed in to is "No email". A login has no other
+    /// name: profiles carry none.
     public static func accountName(email: String?, plan: String?) -> String {
         nonEmpty(email) ?? nonEmpty(plan) ?? noEmailLabel
     }
@@ -361,15 +319,13 @@ public enum AgentAccountsRows {
     public static let removeCap = "account-remove"
 
     /// EXP-1137: the `account-sign-out` device cap — the machine runs
-    /// `agent_profile_sign_out` and takes `agent_profile_remove` for its
-    /// ambient login. `SteerDevice.canSignOutAccount` reads it.
+    /// `agent_profile_sign_out`. `SteerDevice.canSignOutAccount` reads it.
     public static let signOutCap = "account-sign-out"
 
-    /// EXP-1137: the ambient login (`system`, or a blank id): the agent CLI's
-    /// own config dir.
-    public static func isAmbient(_ profileId: String) -> Bool {
-        profileId.isEmpty || profileId == systemProfileId
-    }
+    /// The `agent-import` device cap: the machine takes `agent_login {agent,
+    /// import: true}` and MOVES its ambient login into a profile.
+    /// `SteerDevice.canImportAgent` reads it.
+    public static let importCap = "agent-import"
 
     /// EXP-862: a chip whose one repair is a SIGN-IN — there is no login on
     /// that machine, or the agent refused the one there. Both read the same to
@@ -383,17 +339,15 @@ public enum AgentAccountsRows {
     public static let removeAccountOldApp =
         "That machine runs an older Exponential app that cannot remove agent accounts. Update it first."
 
-    /// EXP-1137: the server's refusal for a sign-out (or an ambient removal,
-    /// which signs out first) on a build without the body. Byte-identical ×4.
+    /// EXP-1137: the server's refusal for a sign-out on a build without the
+    /// body. Byte-identical ×4.
     public static let signOutOldApp =
         "That machine runs an older Exponential app that cannot sign agent accounts out. Update it first."
 
     /// EXP-862: why "Remove account" is NOT offered for this login on this
-    /// machine, or nil when it is — the web `removeAccountBlockReason` twin.
-    /// Two builds, one refusal each: the ambient login needs the sign-out body
-    /// (EXP-1137, `account-sign-out`: the machine signs it out and hides the
-    /// row), a named profile the removal body (`account-remove`: the machine
-    /// deletes its dir).
+    /// machine, or nil when it is — the web `removeAccountBlockReason` twin:
+    /// the machine needs the removal body (`account-remove`: it deletes the
+    /// profile dir).
     ///
     /// EXP-944: being signed OUT is not one of them. A dead profile is the
     /// thing people most want gone, the removal is a profile-dir delete that
@@ -404,27 +358,19 @@ public enum AgentAccountsRows {
     public static func removeAccountBlockReason(
         _ row: AgentProfileUsageRow,
         canAgentLogin: Bool,
-        canRemoveAccount: Bool,
-        canSignOutAccount: Bool = false
+        canRemoveAccount: Bool
     ) -> String? {
-        let ambient = isAmbient(row.profileId)
-        if !canAgentLogin { return ambient ? signOutOldApp : removeAccountOldApp }
-        if ambient { return canSignOutAccount ? nil : signOutOldApp }
-        return canRemoveAccount ? nil : removeAccountOldApp
+        canAgentLogin && canRemoveAccount ? nil : removeAccountOldApp
     }
 
     /// Whether the chip menu offers "Remove account" for this login.
     public static func canRemoveAccount(
         _ row: AgentProfileUsageRow,
         canAgentLogin: Bool,
-        canRemoveAccount: Bool,
-        canSignOutAccount: Bool = false
+        canRemoveAccount: Bool
     ) -> Bool {
         removeAccountBlockReason(
-            row,
-            canAgentLogin: canAgentLogin,
-            canRemoveAccount: canRemoveAccount,
-            canSignOutAccount: canSignOutAccount
+            row, canAgentLogin: canAgentLogin, canRemoveAccount: canRemoveAccount
         ) == nil
     }
 
@@ -462,144 +408,84 @@ public enum AgentAccountsRows {
         "Delete \(account) on \(device)? The login is removed from this device only; the account itself is untouched."
     }
 
-    /// EXP-1137: the ambient login's remove confirm, pinned ×4. `agentLabel`
-    /// is the agent's display name (`Claude` / `Codex`): the sentence says
-    /// that the CLI in the person's own terminal signs out along with it.
-    public static func removeAmbientAccountConfirmCopy(
-        account: String,
-        device: String,
-        agentLabel: String
-    ) -> String {
-        "Remove \(account) from \(device)? The machine's own \(agentLabel) login is signed out there, including for the \(agentLabel) CLI in the terminal, and hidden here until it signs in again; the account itself is untouched."
-    }
-
-    /// EXP-1137: the sign-out confirm, pinned ×4. `ambientAgentLabel` names
-    /// the agent when the login is the machine's own (the terminal CLI signs
-    /// out too); a named profile keeps its row for a later sign-in.
+    /// EXP-1137: the sign-out confirm, pinned ×4: the login keeps its row for
+    /// a later sign-in.
     public static func signOutConfirmCopy(
         account: String,
-        device: String,
-        ambientAgentLabel: String? = nil
+        device: String
     ) -> String {
-        if let agent = ambientAgentLabel {
-            return "Sign \(account) out on \(device)? That is the machine's own \(agent) login, so the \(agent) CLI there is signed out too; the account itself is untouched."
-        }
-        return "Sign \(account) out on \(device)? The login stays listed so it can sign in again; the account itself is untouched."
+        "Sign \(account) out on \(device)? The login stays listed so it can sign in again; the account itself is untouched."
     }
 
-    // MARK: - Adding a login (EXP-827/EXP-862)
+    // MARK: - Signing in (EXP-827/EXP-862, logins by email)
 
-    /// The server's clamp on a profile label (web `MAX_PROFILE_LABEL`).
-    public static let maxProfileLabel = 64
-
-    /// Trimmed and cut to the server's limit, so the label the machine names
-    /// its new config dir with is the one that was asked for.
-    public static func clampProfileLabel(_ label: String) -> String {
-        let trimmed = label.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.count > maxProfileLabel
-            ? String(trimmed.prefix(maxProfileLabel))
-            : trimmed
-    }
-
-    /// WHERE a queued `agent_login` lands on the machine. Exactly one of the
-    /// two is ever set: the machine reads neither as its AMBIENT config dir
-    /// (`LoginTarget::System` in `coding/src/agent_login.rs`), which would
-    /// sign a second account in ON TOP of the login already there.
-    public struct AddLoginTarget: Equatable, Sendable {
-        public let profileId: String?
-        public let newProfileLabel: String?
-
-        public init(profileId: String?, newProfileLabel: String?) {
-            self.profileId = profileId
-            self.newProfileLabel = newProfileLabel
-        }
-    }
-
-    /// Whether the machine's AMBIENT login for an agent is taken — its own
-    /// `system` profile when it reports profiles, the top-level flag for a
-    /// machine that reports none.
-    public static func ambientSignedIn(_ account: AgentAccount?) -> Bool {
-        guard let account else { return false }
-        guard let ambient = (account.profiles ?? []).first(where: {
-            $0.id == systemProfileId
-        }) else {
-            return account.signedIn == true
-        }
-        return ambient.signedIn == true
-    }
-
-    /// Where a new login lands on a machine (web `addAccountLoginTarget`,
-    /// Android `addAccountLoginTarget`): the ambient login while it is still
-    /// signed out — nothing to keep beside it — otherwise a NEW profile
-    /// carrying `label`, which the machine creates first (EXP-792's per-agent
-    /// config dirs).
-    public static func addAccountLoginTarget(
-        _ account: AgentAccount?,
-        label: String
-    ) -> AddLoginTarget {
-        ambientSignedIn(account)
-            ? AddLoginTarget(profileId: nil, newProfileLabel: clampProfileLabel(label))
-            : AddLoginTarget(profileId: systemProfileId, newProfileLabel: nil)
-    }
-
-    /// `Claude Code account 2` — the smallest N ≥ 2 whose `<agent> account N`
-    /// is not already the label of a profile the machine reports for the
-    /// agent (exact, case-sensitive). Counting profiles instead re-issued a
-    /// label that still existed after an earlier one was removed
-    /// (`[system, "account 3"]` → "account 3"), and `loginLanded` then saw
-    /// the sign-in as already landed. Web/Android `nextProfileLabel`, same
-    /// rule; `agentLabel` is resolved by the caller, since the agent's
-    /// display name lives in the app target.
-    public static func nextProfileLabel(
-        _ account: AgentAccount?,
-        agentLabel: String
-    ) -> String {
-        let taken = Set((account?.profiles ?? []).map { $0.label ?? "" })
-        var n = 2
-        while taken.contains("\(agentLabel) account \(n)") { n += 1 }
-        return clampProfileLabel("\(agentLabel) account \(n)")
-    }
-
-    /// EXP-862: has the login the sign-in sheet drove ARRIVED? The sheet
-    /// closes on the TRANSITION into this, so it must be false while the flow
-    /// runs — web `agentLoginLanded`, rule for rule:
-    ///   - a NEW profile (the "+ Add account" path): a profile carrying the
-    ///     asked-for label is now usable. The ambient flag is useless here —
-    ///     it is already true, which is precisely WHY a new profile was asked
-    ///     for.
-    ///   - an existing profile: that profile's own state.
-    ///   - the ambient login: its `system` entry, else the top-level fields.
+    /// A sign-in has no say in WHERE it lands: the machine signs in in a
+    /// fresh staging dir and commits by EMAIL — the profile already holding
+    /// that address is refreshed (and only it), a new address becomes a new
+    /// profile. A queued `agent_login` names at most the INTENDED profile
+    /// (the row whose Sign in was tapped; nil = "Add account"), which only
+    /// decides whether the landing is a duplicate.
     ///
-    /// "Usable" is signed in AND not `needs_relogin`: a login the agent
-    /// refused the moment it was made has not landed.
-    public static func loginLanded(
-        account: AgentAccount?,
-        profileId: String?,
-        newProfileLabel: String?
-    ) -> Bool {
-        guard let account else { return false }
-        let profiles = (account.profiles ?? []).filter { !$0.id.isEmpty }
-        if let newProfileLabel {
-            let wanted = newProfileLabel.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !wanted.isEmpty else { return false }
-            return profiles.contains { profile in
-                (profile.label ?? "").trimmingCharacters(in: .whitespacesAndNewlines) == wanted
-                    && usableLogin(profile)
-            }
+    /// The baseline a sign-in sheet captures when it queues the command:
+    /// every reported profile id → its `lastLoginAt` ("" when it has none).
+    /// A profile's presence matters as much as its stamp — see
+    /// `loginLanding`.
+    public static func loginBaseline(_ account: AgentAccount?) -> [String: String] {
+        var out: [String: String] = [:]
+        for profile in account?.profiles ?? [] where !profile.id.isEmpty {
+            out[profile.id] = profile.lastLoginAt ?? ""
         }
-        if let profileId, profileId != systemProfileId {
-            return profiles.contains { $0.id == profileId && usableLogin($0) }
-        }
-        // The ambient login: a machine that reports profiles carries it as the
-        // `system` row, and its top-level fields are the ACTIVE profile's.
-        if let ambient = profiles.first(where: { $0.id == systemProfileId }) {
-            return usableLogin(ambient)
-        }
-        return account.signedIn == true && AgentAccountHealth.of(account) != .needsRelogin
+        return out
     }
 
-    private static func usableLogin(_ profile: AgentAccountProfile) -> Bool {
-        profile.signedIn == true && AgentAccountHealth.of(profile) != .needsRelogin
+    /// Where a sign-in (or an import) landed, once it has.
+    public struct LoginLanding: Equatable, Sendable {
+        public let profileId: String
+        public let email: String?
+        /// The login landed on a profile that was ALREADY on the machine and
+        /// was not the one asked for: the person signed in as somebody the
+        /// machine already had. Say so (`alreadyAddedToast`).
+        public let duplicate: Bool
+
+        public init(profileId: String, email: String?, duplicate: Bool) {
+            self.profileId = profileId
+            self.email = email
+            self.duplicate = duplicate
+        }
+    }
+
+    /// Has the login a sign-in sheet drove ARRIVED, and where? The sheet
+    /// closes on the TRANSITION into non-nil (the same rule as the web,
+    /// Android and desktop sign-in dialogs): the first reported profile whose
+    /// `lastLoginAt` is set and differs from `baseline` (a new id with one
+    /// counts). It is a DUPLICATE
+    /// when that profile existed in the baseline and either nothing was
+    /// intended ("Add account", an import) or it is not the intended one.
+    public static func loginLanding(
+        account: AgentAccount?,
+        baseline: [String: String],
+        intendedProfileId: String?
+    ) -> LoginLanding? {
+        let intended = nonEmpty(intendedProfileId)
+        for profile in account?.profiles ?? [] where !profile.id.isEmpty {
+            guard let stamp = nonEmpty(profile.lastLoginAt) else { continue }
+            let before = baseline[profile.id]
+            if before == stamp { continue }
+            let existed = before != nil
+            return LoginLanding(
+                profileId: profile.id,
+                email: nonEmpty(profile.email),
+                duplicate: existed && (intended == nil || intended != profile.id)
+            )
+        }
+        return nil
+    }
+
+    /// The warning a duplicate landing raises, byte-identical ×4 (fixture
+    /// `device-doctor.json` `copy.alreadyAdded`). `email` = the landed
+    /// profile's.
+    public static func alreadyAddedToast(_ landing: LoginLanding) -> String {
+        "\(accountName(email: landing.email, plan: nil)) was already added. Refreshed it."
     }
 
     // MARK: - Internals

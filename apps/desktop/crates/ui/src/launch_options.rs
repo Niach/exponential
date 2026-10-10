@@ -161,10 +161,10 @@ pub(crate) fn mcp_block_reason(connection: &api::mcp_servers::McpConnection) -> 
 
 /// The account options the TARGET machine offers, already flattened across
 /// its agents ([`coding::flatten_accounts`]) and clamped to the agents it can
-/// actually run. A machine that reports no login at all still offers one row
-/// per runnable agent, named by the agent — the picker must never go empty
-/// while there is something to launch (the launch blocker, not a blank row,
-/// is what explains a machine with nothing installed).
+/// actually run. A machine that reports no signed-in login still offers one
+/// UNPINNED row per runnable agent (an empty id: the device resolves its
+/// profile, or refuses with "Sign in to … first"), named by the agent — the
+/// picker must never go empty while there is something to launch.
 pub(crate) fn machine_account_options(
     accounts: &coding::agent_accounts::AgentAccounts,
     usage: &coding::agent_usage::AgentUsageMap,
@@ -179,7 +179,7 @@ pub(crate) fn machine_account_options(
     available
         .iter()
         .map(|agent| coding::AccountOption {
-            id: coding::SYSTEM_PROFILE.to_string(),
+            id: String::new(),
             agent: *agent,
             email: agent.label().to_string(),
             is_last_used: *agent == settings.default_agent,
@@ -190,9 +190,9 @@ pub(crate) fn machine_account_options(
 }
 
 /// The picker key for an (agent, account) pair — an unnamed account (`None`)
-/// reads back as the `system` profile.
+/// is the agent's unpinned row (an empty id).
 pub(crate) fn account_key(agent: CodingAgent, account: Option<&str>) -> String {
-    format!("{}:{}", agent.id(), account.unwrap_or(coding::SYSTEM_PROFILE))
+    format!("{}:{}", agent.id(), account.unwrap_or_default())
 }
 
 /// One pill in the agent strip.
@@ -855,8 +855,8 @@ pub(crate) struct LaunchOptionsSection {
     /// rides the launch. The pick itself is kept for the next subject.
     mcp_owned_by_subject: bool,
     /// EXP-747 B7: the agent account PROFILE the run signs in as on the
-    /// target machine (`system` = its ambient login); `None` = unnamed, the
-    /// machine's last used login (EXP-1158).
+    /// target machine; `None` = unnamed, the machine's last used login
+    /// (EXP-1158).
     account: Option<String>,
     /// EXP-1249: the run's own Computer use pick (the "+" menu toggle);
     /// `None` = the target machine's switch decides. Cleared on a device
@@ -1648,6 +1648,13 @@ mod tests {
             AgentAccount {
                 signed_in: true,
                 email: Some("codex@x.test".into()),
+                profiles: vec![AgentProfileEntry {
+                    id: "main".into(),
+                    signed_in: true,
+                    email: Some("codex@x.test".into()),
+                    active: true,
+                    ..Default::default()
+                }],
                 ..Default::default()
             },
         );
@@ -1660,7 +1667,7 @@ mod tests {
                 .map(|option| option.account_option_key())
                 .collect::<Vec<_>>(),
             vec![
-                "codex:system".to_string(),
+                "codex:main".to_string(),
                 "claude:work".to_string(),
                 "claude:home".to_string(),
             ]
@@ -1676,7 +1683,8 @@ mod tests {
             machine_account_options(&accounts, &usage, &settings, &[CodingAgent::Claude]);
         assert!(claude_only.iter().all(|option| option.agent == CodingAgent::Claude));
 
-        // No login reported at all: one row per runnable agent, named by it.
+        // No login reported at all: one UNPINNED row per runnable agent,
+        // named by it (the device resolves the profile, or refuses).
         let bare = machine_account_options(
             &AgentAccounts::new(),
             &usage,
@@ -1688,12 +1696,13 @@ mod tests {
             vec!["Claude Code", "Codex"]
         );
         assert!(bare[0].is_last_used, "the machine's last used agent leads");
+        assert!(bare.iter().all(|option| option.id.is_empty()));
         // Nothing runnable at all is the one empty case (the launch blocker
         // names the reason instead of a dead row).
         assert!(machine_account_options(&AgentAccounts::new(), &usage, &settings, &[]).is_empty());
 
-        // The picker key folds an unnamed account back into `system`.
-        assert_eq!(account_key(CodingAgent::Claude, None), "claude:system");
+        // The picker key of an unnamed account is the agent's unpinned row.
+        assert_eq!(account_key(CodingAgent::Claude, None), "claude:");
         assert_eq!(account_key(CodingAgent::Codex, Some("work")), "codex:work");
     }
 

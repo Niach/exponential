@@ -93,8 +93,7 @@ struct UsageSlot {
     windows: Mutex<Vec<coding::agent_usage::UsageWindow>>,
     /// EXP-909: the LOGIN this run spends (`coding::profile_id` of the
     /// launch's `account`), the key everything published from here lands
-    /// under — a run on a secondary account never moves the ambient one's
-    /// numbers.
+    /// under — a run on one account never moves another's numbers.
     profile: String,
     /// The live-registry attachment, released by [`CodexUsage::detach`] at
     /// session end — or, if nobody gets there, by dropping the last handle.

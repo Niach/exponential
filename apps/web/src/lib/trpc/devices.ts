@@ -199,7 +199,6 @@ const MAX_ACCOUNT_PLAN = 64
  * with room for a prerelease suffix. */
 const MAX_AGENT_VERSION = 64
 const MAX_PROFILE_ID = 64
-const MAX_PROFILE_LABEL = 64
 
 // ISO-normalize a device-reported timestamp; anything unparsable degrades to
 // null (the presentation layer treats a missing stamp as unknown, never as
@@ -225,6 +224,7 @@ export function clampDoctor(
       state: item.state,
       ...(item.detail ? { detail: item.detail } : {}),
       ...(item.action ? { action: item.action } : {}),
+      ...(item.import ? { import: item.import } : {}),
     })),
   }
 }
@@ -267,9 +267,6 @@ export function clampAgentAccounts(
         id: profile.id.slice(0, MAX_PROFILE_ID),
         signedIn: profile.signedIn === true,
       }
-      if (typeof profile.label === `string` && profile.label.length > 0) {
-        item.label = profile.label.slice(0, MAX_PROFILE_LABEL)
-      }
       if (typeof profile.email === `string` && profile.email.length > 0) {
         item.email = profile.email.slice(0, MAX_ACCOUNT_EMAIL)
       }
@@ -279,6 +276,8 @@ export function clampAgentAccounts(
       if (profile.active === true) item.active = true
       const profileCheckedAt = isoStampOrNull(profile.checkedAt)
       if (profileCheckedAt) item.checkedAt = profileCheckedAt
+      const lastLoginAt = isoStampOrNull(profile.lastLoginAt)
+      if (lastLoginAt) item.lastLoginAt = lastLoginAt
       const profileHealth = clampAgentHealth(profile.health)
       if (profileHealth) item.health = profileHealth
       // EXP-849: the device collects no usage numbers for this login (past
@@ -291,6 +290,17 @@ export function clampAgentAccounts(
       profiles.push(item)
     }
     if (profiles.length > 0) entry.profiles = profiles
+    // The ambient login the doctor offers to Import; present iff signed in.
+    if (account.importable) {
+      const importable: NonNullable<DeviceAgentAccount[`importable`]> = {}
+      if (account.importable.email) {
+        importable.email = account.importable.email.slice(0, MAX_ACCOUNT_EMAIL)
+      }
+      if (account.importable.plan) {
+        importable.plan = account.importable.plan.slice(0, MAX_ACCOUNT_PLAN)
+      }
+      entry.importable = importable
+    }
     out[agent] = entry
   }
   return out
@@ -386,34 +396,22 @@ const IDEMPOTENT_COMMAND_KINDS: ReadonlySet<string> = new Set([
   `agent_update`,
 ])
 
-/** EXP-862: the ambient login's profile id — the agent CLI's own config dir,
- * which Exponential never created and never deletes. Blank counts as the
- * ambient login too (the device reads a missing `account` that way). */
-function isSystemProfileId(profileId: string | undefined): boolean {
-  const id = (profileId ?? ``).trim()
-  return id.length === 0 || id === `system`
-}
-
 /** EXP-862: whether the device's last heartbeat reported `profileId` as one of
  * `agent`'s logins. A removal is destructive on the machine, so its target has
- * to be a row the requester could actually see. EXP-1137: a machine that
- * reports the agent with NO profile rows reports exactly its ambient login
- * (the pre-profile payload), so `system` counts as reported there too. */
+ * to be a row the requester could actually see. */
 function deviceReportsProfile(
   accounts: DeviceAgentAccounts | null,
   agent: string,
   profileId: string
 ): boolean {
-  const account = accounts?.[agent]
-  if (!account) return false
-  const profiles = account.profiles ?? []
-  if (profiles.length === 0) return isSystemProfileId(profileId)
-  return profiles.some((profile) => profile.id === profileId)
+  return (accounts?.[agent]?.profiles ?? []).some(
+    (profile) => profile.id === profileId
+  )
 }
 
-/** EXP-1137: the sentence both refusals share when a build cannot run
- * `agent_profile_sign_out` (or remove its ambient login, which signs it out
- * first). Byte-identical ×4 (`SIGN_OUT_OLD_APP` on every client). */
+/** EXP-1137: the sentence the refusal says when a build cannot run
+ * `agent_profile_sign_out`. Byte-identical ×4 (`SIGN_OUT_OLD_APP` on every
+ * client). */
 const SIGN_OUT_OLD_APP = `That machine runs an older Exponential app that cannot sign agent accounts out. Update it first.`
 
 /** EXP-1137: `agent-login` + `account-sign-out` — the machine drives its
@@ -1078,10 +1076,7 @@ export const devicesRouter = router({
           // EXP-862: delete THIS machine's copy of an agent login (its
           // profile dir and its index row). The ACCOUNT is untouched: the
           // device never runs `codex logout` (that revokes the account
-          // server-wide), it only forgets the credential it holds. EXP-1137:
-          // the ambient login (`system`) is taken too — the machine signs it
-          // out and hides the row until it signs in again (cap
-          // `account-sign-out`).
+          // server-wide), it only forgets the credential it holds.
           `agent_profile_remove`,
           // EXP-1137: sign ONE login out on the machine and keep its row —
           // claude's own `auth logout` inside that profile's config dir, or
@@ -1099,11 +1094,16 @@ export const devicesRouter = router({
         // the cap is generous because it is opaque to us, and one line
         // because it is typed into a PTY as one line.
         code: z.string().trim().min(1).max(AGENT_LOGIN_CODE_MAX).optional(),
-        // EXP-747 C4 `agent_usage_refresh`: which profile to re-read
-        // (`system` = the ambient login). EXP-827: `agent_login` takes it
-        // too (sign into that EXISTING profile), or `newProfileLabel` to
-        // create a profile on the machine and sign into it — never both.
+        // EXP-747 C4 `agent_usage_refresh`: which profile to re-read. On
+        // `agent_login` it names the INTENDED profile (Sign in on a row) and
+        // only feeds the device's duplicate check — the login lands on the
+        // profile whose email it signed in as; absent = Add account.
         profileId: z.string().min(1).max(64).optional(),
+        // `agent_login`: MOVE the agent's ambient login into a profile
+        // instead of signing in (cap `agent-import`).
+        import: z.boolean().optional(),
+        // RETIRED (profiles carry no names): still accepted from old app
+        // builds and dropped from the payload.
         newProfileLabel: z.string().trim().min(1).max(64).optional(),
       })
     )
@@ -1146,19 +1146,25 @@ export const devicesRouter = router({
             message: `That device does not declare the agent-login capability`,
           })
         }
-        if (input.profileId && input.newProfileLabel) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `agent_login takes profileId or newProfileLabel, not both`,
-          })
+        if (input.import === true) {
+          if (input.profileId) {
+            throw new TRPCError({
+              code: `BAD_REQUEST`,
+              message: `agent_login takes profileId or import, not both`,
+            })
+          }
+          if (!(row.caps ?? []).includes(`agent-import`)) {
+            throw new TRPCError({
+              code: `PRECONDITION_FAILED`,
+              message: `That machine runs an older Exponential app that cannot import agent logins. Update it first.`,
+            })
+          }
         }
         payload = {
           agent: input.agent,
           switch: input.switch === true ? `true` : `false`,
           ...(input.profileId ? { profileId: input.profileId } : {}),
-          ...(input.newProfileLabel
-            ? { newProfileLabel: input.newProfileLabel }
-            : {}),
+          ...(input.import === true ? { import: `true` } : {}),
         }
       }
 
@@ -1221,39 +1227,27 @@ export const devicesRouter = router({
             message: `agent_profile_remove needs an agent and a profileId`,
           })
         }
-        // EXP-1137: the ambient login is the agent CLI's own config dir, so
-        // "removing" it means signing it out there and hiding the row — a
-        // build without the sign-out body would leave the row pending
-        // forever, so it gates on `account-sign-out` instead of
-        // `account-remove`. Refusing here keeps the round trip off a machine
-        // that could only say no.
-        if (isSystemProfileId(input.profileId)) {
-          assertSignOutCaps(row)
-        } else {
-          const caps = row.caps ?? []
-          if (!caps.includes(`agent-login`) || !caps.includes(`account-remove`)) {
-            throw new TRPCError({
-              code: `PRECONDITION_FAILED`,
-              message: `That machine runs an older Exponential app that cannot remove agent accounts. Update it first.`,
-            })
-          }
+        const caps = row.caps ?? []
+        if (!caps.includes(`agent-login`) || !caps.includes(`account-remove`)) {
+          throw new TRPCError({
+            code: `PRECONDITION_FAILED`,
+            message: `That machine runs an older Exponential app that cannot remove agent accounts. Update it first.`,
+          })
         }
-        const profileId = isSystemProfileId(input.profileId)
-          ? `system`
-          : input.profileId
-        if (!deviceReportsProfile(row.agentAccounts, input.agent, profileId)) {
+        if (
+          !deviceReportsProfile(row.agentAccounts, input.agent, input.profileId)
+        ) {
           throw new TRPCError({
             code: `NOT_FOUND`,
             message: `That account is no longer reported by the device`,
           })
         }
-        payload = { agent: input.agent, profileId }
+        payload = { agent: input.agent, profileId: input.profileId }
       }
 
       // EXP-1137: "Sign out" — the machine signs ONE login out and keeps its
-      // row (a named profile stays listed for a later sign-in; the ambient
-      // login stays the CLI's own). Same gates as the ambient removal: the
-      // caps, and a login the machine actually reported.
+      // row (it stays listed for a later sign-in). Gates: the caps, and a
+      // login the machine actually reported.
       if (input.kind === `agent_profile_sign_out`) {
         if (!input.agent || !input.profileId) {
           throw new TRPCError({
@@ -1262,16 +1256,15 @@ export const devicesRouter = router({
           })
         }
         assertSignOutCaps(row)
-        const profileId = isSystemProfileId(input.profileId)
-          ? `system`
-          : input.profileId
-        if (!deviceReportsProfile(row.agentAccounts, input.agent, profileId)) {
+        if (
+          !deviceReportsProfile(row.agentAccounts, input.agent, input.profileId)
+        ) {
           throw new TRPCError({
             code: `NOT_FOUND`,
             message: `That account is no longer reported by the device`,
           })
         }
-        payload = { agent: input.agent, profileId }
+        payload = { agent: input.agent, profileId: input.profileId }
       }
 
       if (input.kind === `agent_usage_refresh`) {

@@ -3,31 +3,22 @@
 // `agent_login_code` device commands every client's "Add account" / "Sign in"
 // queues (`hooks/use-agent-login.ts`, iOS `AgentLoginSheet`, Android
 // `AgentsScreen`, desktop `agent_login.rs`). The machine runs the agent CLI's
-// own login in the profile's config dir and completes the command EARLY with
-// the sign-in URL (+ codex's device code); claude's browser code comes back
-// as `agent_login_code`. Only the URL and the typed code travel: the
-// credential is written by the CLI on the machine and never leaves it.
+// own login in a fresh staging dir and completes the command EARLY with the
+// sign-in URL (+ codex's device code); claude's browser code comes back as
+// `agent_login_code`. The login then lands on the profile whose EMAIL it
+// signed in as (an address the machine already holds is refreshed, a new one
+// becomes a profile). Only the URL and the typed code travel: the credential
+// is written by the CLI on the machine and never leaves it.
 //
 // One call per step, each bounded: the tool waits a little for the device's
 // answer and otherwise hands back the `commandId` to check on.
-import { TRPCError } from "@trpc/server"
-import type { DeviceAgentAccounts } from "@/db/schema"
-import {
-  addAccountLoginTarget,
-  clampProfileLabel,
-  nextProfileLabel,
-} from "@/lib/agent-account-add"
 import { parseAgentLoginResult } from "@/lib/agent-usage"
 import type { AgentLoginProfileTarget } from "@/hooks/use-agent-login"
-
-/** `agentLabel` (`@exp/ui` agent-picker), kept here so the server never
- *  imports the React set; the label names a new login on the machine. */
-const AGENT_LABEL: Record<string, string> = { claude: `Claude Code`, codex: `Codex` }
 
 export interface DeviceAccountLoginInput {
   deviceId: string
   agent: string
-  name?: string
+  /** The login this sign-in is FOR (a re-login); absent = add an account. */
   profileId?: string
   code?: string
   commandId?: string
@@ -42,8 +33,7 @@ export interface DeviceCommandRow {
 }
 
 export interface DeviceAccountLoginDeps {
-  /** The caller's OWN device's `agentAccounts`, undefined when not theirs. */
-  loadAccounts: (deviceId: string) => Promise<DeviceAgentAccounts | null | undefined>
+  /** `devices.createCommand` — refuses a device that is not the caller's. */
   createCommand: (
     input:
       | ({ deviceId: string; kind: `agent_login`; agent: string; switch: false } & AgentLoginProfileTarget)
@@ -85,10 +75,7 @@ function urlNext(code: string | null): string {
     : `Open url in a browser and sign in; then call again with the code the browser shows (code).`
 }
 
-function describe(
-  command: DeviceCommandRow,
-  profileId: string | null
-): DeviceAccountLoginResult {
+function describe(command: DeviceCommandRow): DeviceAccountLoginResult {
   if (command.status === `pending`) {
     return { status: `pending`, commandId: command.id, next: PENDING_NEXT }
   }
@@ -115,13 +102,13 @@ function describe(
     commandId: command.id,
     url: progress.url,
     code: progress.code,
-    profileId: profileIdOf(command.result) ?? profileId,
+    profileId: profileIdOf(command.result),
     next: urlNext(progress.code),
   }
 }
 
-/** `LoginProgress.profileId`: the profile the machine signed into (a new
- *  profile's id is only known once the machine created it). */
+/** `LoginProgress.profileId`, when the machine names one (a login lands by
+ *  email, so its profile is often only known after it commits). */
 function profileIdOf(result: string | null): string | null {
   if (!result) return null
   try {
@@ -155,7 +142,7 @@ export async function deviceAccountLogin(
   if (input.commandId) {
     const command = await deps.getCommand(input.commandId)
     const budget = command.kind === `agent_login_code` ? CODE_WAIT_MS : LOGIN_WAIT_MS
-    return describe(await waitFor(command.id, deps, budget), null)
+    return describe(await waitFor(command.id, deps, budget))
   }
 
   if (input.code) {
@@ -165,37 +152,17 @@ export async function deviceAccountLogin(
       agent,
       code: input.code,
     })
-    return describe(await waitFor(id, deps, CODE_WAIT_MS), null)
+    return describe(await waitFor(id, deps, CODE_WAIT_MS))
   }
 
-  if (input.name && input.profileId) {
-    throw new TRPCError({
-      code: `BAD_REQUEST`,
-      message: `Pass name (a new login) or profileId (an existing one), not both.`,
-    })
-  }
-  const accounts = await deps.loadAccounts(deviceId)
-  if (accounts === undefined) {
-    throw new TRPCError({ code: `NOT_FOUND`, message: `Device not found` })
-  }
-  const row = { agentAccounts: accounts }
-  // The SAME target rule as every client's Add account (`agent-account-add.ts`):
-  // the ambient login while it is free, else a new labelled profile.
-  const target: AgentLoginProfileTarget = input.profileId
-    ? { profileId: input.profileId }
-    : input.name
-      ? { newProfileLabel: clampProfileLabel(input.name) }
-      : addAccountLoginTarget(
-          row,
-          agent,
-          nextProfileLabel(row, agent, AGENT_LABEL[agent] ?? agent)
-        )
+  // The SAME command as every client's Add account / Sign in: no profile =
+  // add, a profileId = the login this re-login is for.
   const { id } = await deps.createCommand({
     deviceId,
     kind: `agent_login`,
     agent,
     switch: false,
-    ...target,
+    ...(input.profileId ? { profileId: input.profileId } : {}),
   })
-  return describe(await waitFor(id, deps, LOGIN_WAIT_MS), target.profileId ?? null)
+  return describe(await waitFor(id, deps, LOGIN_WAIT_MS))
 }

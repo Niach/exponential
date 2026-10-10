@@ -252,12 +252,13 @@ struct AgentsView: View {
                 // EXP-1215: the app's own alert card (`GlassAlert`), ×4.
                 .glassAlert(item: $removeAccountTarget) { target in
                     // The pinned sentence ×4: it names the login and the
-                    // machine, and says the account itself survives. EXP-1137:
-                    // the ambient login's sentence says it is signed out on
-                    // the machine (terminal CLI included) and hidden.
+                    // machine, and says the account itself survives.
                     GlassAlert(
                         title: "Remove account?",
-                        message: confirmCopy(forRemoving: target.row),
+                        message: AgentAccountsRows.removeAccountConfirmCopy(
+                            account: AgentAccountsRows.loginLabel(target.row),
+                            device: confirmDeviceLabel(target.row)
+                        ),
                         actions: [
                             GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
                             GlassAlertAction("Remove", role: .destructive, id: "remove") {
@@ -272,16 +273,12 @@ struct AgentsView: View {
                 .frame(width: 0, height: 0)
                 .allowsHitTesting(false)
                 .glassAlert(item: $signOutAccountTarget) { target in
-                    // EXP-1137: the pinned sentence ×4 — the machine's own
-                    // login names the terminal CLI that signs out with it.
+                    // EXP-1137: the pinned sentence ×4.
                     GlassAlert(
                         title: "Sign out?",
                         message: AgentAccountsRows.signOutConfirmCopy(
                             account: AgentAccountsRows.loginLabel(target.row),
-                            device: confirmDeviceLabel(target.row),
-                            ambientAgentLabel: AgentAccountsRows.isAmbient(target.row.profileId)
-                                ? LaunchVocabulary.agentLabel(target.row.agent)
-                                : nil
+                            device: confirmDeviceLabel(target.row)
                         ),
                         actions: [
                             GlassAlertAction("Cancel", role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
@@ -298,22 +295,6 @@ struct AgentsView: View {
     /// none.
     private func confirmDeviceLabel(_ row: AgentProfileUsageRow) -> String {
         row.deviceLabel.isEmpty ? row.deviceId : row.deviceLabel
-    }
-
-    /// EXP-862/EXP-1137: the remove confirm's sentence — the ambient login's
-    /// own for the machine's own login, the pinned EXP-862 one otherwise.
-    private func confirmCopy(forRemoving row: AgentProfileUsageRow) -> String {
-        if AgentAccountsRows.isAmbient(row.profileId) {
-            return AgentAccountsRows.removeAmbientAccountConfirmCopy(
-                account: AgentAccountsRows.loginLabel(row),
-                device: confirmDeviceLabel(row),
-                agentLabel: LaunchVocabulary.agentLabel(row.agent)
-            )
-        }
-        return AgentAccountsRows.removeAccountConfirmCopy(
-            account: AgentAccountsRows.loginLabel(row),
-            device: confirmDeviceLabel(row)
-        )
     }
 
     /// One machine: kind glyph, label + version, live/last-seen state, its

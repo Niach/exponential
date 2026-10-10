@@ -259,8 +259,7 @@ class AgentsViewModel @Inject constructor(
      * EXP-862 "Remove account" — the machine deletes ITS copy of the login
      * (`agent_profile_remove`): the profile's config dir and its index row. The
      * account itself is untouched, which is what the confirm says. Owner + online
-     * + both caps, all of which the server re-checks; the ambient login is never
-     * offered, so it can never arrive here.
+     * + both caps, all of which the server re-checks.
      */
     fun removeAccountHere(device: SteerDevice, agent: String, profileId: String) {
         if (!device.isMine || !device.online) return
@@ -284,7 +283,7 @@ class AgentsViewModel @Inject constructor(
      * in that profile's config dir, codex's credential file deleted (never
      * `codex logout`). The account itself is untouched, which is what the
      * confirm says. Owner + online + both caps, all of which the server
-     * re-checks; the ambient login is taken too.
+     * re-checks.
      */
     fun signOutAccountHere(device: SteerDevice, agent: String, profileId: String) {
         if (!device.isMine || !device.online) return
