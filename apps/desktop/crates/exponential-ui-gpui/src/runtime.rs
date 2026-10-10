@@ -858,9 +858,23 @@ impl HostPlugin for HostAdapter {
         self.media.borrow().clone()
     }
 
-    /// The host's media policy + rules over `base.resolve_url(src)`.
+    /// The base plugin's request first (a host override: signed urls, its
+    /// own headers), re-checked against the host's media schemes and hosts
+    /// and given the host's rule headers for its url (the base's win per
+    /// header); a base that answers `None` defers to the host's policy over
+    /// `base.resolve_url(src)` (the default hook only knows the default
+    /// schemes).
     fn media_request(&self, src: &str) -> Option<MediaRequest> {
-        media_request(&self.base.resolve_url(src), &self.media.borrow())
+        let media = self.media.borrow();
+        match self.base.media_request(src) {
+            Some(req) => {
+                let checked = media_request(&req.url, &MediaOptions { base_url: None, ..media.clone() })?;
+                let mut headers = checked.headers;
+                headers.extend(req.headers);
+                Some(MediaRequest { url: checked.url, headers })
+            }
+            None => media_request(&self.base.resolve_url(src), &media),
+        }
     }
 
     fn on_paint_error(&self, error: &PaintError, cx: &mut App) {
@@ -945,6 +959,34 @@ pub fn iso_from_millis(ms: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::iso_from_millis;
+
+    /// VAPP-103 rfix: the base plugin's media hook runs first again (a
+    /// signed url), then the host's schemes/hosts re-check it and its rules
+    /// add their headers; a base `None` defers to the host's policy.
+    #[test]
+    fn the_base_media_hook_runs_first_under_the_hosts_policy() {
+        use super::*;
+        struct Signing;
+        impl HostPlugin for Signing {
+            fn media_request(&self, src: &str) -> Option<MediaRequest> {
+                if src.contains("deny") {
+                    return None;
+                }
+                let url = if src.contains("evil") { "https://evil.example/x".to_string() } else { format!("https://files.example{src}?sig=1") };
+                Some(MediaRequest { url, headers: [("x-sig".to_string(), "s".to_string())].into_iter().collect() })
+            }
+        }
+        let rules = vec![exponential_ui::host::MediaRule { prefix: "https://files.example/".into(), headers: [("authorization".to_string(), "Bearer t".to_string())].into_iter().collect() }];
+        let media = MediaOptions { hosts: Some(vec!["files.example".into()]), rules: Some(rules), schemes: Some(vec!["https".into(), "file".into()]), ..Default::default() };
+        let plugin = host_plugin_with(WeakEntity::new_invalid(), Rc::new(Signing), Rc::new(RefCell::new(media)), Rc::new(RefCell::new(UrlPolicy::default())));
+        let req = plugin.media_request("/a.png").expect("the override's url");
+        assert_eq!(req.url, "https://files.example/a.png?sig=1");
+        assert_eq!(req.headers.get("x-sig").map(String::as_str), Some("s"));
+        assert_eq!(req.headers.get("authorization").map(String::as_str), Some("Bearer t"));
+        assert!(plugin.media_request("/evil").is_none(), "the host's hosts list re-checks the override");
+        assert_eq!(plugin.media_request("file:///tmp/deny.png").map(|r| r.url), Some("file:///tmp/deny.png".to_string()), "a base None defers to the host's policy");
+        assert!(plugin.media_request("https://other.example/deny.png").is_none());
+    }
 
     #[test]
     fn timestamps_match_javascript_to_iso_string() {

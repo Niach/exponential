@@ -6,30 +6,44 @@
 //! the app installs one, and it cannot carry per-request headers.
 //!
 //! VAPP-103: every src passes the media policy (`catalog/host.json` media:
-//! schemes, hosts; no local file unless the host lists `file`) and every
-//! load the media limits: the whole request within `MEDIA_TIMEOUT_MS`, the
-//! body (Content-Length up front, then as it streams) within
-//! `MEDIA_MAX_BYTES`, the header's width × height within `MEDIA_MAX_PIXELS`
-//! BEFORE any decode.
+//! schemes, hosts; no local file unless the host lists `file`), and so does
+//! every redirect hop (the HOST's policy, never an https→http downgrade,
+//! the hop's headers = the rules matching the NEW url). Every image load
+//! keeps the media limits: connect and each read within
+//! `MEDIA_TIMEOUT_MS`, the body (Content-Length up front, then as it
+//! streams) within `MEDIA_MAX_BYTES`, width × height × frames within
+//! `MEDIA_MAX_PIXELS` BEFORE any decode (an SVG at gpui's 2× raster, an
+//! unreadable raster refused). Video / AudioPlayer hand-offs stream to a
+//! file with no byte cap (`catalog/host.json`: the byte limits are images').
 
 use std::sync::Arc;
 
-use exponential_ui::host::{image_dimensions, media_request, media_within_limits, MediaOptions, MediaRequest, MEDIA_MAX_BYTES, MEDIA_TIMEOUT_MS};
+use exponential_ui::host::{media_image_within_limits, media_request, media_within_limits, svg_dimensions, MediaOptions, MediaRequest, MEDIA_MAX_BYTES};
+#[cfg(feature = "net")]
+use exponential_ui::host::MEDIA_TIMEOUT_MS;
 use gpui::{App, Asset, Image, ImageCacheError, ImageFormat, ImageSource, RenderImage, SharedString, Window};
 
 use crate::host::HostPlugin;
 
-/// One media load: the url and the headers (sorted, so the asset key is
-/// stable).
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+/// One media load: the url, the headers (sorted, so the asset key is
+/// stable) and the host's media policy as JSON (every redirect hop passes
+/// it; empty = the default policy).
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Default)]
 pub struct MediaKey {
     pub url: String,
     pub headers: Vec<(String, String)>,
+    pub policy: String,
 }
 
-impl From<&MediaRequest> for MediaKey {
-    fn from(r: &MediaRequest) -> Self {
-        MediaKey { url: r.url.clone(), headers: r.headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect() }
+impl MediaKey {
+    /// The key for a request the host's `options` allowed.
+    pub fn new(r: &MediaRequest, options: &MediaOptions) -> Self {
+        MediaKey { url: r.url.clone(), headers: r.headers.iter().map(|(k, v)| (k.clone(), v.clone())).collect(), policy: serde_json::to_string(options).unwrap_or_default() }
+    }
+
+    /// The host's media policy this load runs under.
+    pub fn options(&self) -> MediaOptions {
+        serde_json::from_str(&self.policy).unwrap_or_default()
     }
 }
 
@@ -70,7 +84,12 @@ pub fn fetch(key: &MediaKey) -> Result<Vec<u8>, String> {
     } else {
         fetch_http(key)?
     };
-    media_within_limits(bytes.len() as u64, image_dimensions(&bytes))?;
+    media_image_within_limits(&bytes)?;
+    // gpui rasterizes an SVG at twice its size (`SMOOTH_SVG_SCALE_FACTOR`).
+    if sniff_format(&bytes) == Some(ImageFormat::Svg) {
+        let (w, h) = svg_dimensions(&bytes).unwrap_or((100, 100));
+        media_within_limits(bytes.len() as u64, Some((w.saturating_mul(2), h.saturating_mul(2))))?;
+    }
     Ok(bytes)
 }
 
@@ -91,47 +110,98 @@ fn read_file(url: &str) -> Result<Vec<u8>, String> {
 }
 
 fn fetch_http(key: &MediaKey) -> Result<Vec<u8>, String> {
-    fetch_http_typed(key).map(|(bytes, _)| bytes)
-}
-
-/// The body of an http(s) request under the media limits, with its
-/// `Content-Type`.
-#[cfg(feature = "net")]
-fn fetch_http_typed(key: &MediaKey) -> Result<(Vec<u8>, Option<String>), String> {
-    use std::io::Read;
-    use std::time::Duration;
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_millis(MEDIA_TIMEOUT_MS))
-        // Every redirect hop passes the media policy again.
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if attempt.previous().len() >= 5 || media_request(attempt.url().as_str(), &MediaOptions::default()).is_none() {
-                attempt.stop()
-            } else {
-                attempt.follow()
-            }
-        }))
-        .build()
-        .map_err(|e| e.to_string())?;
-    let mut req = client.get(&key.url);
-    for (k, v) in &key.headers {
-        req = req.header(k.as_str(), v.as_str());
-    }
-    let res = req.send().map_err(|e| e.to_string())?;
-    if !res.status().is_success() {
-        return Err(format!("HTTP {} for {}", res.status().as_u16(), key.url));
-    }
+    let (res, _url) = send(key)?;
     if let Some(len) = res.content_length() {
         media_within_limits(len, None)?;
     }
-    let mime = res.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(|v| v.split(';').next().unwrap_or("").trim().to_ascii_lowercase());
+    read_capped(res)
+}
+
+/// The response's body within `MEDIA_MAX_BYTES` (one byte over = refused).
+#[cfg(feature = "net")]
+fn read_capped(res: reqwest::blocking::Response) -> Result<Vec<u8>, String> {
+    use std::io::Read;
     let mut out = Vec::new();
     res.take(MEDIA_MAX_BYTES + 1).read_to_end(&mut out).map_err(|e| e.to_string())?;
-    Ok((out, mime))
+    Ok(out)
 }
 
 #[cfg(not(feature = "net"))]
-fn fetch_http_typed(key: &MediaKey) -> Result<(Vec<u8>, Option<String>), String> {
+fn read_capped(_res: Response) -> Result<Vec<u8>, String> {
+    Err("http(s) media needs the `net` feature".into())
+}
+
+#[cfg(not(feature = "net"))]
+struct Response;
+
+#[cfg(not(feature = "net"))]
+impl Response {
+    fn content_length(&self) -> Option<u64> {
+        None
+    }
+}
+
+/// The next hop of a redirect from `from` to `location` under the host's
+/// media `options`: `None` = refused (the policy denies the new url, or it
+/// downgrades https to http); else the new url and ITS headers (the rules
+/// matching it: a header the old url's rule added never follows to a host
+/// it does not cover).
+pub fn redirect_hop(from: &str, location: &str, options: &MediaOptions) -> Option<MediaRequest> {
+    let next = url::Url::parse(from).ok()?.join(location).ok()?;
+    if from.starts_with("https:") && next.scheme() != "https" {
+        return None;
+    }
+    let base = MediaOptions { base_url: None, ..options.clone() };
+    media_request(next.as_str(), &base)
+}
+
+/// Send a policed GET: redirects followed BY HAND (at most 5), each hop
+/// through [`redirect_hop`]; connect and every read within
+/// `MEDIA_TIMEOUT_MS` (an idle bound, never the whole body). The final
+/// response (2xx) and its url.
+#[cfg(feature = "net")]
+fn send(key: &MediaKey) -> Result<(reqwest::blocking::Response, String), String> {
+    use std::time::Duration;
+    let client = reqwest::blocking::Client::builder()
+        .connect_timeout(Duration::from_millis(MEDIA_TIMEOUT_MS))
+        .timeout(Duration::from_millis(MEDIA_TIMEOUT_MS))
+        .redirect(reqwest::redirect::Policy::none())
+        .build()
+        .map_err(|e| e.to_string())?;
+    let options = key.options();
+    let mut url = key.url.clone();
+    let mut headers = key.headers.clone();
+    for _ in 0..=5 {
+        let mut req = client.get(&url);
+        for (k, v) in &headers {
+            req = req.header(k.as_str(), v.as_str());
+        }
+        let res = req.send().map_err(|e| e.to_string())?;
+        let status = res.status();
+        if status.is_redirection() {
+            let location = res.headers().get(reqwest::header::LOCATION).and_then(|v| v.to_str().ok()).ok_or_else(|| format!("HTTP {} without a Location for {url}", status.as_u16()))?;
+            let hop = redirect_hop(&url, location, &options).ok_or_else(|| format!("{url}: a redirect the media policy refuses"))?;
+            url = hop.url;
+            headers = hop.headers.into_iter().collect();
+            continue;
+        }
+        if !status.is_success() {
+            return Err(format!("HTTP {} for {url}", status.as_u16()));
+        }
+        return Ok((res, url));
+    }
+    Err(format!("{}: too many redirects", key.url))
+}
+
+#[cfg(not(feature = "net"))]
+fn send(key: &MediaKey) -> Result<(Response, String), String> {
     Err(format!("{}: http(s) media needs the `net` feature", key.url))
+}
+
+/// The `Content-Type` of a response (lowercase, no parameters).
+#[cfg(feature = "net")]
+fn content_type(res: &reqwest::blocking::Response) -> Option<String> {
+    res.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(|v| v.split(';').next().unwrap_or("").trim().to_ascii_lowercase())
 }
 
 impl Asset for MediaLoader {
@@ -155,7 +225,7 @@ impl Asset for MediaLoader {
 /// decoded by [`MediaLoader`] under the media limits.
 pub fn image_source(host: &dyn HostPlugin, src: &str) -> Option<ImageSource> {
     let req = allowed_request(host, src)?;
-    let key = MediaKey::from(&req);
+    let key = MediaKey::new(&req, &host.media_options());
     Some(ImageSource::Custom(Arc::new(move |window: &mut Window, cx: &mut App| window.use_asset::<MediaLoader>(&key, cx))))
 }
 
@@ -183,8 +253,9 @@ pub enum Handoff {
     /// An http(s) url without headers: opened through
     /// [`HostPlugin::open_url`] (the URL policy, then the opener).
     Open(String),
-    /// A `file:` src the host's media schemes list: its path, opened as is
-    /// through [`HostPlugin::open_media_file`].
+    /// A `file:` src the host's media schemes list, with an audio/video
+    /// extension: its path, opened through [`HostPlugin::open_media_file`]
+    /// only when it is a regular file (never a directory or a bundle).
     File(std::path::PathBuf),
     /// Headers (auth) or a `data:` url: fetched under the media limits into
     /// a temporary file ([`fetch_to_file`]) that
@@ -197,13 +268,23 @@ pub enum Handoff {
 pub fn handoff(host: &dyn HostPlugin, src: &str) -> Option<Handoff> {
     let req = allowed_request(host, src)?;
     let scheme = req.url.split(':').next().unwrap_or("").to_ascii_lowercase();
+    let key = || MediaKey::new(&req, &host.media_options());
     match scheme.as_str() {
-        "file" => url::Url::parse(&req.url).ok()?.to_file_path().ok().map(Handoff::File),
-        "data" => Some(Handoff::Fetch(MediaKey::from(&req))),
-        "http" | "https" if req.headers.is_empty() => Some(Handoff::Open(req.url)),
-        "http" | "https" => Some(Handoff::Fetch(MediaKey::from(&req))),
+        "file" => url::Url::parse(&req.url).ok()?.to_file_path().ok().filter(|p| p.extension().and_then(|e| e.to_str()).is_some_and(media_extension)).map(Handoff::File),
+        "data" => Some(Handoff::Fetch(key())),
+        "http" | "https" if req.headers.is_empty() => Some(Handoff::Open(req.url.clone())),
+        "http" | "https" => Some(Handoff::Fetch(key())),
         _ => None,
     }
+}
+
+/// VAPP-103 rfix: the extensions a hand-off file may carry (the system
+/// opener picks the app by it: never `.exe`, `.command` or `.app`).
+const MEDIA_EXTENSIONS: &[&str] = &["mp4", "m4v", "mov", "webm", "ogv", "mp3", "m4a", "aac", "wav", "ogg", "oga", "opus", "flac"];
+
+/// An audio/video extension (any case) of [`MEDIA_EXTENSIONS`].
+pub fn media_extension(ext: &str) -> bool {
+    MEDIA_EXTENSIONS.iter().any(|e| e.eq_ignore_ascii_case(ext))
 }
 
 /// A `data:` url's MIME type and bytes (any type; the byte cap applies).
@@ -218,8 +299,9 @@ fn data_payload(url: &str) -> Result<(Vec<u8>, Option<String>), String> {
     Ok((bytes, (!mime.is_empty()).then_some(mime)))
 }
 
-/// The file extension the system opener needs: the MIME type's, else the
-/// url path's, else `fallback`.
+/// The file extension the system opener needs: a known audio/video MIME
+/// type's, else the url path's when it is an audio/video one
+/// ([`MEDIA_EXTENSIONS`]), else `fallback` (itself one, else `mp4`).
 fn extension(mime: Option<&str>, url: &str, fallback: &str) -> String {
     let by_mime = match mime.unwrap_or("") {
         "video/mp4" => Some("mp4"),
@@ -241,29 +323,71 @@ fn extension(mime: Option<&str>, url: &str, fallback: &str) -> String {
         let path = url.split(['?', '#']).next().unwrap_or("");
         let last = path.rsplit('/').next().unwrap_or("");
         if let Some((_, ext)) = last.rsplit_once('.') {
-            if !ext.is_empty() && ext.len() <= 5 && ext.chars().all(|c| c.is_ascii_alphanumeric()) {
+            if media_extension(ext) {
                 return ext.to_ascii_lowercase();
             }
         }
     }
-    fallback.to_string()
+    if media_extension(fallback) { fallback.to_ascii_lowercase() } else { "mp4".to_string() }
 }
 
-/// Fetch a policed request under the media limits (timeout, Content-Length,
-/// the body as it streams) into a fresh temporary file named with the
-/// media's extension (`fallback` when neither the type nor the url says).
+/// Fetch a policed request into a fresh temporary file named with the
+/// media's extension (`fallback` when neither the type nor the url names an
+/// audio/video one). A `data:` url decodes within `MEDIA_MAX_BYTES`; an
+/// http(s) body STREAMS to the file in chunks with no byte cap (the byte
+/// limits are images'), every hop policed, connect and each read within
+/// `MEDIA_TIMEOUT_MS`.
 pub fn fetch_to_file(key: &MediaKey, fallback: &str) -> Result<std::path::PathBuf, String> {
+    if key.url.starts_with("data:") {
+        let (bytes, mime) = data_payload(&key.url)?;
+        media_within_limits(bytes.len() as u64, None)?;
+        let path = temp_media_path(mime.as_deref(), &key.url, fallback)?;
+        std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+        return Ok(path);
+    }
+    stream_to_file(key, fallback)
+}
+
+/// A fresh path in the media temp dir with the media's extension.
+fn temp_media_path(mime: Option<&str>, url: &str, fallback: &str) -> Result<std::path::PathBuf, String> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static NEXT: AtomicU64 = AtomicU64::new(0);
-    let (bytes, mime) = if key.url.starts_with("data:") { data_payload(&key.url)? } else { fetch_http_typed(key)? };
-    media_within_limits(bytes.len() as u64, None)?;
     let dir = std::env::temp_dir().join("exponential-ui-media");
     std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
-    let name = format!("{}-{nanos}-{}.{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed), extension(mime.as_deref(), &key.url, fallback));
-    let path = dir.join(name);
-    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
-    Ok(path)
+    let name = format!("{}-{nanos}-{}.{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed), extension(mime, url, fallback));
+    Ok(dir.join(name))
+}
+
+#[cfg(feature = "net")]
+fn stream_to_file(key: &MediaKey, fallback: &str) -> Result<std::path::PathBuf, String> {
+    use std::io::{Read, Write};
+    let (mut res, url) = send(key)?;
+    let path = temp_media_path(content_type(&res).as_deref(), &url, fallback)?;
+    let result = (|| {
+        let mut file = std::io::BufWriter::new(std::fs::File::create(&path).map_err(|e| e.to_string())?);
+        let mut buf = vec![0u8; 64 * 1024];
+        loop {
+            let n = res.read(&mut buf).map_err(|e| e.to_string())?;
+            if n == 0 {
+                break;
+            }
+            file.write_all(&buf[..n]).map_err(|e| e.to_string())?;
+        }
+        file.flush().map_err(|e| e.to_string())
+    })();
+    match result {
+        Ok(()) => Ok(path),
+        Err(e) => {
+            std::fs::remove_file(&path).ok();
+            Err(e)
+        }
+    }
+}
+
+#[cfg(not(feature = "net"))]
+fn stream_to_file(key: &MediaKey, _fallback: &str) -> Result<std::path::PathBuf, String> {
+    Err(format!("{}: http(s) media needs the `net` feature", key.url))
 }
 
 /// A Video / AudioPlayer press: hand `src` to the system player through
@@ -274,7 +398,12 @@ pub fn play(host: std::rc::Rc<dyn HostPlugin>, src: &str, fallback: &'static str
     match handoff(host.as_ref(), src) {
         None => {}
         Some(Handoff::Open(url)) => host.open_url(&url, cx),
-        Some(Handoff::File(path)) => host.open_media_file(&path, cx),
+        // A regular file only (a directory or a bundle is never opened).
+        Some(Handoff::File(path)) => {
+            if std::fs::metadata(&path).is_ok_and(|m| m.is_file()) {
+                host.open_media_file(&path, cx)
+            }
+        }
         Some(Handoff::Fetch(key)) => {
             let fetch = cx.background_executor().spawn(async move { fetch_to_file(&key, fallback) });
             cx.spawn(async move |cx| {
@@ -332,7 +461,7 @@ mod tests {
         png.extend_from_slice(&40_000u32.to_be_bytes());
         png.extend_from_slice(&30_000u32.to_be_bytes());
         let b64 = crate::paint::natives::base64_encode(&png);
-        let err = fetch(&MediaKey { url: format!("data:image/png;base64,{b64}"), headers: vec![] }).unwrap_err();
+        let err = fetch(&MediaKey { url: format!("data:image/png;base64,{b64}"), headers: vec![], ..Default::default() }).unwrap_err();
         assert!(err.contains("40000×30000"), "{err}");
     }
 
@@ -344,7 +473,7 @@ mod tests {
         let f = std::fs::File::create(&path).unwrap();
         f.set_len(MEDIA_MAX_BYTES + 1).unwrap();
         let url = url::Url::from_file_path(&path).unwrap().to_string();
-        let err = fetch(&MediaKey { url, headers: vec![] }).unwrap_err();
+        let err = fetch(&MediaKey { url, headers: vec![], ..Default::default() }).unwrap_err();
         assert!(err.contains("bytes"), "{err}");
         std::fs::remove_dir_all(&dir).ok();
     }
@@ -387,7 +516,7 @@ mod tests {
 
     #[test]
     fn a_fetched_src_lands_in_a_file_named_for_its_type() {
-        let path = fetch_to_file(&MediaKey { url: "data:audio/wav;base64,UklGRg==".into(), headers: vec![] }, "m4a").unwrap();
+        let path = fetch_to_file(&MediaKey { url: "data:audio/wav;base64,UklGRg==".into(), headers: vec![], ..Default::default() }, "m4a").unwrap();
         assert_eq!(path.extension().and_then(|e| e.to_str()), Some("wav"));
         assert_eq!(std::fs::read(&path).unwrap(), b"RIFF");
         std::fs::remove_file(&path).ok();
@@ -395,7 +524,135 @@ mod tests {
         assert_eq!(extension(Some("application/octet-stream"), "https://x.example/api/attachments/7", "m4a"), "m4a");
         // Over the byte cap: refused before decoding, no file.
         let big = format!("data:video/mp4;base64,{}", "A".repeat((MEDIA_MAX_BYTES / 3 * 4 + 8) as usize));
-        assert!(fetch_to_file(&MediaKey { url: big, headers: vec![] }, "mp4").unwrap_err().contains("bytes"));
+        assert!(fetch_to_file(&MediaKey { url: big, headers: vec![], ..Default::default() }, "mp4").unwrap_err().contains("bytes"));
+    }
+
+    /// VAPP-103 rfix: a hand-off file carries an audio/video extension only
+    /// (the system opener picks the app by it), a `file:` src too, and a
+    /// directory or bundle is never opened.
+    #[test]
+    fn hand_off_files_carry_media_extensions_only() {
+        assert_eq!(extension(None, "https://x.example/evil.exe", "mp4"), "mp4");
+        assert_eq!(extension(None, "https://x.example/run.command?x=1", "m4a"), "m4a");
+        assert_eq!(extension(None, "https://x.example/Tool.app", "app"), "mp4", "a fallback outside the list is mp4");
+        assert_eq!(extension(Some("application/x-msdownload"), "https://x.example/a.exe", "mp4"), "mp4");
+        assert_eq!(extension(Some("audio/flac"), "https://x.example/a.exe", "mp4"), "flac");
+        for src in ["file:///tmp/evil.exe", "file:///tmp/run.command", "file:///Applications/Tool.app", "file:///tmp/noext"] {
+            assert_eq!(handoff(&Files, src), None, "{src}");
+        }
+        assert_eq!(handoff(&Files, "file:///tmp/A.MP4"), Some(Handoff::File("/tmp/A.MP4".into())));
+    }
+
+    #[gpui::test]
+    fn a_directory_named_like_media_is_never_opened(cx: &mut gpui::TestAppContext) {
+        let dir = std::env::temp_dir().join(format!("xui-bundle-{}.mp4", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        struct FilesOpener(Opener);
+        impl HostPlugin for FilesOpener {
+            fn media_options(&self) -> MediaOptions {
+                Files.media_options()
+            }
+            fn open_media_file(&self, path: &std::path::Path, cx: &mut App) {
+                self.0.open_media_file(path, cx)
+            }
+        }
+        let opener = Opener::default();
+        let host: std::rc::Rc<dyn HostPlugin> = std::rc::Rc::new(FilesOpener(opener.clone()));
+        let file = std::env::temp_dir().join(format!("xui-clip-{}.mp4", std::process::id()));
+        std::fs::write(&file, b"clip").unwrap();
+        let (dir_url, file_url) = (url::Url::from_directory_path(&dir).unwrap().to_string(), url::Url::from_file_path(&file).unwrap().to_string());
+        cx.update(|cx| {
+            play(host.clone(), dir_url.trim_end_matches('/'), "mp4", cx);
+            play(host.clone(), &file_url, "mp4", cx);
+        });
+        assert_eq!(opener.0.borrow().clone(), vec![format!("file {}", file.display())]);
+        std::fs::remove_dir_all(&dir).ok();
+        std::fs::remove_file(&file).ok();
+    }
+
+    /// Redirects re-check the HOST's policy, never downgrade, and carry only
+    /// the headers the rules give the NEW url.
+    #[test]
+    fn redirect_hops_pass_the_hosts_policy() {
+        let rules = vec![exponential_ui::host::MediaRule { prefix: "https://files.example/".into(), headers: [("x-api-key".to_string(), "k".to_string())].into_iter().collect() }];
+        let options = MediaOptions { hosts: Some(vec!["files.example".into(), "*.cdn.example".into()]), rules: Some(rules), ..Default::default() };
+        let same = redirect_hop("https://files.example/a", "/b", &options).unwrap();
+        assert_eq!((same.url.as_str(), same.headers.get("x-api-key").map(String::as_str)), ("https://files.example/b", Some("k")));
+        let cdn = redirect_hop("https://files.example/a", "https://eu.cdn.example/a", &options).unwrap();
+        assert!(cdn.headers.is_empty(), "the rule header stays with its prefix: {:?}", cdn.headers);
+        assert!(redirect_hop("https://files.example/a", "https://evil.example/a", &options).is_none(), "the hosts allowlist holds on every hop");
+        assert!(redirect_hop("https://files.example/a", "http://files.example/a", &options).is_none(), "no https→http downgrade");
+        assert!(redirect_hop("https://files.example/a", "file:///etc/passwd", &options).is_none());
+    }
+
+    /// An SVG's size meets the pixel cap at gpui's 2× raster; animated
+    /// frames multiply; an unreadable raster is refused.
+    #[test]
+    fn svg_and_animated_images_meet_the_pixel_cap() {
+        let data = |mime: &str, body: &[u8]| MediaKey { url: format!("data:{mime};base64,{}", crate::paint::natives::base64_encode(body)), ..Default::default() };
+        assert!(fetch(&data("image/svg+xml", br#"<svg width="20000" height="20000"/>"#)).unwrap_err().contains("pixels"));
+        assert!(fetch(&data("image/svg+xml", br#"<svg width="5000" height="5000"/>"#)).unwrap_err().contains("10000×10000"), "2x raster");
+        assert!(fetch(&data("image/svg+xml", br#"<svg width="24" height="24"/>"#)).is_ok());
+        assert!(fetch(&data("image/png", b"\x89PNG\r\n\x1a\n\0\0")).unwrap_err().contains("unreadable"));
+    }
+
+    /// A tiny HTTP server: `routes` = (path, status, extra headers, body).
+    #[cfg(feature = "net")]
+    fn serve(routes: Vec<(&'static str, u16, Vec<(&'static str, String)>, Vec<u8>)>) -> String {
+        use std::io::{BufRead, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        std::thread::spawn(move || {
+            for stream in listener.incoming().flatten() {
+                let mut reader = std::io::BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                reader.read_line(&mut line).ok();
+                let path = line.split_whitespace().nth(1).unwrap_or("/").to_string();
+                loop {
+                    let mut h = String::new();
+                    if reader.read_line(&mut h).unwrap_or(0) == 0 || h == "\r\n" {
+                        break;
+                    }
+                }
+                let mut stream = stream;
+                match routes.iter().find(|r| r.0 == path) {
+                    Some((_, status, headers, body)) => {
+                        let mut head = format!("HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n", body.len());
+                        for (k, v) in headers {
+                            head.push_str(&format!("{k}: {v}\r\n"));
+                        }
+                        head.push_str("\r\n");
+                        stream.write_all(head.as_bytes()).ok();
+                        stream.write_all(body).ok();
+                    }
+                    None => {
+                        stream.write_all(b"HTTP/1.1 404 X\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").ok();
+                    }
+                }
+            }
+        });
+        base
+    }
+
+    /// VAPP-103 rfix: a Video / AudioPlayer fetch streams past the 20 MB
+    /// image cap into its file; a redirect to a host the policy refuses
+    /// fails the load.
+    #[cfg(feature = "net")]
+    #[test]
+    fn a_media_hand_off_streams_past_the_image_byte_cap() {
+        let big = vec![7u8; (MEDIA_MAX_BYTES + 1024) as usize];
+        let base = serve(vec![
+            ("/clip", 200, vec![("Content-Type", "video/mp4".to_string())], big.clone()),
+            ("/moved", 302, vec![("Location", "http://localhost:1/clip".to_string())], vec![]),
+        ]);
+        let options = MediaOptions { hosts: Some(vec!["127.0.0.1".into()]), ..Default::default() };
+        let key = |path: &str| MediaKey::new(&media_request(&format!("{base}{path}"), &options).unwrap(), &options);
+        let path = fetch_to_file(&key("/clip"), "mp4").unwrap();
+        assert_eq!(path.extension().and_then(|e| e.to_str()), Some("mp4"));
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), big.len() as u64);
+        std::fs::remove_file(&path).ok();
+        assert!(fetch(&key("/clip")).unwrap_err().contains("bytes"), "an image keeps the byte cap");
+        assert!(fetch_to_file(&key("/moved"), "mp4").unwrap_err().contains("redirect"), "localhost is not in the hosts list");
     }
 
     #[gpui::test]

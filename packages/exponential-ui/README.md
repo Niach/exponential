@@ -219,8 +219,9 @@ painters through the facade); `catalog/host.json` is the contract and
   schemes, hosts})` = the image loader's url + headers (auth for
   `/api/attachments`), null when the media policy (default `https http
   data`, `file` only when listed) denies it; `MEDIA_LIMITS` (20 MiB, 30 s,
-  32 Mpx read from the header by `imageDimensions` before decoding) bound
-  every image load.
+  32 Mpx across every frame, read by `mediaImageWithinLimits` before
+  decoding: header or SVG size × `imageFrames`; an unreadable raster is
+  refused) bound every image load.
 - **Runtime**: `new ExponentialHost({transport, functions, sources,
   extensions, packages, policy})`: `connect()`, `receive(message)`,
   `surface(id)` (a `SurfaceStore`), `action(...)`, `callFunction(...)`,
