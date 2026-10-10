@@ -4,7 +4,7 @@
 import { describe, expect, test } from "bun:test"
 import fixture from "../fixtures/round4-contract.json" with { type: "json" }
 import { CORE_CATALOG_ID } from "./catalog"
-import { runAction, submitClosesOverlay, withOwnWrites } from "./dynamic"
+import { readPointer, runAction, submitClosesOverlay, withOwnWrites, writePointer } from "./dynamic"
 import { CORE_FUNCTIONS } from "./expr"
 import { reduceNested } from "./reducer"
 import { isCallableName } from "./validate"
@@ -56,5 +56,18 @@ describe(`host functions are namespaced`, () => {
   test(`catalog names and dotted names are callable; anything else is a typo`, () => {
     for (const ok of [`openUrl`, `filter`, `set`, `formatRelativeTime`, `app.toast`, `harness.openIssue`, `cart.add`, `a.b.c`]) expect(isCallableName(ok), ok).toBe(true)
     for (const bad of [`opneUrl`, `toast`, `.toast`, `app.`, `app..toast`, ``]) expect(isCallableName(bad), bad).toBe(false)
+  })
+})
+
+describe(`pointers: \`/\` is the whole model for reads as for writes`, () => {
+  test(`readPointer("/") = the model; only own keys and indices read`, () => {
+    const data = { "": 5, a: [1, 2] }
+    expect(readPointer(data, `/`)).toBe(data)
+    expect(readPointer(data, ``)).toBe(data)
+    expect(readPointer(writePointer(data, `/`, { b: 2 }).data, `/`)).toEqual({ b: 2 })
+    expect(readPointer({}, `/constructor`)).toBeUndefined()
+    expect(readPointer({}, `/__proto__`)).toBeUndefined()
+    expect(readPointer(data, `/a/length`)).toBeUndefined()
+    expect(readPointer(data, `/a/1`)).toBe(2)
   })
 })

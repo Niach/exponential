@@ -51,14 +51,17 @@ export function readPath(data: unknown, path: string, scope: DataScope = {}): un
   return readPointer(data, absolutePath(path, scope))
 }
 
-/** The value at an absolute pointer; undefined when any step is missing. */
+/** The value at an absolute pointer; undefined when any step is missing.
+ *  `` and `/` = the whole model (as `writeTokens` writes it); only OWN
+ *  keys and real indices are read (`/constructor` names nothing). */
 export function readPointer(data: unknown, pointer: string): unknown {
-  if (pointer === `` || pointer === `/`) return pointer === `` ? data : (data as Record<string, unknown> | undefined)?.[``]
+  if (pointer === `` || pointer === `/`) return data
   let cur: unknown = data
   for (const raw of pointer.slice(1).split(`/`)) {
     if (cur === undefined || cur === null || typeof cur !== `object`) return undefined
     const token = unescape(raw)
-    cur = Array.isArray(cur) ? cur[Number(token)] : (cur as Record<string, unknown>)[token]
+    if (Array.isArray(cur)) cur = /^[0-9]+$/.test(token) ? cur[Number(token)] : undefined
+    else cur = Object.prototype.hasOwnProperty.call(cur, token) ? (cur as Record<string, unknown>)[token] : undefined
   }
   return cur
 }

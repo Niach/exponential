@@ -48,7 +48,9 @@ export function getPointer(data: unknown, pointer: string): unknown {
   let cur: unknown = data
   for (const token of pointerTokens(pointer)) {
     if (cur === null || typeof cur !== `object`) return undefined
-    cur = Array.isArray(cur) ? cur[Number(token)] : (cur as Record<string, unknown>)[token]
+    // The core's readPointer: real indices and OWN keys only.
+    if (Array.isArray(cur)) cur = /^[0-9]+$/.test(token) ? cur[Number(token)] : undefined
+    else cur = Object.prototype.hasOwnProperty.call(cur, token) ? (cur as Record<string, unknown>)[token] : undefined
   }
   return cur
 }
