@@ -1,6 +1,7 @@
 import XCTest
 import SwiftUI
 import ImageIO
+import AVFoundation
 import UniformTypeIdentifiers
 import ExponentialUICore
 import ExponentialUIPrimitives
@@ -34,9 +35,8 @@ final class SafeHostTests: XCTestCase {
         view.layoutSubtreeIfNeeded()
         _ = view.fittingSize
         #else
-        let view = UIHostingController(rootView: root).view!
-        view.frame = CGRect(x: 0, y: 0, width: width, height: max(m.surfaceSize.height, height))
-        view.layoutIfNeeded()
+        // Outside a window a hosting view never evaluates its bodies.
+        renderInWindow(root, size: CGSize(width: width, height: max(m.surfaceSize.height, height)))
         #endif
         return painted
     }
@@ -175,9 +175,12 @@ final class SafeHostTests: XCTestCase {
     /// Answers every request with `StubProtocol.reply` (nil = never answers).
     final class StubProtocol: URLProtocol {
         nonisolated(unsafe) static var reply: (headers: [String: String], body: Data)?
+        /// Every request that reached the network.
+        nonisolated(unsafe) static var seen: [URLRequest] = []
         override class func canInit(with request: URLRequest) -> Bool { true }
         override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
         override func startLoading() {
+            Self.seen.append(request)
             guard let reply = Self.reply else { return }
             let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: reply.headers)!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -222,6 +225,73 @@ final class SafeHostTests: XCTestCase {
         StubProtocol.reply = (["Content-Type": "image/png"], Self.realPng(3, 3))
         let ok = await MediaLoader.fetch(request, session: session, limits: .contract)
         guard case .success = ok else { return XCTFail("small png: \(ok)") }
+    }
+
+    // MARK: - Video / AudioPlayer src
+
+    /// Records every src the painter hands the media policy.
+    final class MediaLog: HostPlugin {
+        var asked: [String] = []
+        var mediaOptions: MediaOptions? {
+            MediaOptions(baseUrl: "https://app.exponential.at", rules: [.init(prefix: "https://app.exponential.at/api/", headers: ["authorization": "Bearer expu_test"])], hosts: ["app.exponential.at"])
+        }
+        func mediaRequest(_ src: String) -> URLRequest? {
+            asked.append(src)
+            return policyMediaRequest(resolveUrl(src), options: mediaOptions)
+        }
+    }
+
+    func testVideoAndAudioSrcsPlayThroughTheMediaPolicy() async throws {
+        let plugin = MediaLog()
+        let m = try SurfaceModel(id: "av", options: SurfaceOptions(), host: plugin)
+        m.fixedMeasure = true
+        let tree = JSONValue.object(["id": .string("root"), "component": .string("Stack"), "props": .object([:]), "children": .array([
+            .object(["id": .string("video"), "component": .string("Video"), "props": .object(["src": .string("/api/attachments/v1"), "durationMs": .number(12000)])]),
+            .object(["id": .string("audio"), "component": .string("AudioPlayer"), "props": .object(["src": .string("https://cdn.example/track.mp3"), "title": .string("Episode 12")])]),
+        ])])
+        try m.setNested(json: tree.json)
+        paint(m)
+        // The painters ask the media policy for each src (not only the poster).
+        XCTAssertTrue(plugin.asked.contains("/api/attachments/v1"), "\(plugin.asked)")
+        XCTAssertTrue(plugin.asked.contains("https://cdn.example/track.mp3"), "\(plugin.asked)")
+
+        let saved = MediaLoader.shared.session
+        MediaLoader.shared.session = stubSession()
+        defer { MediaLoader.shared.session = saved }
+
+        // Allowed: the policed request (resolved, with the rule's header) is
+        // what loads, fetched under media.limits into a file the player opens.
+        let allowed = try XCTUnwrap(m.mediaRequest("/api/attachments/v1"))
+        XCTAssertEqual(MediaLoader.playback(allowed), .fetch(allowed))
+        StubProtocol.seen = []
+        StubProtocol.reply = (["Content-Type": "video/mp4"], Data(repeating: 0, count: 64))
+        let playback = MediaPlayback()
+        await playback.play(allowed)
+        XCTAssertEqual(StubProtocol.seen.map { $0.url?.absoluteString }, ["https://app.exponential.at/api/attachments/v1"])
+        XCTAssertEqual(StubProtocol.seen.first?.value(forHTTPHeaderField: "authorization"), "Bearer expu_test")
+        let asset = try XCTUnwrap(playback.player?.currentItem?.asset as? AVURLAsset)
+        XCTAssertTrue(asset.url.isFileURL)
+        XCTAssertEqual(asset.url.pathExtension, "mp4")
+        playback.stop()
+        XCTAssertNil(playback.player)
+
+        // An allowed src without headers streams as is.
+        let plain = try XCTUnwrap(m.mediaRequest("https://app.exponential.at/clip.mp4"))
+        XCTAssertEqual(MediaLoader.playback(plain), .stream(URL(string: "https://app.exponential.at/clip.mp4")!))
+
+        // Denied: no request, so nothing loads and no player opens.
+        XCTAssertNil(m.mediaRequest("https://cdn.example/track.mp3"))
+        XCTAssertNil(m.mediaRequest("file:///etc/passwd"))
+        StubProtocol.seen = []
+        await playback.play(m.mediaRequest("https://cdn.example/track.mp3"))
+        XCTAssertNil(playback.player)
+        XCTAssertTrue(StubProtocol.seen.isEmpty)
+
+        // Over media.limits: the fetch fails like a 404, no player.
+        StubProtocol.reply = (["Content-Length": "\(30 * 1024 * 1024)", "Content-Type": "video/mp4"], Data(count: 16))
+        let other = try XCTUnwrap(m.mediaRequest("/api/attachments/v2"))
+        await playback.play(other)
+        XCTAssertNil(playback.player)
     }
 
     // MARK: - onPaintError

@@ -53,7 +53,7 @@ ScrollView { ExponentialSurface(model: model) }    // as wide as its container, 
   Enter); `openUrl` (only hrefs `urlPolicy` allows reach it: Link, markdown links,
   the openUrl function; a denied href paints as text); `resolveUrl` (a
   rewrite BEFORE the media policy, never a bypass); `mediaRequest` /
-  `mediaOptions` (every Image, Avatar, Video poster and markdown image src;
+  `mediaOptions` (every Image, Avatar, Video + poster, AudioPlayer and markdown image src;
   default schemes https/http/data, the loader enforces the contract's
   `media.limits`); `onPaintError` (a failed painter paints an empty box,
   reported once per component + message; `ExponentialHost` sends it as
@@ -151,8 +151,8 @@ ScrollView { HostSurface(host: host, surfaceId: "main") { ProgressView() } }
   `callFunction`: `openUrl` → `openURL` (the URL policy, relative urls
   against `media.baseUrl`), else `decide` (+ a template surface's package
   `functions`) → `not_found` / `deny` send the error, `ask` asks
-  `onFunctionCall`, `allow` runs the function. Images, avatars and video
-  posters load through `mediaRequest` (a `URLRequest` with the rules'
+  `onFunctionCall`, `allow` runs the function. Images, avatars, video
+  posters and Video / AudioPlayer srcs load through `mediaRequest` (a `URLRequest` with the rules'
   headers), never `AsyncImage`.
 - **Transports.** `MemoryTransport` (`feed`, `feedJsonl`, `sent`),
   `JSONLStreamTransport` / `SSETransport` (URLSession `bytes(for:)` through
@@ -308,7 +308,6 @@ against the web baseline, ratcheted: [`conformance/`](conformance/README.md)).
 
 ## Known divergences from the React renderer
 
-- Video and AudioPlayer are static placeholders (poster, duration).
 - `ImageRenderer` renders the text leaves blank (they are UIKit/AppKit
   views); capture a real window instead.
 - The real-font layout gaps left are core-side (`conformance/README.md`).

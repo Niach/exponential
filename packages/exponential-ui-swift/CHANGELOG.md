@@ -12,5 +12,6 @@ First release.
 - `ExponentialUIFFI.xcframework`: device arm64, simulator arm64 + x86_64, macOS arm64 + x86_64, profile `mobile`.
 - Host-owned text fields take the Input `type`'s keyboard, autofill content type and autocorrection. Platform sliders keep the author's range and step (continuous when `step` is 0).
 - An extension the core refuses throws: at `ExponentialUI.register`, and when a `SurfaceModel` is created.
+- Video and AudioPlayer play their `src` through the media request (AVKit's player for Video; play / pause, a seekable track and the elapsed time for AudioPlayer). A request with headers is fetched under `media.limits` first. A denied `src` loads nothing, and the controls stay inert.
 - Unnamed media fall back to the platform's localized image trait, not to English text.
 - Conformance, real-font geometry and fixture replay suites run on macOS (`swift test`) and on the iOS Simulator (`xcodebuild test`).

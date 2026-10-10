@@ -51,7 +51,9 @@ if hasFFI {
         // The generated UniFFI Swift binding (a committed copy of
         // apps/desktop/crates/exponential-ui-ffi/bindings/swift, drift-gated).
         .target(name: "ExponentialUICore", dependencies: ["ExponentialUIFFI"]),
-        .target(name: "ExponentialUI", dependencies: ["ExponentialUICore", "ExponentialUIPrimitives"]),
+        // AVKit: Video plays in its `VideoPlayer` (linked explicitly; autolink
+        // alone leaves the test bundle without AVPlayerView's metadata).
+        .target(name: "ExponentialUI", dependencies: ["ExponentialUICore", "ExponentialUIPrimitives"], linkerSettings: [.linkedFramework("AVKit")]),
         .testTarget(name: "ExponentialUITests", dependencies: ["ExponentialUI"]),
     ]
 }

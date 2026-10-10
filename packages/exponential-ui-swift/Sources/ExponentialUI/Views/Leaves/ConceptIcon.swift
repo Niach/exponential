@@ -63,6 +63,7 @@ enum BuiltinIcons {
         case "ui-undo", "undo-2": "arrow.uturn.backward"
         case "ui-menu", "menu": "line.3.horizontal"
         case "ui-play", "play": "play.fill"
+        case "pause", "run-pause": "pause.fill"
         case "ui-more", "ellipsis": "ellipsis"
         default: nil
         }

@@ -1,5 +1,6 @@
 import SwiftUI
 import ImageIO
+import UniformTypeIdentifiers
 #if canImport(UIKit)
 import UIKit
 typealias PlatformImage = UIImage
@@ -8,8 +9,8 @@ import AppKit
 typealias PlatformImage = NSImage
 #endif
 
-/// The painter's image loader (VAPP-91): every Image / Avatar / Video poster
-/// loads through the host's `mediaRequest` (a `URLRequest` that may carry
+/// The painter's media loader (VAPP-91): every Image / Avatar / Video poster
+/// (and a Video / AudioPlayer `src` that needs a fetch, `playableURL`) loads through the host's `mediaRequest` (a `URLRequest` that may carry
 /// auth headers, e.g. `/api/attachments`), never `AsyncImage`. Decoded
 /// images are cached per url + headers. VAPP-103: every load fits the
 /// contract's `media.limits` (read once from the core): a Content-Length
@@ -22,6 +23,8 @@ final class MediaLoader {
     static let shared = MediaLoader()
     private let cache = NSCache<NSString, PlatformImage>()
     private var inflight: [String: Task<PlatformImage?, Never>] = [:]
+    private var files: [String: URL] = [:]
+    private var fileLoads: [String: Task<URL?, Never>] = [:]
     var session: URLSession = .shared
     var limits: MediaLimits = .contract
 
@@ -59,14 +62,23 @@ final class MediaLoader {
         return image
     }
 
-    /// One load under `limits`: the whole request races `timeoutMs`.
+    /// One picture load under `limits`: the bytes (`fetchData`), then the
+    /// header-checked decode.
     nonisolated static func fetch(_ request: URLRequest, session: URLSession, limits: MediaLimits) async -> Result<PlatformImage, Failure> {
+        switch await fetchData(request, session: session, limits: limits) {
+        case .success(let (data, _)): return decode(data, limits: limits)
+        case .failure(let f): return .failure(f)
+        }
+    }
+
+    /// The bytes (and MIME type) of one request under `limits`: the whole
+    /// request races `timeoutMs`, the body is capped at `maxBytes`.
+    nonisolated static func fetchData(_ request: URLRequest, session: URLSession, limits: MediaLimits) async -> Result<(Data, String?), Failure> {
         var request = request
         let timeout = max(limits.timeoutMs, 1) / 1000
         request.timeoutInterval = timeout
-        let data: Data
         do {
-            data = try await withThrowingTaskGroup(of: Data.self) { group in
+            let got = try await withThrowingTaskGroup(of: (Data, String?).self) { group in
                 group.addTask { try await body(request, session: session, maxBytes: limits.maxBytes) }
                 group.addTask {
                     try await Task.sleep(nanoseconds: UInt64(timeout * 1_000_000_000))
@@ -76,17 +88,17 @@ final class MediaLoader {
                 guard let first = try await group.next() else { throw Failure.timedOut }
                 return first
             }
+            return .success(got)
         } catch let f as Failure {
             return .failure(f)
         } catch {
             return .failure(.timedOut)
         }
-        return decode(data, limits: limits)
     }
 
-    /// The body, refused up front when its Content-Length is over
-    /// `maxBytes` and cut off as soon as it streams past it.
-    nonisolated static func body(_ request: URLRequest, session: URLSession, maxBytes: Int64) async throws -> Data {
+    /// The body and its MIME type, refused up front when its Content-Length
+    /// is over `maxBytes` and cut off as soon as it streams past it.
+    nonisolated static func body(_ request: URLRequest, session: URLSession, maxBytes: Int64) async throws -> (Data, String?) {
         let (bytes, response) = try await session.bytes(for: request)
         if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) { throw Failure.http(http.statusCode) }
         if response.expectedContentLength > maxBytes { throw Failure.tooLarge(response.expectedContentLength) }
@@ -104,7 +116,61 @@ final class MediaLoader {
         }
         data.append(contentsOf: chunk)
         if Int64(data.count) > maxBytes { throw Failure.tooLarge(Int64(data.count)) }
-        return data
+        return (data, response.mimeType)
+    }
+
+    // MARK: - Video / AudioPlayer sources
+
+    /// How a policed Video / AudioPlayer request plays (React's `<video
+    /// src>`): a request without headers streams straight into the player;
+    /// one that carries headers (`/api/attachments` auth) or a `data:` url
+    /// is fetched under `media.limits` into a temporary file first (React's
+    /// blob url).
+    enum Playback: Equatable {
+        case stream(URL)
+        case fetch(URLRequest)
+    }
+
+    nonisolated static func playback(_ request: URLRequest) -> Playback? {
+        guard let url = request.url, let scheme = url.scheme?.lowercased() else { return nil }
+        if scheme != "data", (request.allHTTPHeaderFields ?? [:]).isEmpty { return .stream(url) }
+        return .fetch(request)
+    }
+
+    /// The url a player opens for a policed request: the stream itself, or
+    /// the fetched file (cached per url + headers); nil when the fetch failed.
+    func playableURL(_ request: URLRequest) async -> URL? {
+        switch Self.playback(request) {
+        case .stream(let url): return url
+        case .fetch(let request): return await file(request)
+        case nil: return nil
+        }
+    }
+
+    private func file(_ request: URLRequest) async -> URL? {
+        let key = Self.key(request)
+        if let hit = files[key] { return hit }
+        if let running = fileLoads[key] { return await running.value }
+        let session = self.session
+        let limits = self.limits
+        let task = Task<URL?, Never> {
+            guard case .success(let (data, mime)) = await Self.fetchData(request, session: session, limits: limits) else { return nil }
+            let ext = mime.flatMap { UTType(mimeType: $0)?.preferredFilenameExtension } ?? request.url?.pathExtension.nilIfEmpty ?? "mp4"
+            let dir = FileManager.default.temporaryDirectory.appendingPathComponent("exponential-ui-media", isDirectory: true)
+            let url = dir.appendingPathComponent("\(UUID().uuidString).\(ext)")
+            do {
+                try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+                try data.write(to: url)
+                return url
+            } catch {
+                return nil
+            }
+        }
+        fileLoads[key] = task
+        let url = await task.value
+        fileLoads[key] = nil
+        if let url { files[key] = url }
+        return url
     }
 
     /// Width × height from the image header, nothing decoded: PNG, GIF,
@@ -235,4 +301,8 @@ struct MediaImage<Content: View, Placeholder: View>: View {
         Image(nsImage: image)
         #endif
     }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }
