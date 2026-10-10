@@ -38,8 +38,10 @@ export interface FormContextValue {
 
 export const FormContext = createContext<FormContextValue | null>(null)
 
-/** Round 4 (VAPP-103, `submitClosesOverlay`): the nearest Dialog or Drawer
- *  provides its close; a valid Form submit beneath it calls it right after
+/** Round 4 (VAPP-103, `submitClosesOverlay`): the NEAREST overlay around a
+ *  Form decides — a dismissible Dialog or Drawer provides its close, every
+ *  other overlay (a Popover, a non-dismissible Dialog = AlertDialog)
+ *  provides null; a valid Form submit beneath calls it right after
  *  `submit` (the author never resets the bound `open` flag). */
 export const CloseOnSubmitContext = createContext<(() => void) | null>(null)
 

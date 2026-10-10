@@ -260,14 +260,23 @@ export function withOwnWrites(data: unknown, props: Record<string, unknown>, own
   return out
 }
 
-/** Round 4 (VAPP-103): a successful Form submit CLOSES the nearest Dialog
- *  or Drawer around the form (the author never resets the bound `open`
- *  flag): the id of that overlay in the EXPANDED tree, null when the form
- *  sits in none. Renderers close it like a dismiss (`open` false written
- *  through, `change {open: false}`) right after the form's `submit`. */
+/** The overlay components (catalog group `overlay`; AlertDialog expands to
+ *  a non-dismissible Dialog). */
+export const OVERLAY_COMPONENTS: readonly string[] = [`Dialog`, `Drawer`, `AlertDialog`, `Popover`, `Tooltip`, `Menu`, `Toast`]
+const OVERLAYS: ReadonlySet<string> = new Set(OVERLAY_COMPONENTS)
+
+/** Round 4 (VAPP-103): a successful Form submit CLOSES the overlay around
+ *  the form (the author never resets the bound `open` flag). The NEAREST
+ *  enclosing overlay of ANY kind decides: it closes only when it is a
+ *  Dialog or Drawer that is dismissible (`dismissible: false` — an
+ *  AlertDialog — never auto-closes); a nearest Popover, Menu, Tooltip or
+ *  Toast closes nothing, nor does anything around it. The id of that
+ *  overlay in the EXPANDED tree, null when nothing closes. Renderers close
+ *  it like a dismiss (`open` false written through, `change {open:
+ *  false}`) right after the form's `submit`. */
 export function submitClosesOverlay(root: UiNode, formId: string): string | null {
-  const walk = (n: UiNode, overlay: string | null): string | null | undefined => {
-    const here = n.component === `Dialog` || n.component === `Drawer` ? n.id : overlay
+  const walk = (n: UiNode, overlay: UiNode | null): UiNode | null | undefined => {
+    const here = OVERLAYS.has(n.component) && n.id !== formId ? n : overlay
     if (n.id === formId && n.component === `Form`) return here
     for (const slot of Object.values(n.slots ?? {})) {
       const hit = walk(slot, here)
@@ -279,7 +288,9 @@ export function submitClosesOverlay(root: UiNode, formId: string): string | null
     }
     return undefined
   }
-  return walk(root, null) ?? null
+  const nearest = walk(root, null)
+  if (!nearest || (nearest.component !== `Dialog` && nearest.component !== `Drawer`) || nearest.props.dismissible === false) return null
+  return nearest.id
 }
 
 /** What a press does: resolve the function args and the event context

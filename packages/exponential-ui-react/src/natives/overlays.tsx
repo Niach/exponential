@@ -162,7 +162,10 @@ function ModalNative({ node, props, rootProps, emit, children, slots, scope, kin
           ) : (
             <DialogPrimitive.Title className="xui-sr-only">{ctx.t(`dialog`)}</DialogPrimitive.Title>
           )}
-          <CloseOnSubmitContext.Provider value={close}>
+          {/* Round 4: a valid submit closes THIS overlay when it is the
+              nearest one around the form and dismissible (an AlertDialog,
+              dismissible false, never auto-closes). */}
+          <CloseOnSubmitContext.Provider value={dismissible ? close : null}>
             <div className="xui-overlay-body">{children}</div>
             {slots.footer ? <div {...(part(`footer`) as Record<string, string>)}>{slots.footer}</div> : null}
           </CloseOnSubmitContext.Provider>
@@ -241,7 +244,9 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
           onPointerEnter={hoverMode ? () => schedule(true) : undefined}
           onPointerLeave={hoverMode ? () => schedule(false) : undefined}
         >
-          {children}
+          {/* The nearest overlay decides: a Form in a Popover closes nothing,
+              not even a Dialog around the Popover. */}
+          <CloseOnSubmitContext.Provider value={null}>{children}</CloseOnSubmitContext.Provider>
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>

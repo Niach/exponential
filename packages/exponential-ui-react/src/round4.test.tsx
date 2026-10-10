@@ -39,13 +39,20 @@ describe(`round 4: a valid Form submit closes the Dialog or Drawer around it`, (
   for (const c of fixture.closeOnSubmit) {
     it(c.name, () => {
       const actions: SurfaceActionEvent[] = []
-      const { container } = render(<ExponentialSurface root={tree(c.input)} data={c.data} theme="neutral" id={`cs${fixture.closeOnSubmit.indexOf(c)}`} host={{ onAction: (e) => void actions.push(e) }} />)
-      const go = container.querySelector(`[data-xui-id="${c.form}-go"] button, button[data-xui-id="${c.form}-go"]`) ?? container.querySelector(`[data-xui-id="${c.form}-go"]`)
+      const surface = (data: Record<string, unknown>) => <ExponentialSurface root={tree(c.input)} data={data} theme="neutral" id={`cs${fixture.closeOnSubmit.indexOf(c)}`} host={{ onAction: (e) => void actions.push(e) }} />
+      const { container } = render(surface(c.data))
+      const find = () => document.querySelector(`[data-xui-id="${c.form}-go"] button, button[data-xui-id="${c.form}-go"]`) ?? document.querySelector(`[data-xui-id="${c.form}-go"]`)
+      // A Popover open at mount inside a Dialog loses to the Dialog's focus
+      // (Radix: focus outside dismisses); open it again once the Dialog is
+      // up, as a person would.
+      if (!find()) for (const t of document.querySelectorAll<HTMLElement>(`[data-xui-id$="-trigger"] button, button[data-xui-id$="-trigger"]`)) fireEvent.click(t)
+      const go = find()
       expect(go, c.name).not.toBeNull()
       fireEvent.click(go!)
       expect(actions.map((a) => a.name)).toEqual(c.actions)
-      if (c.expected.overlay) expect(container.querySelector(`[data-xui-id="${c.form}"]`), `${c.expected.overlay} closed`).toBeNull()
-      else expect(container.querySelector(`[data-xui-id="${c.form}"]`)).not.toBeNull()
+      if (c.expected.overlay) expect(document.querySelector(`[data-xui-id="${c.form}"]`), `${c.expected.overlay} closed`).toBeNull()
+      else expect(document.querySelector(`[data-xui-id="${c.form}"]`), `${c.name}: still open`).not.toBeNull()
+      void container
     })
   }
 })

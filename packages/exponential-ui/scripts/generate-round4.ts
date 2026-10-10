@@ -10,8 +10,9 @@
 //     filter         the core `filter` function: args → the kept items
 //     ownWrite       an interaction's action resolves against the data WITH
 //                    the component's own write (withOwnWrites + runAction)
-//     closeOnSubmit  a successful Form submit closes the Dialog/Drawer
-//                    around it (submitClosesOverlay)
+//     closeOnSubmit  a successful Form submit closes the nearest overlay
+//                    around it when that is a dismissible Dialog/Drawer
+//                    (submitClosesOverlay)
 
 import { CORE_CATALOG_ID } from "../src/catalog"
 import { runAction, submitClosesOverlay, withOwnWrites, writePointer, absolutePath } from "../src/dynamic"
@@ -213,6 +214,38 @@ const CLOSE_ON_SUBMIT: { name: string; input: NestedNode; data: Record<string, u
     actions: [`apply`],
   },
   {
+    name: `a Form in a Popover closes nothing (the nearest overlay decides)`,
+    input: { id: `root`, component: `Box`, children: [{ id: `pop`, component: `Popover`, props: { open: { path: `/pop` } }, children: [form(`f`, `apply`)] }] },
+    data: { pop: true, draft: `x` },
+    form: `f`,
+    actions: [`apply`],
+  },
+  {
+    name: `a Form in a Popover inside a Dialog closes neither`,
+    input: {
+      id: `root`,
+      component: `Box`,
+      children: [{ id: `dlg`, component: `Dialog`, props: { title: `Edit`, open: { path: `/open` } }, children: [{ id: `pop`, component: `Popover`, props: { open: { path: `/pop` } }, slots: { trigger: { id: `pop-trigger`, component: `Button`, props: { label: `Filters` } } }, children: [form(`f`, `apply`)] }] }],
+    },
+    data: { open: true, pop: true, draft: `x` },
+    form: `f`,
+    actions: [`apply`],
+  },
+  {
+    name: `a Form in a non-dismissible Dialog never auto-closes it`,
+    input: { id: `root`, component: `Box`, children: [{ id: `dlg`, component: `Dialog`, props: { title: `Required`, open: { path: `/open` }, dismissible: false }, children: [form(`f`, `create`)] }] },
+    data: { open: true, draft: `x` },
+    form: `f`,
+    actions: [`create`],
+  },
+  {
+    name: `a Form in an AlertDialog never auto-closes it`,
+    input: { id: `root`, component: `Box`, children: [{ id: `alert`, component: `AlertDialog`, props: { title: `Delete?`, open: { path: `/open` } }, children: [form(`f`, `confirmName`)] }] },
+    data: { open: true, draft: `x` },
+    form: `f`,
+    actions: [`confirmName`],
+  },
+  {
     name: `a Form outside any overlay closes nothing`,
     input: { id: `root`, component: `Box`, children: [form(`f`, `create`)] },
     data: { draft: `x` },
@@ -233,7 +266,7 @@ function byId(root: UiNode, id: string): UiNode | undefined {
 export function round4Fixture() {
   const reduce = (input: NestedNode) => reduceNested(input, { catalogId: CORE_CATALOG_ID })
   return {
-    $comment: `${HEADER} Round 4 (VAPP-103), replayed by the TS reference (src/round4.test.ts) and the Rust core (tests/round4_fixtures.rs). validate: reduce the nested input with the core catalog: the issues equal \`issues\` in order (a node's style, then the functions its props, visible and on actions call, then a Table's slot columns; a colour is a \`$color.*\` token, never a literal; a host function is namespaced, \`app.toast\`). filter: call the core \`filter\` with \`args\`: the result equals \`expected\`. ownWrite: fire \`event\` with \`payload\` on \`target\` (the interaction): the component writes \`own\` (by prop, exactly what it wrote, never inferred from the payload) and sends \`sent\`; the data model equals \`expected.data\` and the action that leaves carries \`expected.action\` (its context resolved AFTER the own write, \`sent\` merged over it). closeOnSubmit: submit the valid \`form\`: the actions leave in \`actions\` order, the overlay \`expected.overlay\` closes (null = none) and the data equals \`expected.data\`.`,
+    $comment: `${HEADER} Round 4 (VAPP-103), replayed by the TS reference (src/round4.test.ts) and the Rust core (tests/round4_fixtures.rs). validate: reduce the nested input with the core catalog: the issues equal \`issues\` in order (a node's style, then the functions its props, visible and on actions call, then a Table's slot columns; a colour is a \`$color.*\` token, never a literal; a host function is namespaced, \`app.toast\`). filter: call the core \`filter\` with \`args\`: the result equals \`expected\`. ownWrite: fire \`event\` with \`payload\` on \`target\` (the interaction): the component writes \`own\` (by prop, exactly what it wrote, never inferred from the payload) and sends \`sent\`; the data model equals \`expected.data\` and the action that leaves carries \`expected.action\` (its context resolved AFTER the own write, \`sent\` merged over it). closeOnSubmit: submit the valid \`form\`: the actions leave in \`actions\` order, the overlay \`expected.overlay\` closes (null = none: the NEAREST enclosing overlay of any kind decides, and only a dismissible Dialog or Drawer closes) and the data equals \`expected.data\`.`,
     catalogId: CORE_CATALOG_ID,
     validate: VALIDATE.map((c) => ({ ...c, issues: reduce(c.input).issues })),
     filter: FILTER.map((c) => ({ ...c, expected: CORE_FUNCTIONS.filter!(c.args) })),

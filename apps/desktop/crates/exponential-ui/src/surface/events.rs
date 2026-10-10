@@ -1171,8 +1171,9 @@ impl Surface {
         }
         out.extend(self.fire(form_id, "submit", Some(json!({"values": values}))));
         // Round 4 (VAPP-103, `src/dynamic.ts submitClosesOverlay`): a valid
-        // submit closes the nearest Dialog or Drawer around the form, like
-        // a dismiss (`open` false written through, `change {open: false}`).
+        // submit closes the nearest overlay around the form when it is a
+        // dismissible Dialog or Drawer, like a dismiss (`open` false
+        // written through, `change {open: false}`).
         if let Some(overlay) = self.enclosing_modal(form_id) {
             out.extend(self.set_open(&overlay, false));
         }
@@ -1180,26 +1181,36 @@ impl Surface {
         out
     }
 
-    /// The nearest Dialog or Drawer around `id`: up the parent chain, a
-    /// layer's root continuing at the overlay that owns it.
+    /// The overlay a valid submit of form `id` closes (`src/dynamic.ts
+    /// submitClosesOverlay`): the NEAREST enclosing overlay of any kind
+    /// decides — up the parent chain, a layer's root continuing at the
+    /// overlay that owns it — and closes only when it is a dismissible
+    /// Dialog or Drawer (`dismissible: false`, an AlertDialog, never
+    /// auto-closes); a nearest Popover, Menu, Tooltip or Toast closes
+    /// nothing.
     fn enclosing_modal(&self, id: &str) -> Option<String> {
+        const OVERLAYS: [&str; 6] = ["Dialog", "Drawer", "Popover", "Tooltip", "Menu", "Toast"];
         let mut cur = self.node_by_id(id).map(|n| n.index);
         let mut guard = 0;
-        while let Some(i) = cur {
+        let nearest = loop {
+            let Some(i) = cur else { return None };
             guard += 1;
             if guard > 100_000 {
                 return None;
             }
             let n = &self.nodes[i as usize];
-            if n.part.is_none() && matches!(n.component.as_str(), "Dialog" | "Drawer") && n.id != id {
-                return Some(n.id.clone());
+            if n.part.is_none() && OVERLAYS.contains(&n.component.as_str()) && n.id != id {
+                break n.id.clone();
             }
-            if matches!(n.owner_component.as_deref(), Some("Dialog" | "Drawer")) {
-                return n.owner.clone();
+            if n.owner_component.as_deref().is_some_and(|c| OVERLAYS.contains(&c)) {
+                break n.owner.clone()?;
             }
             cur = n.parent.or_else(|| n.owner.as_deref().and_then(|o| self.node_by_id(o)).map(|o| o.index));
-        }
-        None
+        };
+        let overlay = self.node_by_id(&nearest)?;
+        let modal = matches!(overlay.component.as_str(), "Dialog" | "Drawer");
+        let dismissible = overlay.props.get("dismissible").and_then(Value::as_bool) != Some(false);
+        (modal && dismissible).then_some(nearest)
     }
 
     // ------------------------------------------------------------------
