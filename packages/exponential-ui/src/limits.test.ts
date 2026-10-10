@@ -153,4 +153,16 @@ describe(`limits (catalog/limits.json)`, () => {
     expect(store.components.length).toBe(2001)
     expect(store.root!.children.length).toBe(2000)
   })
+
+  test(`SurfaceStore.components is a snapshot: an update never mutates an array handed out`, () => {
+    const store = new SurfaceStore(`s`, CORE_CATALOG_ID, () => [])
+    store.setComponents([{ id: `root`, component: `Text`, text: `a` }])
+    const before = store.components
+    store.setComponents([{ id: `root`, component: `Text`, text: `b` }, { id: `x`, component: `Text`, text: `x` }])
+    expect(before).toEqual([{ id: `root`, component: `Text`, text: `a` }])
+    expect(store.components).not.toBe(before)
+    expect(store.components.map((c) => c.id)).toEqual([`root`, `x`])
+    const same = store.components
+    expect(store.components).toBe(same)
+  })
 })

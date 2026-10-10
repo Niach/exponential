@@ -117,7 +117,10 @@ export class SurfaceStore {
   catalogId: string
   packageId?: string
   sendDataModel = false
-  components: FlatComponent[] = []
+  /** The flat components, mutated in place while nothing holds them. */
+  private list: FlatComponent[] = []
+  /** `list` was handed out (`components`): the next update copies first. */
+  private shared = false
   private positions = new Map<string, number>()
   data: Record<string, unknown> = {}
   /** The server's `createSurface.theme`, resolved (undefined = the
@@ -130,6 +133,14 @@ export class SurfaceStore {
   constructor(surfaceId: string, catalogId: string, private extensions: () => readonly ExtensionDef[]) {
     this.surfaceId = surfaceId
     this.catalogId = catalogId
+  }
+
+  /** The flat components as a SNAPSHOT: an array handed out here is never
+   *  mutated afterwards (the next update copies first), so a renderer that
+   *  keeps it sees a stable value; a stream nobody reads stays linear. */
+  get components(): readonly FlatComponent[] {
+    this.shared = true
+    return this.list
   }
 
   get root(): UiNode | null {
@@ -147,19 +158,23 @@ export class SurfaceStore {
 
   private reduce() {
     if (!this.reduced)
-      this.reduced = this.components.length ? reduceSurface(this.components, { catalogId: this.catalogId, extensions: this.extensions() }) : { root: null, issues: [] }
+      this.reduced = this.list.length ? reduceSurface(this.list, { catalogId: this.catalogId, extensions: this.extensions() }) : { root: null, issues: [] }
     return this.reduced
   }
 
   /** A2UI: a later update replaces components BY ID and keeps the rest
    *  (an id → position map: a streamed surface costs linear, VAPP-103). */
   setComponents(components: readonly FlatComponent[]): void {
+    if (this.shared) {
+      this.list = this.list.slice()
+      this.shared = false
+    }
     for (const c of components) {
       const at = this.positions.get(c.id)
       if (at === undefined) {
-        this.positions.set(c.id, this.components.length)
-        this.components.push(c)
-      } else this.components[at] = c
+        this.positions.set(c.id, this.list.length)
+        this.list.push(c)
+      } else this.list[at] = c
     }
     this.reduced = null
     this.notify()
