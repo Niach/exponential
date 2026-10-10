@@ -17,6 +17,9 @@
 //! NOTE: no autolink extension — web (tiptap-markdown) leaves bare URLs bare,
 //! so autolinking here would rewrite `https://x` to `[https://x](https://x)`
 //! on the next save, diverging the stored bytes from the web client.
+//! EXP-1188: the steer feed links bare URLs at RENDER time instead
+//! ([`scan_bare_urls`], opt-in via `MarkdownView::autolink`) — display-only,
+//! so nothing is ever re-serialized with a link around it.
 
 use comrak::nodes::{
     AstNode, ListType as MdListType, NodeValue, TableAlignment as MdTableAlignment,
@@ -733,6 +736,65 @@ fn collect_text<'a>(node: &'a AstNode<'a>) -> String {
     out
 }
 
+/// EXP-1188: the byte ranges of bare `http(s)://` URLs in one rendered line
+/// — display-only autolinking for the steer feed (never parse/serialize; see
+/// the module NOTE). A URL starts at a word boundary, runs to whitespace or
+/// one of `<>"\``, and sheds trailing `.,;:!?'"*` plus any `)`/`]` that has no
+/// opening partner inside the URL (`(see https://x.y/a_(b))` keeps `a_(b)`).
+/// A scheme with no host is no URL.
+pub(crate) fn scan_bare_urls(text: &str) -> Vec<std::ops::Range<usize>> {
+    let mut out = Vec::new();
+    let lower = text.to_ascii_lowercase();
+    let mut search = 0usize;
+    while search < text.len() {
+        let Some(found) = lower[search..].find("http") else {
+            break;
+        };
+        let start = search + found;
+        let scheme_len = if lower[start..].starts_with("https://") {
+            "https://".len()
+        } else if lower[start..].starts_with("http://") {
+            "http://".len()
+        } else {
+            search = start + "http".len();
+            continue;
+        };
+        let boundary = text[..start]
+            .chars()
+            .next_back()
+            .is_none_or(|c| !(c.is_alphanumeric() || c == '_'));
+        let mut end = text[start..]
+            .find(|c: char| c.is_whitespace() || matches!(c, '<' | '>' | '"' | '`'))
+            .map_or(text.len(), |offset| start + offset);
+        loop {
+            let url = &text[start..end];
+            let Some(last) = url.chars().next_back() else {
+                break;
+            };
+            let unbalanced = |open: char, close: char| {
+                url.matches(close).count() > url.matches(open).count()
+            };
+            let trim = match last {
+                '.' | ',' | ';' | ':' | '!' | '?' | '\'' | '"' | '*' => true,
+                ')' => unbalanced('(', ')'),
+                ']' => unbalanced('[', ']'),
+                _ => false,
+            };
+            if !trim {
+                break;
+            }
+            end -= last.len_utf8();
+        }
+        if boundary && end > start + scheme_len {
+            out.push(start..end);
+            search = end;
+        } else {
+            search = start + scheme_len;
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -978,5 +1040,29 @@ mod tests {
         let rich = text_block(&blocks, 0);
         assert_eq!(rich.text, "ping @a@b.com about #EXP-12");
         assert!(rich.marks.is_empty());
+    }
+
+    #[test]
+    fn bare_urls_are_found_and_trimmed() {
+        fn scan(text: &str) -> Vec<&str> {
+            super::scan_bare_urls(text)
+                .into_iter()
+                .map(|range| &text[range])
+                .collect()
+        }
+        assert_eq!(
+            scan("Opened https://github.com/acme/web/pull/12."),
+            ["https://github.com/acme/web/pull/12"]
+        );
+        assert_eq!(
+            scan("(see https://en.wikipedia.org/wiki/Rust_(language)), then http://x.io/a?b=c!"),
+            ["https://en.wikipedia.org/wiki/Rust_(language)", "http://x.io/a?b=c"]
+        );
+        assert_eq!(scan("(https://x.io/a)"), ["https://x.io/a"]);
+        assert_eq!(scan("HTTPS://X.IO; next"), ["HTTPS://X.IO"]);
+        assert_eq!(scan("<https://x.io/a>"), ["https://x.io/a"]);
+        assert!(scan("no scheme: example.com, https:// alone, xhttps://x.io").is_empty());
+        assert!(scan("https://").is_empty());
+        assert_eq!(scan("a https://ä.example/ü b"), ["https://ä.example/ü"]);
     }
 }

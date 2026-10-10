@@ -708,6 +708,7 @@ struct WorkScreen: View {
             defaultBranch: issueVM?.board?.defaultBranch,
             onOpenStackMember: { openStackMember($0) },
             onMergeThrough: mergeThroughHandler,
+            teamId: teamId,
             section: $guideSection,
             focusPath: $changesFocusPath,
             showsMerge: mergeTarget != nil

@@ -1149,7 +1149,7 @@ struct AgentSessionView: View {
                 Text(topic)
                     .font(.caption2)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                AgentMarkdownText(text: text, context: markdownContext)
+                AgentMarkdownText(text: text, context: markdownContext, options: [.autolinkBareURLs])
             }
             .frame(maxWidth: .infinity, alignment: .leading)
         case let .picture(entry):

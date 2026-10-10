@@ -378,7 +378,12 @@ fn scroll_page(page: gpui::Div) -> AnyElement {
 /// A topic's report text as read-only markdown, `#IDENT`/`@email` pills
 /// resolved against `team_id`.
 fn report_text(id: SharedString, text: &str, images: Option<&Entity<ImageCache>>, team_id: Option<&str>) -> gpui::Div {
-    let mut view = MarkdownView::new(id, text.to_string()).selectable(true);
+    // EXP-1188: a Guide link to a run or issue on this instance opens in
+    // the app; bare URLs in the report link like the feed's.
+    let mut view = MarkdownView::new(id, text.to_string())
+        .selectable(true)
+        .autolink(true)
+        .on_open_link(crate::markdown::open_agent_link);
     if let Some(images) = images {
         view = view.images(images.clone());
     }

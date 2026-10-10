@@ -294,6 +294,9 @@ run `bun test`.\n"
         }
         // The ref contract every client renders.
         assert!(RUN_SKILL.contains("`#IDENT`"));
+        // EXP-1188: sources as markdown links, other runs by their app url.
+        assert!(RUN_SKILL.contains("markdown links"));
+        assert!(RUN_SKILL.contains("`exponential_sessions_get`"));
     }
 
     #[test]

@@ -1,0 +1,239 @@
+{
+  "description": "EXP-1188: what a tapped markdown link in agent prose (narration, Guide, thread) opens. classifyAppLink(href, origin): trim; '' → ignore. A '/'-path (not '//') resolves against the instance origin. 'mailto:' → external as given. 'http(s)://' needs a valid authority ([A-Za-z0-9-] labels joined by '.', at least two labels unless the host is 'localhost' (case-insensitive), optional ':port', no userinfo), else ignore (browsers punycode a placeholder like 'https://…' into a one-label host); scheme+authority equal to origin (case-insensitive) = in-app, else external with the href as given. Anything else (other schemes, '//', '#x', bare words) → ignore. In-app paths split on '/' (query + hash dropped, empty segments dropped, each segment percent-decoded): ['t',team,'boards',board,'issues',identifier] → issue, ['t',team,'sessions',id] → session, otherwise app with the path as written (query + hash kept; an absolute URL's path = everything after the authority, '/'-prefixed when it does not start with '/'). Locked ×4: web lib/app-link.ts, desktop domain::app_link, iOS ExpCore AppLink.swift, Android domain/AppLink.kt.",
+  "origin": "https://app.exponential.at",
+  "cases": [
+    {
+      "name": "a wikipedia link opens externally",
+      "href": "https://en.wikipedia.org/wiki/Hyperlink",
+      "link": {
+        "kind": "external",
+        "url": "https://en.wikipedia.org/wiki/Hyperlink"
+      }
+    },
+    {
+      "name": "a docs link with a query and hash opens externally as written",
+      "href": "https://docs.rs/serde/latest/serde/?search=json#examples",
+      "link": {
+        "kind": "external",
+        "url": "https://docs.rs/serde/latest/serde/?search=json#examples"
+      }
+    },
+    {
+      "name": "surrounding whitespace is trimmed",
+      "href": "  https://example.com/a  ",
+      "link": {
+        "kind": "external",
+        "url": "https://example.com/a"
+      }
+    },
+    {
+      "name": "an http link opens externally",
+      "href": "http://localhost:8080/health",
+      "link": {
+        "kind": "external",
+        "url": "http://localhost:8080/health"
+      }
+    },
+    {
+      "name": "a mailto link opens externally",
+      "href": "mailto:danny@example.com",
+      "link": {
+        "kind": "external",
+        "url": "mailto:danny@example.com"
+      }
+    },
+    {
+      "name": "a placeholder host is ignored",
+      "href": "https://…",
+      "link": {
+        "kind": "ignore"
+      }
+    },
+    {
+      "name": "a host with spaces is ignored",
+      "href": "https://not a host/x",
+      "link": {
+        "kind": "ignore"
+      }
+    },
+    {
+      "name": "a punycoded placeholder host is ignored",
+      "href": "https://xn--rvg",
+      "link": {
+        "kind": "ignore"
+      }
+    },
+    {
+      "name": "a one-label host is ignored",
+      "href": "http://intranet/wiki",
+      "link": {
+        "kind": "ignore"
+      }
+    },
+    {
+      "name": "localhost with a port is a host",
+      "href": "http://LOCALHOST:3000/x",
+      "link": {
+        "kind": "external",
+        "url": "http://LOCALHOST:3000/x"
+      }
+    },
+    {
+      "name": "userinfo is ignored",
+      "href": "https://app.exponential.at@evil.example/t/acme/sessions/x",
+      "link": {
+        "kind": "ignore"
+      }
+    },
+    {
+      "name": "a javascript link is ignored",
+      "href": "javascript:alert(1)",
+      "link": {
+        "kind": "ignore"
+      }
+    },
+    {
+      "name": "a protocol-relative link is ignored",
+      "href": "//evil.example/t/acme/sessions/x",
+      "link": {
+        "kind": "ignore"
+      }
+    },
+    {
+      "name": "a hash-only link is ignored",
+      "href": "#section",
+      "link": {
+        "kind": "ignore"
+      }
+    },
+    {
+      "name": "an empty link is ignored",
+      "href": "   ",
+      "link": {
+        "kind": "ignore"
+      }
+    },
+    {
+      "name": "a run on this instance opens in the app",
+      "href": "https://app.exponential.at/t/acme/sessions/7f3c2a10-0000-4000-8000-000000000001",
+      "link": {
+        "kind": "session",
+        "teamSlug": "acme",
+        "sessionId": "7f3c2a10-0000-4000-8000-000000000001"
+      }
+    },
+    {
+      "name": "the instance origin matches case-insensitively and a trailing slash is fine",
+      "href": "HTTPS://App.Exponential.AT/t/acme/sessions/abc/",
+      "link": {
+        "kind": "session",
+        "teamSlug": "acme",
+        "sessionId": "abc"
+      }
+    },
+    {
+      "name": "a run's query and hash are dropped",
+      "href": "https://app.exponential.at/t/acme/sessions/abc?view=guide#top",
+      "link": {
+        "kind": "session",
+        "teamSlug": "acme",
+        "sessionId": "abc"
+      }
+    },
+    {
+      "name": "a relative run path opens in the app",
+      "href": "/t/acme/sessions/abc",
+      "link": {
+        "kind": "session",
+        "teamSlug": "acme",
+        "sessionId": "abc"
+      }
+    },
+    {
+      "name": "an issue on this instance opens in the app",
+      "href": "https://app.exponential.at/t/acme/boards/web/issues/EXP-42",
+      "link": {
+        "kind": "issue",
+        "teamSlug": "acme",
+        "boardSlug": "web",
+        "identifier": "EXP-42"
+      }
+    },
+    {
+      "name": "a relative issue path with a query opens the issue",
+      "href": "/t/acme/boards/web/issues/EXP-42?view=guide&section=2",
+      "link": {
+        "kind": "issue",
+        "teamSlug": "acme",
+        "boardSlug": "web",
+        "identifier": "EXP-42"
+      }
+    },
+    {
+      "name": "segments are percent-decoded",
+      "href": "/t/my%20team/boards/web/issues/EXP-7",
+      "link": {
+        "kind": "issue",
+        "teamSlug": "my team",
+        "boardSlug": "web",
+        "identifier": "EXP-7"
+      }
+    },
+    {
+      "name": "another page on this instance is an app link as written",
+      "href": "https://app.exponential.at/t/acme/reviews?tab=mine",
+      "link": {
+        "kind": "app",
+        "path": "/t/acme/reviews?tab=mine"
+      }
+    },
+    {
+      "name": "a relative non-team path is an app link",
+      "href": "/settings/account",
+      "link": {
+        "kind": "app",
+        "path": "/settings/account"
+      }
+    },
+    {
+      "name": "the same path on another origin is external",
+      "href": "https://other.example/t/acme/sessions/abc",
+      "link": {
+        "kind": "external",
+        "url": "https://other.example/t/acme/sessions/abc"
+      }
+    },
+    {
+      "name": "another port on the instance host is external",
+      "href": "https://app.exponential.at:8443/t/acme/sessions/abc",
+      "link": {
+        "kind": "external",
+        "url": "https://app.exponential.at:8443/t/acme/sessions/abc"
+      }
+    },
+    {
+      "name": "the bare instance origin is the app root",
+      "href": "https://app.exponential.at",
+      "link": {
+        "kind": "app",
+        "path": "/"
+      }
+    },
+    {
+      "name": "a query right after the instance authority keeps it",
+      "href": "https://app.exponential.at?x=1",
+      "link": {
+        "kind": "app",
+        "path": "/?x=1"
+      }
+    },
+    {
+      "name": "an issue path with extra segments is an app link",
+      "href": "/t/acme/boards/web/issues/EXP-42/files",
+      "link": {
+        "kind": "app",
+        "path": "/t/acme/boards/web/issues/EXP-42/files"
+      }
+    }
+  ]
+}

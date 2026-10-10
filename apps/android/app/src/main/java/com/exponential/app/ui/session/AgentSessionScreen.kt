@@ -308,7 +308,9 @@ import com.exponential.app.ui.markdown.rememberIssueRefCandidates
 import com.exponential.app.ui.markdown.withEmoji
 import com.exponential.app.ui.markdown.withIssueRef
 import com.exponential.app.ui.markdown.withMention
+import com.exponential.app.ui.markdown.LocalAppLinks
 import com.exponential.app.ui.markdown.LocalAttachmentDims
+import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.markdown.LocalIssueRefBare
 import com.exponential.app.ui.markdown.LocalIssueRefs
 import com.exponential.app.ui.markdown.LocalMentions
@@ -465,6 +467,8 @@ private fun RunFaceContent(
             searchServer = viewModel::searchIssueRefs,
         ) { target -> currentOnOpenIssue(target.issueId) }
     }
+    // EXP-1188: links the agent writes to this instance open in the app.
+    val appLinkHandler = rememberAppLinkHandler()
     val answerStates = activity.answerLocks
     // EXP-588: per locked card, what this client picked — joined for display.
     val answerLabels = remember(activity.answerLocks, activity.answerLabels) {
@@ -1041,6 +1045,9 @@ private fun RunFaceContent(
             // line), not the 17 sp document measure an issue
             // description uses.
             LocalMarkdownBodyStyle provides TranscriptBodyStyle,
+            // EXP-1188: a link to an issue or run on this instance opens
+            // in the app; anything else stays a browser link.
+            LocalAppLinks provides appLinkHandler,
         ) {
         Column(
             modifier = Modifier

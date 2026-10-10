@@ -987,13 +987,16 @@ impl SteerSessionView {
     }
 
     /// EXP-760: hang the feed's bare-mode chip resolver (and the in-app
-    /// open) on one prose view. A run with no resolvable team leaves the view
-    /// exactly as it was — every token stays plain text.
+    /// open) on one prose view. A run with no resolvable team leaves its
+    /// tokens as plain text. EXP-1188: links route through
+    /// `open_agent_link` either way (a run or issue on this instance opens
+    /// in the app).
     fn with_issue_chips(
         &self,
         view: crate::markdown::MarkdownView,
         cx: &App,
     ) -> crate::markdown::MarkdownView {
+        let view = view.on_open_link(crate::markdown::open_agent_link);
         let Some(resolver) = self.chips.clone() else {
             return view;
         };
@@ -4840,6 +4843,7 @@ impl SteerSessionView {
     fn prose(&self, key: SharedString, text: String) -> crate::markdown::MarkdownView {
         crate::markdown::MarkdownView::new(key, text)
             .chat(true)
+            .autolink(true)
             .selectable(true)
             .images(self.images.clone())
     }
@@ -5555,6 +5559,7 @@ impl SteerSessionView {
                 text.to_string(),
             )
             .chat(true)
+            .autolink(true)
             .selectable(true)
             .images(self.images.clone()),
             cx,

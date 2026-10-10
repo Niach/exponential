@@ -484,4 +484,42 @@ class MarkdownAnnotateTest {
         assertEquals(1, result.getLinkAnnotations(0, result.length).size)
         assertNoOverlappingLinks(result)
     }
+
+    // EXP-1188: under an app-link handler, links route by `app-link.json`.
+    @Test
+    fun appLinksRouteInstanceLinksInApp() {
+        val opened = ArrayList<Pair<com.exponential.app.domain.AppLink, String>>()
+        val handler = AppLinkHandler("https://app.exponential.at") { link, url -> opened.add(link to url) }
+        fun linkOf(href: String): LinkAnnotation? {
+            val text = "link"
+            val result = annotate(text, listOf(InlineMark(0, 4, InlineKind.Link, href = href)), null, appLinks = handler)
+            return result.getLinkAnnotations(0, result.length).singleOrNull()?.item
+        }
+        val run = linkOf("/t/acme/sessions/abc") as LinkAnnotation.Clickable
+        run.linkInteractionListener?.onClick(run)
+        assertEquals(
+            com.exponential.app.domain.AppLink.Session("acme", "abc") to "https://app.exponential.at/t/acme/sessions/abc",
+            opened.single(),
+        )
+        assertTrue(linkOf("https://app.exponential.at/t/acme/boards/web/issues/EXP-1") is LinkAnnotation.Clickable)
+        // Another instance page + a web source = the in-app browser (a click);
+        // mailto keeps the system handler.
+        opened.clear()
+        (linkOf("/settings/account") as LinkAnnotation.Clickable).let { it.linkInteractionListener?.onClick(it) }
+        (linkOf("https://example.com/a") as LinkAnnotation.Clickable).let { it.linkInteractionListener?.onClick(it) }
+        assertEquals(
+            listOf(
+                com.exponential.app.domain.AppLink.App("/settings/account") to "https://app.exponential.at/settings/account",
+                com.exponential.app.domain.AppLink.External("https://example.com/a") to "https://example.com/a",
+            ),
+            opened,
+        )
+        assertEquals("mailto:a@b.co", (linkOf("mailto:a@b.co") as LinkAnnotation.Url).url)
+        assertTrue(isAgentPath("/t/acme/agent?x=1"))
+        assertTrue(!isAgentPath("/t/acme/agent/more"))
+        assertNull(linkOf("https://…"))
+        // Without a handler every href opens as written, as before.
+        val plain = annotate("link", listOf(InlineMark(0, 4, InlineKind.Link, href = "/t/acme/sessions/abc")), null)
+        assertEquals("/t/acme/sessions/abc", (plain.getLinkAnnotations(0, plain.length).single().item as LinkAnnotation.Url).url)
+    }
 }

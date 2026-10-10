@@ -623,6 +623,25 @@ private final class TextMeasurer {
     }
 }
 
+// MARK: - Link taps (EXP-1188)
+
+/// A read-only render's link-tap override: given the tapped `.link` URL,
+/// return what to run INSTEAD of UIKit's default open, or nil to keep the
+/// default. Set by `AgentMarkdownText` so a link into this instance opens
+/// in-app (`AppLink.classify`); everywhere else it is nil.
+typealias MarkdownLinkHandler = (URL) -> (() -> Void)?
+
+private struct MarkdownLinkHandlerKey: EnvironmentKey {
+    nonisolated(unsafe) static let defaultValue: MarkdownLinkHandler? = nil
+}
+
+extension EnvironmentValues {
+    var markdownLinkHandler: MarkdownLinkHandler? {
+        get { self[MarkdownLinkHandlerKey.self] }
+        set { self[MarkdownLinkHandlerKey.self] = newValue }
+    }
+}
+
 // MARK: - Block Text Editor (UIViewRepresentable)
 
 struct BlockTextEditor: UIViewRepresentable {
@@ -722,6 +741,7 @@ struct BlockTextEditor: UIViewRepresentable {
         coord.flattensPastedNewlines = flattensPastedNewlines
         coord.onReturn = onReturn
         coord.onDeleteTable = onDeleteTable
+        coord.onLinkTap = isReadOnly ? context.environment.markdownLinkHandler : nil
         coord.appliedRevision = revision
 
         tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
@@ -812,6 +832,7 @@ struct BlockTextEditor: UIViewRepresentable {
         coord.flattensPastedNewlines = flattensPastedNewlines
         coord.onReturn = onReturn
         coord.onDeleteTable = onDeleteTable
+        coord.onLinkTap = isReadOnly ? context.environment.markdownLinkHandler : nil
         tv.onDeleteBackwardAtStart = { [weak coord] in coord?.handleDeleteBackwardAtStart() }
         tv.onPasteImage = { [weak coord] image in coord?.onPasteImage?(image) }
         tv.onIssueRefTap = onIssueRefTap
@@ -914,6 +935,8 @@ struct BlockTextEditor: UIViewRepresentable {
         var onReturn: (() -> Void)?
         /// EXP-727 — see `BlockTextEditor.onDeleteTable`.
         var onDeleteTable: (() -> Void)?
+        /// EXP-1188 — see `MarkdownLinkHandler`; read-only renders only.
+        var onLinkTap: MarkdownLinkHandler?
         var appliedRevision = 0
 
         /// EXP-1238: `sizeThatFits` answers per proposed width, valid until
@@ -984,6 +1007,22 @@ struct BlockTextEditor: UIViewRepresentable {
         }
 
         // MARK: UITextViewDelegate
+
+        /// EXP-1188 — a read-only render's link tap asks the host first: a
+        /// link into this instance opens in-app, a placeholder link does
+        /// nothing, anything else keeps UIKit's own open.
+        func textView(
+            _ textView: UITextView,
+            primaryActionFor textItem: UITextItem,
+            defaultAction: UIAction
+        ) -> UIAction? {
+            guard !textView.isEditable, let onLinkTap,
+                  case let .link(url) = textItem.content,
+                  let replacement = onLinkTap(url) else { return defaultAction }
+            return UIAction(title: defaultAction.title, image: defaultAction.image) { _ in
+                replacement()
+            }
+        }
 
         /// EXP-727 — the ONE table manipulation mobile ships. The edit menu is
         /// what a long-press on a cell already opens, so "Delete table" rides
