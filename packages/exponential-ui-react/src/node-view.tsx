@@ -110,18 +110,19 @@ export function forced(states: readonly string[], ...extra: (string | false | un
 
 /** Run one of a node's actions (round-1 contract §1 `runAction`): the
  *  function args AND the event context resolve against the data WITH the
- *  component's own write applied (round 4 `withOwnWrites`: the context of
- *  an Input's `change` reads the text just typed, even before React has
- *  re-rendered the write), then `set` writes (relative paths against the node's scope), any other
+ *  component's own write applied (round 4 `withOwnWrites`: `own` = what
+ *  the component just wrote, by prop, so the context of an Input's
+ *  `change` reads the text just typed, even before React has re-rendered
+ *  the write), then `set` writes (relative paths against the node's scope), any other
  *  function runs, then the event reaches the host with the component's
  *  payload merged OVER the author's context (the payload wins a clashing
  *  key, like the Rust core's `fire`: the author's context was resolved
  *  before the write, the payload carries the value just written). */
-export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: string, scope: string, event: string, payload?: Record<string, unknown>): Promise<void> | void {
+export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: string, scope: string, event: string, payload?: Record<string, unknown>, own?: Record<string, unknown>): Promise<void> | void {
   const action = node.on?.[event]
   if (!action) return undefined
   const base = resolveContextOf(ctx, scope)
-  const rctx: ResolveContext = payload ? { ...base, data: withOwnWrites(ctx.data, node.props, payload, scope ? { base: scope } : {}) } : base
+  const rctx: ResolveContext = own ? { ...base, data: withOwnWrites(ctx.data, node.props, own, scope ? { base: scope } : {}) } : base
   const fn = action.functionCall
   const args = fn ? ((resolveValue(fn.args ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
   const context = action.event ? ((resolveValue(action.event.context ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
@@ -161,7 +162,7 @@ function runNodeEvent(ctx: SurfaceContextValue, ev: { name: string }, domId: str
 
 export function useEmitter(node: UiNode, scope: string, domId: string = node.id) {
   const ctx = useSurfaceContext()
-  return useCallback((event: string, payload?: Record<string, unknown>): Promise<void> | void => runNodeAction(ctx, node, domId, scope, event, payload), [node, ctx, scope, domId])
+  return useCallback((event: string, payload?: Record<string, unknown>, own?: Record<string, unknown>): Promise<void> | void => runNodeAction(ctx, node, domId, scope, event, payload, own), [node, ctx, scope, domId])
 }
 
 /** A node, or nothing when its `visible` resolves falsy (no layout, not in

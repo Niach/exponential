@@ -95,7 +95,7 @@ function TextFieldNative({ node, props, rootProps, emit, scope, domId, multiline
     onChange: (e: ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
       field.edit(e.target.value)
       f.change(e.target.value)
-      void emit(`change`, { value: e.target.value, revision: field.revision + 1 })
+      void emit(`change`, { value: e.target.value, revision: field.revision + 1 }, { value: e.target.value })
     },
   }
   const fieldStates = [disabled && `disabled`, field.focused && `focus`, f.invalid && `invalid`] as const
@@ -196,7 +196,7 @@ export function NumberFieldNative({ node, props, rootProps, emit, scope, domId }
   const commit = (next: number | null) => {
     setValue(next)
     f.change(next)
-    void emit(`change`, { value: next })
+    void emit(`change`, { value: next }, { value: next })
   }
   const stepBy = (delta: number) => {
     const base = value ?? (min !== null && min > 0 ? min : 0)
@@ -271,7 +271,7 @@ export function NumberFieldNative({ node, props, rootProps, emit, scope, domId }
               const v = value === null ? null : clamp(value)
               if (v !== value) commit(v)
               setText(null)
-              void emit(`submit`, { value: v })
+              void emit(`submit`, { value: v }, v !== value ? { value: v } : undefined)
               f.submit()
             }
           }}
@@ -313,7 +313,7 @@ export function CheckboxNative({ node, props, rootProps, emit, scope, domId }: N
           setChecked(value)
           f.change(value)
           f.touch()
-          void emit(`change`, { checked: value })
+          void emit(`change`, { checked: value }, { checked: value })
         }}
       >
         <CheckboxPrimitive.Indicator {...(part(`check`) as Record<string, string>)}>
@@ -369,7 +369,7 @@ export function SwitchNative({ node, props, rootProps, emit, scope, domId }: Nat
         onCheckedChange={(next) => {
           setChecked(next)
           f.change(next)
-          void emit(`change`, { checked: next })
+          void emit(`change`, { checked: next }, { checked: next })
         }}
       >
         <SwitchPrimitive.Thumb {...(part(`thumb`, checked && `checked`) as Record<string, string>)} />
@@ -418,7 +418,7 @@ export function RadioNative({ node, props, rootProps, emit, scope, domId }: Nati
         onValueChange={(next) => {
           setValue(next)
           f.change(next)
-          void emit(`change`, { value: next })
+          void emit(`change`, { value: next }, { value: next })
         }}
       >
         {options.map((o, i) => {
@@ -465,7 +465,7 @@ export function SliderNative({ node, props, rootProps, emit, scope }: NativeProp
         dir={ctx.direction}
         name={str(props.name) || undefined}
         onValueChange={([next]) => setValue(next)}
-        onValueCommit={([next]) => void emit(`change`, { value: next })}
+        onValueCommit={([next]) => void emit(`change`, { value: next }, { value: next })}
       >
         <SliderPrimitive.Track {...(part(`track`) as Record<string, string>)}>
           <SliderPrimitive.Range {...(part(`range`) as Record<string, string>)} />
@@ -521,7 +521,7 @@ export function ComposerNative({ node, props, rootProps, emit, scope, domId }: N
         onBlur={field.onBlur}
         onChange={(e) => {
           field.edit(e.target.value)
-          void emit(`change`, { value: e.target.value })
+          void emit(`change`, { value: e.target.value }, { value: e.target.value })
         }}
         onKeyDown={(e) => {
           if (e.key === `Enter` && !e.shiftKey) {

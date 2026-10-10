@@ -117,7 +117,7 @@ export function ToggleNative({ node, props, rootProps, emit, scope }: NativeProp
       pressed={pressed}
       onPressedChange={(next) => {
         setPressed(next)
-        void emit(`change`, { pressed: next })
+        void emit(`change`, { pressed: next }, { pressed: next })
       }}
       aria-label={icon && label ? label : undefined}
     >

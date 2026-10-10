@@ -128,8 +128,11 @@ export interface ExtensionComponentProps {
   children?: React.ReactNode
   /** Rendered slots by name. */
   slots: Record<string, React.ReactNode>
-  /** Fire one of the node's `on` handlers. */
-  emit: (event: string, payload?: Record<string, unknown>) => void
+  /** Fire one of the node's `on` handlers. `own` = what the component
+   *  just WROTE, by prop (`{value: "ship"}`): the action resolves against
+   *  the data with it applied (round 4 own write), never inferred from the
+   *  payload. */
+  emit: (event: string, payload?: Record<string, unknown>, own?: Record<string, unknown>) => void
   /** The element attributes the renderer wants on the root (classes, data). */
   rootProps: Record<string, unknown>
 }

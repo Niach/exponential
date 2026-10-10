@@ -22,7 +22,10 @@ describe(`round 4: the component's own write lands before its context resolves`,
       const { container } = render(<ExponentialSurface root={tree(c.input)} data={c.data} theme="neutral" id={`ow${fixture.ownWrite.indexOf(c)}`} host={{ onAction: (e) => void actions.push(e) }} />)
       const target = container.querySelector(`[data-xui-id="${c.target}"]`)!
       const input = target.querySelector(`input`)
-      if (`value` in c.payload) fireEvent.change(input!, { target: { value: c.payload.value } })
+      if (`files` in c.payload) {
+        const files = (c.payload.files as { name: string; size: number; type: string }[]).map((f) => new File([`x`.repeat(f.size)], f.name, { type: f.type }))
+        fireEvent.change(target.querySelector(`input[type="file"]`)!, { target: { files } })
+      } else if (`value` in c.payload) fireEvent.change(input!, { target: { value: c.payload.value } })
       else fireEvent.click(target.querySelector(`button,[role="switch"]`) ?? target)
       const sent = actions.find((a) => a.name === c.expected.action.name)
       expect(sent, c.name).toBeDefined()

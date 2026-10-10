@@ -32,7 +32,7 @@ export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps)
       value={value}
       onValueChange={(next) => {
         setValue(next)
-        void emit(`change`, { value: next })
+        void emit(`change`, { value: next }, { value: next })
       }}
       orientation="horizontal"
       activationMode="automatic"
@@ -108,7 +108,7 @@ export function SegmentedNative({ node, props, rootProps, emit, scope }: NativeP
   )
   if (bar) return <SegmentedBar node={node} rootProps={rootProps} items={items} value={value as string} part={part} content={content} onPick={(next) => {
     setValue(next)
-    void emit(`change`, { value: next })
+    void emit(`change`, { value: next }, { value: next })
   }} />
   const body = items.map((item) => {
     const selected = isSelected(item)
@@ -127,7 +127,7 @@ export function SegmentedNative({ node, props, rootProps, emit, scope }: NativeP
         loop
         onValueChange={(next: string[]) => {
           setValue(next)
-          void emit(`change`, { value: joinLike(externalRaw, next) })
+          void emit(`change`, { value: joinLike(externalRaw, next) }, { value: joinLike(externalRaw, next) })
         }}
         dir={ctx.direction}
       >
@@ -144,7 +144,7 @@ export function SegmentedNative({ node, props, rootProps, emit, scope }: NativeP
       onValueChange={(next: string) => {
         if (!next) return
         setValue(next)
-        void emit(`change`, { value: next })
+        void emit(`change`, { value: next }, { value: next })
       }}
       dir={ctx.direction}
     >
@@ -251,7 +251,7 @@ export function AccordionNative({ node, props, rootProps, emit, scope }: NativeP
         dir={ctx.direction}
         onValueChange={(next: string[]) => {
           setValue(next)
-          void emit(`change`, { value: joinLike(raw, next) })
+          void emit(`change`, { value: joinLike(raw, next) }, { value: joinLike(raw, next) })
         }}
       >
         {body}
@@ -267,7 +267,7 @@ export function AccordionNative({ node, props, rootProps, emit, scope }: NativeP
       value={value as string}
       onValueChange={(next: string) => {
         setValue(next)
-        void emit(`change`, { value: next })
+        void emit(`change`, { value: next }, { value: next })
       }}
     >
       {body}

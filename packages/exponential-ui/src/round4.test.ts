@@ -37,9 +37,9 @@ describe(`round4-contract.json`, () => {
   test(`ownWrite: the context resolves after the component's own write`, () => {
     for (const c of fixture.ownWrite) {
       const node = byId(reduce(c.input as unknown as NestedNode).root, c.target)!
-      const outcome = runAction(node.on![c.event] as Action, withOwnWrites(c.data, node.props, c.payload))
+      const outcome = runAction(node.on![c.event] as Action, withOwnWrites(c.data, node.props, c.own))
       expect(outcome.data, c.name).toEqual(c.expected.data)
-      expect({ name: outcome.event!.name, context: { ...outcome.event!.context, ...c.payload } }, c.name).toEqual(c.expected.action as never)
+      expect({ name: outcome.event!.name, context: { ...outcome.event!.context, ...c.sent } }, c.name).toEqual(c.expected.action as never)
     }
     // Without the rule the context would read the stale "" (the bug).
     const stale = fixture.ownWrite[0]!

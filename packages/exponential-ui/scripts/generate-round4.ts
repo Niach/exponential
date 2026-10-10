@@ -111,7 +111,11 @@ const FILTER: { name: string; args: Record<string, unknown> }[] = [
 // ownWrite
 // ---------------------------------------------------------------------------
 
-const OWN_WRITE: { name: string; input: NestedNode; data: Record<string, unknown>; target: string; event: string; payload: Record<string, unknown> }[] = [
+// `payload` = the interaction a host dispatches (the Rust `event` input);
+// `own` = EXACTLY what the component writes, by prop (default: the
+// payload); `sent` = the payload its event carries (default: the payload).
+const FILE = (name: string, size: number, type: string) => ({ name, size, type })
+const OWN_WRITE: { name: string; input: NestedNode; data: Record<string, unknown>; target: string; event: string; payload: Record<string, unknown>; own?: Record<string, unknown>; sent?: Record<string, unknown> }[] = [
   {
     name: `Input change: the bound context reads the text just typed`,
     input: {
@@ -154,6 +158,27 @@ const OWN_WRITE: { name: string; input: NestedNode; data: Record<string, unknown
     target: `s`,
     event: `change`,
     payload: { checked: true },
+  },
+  {
+    name: `FileUpload upload: the own write is the MERGED list, the payload carries it plus the new batch (added)`,
+    input: {
+      id: `root`,
+      component: `Box`,
+      children: [
+        {
+          id: `u`,
+          component: `FileUpload`,
+          props: { name: `att`, label: `Attachments`, multiple: true, files: { path: `/att` } },
+          on: { upload: { event: { name: `uploaded`, context: { count: { call: `len`, args: { value: { path: `/att` } } } } } } },
+        },
+      ],
+    },
+    data: { att: [FILE(`a.pdf`, 1, `application/pdf`), FILE(`b.pdf`, 2, `application/pdf`)] },
+    target: `u`,
+    event: `upload`,
+    payload: { files: [FILE(`c.png`, 3, `image/png`)] },
+    own: { files: [FILE(`a.pdf`, 1, `application/pdf`), FILE(`b.pdf`, 2, `application/pdf`), FILE(`c.png`, 3, `image/png`)] },
+    sent: { files: [FILE(`a.pdf`, 1, `application/pdf`), FILE(`b.pdf`, 2, `application/pdf`), FILE(`c.png`, 3, `image/png`)], added: [FILE(`c.png`, 3, `image/png`)] },
   },
 ]
 
@@ -208,7 +233,7 @@ function byId(root: UiNode, id: string): UiNode | undefined {
 export function round4Fixture() {
   const reduce = (input: NestedNode) => reduceNested(input, { catalogId: CORE_CATALOG_ID })
   return {
-    $comment: `${HEADER} Round 4 (VAPP-103), replayed by the TS reference (src/round4.test.ts) and the Rust core (tests/round4_fixtures.rs). validate: reduce the nested input with the core catalog: the issues equal \`issues\` in order (a node's style, then the functions its props, visible and on actions call, then a Table's slot columns; a colour is a \`$color.*\` token, never a literal; a host function is namespaced, \`app.toast\`). filter: call the core \`filter\` with \`args\`: the result equals \`expected\`. ownWrite: fire \`event\` with \`payload\` on \`target\`: the data model equals \`expected.data\` and the action that leaves carries \`expected.action\` (its context resolved AFTER the component's own write, the payload merged over it). closeOnSubmit: submit the valid \`form\`: the actions leave in \`actions\` order, the overlay \`expected.overlay\` closes (null = none) and the data equals \`expected.data\`.`,
+    $comment: `${HEADER} Round 4 (VAPP-103), replayed by the TS reference (src/round4.test.ts) and the Rust core (tests/round4_fixtures.rs). validate: reduce the nested input with the core catalog: the issues equal \`issues\` in order (a node's style, then the functions its props, visible and on actions call, then a Table's slot columns; a colour is a \`$color.*\` token, never a literal; a host function is namespaced, \`app.toast\`). filter: call the core \`filter\` with \`args\`: the result equals \`expected\`. ownWrite: fire \`event\` with \`payload\` on \`target\` (the interaction): the component writes \`own\` (by prop, exactly what it wrote, never inferred from the payload) and sends \`sent\`; the data model equals \`expected.data\` and the action that leaves carries \`expected.action\` (its context resolved AFTER the own write, \`sent\` merged over it). closeOnSubmit: submit the valid \`form\`: the actions leave in \`actions\` order, the overlay \`expected.overlay\` closes (null = none) and the data equals \`expected.data\`.`,
     catalogId: CORE_CATALOG_ID,
     validate: VALIDATE.map((c) => ({ ...c, issues: reduce(c.input).issues })),
     filter: FILTER.map((c) => ({ ...c, expected: CORE_FUNCTIONS.filter!(c.args) })),
@@ -216,9 +241,11 @@ export function round4Fixture() {
       const { root, issues } = reduce(c.input)
       if (issues.length) throw new Error(`round4 ownWrite "${c.name}": ${JSON.stringify(issues)}`)
       const node = byId(root, c.target)!
-      const data = withOwnWrites(c.data, node.props, c.payload)
+      const own = c.own ?? c.payload
+      const sent = c.sent ?? c.payload
+      const data = withOwnWrites(c.data, node.props, own)
       const outcome = runAction(node.on![c.event] as Action, data)
-      return { ...c, expected: { data: outcome.data, action: { name: outcome.event!.name, context: { ...(outcome.event!.context ?? {}), ...c.payload } } } }
+      return { ...c, own, sent, expected: { data: outcome.data, action: { name: outcome.event!.name, context: { ...(outcome.event!.context ?? {}), ...sent } } } }
     }),
     closeOnSubmit: CLOSE_ON_SUBMIT.map((c) => {
       const { root, issues } = reduce(c.input)

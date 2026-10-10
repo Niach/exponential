@@ -29,7 +29,7 @@ function useOpenState(node: NativeProps[`node`], scope: string, external: boolea
   const change = useCallback(
     (next: boolean) => {
       setOpen(next)
-      void emit(`change`, { open: next })
+      void emit(`change`, { open: next }, { open: next })
     },
     [setOpen, emit]
   )
@@ -460,8 +460,8 @@ export function ToastNative({ node, props, rootProps, emit, scope }: NativeProps
   const startedAt = useRef(0)
   const close = useCallback(() => {
     setOpenState(false)
-    void emit(`dismiss`)
-    void emit(`change`, { open: false })
+    void emit(`dismiss`, undefined, { open: false })
+    void emit(`change`, { open: false }, { open: false })
   }, [setOpenState, emit])
   // Exit: keep the element for the motion duration with data-state=closed.
   const [shown, setShown] = useState(open)

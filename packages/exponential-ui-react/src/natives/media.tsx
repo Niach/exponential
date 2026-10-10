@@ -161,7 +161,7 @@ export function CarouselNative({ node, props, rootProps, emit, scope }: NativePr
     const next = Math.round(Math.abs(el.scrollLeft) / el.clientWidth)
     if (next !== page) {
       setPage(next)
-      void emit(`change`, { page: next })
+      void emit(`change`, { page: next }, { page: next })
     }
   }
   const go = (next: number) => {
@@ -169,7 +169,7 @@ export function CarouselNative({ node, props, rootProps, emit, scope }: NativePr
     if (n === 0) return
     const target = bool(props.loop) ? ((next % n) + n) % n : Math.max(0, Math.min(n - 1, next))
     setPage(target)
-    void emit(`change`, { page: target })
+    void emit(`change`, { page: target }, { page: target })
     scrollTo(target)
   }
   const many = pages.length > 1

@@ -240,14 +240,17 @@ export interface ActionOutcome {
 
 /** Round 4 (VAPP-103): the data an interaction's action resolves against =
  *  the data model WITH the source component's OWN write applied first.
- *  Every payload key whose same-named prop is a `{path}` binding (an
- *  Input's `value`, a Checkbox's `checked`, an overlay's `open`, a
- *  Carousel's `page`) is written at that path, so a `context.query` bound
- *  to the path the Input writes reads the text just typed, never the text
- *  before it. Renderers apply it before `runAction` (Rust: `Surface::fire`). */
-export function withOwnWrites(data: unknown, props: Record<string, unknown>, payload: Record<string, unknown> | undefined, scope: DataScope = {}): unknown {
+ *  `own` = EXACTLY what the component wrote, by prop (an Input's `value`,
+ *  a Checkbox's `checked`, an overlay's `open`, a FileUpload's MERGED
+ *  `files`), never inferred from the event payload (an `upload` payload's
+ *  `added` is the new batch, the write is the whole list): each prop that
+ *  is a `{path}` binding is written at that path, so a `context.query`
+ *  bound to the path the Input writes reads the text just typed. Renderers
+ *  apply it before `runAction` (Rust: every write lands before
+ *  `Surface::fire`). */
+export function withOwnWrites(data: unknown, props: Record<string, unknown>, own: Record<string, unknown> | undefined, scope: DataScope = {}): unknown {
   let out = data
-  for (const [key, value] of Object.entries(payload ?? {})) {
+  for (const [key, value] of Object.entries(own ?? {})) {
     const bound = props[key]
     if (!isBinding(bound)) continue
     if (!bound.path.startsWith(`/`) && hasItem(scope)) continue

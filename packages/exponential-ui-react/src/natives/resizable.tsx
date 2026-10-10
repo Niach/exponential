@@ -38,7 +38,7 @@ export function ResizableNative({ node, props, rootProps, emit, scope, domId }: 
   const drag = useRef<{ id: number; handle: number; start: number[]; at: number; container: number } | null>(null)
   const commit = (next: number[]) => {
     setBound(next)
-    void emit(`change`, { sizes: next })
+    void emit(`change`, { sizes: next }, { sizes: next })
   }
   const mainOf = (e: { clientX: number; clientY: number }) => (orientation === `horizontal` ? e.clientX : e.clientY)
   const onPointerDown = (i: number) => (e: ReactPointerEvent<HTMLDivElement>) => {

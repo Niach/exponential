@@ -214,7 +214,7 @@ export function DatePickerNative({ node, props, rootProps, emit, scope, domId }:
     setValue(next)
     f.change(next)
     f.touch()
-    void emit(`change`, { value: next })
+    void emit(`change`, { value: next }, { value: next })
     setOpen(false)
   }
   return (
@@ -276,7 +276,7 @@ export function DateRangePickerNative({ node, props, rootProps, emit, scope, dom
     setPending(null)
     f.change(next)
     f.touch()
-    void emit(`change`, next)
+    void emit(`change`, next, next)
     setOpen(false)
   }
   const lo = pending ?? s
@@ -359,7 +359,7 @@ export function TimePickerNative({ node, props, rootProps, emit, scope, domId }:
     setValue(next)
     f.change(next)
     f.touch()
-    void emit(`change`, { value: next })
+    void emit(`change`, { value: next }, { value: next })
     setOpen(false)
     triggerRef.current?.focus()
   }

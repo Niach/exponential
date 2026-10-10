@@ -38,21 +38,22 @@ export function ChipInputNative({ node, props, rootProps, emit, scope, domId }: 
   const update = (next: string[]) => {
     setValues(next)
     f.change(next)
-    void emit(`change`, { values: next })
+    void emit(`change`, { values: next }, { values: next })
+    return next
   }
   const add = (raw: string) => {
     const value = raw.trim()
     if (!value || values.includes(value) || values.length >= max) return false
-    update([...values, value])
-    void emit(`add`, { value })
+    const next = update([...values, value])
+    void emit(`add`, { value }, { values: next })
     setText(``)
     return true
   }
   const listRef = useRef<HTMLUListElement | null>(null)
   const chipAt = (i: number) => listRef.current?.querySelectorAll<HTMLElement>(`[data-chip]`)[i] ?? null
   const remove = (value: string, focusIndex?: number) => {
-    update(values.filter((v) => v !== value))
-    void emit(`remove`, { value })
+    const next = update(values.filter((v) => v !== value))
+    void emit(`remove`, { value }, { values: next })
     // Focus the previous chip (keyboard removal) or the field.
     setTimeout(() => {
       const target = focusIndex !== undefined && focusIndex >= 0 ? chipAt(focusIndex) : null
@@ -213,7 +214,9 @@ export function FileUploadNative({ node, props, rootProps, emit, scope, domId }:
     const next = multiple ? [...files.filter((x) => !meta.some((m) => m.name === x.name)), ...meta] : meta
     setFiles(next)
     f.change(next)
-    void emit(`upload`, { files: meta })
+    // The payload = the whole list + the new batch (`added`); the own write
+    // = the whole list, as written.
+    void emit(`upload`, { files: next, added: meta }, { files: next })
     const r = ctx.host.onUpload?.(ok, { nodeId: domId, name })
     if (r && typeof (r as Promise<void>).then === `function`) {
       setBusy(true)
@@ -224,7 +227,7 @@ export function FileUploadNative({ node, props, rootProps, emit, scope, domId }:
     const next = files.filter((x) => x.name !== fileName)
     setFiles(next)
     f.change(next)
-    void emit(`remove`, { name: fileName })
+    void emit(`remove`, { name: fileName, files: next }, { files: next })
   }
   const onDrag = (e: DragEvent, over: boolean) => {
     e.preventDefault()
