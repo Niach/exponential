@@ -24,17 +24,26 @@ import PackageDescription
 
 /// SwiftPM takes a binary target's `path:` only RELATIVE to the package root
 /// (`../` is fine): an absolute `EXPONENTIAL_UI_FFI` is rewritten relative.
+/// SwiftPM joins that path LEXICALLY onto `Context.packageDirectory` as it
+/// was given (a symlinked checkout stays unresolved), so the rewrite is
+/// lexical on both sides too (`..` collapsed, no symlink resolved): it
+/// holds through symlinks of any depth, and the existence check joins the
+/// same way.
+func standardized(_ path: String) -> [String] {
+    URL(fileURLWithPath: path).standardizedFileURL.pathComponents
+}
+
 func relativeToPackage(_ path: String) -> String {
     guard path.hasPrefix("/") else { return path }
-    let base = URL(fileURLWithPath: Context.packageDirectory).resolvingSymlinksInPath().pathComponents
-    let target = URL(fileURLWithPath: path).resolvingSymlinksInPath().pathComponents
+    let base = standardized(Context.packageDirectory)
+    let target = standardized(path)
     var common = 0
     while common < min(base.count, target.count), base[common] == target[common] { common += 1 }
     return (Array(repeating: "..", count: base.count - common) + target[common...]).joined(separator: "/")
 }
 
 let ffiPath = relativeToPackage(ProcessInfo.processInfo.environment["EXPONENTIAL_UI_FFI"] ?? "Binaries/ExponentialUIFFI.xcframework")
-let hasFFI = FileManager.default.fileExists(atPath: Context.packageDirectory + "/" + ffiPath)
+let hasFFI = FileManager.default.fileExists(atPath: URL(fileURLWithPath: Context.packageDirectory).appendingPathComponent(ffiPath).standardizedFileURL.path)
 
 var products: [Product] = [
     .library(name: "ExponentialUIPrimitives", targets: ["ExponentialUIPrimitives"]),
