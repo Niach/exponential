@@ -3857,8 +3857,8 @@
         "file": "shots/steering/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 53934,
-        "sha256": "a55cea5376ba7dbeb5483cb919bebd2ce44a169d94d05afacc065ac6c385cc42"
+        "bytes": 38412,
+        "sha256": "c3a5549334843e0dda279b08a01f2b4b23967c1ece53cba390107ae660442bf0"
       },
       "desktop": {
         "file": "shots/steering/desktop.webp",
