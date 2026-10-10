@@ -617,11 +617,7 @@ export default function GuidePage({ path }: PageProps) {
     <>
       <section className="docs-hero content-hero">
         <div className="shell docs-hero-content">
-          <div className="section-eyebrow">
-            Guide {index + 1} of {GUIDES.length}
-          </div>
           <h1>{guide.title}</h1>
-          <p>{guide.blurb}</p>
         </div>
       </section>
 

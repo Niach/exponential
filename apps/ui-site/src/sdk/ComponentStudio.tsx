@@ -173,16 +173,10 @@ export function ComponentStudio({ doc, specimen, themes, backgrounds }: { doc: C
         )}
       </div>
       <div id="panel-json" role="tabpanel" aria-labelledby="tab-json" hidden={tab !== `json`} className="sdk-panel">
-        <p className="sdk-note">
-          <code>createSurface</code> + <code>updateComponents</code>, A2UI v0.9.
-        </p>
         <DocsCode language="json">{json}</DocsCode>
       </div>
       {EMBED_TARGETS.map((t) => (
         <div key={t.id} id={`panel-${t.id}`} role="tabpanel" aria-labelledby={`tab-${t.id}`} hidden={tab !== t.id} className="sdk-panel">
-          <p className="sdk-note">
-            This surface through a <code>MemoryTransport</code>. Install and transports: <a href={t.guide}>{t.label} guide</a>.
-          </p>
           {tab === t.id && <DocsCode language={t.language}>{embedCode(t.id, { messages, surfaceId: SURFACE_ID, theme, mode, direction: dir, width: surfaceWidth })}</DocsCode>}
         </div>
       ))}

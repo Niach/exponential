@@ -28,7 +28,6 @@ export interface Renderer {
   /** Where its source lives in the repo. */
   source: string
   guide: string
-  note: string
 }
 
 export const RENDERERS: readonly Renderer[] = [
@@ -38,7 +37,6 @@ export const RENDERERS: readonly Renderer[] = [
     pkg: `@exponential-at/ui-react`,
     source: `packages/exponential-ui-react`,
     guide: `react`,
-    note: `The reference renderer: real CSS on shadcn and Radix, themes compiled to scoped variables, the TypeScript reducer.`,
   },
   {
     platform: `iOS + macOS`,
@@ -46,7 +44,6 @@ export const RENDERERS: readonly Renderer[] = [
     pkg: `ExponentialUI`,
     source: `packages/exponential-ui-swift`,
     guide: `swiftui`,
-    note: `Native SwiftUI views at the frames the Rust core lays out; text measured in batches through the UniFFI facade.`,
   },
   {
     platform: `Android`,
@@ -54,7 +51,6 @@ export const RENDERERS: readonly Renderer[] = [
     pkg: `at.exponential:ui-compose`,
     source: `packages/exponential-ui-compose`,
     guide: `compose`,
-    note: `The Compose twin of the SwiftUI painter on the same Rust core. No WebView, Android 8 and later.`,
   },
   {
     platform: `Desktop`,
@@ -62,7 +58,6 @@ export const RENDERERS: readonly Renderer[] = [
     pkg: `exponential-ui-gpui`,
     source: `apps/desktop/crates/exponential-ui-gpui`,
     guide: `gpui`,
-    note: `The Rust core in-process, painted by gpui on macOS, Windows and Linux. No HTML, no webview.`,
   },
 ]
 

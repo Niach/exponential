@@ -9,9 +9,7 @@ export default function PlaygroundPage(_: PageProps) {
     <div className="shell sdk-playground-page">
       <header className="docs-hero sdk-playground-hero">
         <div className="docs-hero-content">
-          <span className="section-eyebrow">Playground</span>
-          <h1>Paste A2UI, see it render</h1>
-          <p>Messages (JSON or JSONL), a flat component list or a nested node, rendered live in any theme. Share it as a link; read the prompt a model gets.</p>
+          <h1>Playground</h1>
         </div>
       </header>
       <PlaygroundApp />

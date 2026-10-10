@@ -73,10 +73,6 @@ export default function ConformancePage({ path }: PageProps) {
       <section className="docs-hero content-hero">
         <div className="shell docs-hero-content">
           <h1>Conformance</h1>
-          <p>
-            {manifest.suites.length} suites, {TOTAL.toLocaleString(`en-US`)} cases. Every renderer replays them, ours
-            in CI on every change, yours with the same files and the same verdict.
-          </p>
         </div>
       </section>
 

@@ -18,7 +18,7 @@ import { appParityFor, type AppParity, type ParityCell, type ParityPlatform } fr
 import { themeBackgrounds } from "../sdk/backgrounds"
 import { ComponentStudio } from "../sdk/ComponentStudio"
 import { VariantGallery, hasVariants } from "../sdk/VariantGallery"
-import { groupLabel, KindBadges, RichText } from "../sdk/labels"
+import { groupLabel, RichText } from "../sdk/labels"
 import { ShotFigure } from "../sdk/Shot"
 
 /* One page per core component (the slug from the path), all from generated
@@ -70,7 +70,7 @@ export default function ComponentPage({ path }: PageProps) {
             Components / {groupLabel(doc.group)}
           </a>
           <h1>
-            {doc.name} <KindBadges doc={doc} />
+            {doc.name}
           </h1>
           <p className="sdk-lead">
             <RichText text={componentSummary(doc)} />
@@ -117,9 +117,6 @@ export default function ComponentPage({ path }: PageProps) {
               <ShotFigure key={p.id} viewId={doc.specimenId} platform={p} title={doc.name} />
             ))}
           </div>
-          <p className="sdk-note">
-            View <code>{doc.specimenId}</code>, painted by each native renderer.
-          </p>
         </DocsSection>
 
         {variants && (

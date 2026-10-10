@@ -42,14 +42,11 @@ const shadowCss = (layers: Shadow) => (layers.length ? layers.map((l) => `${l.x}
 export default function ThemesPage(_: PageProps) {
   const themes = THEMES_DOC.themes
   const groups = Object.entries(THEMES_DOC.tokens) as [string, TokenRow[]][]
-  const tokenCount = groups.reduce((n, [, rows]) => n + rows.length, 0)
   return (
     <div className="shell sdk-themes">
       <header className="docs-hero">
         <div className="docs-hero-content">
-          <span className="section-eyebrow">Runtime themes</span>
           <h1>Themes</h1>
-          <p>One JSON file, loaded at runtime by every renderer: {tokenCount} tokens and per-part recipes. Below: one surface in each built-in.</p>
           <div className="docs-hero-cta">
             <a className="btn btn-primary" href="/themes/builder/">
               Open the theme builder
@@ -64,16 +61,11 @@ export default function ThemesPage(_: PageProps) {
       <section className="sdk-section"><ThemeGallery themes={themes} node={demoSurface as unknown as Nested} backgrounds={themeBackgrounds(THEMES_DOC)} /></section>
 
       <section className="sdk-section" id="tokens">
-        <h2>The token vocabulary</h2>
-        <p className="sdk-note">
-          Every name a theme defines, as <code>$group.name</code> references a style or recipe uses, with the value each built-in gives it. A theme that <code>extends</code> another overrides only
-          what changes.
-        </p>
+        <h2>Tokens</h2>
         {groups.map(([group, rows]) => (
           <div key={group} className="sdk-token-group">
             <h3>
               {GROUP_LABELS[group] ?? group}
-              {rows.some((r) => Object.values(r.values as Record<string, unknown>).some(isModed)) && <span className="sdk-dim"> · light above, dark below</span>}
             </h3>
             <div className="sdk-table-wrap">
               <table className="sdk-table sdk-token-table">
@@ -105,16 +97,6 @@ export default function ThemesPage(_: PageProps) {
         ))}
       </section>
 
-      <section className="sdk-section sdk-themes-next">
-        <a className="docs-card" href="/themes/builder/">
-          <span className="docs-card-title">Theme builder</span>
-          <span className="docs-card-desc">Pick a base, edit tokens and recipes over a live preview, import a shadcn globals.css, export the JSON.</span>
-        </a>
-        <a className="docs-card" href="/guides/themes/">
-          <span className="docs-card-title">Write your own theme</span>
-          <span className="docs-card-desc">The file format, extends, recipes and fonts, and how a host loads a theme from a URL.</span>
-        </a>
-      </section>
     </div>
   )
 }

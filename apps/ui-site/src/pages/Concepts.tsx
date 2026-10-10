@@ -90,7 +90,6 @@ export default function ConceptsPage({ path }: PageProps) {
       <section className="docs-hero content-hero">
         <div className="shell docs-hero-content">
           <h1>Concepts</h1>
-          <p>A2UI in five ideas, then the SDK's five words: catalog, theme, extension, host plugin, vapp.</p>
         </div>
       </section>
 

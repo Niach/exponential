@@ -6,26 +6,23 @@ import { GUIDES, guidePath } from "../lib/guides"
 import type { PageProps } from "../lib/routes"
 import { LINKS } from "../lib/site"
 
-const GROUPS: { id: string; label: string; title: string; intro: string; slugs: string[] }[] = [
+const GROUPS: { id: string; label: string; title: string; slugs: string[] }[] = [
   {
     id: `render`,
     label: `Render`,
     title: `Render A2UI on your platform`,
-    intro: `Install a renderer, connect a host, paint a surface. About twenty lines each.`,
     slugs: [`react`, `swiftui`, `compose`, `gpui`],
   },
   {
     id: `customise`,
     label: `Customise`,
     title: `Make it yours`,
-    intro: `Themes change the look, extensions add components, host plugins decide what a surface may do.`,
     slugs: [`themes`, `extensions`, `host-plugins`],
   },
   {
     id: `build`,
     label: `Build`,
     title: `Build with agents`,
-    intro: `Ship an app as a declarative package, or let a model answer with UI.`,
     slugs: [`vapps`, `agents`],
   },
 ]
@@ -38,15 +35,12 @@ const SECTIONS: DocsSectionType[] = [
 export default function GuidesPage({ path }: PageProps) {
   return (
     <>
-      <PageHero title="Guides">
-        Every platform, then themes, extensions, host plugins, vapps and agents. Every example is a file CI compiles from a fresh project.
-      </PageHero>
+      <PageHero title="Guides" />
 
       <DocsLayout nav={GUIDES_NAV} title="Guides" sections={SECTIONS} currentPath={path}>
         {GROUPS.map((group, i) => (
           <DocsSection key={group.id} id={group.id} num={SECTIONS[i].num} label={group.label}>
             <h2>{group.title}</h2>
-            <p>{group.intro}</p>
             <CardGrid
               items={group.slugs.map((slug) => {
                 const guide = GUIDES.find((g) => g.slug === slug)!

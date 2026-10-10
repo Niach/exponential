@@ -224,10 +224,6 @@ export default function PlaygroundApp() {
                 spellCheck={false}
                 aria-label="A2UI JSON or JSONL"
               />
-              <p className="sdk-note">
-                Read as: <strong>{parsed.form === `empty` ? `nothing yet` : { messages: `A2UI messages`, jsonl: `JSONL messages`, flat: `a flat component list`, nested: `a nested node` }[parsed.form]}</strong>
-                {parsed.messages.length > 0 && ` · ${parsed.messages.length} message${parsed.messages.length > 1 ? `s` : ``} · ${ids.length} surface${ids.length === 1 ? `` : `s`}`}
-              </p>
             </>
           )}
           {tab === `theme` && (
@@ -241,10 +237,6 @@ export default function PlaygroundApp() {
                 aria-label="Theme JSON"
                 placeholder={`{\n  "$schema": "https://ui.exponential.at/schemas/theme/v1.json",\n  "id": "brand",\n  "name": "Brand",\n  "extends": "neutral",\n  "modes": { "dark": { "color": { "primary": "#2563eb" } } },\n  "recipes": { "Button": { "root": [{ "style": { "borderRadius": "$radius.full" } }] } }\n}`}
               />
-              <p className="sdk-note">
-                A theme file (<code>extends</code> a built-in, override what changes). Build one in the <a href="/themes/builder/">theme builder</a>.
-                {custom.theme && ` Loaded: ${custom.theme.name}.`}
-              </p>
             </>
           )}
           {tab === `extension` && (
@@ -259,12 +251,9 @@ export default function PlaygroundApp() {
                 placeholder="An extension catalog: {id, name, extends, components, macros?}"
               />
               <p className="sdk-note">
-                Validated with <code>validateExtension</code>; its components join the system prompt below. Macro components expand and render; a NATIVE extension component has no
-                painter here, so it renders as the <code>Unknown</code> placeholder (a host registers a painter with <code>registerExtension</code>).{` `}
                 <button type="button" className="sdk-link" onClick={() => setExtensionJson(EXAMPLE_EXTENSION)}>
                   Load the example extension
                 </button>
-                {extension.defs.length > 0 && ` · valid: ${Object.keys(extension.defs[0]!.components).join(`, `)}`}
               </p>
             </>
           )}
@@ -352,13 +341,8 @@ export default function PlaygroundApp() {
             <input type="checkbox" checked={terse} onChange={(e) => setTerse(e.target.checked)} /> terse
           </label>
           <span className="sdk-grow" />
-          <span className="sdk-note">
-            ~{estimateTokens(prompt).toLocaleString(`en-US`)} tokens · {prompt.length.toLocaleString(`en-US`)} characters
-          </span>
+          <span className="sdk-note">~{estimateTokens(prompt).toLocaleString(`en-US`)} tokens</span>
         </div>
-        <p className="sdk-note">
-          What <code>catalogPrompt({`{ extensions, lite, terse }`})</code> generates for the current catalog{extension.defs.length ? ` plus the extension` : ``}: the rules and every component a model may use.
-        </p>
         <div className="sdk-prompt-code">
           <DocsCode language="text">{prompt}</DocsCode>
         </div>

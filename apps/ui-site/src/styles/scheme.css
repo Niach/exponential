@@ -49,12 +49,6 @@
 :root[data-scheme="light"] .glass-card {
   --fg-dim: #63636b;
 }
-:root[data-scheme="light"] .sdk-badge.is-native {
-  color: #047857;
-}
-:root[data-scheme="light"] .sdk-badge.is-macro {
-  color: #4338ca;
-}
 :root[data-scheme="light"] .sdk-req {
   color: #92400e;
 }
