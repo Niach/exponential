@@ -175,11 +175,39 @@ function liftTemplates(root: UiNode, issues: ReduceIssue[], buildMissing?: (id: 
  *  `finish`): `maxDepth` bounds the reduced tree a host serializes, not the
  *  authored one (a Card is two levels once expanded). */
 function finish(root: UiNode, lifted: Map<string, UiNode>, expand: boolean, extensions: readonly ExtensionDef[], catalogId: string, issues: ReduceIssue[]): ReduceResult {
-  root = capDepth(expand ? expandMacros(root, { extensions, issues }) : root, catalogId, issues)
+  // R8 F51: ONE budget over the expanded trees (the root's, then every
+  // lifted template's): a macro's `$each` parts count.
+  const budget = { left: MAX_COMPONENTS, reported: issues.some((i) => i.message === LIMIT_ISSUES.components) }
+  root = capComponents(capDepth(expand ? expandMacros(root, { extensions, issues }) : root, catalogId, issues), budget, issues)
   if (lifted.size === 0) return { root, issues }
   const templates: Record<string, UiNode> = {}
-  for (const [id, node] of lifted) templates[id] = capDepth(expand ? expandMacros(node, { extensions, issues }) : node, catalogId, issues)
+  for (const [id, node] of lifted) templates[id] = capComponents(capDepth(expand ? expandMacros(node, { extensions, issues }) : node, catalogId, issues), budget, issues)
   return { root, issues, templates }
+}
+
+/** R8 F51: the `maxComponents` budget over an EXPANDED tree (the flat
+ *  builder counted the authored nodes; a macro's `$each` multiplies them: a
+ *  Rating with `max: 10000` is 20,001 parts). Pre-order (a child, its
+ *  subtree, the next child; children before slots); a node past the budget
+ *  is dropped with its subtree, the first refusal is the budget issue (once
+ *  per surface). Recursive: `capDepth` ran first, so the tree is at most
+ *  `maxDepth` levels deep. */
+function capComponents(root: UiNode, budget: { left: number; reported: boolean }, issues: ReduceIssue[]): UiNode {
+  spend(budget, root.id, issues)
+  const walk = (node: UiNode): void => {
+    node.children = node.children.filter((child) => {
+      if (!spend(budget, child.id, issues)) return false
+      walk(child)
+      return true
+    })
+    if (node.slots)
+      for (const [name, slot] of Object.entries(node.slots)) {
+        if (!spend(budget, slot.id, issues)) delete node.slots[name]
+        else walk(slot)
+      }
+  }
+  walk(root)
+  return root
 }
 
 /** VAPP-103: every node at level MAX_DEPTH + 1 (the tree's root = 1;
@@ -274,23 +302,38 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
     issues.push({ id: options.rootId ?? `root`, message: `unsupported catalog ${options.catalogId}` })
   const visiting = new Set<string>()
   const placed = new Set<string>()
+  // R8 F52: the ids whose second place was already reported (a 4 MB
+  // `children: ["x", "x", …]` costs ONE issue, not one per reference).
+  const twiceReported = new Set<string>()
   const budget = { left: MAX_COMPONENTS, reported: false }
 
+  // R8 F52: the Unknown placeholders for a missing or cyclic id are placed
+  // nodes too, so they spend the budget BEFORE they are made: a message
+  // whose children list repeats an unknown id a million times stops at
+  // `maxComponents` placeholders (one budget issue).
   const build = (id: string, depth: number): UiNode | undefined => {
     const flat = byId.get(id)
+    if (flat) {
+      // A cycle (the id is an ancestor) before a second place: the ancestor
+      // is in `placed` too.
+      if (visiting.has(id)) {
+        if (!spend(budget, id, issues)) return undefined
+        issues.push({ id, message: `cycle through this id` })
+        return unknown(id, flat.component, options.catalogId)
+      }
+      if (placed.has(id)) {
+        if (!twiceReported.has(id)) {
+          twiceReported.add(id)
+          issues.push({ id, message: LIMIT_ISSUES.usedTwice })
+        }
+        return undefined
+      }
+    }
+    if (!spend(budget, id, issues)) return undefined
     if (!flat) {
       issues.push({ id, message: `no component with this id` })
       return unknown(id, `#${id}`, options.catalogId)
     }
-    if (visiting.has(id)) {
-      issues.push({ id, message: `cycle through this id` })
-      return unknown(id, flat.component, options.catalogId)
-    }
-    if (placed.has(id)) {
-      issues.push({ id, message: LIMIT_ISSUES.usedTwice })
-      return undefined
-    }
-    if (!spend(budget, id, issues)) return undefined
     placed.add(id)
     if (depth > MAX_DEPTH) {
       issues.push({ id, message: LIMIT_ISSUES.depth })

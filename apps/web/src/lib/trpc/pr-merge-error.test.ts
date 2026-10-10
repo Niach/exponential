@@ -61,17 +61,29 @@ describe(`prMergeFailureError`, () => {
     expect(error.message).toContain(`no longer exists`)
   })
 
-  it(`keeps today's offer when the diagnosis could not run`, () => {
+  it(`answers PRECONDITION_FAILED, never CONFLICT, when the diagnosis could not run`, () => {
+    // An undiagnosed 405 is an unknown state: the clients auto-open the
+    // Fix-conflicts run on CONFLICT alone, so that code needs a diagnosed
+    // content conflict. GitHub's message stands in for the diagnosis.
     const error = prMergeFailureError(notMergeable, null)
-    expect(error.code).toBe(`CONFLICT`)
+    expect(error.code).toBe(`PRECONDITION_FAILED`)
     expect(error.message).toBe(`Pull Request is not mergeable`)
+  })
+
+  it(`a diagnosis with conflict false and no message keeps GitHub's text`, () => {
+    const error = prMergeFailureError(notMergeable, {
+      conflict: false,
+      message: ``,
+    })
+    expect(error.code).toBe(`PRECONDITION_FAILED`)
   })
 
   it(`answers CONFLICT for GitHub's "has merge conflicts" wording too (EXP-737)`, () => {
     const hasConflicts = new GitHubMergeError(405, `Pull Request has merge conflicts`)
-    // Undiagnosed: the recovery run is still offered, GitHub's text verbatim.
+    // Undiagnosed: GitHub's text verbatim, but no recovery-run offer (the
+    // wording alone never proves a content conflict).
     const bare = prMergeFailureError(hasConflicts, null)
-    expect(bare.code).toBe(`CONFLICT`)
+    expect(bare.code).toBe(`PRECONDITION_FAILED`)
     expect(bare.message).toBe(`Pull Request has merge conflicts`)
     // Diagnosed: the code follows the diagnosis exactly as for "not mergeable".
     const stale = prMergeFailureError(hasConflicts, {

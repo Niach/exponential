@@ -160,6 +160,7 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     setText: vi.fn(),
     images: [],
     addFiles: vi.fn(() => 0),
+    acceptsFiles: true,
     removeImage: vi.fn(),
     repos: [],
     repoId: ``,
@@ -706,6 +707,15 @@ describe(`LaunchComposer + menu`, () => {
     expect(
       container.querySelector(`[data-slot="attachment-file-tile"]`)!.textContent
     ).toBe(`notes.pdf`)
+  })
+
+  // F6: a picked device without the `steer-files` cap narrows the pick to images.
+  it(`narrows the chooser to images for a device that takes no files`, () => {
+    const { container } = render(
+      <LaunchComposer model={fakeModel({ acceptsFiles: false })} users={[]} />
+    )
+    const input = container.querySelector(`input[type="file"]`)!
+    expect(input.getAttribute(`accept`)).toBe(`image/*`)
   })
 
   it(`opens the file chooser from Add file or image`, () => {

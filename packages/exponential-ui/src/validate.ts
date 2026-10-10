@@ -54,6 +54,8 @@ function checkScalar(
     case `number`:
       if (typeof value !== `number` || !Number.isFinite(value))
         issues.push({ path, message: `expected a number` })
+      else if (schema.minimum !== undefined && value < schema.minimum) issues.push({ path, message: `expected at least ${schema.minimum}` })
+      else if (schema.maximum !== undefined && value > schema.maximum) issues.push({ path, message: `expected at most ${schema.maximum}` })
       return
     case `boolean`:
       if (typeof value !== `boolean`) issues.push({ path, message: `expected a boolean` })

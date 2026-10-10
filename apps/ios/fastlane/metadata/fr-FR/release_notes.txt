@@ -1,5 +1,6 @@
-- Exécutions : une exécution s'ouvre comme un fil avec une ligne d'état (Building on your machine, temps écoulé, dernière ligne d'outil) et ses résultats intégrés ; Show work ouvre la transcription complète
-- Brouillons : un issue créé à partir d'un brouillon sur un autre appareil s'ouvre ici comme issue, et un brouillon abandonné se ferme partout
-- Actions : supprimer une action demande d'abord confirmation, sur la carte d'alerte commune
-- Appareils : Codex ne nécessite plus d'installer une CLI ; l'IDE le télécharge à la première connexion
-- Corrections : fusionner la pull request d'un agent sans issue fonctionne, et les images de résultats s'envoient de façon fiable
+- Guide : les Changes et Results d'un issue forment désormais un seul Guide ; chaque section du rapport de l'agent ouvre son propre diff, et Show complete diff se trouve en bas
+- Exécutions : le fil d'une exécution se lit tour par tour avec vos propres messages intercalés, et une pull request empilée se fusionne avec une seule commande Merge stack
+- Éditeur : le bouton + ouvre un seul menu (implémenter un issue, lancer une action, ajouter un fichier ou une image jusqu'à 50 MB, effort, sous-agents, serveurs MCP, utilisation de l'ordinateur) ; les suggestions sont des lignes discrètes sous le champ
+- Liens : un lien dans une réponse de l'agent ou dans le Guide qui pointe vers une exécution ou un issue s'ouvre dans l'app, les autres liens dans le navigateur intégré, et les URL brutes sont touchables
+- Actions : une fusion échouée propose Fix merge conflicts, une action intégrée qui fait un rebase, résout les conflits et fusionne la pull request
+- Corrections : Reviews nomme l'issue d'une pull request dont le dépôt est connecté dans une autre équipe, le texte de session ne se chevauche plus, un bouton en double a disparu, et une passe de finition harmonise lignes, espacements et textes dans toute l'app

@@ -666,30 +666,21 @@ impl Render for OnboardingView {
                     "Welcome to Exponential",
                     "Syncing your account…",
                 ),
+                // Web parity: Create, Join and Invite carry the title alone —
+                // the web wizard dropped their blurbs, only the Board step
+                // keeps its subtitle (`copy::INVITE_SUBTITLE` stays defined
+                // for the ×4 copy drift test).
                 WizardStep::Team => match self.team_page {
                     TeamPage::Choice => (registry::SETTINGS_MEMBERS, "Welcome to Exponential", ""),
-                    TeamPage::Create => (
-                        registry::SETTINGS_MEMBERS,
-                        "Create a team",
-                        "Name your team. You can rename it and invite teammates later.",
-                    ),
-                    TeamPage::Join => (
-                        registry::EDITOR_LINK,
-                        "Join a team",
-                        "Ask a teammate for an invite link (team settings → Members), \
-                         then paste it below.",
-                    ),
+                    TeamPage::Create => (registry::SETTINGS_MEMBERS, "Create a team", ""),
+                    TeamPage::Join => (registry::EDITOR_LINK, "Join a team", ""),
                 },
                 WizardStep::Board { .. } => (
                     registry::NAV_BOARDS,
                     copy::BOARD_TITLE,
                     copy::BOARD_SUBTITLE,
                 ),
-                WizardStep::Invite { .. } => (
-                    registry::UI_INVITE,
-                    copy::INVITE_TITLE,
-                    copy::INVITE_SUBTITLE,
-                ),
+                WizardStep::Invite { .. } => (registry::UI_INVITE, copy::INVITE_TITLE, ""),
                 // EXP-1196: the fixture's title, no subtitle.
                 WizardStep::Devices { .. } => (
                     registry::NAV_DEVICES,

@@ -65,3 +65,39 @@ export function classifyAppLink(rawHref: string, origin: string): AppLink {
   const path = end === -1 ? `/` : rest.slice(end)
   return classifyPath(path.startsWith(`/`) ? path : `/${path}`)
 }
+
+// ── Web-only: which `app` paths the router actually serves ──────────────────
+//
+// `classifyAppLink` is the ×4 contract and calls EVERY same-origin path an
+// `app` link. On the web an `app` link is pushed through the router, which
+// turns a same-origin RESOURCE (`/api/attachments/<id>`, `/NOTICES.txt`,
+// `/widget/...`) into the SPA's not-found page. Only paths under a screen
+// prefix the route tree serves route in-app; everything else is left to the
+// browser as an ordinary link. The list mirrors the top-level dirs of
+// `routes/` minus the resource ones (`api`, `.well-known`, `robots.txt`);
+// `app-link.test.ts` checks it against `routeTree.gen.ts`.
+
+/** The first path segments the web router serves as screens. */
+export const ROUTED_APP_PREFIXES: readonly string[] = [
+  `about`,
+  `account`,
+  `admin`,
+  `auth`,
+  `exponential-ui-devices`,
+  `exponential-ui-kitchen-sink`,
+  `integrations`,
+  `invite`,
+  `onboarding`,
+  `support`,
+  `t`,
+]
+
+/** Whether an `app` link's path is one the router serves (the root
+ *  included); false for a same-origin resource the browser must fetch. */
+export function isRoutedAppPath(path: string): boolean {
+  const end = path.search(/[?#]/)
+  const pathname = end === -1 ? path : path.slice(0, end)
+  const first = pathname.split(`/`).find((segment) => segment.length > 0)
+  if (first === undefined) return true
+  return ROUTED_APP_PREFIXES.includes(decodeSegment(first).toLowerCase())
+}

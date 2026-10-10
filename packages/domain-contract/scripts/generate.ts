@@ -45,7 +45,12 @@ interface Contract {
   codingSessionStatus: Section
   codingSessionEndedBy: Section
   codingSessionBlocked: { kinds: string[]; windows: string[] }
-  codingSession: { staleHours: number; launchKeys: string[]; computerUseCap: string }
+  codingSession: {
+    staleHours: number
+    launchKeys: string[]
+    computerUseCap: string
+    steerFilesCap: string
+  }
   device: { onlineWindowSeconds: number }
   team: { agentPromptMaxBytes: number }
   steerFeed: {
@@ -273,6 +278,7 @@ const composerUiStrings: [string, string][] = [
   ["fixConflictsSubmit", composerUi.fixConflictsSubmit],
   ["prPlaceholder", composerUi.prPlaceholder],
   ["conflictNote", composerUi.conflictNote],
+  ["filesNeedNewerDevice", composerUi.filesNeedNewerDevice],
 ]
 const swiftComposerUi = composerUiStrings
   .map(([k, v]) => `    public static let composerUi${capFirst(k)}: String = "${v}"`)
@@ -539,6 +545,7 @@ ${swiftStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     public static let codingSessionStaleMs: Int = ${codingSessionStaleMs}
 ${swiftStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)}
     public static let codingSessionComputerUseCap: String = "${contract.codingSession.computerUseCap}"
+    public static let codingSessionSteerFilesCap: String = "${contract.codingSession.steerFilesCap}"
     public static let deviceOnlineWindowMs: Int = ${deviceOnlineWindowMs}
     public static let builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
     public static let builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
@@ -684,6 +691,7 @@ ${kotlinStringArray("steerWorkingVerbs", contract.steerWorking.verbs)}
     const val codingSessionStaleMs: Long = ${codingSessionStaleMs}L
 ${kotlinStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)}
     const val codingSessionComputerUseCap: String = "${contract.codingSession.computerUseCap}"
+    const val codingSessionSteerFilesCap: String = "${contract.codingSession.steerFilesCap}"
     const val deviceOnlineWindowMs: Long = ${deviceOnlineWindowMs}L
     const val builtinCreateActionId: String = "${contract.builtinAction.createActionId}"
     const val builtinFixConflictsId: String = "${contract.builtinAction.fixConflictsId}"
@@ -833,6 +841,7 @@ pub const ISSUE_STATUS_STARTED_MAX: usize = ${contract.issueStatusCategory.start
 pub const CODING_SESSION_STALE_MS: i64 = ${codingSessionStaleMs};
 ${rustStrSlice("codingSessionLaunchKeys", contract.codingSession.launchKeys)}
 pub const CODING_SESSION_COMPUTER_USE_CAP: &str = "${contract.codingSession.computerUseCap}";
+pub const CODING_SESSION_STEER_FILES_CAP: &str = "${contract.codingSession.steerFilesCap}";
 pub const DEVICE_ONLINE_WINDOW_MS: i64 = ${deviceOnlineWindowMs};
 pub const TEAM_AGENT_PROMPT_MAX_BYTES: usize = ${contract.team.agentPromptMaxBytes};
 pub const BUILTIN_CREATE_ACTION_ID: &str = "${contract.builtinAction.createActionId}";

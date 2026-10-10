@@ -9517,7 +9517,9 @@
             },
             "max": {
               "type": "number",
-              "description": "How many stars.",
+              "minimum": 1,
+              "maximum": 100,
+              "description": "How many stars (1 to 100).",
               "default": 5
             },
             "readOnly": {

@@ -55,7 +55,13 @@ fun recordTurnSlot(log: TurnLog, state: String, startedAt: Long?, now: Long) {
     log.lastState = state
 }
 
-/** Fold the feed's rows into the log: place every main-agent message. */
+/**
+ * Fold the feed's rows into the log: place every main-agent message. Rows
+ * count as live only AFTER the first NON-EMPTY feed (web + iOS, the same
+ * rule): an empty composition primes nothing, so a short history replay
+ * (≤ [LIVE_ARRIVAL_MAX_ROWS] rows) that follows it stays unstamped unless
+ * its rows carry `at`.
+ */
 fun recordFeedMessages(log: TurnLog, feed: List<TurnFeedRow>, now: Long) {
     val fresh = feed.filter { it.id !in log.seen }
     val live = log.primed && fresh.size <= LIVE_ARRIVAL_MAX_ROWS
@@ -67,7 +73,7 @@ fun recordFeedMessages(log: TurnLog, feed: List<TurnFeedRow>, now: Long) {
             live -> log.messageAt[row.id] = now
         }
     }
-    log.primed = true
+    if (feed.isNotEmpty()) log.primed = true
 }
 
 /**

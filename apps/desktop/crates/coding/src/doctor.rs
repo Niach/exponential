@@ -170,7 +170,11 @@ pub const ACCOUNT_SIGN_OUT_CAP: &str = "account-sign-out";
 /// `computer-use-run` says this build reads the frame's per-run
 /// `computerUse` (the composer "+" toggle): clients hide the toggle for a
 /// machine without it, which would silently fall back to its own switch.
-pub const ACTION_CAPS: [&str; 8] = [
+/// `steer-files` says this build localizes non-image FILE attachments
+/// (`[name](/api/attachments/<id>)` lines) in start prompts and steer
+/// messages: the server refuses a start with such a file to a device
+/// without it (images still pass), and composers offer images only there.
+pub const ACTION_CAPS: [&str; 9] = [
     "actions",
     "action-inputs",
     "fix-conflicts",
@@ -179,7 +183,13 @@ pub const ACTION_CAPS: [&str; 8] = [
     RESUME_RUN_CAP,
     START_PROMPT_CAP,
     COMPUTER_USE_RUN_CAP,
+    STEER_FILES_CAP,
 ];
+
+/// The file-attachment cap, by name (see [`ACTION_CAPS`]): the contract's
+/// `codingSession.steerFilesCap`, so a composer deciding whether another
+/// machine can take a file never repeats the string.
+pub const STEER_FILES_CAP: &str = domain::contract::CODING_SESSION_STEER_FILES_CAP;
 
 /// EXP-1249's per-run computer-use cap, by name: the contract's
 /// `codingSession.computerUseCap`.
@@ -1807,6 +1817,14 @@ mod tests {
         assert_eq!(COMPUTER_USE_RUN_CAP, "computer-use-run");
         assert!(ACTION_CAPS.contains(&COMPUTER_USE_RUN_CAP));
         assert!(!DEVICE_CAPS.contains(&COMPUTER_USE_RUN_CAP));
+        // Release train 2026-10-10: file attachments ride the action caps
+        // too — the server gates non-image attachments on it, so an
+        // agent-less machine must never advertise it either.
+        assert_eq!(STEER_FILES_CAP, "steer-files");
+        assert!(ACTION_CAPS.contains(&STEER_FILES_CAP));
+        assert!(!DEVICE_CAPS.contains(&STEER_FILES_CAP));
+        assert!(caps.contains(&"steer-files".to_string()));
+        assert!(!device_caps(&advert(&[])).contains(&"steer-files".to_string()));
         assert!(caps.contains(&"chat".to_string()));
         assert!(!device_caps(&advert(&[])).contains(&"chat".to_string()));
     }

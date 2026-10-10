@@ -60,4 +60,25 @@ class SteerAttachmentRulesTest {
             AgentComposerPrompt.build("", emptyList(), listOf(SteerFile(file, "spec.pdf"))),
         )
     }
+
+    // Release train 2026-10-10, F6: a non-image file needs the chosen device
+    // to localize it (`steer-files` cap); older hosts get images only, with
+    // the server's own sentence as the toast.
+    @Test
+    fun `a file for a device without the steer-files cap is refused with the contract sentence`() {
+        assertEquals(
+            "Attaching files needs the device on 0.14.66 or newer; images still work",
+            steerFilePickRefusal(isImage = false, deviceCaps = listOf("actions", "action-inputs")),
+        )
+        assertEquals(DomainContract.composerUiFilesNeedNewerDevice, steerFilePickRefusal(isImage = false, deviceCaps = null))
+        assertEquals(DomainContract.composerUiFilesNeedNewerDevice, steerFilePickRefusal(isImage = false, deviceCaps = emptyList()))
+    }
+
+    @Test
+    fun `an image passes any device and a file passes one with the cap`() {
+        assertNull(steerFilePickRefusal(isImage = true, deviceCaps = null))
+        assertNull(steerFilePickRefusal(isImage = true, deviceCaps = emptyList()))
+        assertNull(steerFilePickRefusal(isImage = false, deviceCaps = listOf("actions", DEVICE_CAP_STEER_FILES)))
+        assertEquals("steer-files", DEVICE_CAP_STEER_FILES)
+    }
 }

@@ -195,7 +195,9 @@ export function menuEntriesFromCatalog(
 ): MenuEntry[] {
   const out: MenuEntry[] = []
   items.forEach((item, index) => {
-    const id = item.value ?? `${index}`
+    // Keyed on the position AND the value: two rows sharing a value (or
+    // none) are still distinct React keys.
+    const id = `${index}:${item.value ?? ``}`
     const label = item.label ?? ``
     const value = item.value ?? label
     const icon = catalogMenuIcon(item.icon)
@@ -1253,7 +1255,7 @@ export function MenuGestureHost({
       setOpen(true)
     }, []),
     openRef,
-    React.useCallback((kind: string) => kind in menusRef.current, [])
+    React.useCallback((kind: string) => Object.hasOwn(menusRef.current, kind), [])
   )
 
   const build = target ? menus[target.kind] : undefined

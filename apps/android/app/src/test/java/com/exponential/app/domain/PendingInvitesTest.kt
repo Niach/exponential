@@ -70,4 +70,14 @@ class PendingInvitesTest {
         assertEquals(PlaceholderStatus.EXPIRED, placeholderStatuses(rows, nowMs)["p1"])
         assertEquals(emptyList<String>(), pendingInvites(rows, nowMs).map { it.id })
     }
+
+    // EXP-1267 ×4: the pending row's "Expires Mon D" (web `inviteExpiryLabel`).
+    @Test
+    fun expiryLabelPrintsTheShortDateInEitherWireForm() {
+        val utc = java.time.ZoneOffset.UTC
+        val en = java.util.Locale.ENGLISH
+        assertEquals("Expires Oct 1", inviteExpiryLabel("2026-10-01 10:00:00+00", utc, en))
+        assertEquals("Expires Oct 1", inviteExpiryLabel("2026-10-01T10:00:00.000Z", utc, en))
+        assertEquals("Expires not a date", inviteExpiryLabel("not a date", utc, en))
+    }
 }

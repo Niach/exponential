@@ -610,17 +610,21 @@ fn opens_no_tab(
 /// leaving team's non-terminal tabs are PARKED under its id, the arriving
 /// team's parked tabs come back in their order, and terminals (EXP-769: a PTY
 /// is not team-scoped) stay in the strip throughout. Pure.
+/// `from_alive = false` = the leaving team's row is GONE (left or deleted,
+/// [`crate::navigation::tabs_team_id`] fell back): its tabs are dropped, not
+/// parked — nothing could ever switch back to it.
 fn swap_team_tabs(
     tabs: Vec<TabEntry>,
     parked: &mut HashMap<String, Vec<TabEntry>>,
     from: Option<&str>,
+    from_alive: bool,
     to: Option<&str>,
 ) -> Vec<TabEntry> {
     let (terminals, team_tabs): (Vec<TabEntry>, Vec<TabEntry>) = tabs
         .into_iter()
         .partition(|tab| matches!(tab.screen, Screen::Terminal { .. }));
     if let Some(from) = from {
-        if team_tabs.is_empty() {
+        if team_tabs.is_empty() || !from_alive {
             parked.remove(from);
         } else {
             parked.insert(from.to_string(), team_tabs);
@@ -1645,8 +1649,19 @@ impl ScreensPanel {
             // team's come back (EXP-769: terminals stay put throughout).
             let previous = self.tabs_team.take();
             let tabs = std::mem::take(&mut self.tabs);
-            self.tabs =
-                swap_team_tabs(tabs, &mut self.parked_tabs, previous.as_deref(), team.as_deref());
+            // The leaving team's row gone (left or deleted) = nothing to park
+            // for; a row still syncing counts as alive.
+            let previous_alive = previous.as_deref().is_some_and(|id| {
+                let teams = Store::global(cx).collections().teams.read(cx);
+                !teams.is_ready() || teams.get(id).is_some()
+            });
+            self.tabs = swap_team_tabs(
+                tabs,
+                &mut self.parked_tabs,
+                previous.as_deref(),
+                previous_alive,
+                team.as_deref(),
+            );
             self.tabs_team = team;
             self.pending_run_face = None;
             self.tabless = None;
@@ -4249,23 +4264,38 @@ mod tests {
     fn a_team_switch_and_back_restores_the_tabs() {
         let mut parked = HashMap::new();
         let team_a = vec![issue_tab("a1", None), issue_tab("a2", Some(origin(ToolWindow::Inbox)))];
-        let on_b = swap_team_tabs(team_a, &mut parked, Some("A"), Some("B"));
+        let on_b = swap_team_tabs(team_a, &mut parked, Some("A"), true, Some("B"));
         assert!(on_b.is_empty(), "B has no tabs yet");
         let on_b = vec![issue_tab("b1", None)];
-        let back_on_a = swap_team_tabs(on_b, &mut parked, Some("B"), Some("A"));
+        let back_on_a = swap_team_tabs(on_b, &mut parked, Some("B"), true, Some("A"));
         assert_eq!(tab_ids(&back_on_a), ["a1", "a2"]);
         assert_eq!(
             back_on_a[1].origin.as_ref().map(|origin| origin.tool),
             Some(ToolWindow::Inbox),
             "a tab keeps its list across the round trip"
         );
-        let again_on_b = swap_team_tabs(back_on_a, &mut parked, Some("A"), Some("B"));
+        let again_on_b = swap_team_tabs(back_on_a, &mut parked, Some("A"), true, Some("B"));
         assert_eq!(tab_ids(&again_on_b), ["b1"]);
         // The first sync (no team before) parks nothing.
         let mut fresh = HashMap::new();
-        let first = swap_team_tabs(vec![issue_tab("x", None)], &mut fresh, None, Some("A"));
+        let first = swap_team_tabs(vec![issue_tab("x", None)], &mut fresh, None, true, Some("A"));
         assert!(first.is_empty());
         assert!(fresh.is_empty());
+    }
+
+    /// Leaving or deleting the strip's team: its tabs are DROPPED (nothing
+    /// can switch back to a team that no longer exists), an earlier parked
+    /// entry of it goes too, and the arriving team's tabs come back as ever.
+    #[test]
+    fn a_dead_team_s_tabs_are_dropped_not_parked() {
+        let mut parked = HashMap::new();
+        parked.insert("A".to_string(), vec![issue_tab("stale", None)]);
+        parked.insert("B".to_string(), vec![issue_tab("b1", None)]);
+        let dead_a = vec![issue_tab("a1", None), issue_tab("a2", None)];
+        let on_b = swap_team_tabs(dead_a, &mut parked, Some("A"), false, Some("B"));
+        assert!(!parked.contains_key("A"), "the dead team keeps no parked tabs");
+        assert_eq!(tab_ids(&on_b), ["b1"]);
+        assert!(parked.is_empty());
     }
 
     /// The `sync_tabs` None-arm for a list step, minus the views: replace the

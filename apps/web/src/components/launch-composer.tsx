@@ -28,6 +28,7 @@ import { contract } from "@exp/domain-contract"
 import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 import { pickChatSuggestions } from "@/lib/chat-suggestions"
 import { cn } from "@/lib/utils"
+import { filePickAccept } from "@/lib/steer-files-gate"
 import { useSession } from "@/hooks/use-session"
 import { useIssuesCodingReadiness } from "@/hooks/use-coding-readiness"
 import {
@@ -227,6 +228,8 @@ export function LaunchComposer({
               ref={fileInputRef}
               type="file"
               multiple
+              // F6: images only for a device without the `steer-files` cap.
+              accept={filePickAccept(model.acceptsFiles)}
               className="hidden"
               onChange={(e) => {
                 filePickerOpenRef.current = false

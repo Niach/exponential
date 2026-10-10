@@ -130,6 +130,13 @@ export function fillTemplate(template: unknown, params: unknown): string {
   return formatString(text, typeof params === `object` && params !== null ? (params as Record<string, unknown>) : {})
 }
 
+/** The most indexes `range(n)` yields (R8 F51): a Rating's `max` of 1e8 or
+ *  1e300 would otherwise allocate that many items before the component
+ *  budget could refuse them. Equals `maxTemplateItems`; a larger `n` is
+ *  silently clamped (the reducer's `maxComponents` reports the overflow).
+ *  Mirrors `MAX_RANGE_ITEMS` in the Rust core's `expr.rs`. */
+export const MAX_RANGE_ITEMS = 10_000
+
 /** One expression: `len(path)`, `range(n)`, `path|fallback`, `!path`, `path`.
  *  The function forms wrap the whole expression and are tried first, so a
  *  fallback inside their parentheses stays theirs. */
@@ -142,9 +149,10 @@ export function evalExpr(expr: string, ctx: ExprContext): unknown {
       if (isDynamic(inner)) return call(`len`, { value: inner })
       return Array.isArray(inner) ? inner.length : typeof inner === `string` ? inner.length : 0
     }
-    // range: the indexes 0..n-1; a bound count cannot be expanded (→ no items).
+    // range: the indexes 0..n-1 (at most MAX_RANGE_ITEMS; NaN = 0); a bound
+    // count cannot be expanded (→ no items).
     if (isDynamic(inner)) return undefined
-    const n = Math.max(0, Math.floor(toNumber(inner)))
+    const n = Math.min(MAX_RANGE_ITEMS, Math.max(0, Math.floor(toNumber(inner))) || 0)
     return Array.from({ length: n }, (_, i) => i)
   }
   const bar = text.indexOf(`|`)

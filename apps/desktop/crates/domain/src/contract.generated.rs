@@ -96,6 +96,7 @@ pub const ISSUE_STATUS_STARTED_MAX: usize = 4;
 pub const CODING_SESSION_STALE_MS: i64 = 7200000;
 pub const CODING_SESSION_LAUNCH_KEYS: &[&str] = &["agent", "model", "effort", "subagentModel", "ultracode", "planMode", "resume", "mcpServerIds", "account", "computerUse"];
 pub const CODING_SESSION_COMPUTER_USE_CAP: &str = "computer-use-run";
+pub const CODING_SESSION_STEER_FILES_CAP: &str = "steer-files";
 pub const DEVICE_ONLINE_WINDOW_MS: i64 = 90000;
 pub const TEAM_AGENT_PROMPT_MAX_BYTES: usize = 12288;
 pub const BUILTIN_CREATE_ACTION_ID: &str = "builtin:create-action";
@@ -155,6 +156,7 @@ pub const COMPOSER_UI_FIX_CONFLICTS_HEADLINE: &str = "Fix merge conflicts";
 pub const COMPOSER_UI_FIX_CONFLICTS_SUBMIT: &str = "Fix conflicts";
 pub const COMPOSER_UI_PR_PLACEHOLDER: &str = "Select a pull request…";
 pub const COMPOSER_UI_CONFLICT_NOTE: &str = "Merge refused: the branch has conflicts.";
+pub const COMPOSER_UI_FILES_NEED_NEWER_DEVICE: &str = "Attaching files needs the device on 0.14.66 or newer; images still work";
 
 pub const ISSUE_STATUS_CATEGORY_BACKLOG: &str = "backlog";
 pub const ISSUE_STATUS_CATEGORY_UNSTARTED: &str = "unstarted";

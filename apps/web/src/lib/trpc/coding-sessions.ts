@@ -526,6 +526,44 @@ async function bindStartAttachments(
     )
 }
 
+/**
+ * The device that starts a run with non-image attachments must advertise
+ * the `steer-files` cap (it localizes `[name](/api/attachments/<id>)` lines
+ * for the agent); one without it gets the contract's refusal. Images-only
+ * starts never look the device up; a start that outran `devices.register`
+ * (no row yet) passes, like `resolveSessionDevice`. Compat shim: delete once
+ * CLIENT_MIN_VERSION_DESKTOP/CLI >= 0.14.66.
+ */
+async function assertSteerFilesCap(
+  db: Context[`db`],
+  callerId: string,
+  input: { deviceId?: string; attachmentIds?: string[] }
+): Promise<void> {
+  if (!input.deviceId || !input.attachmentIds?.length) return
+  const rows = await db
+    .select({ contentType: sessionAttachments.contentType })
+    .from(sessionAttachments)
+    .where(inArray(sessionAttachments.id, input.attachmentIds))
+  const nonImage = rows.some(
+    (row: { contentType: string }) =>
+      !row.contentType.toLowerCase().startsWith(`image/`)
+  )
+  if (!nonImage) return
+  const [device] = await db
+    .select({ caps: devices.caps })
+    .from(devices)
+    .where(
+      and(eq(devices.userId, callerId), eq(devices.deviceId, input.deviceId))
+    )
+    .limit(1)
+  if (!device) return
+  if ((device.caps ?? []).includes(contract.codingSession.steerFilesCap)) return
+  throw new TRPCError({
+    code: `PRECONDITION_FAILED`,
+    message: contract.composerUi.filesNeedNewerDevice,
+  })
+}
+
 /** FEED-57/46/47: a LIVE run covering an issue — the issue's own run, or a
  *  batch run whose covered set (`batch_issue_ids`) names it. Live = still
  *  running or in review AND heartbeating within the staleness window (the
@@ -931,6 +969,8 @@ export const codingSessionsRouter = router({
         )
     )
     .mutation(async ({ ctx, input }) => {
+      // Before any subject branch: the refusal is the same on every path.
+      await assertSteerFilesCap(ctx.db, ctx.session.user.id, input)
       // A vanished predecessor (swept while the user was away) must never
       // turn Resume into a 500 — see resolveResumedFrom.
       const predecessor = await resolveResumedFrom(

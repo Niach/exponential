@@ -245,6 +245,29 @@ export function missingGuideFiles(
   )
 }
 
+/** The canonical `https://github.com/<owner>/<repo>/pull/<n>` form of a GitHub
+ *  PR URL, or null when the string is not one. `http`, any host case, a
+ *  `www.` prefix, a `/files`/`/commits`/... tail, a trailing slash, a query
+ *  and a hash all fold. The PR body and the issue's Guide match a topic's
+ *  `prUrl` against the row's stamped url byte for byte, so every guide write
+ *  goes through this. */
+export function canonicalGithubPrUrl(raw: string): string | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return null
+  }
+  if (url.protocol !== `https:` && url.protocol !== `http:`) return null
+  const host = url.hostname.toLowerCase()
+  if (host !== `github.com` && host !== `www.github.com`) return null
+  const match = url.pathname.match(/^\/([^/]+)\/([^/]+)\/pull\/(\d+)(?:\/.*)?$/)
+  if (!match) return null
+  return `https://github.com/${match[1]}/${match[2]}/pull/${Number(match[3])}`
+}
+
 /** EXP-1251: when a run opens a NEW PR, the text topics filed so far without
  *  a `prUrl` belong to it: they are tagged, so a later stacked PR's body and
  *  issue page never claim them. Tagged topics keep their tag. */

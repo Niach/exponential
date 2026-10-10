@@ -2306,17 +2306,32 @@ pub fn active_team_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
 }
 
 /// EXP-1250 — the team the window's TAB STRIP belongs to: the CHOSEN team
-/// (`Navigation::team_id`) even while its row is still syncing, and
-/// [`active_team_id`]'s fallback only while nothing is chosen. So a fallback
-/// that flips during a sync pass never reads as a team switch (the strip's
-/// tabs are parked per team on a real one).
+/// (`Navigation::team_id`) while its row exists or is still syncing (the
+/// teams shape before its first `up-to-date`), and [`active_team_id`]'s
+/// fallback otherwise — nothing chosen, or a chosen team whose row is GONE
+/// (left or deleted), so the strip never stays dead on a team that no
+/// longer exists. A fallback that flips during a sync pass never reads as a
+/// team switch (the strip's tabs are parked per team on a real one).
 pub(crate) fn tabs_team_id(nav: &Entity<Navigation>, cx: &App) -> Option<String> {
-    strip_team(nav.read(cx).team_id.as_deref(), || active_team_id(nav, cx))
+    let chosen = nav.read(cx).team_id.clone();
+    let teams = Store::global(cx).collections().teams.read(cx);
+    let chosen_alive = chosen
+        .as_deref()
+        .is_some_and(|id| !teams.is_ready() || teams.get(id).is_some());
+    strip_team(chosen.as_deref(), chosen_alive, || active_team_id(nav, cx))
 }
 
-/// [`tabs_team_id`]'s pure rule.
-fn strip_team(chosen: Option<&str>, fallback: impl FnOnce() -> Option<String>) -> Option<String> {
-    chosen.map(str::to_string).or_else(fallback)
+/// [`tabs_team_id`]'s pure rule: `chosen_alive` = its row exists, or the
+/// teams shape has not finished its first sync yet.
+fn strip_team(
+    chosen: Option<&str>,
+    chosen_alive: bool,
+    fallback: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    chosen
+        .filter(|_| chosen_alive)
+        .map(str::to_string)
+        .or_else(fallback)
 }
 
 #[cfg(test)]
@@ -2324,13 +2339,18 @@ mod tests {
     use super::*;
 
     /// EXP-1250: the strip's team is the CHOSEN one, whatever the fallback
-    /// says while its row syncs; the fallback only fills an empty choice.
+    /// says while its row syncs; the fallback only fills an empty choice —
+    /// or a chosen team whose row is gone after the first sync (left or
+    /// deleted), which would otherwise leave a dead strip.
     #[test]
     fn the_fallback_team_never_counts_as_a_switch() {
-        assert_eq!(strip_team(Some("t1"), || Some("t2".into())), Some("t1".into()));
-        assert_eq!(strip_team(Some("t1"), || None), Some("t1".into()));
-        assert_eq!(strip_team(None, || Some("t2".into())), Some("t2".into()));
-        assert_eq!(strip_team(None, || None), None);
+        assert_eq!(strip_team(Some("t1"), true, || Some("t2".into())), Some("t1".into()));
+        assert_eq!(strip_team(Some("t1"), true, || None), Some("t1".into()));
+        assert_eq!(strip_team(None, true, || Some("t2".into())), Some("t2".into()));
+        assert_eq!(strip_team(None, true, || None), None);
+        // The chosen team's row is gone: the fallback takes over.
+        assert_eq!(strip_team(Some("t1"), false, || Some("t2".into())), Some("t2".into()));
+        assert_eq!(strip_team(Some("t1"), false, || None), None);
     }
 
     /// EXP-1037: the ONE routing rule — a seed with a subject (issues or an

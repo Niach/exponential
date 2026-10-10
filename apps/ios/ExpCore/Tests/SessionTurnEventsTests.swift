@@ -8,8 +8,10 @@ import XCTest
 final class SessionTurnEventsTests: XCTestCase {
     private let start: Double = 1_000
 
-    private func message(_ id: Int, _ text: String, subagentId: String? = nil) -> SessionTurnLog.Row {
-        SessionTurnLog.Row(id: id, isUserMessage: true, text: text, subagentId: subagentId)
+    private func message(
+        _ id: Int, _ text: String, subagentId: String? = nil, at: Double? = nil
+    ) -> SessionTurnLog.Row {
+        SessionTurnLog.Row(id: id, isUserMessage: true, text: text, subagentId: subagentId, at: at)
     }
 
     private func narration(_ id: Int) -> SessionTurnLog.Row {
@@ -47,6 +49,22 @@ final class SessionTurnEventsTests: XCTestCase {
         XCTAssertEqual(log.messageAt, [4: 7_000])
     }
 
+    // F35 ×4: an empty first fold never primes the log, so a short replay
+    // (rows without a time) landing after it is still history, and only the
+    // lone row after THAT is live.
+    func testAnEmptyFirstFeedNeverMakesTheReplayLive() {
+        let log = SessionTurnLog()
+        log.recordFeedMessages([], now: 1_000)
+        let replay = [message(1, "old one"), message(2, "old two")]
+        log.recordFeedMessages(replay, now: 2_000)
+        XCTAssertTrue(log.messageAt.isEmpty)
+        log.recordFeedMessages(replay + [message(3, "follow-up")], now: 7_000)
+        XCTAssertEqual(log.messageAt, [3: 7_000])
+        // A row that knows its own time is placed by it, live or not.
+        log.recordFeedMessages(replay + [message(3, "follow-up"), message(4, "stamped", at: 8_000)], now: 9_500)
+        XCTAssertEqual(log.messageAt, [3: 7_000, 4: 8_000])
+    }
+
     func testSkipsASubagentsMessage() {
         let log = SessionTurnLog()
         log.recordFeedMessages([], now: 1)
@@ -59,7 +77,8 @@ final class SessionTurnEventsTests: XCTestCase {
         log.recordFeedMessages([], now: start)
         log.recordTurnSlot(.started, startedAt: start, now: start)
         log.recordTurnSlot(.ended, startedAt: start, now: 4_000)
-        let feed = [message(1, "stack it\n![image](/api/attachments/i9)")]
+        // The web twin's row carries its own time, as a synced row would.
+        let feed = [message(1, "stack it\n![image](/api/attachments/i9)", at: 5_000)]
         log.recordFeedMessages(feed, now: 5_000)
         log.recordTurnSlot(.started, startedAt: 5_100, now: 5_100)
         let results = """
@@ -84,7 +103,7 @@ final class SessionTurnEventsTests: XCTestCase {
         watched.recordFeedMessages([], now: start)
         watched.recordTurnSlot(.started, startedAt: start + 50, now: start + 50)
         watched.recordTurnSlot(.ended, startedAt: start + 50, now: 4_000)
-        let feed = [message(1, "next")]
+        let feed = [message(1, "next", at: 9_000)]
         watched.recordFeedMessages(feed, now: 9_000)
         XCTAssertTrue(firstTurnEndKnown(watched.turnEvents(feed, runStartedAt: start), runStartedAt: start))
 
@@ -126,7 +145,7 @@ final class SessionTurnEventsTests: XCTestCase {
     func testCarriesAMessagesFilesBesideItsImages() {
         let log = SessionTurnLog()
         log.recordFeedMessages([], now: start)
-        let feed = [message(1, "read\n\n![image](/api/attachments/i9)\n[spec.pdf](/api/attachments/f1)")]
+        let feed = [message(1, "read\n\n![image](/api/attachments/i9)\n[spec.pdf](/api/attachments/f1)", at: 5_000)]
         log.recordFeedMessages(feed, now: 5_000)
         let turns = sessionTurns("[]", feed: log.turnEvents(feed, runStartedAt: start))
         let sent = turns.turns.compactMap(\.message).first

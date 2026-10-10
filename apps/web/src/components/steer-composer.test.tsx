@@ -48,7 +48,7 @@ afterEach(() => {
   vi.unstubAllGlobals()
 })
 
-function mount(onSend = vi.fn(() => true)) {
+function mount(onSend = vi.fn(() => true), acceptsFiles = true) {
   const store = makeStore()
   const view = render(
     <SteerComposer
@@ -60,6 +60,7 @@ function mount(onSend = vi.fn(() => true)) {
       agent={null}
       config={null}
       users={[]}
+      acceptsFiles={acceptsFiles}
     />
   )
   const input = view.container.querySelector(
@@ -112,6 +113,23 @@ describe(`SteerComposer files`, () => {
     fireEvent.click(screen.getByRole(`button`, { name: `Remove notes.pdf` }))
     expect(store.getDraftSnapshot().text).toBe(`[Image #1]`)
     expect(store.getDraftSnapshot().images).toHaveLength(1)
+    store.dispose()
+  })
+
+  // F6: the run's device lacks the `steer-files` cap: images only, a file
+  // is dropped with the server's sentence.
+  it(`takes images only for a device without the steer-files cap`, () => {
+    const { input, pick, store } = mount(vi.fn(() => true), false)
+    expect(input.getAttribute(`accept`)).toBe(`image/*`)
+    pick([
+      new File([`x`], `notes.pdf`, { type: `application/pdf` }),
+      new File([`x`], `shot.png`, { type: `image/png` }),
+    ])
+    expect(h.toastError).toHaveBeenCalledWith(
+      `Attaching files needs the device on 0.14.66 or newer; images still work`
+    )
+    expect(store.getDraftSnapshot().images.map((image) => image.kind)).toEqual([`image`])
+    expect(screen.queryByRole(`button`, { name: `Remove notes.pdf` })).toBeNull()
     store.dispose()
   })
 

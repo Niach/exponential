@@ -9,7 +9,8 @@ use std::time::{Duration, Instant};
 use exponential_ui::limits::{self, MAX_COMPONENTS, MAX_DEPTH, MAX_MESSAGE_BYTES, MAX_POINTER_SEGMENTS, MAX_TEMPLATE_ITEMS};
 use exponential_ui::measure::FixedMeasure;
 use exponential_ui::reducer::{reduce_surface, ReduceOptions};
-use exponential_ui::surface::{LayoutOutput, Surface, SurfaceOptions};
+use exponential_ui::measure::Intrinsics;
+use exponential_ui::surface::{LayoutOutput, LayoutStep, Surface, SurfaceOptions};
 use exponential_ui::types::{FlatComponent, ReduceIssue};
 use exponential_ui::host::HostRouter;
 use serde_json::{json, Value};
@@ -267,3 +268,77 @@ fn the_router_refuses_an_oversized_message() {
     assert_eq!(ok[0]["op"], "components");
 }
 
+fn count_nodes(n: &exponential_ui::types::UiNode) -> usize {
+    1 + n.children.iter().map(count_nodes).sum::<usize>() + n.slots.iter().flat_map(|s| s.values()).map(count_nodes).sum::<usize>()
+}
+
+/// R8 F51: a Rating's `max` of 1e8 or 1e300 neither hangs nor allocates
+/// that many stars: `range()` stops at 10,000 (`MAX_RANGE_ITEMS`), the
+/// expanded parts spend `maxComponents` (one issue), and the catalog's
+/// `maximum: 100` refuses the value.
+#[test]
+fn a_rating_with_a_huge_max_reduces_within_the_budget() {
+    for max in [1e8, 1e300] {
+        let list = flat(&[json!({"id": "root", "component": "Rating", "max": max})]);
+        let r = timed(10_000, "Rating max", || reduce_surface(&list, &ReduceOptions::new(CORE)));
+        let msgs = messages(&r.issues);
+        assert!(msgs.contains(&"root: props.max: expected at most 100".to_string()), "{msgs:?}");
+        assert!(msgs.iter().any(|m| m.ends_with(&limits::components_issue())), "{msgs:?}");
+        assert_eq!(msgs.iter().filter(|m| m.ends_with(&limits::components_issue())).count(), 1);
+        assert!(count_nodes(&r.root) <= MAX_COMPONENTS, "{} nodes", count_nodes(&r.root));
+        assert_eq!(r.root.children.len(), exponential_ui::expr::MAX_RANGE_ITEMS, "every star placed, the last icon dropped");
+    }
+    // A sane max keeps its stars and passes validation.
+    let r = reduce_surface(&flat(&[json!({"id": "root", "component": "Rating", "max": 7})]), &ReduceOptions::new(CORE));
+    assert!(messages(&r.issues).is_empty(), "{:?}", r.issues);
+    assert_eq!(r.root.children.len(), 7);
+}
+
+/// R8 F52: a children list that repeats an UNKNOWN id a hundred thousand
+/// times stops at `maxComponents` placeholders (they spend the budget before
+/// they are made); the same list naming a KNOWN id costs ONE used-twice
+/// issue, not one per reference.
+#[test]
+fn placeholder_floods_stop_at_the_budget() {
+    let n = 100_000;
+    let unknown = flat(&[json!({"id": "root", "component": "Stack", "children": vec!["x"; n]})]);
+    let r = timed(10_000, "100k unknown children", || reduce_surface(&unknown, &ReduceOptions::new(CORE)));
+    assert_eq!(r.root.children.len(), MAX_COMPONENTS - 1);
+    let msgs = messages(&r.issues);
+    assert_eq!(msgs.iter().filter(|m| m.ends_with(&limits::components_issue())).count(), 1);
+    assert_eq!(msgs.iter().filter(|m| *m == "x: no component with this id").count(), MAX_COMPONENTS - 1);
+    assert_eq!(msgs.len(), MAX_COMPONENTS, "nothing is reported past the budget");
+
+    let twice = flat(&[json!({"id": "root", "component": "Stack", "children": vec!["a"; n]}), json!({"id": "a", "component": "Text", "text": "x"})]);
+    let r = timed(10_000, "100k repeated children", || reduce_surface(&twice, &ReduceOptions::new(CORE)));
+    assert_eq!(r.root.children.len(), 1);
+    assert_eq!(messages(&r.issues), vec![format!("a: {}", limits::USED_TWICE_ISSUE)]);
+}
+
+/// R8 F53: a host measurer answering NaN or infinity never panics the memo
+/// (`f32::clamp` on NaN did): the answers are sanitised on store.
+#[test]
+fn nan_and_infinite_intrinsics_are_sanitised() {
+    let mut s = surface(vec![
+        json!({"id": "root", "component": "Stack", "children": ["a", "b"]}),
+        json!({"id": "a", "component": "Text", "text": "some words that wrap at a narrow width"}),
+        json!({"id": "b", "component": "Text", "text": "more words that wrap at a narrow width"}),
+    ]);
+    let LayoutStep::Intrinsics(leaves) = s.layout_begin(1) else { panic!("intrinsics first") };
+    assert!(!leaves.is_empty());
+    let bad = [
+        Intrinsics { min_content_width: f32::NAN, max_content_width: f32::NAN, height_at_max_content: f32::NAN, baseline: Some(f32::NAN) },
+        Intrinsics { min_content_width: f32::INFINITY, max_content_width: f32::NEG_INFINITY, height_at_max_content: f32::INFINITY, baseline: Some(f32::NEG_INFINITY) },
+    ];
+    let answers: Vec<Intrinsics> = leaves.iter().enumerate().map(|(k, _)| bad[k % 2]).collect();
+    let mut step = s.layout_intrinsics(&answers);
+    while let LayoutStep::Heights(_, r) = step {
+        step = s.layout_heights(&vec![f32::NAN; r.len()]);
+    }
+    let LayoutStep::Done(out) = step else { panic!("done") };
+    assert!(out.surface_height.is_finite(), "{}", out.surface_height);
+    assert!(out.frames.iter().all(|f| f.x.is_finite() && f.y.is_finite() && f.w.is_finite() && f.h.is_finite()));
+    // The sanitiser itself: NaN/inf → 0, widths ordered, a non-finite baseline = none.
+    let i = Intrinsics { min_content_width: 30.0, max_content_width: 10.0, height_at_max_content: -5.0, baseline: Some(f32::NAN) }.sanitised();
+    assert_eq!(i, Intrinsics { min_content_width: 10.0, max_content_width: 30.0, height_at_max_content: 0.0, baseline: None });
+}

@@ -126,6 +126,7 @@ import {
 import { mintAttachmentToken } from "@/lib/storage/attachment-token"
 import { mintSessionResultToken } from "@/lib/storage/session-result-token"
 import {
+  canonicalGithubPrUrl,
   cleanSessionResultFiles,
   isTextEntry,
   missingGuideFiles,
@@ -442,6 +443,35 @@ async function joinGithubStack(opts: {
     number: stack.number,
     position: position >= 0 ? position + 1 : stack.pulls.length,
     size: stack.pulls.length,
+  }
+}
+
+/**
+ * The PR is open and linked before the stack join runs, so a join that fails
+ * is a WARNING on a successful result, never the tool's error: the error form
+ * made the agent retry a `pr_open` that could only fail the same way for a PR
+ * that already exists. Logged server-side; the warning names the PR.
+ */
+async function joinGithubStackOrWarn(
+  opts: Parameters<typeof joinGithubStack>[0]
+): Promise<{
+  stack: Awaited<ReturnType<typeof joinGithubStack>>
+  warning: string | null
+}> {
+  try {
+    return { stack: await joinGithubStack(opts), warning: null }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e)
+    console.warn(
+      `[mcp] pr_open: PR #${opts.newPrNumber} is open; its stack join failed`,
+      e
+    )
+    return {
+      stack: null,
+      warning: message.startsWith(`PR #`)
+        ? message
+        : `PR #${opts.newPrNumber} is open and linked, but joining its GitHub stack failed: ${message}`,
+    }
   }
 }
 
@@ -2741,6 +2771,9 @@ export function registerExponentialTools(
           if (createdPr.reusedBase != null) {
             releasePrOpenClaim(repo.fullName, head!)
           }
+          // EXP-1244: a Reviews fetch cached before this PR opened would miss
+          // it (the issue path drops the cache the same way).
+          invalidateOpenPulls(repo.teamId)
 
           if (callerSession) {
             await db.transaction(async (tx) => {
@@ -2753,7 +2786,9 @@ export function registerExponentialTools(
               })
             })
             if (createdPr.reusedBase == null) {
-              await stampRunResultsPrUrl(callerSession.id, createdPr.url)
+              await stampRunResultsPrUrl(callerSession.id, createdPr.url, {
+                priorPrUrl: callerSession.prUrl,
+              })
             }
             // A reused PR kept its old body: bring it to the report.
             // Only the PR the row actually got (a team mismatch skips the stamp).
@@ -2765,7 +2800,7 @@ export function registerExponentialTools(
           }
 
           const choreFinalBase = createdPr.reusedBase ?? choreBase
-          const choreStack = await joinGithubStack({
+          const choreJoin = await joinGithubStackOrWarn({
             repo: repo.fullName,
             token: resolvedRepo.token,
             teamId: repo.teamId,
@@ -2779,7 +2814,8 @@ export function registerExponentialTools(
           return ok({
             url: createdPr.url,
             number: createdPr.number,
-            ...(choreStack ? { stack: choreStack } : {}),
+            ...(choreJoin.stack ? { stack: choreJoin.stack } : {}),
+            ...(choreJoin.warning ? { warning: choreJoin.warning } : {}),
             ...(prBody.fromResults ? { body: `report` } : {}),
             ...(createdPr.reusedBase != null
               ? { reused: true, note: REUSED_PR_NOTE(head!) }
@@ -3110,13 +3146,16 @@ export function registerExponentialTools(
         // EXP-1251: the Guide topics written before this PR opened belong to
         // it (a later stacked PR's body leaves them out).
         if (!reused && callerSession) {
-          await stampRunResultsPrUrl(callerSession.id, created.url)
+          await stampRunResultsPrUrl(callerSession.id, created.url, {
+            priorPrUrl: callerSession.prUrl,
+          })
         }
 
         // EXP-1248: a PR opened on another open PR's branch joins (or starts)
         // its GitHub stack. The PR is open and linked either way; a failed
-        // stack call is the tool's error, never a silent plain chain.
-        const stack = await joinGithubStack({
+        // stack call is a warning on the result, never a silent plain chain
+        // and never an error for a PR that exists.
+        const join = await joinGithubStackOrWarn({
           repo: repo.fullName,
           token,
           teamId: teamIdByIssue.get(ids[0]!)!,
@@ -3149,7 +3188,8 @@ export function registerExponentialTools(
           url: created.url,
           number: created.number,
           base: baseBranch,
-          ...(stack ? { stack } : {}),
+          ...(join.stack ? { stack: join.stack } : {}),
+          ...(join.warning ? { warning: join.warning } : {}),
           ...(prBody.fromResults ? { body: `report` } : {}),
           ...(reused ? { reused: true, note: REUSED_PR_NOTE(headBranch) } : {}),
         })
@@ -3955,6 +3995,23 @@ export function registerExponentialTools(
               new Error(`prUrl takes at most ${SESSION_RESULT_PR_URL_MAX} characters.`)
             )
           }
+          // The PR body and the Guide match a topic's prUrl against the
+          // row's stamped url byte for byte: a `/files` tail or an upper-case
+          // host would silently drop the topic from both. Blank still clears
+          // the tag.
+          const canonicalPrUrl =
+            prUrl === undefined
+              ? undefined
+              : prUrl.trim() === ``
+                ? ``
+                : canonicalGithubPrUrl(prUrl)
+          if (canonicalPrUrl === null) {
+            return err(
+              new Error(
+                `prUrl must be a GitHub pull request URL (https://github.com/<owner>/<repo>/pull/<n>), got ${JSON.stringify(prUrl)}.`
+              )
+            )
+          }
           if (
             files &&
             (files.length > SESSION_RESULT_FILES_MAX ||
@@ -4119,7 +4176,7 @@ export function registerExponentialTools(
                 topic,
                 trimmed,
                 files,
-                { at: Date.now(), prUrl }
+                { at: Date.now(), prUrl: canonicalPrUrl }
               )
               if (!next) return null
               await tx

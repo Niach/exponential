@@ -3662,8 +3662,35 @@ impl SteerSessionView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
+        // The target gate: the run's machine takes files only with the
+        // `steer-files` cap (this machine always does); a row that names no
+        // device leaves the server's refusal to say so.
+        let files_allowed = self.run_takes_files(cx);
+        let (images, dropped) = composer_images::gate_files_for_target(images, files_allowed);
         self.notice = self.pending_images.stage(images, &self.input, window, cx);
+        if dropped {
+            self.notice = Some(composer_images::FILES_NEED_NEWER_DEVICE.into());
+        }
         cx.notify();
+    }
+
+    /// Whether the run's device localizes non-image FILE attachments: this
+    /// machine always, another one only with the `steer-files` cap in its
+    /// synced row; an unknown device is left to the server's gate.
+    fn run_takes_files(&self, cx: &mut App) -> bool {
+        let Some(device_id) = self
+            .session_row()
+            .and_then(|row| row.device_id.clone())
+            .filter(|id| !id.is_empty())
+        else {
+            return true;
+        };
+        if device_id == crate::queries::own_device_id(cx) {
+            return true;
+        }
+        crate::queries::device_caps(cx, &device_id)
+            .iter()
+            .any(|cap| cap == coding::STEER_FILES_CAP)
     }
 
     /// Drop a staged image and renumber the draft's markers behind it.

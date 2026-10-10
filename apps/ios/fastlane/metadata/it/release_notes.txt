@@ -1,5 +1,6 @@
-- Esecuzioni: un'esecuzione si apre come un thread con una riga di stato (Building on your machine, tempo trascorso, ultima riga dello strumento) e i risultati integrati; Show work apre la trascrizione completa
-- Bozze: un issue creato da una bozza su un altro dispositivo si apre qui come issue, e una bozza scartata si chiude ovunque
-- Azioni: l'eliminazione di un'azione chiede prima conferma, sulla scheda di avviso condivisa
-- Dispositivi: Codex non richiede più l'installazione di una CLI; l'IDE lo scarica al primo accesso
-- Correzioni: unire la pull request di un agente senza issue funziona, e le immagini dei risultati si caricano in modo affidabile
+- Guide: Changes e Results di un issue ora sono un'unica Guide; ogni sezione del report dell'agente apre il proprio diff, e Show complete diff si trova in fondo
+- Esecuzioni: il thread dell'esecuzione si legge turno per turno con i tuoi messaggi nel mezzo, e una pull request impilata si unisce con un unico controllo Merge stack
+- Editor: il pulsante + apre un solo menu (implementa un issue, esegui un'azione, aggiungi un file o un'immagine fino a 50 MB, impegno, subagenti, server MCP, uso del computer); i suggerimenti sono righe discrete sotto il campo
+- Link: un link in una risposta dell'agente o nella Guide che punta a un'esecuzione o a un issue si apre nell'app, gli altri link nel browser integrato, e gli URL semplici sono toccabili
+- Azioni: un merge non riuscito propone Fix merge conflicts, un'azione integrata che esegue il rebase, risolve i conflitti e unisce la pull request
+- Correzioni: Reviews indica l'issue di una pull request il cui repository è collegato in un altro team, il testo della sessione non si sovrappone più, un pulsante doppio è sparito, e un giro di rifinitura allinea righe, spaziature e testi in tutta l'app

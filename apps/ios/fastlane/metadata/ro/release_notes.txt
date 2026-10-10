@@ -1,5 +1,6 @@
-- Rulări: o rulare se deschide ca un fir cu un rând de stare (Building on your machine, timp scurs, ultimul rând de unealtă) și rezultatele incluse; Show work deschide transcrierea completă
-- Ciorne: un issue creat dintr-o ciornă pe alt dispozitiv se deschide aici ca issue, iar o ciornă renunțată se închide peste tot
-- Acțiuni: ștergerea unei acțiuni cere mai întâi confirmare, pe cardul de alertă comun
-- Dispozitive: Codex nu mai necesită instalarea unui CLI; IDE-ul îl descarcă la prima autentificare
-- Remedieri: îmbinarea pull requestului unui agent fără issue funcționează, iar imaginile rezultatelor se încarcă fiabil
+- Guide: Changes și Results ale unui issue sunt acum un singur Guide; fiecare secțiune a raportului agentului își deschide propriul diff, iar Show complete diff se află jos
+- Rulări: firul rulării se citește tură cu tură, cu propriile tale mesaje între ele, iar un pull request suprapus se îmbină cu un singur control Merge stack
+- Editor: butonul + deschide un singur meniu (implementează un issue, rulează o acțiune, adaugă un fișier sau o imagine de până la 50 MB, efort, subagenți, servere MCP, utilizarea computerului); sugestiile sunt rânduri discrete sub casetă
+- Linkuri: un link dintr-un răspuns al agentului sau din Guide care duce la o rulare sau la un issue se deschide în aplicație, celelalte linkuri în browserul din aplicație, iar URL-urile simple pot fi atinse
+- Acțiuni: o îmbinare eșuată oferă Fix merge conflicts, o acțiune integrată care face rebase, rezolvă conflictele și îmbină pull requestul
+- Remedieri: Reviews numește issue-ul unui pull request al cărui depozit este conectat într-o altă echipă, textul sesiunii nu se mai suprapune, un buton dublat a dispărut, iar o rundă de finisare aliniază rândurile, spațierea și textele în toată aplicația

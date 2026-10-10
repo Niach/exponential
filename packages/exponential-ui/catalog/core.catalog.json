@@ -991,7 +991,7 @@
       "description": "A row of stars scoring out of `max`; `readOnly` only displays.",
       "props": {
         "value": { "type": "number", "default": 0, "bindable": true, "description": "The score, 0 to max." },
-        "max": { "type": "number", "default": 5, "description": "How many stars." },
+        "max": { "type": "number", "default": 5, "minimum": 1, "maximum": 100, "description": "How many stars (1 to 100)." },
         "readOnly": { "type": "boolean", "default": false, "description": "Display only; no presses." },
         "size": { "type": "enum", "enum": "controlSize", "default": "default", "description": "Star size." }
       },

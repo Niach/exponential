@@ -1271,6 +1271,68 @@ describe(`steer.startSession — builtin chat (EXP-615)`, () => {
     expect(h.relayPostStart).toHaveBeenCalledTimes(1)
   })
 
+  // A device without `steer-files` localizes only image embeds: a file line
+  // would reach the agent as an unusable link. Images-only prompts and a
+  // device with the cap pass; the lookup runs only for a cap-less device
+  // with file lines.
+  it(`refuses a non-image file attachment for a device without steer-files`, async () => {
+    const FILE = `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`
+    const prompt = `read this\n\n[notes.pdf](/api/attachments/${FILE})`
+    // The attachment ownership select, the device resolve, then the gate's
+    // content-type select.
+    h.dbQueue.push([
+      { id: FILE, teamId: BUILTIN_TEAM_ID, uploaderId: `actor`, sessionUserId: null },
+    ])
+    queueOwnDevice({ caps: [`start-prompt`] })
+    h.dbQueue.push([{ id: FILE, contentType: `application/pdf` }])
+    const error = await rejectionOf(
+      caller.startSession({
+        actionId: CHAT_ID,
+        teamId: BUILTIN_TEAM_ID,
+        deviceId: `dev-1`,
+        prompt,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toBe(
+      `Attaching files needs the device on 0.14.66 or newer; images still work`
+    )
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`passes a file attachment to a device WITH steer-files, and images to any device`, async () => {
+    const FILE = `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`
+    const IMG = `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`
+    const withFile = `read this\n\n[notes.pdf](/api/attachments/${FILE})`
+    h.dbQueue.push([
+      { id: FILE, teamId: BUILTIN_TEAM_ID, uploaderId: `actor`, sessionUserId: null },
+    ])
+    queueOwnDevice({ caps: [`start-prompt`, `steer-files`] })
+    await caller.startSession({
+      actionId: CHAT_ID,
+      teamId: BUILTIN_TEAM_ID,
+      deviceId: `dev-1`,
+      prompt: withFile,
+    })
+    expect(lastStartBody().prompt).toBe(withFile)
+    // No content-type lookup was needed: the queue is drained.
+    expect(h.dbQueue).toHaveLength(0)
+
+    const imagesOnly = `crop [Image #1]\n\n![image](/api/attachments/${IMG})`
+    h.dbQueue.push([
+      { id: IMG, teamId: BUILTIN_TEAM_ID, uploaderId: `actor`, sessionUserId: null },
+    ])
+    queueOwnDevice({ caps: [`start-prompt`] })
+    await caller.startSession({
+      actionId: CHAT_ID,
+      teamId: BUILTIN_TEAM_ID,
+      deviceId: `dev-1`,
+      prompt: imagesOnly,
+    })
+    expect(lastStartBody().prompt).toBe(imagesOnly)
+    expect(h.dbQueue).toHaveLength(0)
+  })
+
   it(`starts without the chat cap — actions + action-inputs is enough (EXP-624)`, async () => {
     // The per-start `chat` gate is gone: the fleet floor advertising it is
     // enforced by CLIENT_MIN_VERSION_DESKTOP instead.

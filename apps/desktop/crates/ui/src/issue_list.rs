@@ -910,11 +910,21 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
         let ids = ids.clone();
         let list = list.clone();
         let team_id = team_id.clone();
+        // EXP-957 (web `bulk-action-bar.tsx` `sharedStatus`): the status the
+        // whole selection ALREADY has, when it agrees on one.
+        let shared = bulk_shared_status(cx, &team_id, &ids);
+        // The button wears the selection's shared status glyph; the
+        // checklist is the fallback for a MIXED selection ×4.
+        let trigger_icon = shared
+            .as_ref()
+            .map(|status| resolved_status_icon(status, cx))
+            .unwrap_or_else(|| Icon::new(registry::UI_CHECKLIST));
+        let marked: Vec<String> = shared.iter().map(|status| status.group_key.clone()).collect();
         let trigger = with_label(
             Button::new("bulk-status")
                 .ghost()
                 .web_sm()
-                .icon(Icon::new(registry::UI_CHECKLIST)),
+                .icon(trigger_icon),
             "Status",
         )
         .tooltip("Status")
@@ -937,8 +947,9 @@ pub(crate) fn render_bulk_bar<V: BulkSelectionHost>(
             crate::picker::status_picker::status_picker(
                 &offered,
                 crate::picker::PickerMode::Single,
-                // A bulk edit has no ONE current status, so no row is marked.
-                Vec::new(),
+                // The shared status is marked; a mixed selection marks no
+                // row (web `indeterminate`).
+                marked.clone(),
                 trigger,
                 Rc::new(move |keys: Vec<String>, _window, cx: &mut App| {
                     let Some(pick) = keys
@@ -1755,6 +1766,32 @@ pub(crate) fn status_dropdown(
         .id(picker_id)
         .render(window, cx)
     })
+}
+
+/// EXP-957 (web `sharedValue`): the ONE group key every selected issue
+/// resolves to — `None` for an empty or a MIXED selection.
+fn shared_group_key(keys: &[String]) -> Option<&str> {
+    let (first, rest) = keys.split_first()?;
+    rest.iter()
+        .all(|key| key == first)
+        .then_some(first.as_str())
+}
+
+/// The bulk bar's shared status (web `bulk-action-bar.tsx` `sharedStatus`):
+/// every selected issue resolved against the team vocabulary, kept only when
+/// they agree. An issue the store has not synced counts as disagreement, so
+/// the bar never claims a status it cannot see.
+fn bulk_shared_status(cx: &App, team_id: &str, ids: &[String]) -> Option<ResolvedStatus> {
+    let store = Store::try_global(cx)?;
+    let statuses = queries::team_status_options(cx, team_id);
+    let issues = store.collections().issues.read(cx);
+    let resolved: Vec<ResolvedStatus> = ids
+        .iter()
+        .map(|id| issues.get(id).map(|issue| resolve_in(issue, &statuses)))
+        .collect::<Option<Vec<_>>>()?;
+    let keys: Vec<String> = resolved.iter().map(|status| status.group_key.clone()).collect();
+    let shared = shared_group_key(&keys)?;
+    resolved.into_iter().find(|status| status.group_key == shared)
 }
 
 /// The issue's status within a PRE-RESOLVED team vocabulary (the frame's
@@ -2812,6 +2849,18 @@ mod tests {
         // The screenshot case: a 691px panel on a solo team keeps its labels.
         assert!(px(691.) >= bulk_bar_label_min_width(false));
         assert!(px(691.) < bulk_bar_label_min_width(true));
+    }
+
+    /// F46 (web `sharedValue`): the bulk Status button wears the selection's
+    /// shared status glyph; a mixed or empty selection falls back to the
+    /// checklist, so the shared key is `None` for those.
+    #[test]
+    fn bulk_status_shares_a_key_only_when_every_issue_agrees() {
+        let keys = |list: &[&str]| list.iter().map(|k| k.to_string()).collect::<Vec<_>>();
+        assert_eq!(shared_group_key(&keys(&["s-1", "s-1", "s-1"])), Some("s-1"));
+        assert_eq!(shared_group_key(&keys(&["s-1"])), Some("s-1"));
+        assert_eq!(shared_group_key(&keys(&["s-1", "s-2"])), None);
+        assert_eq!(shared_group_key(&keys(&[])), None);
     }
 
     /// EXP-863: the Shift-click range — anchor to target in either

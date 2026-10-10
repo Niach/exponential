@@ -1,5 +1,6 @@
-- Futtatások: a futtatás szálként nyílik meg egy állapotsorral (Building on your machine, eltelt idő, utolsó eszközsor) és az eredményekkel a szálban; a Show work megnyitja a teljes átiratot
-- Piszkozatok: egy másik eszközön piszkozatból létrehozott issue itt issue-ként nyílik meg, az elvetett piszkozat pedig mindenhol bezárul
-- Műveletek: egy művelet törlése előbb rákérdez, a közös figyelmeztető kártyán
-- Eszközök: a Codexhez már nem kell CLI-t telepíteni; az IDE az első bejelentkezéskor letölti
-- Javítások: egy agent issue nélküli pull requestjének egyesítése működik, és az eredményképek megbízhatóan feltöltődnek
+- Guide: egy issue Changes és Results nézete mostantól egyetlen Guide; az agent jelentésének minden szakasza saját diffet nyit, a Show complete diff pedig legalul található
+- Futtatások: a futtatás szála körről körre olvasható, köztük a saját üzeneteiddel, és egy egymásra épülő pull request egyetlen Merge stack vezérlővel egyesíthető
+- Szerkesztő: a + gomb egyetlen menüt nyit (issue megvalósítása, művelet futtatása, legfeljebb 50 MB-os fájl vagy kép hozzáadása, ráfordítás, alagentek, MCP-szerverek, számítógép-használat); a javaslatok visszafogott sorok a mező alatt
+- Hivatkozások: egy agent válaszában vagy a Guide-ban lévő, futtatásra vagy issue-ra mutató hivatkozás az appban nyílik meg, a többi hivatkozás az app böngészőjében, a puszta URL-ek pedig koppinthatók
+- Műveletek: sikertelen egyesítéskor a Fix merge conflicts jelenik meg, egy beépített művelet, amely rebase-el, feloldja az ütközéseket és egyesíti a pull requestet
+- Javítások: a Reviews megnevezi annak a pull requestnek az issue-ját, amelynek repója egy másik csapatban van csatlakoztatva, a munkamenet szövege már nem fedi egymást, eltűnt egy duplikált gomb, és egy finomhangolási kör egységesíti a sorokat, térközöket és szövegeket az egész appban

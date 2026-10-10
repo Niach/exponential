@@ -1,5 +1,6 @@
-- Ajot: ajo avautuu ketjuna, jossa on tilarivi (Building on your machine, kulunut aika, viimeisin työkalurivi) ja tulokset suoraan ketjussa; Show work avaa koko transkription
-- Luonnokset: toisella laitteella luonnoksesta luotu issue avautuu täällä issuena, ja hylätty luonnos sulkeutuu kaikkialla
-- Toiminnot: toiminnon poistaminen kysyy ensin vahvistusta yhteisellä ilmoituskortilla
-- Laitteet: Codex ei enää vaadi CLI-asennusta; IDE lataa sen ensimmäisellä kirjautumisella
-- Korjaukset: agentin pull requestin yhdistäminen ilman issueta toimii, ja tuloskuvat latautuvat luotettavasti
+- Guide: issuen Changes ja Results ovat nyt yksi Guide; jokainen agentin raportin osio avaa oman diffinsä, ja Show complete diff on alimpana
+- Ajot: ajon ketju etenee vuoro vuorolta omat viestisi välissä, ja pinottu pull request yhdistetään yhdellä Merge stack -painikkeella
+- Kirjoituskenttä: +-painike avaa yhden valikon (toteuta issue, suorita toiminto, lisää enintään 50 MB:n tiedosto tai kuva, työmäärä, aliagentit, MCP-palvelimet, tietokoneen käyttö); ehdotukset ovat hillittyjä rivejä kentän alla
+- Linkit: agentin vastauksessa tai Guidessa oleva linkki, joka osoittaa ajoon tai issueen, avautuu sovelluksessa, muut linkit sovelluksen selaimessa, ja pelkkiä URL-osoitteita voi napauttaa
+- Toiminnot: epäonnistunut yhdistäminen tarjoaa Fix merge conflicts -toimintoa, sisäänrakennettua toimintoa, joka tekee rebasen, ratkaisee konfliktit ja yhdistää pull requestin
+- Korjaukset: Reviews nimeää sen pull requestin issuen, jonka repositorio on yhdistetty toisessa tiimissä, istunnon teksti ei enää mene päällekkäin, tuplapainike on poissa, ja viimeistelykierros yhtenäistää rivit, välit ja tekstit koko sovelluksessa

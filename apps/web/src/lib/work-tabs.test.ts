@@ -360,6 +360,24 @@ describe(`the preview slot`, () => {
     expect(keys(s)).toEqual([`issue:i2`])
   })
 
+  // A run started from the preview makes that tab live: it is never the
+  // next item's victim. The fresh tab is the slot from then on.
+  it(`never replaces a live slot tab, opening a fresh tab that becomes the slot`, () => {
+    let s = openIssue(EMPTY_WORK_TABS, `a`, `board:web`)
+    s = openIssue(s, `i1`, `inbox`)
+    s = { tabs: s.tabs.map((t) => (tabKey(t) === `issue:i1` ? { ...t, live: true, runId: `r1` } : t)) }
+    s = openIssue(s, `i2`, `inbox`)
+    expect(keys(s)).toEqual([`issue:a`, `issue:i1`, `issue:i2`])
+    expect(s.tabs[1]).toMatchObject({ live: true, from: `inbox` })
+    // The fresh tab is the slot now: the next step replaces IT, not the live one.
+    s = openIssue(s, `i3`, `inbox`)
+    expect(keys(s)).toEqual([`issue:a`, `issue:i1`, `issue:i3`])
+    // Even once the run ends, the newer tab stays the slot.
+    s = { tabs: s.tabs.map((t) => (tabKey(t) === `issue:i1` ? { ...t, live: false } : t)) }
+    s = openIssue(s, `i4`, `inbox`)
+    expect(keys(s)).toEqual([`issue:a`, `issue:i1`, `issue:i4`])
+  })
+
   it(`a run opened from Recent under an issue takes the slot too`, () => {
     let s = upsertFromRoute(EMPTY_WORK_TABS, {
       kind: `run`,

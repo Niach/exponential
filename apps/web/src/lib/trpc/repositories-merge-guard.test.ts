@@ -477,7 +477,7 @@ describe(`mergeRepositoryPull on an open-stack member`, () => {
       mergeRepositoryPull({ repo, prNumber: 242, userId: `actor`, viaAgent: true })
     ).rejects.toMatchObject({
       code: `PRECONDITION_FAILED`,
-      message: `This pull request is part of an open stack. Merging through it lands EXP-11 (#241), EXP-12 (#242); merge with mergeStack to land them.`,
+      message: `This pull request is part of an open stack. Use Merge stack to land it with the pull requests below it: EXP-11 (#241).`,
     })
     expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
     expect(h.mergeThrough).not.toHaveBeenCalled()
@@ -486,7 +486,9 @@ describe(`mergeRepositoryPull on an open-stack member`, () => {
   it(`merges through it with mergeStack: one stack ensure, one merge-async, every landed PR written`, async () => {
     h.selectQueue.push([onPr(`exp/EXP-11`)])
     h.openStackMember.mockResolvedValue({ kind: `stack`, landing: [member(11), member(12)] })
-    // Stop branches (repo row, pins), then the linked issues of each landed PR.
+    // The bottom's merged-parent lookups (issue, run: none on `master`), the
+    // stop branches (repo row, pins), then the linked issues of each landed PR.
+    h.selectQueue.push([], [])
     h.selectQueue.push(
       [{ id: `repo-1`, defaultBranch: `master`, defaultBranchOverride: null }],
       [],
@@ -509,7 +511,7 @@ describe(`mergeRepositoryPull on an open-stack member`, () => {
   it(`surfaces a failed stack call instead of merging`, async () => {
     h.selectQueue.push([onPr(`exp/EXP-11`)])
     h.openStackMember.mockResolvedValue({ kind: `stack`, landing: [member(11), member(12)] })
-    h.selectQueue.push([], [])
+    h.selectQueue.push([], [], [], [])
     h.ensureGithubStack.mockRejectedValueOnce(new Error(`GitHub could not stack PRs #241, #242 (422): nope`))
 
     await expect(
@@ -520,6 +522,55 @@ describe(`mergeRepositoryPull on an open-stack member`, () => {
     })
     expect(h.mergeThrough).not.toHaveBeenCalled()
     expect(takePrMergeClaim(`owner/repo`, 242)).toBeNull()
+  })
+
+  it(`heals the BOTTOM of the landing before merging through (its root merged first)`, async () => {
+    const MERGED_ROOT_URL = `https://github.com/owner/repo/pull/240`
+    const log: string[] = []
+    h.getPullRequest.mockResolvedValue(pull(`master`))
+    h.retargetChildrenOfMergedPr.mockImplementation(async (opts) => {
+      log.push(`retarget ${opts.headBranch}`)
+    })
+    h.mergeThrough.mockImplementationOnce(async (opts) => {
+      log.push(`merge through #${opts.prNumber}`)
+      return { merged: true, queued: false, sha: `abc`, mergedBy: null }
+    })
+    h.selectQueue.push([onPr(`exp/EXP-11`)])
+    h.openStackMember.mockResolvedValue({
+      kind: `stack`,
+      landing: [{ ...member(11), prBaseBranch: `exp/EXP-10` }, member(12)],
+    })
+    // The bottom's base `exp/EXP-10`: the merged root's url (issue), then the
+    // default-branch exit (repo row, pins: not a developed branch).
+    h.selectQueue.push(
+      [{ prUrl: MERGED_ROOT_URL }],
+      [{ id: `repo-1`, defaultBranch: `master`, defaultBranchOverride: null }],
+      []
+    )
+    // Stop branches (repo row, pins), then the linked issues of each landed PR.
+    h.selectQueue.push(
+      [{ id: `repo-1`, defaultBranch: `master`, defaultBranchOverride: null }],
+      [],
+      [{ id: `issue-11` }],
+      [{ id: `issue-12` }]
+    )
+
+    await expect(
+      mergeRepositoryPull({ repo, prNumber: 242, userId: `actor`, viaAgent: true, mergeStack: true })
+    ).resolves.toEqual({ merged: true })
+    expect(log).toEqual([`retarget exp/EXP-10`, `merge through #242`])
+    expect(h.retargetChildrenOfMergedPr).toHaveBeenCalledWith({
+      prUrl: MERGED_ROOT_URL,
+      headBranch: `exp/EXP-10`,
+      teamId: `ws-1`,
+    })
+    // The BOTTOM (#241) is what GitHub is asked about, not the top.
+    expect(h.getPullRequest).toHaveBeenCalledWith(`owner/repo`, 241, `tok`)
+    expect(h.updates).toEqual([
+      { prBaseBranch: `master` },
+      { prBaseBranch: `master` },
+    ])
+    expect(h.applyPrMergeState).toHaveBeenCalledTimes(2)
   })
 
   it(`refuses a tree child, naming its parent`, async () => {

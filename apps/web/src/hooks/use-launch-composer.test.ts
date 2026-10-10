@@ -89,7 +89,8 @@ const device: SteerDevice = {
   deviceId: `dev-1`,
   deviceLabel: `buildbox`,
   agents: [`claude`],
-  caps: [],
+  // F6: a current build localizes file attachments.
+  caps: [`steer-files`],
   online: true,
   launchDefaults: {
     defaultAgent: `claude`,
@@ -446,6 +447,29 @@ describe(`useLaunchComposer submit`, () => {
       { repo: `repo-1` },
       `see [Image #1]\n\n![image](/api/attachments/att-1)\n[notes [v2\\].pdf](/api/attachments/att-2)`
     )
+  })
+
+  // F6: a device without the `steer-files` cap takes images only; a file
+  // is dropped with the server's sentence, and a file staged before the
+  // pick moved to such a device blocks the submit with it.
+  it(`drops files for a device without the steer-files cap and says why`, async () => {
+    const old = { ...device, caps: [] }
+    const { result, remote } = mount(null, makeRemote({ devices: [old] }))
+    expect(result.current.acceptsFiles).toBe(false)
+    act(() => {
+      result.current.addFiles(
+        [
+          new File([`x`], `a.png`, { type: `image/png` }),
+          new File([`x`], `notes.pdf`, { type: `application/pdf` }),
+        ],
+        0
+      )
+    })
+    expect(mockState.toastError).toHaveBeenCalledWith(
+      `Attaching files needs the device on 0.14.66 or newer; images still work`
+    )
+    expect(result.current.images.map((entry) => entry.kind)).toEqual([`image`])
+    expect(remote.runAction).not.toHaveBeenCalled()
   })
 
   it(`toasts the one rejection copy and the file cap`, () => {

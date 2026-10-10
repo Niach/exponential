@@ -1,4 +1,5 @@
 import { trpc } from "@/lib/trpc-client"
+import { releaseTurnLog } from "@/lib/session-turn-events"
 import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import {
   ackAnswer,
@@ -2460,6 +2461,8 @@ export function acquireSteerSession(sessionId: string): SteerSessionStore {
   if (!store) {
     store = createSteerSessionStore(sessionId, defaultDeps, () => {
       stores.delete(sessionId)
+      // The owner's turn log was folded from this store's feed: it goes too.
+      releaseTurnLog(sessionId)
       if (stores.size === 0) detachWakeups()
     })
     stores.set(sessionId, store)

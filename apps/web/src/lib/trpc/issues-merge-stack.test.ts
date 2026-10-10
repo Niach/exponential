@@ -309,8 +309,10 @@ describe(`issues.mergePr({mergeStack: true}) (EXP-1248)`, () => {
   it(`merges through the top: one stack ensure, ONE merge-async, every landed PR written`, async () => {
     h.openStackMember.mockResolvedValue(stackOf(1, 2, 3))
     queueRow(3)
-    // The repo row for the stop branches (none: GitHub's default), then the
+    // The bottom's merged-parent lookups (issue, run: none on `master`), the
+    // repo row for the stop branches (none: GitHub's default), then the
     // linked issues of each landed PR.
+    h.selectQueue.push([], [])
     h.selectQueue.push([], [{ id: ID(1) }], [{ id: ID(2) }], [{ id: ID(3) }])
 
     await expect(
@@ -340,6 +342,7 @@ describe(`issues.mergePr({mergeStack: true}) (EXP-1248)`, () => {
   it(`merges through the middle: the two below land, the top is untouched`, async () => {
     h.openStackMember.mockResolvedValue(stackOf(1, 2))
     queueRow(2)
+    h.selectQueue.push([], [])
     h.selectQueue.push([], [{ id: ID(1) }], [{ id: ID(2) }])
 
     const result = await caller.mergePr({ issueId: ID(2), mergeStack: true })
@@ -368,15 +371,17 @@ describe(`issues.mergePr({mergeStack: true}) (EXP-1248)`, () => {
   })
 
   it.each([
-    [`the top`, 3, [1, 2, 3], `EXP-11 (#241), EXP-12 (#242), EXP-13 (#243)`],
-    [`the middle`, 2, [1, 2], `EXP-11 (#241), EXP-12 (#242)`],
-  ])(`refuses a plain merge of %s, naming what a merge through it lands`, async (_label, n, landing, names) => {
+    [`the top`, 3, [1, 2, 3], `EXP-11 (#241), EXP-12 (#242)`],
+    [`the middle`, 2, [1, 2], `EXP-11 (#241)`],
+  ])(`refuses a plain merge of %s, naming the members below it in people's words`, async (_label, n, landing, names) => {
     h.openStackMember.mockResolvedValue(stackOf(...landing))
     queueRow(n)
 
+    // Shown verbatim on every client: the product control, never the API
+    // flag.
     await expect(caller.mergePr({ issueId: ID(n) })).rejects.toMatchObject({
       code: `PRECONDITION_FAILED`,
-      message: `This pull request is part of an open stack. Merging through it lands ${names}; merge with mergeStack to land them.`,
+      message: `This pull request is part of an open stack. Use Merge stack to land it with the pull requests below it: ${names}.`,
     })
     expect(h.mergeThrough).not.toHaveBeenCalled()
     expect(h.mergePullRequestSmart).not.toHaveBeenCalled()
@@ -386,7 +391,7 @@ describe(`issues.mergePr({mergeStack: true}) (EXP-1248)`, () => {
   it(`a conflict stays CONFLICT and every claim goes`, async () => {
     h.openStackMember.mockResolvedValue(stackOf(1, 2))
     queueRow(2)
-    h.selectQueue.push([])
+    h.selectQueue.push([], [], [])
     h.mergeThrough.mockRejectedValueOnce(
       new GitHubMergeError(405, `Pull Request is not mergeable`)
     )
@@ -406,7 +411,7 @@ describe(`issues.mergePr({mergeStack: true}) (EXP-1248)`, () => {
   it(`surfaces a failed stack call and never merges`, async () => {
     h.openStackMember.mockResolvedValue(stackOf(1, 2))
     queueRow(2)
-    h.selectQueue.push([])
+    h.selectQueue.push([], [], [])
     h.ensureGithubStack.mockRejectedValueOnce(
       new Error(`GitHub could not stack PRs #241, #242 (422): Validation Failed`)
     )
@@ -423,7 +428,7 @@ describe(`issues.mergePr({mergeStack: true}) (EXP-1248)`, () => {
   it(`reports a queued merge-through without writing anything`, async () => {
     h.openStackMember.mockResolvedValue(stackOf(1, 2))
     queueRow(2)
-    h.selectQueue.push([])
+    h.selectQueue.push([], [], [])
     h.mergeThrough.mockResolvedValueOnce({
       merged: true,
       queued: true,
@@ -552,6 +557,85 @@ describe(`issues.mergePr({mergeStack: true}) (EXP-1248)`, () => {
       { prBaseBranch: `master` },
       { prBaseBranch: `master` },
     ])
+  })
+})
+
+describe(`issues.mergePr({mergeStack: true}) heals the BOTTOM of the landing`, () => {
+  // The landing's bottom sits on a MERGED PR's kept branch (its root landed
+  // first); the top sits on the bottom (open). A merge-through lands the
+  // whole line into the bottom's base, so that is the branch the EXP-324
+  // heal must have moved, like the old per-member loop checked.
+  const MERGED_ROOT_URL = `https://github.com/owner/repo/pull/240`
+  const landing = () => [
+    { ...member(1), prBaseBranch: `exp/EXP-10` },
+    member(2),
+  ]
+
+  it(`awaits the heal of the bottom, then merges through once GitHub moved it`, async () => {
+    h.openStackMember.mockResolvedValue({ kind: `stack`, landing: landing() })
+    queueRow(2)
+    // The bottom's base: no open PR (issue), the merged root's url; the team
+    // has no repo row (GitHub's default decides: not a developed branch).
+    h.selectQueue.push([{ prUrl: MERGED_ROOT_URL }], [])
+    // Stop branches (no repo row), then the linked issues of each landed PR.
+    h.selectQueue.push([], [{ id: ID(1) }], [{ id: ID(2) }])
+
+    await expect(
+      caller.mergePr({ issueId: ID(2), mergeStack: true })
+    ).resolves.toMatchObject({
+      merged: true,
+      stack: [
+        { identifier: `EXP-11`, prNumber: 241 },
+        { identifier: `EXP-12`, prNumber: 242 },
+      ],
+    })
+    expect(h.log).toEqual([`retarget exp/EXP-10`, `merge through #242`])
+    expect(h.retargetChildrenOfMergedPr).toHaveBeenCalledWith({
+      prUrl: MERGED_ROOT_URL,
+      headBranch: `exp/EXP-10`,
+      teamId: `ws-1`,
+    })
+    // The BOTTOM (#241) is what GitHub is asked about, not the top.
+    expect(h.getPullRequest).toHaveBeenCalledWith(`owner/repo`, 241, `tok`)
+    expect(h.updates).toEqual([
+      { prBaseBranch: `master` },
+      { prBaseBranch: `master` },
+    ])
+    expect(h.applyPrMergeState).toHaveBeenCalledTimes(2)
+  })
+
+  it(`refuses the merge-through while the bottom still sits on the merged branch`, async () => {
+    vi.useFakeTimers()
+    try {
+      h.openStackMember.mockResolvedValue({ kind: `stack`, landing: landing() })
+      queueRow(2)
+      h.selectQueue.push([{ prUrl: MERGED_ROOT_URL }], [])
+      h.retargetChildrenOfMergedPr.mockResolvedValue(undefined)
+      h.getPullRequest.mockResolvedValue({
+        state: `open` as const,
+        merged: false,
+        draft: false,
+        headRef: `exp/EXP-11`,
+        baseRef: `exp/EXP-10`,
+        mergeable: true,
+        mergeableState: `clean`,
+      })
+
+      const pending = caller.mergePr({ issueId: ID(2), mergeStack: true })
+      const settled = expect(pending).rejects.toMatchObject({
+        code: `PRECONDITION_FAILED`,
+        message: `It is still based on exp/EXP-10; retarget it onto the default branch (exponential_pr_retarget) and merge again`,
+      })
+      await vi.runAllTimersAsync()
+      await settled
+      expect(h.ensureGithubStack).not.toHaveBeenCalled()
+      expect(h.mergeThrough).not.toHaveBeenCalled()
+      expect(h.applyPrMergeState).not.toHaveBeenCalled()
+      expect(takePrMergeClaim(`owner/repo`, 241)).toBeNull()
+      expect(takePrMergeClaim(`owner/repo`, 242)).toBeNull()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

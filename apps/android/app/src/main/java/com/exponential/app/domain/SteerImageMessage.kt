@@ -29,6 +29,26 @@ const val STEER_FILES_CAP = "Up to 4 files per message"
 const val STEER_IMAGES_CAP = "Up to $MAX_STEER_IMAGES images per message"
 
 /**
+ * The device cap a host (desktop IDE + CLI daemon 0.14.66+) advertises when
+ * it localizes non-image file attachments in start prompts and steer
+ * messages (release train 2026-10-10, F6). A device without a caps field
+ * lacks it.
+ */
+const val DEVICE_CAP_STEER_FILES = "steer-files"
+
+fun deviceAcceptsSteerFiles(caps: List<String>?): Boolean = caps?.contains(DEVICE_CAP_STEER_FILES) == true
+
+/**
+ * Why a pick cannot join the pending set FOR THE CHOSEN DEVICE, or null when
+ * it can: a non-image file bound for a device without [DEVICE_CAP_STEER_FILES]
+ * is refused with the server's own sentence (contract
+ * `composerUi.filesNeedNewerDevice`); images always pass. Both the start and
+ * the steer composer apply it before the size/count caps.
+ */
+fun steerFilePickRefusal(isImage: Boolean, deviceCaps: List<String>?): String? =
+    if (isImage || deviceAcceptsSteerFiles(deviceCaps)) null else DomainContract.composerUiFilesNeedNewerDevice
+
+/**
  * Wave D ×4: why a pick cannot join the pending set, or null when it can.
  * An inline image counts against [MAX_STEER_IMAGES] × [MAX_IMAGE_UPLOAD_BYTES];
  * anything else is a file against [MAX_STEER_FILES] × [MAX_FILE_UPLOAD_BYTES].

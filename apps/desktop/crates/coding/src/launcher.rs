@@ -2305,6 +2305,10 @@ fn prepare_action(
     // repo-backed arm below (None for every other kind); consumed by the
     // prompt render in step 3.
     let mut fix_rebase_onto: Option<String> = None;
+    // The PR is a member of an open stack (`base_kind == "open-parent"`):
+    // the prompt then pushes and stops instead of merging (the stack guard
+    // would refuse a plain merge).
+    let mut fix_stacked = false;
     // EXP-478/EXP-637: every repo-backed run now works in its OWN worktree
     // (fix-conflicts on the PR branch, Team/Chat on a fresh run branch), so
     // it gates the clone for the launch's whole flight like an issue/batch
@@ -2345,7 +2349,10 @@ fn prepare_action(
                     default_branch,
                     ..
                 } => match issues::prepare_conflict_fix(&deps.trpc, issue_id) {
-                    Ok(resolved) => Some(resolved.rebase_onto),
+                    Ok(resolved) => {
+                        fix_stacked = resolved.base_kind == "open-parent";
+                        Some(resolved.rebase_onto)
+                    }
                     Err(ApiError::Http { status: 404, .. }) => Some(default_branch.clone()),
                     Err(err) => {
                         return Err(CodingError::Io(format!(
@@ -2554,6 +2561,7 @@ fn prepare_action(
             // The live base resolved above; the repo default only when the
             // server predates issues.prepareConflictFix (EXP-324).
             fix_rebase_onto.as_deref().unwrap_or(default_branch),
+            fix_stacked,
             unattended,
             req.prompt.as_deref(),
         )),

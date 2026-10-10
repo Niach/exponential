@@ -34,9 +34,12 @@ export function prMergeFailureError(
 ): TRPCError {
   if (err.status === 405) {
     if (isNotMergeable(err)) {
-      // A diagnosis that failed to run (null) keeps today's behaviour: offer
-      // the recovery run rather than hide it on an unknown state.
-      const conflict = diagnosis?.conflict ?? true
+      // CONFLICT only on a DIAGNOSED content conflict. A diagnosis that
+      // could not run (null) is an unknown state, not a conflict: the web
+      // and desktop merge buttons auto-open the Fix-conflicts run on this
+      // code alone, and a stale base or a vanished branch would send that
+      // run in circles. GitHub's own message stands in for the diagnosis.
+      const conflict = diagnosis?.conflict === true
       return new TRPCError({
         code: conflict ? `CONFLICT` : `PRECONDITION_FAILED`,
         message: diagnosis?.message ?? err.message,

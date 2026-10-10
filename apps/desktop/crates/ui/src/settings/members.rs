@@ -654,15 +654,27 @@ impl Render for MembersPane {
                         .map(|at| format!("Expires {}", format_short_date(at)))
                         .unwrap_or_else(|| "No expiry".to_string())
                         .into();
-                    // ONE anatomy (web parity): the address or "Link
-                    // invite" · the role pill (mail glyph, link glyph for a
-                    // link invite) · "Expires Mon D".
-                    let pill_icon = if invite.email.is_some() {
+                    // ONE anatomy (web `members-section.tsx` pending invites):
+                    // a leading muted mail glyph (link glyph for a link
+                    // invite) · the address or "Link invite" · the role pill
+                    // wearing the owner/member glyph like the roster rows ·
+                    // "Expires Mon D".
+                    let kind_icon = if invite.email.is_some() {
                         registry::UI_MAIL
                     } else {
                         registry::UI_LINK
                     };
-                    let mut invite_identity = h_flex().gap_3().items_center();
+                    let pill_icon = if role.as_ref() == TEAM_ROLE_OWNER {
+                        registry::UI_OWNER
+                    } else {
+                        registry::UI_MEMBER
+                    };
+                    let mut invite_identity = h_flex().gap_3().items_center().child(
+                        Icon::new(kind_icon)
+                            .with_size(gpui::px(16.))
+                            .flex_shrink_0()
+                            .text_color(cx.theme().muted_foreground),
+                    );
                     match invite.email.clone() {
                         Some(email) => {
                             invite_identity = invite_identity.child(

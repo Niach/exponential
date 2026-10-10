@@ -9,7 +9,8 @@
 // `todo` is gone from the vocabulary, but old events still name it); iOS
 // EventPhrases, Android labelFor and desktop timeline.rs mirror this map.
 import { estimateEventPhrase } from "@/lib/issue-estimate"
-import { issueStatusOptions } from "@/lib/domain"
+import { issueStatusOptions, issueStatusValues } from "@/lib/domain"
+import type { StatusResolvable } from "@/lib/team-statuses"
 
 export const RETIRED_STATUS_LABELS: Record<string, string> = { todo: `Todo` }
 
@@ -19,13 +20,37 @@ const BUILTIN_STATUS_LABELS: Record<string, string> = Object.fromEntries(
   issueStatusOptions.map((option) => [option.value, option.label])
 )
 
+/** The team's status resolver (`useTeamStatusesContext().resolve`): the
+ *  statusId row, else the row anchored on the enum, else a constructed
+ *  default. Only `id` and `name` are read here. */
+export type StatusRowResolver = (
+  issue: StatusResolvable
+) => { id: string; name: string }
+
+// A side's display name ×4 (desktop timeline.rs `status_display_name`): the
+// payload's name snapshot, else the TEAM row its statusId names, else the
+// team's row for a known enum anchor (a renamed "In Progress" reads as that
+// name), else the retired-label / builtin-label / munge fallback for a wire
+// value no row answers to. Without a resolver (the admin log) the anchor
+// reads as the builtin label.
 export function statusLabel(
   payload: Record<string, unknown>,
-  side: `to` | `from`
+  side: `to` | `from`,
+  resolve?: StatusRowResolver
 ): string {
   const name = payload[side === `to` ? `toName` : `fromName`]
   if (typeof name === `string` && name.length > 0) return name
   const token = String(payload[side] ?? ``)
+  if (resolve) {
+    const statusId = payload[side === `to` ? `toStatusId` : `fromStatusId`]
+    if (typeof statusId === `string` && statusId.length > 0) {
+      const row = resolve({ status: token, statusId })
+      if (row.id === statusId) return row.name
+    }
+    if ((issueStatusValues as readonly string[]).includes(token)) {
+      return resolve({ status: token, statusId: null }).name
+    }
+  }
   return (
     RETIRED_STATUS_LABELS[token] ??
     BUILTIN_STATUS_LABELS[token] ??
@@ -45,7 +70,8 @@ export function priorityLabel(value: unknown): string {
 // vocabulary; keep the two in step when adding an event type.
 export function issueEventPhrase(
   type: string,
-  payload: Record<string, unknown> | null
+  payload: Record<string, unknown> | null,
+  resolve?: StatusRowResolver
 ): string {
   const p = payload ?? {}
   switch (type) {
@@ -53,8 +79,8 @@ export function issueEventPhrase(
       return `created`
     case `status_changed`: {
       // ×4: `changed status from {from} to {to}`.
-      const to = statusLabel(p, `to`)
-      const from = statusLabel(p, `from`)
+      const to = statusLabel(p, `to`, resolve)
+      const from = statusLabel(p, `from`, resolve)
       if (!to) return `changed status`
       return from ? `changed status from ${from} to ${to}` : `changed status to ${to}`
     }

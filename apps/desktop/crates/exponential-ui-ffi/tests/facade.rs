@@ -1074,3 +1074,28 @@ fn the_facade_refuses_oversized_messages_and_bad_writes() {
     assert!(surface.set_data("/a/4000000000".into(), Some("1".into())).is_err());
     assert_eq!(surface.data_json(), r#"{"a":[]}"#);
 }
+
+/// R8 F53: a Swift/Kotlin measurer answering NaN or infinity is sanitised
+/// at the facade (and again in the core): the layout finishes with finite
+/// frames instead of a panic across the FFI.
+#[test]
+fn a_nan_measurer_never_panics_the_facade() {
+    struct Nan;
+    impl Measurer for Nan {
+        fn measure_id(&self) -> u64 {
+            11
+        }
+        fn measure_intrinsics(&self, leaves: Vec<FfiLeaf>) -> Vec<FfiIntrinsics> {
+            leaves.iter().map(|_| FfiIntrinsics { min_content_width: f32::NAN, max_content_width: f32::INFINITY, height_at_max_content: f32::NAN, baseline: Some(f32::NAN) }).collect()
+        }
+        fn measure_heights(&self, _leaves: Vec<FfiLeaf>, requests: Vec<FfiHeightRequest>) -> Vec<f32> {
+            requests.iter().map(|_| f32::NAN).collect()
+        }
+    }
+    let surface = Surface::new("nan".into(), core_catalog_id(), None, "light".into()).unwrap();
+    surface.set_nested(bench_tree_json(20)).unwrap();
+    surface.set_viewport(390.0, 0.0, None);
+    let out = surface.layout(Arc::new(Nan));
+    assert!(!out.frames.is_empty());
+    assert!(out.frames.iter().all(|f| f.x.is_finite() && f.y.is_finite() && f.w.is_finite() && f.h.is_finite()), "{:?}", out.frames.first());
+}

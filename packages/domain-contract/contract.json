@@ -245,7 +245,8 @@
   "codingSession": {
     "staleHours": 2,
     "launchKeys": ["agent", "model", "effort", "subagentModel", "ultracode", "planMode", "resume", "mcpServerIds", "account", "computerUse"],
-    "computerUseCap": "computer-use-run"
+    "computerUseCap": "computer-use-run",
+    "steerFilesCap": "steer-files"
   },
   "device": {
     "onlineWindowSeconds": 90
@@ -303,7 +304,8 @@
     "fixConflictsHeadline": "Fix merge conflicts",
     "fixConflictsSubmit": "Fix conflicts",
     "prPlaceholder": "Select a pull request…",
-    "conflictNote": "Merge refused: the branch has conflicts."
+    "conflictNote": "Merge refused: the branch has conflicts.",
+    "filesNeedNewerDevice": "Attaching files needs the device on 0.14.66 or newer; images still work"
   },
   "toolKind": {
     "values": [

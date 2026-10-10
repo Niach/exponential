@@ -681,31 +681,28 @@ fn status_chip(id: SharedString, label: &'static str, cx: &App) -> impl IntoElem
     crate::surface::glass_pill(id, PillSize::Sm, PillMode::Readonly, cx).child(label)
 }
 
-/// Web `formatDate` ("Jul 1, 2026"): month + day + year off the ISO
-/// timestamp's leading date. Unparseable input echoes back verbatim.
-/// `pub(super)`: the API-keys pane renders its created/last-used cells with
-/// the same shape (EXP-238).
+/// Web `formatDate` ("Jul 1, 2026"): month + day + year of the timestamp in
+/// the machine's LOCAL zone (`toLocaleDateString` does the same), so a row
+/// created at 23:30 UTC reads as the day the person saw it. A bare
+/// `YYYY-MM-DD` is a calendar day already and prints as-is; unparseable
+/// input echoes back verbatim. `pub(super)`: the API-keys, sign-in-methods
+/// and archived-boards panes render their dates with the same shape
+/// (EXP-238).
 pub(super) fn format_created_date(timestamp: &str) -> String {
-    const MONTHS: [&str; 12] = [
-        "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-    ];
+    use chrono::{DateTime, Local, NaiveDate};
+    const SHAPE: &str = "%b %-d, %Y";
     let date = timestamp.trim();
-    let mut parts = date.splitn(3, '-');
-    let (Some(year), Some(month), Some(rest)) = (parts.next(), parts.next(), parts.next()) else {
-        return date.to_string();
-    };
-    let Ok(month_num) = month.parse::<usize>() else {
-        return date.to_string();
-    };
-    // The day part carries the time suffix (`01T10:00:00.000Z`) — digits only.
-    let day_digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
-    let Ok(day_num) = day_digits.parse::<u32>() else {
-        return date.to_string();
-    };
-    if !(1..=12).contains(&month_num) || !(1..=31).contains(&day_num) {
-        return date.to_string();
+    // ISO (`2026-07-01T10:00:00.000Z`, offsets too) or the Postgres space
+    // form (`2026-01-05 08:00:00+00`, optional fraction).
+    let instant = DateTime::parse_from_rfc3339(date)
+        .or_else(|_| DateTime::parse_from_str(date, "%Y-%m-%d %H:%M:%S%.f%#z"));
+    if let Ok(instant) = instant {
+        return instant.with_timezone(&Local).format(SHAPE).to_string();
     }
-    format!("{} {day_num}, {year}", MONTHS[month_num - 1])
+    if let Ok(day) = NaiveDate::parse_from_str(date, "%Y-%m-%d") {
+        return day.format(SHAPE).to_string();
+    }
+    date.to_string()
 }
 
 /// The sweep-result notification copy (web `handleSweep` toast parity).
@@ -739,19 +736,46 @@ mod tests {
         assert_eq!(attachment_status(false, "application/pdf", true), "File");
     }
 
+    /// 09:00Z stays the same calendar day in every zone (UTC-12 … UTC+14),
+    /// so these read the same on a laptop in Vienna and on a UTC runner.
     #[test]
     fn created_dates_read_like_the_web_table() {
         assert_eq!(
-            format_created_date("2026-07-01T10:00:00.000Z"),
+            format_created_date("2026-07-01T09:00:00.000Z"),
             "Jul 1, 2026"
         );
-        assert_eq!(format_created_date("2025-12-31T23:59:59Z"), "Dec 31, 2025");
-        // Postgres space form and bare dates degrade gracefully too.
-        assert_eq!(format_created_date("2026-01-05 08:00:00+00"), "Jan 5, 2026");
+        assert_eq!(format_created_date("2025-12-31T09:00:00Z"), "Dec 31, 2025");
+        // Postgres space form (with and without a fraction), an explicit
+        // offset, and bare dates degrade gracefully too.
+        assert_eq!(format_created_date("2026-01-05 09:00:00+00"), "Jan 5, 2026");
+        assert_eq!(format_created_date("2026-01-05 09:00:00.123456+00"), "Jan 5, 2026");
+        assert_eq!(format_created_date("2026-01-05T09:00:00+02:00"), "Jan 5, 2026");
         assert_eq!(format_created_date("2026-03-09"), "Mar 9, 2026");
         // Garbage echoes back instead of panicking or lying.
         assert_eq!(format_created_date("not-a-date"), "not-a-date");
         assert_eq!(format_created_date(""), "");
+    }
+
+    /// F48: the date is the LOCAL day (web `toLocaleDateString`), not the
+    /// UTC day the ISO string leads with. 23:30Z on Jun 30 is already Jul 1
+    /// east of UTC and still Jun 30 at or west of it.
+    #[test]
+    fn created_dates_use_the_local_day() {
+        use chrono::{Offset, TimeZone};
+        let instant = chrono::DateTime::parse_from_rfc3339("2026-06-30T23:30:00Z")
+            .expect("a valid timestamp");
+        let offset_seconds = chrono::Local
+            .offset_from_utc_datetime(&instant.naive_utc())
+            .fix()
+            .local_minus_utc();
+        let expected = if offset_seconds >= 30 * 60 {
+            "Jul 1, 2026"
+        } else {
+            "Jun 30, 2026"
+        };
+        assert_eq!(format_created_date("2026-06-30T23:30:00Z"), expected);
+        // The Postgres form of the same instant lands on the same day.
+        assert_eq!(format_created_date("2026-06-30 23:30:00+00"), expected);
     }
 
     #[test]

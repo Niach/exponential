@@ -1,5 +1,6 @@
-- Körningar: en körning öppnas som en tråd med en statusrad (Building on your machine, förfluten tid, senaste verktygsrad) och resultaten direkt i tråden; Show work öppnar hela transkriptionen
-- Utkast: ett issue som skapats från ett utkast på en annan enhet öppnas här som issue, och ett kasserat utkast stängs överallt
-- Åtgärder: att ta bort en åtgärd frågar först, på det gemensamma varningskortet
-- Enheter: Codex behöver inte längre en CLI-installation; IDE:n hämtar den vid första inloggningen
-- Korrigeringar: att slå samman en agents pull request utan issue fungerar, och resultatbilder laddas upp tillförlitligt
+- Guide: ett issues Changes och Results är nu en enda Guide; varje avsnitt i agentens rapport öppnar sin egen diff, och Show complete diff ligger längst ned
+- Körningar: körningstråden läses tur för tur med dina egna meddelanden emellan, och en staplad pull request mergas med en enda Merge stack-kontroll
+- Redigering: knappen + öppnar en enda meny (implementera ett issue, kör en åtgärd, lägg till en fil eller bild på upp till 50 MB, insats, subagenter, MCP-servrar, datoranvändning); förslag är diskreta rader under fältet
+- Länkar: en länk i ett agentsvar eller i Guide som pekar på en körning eller ett issue öppnas i appen, andra länkar öppnas i appens webbläsare, och nakna URL:er går att trycka på
+- Åtgärder: en misslyckad merge erbjuder Fix merge conflicts, en inbyggd åtgärd som rebasar, löser konflikter och mergar pull requesten
+- Korrigeringar: Reviews namnger issuet för en pull request vars repository är anslutet i ett annat team, sessionstext överlappar inte längre, en dubblerad knapp är borta, och en putsrunda samordnar rader, avstånd och texter i hela appen

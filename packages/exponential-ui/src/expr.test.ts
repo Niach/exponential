@@ -1,7 +1,7 @@
 // VAPP-85: the macro template value language, op by op.
 
 import { describe, expect, test } from "bun:test"
-import { CORE_FUNCTIONS, evalCondition, evalConditionValue, evalValue, type ExprContext } from "./expr"
+import { CORE_FUNCTIONS, MAX_RANGE_ITEMS, evalCondition, evalConditionValue, evalValue, type ExprContext } from "./expr"
 
 const ctx: ExprContext = { id: `n1`, props: { gap: `lg`, count: 0, title: ``, items: [`a`, `b`], selected: `b`, page: 2 }, vars: { item: { value: `b`, label: `Bee` }, index: 1 } }
 
@@ -94,5 +94,18 @@ describe(`round 1: bound inputs emit calls`, () => {
     expect(CORE_FUNCTIONS.len({ value: `abc` })).toBe(3)
     expect(CORE_FUNCTIONS.cond({ if: 0, then: `yes`, else: `no` })).toBe(`yes`)
     expect(CORE_FUNCTIONS.text({ value: undefined })).toBeUndefined()
+  })
+})
+
+describe(`range (R8 F51)`, () => {
+  test(`stops at MAX_RANGE_ITEMS; NaN and negatives are empty`, () => {
+    const big: ExprContext = { id: `r`, props: { huge: 1e8, vast: 1e300, neg: -3, nan: `x` }, vars: {} }
+    const len = (e: string) => (evalValue(e, big) as unknown[]).length
+    expect(MAX_RANGE_ITEMS).toBe(10_000)
+    expect(len(`{range(props.huge)}`)).toBe(MAX_RANGE_ITEMS)
+    expect(len(`{range(props.vast)}`)).toBe(MAX_RANGE_ITEMS)
+    expect(len(`{range(props.neg)}`)).toBe(0)
+    expect(len(`{range(props.nan)}`)).toBe(0)
+    expect(len(`{range(props.missing|5)}`)).toBe(5)
   })
 })

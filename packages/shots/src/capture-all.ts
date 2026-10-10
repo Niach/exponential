@@ -1627,7 +1627,10 @@ function emptyTally(): PlatformTally {
 async function writeStore(
   options: Options,
   scope: Scope,
-  outcomes: LaneOutcome[] = []
+  outcomes: LaneOutcome[] = [],
+  /** Only raws written at or after this instant are this run's (ms since
+   *  the epoch); null = `--write-only`, every raw on disk counts. */
+  freshSince: number | null = null
 ): Promise<{
   tallies: Map<Platform, PlatformTally>
   failures: string[]
@@ -1660,6 +1663,15 @@ async function writeStore(
       if (!existsSync(raw)) {
         if (refused.has(`${platform}/${view.id}`)) tally.failed++
         else tally.missing++
+        continue
+      }
+      // A lane that died before its capture tool ran leaves the PREVIOUS
+      // run's raw in place: a raw older than this run was never captured
+      // now, and must not be stored as if it had been.
+      if (freshSince !== null && statSync(raw).mtimeMs < freshSince) {
+        if (refused.has(`${platform}/${view.id}`)) tally.failed++
+        else tally.missing++
+        failures.push(`${platform}/${view.id}: stale raw from an earlier run, not encoded`)
         continue
       }
       try {
@@ -1950,6 +1962,8 @@ function failedByPlatform(outcomes: LaneOutcome[]): Map<string, string[]> {
 /* ---------------------------------------------------------------------- main */
 
 async function main(): Promise<number> {
+  // F39: raws written before this instant belong to an earlier run.
+  const runStartedAt = Date.now()
   const options = parseArgs(process.argv.slice(2))
   const { scope, affected, since } = await resolveScope(options)
   if (!options.writeOnly) {
@@ -2154,7 +2168,12 @@ async function main(): Promise<number> {
     }
 
     console.log(`\n── store ─────────────────────────────────────────────`)
-    const { tallies, failures, reports } = await writeStore(options, scope, outcomes)
+    const { tallies, failures, reports } = await writeStore(
+      options,
+      scope,
+      outcomes,
+      options.writeOnly ? null : runStartedAt
+    )
     const index = await indexStore({ prune: options.prune, dryRun: options.dryRun })
     const delta = printTable(tallies)
     const diffLines = formatDiffReport(reports)

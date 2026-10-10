@@ -25,6 +25,22 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-10-release-train`,
+    date: `2026-10-10`,
+    title: `Fix merge conflicts from a refused merge, Reviews across teams, and a polish round`,
+    summary: `A merge refused for conflicts offers the Fix merge conflicts run, Reviews names the issue of a pull request whose repository is connected in another team, stacked merges heal their base first, and rows, spacing and copy line up on every client.`,
+    body: `- **Fix merge conflicts**: when a merge is refused because the branch has conflicts, the Merge control opens the composer on the built-in Fix merge conflicts action with the pull request picked, on web, desktop, iOS and Android. The run rebases, resolves and merges; a pull request inside an open stack is pushed and left for Merge stack.
+- **Reviews**: a pull request linked to an issue in another team no longer lists as "not linked to an issue", and a plain merge refused on a stack member explains that Merge stack lands it with the pull requests below it.
+- **Stacks**: Merge stack heals a landing whose bottom pull request still sits on a merged base, a pull request that failed to join its GitHub stack still opens with a warning instead of an error, and a report topic's pull request link is matched whatever form the agent wrote it in.
+- **Files for runs**: attaching a non-image file to a run needs the device on 0.14.66 or newer; images keep working with older devices, and the composer says so.
+- **Polish round**: relative times read "5h" and "3d", status changes read "from Backlog to In Progress", list bands drop their counts, settings rows share one layout, and dozens of small alignment and copy fixes land on web, desktop, iOS and Android.
+- **Android**: the Work screen no longer redraws every frame while idle (battery), and pictures an agent shows inline render under the transcript call.
+- **iOS**: session text no longer overlaps and the doubled Discard button is gone.
+- **Code mode**: scripts can no longer import files from the host machine, a runaway script is stopped at its deadline, and bulk tool calls run on a bounded worker pool.
+- **MCP**: \`exponential_sessions_get\` waits up to 10 minutes for a run to go idle without the request timing out, and a chat run's report survives the client ending the row.
+- **Older apps**: apps from before this release keep working.`,
+  },
+  {
     id: `2026-10-10-agent-links`,
     date: `2026-10-10`,
     title: `Links in agent replies: sources, runs and issues`,

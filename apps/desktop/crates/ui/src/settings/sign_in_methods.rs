@@ -786,7 +786,7 @@ mod tests {
         let passkey = SignInPasskey {
             id: "pk".to_string(),
             name: None,
-            created_at: Some("2026-09-02T00:00:00.000Z".to_string()),
+            created_at: Some("2026-09-02T09:00:00.000Z".to_string()),
             backed_up: true,
         };
         assert_eq!(passkey_name(&passkey), "Passkey");

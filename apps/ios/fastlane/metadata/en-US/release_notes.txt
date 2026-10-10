@@ -1,5 +1,6 @@
-- Runs: a run opens as a thread with a status row (Building on your machine, elapsed time, last tool line) and its results inline; Show work opens the full transcript
-- Drafts: an issue created from a draft on another device lands on the issue here, and a discarded draft closes everywhere
-- Actions: deleting an action asks first, on the shared alert card
-- Devices: Codex no longer needs a CLI install; the IDE fetches it on the first sign-in
-- Fixes: merging an agent's pull request without an issue works, and results pictures upload reliably
+- Guide: an issue's Changes and Results are now one Guide; each section of the agent's report opens its own diff, and Show complete diff sits at the bottom
+- Runs: the run thread reads turn by turn with your own messages in between, and a stacked pull request merges with one Merge stack control
+- Composer: the + button opens one menu (implement an issue, run an action, add a file or image up to 50 MB, effort, subagents, MCP servers, computer use); suggestions are quiet rows under the box
+- Links: a link in an agent's reply or Guide that points at a run or issue opens in the app, other links open in the in-app browser, and bare URLs are tappable
+- Actions: a failed merge offers Fix merge conflicts, a built-in action that rebases, resolves and merges the pull request
+- Fixes: Reviews names the issue of a pull request whose repository is connected in another team, session text no longer overlaps, a doubled button is gone, and a polish round aligns rows, spacing and copy across the app

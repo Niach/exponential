@@ -238,10 +238,9 @@ fn device_agent_status(
     )
 }
 
-/// EXP-1249: whether the synced row advertises `computer-use-run` — the
-/// machine reads a start's per-run `computerUse`, so the "+" menu may offer
-/// the toggle for it. An unsynced row cannot say so: no toggle.
-fn device_reads_computer_use(row_id: &str, cx: &App) -> bool {
+/// Whether the synced device row advertises `cap`. An unsynced row cannot
+/// say so: no.
+fn device_has_cap(row_id: &str, cap: &str, cx: &App) -> bool {
     if row_id.is_empty() {
         return false;
     }
@@ -250,11 +249,20 @@ fn device_reads_computer_use(row_id: &str, cx: &App) -> bool {
     devices
         .iter()
         .find(|row| row.id == row_id)
-        .is_some_and(|row| {
-            row.cap_ids()
-                .iter()
-                .any(|cap| cap == coding::doctor::COMPUTER_USE_RUN_CAP)
-        })
+        .is_some_and(|row| row.cap_ids().iter().any(|own| own == cap))
+}
+
+/// EXP-1249: whether the synced row advertises `computer-use-run` — the
+/// machine reads a start's per-run `computerUse`, so the "+" menu may offer
+/// the toggle for it.
+fn device_reads_computer_use(row_id: &str, cx: &App) -> bool {
+    device_has_cap(row_id, coding::doctor::COMPUTER_USE_RUN_CAP, cx)
+}
+
+/// Whether the synced row advertises `steer-files` — the machine localizes
+/// non-image file attachments, so the pick may take files for it.
+fn device_takes_files(row_id: &str, cx: &App) -> bool {
+    device_has_cap(row_id, coding::STEER_FILES_CAP, cx)
 }
 
 /// EXP-862 — a machine's glyph for the device picker: EXP-924 made it the
@@ -292,8 +300,17 @@ struct ActionSubject {
     picks: ActionInputPicks,
     /// EXP-1233: a merge refused by a REAL conflict opened the composer on
     /// the Fix merge conflicts builtin (the seed's `conflict`), so its card
-    /// adds the refusal line. Lives on the subject, so any other pick clears it.
-    conflict_refused: bool,
+    /// adds the refusal line — for THAT pull request only (its representative
+    /// issue id): a cleared or replaced pick never wears a refusal nobody
+    /// tried ([`conflict_note_shows`]). Lives on the subject, so any other
+    /// pick clears it.
+    refused_pr: Option<String>,
+}
+
+/// EXP-1233: whether the Fix merge conflicts card adds the "Merge refused"
+/// line — only while the picked PR is the one whose merge was refused.
+fn conflict_note_shows(refused_pr: Option<&str>, picked_pr: Option<&str>) -> bool {
+    matches!((refused_pr, picked_pr), (Some(refused), Some(picked)) if refused == picked)
 }
 
 /// EXP-868: what [`ChatScreenView::team_pool`] is valid for.
@@ -1140,10 +1157,13 @@ impl ChatScreenView {
         self.probe_generation += 1;
         let conflict_refused = std::mem::take(&mut self.pending_conflict)
             && action_id == api::actions::BUILTIN_FIX_CONFLICTS_ID;
+        // The refusal belongs to the seed's PR: without one there is nothing
+        // the note could be about.
+        let refused_pr = conflict_refused.then(|| self.pending_pr.clone()).flatten();
         self.subject = Subject::Action(ActionSubject {
             action_id: action_id.clone(),
             picks: ActionInputPicks::default(),
-            conflict_refused,
+            refused_pr,
         });
         if !had_subject {
             if let Some(launch) = self.launch.as_mut() {
@@ -1377,6 +1397,7 @@ impl ChatScreenView {
                     accounts,
                     usage,
                     computer_use_run: device_reads_computer_use(&device.row_id, cx),
+                    steer_files: device_takes_files(&device.row_id, cx),
                 }
             });
         let has_subject = !matches!(self.subject, Subject::None);
@@ -1550,6 +1571,9 @@ impl ChatScreenView {
         };
         if let Subject::Action(subject) = &mut self.subject {
             subject.picks.clear_pr(&action);
+            // The refusal was about the PR just cleared; the next pick is
+            // one nobody tried to merge.
+            subject.refused_pr = None;
         }
         cx.notify();
     }
@@ -1616,6 +1640,11 @@ impl ChatScreenView {
                     }
                 }
             }
+        }
+        // A file staged before the machine was switched to one without
+        // `steer-files`: the server would refuse with the same sentence.
+        if self.images.has_files() && !launch.files_offered() {
+            return Some(composer_images::FILES_NEED_NEWER_DEVICE.into());
         }
         let text = self.input.read(cx).value().to_string();
         let kind = self.subject_kind();
@@ -2210,7 +2239,14 @@ impl ChatScreenView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
+        // The target gate: a remote machine without `steer-files` takes
+        // images only, and the pinned sentence says why a file was dropped.
+        let files_allowed = self.launch.as_ref().is_none_or(|launch| launch.files_offered());
+        let (images, dropped) = composer_images::gate_files_for_target(images, files_allowed);
         self.notice = self.images.stage(images, &self.input, window, cx);
+        if dropped {
+            self.notice = Some(composer_images::FILES_NEED_NEWER_DEVICE.into());
+        }
         cx.notify();
     }
 
@@ -2433,7 +2469,11 @@ impl ChatScreenView {
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let pr = self.fix_conflicts_pr(cx);
-        let refused = matches!(&self.subject, Subject::Action(subject) if subject.conflict_refused);
+        let refused_pr = match &self.subject {
+            Subject::Action(subject) => subject.refused_pr.as_deref(),
+            _ => None,
+        };
+        let refused = conflict_note_shows(refused_pr, self.fix_conflicts_pr_id());
         let pulls = crate::action_inputs::pr_pick_options(cx, team_id);
         let row = fix_conflicts_pr_row("chat-fix-conflicts-pr", pr.as_ref(), cx)
             .dropdown_menu(crate::action_inputs::pr_menu(
@@ -4287,6 +4327,18 @@ mod tests {
     /// `prompt_placeholder` shows that instead — the Create-action builtin's
     /// own hint included; a blank hint, an unlisted action or an issue
     /// subject fall back.
+    /// The "Merge refused" line belongs to the PR whose merge was refused:
+    /// the ✕ chip (no pick) and a replaced pick both drop it, and a seed
+    /// without a PR never shows it.
+    #[test]
+    fn conflict_note_shows_only_for_the_refused_pr() {
+        assert!(conflict_note_shows(Some("issue-1"), Some("issue-1")));
+        assert!(!conflict_note_shows(Some("issue-1"), None));
+        assert!(!conflict_note_shows(Some("issue-1"), Some("issue-2")));
+        assert!(!conflict_note_shows(None, Some("issue-1")));
+        assert!(!conflict_note_shows(None, None));
+    }
+
     #[test]
     fn composer_placeholder_follows_the_subject_and_the_actions_hint() {
         assert_eq!(CHAT_PLACEHOLDER, "Ask the agent…");
@@ -4295,7 +4347,7 @@ mod tests {
             Subject::Action(ActionSubject {
                 action_id: id.to_string(),
                 picks: ActionInputPicks::default(),
-                conflict_refused: false,
+                refused_pr: None,
             })
         };
         let mut action = api::actions::builtin_fix_conflicts_action("team-1");

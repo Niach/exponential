@@ -281,7 +281,11 @@ describe(`nextShowLabel`, () => {
 
 // EXP-1245/1251: the write stamp, the per-PR tag and the Guide's missing-file
 // answer.
-import { missingGuideFiles, stampUntaggedResults } from "./session-result-writes"
+import {
+  canonicalGithubPrUrl,
+  missingGuideFiles,
+  stampUntaggedResults,
+} from "./session-result-writes"
 
 describe(`guide writes`, () => {
   it(`stamps at and tags a topic's PR, keeping the tag on a rewrite`, () => {
@@ -305,6 +309,36 @@ describe(`guide writes`, () => {
       ])
     ).toEqual([`gone.ts`])
     expect(missingGuideFiles([], [])).toEqual([])
+  })
+
+  it(`folds every spelling of a GitHub PR url to the canonical one`, () => {
+    const canonical = `https://github.com/o/r/pull/12`
+    for (const raw of [
+      canonical,
+      ` ${canonical} `,
+      `http://github.com/o/r/pull/12`,
+      `https://GitHub.com/o/r/pull/12`,
+      `https://www.github.com/o/r/pull/12/`,
+      `https://github.com/o/r/pull/12/files`,
+      `https://github.com/o/r/pull/12/commits/abc`,
+      `https://github.com/o/r/pull/12?diff=split#top`,
+      `https://github.com/o/r/pull/012`,
+    ]) {
+      expect(canonicalGithubPrUrl(raw), raw).toBe(canonical)
+    }
+    for (const raw of [
+      ``,
+      `not a url`,
+      `ftp://github.com/o/r/pull/12`,
+      `https://gitlab.com/o/r/-/merge_requests/1`,
+      `https://github.com/o/r/issues/12`,
+      `https://github.com/o/r/pull/`,
+      `https://github.com/o/r/pull/x`,
+      `https://github.com/o/pull/12`,
+      `https://evil.github.com/o/r/pull/12`,
+    ]) {
+      expect(canonicalGithubPrUrl(raw), raw).toBeNull()
+    }
   })
 
   it(`tags only the untagged text topics with a new PR`, () => {

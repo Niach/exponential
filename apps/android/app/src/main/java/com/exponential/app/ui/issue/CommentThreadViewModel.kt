@@ -29,6 +29,7 @@ import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.MAX_FILE_UPLOAD_BYTES
 import com.exponential.app.domain.MAX_IMAGE_UPLOAD_BYTES
 import com.exponential.app.domain.canonicalContentType
+import com.exponential.app.domain.commentComposerAfterBind
 import com.exponential.app.domain.MediaPreparer
 import com.exponential.app.domain.isInlineImage
 import com.exponential.app.domain.isInlineMedia
@@ -166,6 +167,11 @@ class CommentThreadViewModel @Inject constructor(
             _replyTarget.value = null
             _reporterAudience.value = false
         }
+        // F34: the draft + its queued files stay with the issue they were
+        // typed on (the Work screen's Stack swap rebinds this screen-level VM).
+        val carry = commentComposerAfterBind(issueIdFlow.value, issueId, _draft.value, _pendingAttachments.value)
+        _draft.value = carry.draft
+        _pendingAttachments.value = carry.pending
         issueIdFlow.value = issueId
     }
 

@@ -480,32 +480,45 @@ async function mergeOneIssuePr(
   // this merge call would beat it, squashing INTO the parent's kept branch
   // (the EXP-320 incident). Await the heal, then refuse while GitHub still
   // reports the merged branch as the base. Before any claim.
-  // A merge through a stack sits on an OPEN PR: no merged parent to heal.
-  const mergedParent =
+  // A merge THROUGH a stack lands the whole line in one merge-async, so the
+  // branch that matters is the BOTTOM member's base (every other member sits
+  // on an open PR): heal the bottom, as the old per-member loop did.
+  const healTarget =
     landing && landing.length > 1
-      ? null
-      : await basedOnMergedPr(ctx.db, {
-          teamId,
-          repoFullName,
+      ? {
+          identifier: landing[0]!.identifier,
+          prNumber: landing[0]!.prNumber,
+          prUrl: landing[0]!.prUrl,
+          prBaseBranch: landing[0]!.prBaseBranch,
+        }
+      : {
+          identifier: row.identifier,
+          prNumber: row.prNumber,
+          prUrl: row.prUrl,
           prBaseBranch: row.prBaseBranch,
-        })
-  if (mergedParent && row.prBaseBranch) {
+        }
+  const mergedParent = await basedOnMergedPr(ctx.db, {
+    teamId,
+    repoFullName,
+    prBaseBranch: healTarget.prBaseBranch,
+  })
+  if (mergedParent && healTarget.prBaseBranch) {
     try {
       await retargetChildrenOfMergedPr({
         prUrl: mergedParent.prUrl,
-        headBranch: row.prBaseBranch,
+        headBranch: healTarget.prBaseBranch,
         teamId,
       })
     } catch (err) {
       // The check below refuses a PR left on the merged branch.
-      console.error(`retarget before merging ${row.identifier}:`, err)
+      console.error(`retarget before merging ${healTarget.identifier}:`, err)
     }
     await awaitRebaseOffMergedBranch(ctx.db, {
       repoFullName,
-      prNumber: row.prNumber,
-      prUrl: row.prUrl,
-      prBaseBranch: row.prBaseBranch,
-      mergedBranch: row.prBaseBranch,
+      prNumber: healTarget.prNumber,
+      prUrl: healTarget.prUrl,
+      prBaseBranch: healTarget.prBaseBranch,
+      mergedBranch: healTarget.prBaseBranch,
       token: resolved.token,
     })
   }

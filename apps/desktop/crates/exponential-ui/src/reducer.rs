@@ -325,17 +325,50 @@ fn expand(node: UiNode, issues: &mut Vec<ReduceIssue>, options: &ReduceOptions) 
 fn finish(root: UiNode, mut issues: Vec<ReduceIssue>, lifted: IndexMap<String, UiNode>, options: &ReduceOptions) -> ReduceResult {
     let mut root = if options.expand { expand(root, &mut issues, options) } else { root };
     cap_depth(&mut root, 1, &mut issues, &options.catalog_id);
+    // R8 F51: ONE budget over the expanded trees (the root's, then every
+    // lifted template's): a macro's `$each` parts count.
+    let mut budget = Budget { left: limits::MAX_COMPONENTS, reported: issues.iter().any(|i| i.message == limits::components_issue()) };
+    budget.spend(&root.id, &mut issues);
+    cap_components(&mut root, &mut budget, &mut issues);
     let templates = (!lifted.is_empty()).then(|| {
         lifted
             .into_iter()
             .map(|(id, n)| {
                 let mut n = if options.expand { expand(n, &mut issues, options) } else { n };
                 cap_depth(&mut n, 1, &mut issues, &options.catalog_id);
+                budget.spend(&n.id, &mut issues);
+                cap_components(&mut n, &mut budget, &mut issues);
                 (id, n)
             })
             .collect()
     });
     ReduceResult { root, issues, templates }
+}
+
+/// R8 F51: the `maxComponents` budget over an EXPANDED tree (the flat
+/// builder counted the authored nodes; a macro's `$each` multiplies them:
+/// a Rating with `max: 10000` is 20,001 parts). Pre-order; a node past the
+/// budget is dropped with its subtree (children, then slots), the first
+/// refusal is the budget issue (once per surface).
+fn cap_components(node: &mut UiNode, budget: &mut Budget, issues: &mut Vec<ReduceIssue>) {
+    crate::deep(|| {
+        node.children.retain_mut(|child| {
+            if !budget.spend(&child.id, issues) {
+                return false;
+            }
+            cap_components(child, budget, issues);
+            true
+        });
+        if let Some(slots) = &mut node.slots {
+            slots.retain(|_, child| {
+                if !budget.spend(&child.id, issues) {
+                    return false;
+                }
+                cap_components(child, budget, issues);
+                true
+            });
+        }
+    })
 }
 
 /// A node at level `maxDepth + 1` (the root = 1; children and slots one
@@ -369,6 +402,9 @@ struct Builder<'a> {
     visiting: HashSet<String>,
     /// VAPP-103: every id already placed (a second place is refused).
     placed: HashSet<String>,
+    /// R8 F52: the ids whose second place was already reported (a 4 MB
+    /// `children: ["x", "x", …]` costs ONE issue, not one per reference).
+    twice_reported: HashSet<String>,
     budget: Budget,
     issues: Vec<ReduceIssue>,
 }
@@ -403,23 +439,38 @@ impl Builder<'_> {
         crate::deep(|| self.build_node(id, depth))
     }
 
+    /// R8 F52: the Unknown placeholders for a missing or cyclic id are
+    /// placed nodes too, so they spend the budget BEFORE they are made: a
+    /// message whose children list repeats an unknown id a million times
+    /// stops at `maxComponents` placeholders (one budget issue), and a
+    /// second place of an id is reported once per id.
     fn build_node(&mut self, id: &str, depth: usize) -> Option<UiNode> {
         let catalog_id = self.options.catalog_id.as_str();
-        let Some(&flat) = self.by_id.get(id) else {
-            self.issues.push(ReduceIssue { id: id.to_string(), message: "no component with this id".into() });
-            return Some(unknown(id, &format!("#{id}"), catalog_id));
-        };
-        if self.visiting.contains(id) {
-            self.issues.push(ReduceIssue { id: id.to_string(), message: "cycle through this id".into() });
-            return Some(unknown(id, &flat.component, catalog_id));
-        }
-        if self.placed.contains(id) {
-            self.issues.push(ReduceIssue { id: id.to_string(), message: limits::USED_TWICE_ISSUE.into() });
-            return None;
+        let flat = self.by_id.get(id).copied();
+        if let Some(flat) = flat {
+            // A cycle (the id is an ancestor) before a second place: the
+            // ancestor is in `placed` too.
+            if self.visiting.contains(id) {
+                if !self.budget.spend(id, &mut self.issues) {
+                    return None;
+                }
+                self.issues.push(ReduceIssue { id: id.to_string(), message: "cycle through this id".into() });
+                return Some(unknown(id, &flat.component, catalog_id));
+            }
+            if self.placed.contains(id) {
+                if self.twice_reported.insert(id.to_string()) {
+                    self.issues.push(ReduceIssue { id: id.to_string(), message: limits::USED_TWICE_ISSUE.into() });
+                }
+                return None;
+            }
         }
         if !self.budget.spend(id, &mut self.issues) {
             return None;
         }
+        let Some(flat) = flat else {
+            self.issues.push(ReduceIssue { id: id.to_string(), message: "no component with this id".into() });
+            return Some(unknown(id, &format!("#{id}"), catalog_id));
+        };
         self.placed.insert(id.to_string());
         if depth > limits::MAX_DEPTH {
             self.issues.push(ReduceIssue { id: id.to_string(), message: limits::depth_issue() });
@@ -574,6 +625,7 @@ fn reduce_flat(components: &[FlatComponent], options: &ReduceOptions) -> ReduceR
         basic: options.catalog_id == A2UI_BASIC_CATALOG_ID,
         visiting: HashSet::new(),
         placed: HashSet::new(),
+        twice_reported: HashSet::new(),
         budget: Budget::new(),
         issues,
     };

@@ -70,7 +70,6 @@ import com.exponential.app.ui.components.TabPager
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.actionGlyph
 import com.exponential.app.ui.components.agentLabel
-import com.exponential.app.ui.components.effortLabel
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.DesignTokens
@@ -505,16 +504,14 @@ private fun TriggerRow(
     }
 }
 
-/** The row's agent pins: the pinned agent plus whatever model/effort rides
- * with it; blank for an unpinned trigger (web parity — no pin text). */
-private fun triggerLaunchLabel(trigger: ActionTrigger): String {
+/** The row's agent pins, `agent · model` (web `action-triggers-section.tsx`
+ * ×4, release train 2026-10-10 F44: the effort never rides); blank for an
+ * unpinned trigger (no pin text). */
+internal fun triggerLaunchLabel(trigger: ActionTrigger): String {
     val agent = trigger.agent
     if (agent.isNullOrEmpty()) return ""
-    val extras = listOfNotNull(
-        trigger.model?.takeIf { it.isNotEmpty() }?.let(::modelLabel),
-        trigger.effort?.takeIf { it.isNotEmpty() }?.let(::effortLabel),
-    )
-    return (listOf(agentLabel(agent)) + extras).joinToString(" · ")
+    val model = trigger.model?.takeIf { it.isNotEmpty() }?.let(::modelLabel)
+    return listOfNotNull(agentLabel(agent), model).joinToString(" · ")
 }
 
 private fun deviceDisplayLabel(device: SteerDevice?, deviceId: String): String {
