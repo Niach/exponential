@@ -10,7 +10,8 @@
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
       "composer-dialog", "composer-fix-conflicts", "issue-context-menu", "session-row", "pr-row", "pr-graph-badge", "device-settings",
       "blocked-start-dialog", "stack-merge-choice-dialog", "draft-leave-dialog", "readiness-checklist",
-      "device-readiness", "results-guide", "mcp-app-views", "run-status-row", "session-thread", "composer-options"
+      "device-readiness", "results-guide", "mcp-app-views", "run-status-row", "session-thread", "composer-options",
+      "team-agents-settings", "your-agent-settings", "voice-call-overlay"
     ] },
     { "id": "views", "order": 4, "title": "4 Views", "blurb": "Whole screens, photographed on every platform.", "entries": [] }
   ],
@@ -46,6 +47,9 @@
     "mcp-app-views": "EXP-1183",
     "run-status-row": "EXP-1175",
     "session-thread": "EXP-1175",
-    "composer-options": "EXP-1249"
+    "composer-options": "EXP-1249",
+    "team-agents-settings": "EXP-1269",
+    "your-agent-settings": "EXP-1269",
+    "voice-call-overlay": "EXP-1268"
   }
 }

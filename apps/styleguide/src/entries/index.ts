@@ -35,6 +35,9 @@ import { entry as mcpAppViews } from "./mcp-app-views.tsx"
 import { entry as runStatusRow } from "./run-status-row.tsx"
 import { entry as sessionThread } from "./session-thread.tsx"
 import { entry as composerOptions } from "./composer-options.tsx"
+import { entry as teamAgentsSettings } from "./team-agents-settings.tsx"
+import { entry as yourAgentSettings } from "./your-agent-settings.tsx"
+import { entry as voiceCallOverlay } from "./voice-call-overlay.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 export type { StyleguideEntry } from "./types.ts"
@@ -72,6 +75,9 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   runStatusRow,
   sessionThread,
   composerOptions,
+  teamAgentsSettings,
+  yourAgentSettings,
+  voiceCallOverlay,
 ]
 
 export function entryById(id: string): StyleguideEntry | undefined {
