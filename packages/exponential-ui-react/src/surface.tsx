@@ -360,11 +360,17 @@ export function ExponentialSurface({
   const templates = (surface ? surface.templates : templatesProp) ?? NO_TEMPLATES
   const templateNode = useCallback((componentId: string) => templates[componentId], [templates])
   const templateRoots = useMemo(() => Object.values(templates), [templates])
-  // VAPP-103: past `maxTemplateItems` per surface the rest is not rendered.
+  // VAPP-103: past `maxTemplateItems` items or `maxComponents` nodes per
+  // surface the rest is not rendered.
   const budget = useMemo(() => (root ? templateBudget(root, data, templateNode) : undefined), [root, data, templateNode])
   useEffect(() => {
     if (budget?.exceeded) console.warn(`[exponential-ui] ${surfaceId}: ${budget.exceeded}: ${LIMIT_ISSUES.templateItems}`)
   }, [surfaceId, budget?.exceeded])
+  // VAPP-103: template instances count against `maxComponents` nodes too
+  // (static tree + every built instance); past it the rest is not built.
+  useEffect(() => {
+    if (budget?.componentsExceeded) console.warn(`[exponential-ui] ${surfaceId}: ${budget.componentsExceeded}: ${LIMIT_ISSUES.components}`)
+  }, [surfaceId, budget?.componentsExceeded])
   useEffect(() => {
     if (IS_DEV && root) warnMissingTemplates(surfaceId, root, templates)
   }, [surfaceId, root, templates])
@@ -435,6 +441,7 @@ export function ExponentialSurface({
       if (scrollers.current.get(id) === scroll) scrollers.current.delete(id)
     }
   }, [])
+  const paintFailures = useRef(new Map<string, string>()).current
   const hostValue = host ?? EMPTY_HOST
   // Every open passes the URL policy (the host's opener or a new tab).
   const openUrl = useCallback((url: string) => openAllowed(hostValue, url), [hostValue])
@@ -463,6 +470,7 @@ export function ExponentialSurface({
       formatter,
       now,
       registerScroller,
+      paintFailures,
       strings,
       t,
       breakpoint,
@@ -471,7 +479,7 @@ export function ExponentialSurface({
       hover,
       announce,
     }),
-    [surfaceId, compiled, theme, mode, hostValue, extensions, extensionDefs, data, setData, templateNode, budget, states, measure, portal, toastLayer, direction, functions, openUrl, locale, formatter, now, registerScroller, strings, t, breakpoint, xq, reducedMotion, hover, announce]
+    [surfaceId, compiled, theme, mode, hostValue, extensions, extensionDefs, data, setData, templateNode, budget, states, measure, portal, toastLayer, direction, functions, openUrl, locale, formatter, now, registerScroller, paintFailures, strings, t, breakpoint, xq, reducedMotion, hover, announce]
   )
 
   const nodeEl = useCallback((id: string): HTMLElement | null => rootEl?.querySelector<HTMLElement>(`[data-xui-id="${typeof CSS !== `undefined` && CSS.escape ? CSS.escape(id) : id.replace(/"/g, `\\"`)}"]`) ?? null, [rootEl])

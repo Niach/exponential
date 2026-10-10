@@ -186,7 +186,7 @@ function defsSchema(view: CatalogView, iconNames: readonly string[]): Json {
       required: [`call`],
     },
     Action: {
-      description: `A server event, a client function, or (round 1) both: the function args and the event context are evaluated first, then the function runs, then the event is dispatched. \`functionCall\` = A2UI's key, the only one (round 4: no legacy \`function\`).`,
+      description: `A server event, a client function, or (round 1) both: the function args and the event context are evaluated first, then the function runs, then the event is dispatched. \`functionCall\` = A2UI's key.`,
       type: `object`,
       properties: {
         event: { type: `object`, properties: { name: { type: `string` }, context: { type: `object` } }, required: [`name`] },

@@ -79,7 +79,8 @@ export function VideoNative({ node, props, rootProps }: NativeProps) {
   const part = useParts(node, props)
   const src = str(props.src)
   const poster = str(props.poster)
-  const url = useMediaSrc(ctx.host, src)
+  // The video streams (no byte caps); its poster is an image (the limits hold).
+  const url = useMediaSrc(ctx.host, src, `stream`)
   const posterUrl = useMediaSrc(ctx.host, poster)
   // Round 2 §7: height = width / `aspectRatio` (default 16:9), never the
   // browser's 300×150.
@@ -97,7 +98,7 @@ export function AudioPlayerNative({ node, props, rootProps }: NativeProps) {
   const part = useParts(node, props)
   const src = str(props.src)
   const title = str(props.title)
-  const url = useMediaSrc(ctx.host, src)
+  const url = useMediaSrc(ctx.host, src, `stream`)
   return (
     <div {...(rootProps as Record<string, unknown>)} style={mergeStyle(rootProps, { flexDirection: `column`, gap: `var(--xui-spacing-xs)` })}>
       {title ? <span {...(part(`track`) as Record<string, string>)}>{title}</span> : null}
@@ -161,7 +162,7 @@ export function CarouselNative({ node, props, rootProps, emit, scope }: NativePr
     const next = Math.round(Math.abs(el.scrollLeft) / el.clientWidth)
     if (next !== page) {
       setPage(next)
-      void emit(`change`, { page: next })
+      void emit(`change`, { page: next }, { page: next })
     }
   }
   const go = (next: number) => {
@@ -169,7 +170,7 @@ export function CarouselNative({ node, props, rootProps, emit, scope }: NativePr
     if (n === 0) return
     const target = bool(props.loop) ? ((next % n) + n) % n : Math.max(0, Math.min(n - 1, next))
     setPage(target)
-    void emit(`change`, { page: target })
+    void emit(`change`, { page: target }, { page: target })
     scrollTo(target)
   }
   const many = pages.length > 1

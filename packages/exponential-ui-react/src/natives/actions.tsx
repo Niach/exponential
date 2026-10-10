@@ -94,7 +94,9 @@ export function LinkNative({ props, rootProps, emit }: NativeProps) {
         const handled = emit(`press`)
         if (!href) e.preventDefault()
         else if (!external && handled !== undefined) e.preventDefault()
-        else if (ctx.host.openUrl && !external) {
+        else if (ctx.host.openUrl) {
+          // A host opener takes every allowed href, external ones too (a
+          // new tab is only the fallback without one).
           e.preventDefault()
           ctx.openUrl(href)
         }
@@ -117,7 +119,7 @@ export function ToggleNative({ node, props, rootProps, emit, scope }: NativeProp
       pressed={pressed}
       onPressedChange={(next) => {
         setPressed(next)
-        void emit(`change`, { pressed: next })
+        void emit(`change`, { pressed: next }, { pressed: next })
       }}
       aria-label={icon && label ? label : undefined}
     >

@@ -74,10 +74,10 @@ export function SelectNative({ node, props, rootProps, emit, scope, domId }: Nat
   const options = sourced ?? inline
   const commit = (next: string | string[]) => {
     const out = multiple && !rawIsArray && typeof raw === `string` ? (next as string[]).join(`,`) : next
-    setValue(next)
+    setValue(next, out)
     f.change(out)
     f.touch()
-    void emit(`change`, { value: out })
+    void emit(`change`, { value: out }, { value: out })
   }
 
   // `search {query}` debounced; a host source answers the same query.

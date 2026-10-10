@@ -245,31 +245,18 @@ impl Surface {
         out
     }
 
-    /// Fire a node's `on.<event>` handler: the component's OWN write lands
-    /// first (round 4, `src/dynamic.ts withOwnWrites`: every payload key
-    /// whose same-named prop is bound is written at its path), then the
-    /// context and the function's args resolve against that data, then
-    /// `set` writes, then the event goes out with the payload merged into
-    /// its context.
+    /// Fire a node's `on.<event>` handler. The component's OWN write has
+    /// already landed (round 4, `src/dynamic.ts withOwnWrites`: every caller
+    /// writes EXACTLY what the component wrote — `write_through` /
+    /// `write_field` — before it fires; nothing is inferred from the
+    /// payload, whose keys may name other things: an `upload`'s `added`),
+    /// so the context and the function's args resolve against that data,
+    /// then `set` writes, then the event goes out with the payload merged
+    /// into its context.
     fn fire(&mut self, id: &str, event: &str, payload: Option<Value>) -> Vec<OutEvent> {
         let Some(node) = self.source_node(id) else { return vec![] };
         let Some(action) = node.on.as_ref().and_then(|o| o.get(event)).cloned() else { return vec![] };
         let mut out = vec![];
-        if let Some(Value::Object(p)) = &payload {
-            for (key, value) in p {
-                let Some(path) = self.binding_path(id, key) else { continue };
-                if self.get_data(&path) == Some(value) {
-                    continue;
-                }
-                // A refused write (pointer limits, index rules) changes nothing.
-                if set_pointer(&mut self.data, &path, Some(value.clone())).is_err() {
-                    continue;
-                }
-                self.data_version += 1;
-                self.needs_build = true;
-                out.push(OutEvent::DataChanged { path, value: value.clone() });
-            }
-        }
         let scope = self.scope_of(id);
         let outcome = {
             let ctx = self.resolve_ctx(&scope);
@@ -555,7 +542,9 @@ impl Surface {
                 let value = payload.as_ref().and_then(|p| p.get("value")).cloned().unwrap_or(Value::Null);
                 let name = n.props.get("name").or_else(|| self.node_by_id(&owner_id).and_then(|o| o.props.get("name"))).and_then(Value::as_str).unwrap_or(&owner_id).to_string();
                 let path = self.binding_path(&owner_id, "value");
-                if event != "submit" {
+                // A submit carries the text as it stands: written only when
+                // it differs (the own write lands before the action fires).
+                if event != "submit" || self.current_prop(&owner_id, "value").as_ref() != Some(&value) {
                     out.extend(self.write_field(&owner_id, "value", value.clone()));
                     // `validateOn: change` checks as the user types; a field
                     // already showing errors re-checks on every change.
@@ -858,13 +847,20 @@ impl Surface {
         } else {
             self.local.errors.remove(id);
         }
-        let mut files = if multiple { self.files_of(id) } else { Vec::new() };
         let accepted: Vec<Value> = if multiple { ok } else { ok.into_iter().take(1).collect() };
-        files.extend(accepted.iter().cloned());
-        let mut out = self.files_write(id, files);
-        if !accepted.is_empty() {
-            out.extend(self.fire(id, "upload", Some(json!({"files": accepted}))));
+        if accepted.is_empty() {
+            // Nothing attached: the list stays (the refusals show).
+            self.needs_build = true;
+            return vec![OutEvent::Relayout];
         }
+        // A re-picked name replaces its earlier entry (the React reference).
+        let mut files: Vec<Value> = if multiple { self.files_of(id) } else { Vec::new() };
+        files.retain(|f| !accepted.iter().any(|a| a.get("name") == f.get("name")));
+        files.extend(accepted.iter().cloned());
+        // The own write = the whole list; the payload = the whole list plus
+        // the new batch (`added`).
+        let mut out = self.files_write(id, files.clone());
+        out.extend(self.fire(id, "upload", Some(json!({"files": files, "added": accepted}))));
         out.push(OutEvent::Relayout);
         out
     }
@@ -875,8 +871,8 @@ impl Surface {
             return vec![];
         }
         let removed = files.remove(i);
-        let mut out = self.files_write(id, files);
-        out.extend(self.fire(id, "remove", Some(json!({"name": removed.get("name").cloned().unwrap_or(Value::Null)}))));
+        let mut out = self.files_write(id, files.clone());
+        out.extend(self.fire(id, "remove", Some(json!({"name": removed.get("name").cloned().unwrap_or(Value::Null), "files": files}))));
         out.push(OutEvent::Relayout);
         out
     }
@@ -1175,8 +1171,9 @@ impl Surface {
         }
         out.extend(self.fire(form_id, "submit", Some(json!({"values": values}))));
         // Round 4 (VAPP-103, `src/dynamic.ts submitClosesOverlay`): a valid
-        // submit closes the nearest Dialog or Drawer around the form, like
-        // a dismiss (`open` false written through, `change {open: false}`).
+        // submit closes the nearest overlay around the form when it is a
+        // dismissible Dialog or Drawer, like a dismiss (`open` false
+        // written through, `change {open: false}`).
         if let Some(overlay) = self.enclosing_modal(form_id) {
             out.extend(self.set_open(&overlay, false));
         }
@@ -1184,26 +1181,36 @@ impl Surface {
         out
     }
 
-    /// The nearest Dialog or Drawer around `id`: up the parent chain, a
-    /// layer's root continuing at the overlay that owns it.
+    /// The overlay a valid submit of form `id` closes (`src/dynamic.ts
+    /// submitClosesOverlay`): the NEAREST enclosing overlay of any kind
+    /// decides — up the parent chain, a layer's root continuing at the
+    /// overlay that owns it — and closes only when it is a dismissible
+    /// Dialog or Drawer (`dismissible: false`, an AlertDialog, never
+    /// auto-closes); a nearest Popover, Menu, Tooltip or Toast closes
+    /// nothing.
     fn enclosing_modal(&self, id: &str) -> Option<String> {
+        const OVERLAYS: [&str; 6] = ["Dialog", "Drawer", "Popover", "Tooltip", "Menu", "Toast"];
         let mut cur = self.node_by_id(id).map(|n| n.index);
         let mut guard = 0;
-        while let Some(i) = cur {
+        let nearest = loop {
+            let Some(i) = cur else { return None };
             guard += 1;
             if guard > 100_000 {
                 return None;
             }
             let n = &self.nodes[i as usize];
-            if n.part.is_none() && matches!(n.component.as_str(), "Dialog" | "Drawer") && n.id != id {
-                return Some(n.id.clone());
+            if n.part.is_none() && OVERLAYS.contains(&n.component.as_str()) && n.id != id {
+                break n.id.clone();
             }
-            if matches!(n.owner_component.as_deref(), Some("Dialog" | "Drawer")) {
-                return n.owner.clone();
+            if n.owner_component.as_deref().is_some_and(|c| OVERLAYS.contains(&c)) {
+                break n.owner.clone()?;
             }
             cur = n.parent.or_else(|| n.owner.as_deref().and_then(|o| self.node_by_id(o)).map(|o| o.index));
-        }
-        None
+        };
+        let overlay = self.node_by_id(&nearest)?;
+        let modal = matches!(overlay.component.as_str(), "Dialog" | "Drawer");
+        let dismissible = overlay.props.get("dismissible").and_then(Value::as_bool) != Some(false);
+        (modal && dismissible).then_some(nearest)
     }
 
     // ------------------------------------------------------------------

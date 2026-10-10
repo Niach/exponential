@@ -178,6 +178,37 @@ function finishTemplates(lifted: Map<string, UiNode>, expand: boolean, extension
   return out
 }
 
+/** VAPP-103: `maxDepth` holds for the tree AFTER macro expansion (a Card is
+ *  two levels once expanded): every node deeper than MAX_DEPTH (the root =
+ *  1) becomes the Unknown placeholder, its subtree dropped, with the depth
+ *  issue on its id (pre-order, slots before children). A placeholder the
+ *  authored-depth check already placed is not reported twice. Iterative. */
+function capDepth(root: UiNode, catalogId: string, issues: ReduceIssue[]): UiNode {
+  const stack: { node: UiNode; depth: number }[] = [{ node: root, depth: 1 }]
+  while (stack.length) {
+    const { node, depth } = stack.pop()!
+    const cap = (child: UiNode): UiNode => {
+      if (depth + 1 <= MAX_DEPTH || child.component === UNKNOWN_COMPONENT) return child
+      issues.push({ id: child.id, message: LIMIT_ISSUES.depth })
+      return unknown(child.id, child.component, catalogId)
+    }
+    const next: UiNode[] = []
+    if (node.slots)
+      for (const [name, slot] of Object.entries(node.slots)) {
+        const capped = cap(slot)
+        node.slots[name] = capped
+        next.push(capped)
+      }
+    node.children = node.children.map((child) => {
+      const capped = cap(child)
+      next.push(capped)
+      return capped
+    })
+    for (let i = next.length - 1; i >= 0; i--) stack.push({ node: next[i]!, depth: depth + 1 })
+  }
+  return root
+}
+
 function unknown(id: string, component: string, catalogId: string): UiNode {
   return { id, component: UNKNOWN_COMPONENT, props: { component, catalogId }, children: [] }
 }
@@ -306,7 +337,7 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
           issues.push({ id, message: `${node.component} takes no children` })
         for (const slot of Object.keys(node.slots ?? {}))
           if (!slotAllowed(def.slots, slot)) issues.push({ id, message: `slots.${slot}: ${node.component} has no such slot` })
-        for (const issue of validateNode(node)) issues.push({ id, message: `${issue.path}: ${issue.message}` })
+        for (const issue of validateNode(node, { extensions })) issues.push({ id, message: `${issue.path}: ${issue.message}` })
       }
     }
     return node
@@ -315,7 +346,7 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
   const rootId = options.rootId ?? `root`
   let root = build(rootId, 1) ?? unknown(rootId, `#${rootId}`, options.catalogId)
   const lifted = liftTemplates(root, issues, (id) => (byId.has(id) && !placed.has(id) ? build(id, 1) : undefined))
-  if (options.expand !== false) root = expandMacros(root, { extensions, issues })
+  if (options.expand !== false) root = capDepth(expandMacros(root, { extensions, issues }), options.catalogId, issues)
   const templates = finishTemplates(lifted, options.expand !== false, extensions, issues)
   return templates ? { root, issues, templates } : { root, issues }
 }
@@ -378,13 +409,13 @@ export function reduceNested(tree: NestedNode, options: Omit<ReduceOptions, `roo
         issues.push({ id: n.id, message: `${n.component} takes no children` })
       for (const slot of Object.keys(node.slots ?? {}))
         if (!slotAllowed(def.slots, slot)) issues.push({ id: n.id, message: `slots.${slot}: ${n.component} has no such slot` })
-      for (const issue of validateNode(node)) issues.push({ id: n.id, message: `${issue.path}: ${issue.message}` })
+      for (const issue of validateNode(node, { extensions })) issues.push({ id: n.id, message: `${issue.path}: ${issue.message}` })
     }
     return node
   }
   let root = walk(tree, 1)!
   const lifted = liftTemplates(root, issues)
-  if (options.expand !== false) root = expandMacros(root, { extensions, issues })
+  if (options.expand !== false) root = capDepth(expandMacros(root, { extensions, issues }), options.catalogId, issues)
   const templates = finishTemplates(lifted, options.expand !== false, extensions, issues)
   return templates ? { root, issues, templates } : { root, issues }
 }

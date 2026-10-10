@@ -49,6 +49,10 @@ export interface SurfaceContextValue {
   /** Round 2: a windowed List/Table registers its `scrollToIndex` under its
    *  painted id (the host command); returns the unregister. */
   registerScroller: (id: string, scroll: (index: number, align?: ScrollAlign) => void) => () => void
+  /** VAPP-103: the painted ids whose painter failed → their props as they
+   *  failed (reported once until the props change; an entry leaves when
+   *  the node paints or unmounts, so it never outgrows the mounted tree). */
+  paintFailures?: Map<string, string>
   /** The built-in string table (defaults + host overrides). */
   strings: Readonly<Record<string, string>>
   /** A built-in string by id with `{name}` placeholders filled. */

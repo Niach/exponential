@@ -10,7 +10,7 @@ import { useSurfaceContext } from "../context"
 import { boundPath } from "../data"
 import type { NativeProps } from "../node-view"
 
-export function useBoundState<T>(node: NativeProps[`node`], scope: string, prop: string, external: T, key: (v: T) => string = (v) => JSON.stringify(v) ?? ``): [T, (next: T) => void, string | undefined] {
+export function useBoundState<T>(node: NativeProps[`node`], scope: string, prop: string, external: T, key: (v: T) => string = (v) => JSON.stringify(v) ?? ``): [T, (next: T, written?: unknown) => void, string | undefined] {
   const ctx = useSurfaceContext()
   const path = boundPath(node.props, prop, scope)
   const [value, setValue] = useState<T>(external)
@@ -23,10 +23,13 @@ export function useBoundState<T>(node: NativeProps[`node`], scope: string, prop:
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [externalKey])
   const set = useCallback(
-    (next: T) => {
+    // `written` = the value the bound path receives when it differs from
+    // the local shape (a multiple Select bound to a string: the list shows,
+    // the comma-joined string is written).
+    (next: T, written: unknown = next) => {
       setValue(next)
       last.current = key(next)
-      if (path) ctx.setData(path, next)
+      if (path) ctx.setData(path, written)
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [path, ctx.setData]

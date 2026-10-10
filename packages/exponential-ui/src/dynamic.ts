@@ -51,14 +51,17 @@ export function readPath(data: unknown, path: string, scope: DataScope = {}): un
   return readPointer(data, absolutePath(path, scope))
 }
 
-/** The value at an absolute pointer; undefined when any step is missing. */
+/** The value at an absolute pointer; undefined when any step is missing.
+ *  `` and `/` = the whole model (as `writeTokens` writes it); only OWN
+ *  keys and real indices are read (`/constructor` names nothing). */
 export function readPointer(data: unknown, pointer: string): unknown {
-  if (pointer === `` || pointer === `/`) return pointer === `` ? data : (data as Record<string, unknown> | undefined)?.[``]
+  if (pointer === `` || pointer === `/`) return data
   let cur: unknown = data
   for (const raw of pointer.slice(1).split(`/`)) {
     if (cur === undefined || cur === null || typeof cur !== `object`) return undefined
     const token = unescape(raw)
-    cur = Array.isArray(cur) ? cur[Number(token)] : (cur as Record<string, unknown>)[token]
+    if (Array.isArray(cur)) cur = /^[0-9]+$/.test(token) ? cur[Number(token)] : undefined
+    else cur = Object.prototype.hasOwnProperty.call(cur, token) ? (cur as Record<string, unknown>)[token] : undefined
   }
   return cur
 }
@@ -240,14 +243,17 @@ export interface ActionOutcome {
 
 /** Round 4 (VAPP-103): the data an interaction's action resolves against =
  *  the data model WITH the source component's OWN write applied first.
- *  Every payload key whose same-named prop is a `{path}` binding (an
- *  Input's `value`, a Checkbox's `checked`, an overlay's `open`, a
- *  Carousel's `page`) is written at that path, so a `context.query` bound
- *  to the path the Input writes reads the text just typed, never the text
- *  before it. Renderers apply it before `runAction` (Rust: `Surface::fire`). */
-export function withOwnWrites(data: unknown, props: Record<string, unknown>, payload: Record<string, unknown> | undefined, scope: DataScope = {}): unknown {
+ *  `own` = EXACTLY what the component wrote, by prop (an Input's `value`,
+ *  a Checkbox's `checked`, an overlay's `open`, a FileUpload's MERGED
+ *  `files`), never inferred from the event payload (an `upload` payload's
+ *  `added` is the new batch, the write is the whole list): each prop that
+ *  is a `{path}` binding is written at that path, so a `context.query`
+ *  bound to the path the Input writes reads the text just typed. Renderers
+ *  apply it before `runAction` (Rust: every write lands before
+ *  `Surface::fire`). */
+export function withOwnWrites(data: unknown, props: Record<string, unknown>, own: Record<string, unknown> | undefined, scope: DataScope = {}): unknown {
   let out = data
-  for (const [key, value] of Object.entries(payload ?? {})) {
+  for (const [key, value] of Object.entries(own ?? {})) {
     const bound = props[key]
     if (!isBinding(bound)) continue
     if (!bound.path.startsWith(`/`) && hasItem(scope)) continue
@@ -257,14 +263,23 @@ export function withOwnWrites(data: unknown, props: Record<string, unknown>, pay
   return out
 }
 
-/** Round 4 (VAPP-103): a successful Form submit CLOSES the nearest Dialog
- *  or Drawer around the form (the author never resets the bound `open`
- *  flag): the id of that overlay in the EXPANDED tree, null when the form
- *  sits in none. Renderers close it like a dismiss (`open` false written
- *  through, `change {open: false}`) right after the form's `submit`. */
+/** The overlay components (catalog group `overlay`; AlertDialog expands to
+ *  a non-dismissible Dialog). */
+export const OVERLAY_COMPONENTS: readonly string[] = [`Dialog`, `Drawer`, `AlertDialog`, `Popover`, `Tooltip`, `Menu`, `Toast`]
+const OVERLAYS: ReadonlySet<string> = new Set(OVERLAY_COMPONENTS)
+
+/** Round 4 (VAPP-103): a successful Form submit CLOSES the overlay around
+ *  the form (the author never resets the bound `open` flag). The NEAREST
+ *  enclosing overlay of ANY kind decides: it closes only when it is a
+ *  Dialog or Drawer that is dismissible (`dismissible: false` — an
+ *  AlertDialog — never auto-closes); a nearest Popover, Menu, Tooltip or
+ *  Toast closes nothing, nor does anything around it. The id of that
+ *  overlay in the EXPANDED tree, null when nothing closes. Renderers close
+ *  it like a dismiss (`open` false written through, `change {open:
+ *  false}`) right after the form's `submit`. */
 export function submitClosesOverlay(root: UiNode, formId: string): string | null {
-  const walk = (n: UiNode, overlay: string | null): string | null | undefined => {
-    const here = n.component === `Dialog` || n.component === `Drawer` ? n.id : overlay
+  const walk = (n: UiNode, overlay: UiNode | null): UiNode | null | undefined => {
+    const here = OVERLAYS.has(n.component) && n.id !== formId ? n : overlay
     if (n.id === formId && n.component === `Form`) return here
     for (const slot of Object.values(n.slots ?? {})) {
       const hit = walk(slot, here)
@@ -276,7 +291,9 @@ export function submitClosesOverlay(root: UiNode, formId: string): string | null
     }
     return undefined
   }
-  return walk(root, null) ?? null
+  const nearest = walk(root, null)
+  if (!nearest || (nearest.component !== `Dialog` && nearest.component !== `Drawer`) || nearest.props.dismissible === false) return null
+  return nearest.id
 }
 
 /** What a press does: resolve the function args and the event context
@@ -287,7 +304,7 @@ export function runAction(action: Action, data: unknown, options: ResolveOptions
   const event = action.event
     ? { name: action.event.name, ...(action.event.context ? { context: resolveDynamic(action.event.context, data, options) as Record<string, unknown> } : {}) }
     : undefined
-  // A2UI's `functionCall` (round 4: the only key; no legacy `function`).
+  // A2UI's `functionCall`.
   const fn = action.functionCall
   if (fn) {
     const args = resolveDynamic(fn.args ?? {}, data, options) as Record<string, unknown>

@@ -168,11 +168,12 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   namespaced host function, `isCallableName` — and a Table's slot columns);
   colours in a node are `$color.*` tokens only; the core function
   `filter{items, query?, fields?, where?}`; `withOwnWrites` (an action's
-  context resolves AFTER the component's own write) and
-  `submitClosesOverlay` (a valid Form submit closes the Dialog/Drawer around
-  it); `themeOrDefault` (never throws: the default theme + the issues); a
+  context resolves AFTER the component's own write, given explicitly by
+  prop) and
+  `submitClosesOverlay` (a valid Form submit closes the nearest overlay
+  around it when that is a dismissible Dialog/Drawer); `themeOrDefault` (never throws: the default theme + the issues); a
   theme must name `$schema` = `THEME_SCHEMA_ID`; an action's function is
-  `functionCall` only (no legacy `function` key).
+  its `functionCall`.
 - `validateStyle` / `create` / `props` — the VAPP-4 `vapp-css` over the whitelist.
 - `defineExtension(def)` — an extension catalog: own id, `extends` the core,
   components (+ macro templates), no core name shadowed.
@@ -200,8 +201,8 @@ painters through the facade); `catalog/host.json` is the contract and
   bind | delete | send` (pure; errors `UNSUPPORTED_CATALOG`,
   `SURFACE_NOT_FOUND`, `INVALID_MESSAGE`, `TEMPLATE_NOT_FOUND` go back as
   `send`).
-- **Functions**: an `on.<event>` `{functionCall: {call, args}}` (A2UI's key;
-  `function` = the legacy alias) to a non-built-in name runs the host's
+- **Functions**: an `on.<event>` `{functionCall: {call, args}}` (A2UI's
+  key) to a non-built-in name runs the host's
   registered function after the gate: `decideFunction(policy, name,
   registered)` → `allow | ask | deny | not_found` (deny wins, then allow,
   then ask, then `default`; `harness.*` prefixes), `ask` = the host's

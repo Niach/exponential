@@ -98,11 +98,11 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
   const cycle = (c: TableColumn) => {
     const next: Sort = sort?.key === c.key && sort.direction === `asc` ? { key: c.key, direction: `desc` } : { key: c.key, direction: `asc` }
     setSort(next)
-    void emit(`sort`, { sort: next })
+    void emit(`sort`, { sort: next }, { sort: next })
   }
   const select = (next: string[]) => {
     setSelected(next)
-    void emit(`select`, { selected: next })
+    void emit(`select`, { selected: next }, { selected: next })
   }
   const allKeys = rows.map(keyOf)
   const allSelected = allKeys.length > 0 && allKeys.every((k) => selected.includes(k))

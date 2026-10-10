@@ -5,12 +5,13 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render } from "@testing-library/react"
-import { CORE_CATALOG_ID, ExponentialHost, MemoryTransport, reduceNested } from "@exponential-at/ui"
+import { CORE_CATALOG_ID, ExponentialHost, MEDIA_LIMITS, MemoryTransport, reduceNested } from "@exponential-at/ui"
 import type { ClientMessage, NestedNode } from "@exponential-at/ui"
 import { ExponentialSurface } from "./surface"
 import { HostSurface } from "./host-surface"
-import { linkAt, parseList, renderMarkdown } from "./markdown"
-import { fetchLimited } from "./media"
+import { renderToStaticMarkup } from "react-dom/server"
+import { BuiltinMarkdown, MAX_LINK_DEST, MAX_LINK_NESTING, linkAt, parseList, renderMarkdown } from "./markdown"
+import { clearMediaCache, fetchLimited } from "./media"
 import type { HostPlugin } from "./host"
 
 afterEach(() => {
@@ -47,6 +48,21 @@ describe(`FileUpload: a file url passes the URL policy`, () => {
     const links = [...c.querySelectorAll(`.xui-file-list a`)].map((a) => a.getAttribute(`href`))
     expect(links).toEqual([`https://exponential.at/ok.pdf`])
     expect(c.textContent).toContain(`evil.txt`)
+  })
+})
+
+describe(`Link: an external href opens through host.openUrl`, () => {
+  it(`external + host.openUrl: the host opens it (no bare new tab); a denied one never reaches it`, () => {
+    const openUrl = vi.fn()
+    const c = paint({ id: `l`, component: `Link`, props: { href: `https://exponential.at/docs`, label: `Docs`, external: true } }, { openUrl })
+    const ev = new MouseEvent(`click`, { bubbles: true, cancelable: true })
+    c.querySelector(`a`)!.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    expect(openUrl).toHaveBeenCalledWith(`https://exponential.at/docs`)
+    cleanup()
+    const d = paint({ id: `l`, component: `Link`, props: { href: `javascript:alert(1)`, label: `x`, external: true } }, { openUrl })
+    fireEvent.click(d.querySelector(`a`)!)
+    expect(openUrl).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -112,6 +128,29 @@ describe(`markdown`, () => {
     expect([...container.querySelectorAll(`.xui-Markdown-paragraph`)].map((p) => p.textContent)).toEqual([`pic`])
     expect(container.innerHTML).not.toContain(`javascript`)
   })
+  it(`link parsing is linear: 128 KB of unclosed brackets / parens / quotes parses fast`, () => {
+    const N = 128 * 1024
+    for (const t of [`[a](`.repeat(N / 4), `[`.repeat(N), `[a](<`.repeat(N / 5), `[x](y z `.repeat(N / 8), `[a](` + `(`.repeat(N), `[a](b) `.repeat(N / 7) + "`c`", `>`.repeat(N)]) {
+      const t0 = performance.now()
+      renderToStaticMarkup(<BuiltinMarkdown text={t} />)
+      // Linear: tens of ms (the quadratic parser took ~20 s at 128 KB); loose for loaded CI.
+      expect(performance.now() - t0).toBeLessThan(4000)
+    }
+  })
+  it(`link labels nest at most MAX_LINK_NESTING deep; a long destination is no link`, () => {
+    let nest = `x`
+    for (let k = 0; k < 40; k++) nest = `[${nest}](https://e.com/${k})`
+    expect(renderToStaticMarkup(<BuiltinMarkdown text={nest} />).match(/<a /g)).toHaveLength(MAX_LINK_NESTING)
+    expect(linkAt(`[a](https://e.com/${`x`.repeat(MAX_LINK_DEST)})`, 0)).toBeNull()
+    expect(linkAt(`[a](https://e.com/${`x`.repeat(100)})`, 0)?.dest).toHaveLength(114)
+    expect(linkAt(`\\[a](b)`, 1)).toBeNull()
+  })
+  it(`a markdown link opens through host.openUrl when the host has one`, () => {
+    const openUrl = vi.fn()
+    const { container } = render(<BuiltinMarkdown text={`[docs](https://exponential.at/d)`} host={{ openUrl }} />)
+    fireEvent.click(container.querySelector(`a`)!)
+    expect(openUrl).toHaveBeenCalledWith(`https://exponential.at/d`)
+  })
   it(`lists nest by indentation`, () => {
     const list = parseList([`- a`, `  - a1`, `    1. deep`, `  - a2`, `- b`, `- [x] done`])
     expect(list.items.map((i) => i.text)).toEqual([`a`, `b`, `done`])
@@ -142,6 +181,37 @@ describe(`media limits`, () => {
     vi.spyOn(globalThis, `fetch`).mockResolvedValue(new Response(png, { status: 200 }))
     await expect(fetchLimited(`https://x.test/a.png`, {}, { ...limits, maxBytes: 1000 })).rejects.toThrow(/40000×30000/)
   })
+  it(`Video/Audio with headers stream past the byte caps; the poster keeps the image limits`, async () => {
+    clearMediaCache()
+    let n = 0
+    vi.spyOn(URL, `createObjectURL`).mockImplementation(() => `blob:media-${++n}`)
+    vi.spyOn(URL, `revokeObjectURL`).mockImplementation(() => {})
+    // Over the 20 MB image cap, as an authed video is.
+    vi.spyOn(globalThis, `fetch`).mockImplementation(async () => new Response(new Uint8Array(8), { status: 200, headers: { "content-length": String(MEDIA_LIMITS.maxBytes + 1) } }))
+    const host: HostPlugin = { mediaRequest: (src) => ({ url: src, headers: { authorization: `Bearer t` } }) }
+    const c = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/clip.mp4`, poster: `https://exponential.at/poster.png` } }, host)
+    await vi.waitFor(() => expect(c.querySelector(`video`)!.getAttribute(`src`)).toMatch(/^blob:media-/))
+    expect(c.querySelector(`video`)!.getAttribute(`poster`)).toBeNull()
+    cleanup()
+    const a = paint({ id: `a`, component: `AudioPlayer`, props: { src: `https://exponential.at/talk.m4a` } }, host)
+    await vi.waitFor(() => expect(a.querySelector(`audio`)!.getAttribute(`src`)).toMatch(/^blob:media-/))
+  })
+  it(`a host mediaStreamUrl hands the player a header-less url, re-checked by the policy`, async () => {
+    const fetchSpy = vi.spyOn(globalThis, `fetch`)
+    const streamed: string[] = []
+    const host: HostPlugin = {
+      mediaRequest: (src) => ({ url: src, headers: { authorization: `Bearer t` } }),
+      mediaStreamUrl: async (req) => (streamed.push(req.url), req.url.endsWith(`evil.mp4`) ? `javascript:alert(1)` : `${req.url}?sig=abc`),
+    }
+    const c = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/clip.mp4` } }, host)
+    await vi.waitFor(() => expect(c.querySelector(`video`)!.getAttribute(`src`)).toBe(`https://exponential.at/clip.mp4?sig=abc`))
+    expect(streamed).toEqual([`https://exponential.at/clip.mp4`])
+    expect(fetchSpy).not.toHaveBeenCalled()
+    cleanup()
+    const d = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/evil.mp4` } }, host)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(d.querySelector(`video`)!.getAttribute(`src`)).toBeNull()
+  })
   it(`a request past timeoutMs is aborted`, async () => {
     vi.spyOn(globalThis, `fetch`).mockImplementation((_u, init) => new Promise((_, reject) => (init?.signal as AbortSignal).addEventListener(`abort`, () => reject(new Error(`aborted`)))))
     await expect(fetchLimited(`https://x.test/slow`, {}, { ...limits, timeoutMs: 10 })).rejects.toThrow(/aborted/)
@@ -171,6 +241,13 @@ describe(`paint failures reach the host (onPaintError → RENDER_FAILED)`, () =>
     expect(host.issues.at(-1)).toMatchObject({ code: `RENDER_FAILED`, surfaceId: `s` })
     host.paintError({ surfaceId: `s`, componentId: `md`, message: `Markdown failed to paint: boom` })
     expect((transport.sent as ClientMessage[]).filter((m) => `error` in m)).toHaveLength(1)
+    // A re-reduce for ANOTHER component does not re-report md (same props) …
+    act(() => transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `t`, component: `Text`, text: `changed` }] } }))
+    expect(seen).toEqual([`md`])
+    // … md's own props changing does.
+    act(() => transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `md`, component: `Markdown`, text: `y` }] } }))
+    expect(seen).toEqual([`md`, `md`])
+    expect((transport.sent as ClientMessage[]).filter((m) => `error` in m)).toHaveLength(2)
   })
   it(`a Select with options: [null] paints without throwing`, () => {
     const seen: unknown[] = []

@@ -29,7 +29,7 @@ function useOpenState(node: NativeProps[`node`], scope: string, external: boolea
   const change = useCallback(
     (next: boolean) => {
       setOpen(next)
-      void emit(`change`, { open: next })
+      void emit(`change`, { open: next }, { open: next })
     },
     [setOpen, emit]
   )
@@ -162,7 +162,10 @@ function ModalNative({ node, props, rootProps, emit, children, slots, scope, kin
           ) : (
             <DialogPrimitive.Title className="xui-sr-only">{ctx.t(`dialog`)}</DialogPrimitive.Title>
           )}
-          <CloseOnSubmitContext.Provider value={close}>
+          {/* Round 4: a valid submit closes THIS overlay when it is the
+              nearest one around the form and dismissible (an AlertDialog,
+              dismissible false, never auto-closes). */}
+          <CloseOnSubmitContext.Provider value={dismissible ? close : null}>
             <div className="xui-overlay-body">{children}</div>
             {slots.footer ? <div {...(part(`footer`) as Record<string, string>)}>{slots.footer}</div> : null}
           </CloseOnSubmitContext.Provider>
@@ -185,7 +188,7 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   const part = useParts(node, props)
   const [open, setOpen] = useOpenState(node, scope, bool(props.open), emit)
   const side = str(props.side, `bottom`) as `top` | `right` | `bottom` | `left`
-  // `openOn: hover` (HoverCard): opens on pointer hover AND keyboard focus
+  // `openOn: hover` (a hover card): opens on pointer hover AND keyboard focus
   // of the trigger, stays while the pointer is over the content; touch
   // (no hover pointer) keeps press.
   const hoverMode = props.openOn === `hover` && ctx.hover
@@ -193,7 +196,7 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   const openRef = useRef(open)
   openRef.current = open
   // THIS popover's content (focus moving from the trigger into it keeps it
-  // open; another HoverCard's content on the page does not count).
+  // open; another hover card's content on the page does not count).
   const contentRef = useRef<HTMLDivElement | null>(null)
   const schedule = (next: boolean) => {
     if (timer.current) clearTimeout(timer.current)
@@ -241,7 +244,9 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
           onPointerEnter={hoverMode ? () => schedule(true) : undefined}
           onPointerLeave={hoverMode ? () => schedule(false) : undefined}
         >
-          {children}
+          {/* The nearest overlay decides: a Form in a Popover closes nothing,
+              not even a Dialog around the Popover. */}
+          <CloseOnSubmitContext.Provider value={null}>{children}</CloseOnSubmitContext.Provider>
         </PopoverPrimitive.Content>
       </PopoverPrimitive.Portal>
     </PopoverPrimitive.Root>
@@ -277,7 +282,7 @@ export function TooltipNative({ node, props, rootProps, children }: NativeProps)
 }
 
 // ---------------------------------------------------------------------------
-// Menu (round 3: ONE native for the old DropdownMenu + ContextMenu)
+// Menu (round 3: ONE native for press and context menus)
 // ---------------------------------------------------------------------------
 
 interface MenuItem {
@@ -460,8 +465,8 @@ export function ToastNative({ node, props, rootProps, emit, scope }: NativeProps
   const startedAt = useRef(0)
   const close = useCallback(() => {
     setOpenState(false)
-    void emit(`dismiss`)
-    void emit(`change`, { open: false })
+    void emit(`dismiss`, undefined, { open: false })
+    void emit(`change`, { open: false }, { open: false })
   }, [setOpenState, emit])
   // Exit: keep the element for the motion duration with data-state=closed.
   const [shown, setShown] = useState(open)

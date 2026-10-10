@@ -17,8 +17,8 @@
 // `sheet-full` is the fixed 94dvh detent EXP-616 introduced for the tall
 // forms (Start coding, New action, Device settings) whose content-sized
 // height read as a cut-off page. `alert` is the compact centered card the
-// `Prompt` (EXP-1215) opens in on every width, deliberately NOT a sheet. `page` is the legacy
-// full-screen arm, now only for the image lightbox.
+// `Prompt` (EXP-1215) opens in on every width, deliberately NOT a sheet. `page` is the
+// full-screen arm, only for the image lightbox.
 
 /** Shared by `sheet` and `sheet-full`. Opaque, no blur: it fills the screen
  * edge to edge below `sm`, so there is nothing to see through. */

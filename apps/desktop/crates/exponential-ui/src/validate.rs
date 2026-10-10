@@ -182,49 +182,111 @@ pub fn is_callable_name(name: &str) -> bool {
         })
 }
 
-/// Every `{call}` at any depth of `value` whose name is neither a catalog
-/// function nor a namespaced host function.
-fn check_calls(value: &Value, path: &str, issues: &mut Vec<PropIssue>) {
+fn check_call(call: &Value, path: &str, issues: &mut Vec<PropIssue>) {
+    let name = call["call"].as_str().unwrap_or("");
+    if !is_callable_name(name) {
+        issue(issues, path, format!("unknown function \"{name}\"; known: the catalog functions, or a namespaced host function (app.toast)"));
+    }
+}
+
+/// Every `{call}` at any depth of an EXPRESSION (`visible`, a call's args,
+/// an event context): each resolves at any depth, so every `{call}` in it
+/// is a call. `src/validate.ts checkCallsDeep`.
+fn check_calls_deep(value: &Value, path: &str, issues: &mut Vec<PropIssue>) {
     match value {
         Value::Array(items) => {
             for (i, v) in items.iter().enumerate() {
-                check_calls(v, &format!("{path}[{i}]"), issues);
+                check_calls_deep(v, &format!("{path}[{i}]"), issues);
             }
         }
         Value::Object(obj) => {
             if is_call(value) {
-                let name = obj["call"].as_str().unwrap_or("");
-                if !is_callable_name(name) {
-                    issue(issues, path, format!("unknown function \"{name}\"; known: the catalog functions, or a namespaced host function (app.toast)"));
-                }
+                check_call(value, path, issues);
             }
             for (k, v) in obj {
-                check_calls(v, &format!("{path}.{k}"), issues);
+                check_calls_deep(v, &format!("{path}.{k}"), issues);
             }
         }
         _ => {}
     }
 }
 
+/// The calls a PROP makes, walked along its schema exactly as the bind pass
+/// resolves it (`data::resolve_prop`): a `{call}` AT a position is a call
+/// (its args are expressions); a DATA position (Table `rows`) is literal
+/// data, never descended; arrays and shaped objects walk per item /
+/// property; a `style` prop resolves at any depth; anything else is a
+/// literal. `src/validate.ts checkPropCalls`.
+fn check_prop_calls(value: &Value, schema: Option<&PropSchema>, path: &str, view: &CatalogView, issues: &mut Vec<PropIssue>) {
+    if is_call(value) {
+        check_call(value, path, issues);
+        if let Some(args) = value.get("args") {
+            check_calls_deep(args, &format!("{path}.args"), issues);
+        }
+        return;
+    }
+    let Some(schema) = schema else { return };
+    if crate::data::is_data_schema(Some(schema)) {
+        return;
+    }
+    if schema.type_ == "style" {
+        return check_calls_deep(value, path, issues);
+    }
+    if let (Some(items_schema), Value::Array(items)) = (schema.items.as_deref().filter(|_| schema.type_ == "array"), value) {
+        for (i, item) in items.iter().enumerate() {
+            check_prop_calls(item, Some(items_schema), &format!("{path}[{i}]"), view, issues);
+        }
+        return;
+    }
+    let shape = (schema.type_ == "object").then_some(()).and(schema.shape.as_ref()).and_then(|name| view.defs.get(name));
+    if let (Some(shape), Value::Object(map)) = (shape, value) {
+        for (k, v) in map {
+            check_prop_calls(v, shape.properties.get(k), &format!("{path}.{k}"), view, issues);
+        }
+    }
+}
+
+/// The calls an ACTION makes: its `functionCall` (name + args) and its event
+/// context (an expression). Nothing else in it is evaluated.
+fn check_action_calls(action: &Value, path: &str, issues: &mut Vec<PropIssue>) {
+    if let Some(call) = action.get("functionCall").filter(|c| is_call(c)) {
+        let at = format!("{path}.functionCall");
+        check_call(call, &at, issues);
+        if let Some(args) = call.get("args") {
+            check_calls_deep(args, &format!("{at}.args"), issues);
+        }
+    }
+    if let Some(context) = action.get("event").and_then(|e| e.get("context")) {
+        check_calls_deep(context, &format!("{path}.event.context"), issues);
+    }
+}
+
+/// [`validate_node_in`] against the core catalog alone.
+pub fn validate_node(node: &UiNode) -> Vec<PropIssue> {
+    validate_node_in(node, &CatalogView::core())
+}
+
 /// What `validate_props` leaves out, round 4 (VAPP-103; `src/validate.ts
 /// validateNode`): the node's `style` (whitelisted keys, known tokens,
-/// `$color.*` colours), every function a prop, `visible` or an `on` action
-/// calls, and a Table's slot columns. In this order.
-pub fn validate_node(node: &UiNode) -> Vec<PropIssue> {
+/// `$color.*` colours), every function a prop (along its schema in `view`:
+/// never inside DATA), `visible` or an `on` action calls, and a Table's slot
+/// columns. In this order.
+pub fn validate_node_in(node: &UiNode, view: &CatalogView) -> Vec<PropIssue> {
     let mut issues = Vec::new();
     if let Some(style) = &node.style {
         for i in validate_style(&Value::Object(style.clone()), "style", None) {
             issues.push(PropIssue { path: i.path, message: i.message });
         }
     }
+    let def = view.component(&node.component);
     for (k, v) in &node.props {
-        check_calls(v, &format!("props.{k}"), &mut issues);
+        check_prop_calls(v, def.and_then(|d| d.props.get(k)), &format!("props.{k}"), view, &mut issues);
     }
     if let Some(visible) = &node.visible {
-        check_calls(visible, "visible", &mut issues);
+        check_calls_deep(visible, "visible", &mut issues);
     }
     for (event, action) in node.on.iter().flatten() {
-        check_calls(action, &format!("on.{event}"), &mut issues);
+        check_action_calls(action, &format!("on.{event}"), &mut issues);
     }
     if node.component == "Table" {
         if let Some(Value::Array(columns)) = node.props.get("columns") {

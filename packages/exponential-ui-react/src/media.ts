@@ -6,6 +6,13 @@
 // timeout) — and shown as a blob url (an <img> cannot send headers). A
 // direct <img> load is the browser's (its own decode limits).
 //
+// Video/Audio are STREAMS (`kind: "stream"`, catalog/host.json: the policy
+// applies, the byte limits do not): a request with headers goes to the
+// host's `mediaStreamUrl` (a signed / cookie-authed url the player streams
+// and seeks, re-checked against the policy) when it has one, else it is
+// fetched whole into a blob url with no byte, pixel or total-time cap
+// (only the wait for the response headers is timed). A poster is an image.
+//
 // Blob urls pin their bytes until revoked, so the cache is bounded: every
 // mounted consumer holds a reference; an entry nobody holds stays cached
 // (a re-mounted row, a virtualized list scrolling back, shows it at once)
@@ -16,7 +23,10 @@
 import { useEffect, useState } from "react"
 import { MEDIA_LIMITS, imageDimensions } from "@exponential-at/ui"
 import type { HostPlugin } from "./host"
-import { mediaRequestOf } from "./urls"
+import { mediaRequestOf, mediaUrlAllowed } from "./urls"
+
+/** What a source feeds: an image (the limits hold) or a player stream. */
+export type MediaKind = `image` | `stream`
 
 /** How many fetched media nobody shows stay cached (their blob urls live). */
 export const MEDIA_CACHE_IDLE_MAX = 64
@@ -96,24 +106,25 @@ export function clearMediaCache(): void {
  *  loads or after it failed) and whether the fetch failed (so an Image can
  *  show its fallback; an <img> never sees a failed fetch). A src the media
  *  policy denies has no url and `error`. */
-export function useMediaSource(host: HostPlugin, src: string): { url: string | undefined; error: boolean } {
+export function useMediaSource(host: HostPlugin, src: string, kind: MediaKind = `image`): { url: string | undefined; error: boolean } {
   const req = mediaRequestOf(host, src)
   const headers = req?.headers ?? {}
   const fetched = req !== null && Object.keys(headers).length > 0
   const direct = req ? req.url : undefined
   const [blob, setBlob] = useState<{ for: string; url?: string; error?: true } | null>(null)
-  const k = fetched ? key(req.url, headers) : ``
+  const k = fetched ? `${kind}\n${key(req.url, headers)}` : ``
   useEffect(() => {
     if (!fetched) return
     let live = true
-    const entry = acquire(k, () => fetchLimited(req.url, headers).then((b) => URL.createObjectURL(b)))
+    const hosted = kind === `stream` && host.mediaStreamUrl !== undefined
+    const entry = hosted ? streamEntry(host, req) : acquire(k, () => (kind === `stream` ? fetchStream(req.url, headers) : fetchLimited(req.url, headers)).then((b) => URL.createObjectURL(b)))
     entry.promise.then(
       (url) => live && setBlob({ for: k, url }),
       () => live && setBlob({ for: k, error: true })
     )
     return () => {
       live = false
-      release(k, entry)
+      if (!hosted) release(k, entry)
     }
     // req/headers are derived from k
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -121,6 +132,33 @@ export function useMediaSource(host: HostPlugin, src: string): { url: string | u
   // A src the media policy denies is a failed load (the fallback paints).
   if (!fetched) return { url: direct, error: Boolean(src) && req === null }
   return blob?.for === k ? { url: blob.url, error: blob.error === true } : { url: undefined, error: false }
+}
+
+/** A host stream url (never cached here, never revoked: the host owns
+ *  it), re-checked against the media policy. */
+function streamEntry(host: HostPlugin, req: { url: string; headers: Record<string, string> }): Entry {
+  const promise = Promise.resolve(host.mediaStreamUrl!(req)).then((url) => {
+    if (typeof url !== `string` || !mediaUrlAllowed(host, url)) throw new Error(`stream url denied by the media policy`)
+    return url
+  })
+  return { promise, refs: 0 }
+}
+
+/** A Video/Audio fetch (no `mediaStreamUrl`): the whole body into a blob,
+ *  no byte or pixel cap; only the wait for the response headers is timed
+ *  (`MEDIA_LIMITS.timeoutMs`), the download itself may take as long as it
+ *  takes. */
+export async function fetchStream(url: string, headers: Record<string, string>, timeoutMs: number = MEDIA_LIMITS.timeoutMs): Promise<Blob> {
+  const abort = new AbortController()
+  const timer = setTimeout(() => abort.abort(new Error(`media timed out after ${timeoutMs} ms`)), timeoutMs)
+  let r: Response
+  try {
+    r = await fetch(url, { headers, signal: abort.signal })
+  } finally {
+    clearTimeout(timer)
+  }
+  if (!r.ok) throw new Error(`HTTP ${r.status}`)
+  return r.blob()
 }
 
 /** A fetch under `MEDIA_LIMITS`: the whole request within `timeoutMs`, the
@@ -176,6 +214,6 @@ function concat(chunks: readonly Uint8Array[], max: number): Uint8Array {
 
 /** The src an element should use, or undefined while a fetched one loads
  *  (or after it failed). */
-export function useMediaSrc(host: HostPlugin, src: string): string | undefined {
-  return useMediaSource(host, src).url
+export function useMediaSrc(host: HostPlugin, src: string, kind: MediaKind = `image`): string | undefined {
+  return useMediaSource(host, src, kind).url
 }

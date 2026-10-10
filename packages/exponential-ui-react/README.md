@@ -306,9 +306,9 @@ A step = the scroll, the window's render flushed and the layout read back
 
 | item | web |
 |---|---|
-| macros | `Row`, `Section`, `Chip` and the 16 deprecated aliases (ListRow, CardRow, PropertyRow, PickerRow, NavRow, RowList, Band, Sheet, HoverCard, DropdownMenu, ContextMenu, ToggleGroup, TabBar, ButtonGroup, Pill, EntityChip) need no painter: they expand to Box/Text/Icon/List/TreeGuides/Badge/Button/Image and the two new natives. A `Section` body is a divided `List`; with `tree` it is `role=tree` of `treeitem`s |
-| Segmented | the rename of ToggleGroup (Radix ToggleGroup: radiogroup single / toolbar multiple, roving arrows), variants `segmented` (default) / `toggles` / `outline`; `bar` = a full-width `<nav>` of column buttons (icon above a caption label, `$control.tabBar` tall), `aria-current="page"`, the same roving keys; parts root, item, icon, label |
-| Menu | ONE painter for DropdownMenu + ContextMenu (`openOn`); builtin glyphs `Menu.check`, `Menu.submenuIndicator` |
+| macros | `Row`, `Section`, `Chip` need no painter: they expand to Box/Text/Icon/List/TreeGuides/Badge/Button/Image and the two new natives. A `Section` body is a divided `List`; with `tree` it is `role=tree` of `treeitem`s |
+| Segmented | ONE row of segments (Radix ToggleGroup: radiogroup single / toolbar multiple, roving arrows), variants `segmented` (default) / `toggles` / `outline`; `bar` = a full-width `<nav>` of column buttons (icon above a caption label, `$control.tabBar` tall), `aria-current="page"`, the same roving keys; parts root, item, icon, label |
+| Menu | ONE painter for press and context menus (`openOn`); builtin glyphs `Menu.check`, `Menu.submenuIndicator` |
 | TreeGuides | a Row's `guides` part the CORE fills (`elbowAt`, `tee`, `passThrough`); `TREE_GUIDE_COLUMN` 14 px columns, the line at i·14 + 7, the elbow = one element (left + bottom borders) to the column's right edge with a `TREE_GUIDE_RADIUS` 3 px corner, every vertical starting `TREE_GUIDE_BRIDGE` 1 px above the part's top (overflow visible) |
 
 ## The primitive set

@@ -110,18 +110,19 @@ export function forced(states: readonly string[], ...extra: (string | false | un
 
 /** Run one of a node's actions (round-1 contract §1 `runAction`): the
  *  function args AND the event context resolve against the data WITH the
- *  component's own write applied (round 4 `withOwnWrites`: the context of
- *  an Input's `change` reads the text just typed, even before React has
- *  re-rendered the write), then `set` writes (relative paths against the node's scope), any other
+ *  component's own write applied (round 4 `withOwnWrites`: `own` = what
+ *  the component just wrote, by prop, so the context of an Input's
+ *  `change` reads the text just typed, even before React has re-rendered
+ *  the write), then `set` writes (relative paths against the node's scope), any other
  *  function runs, then the event reaches the host with the component's
  *  payload merged OVER the author's context (the payload wins a clashing
  *  key, like the Rust core's `fire`: the author's context was resolved
  *  before the write, the payload carries the value just written). */
-export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: string, scope: string, event: string, payload?: Record<string, unknown>): Promise<void> | void {
+export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: string, scope: string, event: string, payload?: Record<string, unknown>, own?: Record<string, unknown>): Promise<void> | void {
   const action = node.on?.[event]
   if (!action) return undefined
   const base = resolveContextOf(ctx, scope)
-  const rctx: ResolveContext = payload ? { ...base, data: withOwnWrites(ctx.data, node.props, payload, scope ? { base: scope } : {}) } : base
+  const rctx: ResolveContext = own ? { ...base, data: withOwnWrites(ctx.data, node.props, own, scope ? { base: scope } : {}) } : base
   const fn = action.functionCall
   const args = fn ? ((resolveValue(fn.args ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
   const context = action.event ? ((resolveValue(action.event.context ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
@@ -161,7 +162,7 @@ function runNodeEvent(ctx: SurfaceContextValue, ev: { name: string }, domId: str
 
 export function useEmitter(node: UiNode, scope: string, domId: string = node.id) {
   const ctx = useSurfaceContext()
-  return useCallback((event: string, payload?: Record<string, unknown>): Promise<void> | void => runNodeAction(ctx, node, domId, scope, event, payload), [node, ctx, scope, domId])
+  return useCallback((event: string, payload?: Record<string, unknown>, own?: Record<string, unknown>): Promise<void> | void => runNodeAction(ctx, node, domId, scope, event, payload, own), [node, ctx, scope, domId])
 }
 
 /** A node, or nothing when its `visible` resolves falsy (no layout, not in
@@ -268,6 +269,15 @@ const BoundNode = memo(function BoundNode({ node, scope }: { node: UiNode; scope
   )
 })
 
+/** A failed node's identity for the once-per-props rule. */
+function propsSignature(node: UiNode): string {
+  try {
+    return `${node.component}\u0000${JSON.stringify(node.props)}`
+  } catch {
+    return node.component
+  }
+}
+
 /** The plain painters (no formatting, no host code) skip the boundary. */
 const UNGUARDED = new Set([`Box`, `Text`])
 
@@ -290,7 +300,13 @@ class PaintBoundary extends Component<{ node: UiNode; domId: string; children: R
     return { failed: true }
   }
   componentDidCatch(error: unknown): void {
-    const { node } = this.props
+    const { node, domId } = this.props
+    // Reported ONCE per painted node until its props change (a re-reduce
+    // hands every node a new object; that alone never re-reports).
+    const failures = this.context?.paintFailures
+    const signature = propsSignature(node)
+    if (failures?.get(domId) === signature) return
+    failures?.set(domId, signature)
     const message = `${node.component} failed to paint: ${error instanceof Error ? error.message : String(error)}`
     const report = this.context?.host.onPaintError
     if (report) {
@@ -300,6 +316,19 @@ class PaintBoundary extends Component<{ node: UiNode; domId: string; children: R
         console.error(`[exponential-ui] onPaintError threw`, e)
       }
     } else console.error(`[exponential-ui] ${node.component} "${node.id}" failed to paint`, error)
+  }
+  componentDidMount(): void {
+    this.painted()
+  }
+  componentDidUpdate(): void {
+    this.painted()
+  }
+  componentWillUnmount(): void {
+    this.context?.paintFailures?.delete(this.props.domId)
+  }
+  /** A node that paints again is no longer a remembered failure. */
+  private painted(): void {
+    if (!this.state.failed) this.context?.paintFailures?.delete(this.props.domId)
   }
   render(): ReactNode {
     const { node, domId, children } = this.props

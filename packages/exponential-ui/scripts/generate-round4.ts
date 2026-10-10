@@ -10,8 +10,9 @@
 //     filter         the core `filter` function: args → the kept items
 //     ownWrite       an interaction's action resolves against the data WITH
 //                    the component's own write (withOwnWrites + runAction)
-//     closeOnSubmit  a successful Form submit closes the Dialog/Drawer
-//                    around it (submitClosesOverlay)
+//     closeOnSubmit  a successful Form submit closes the nearest overlay
+//                    around it when that is a dismissible Dialog/Drawer
+//                    (submitClosesOverlay)
 
 import { CORE_CATALOG_ID } from "../src/catalog"
 import { runAction, submitClosesOverlay, withOwnWrites, writePointer, absolutePath } from "../src/dynamic"
@@ -26,7 +27,20 @@ const json = (v: unknown) => `${JSON.stringify(v, null, 2)}\n`
 // validate
 // ---------------------------------------------------------------------------
 
+/** A chain of `depth` Cards around a Text: 2 levels per Card once
+ *  expanded (Box > body Box). */
+const cardChain = (depth: number): NestedNode => {
+  let n: NestedNode = { id: `leaf`, component: `Text`, props: { text: `deepest` } }
+  for (let i = depth - 1; i >= 0; i--) n = { id: `card${i}`, component: `Card`, children: [n] }
+  return n
+}
+
 const VALIDATE: { name: string; input: NestedNode }[] = [
+  // maxDepth holds AFTER macro expansion: 47 authored levels pass the
+  // authored check, the expanded chain is 95 deep; the first node past 48
+  // (card24, expanded depth 49) is the Unknown placeholder with the depth
+  // issue, its subtree dropped.
+  { name: `depth: counted after macro expansion (a 47-deep Card chain)`, input: cardChain(47) },
   { name: `style: a key outside the Box whitelist`, input: { id: `root`, component: `Box`, style: { fontColor: `$color.primary` } } },
   { name: `style: an unknown token`, input: { id: `root`, component: `Stack`, style: { gap: `$spacing.huge` } } },
   { name: `style: a literal colour (a node colour is a token)`, input: { id: `root`, component: `Box`, style: { backgroundColor: `#ff0000`, color: `$color.foreground` } } },
@@ -48,6 +62,18 @@ const VALIDATE: { name: string; input: NestedNode }[] = [
   },
   { name: `prop: an unknown function in a binding`, input: { id: `root`, component: `Text`, props: { text: { call: `concatt`, args: { values: [`a`, `b`] } } } } },
   { name: `visible: an unknown function`, input: { id: `root`, component: `Text`, props: { text: `x` }, visible: { call: `nott`, args: { value: { path: `/hide` } } } } },
+  {
+    name: `data: a literal Table row with a call key is a row, never a function`,
+    input: { id: `root`, component: `Table`, props: { columns: [{ key: `name`, label: `Name` }, { key: `call`, label: `Call` }], rows: [{ id: `r1`, name: `Ana`, call: `+1 555 0100` }, { id: `r2`, call: `follow up`, args: {} }] } },
+  },
+  {
+    name: `shaped: a call in a bindable option label is checked`,
+    input: { id: `root`, component: `Select`, props: { name: `s`, options: [{ label: { call: `uppr`, args: { value: `a` } }, value: `a` }, { label: `B`, value: `b` }] } },
+  },
+  {
+    name: `action: an unknown function nested in another call's args`,
+    input: { id: `root`, component: `Button`, props: { label: `Go` }, on: { press: { functionCall: { call: `set`, args: { path: `/n`, value: { call: `ad`, args: { a: 1, b: 2 } } } } } } },
+  },
   {
     name: `Table: a slot column naming a missing slot`,
     input: {
@@ -99,7 +125,11 @@ const FILTER: { name: string; args: Record<string, unknown> }[] = [
 // ownWrite
 // ---------------------------------------------------------------------------
 
-const OWN_WRITE: { name: string; input: NestedNode; data: Record<string, unknown>; target: string; event: string; payload: Record<string, unknown> }[] = [
+// `payload` = the interaction a host dispatches (the Rust `event` input);
+// `own` = EXACTLY what the component writes, by prop (default: the
+// payload); `sent` = the payload its event carries (default: the payload).
+const FILE = (name: string, size: number, type: string) => ({ name, size, type })
+const OWN_WRITE: { name: string; input: NestedNode; data: Record<string, unknown>; target: string; event: string; payload: Record<string, unknown>; own?: Record<string, unknown>; sent?: Record<string, unknown> }[] = [
   {
     name: `Input change: the bound context reads the text just typed`,
     input: {
@@ -143,6 +173,27 @@ const OWN_WRITE: { name: string; input: NestedNode; data: Record<string, unknown
     event: `change`,
     payload: { checked: true },
   },
+  {
+    name: `FileUpload upload: the own write is the MERGED list, the payload carries it plus the new batch (added)`,
+    input: {
+      id: `root`,
+      component: `Box`,
+      children: [
+        {
+          id: `u`,
+          component: `FileUpload`,
+          props: { name: `att`, label: `Attachments`, multiple: true, files: { path: `/att` } },
+          on: { upload: { event: { name: `uploaded`, context: { count: { call: `len`, args: { value: { path: `/att` } } } } } } },
+        },
+      ],
+    },
+    data: { att: [FILE(`a.pdf`, 1, `application/pdf`), FILE(`b.pdf`, 2, `application/pdf`)] },
+    target: `u`,
+    event: `upload`,
+    payload: { files: [FILE(`c.png`, 3, `image/png`)] },
+    own: { files: [FILE(`a.pdf`, 1, `application/pdf`), FILE(`b.pdf`, 2, `application/pdf`), FILE(`c.png`, 3, `image/png`)] },
+    sent: { files: [FILE(`a.pdf`, 1, `application/pdf`), FILE(`b.pdf`, 2, `application/pdf`), FILE(`c.png`, 3, `image/png`)], added: [FILE(`c.png`, 3, `image/png`)] },
+  },
 ]
 
 // ---------------------------------------------------------------------------
@@ -176,6 +227,38 @@ const CLOSE_ON_SUBMIT: { name: string; input: NestedNode; data: Record<string, u
     actions: [`apply`],
   },
   {
+    name: `a Form in a Popover closes nothing (the nearest overlay decides)`,
+    input: { id: `root`, component: `Box`, children: [{ id: `pop`, component: `Popover`, props: { open: { path: `/pop` } }, children: [form(`f`, `apply`)] }] },
+    data: { pop: true, draft: `x` },
+    form: `f`,
+    actions: [`apply`],
+  },
+  {
+    name: `a Form in a Popover inside a Dialog closes neither`,
+    input: {
+      id: `root`,
+      component: `Box`,
+      children: [{ id: `dlg`, component: `Dialog`, props: { title: `Edit`, open: { path: `/open` } }, children: [{ id: `pop`, component: `Popover`, props: { open: { path: `/pop` } }, slots: { trigger: { id: `pop-trigger`, component: `Button`, props: { label: `Filters` } } }, children: [form(`f`, `apply`)] }] }],
+    },
+    data: { open: true, pop: true, draft: `x` },
+    form: `f`,
+    actions: [`apply`],
+  },
+  {
+    name: `a Form in a non-dismissible Dialog never auto-closes it`,
+    input: { id: `root`, component: `Box`, children: [{ id: `dlg`, component: `Dialog`, props: { title: `Required`, open: { path: `/open` }, dismissible: false }, children: [form(`f`, `create`)] }] },
+    data: { open: true, draft: `x` },
+    form: `f`,
+    actions: [`create`],
+  },
+  {
+    name: `a Form in an AlertDialog never auto-closes it`,
+    input: { id: `root`, component: `Box`, children: [{ id: `alert`, component: `AlertDialog`, props: { title: `Delete?`, open: { path: `/open` } }, children: [form(`f`, `confirmName`)] }] },
+    data: { open: true, draft: `x` },
+    form: `f`,
+    actions: [`confirmName`],
+  },
+  {
     name: `a Form outside any overlay closes nothing`,
     input: { id: `root`, component: `Box`, children: [form(`f`, `create`)] },
     data: { draft: `x` },
@@ -196,7 +279,7 @@ function byId(root: UiNode, id: string): UiNode | undefined {
 export function round4Fixture() {
   const reduce = (input: NestedNode) => reduceNested(input, { catalogId: CORE_CATALOG_ID })
   return {
-    $comment: `${HEADER} Round 4 (VAPP-103), replayed by the TS reference (src/round4.test.ts) and the Rust core (tests/round4_fixtures.rs). validate: reduce the nested input with the core catalog: the issues equal \`issues\` in order (a node's style, then the functions its props, visible and on actions call, then a Table's slot columns; a colour is a \`$color.*\` token, never a literal; a host function is namespaced, \`app.toast\`). filter: call the core \`filter\` with \`args\`: the result equals \`expected\`. ownWrite: fire \`event\` with \`payload\` on \`target\`: the data model equals \`expected.data\` and the action that leaves carries \`expected.action\` (its context resolved AFTER the component's own write, the payload merged over it). closeOnSubmit: submit the valid \`form\`: the actions leave in \`actions\` order, the overlay \`expected.overlay\` closes (null = none) and the data equals \`expected.data\`.`,
+    $comment: `${HEADER} Round 4 (VAPP-103), replayed by the TS reference (src/round4.test.ts) and the Rust core (tests/round4_fixtures.rs). validate: reduce the nested input with the core catalog: the issues equal \`issues\` in order (a node's style, then the functions its props, visible and on actions call, then a Table's slot columns; a colour is a \`$color.*\` token, never a literal; a host function is namespaced, \`app.toast\`). filter: call the core \`filter\` with \`args\`: the result equals \`expected\`. ownWrite: fire \`event\` with \`payload\` on \`target\` (the interaction): the component writes \`own\` (by prop, exactly what it wrote, never inferred from the payload) and sends \`sent\`; the data model equals \`expected.data\` and the action that leaves carries \`expected.action\` (its context resolved AFTER the own write, \`sent\` merged over it). closeOnSubmit: submit the valid \`form\`: the actions leave in \`actions\` order, the overlay \`expected.overlay\` closes (null = none: the NEAREST enclosing overlay of any kind decides, and only a dismissible Dialog or Drawer closes) and the data equals \`expected.data\`.`,
     catalogId: CORE_CATALOG_ID,
     validate: VALIDATE.map((c) => ({ ...c, issues: reduce(c.input).issues })),
     filter: FILTER.map((c) => ({ ...c, expected: CORE_FUNCTIONS.filter!(c.args) })),
@@ -204,9 +287,11 @@ export function round4Fixture() {
       const { root, issues } = reduce(c.input)
       if (issues.length) throw new Error(`round4 ownWrite "${c.name}": ${JSON.stringify(issues)}`)
       const node = byId(root, c.target)!
-      const data = withOwnWrites(c.data, node.props, c.payload)
+      const own = c.own ?? c.payload
+      const sent = c.sent ?? c.payload
+      const data = withOwnWrites(c.data, node.props, own)
       const outcome = runAction(node.on![c.event] as Action, data)
-      return { ...c, expected: { data: outcome.data, action: { name: outcome.event!.name, context: { ...(outcome.event!.context ?? {}), ...c.payload } } } }
+      return { ...c, own, sent, expected: { data: outcome.data, action: { name: outcome.event!.name, context: { ...(outcome.event!.context ?? {}), ...sent } } } }
     }),
     closeOnSubmit: CLOSE_ON_SUBMIT.map((c) => {
       const { root, issues } = reduce(c.input)
