@@ -172,20 +172,34 @@ final class SafeHostTests: XCTestCase {
         guard case .failure(.tooLarge) = MediaLoader.decode(Self.realPng(8, 4), limits: tight) else { return XCTFail("byte cap") }
     }
 
-    /// Answers every request with `StubProtocol.reply` (nil = never answers).
+    /// Answers every request with `StubProtocol.reply` (nil = never
+    /// answers) after `delay` seconds; a url in `redirects` answers a 302 to
+    /// its Location.
     final class StubProtocol: URLProtocol {
         nonisolated(unsafe) static var reply: (headers: [String: String], body: Data)?
+        nonisolated(unsafe) static var redirects: [String: String] = [:]
+        nonisolated(unsafe) static var delay: TimeInterval = 0
         /// Every request that reached the network.
         nonisolated(unsafe) static var seen: [URLRequest] = []
         override class func canInit(with request: URLRequest) -> Bool { true }
         override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
         override func startLoading() {
             Self.seen.append(request)
+            if let location = Self.redirects[request.url!.absoluteString] {
+                let response = HTTPURLResponse(url: request.url!, statusCode: 302, httpVersion: "HTTP/1.1", headerFields: ["Location": location])!
+                var next = request
+                next.url = URL(string: location)
+                client?.urlProtocol(self, wasRedirectedTo: next, redirectResponse: response)
+                return
+            }
             guard let reply = Self.reply else { return }
-            let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: reply.headers)!
-            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-            client?.urlProtocol(self, didLoad: reply.body)
-            client?.urlProtocolDidFinishLoading(self)
+            let answer = { [self] in
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: "HTTP/1.1", headerFields: reply.headers)!
+                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+                client?.urlProtocol(self, didLoad: reply.body)
+                client?.urlProtocolDidFinishLoading(self)
+            }
+            if Self.delay > 0 { DispatchQueue.global().asyncAfter(deadline: .now() + Self.delay, execute: answer) } else { answer() }
         }
         override func stopLoading() {}
     }
@@ -259,25 +273,29 @@ final class SafeHostTests: XCTestCase {
         MediaLoader.shared.session = stubSession()
         defer { MediaLoader.shared.session = saved }
 
-        // Allowed: the policed request (resolved, with the rule's header) is
-        // what loads, fetched under media.limits into a file the player opens.
+        // Allowed: the policed request (resolved, with the rule's header)
+        // STREAMS with that header (no byte cap on Video / Audio): a policed
+        // probe resolves it, the player opens it with the header.
         let allowed = try XCTUnwrap(m.mediaRequest("/api/attachments/v1"))
-        XCTAssertEqual(MediaLoader.playback(allowed), .fetch(allowed))
+        XCTAssertEqual(MediaLoader.playback(allowed), .stream(allowed))
         StubProtocol.seen = []
-        StubProtocol.reply = (["Content-Type": "video/mp4"], Data(repeating: 0, count: 64))
-        let playback = MediaPlayback()
-        await playback.play(allowed)
+        StubProtocol.reply = (["Content-Type": "video/mp4", "Content-Length": "\(30 * 1024 * 1024)"], Data(repeating: 0, count: 1))
+        let playback = MediaPlayback(kind: .video)
+        await playback.play(allowed, options: m.mediaPolicy)
         XCTAssertEqual(StubProtocol.seen.map { $0.url?.absoluteString }, ["https://app.exponential.at/api/attachments/v1"])
         XCTAssertEqual(StubProtocol.seen.first?.value(forHTTPHeaderField: "authorization"), "Bearer expu_test")
+        XCTAssertEqual(StubProtocol.seen.first?.value(forHTTPHeaderField: "range"), "bytes=0-0")
         let asset = try XCTUnwrap(playback.player?.currentItem?.asset as? AVURLAsset)
-        XCTAssertTrue(asset.url.isFileURL)
-        XCTAssertEqual(asset.url.pathExtension, "mp4")
+        XCTAssertEqual(asset.url.absoluteString, "https://app.exponential.at/api/attachments/v1", "over 20 MB still plays: streamed, not fetched")
         playback.stop()
         XCTAssertNil(playback.player)
 
-        // An allowed src without headers streams as is.
+        // An allowed src without headers streams too.
         let plain = try XCTUnwrap(m.mediaRequest("https://app.exponential.at/clip.mp4"))
-        XCTAssertEqual(MediaLoader.playback(plain), .stream(URL(string: "https://app.exponential.at/clip.mp4")!))
+        XCTAssertEqual(MediaLoader.playback(plain), .stream(plain))
+        // A data: src plays from a file.
+        let data = try XCTUnwrap(m.mediaRequest("data:audio/mpeg;base64,SUQz"))
+        XCTAssertEqual(MediaLoader.playback(data), .file(data))
 
         // Denied: no request, so nothing loads and no player opens.
         XCTAssertNil(m.mediaRequest("https://cdn.example/track.mp3"))
@@ -286,17 +304,11 @@ final class SafeHostTests: XCTestCase {
         await playback.play(m.mediaRequest("https://cdn.example/track.mp3"))
         XCTAssertNil(playback.player)
         XCTAssertTrue(StubProtocol.seen.isEmpty)
-
-        // Over media.limits: the fetch fails like a 404, no player.
-        StubProtocol.reply = (["Content-Length": "\(30 * 1024 * 1024)", "Content-Type": "video/mp4"], Data(count: 16))
-        let other = try XCTUnwrap(m.mediaRequest("/api/attachments/v2"))
-        await playback.play(other)
-        XCTAssertNil(playback.player)
     }
 
     // MARK: - onPaintError
 
-    func testPaintErrorsBecomeOneRenderFailedPerComponentAndMessage() async throws {
+    func testPaintErrorsBecomeOneRenderFailedPerComponent() async throws {
         let transport = MemoryTransport()
         let host = ExponentialHost(HostOptions(transport: transport))
         host.connect()
@@ -304,7 +316,9 @@ final class SafeHostTests: XCTestCase {
         let e = SurfacePaintError(surfaceId: "s1", componentId: "chart", message: "bad series")
         host.paintError(e)
         host.paintError(e)
+        // Keyed by component, not message.
         host.paintError(SurfacePaintError(surfaceId: "s1", componentId: "chart", message: "other"))
+        host.paintError(SurfacePaintError(surfaceId: "s1", componentId: "table", message: "other"))
         await settle()
         let errors = transport.sentMessages.compactMap { $0["error"] }
         XCTAssertEqual(errors.count, 2)
@@ -312,11 +326,18 @@ final class SafeHostTests: XCTestCase {
         XCTAssertEqual(errors.first?["surfaceId"], .string("s1"))
         XCTAssertEqual(errors.first?["message"], .string("bad series"))
         XCTAssertEqual(errors.first?["path"], .string("/components/chart"))
-        // New components clear the surface's dedupe set.
+        // An update of OTHER components keeps chart's report...
         host.receive(msg("updateComponents", .object(["surfaceId": .string("s1"), "components": .array([.object(["id": .string("root"), "component": .string("Text"), "text": .string("x")])])])))
         host.paintError(e)
         await settle()
+        XCTAssertEqual(transport.sentMessages.compactMap { $0["error"] }.count, 2)
+        // ... one naming chart clears it (per node).
+        host.receive(msg("updateComponents", .object(["surfaceId": .string("s1"), "components": .array([.object(["id": .string("chart"), "component": .string("Text"), "text": .string("y")])])])))
+        host.paintError(e)
+        host.paintError(SurfacePaintError(surfaceId: "s1", componentId: "table", message: "other"))
+        await settle()
         XCTAssertEqual(transport.sentMessages.compactMap { $0["error"] }.count, 3)
+        XCTAssertEqual(transport.sentMessages.compactMap { $0["error"] }.last?["path"], .string("/components/chart"))
         // The bridge routes a model's report to the host.
         host.plugin.onPaintError(SurfacePaintError(surfaceId: "s1", componentId: "c2", message: "m"))
         await settle()
@@ -328,7 +349,11 @@ final class SafeHostTests: XCTestCase {
             var description: String { "boom" }
         }
         func measure(_ leaf: ExtensionLeaf, wrap: CGFloat?) -> CGSize? { CGSize(width: 120, height: 40) }
-        func paint(_ context: ExtensionContext) throws -> AnyView { throw Boom() }
+        var calls = 0
+        func paint(_ context: ExtensionContext) throws -> AnyView {
+            calls += 1
+            throw Boom()
+        }
     }
 
     func testAThrowingPainterPaintsAnEmptyBoxAndReportsOnce() async throws {
@@ -349,11 +374,26 @@ final class SafeHostTests: XCTestCase {
         let leaves = m.nodes.filter { $0.component == "Extension" }
         XCTAssertFalse(leaves.isEmpty)
         paint(m)
+        let calls = painter.calls
         paint(m)
         await settle()
         XCTAssertEqual(Set(reports.map(\.componentId)), Set(leaves.map(\.id)), "every failing leaf reported")
-        XCTAssertEqual(reports.count, leaves.count, "once per component + message")
+        XCTAssertEqual(reports.count, leaves.count, "once per component")
         XCTAssertTrue(reports.allSatisfy { $0.surfaceId == "ext" && $0.message.contains("boom") })
+        XCTAssertEqual(painter.calls, calls, "a failed node is not painted again on the same props")
+        // New props on ONE node clear its failure only: it paints (and
+        // reports) again, the others stay failed.
+        let first = try XCTUnwrap(leaves.first)
+        XCTAssertTrue(m.paintFailed(componentId: first.id, props: m.node(first.index)!.props.json))
+        XCTAssertFalse(m.paintFailed(componentId: first.id, props: "{\"changed\":true}"))
+        for other in leaves.dropFirst() { XCTAssertTrue(m.paintFailed(componentId: other.id, props: m.node(other.index)!.props.json)) }
+        m.paintError(componentId: first.id, message: "boom again", props: "{\"changed\":true}")
+        m.paintError(componentId: first.id, message: "boom again", props: "{\"changed\":true}")
+        await settle()
+        XCTAssertEqual(reports.count, leaves.count + 1)
+        // A full replacement forgets every failure.
+        try m.setComponents(json: c["components"]!.json)
+        XCTAssertTrue(m.paintFailures.isEmpty)
     }
 
     func testASelectWithNullOptionsSkipsThem() throws {

@@ -19,6 +19,40 @@ final class MarkdownParseTests: XCTestCase {
         }
     }
 
+    /// VAPP-103 round 4: hostile inputs stay linear and bounded: unclosed
+    /// destinations (`[a](` × n), unclosed labels (`[` × 100k) and labels
+    /// nested past `maxNesting` (deeper `[` = text). The budgets are loose
+    /// (a debug build on a loaded machine); the quadratic scan took minutes.
+    func testHostileLinkInputsStayLinearAndBounded() {
+        func timed(_ text: String) -> (TimeInterval, [MarkdownInline]) {
+            let t0 = Date()
+            let out = Markdown.parseInline(text)
+            return (Date().timeIntervalSince(t0), out)
+        }
+        let (t1, a) = timed(String(repeating: "[a](", count: 50_000))
+        XCTAssertLessThan(t1, 10)
+        XCTAssertEqual(Markdown.plain(a).count, 200_000)
+        XCTAssertTrue(a.allSatisfy { $0.link == nil })
+        let (t2, b) = timed(String(repeating: "[", count: 100_000))
+        XCTAssertLessThan(t2, 10)
+        XCTAssertEqual(Markdown.plain(b).count, 100_000)
+        let (t3, c) = timed(String(repeating: "[", count: 100_000) + "x" + String(repeating: "](u)", count: 100_000))
+        XCTAssertLessThan(t3, 10)
+        XCTAssertEqual(c.first?.link, "u", "the outer links still link")
+        let (t4, d) = timed(String(repeating: "(", count: 50_000) + String(repeating: "[a](b", count: 20_000))
+        XCTAssertLessThan(t4, 10)
+        XCTAssertTrue(d.allSatisfy { $0.link == nil })
+        // Nesting: 40 levels → the inner 8 stay text.
+        let nested = String(repeating: "[", count: 40) + "x" + String(repeating: "](u)", count: 40)
+        let spans = Markdown.parseInline(nested)
+        XCTAssertTrue(spans.allSatisfy { $0.link == "u" })
+        XCTAssertEqual(Markdown.plain(spans), String(repeating: "[", count: 8) + "x" + String(repeating: "](u)", count: 8))
+        // Ordinary links are unchanged.
+        let ok = Markdown.parseInline("a [b [c]](https://x/A_(b)) \\[d](e) [f](g h) [i](\\(j)")
+        XCTAssertEqual(ok.compactMap(\.link), ["https://x/A_(b)", "e", "(j"])
+        XCTAssertEqual(Markdown.plain(ok), "a b [c] \\d [f](g h) i")
+    }
+
     func testInlineRules() {
         XCTAssertEqual(Markdown.parseInline("snake_case_name").map(\.text), ["snake_case_name"])
         let link = Markdown.parseInline("see [docs](https://x.y) now")

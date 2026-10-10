@@ -158,105 +158,182 @@ object Markdown {
 
     private data class LinkMatch(val label: String, val href: String, val consumed: Int)
 
+    /** Link labels nest at most this deep; a deeper `[` is literal text (Markdown.swift's cap). */
+    const val MAX_LINK_DEPTH = 32
+
     /**
-     * `[label](href)` at the start of `s` → (label, href, consumed). The
-     * destination follows CommonMark: balanced parentheses (`A_(b)`), `\`
-     * escapes, no whitespace, never empty.
+     * The searches of one inline string, memoised so a hostile line stays
+     * linear: `indexOf` per needle (a miss from `p` = a miss from every
+     * later `p`, a hit at `c` = the hit for every start up to `c`) and the
+     * link destination scan (a scan that ran into whitespace or the end
+     * answers every later start inside the run it covered).
      */
-    private fun linkAt(s: String, image: Boolean = false): LinkMatch? {
-        if (!s.startsWith("[")) return null
-        val close = s.indexOf("](", 1)
-        if (close < 0) return null
-        val label = s.substring(1, close)
-        val start = close + 2
-        var i = start
-        var depth = 0
-        while (i < s.length) {
-            val c = s[i]
-            when {
-                c == '\\' && i + 1 < s.length -> i += 1
-                c.isWhitespace() || c.isISOControl() -> return null
-                c == '(' -> depth += 1
-                c == ')' -> {
-                    if (depth == 0) break
+    private class Scan(val s: String) {
+        private val hits = HashMap<String, IntArray>()
+
+        fun indexOf(needle: String, from: Int): Int {
+            val memo = hits.getOrPut(needle) { intArrayOf(-2, -2) } // [from, result]
+            if (memo[0] >= 0 && from >= memo[0]) {
+                if (memo[1] < 0) return -1
+                if (from <= memo[1]) return memo[1]
+            }
+            val r = s.indexOf(needle, from)
+            memo[0] = from
+            memo[1] = r
+            return r
+        }
+
+        // A failed destination scan from `runStart` to `runEnd` (whitespace or the end):
+        // closes[p - runStart] = the `)` a scan from p stops at, or -1.
+        private var runStart = -1
+        private var runEnd = -1
+        private var closes = IntArray(0)
+
+        /** The `)` closing a destination that starts at [start] (balanced, `\` escapes, no whitespace); -1 = none. */
+        fun destinationEnd(start: Int): Int {
+            if (start > runStart && start < runEnd) return closes[start - runStart]
+            var i = start
+            var depth = 0
+            while (i < s.length) {
+                val c = s[i]
+                when {
+                    c == '\\' && i + 1 < s.length -> i += 1
+                    c.isWhitespace() || c.isISOControl() -> break
+                    c == '(' -> depth += 1
+                    c == ')' -> {
+                        if (depth == 0) return i
+                        depth -= 1
+                    }
+                }
+                i += 1
+            }
+            remember(start, i)
+            return -1
+        }
+
+        /**
+         * The answers of every start inside a failed run: a scan from p stops
+         * at the first unescaped `)` at or after p whose depth (counted from
+         * the run's start) equals p's own.
+         */
+        private fun remember(from: Int, to: Int) {
+            val n = to - from
+            val depthAt = IntArray(n)
+            val live = BooleanArray(n)
+            var depth = 0
+            var i = from
+            while (i < to) {
+                depthAt[i - from] = depth
+                live[i - from] = true
+                val c = s[i]
+                if (c == '\\' && i + 1 < s.length) {
+                    i += 1
+                    if (i < to) depthAt[i - from] = depth
+                } else if (c == '(') {
+                    depth += 1
+                } else if (c == ')') {
                     depth -= 1
                 }
+                i += 1
             }
-            i += 1
+            val nearest = IntArray(n + 1) { -1 }
+            val out = IntArray(n)
+            for (k in n - 1 downTo 0) {
+                if (live[k] && s[from + k] == ')') nearest[depthAt[k]] = from + k
+                out[k] = if (live[k]) nearest[depthAt[k]] else -1
+            }
+            runStart = from
+            runEnd = to
+            closes = out
         }
-        if (i >= s.length) return null
-        val href = s.substring(start, i).replace(Regex("""\\([!-/:-@\[-`{-~])"""), "$1")
+    }
+
+    /**
+     * `[label](href)` at `s[at]` → (label, href, consumed). The destination
+     * follows CommonMark: balanced parentheses (`A_(b)`), `\` escapes, no
+     * whitespace, never empty.
+     */
+    private fun linkAt(scan: Scan, at: Int, image: Boolean = false): LinkMatch? {
+        val s = scan.s
+        if (at >= s.length || s[at] != '[') return null
+        val close = scan.indexOf("](", at + 1)
+        if (close < 0) return null
+        val start = close + 2
+        val end = scan.destinationEnd(start)
+        if (end < 0) return null
+        val label = s.substring(at + 1, close)
+        val href = s.substring(start, end).replace(Regex("""\\([!-/:-@\[-`{-~])"""), "$1")
         if (href.isEmpty() || (label.isEmpty() && !image)) return null
-        return LinkMatch(label, href, i + 1)
+        return LinkMatch(label, href, end + 1 - at)
     }
 
     /** `![alt](src)` = the WHOLE of `s` → (alt, src). */
     private fun imageOnly(s: String): Pair<String, String>? {
         if (!s.startsWith("![")) return null
-        val m = linkAt(s.substring(1), image = true) ?: return null
+        val m = linkAt(Scan(s), 1, image = true) ?: return null
         return if (m.consumed + 1 == s.length) m.label to m.href else null
     }
 
     private fun isAlnum(c: Char): Boolean = c.isLetter() || c.isDigit()
 
-    /** A delimited run `ddTEXTdd` at the start of `s` → (TEXT, consumed). */
-    private fun delimited(s: String, delim: String): Pair<String, Int>? {
-        if (!s.startsWith(delim)) return null
-        val rest = s.substring(delim.length)
-        val end = rest.indexOf(delim)
+    /** A delimited run `ddTEXTdd` at `s[at]` → (TEXT, consumed). */
+    private fun delimited(scan: Scan, at: Int, delim: String): Pair<String, Int>? {
+        val s = scan.s
+        if (!s.startsWith(delim, at)) return null
+        val from = at + delim.length
+        val end = scan.indexOf(delim, from)
         if (end < 0) return null
-        val inner = rest.substring(0, end)
-        if (inner.isEmpty() || inner[0].isWhitespace()) return null
+        if (end == from || s[from].isWhitespace()) return null
         if (delim.startsWith("_")) {
             val nextAt = end + delim.length
-            if (nextAt < rest.length && isAlnum(rest[nextAt])) return null
+            if (nextAt < s.length && isAlnum(s[nextAt])) return null
         }
-        return inner to (delim.length * 2 + inner.length)
+        return s.substring(from, end) to (end + delim.length - at)
     }
 
-    private fun parseInline(s: String, f: Flags, link: String?, out: MutableList<MarkdownInline>) {
+    private fun parseInline(s: String, f: Flags, link: String?, out: MutableList<MarkdownInline>, linkDepth: Int) {
+        val scan = Scan(s)
         var plainStart = 0
         var i = 0
         while (i < s.length) {
-            val rest = s.substring(i)
             val c = s[i]
             var handled: Int? = null
             if (c == '`') {
-                val end = s.indexOf('`', i + 1)
+                val end = scan.indexOf("`", i + 1)
                 if (end >= 0) {
                     push(out, s.substring(plainStart, i), f, link)
                     out.add(MarkdownInline(text = s.substring(i + 1, end), code = true, link = link))
                     handled = end - (i + 1) + 2
                 }
-            } else if (c == '!' && rest.length > 1 && rest[1] == '[') {
-                val m = linkAt(rest.substring(1), image = true)
+            } else if (c == '!' && i + 1 < s.length && s[i + 1] == '[') {
+                val m = linkAt(scan, i + 1, image = true)
                 if (m != null) {
                     push(out, s.substring(plainStart, i), f, link)
                     push(out, m.label, f, link)
                     handled = m.consumed + 1
                 }
-            } else if (c == '[') {
-                val m = linkAt(rest)
+            } else if (c == '[' && linkDepth < MAX_LINK_DEPTH) {
+                val m = linkAt(scan, i)
                 if (m != null) {
                     push(out, s.substring(plainStart, i), f, link)
-                    parseInline(m.label, f, m.href, out)
+                    parseInline(m.label, f, m.href, out, linkDepth + 1)
                     handled = m.consumed
                 }
             } else if (c == '*' || c == '_' || c == '~') {
                 val prevAlnum = i > 0 && isAlnum(s[i - 1])
                 if (!(c == '_' && prevAlnum)) {
                     val double = if (c == '*') "**" else if (c == '_') "__" else "~~"
-                    val d = delimited(rest, double)
+                    val d = delimited(scan, i, double)
                     if (d != null) {
                         push(out, s.substring(plainStart, i), f, link)
                         val nf = if (c == '~') f.copy(strike = true) else f.copy(bold = true)
-                        parseInline(d.first, nf, link, out)
+                        parseInline(d.first, nf, link, out, linkDepth)
                         handled = d.second
                     } else if (c != '~') {
-                        val single = delimited(rest, c.toString())
+                        val single = delimited(scan, i, c.toString())
                         if (single != null) {
                             push(out, s.substring(plainStart, i), f, link)
-                            parseInline(single.first, f.copy(italic = true), link, out)
+                            parseInline(single.first, f.copy(italic = true), link, out, linkDepth)
                             handled = single.second
                         }
                     }
@@ -275,7 +352,7 @@ object Markdown {
     /** The inline spans of one line of markdown. */
     fun parseInline(s: String): List<MarkdownInline> {
         val out = ArrayList<MarkdownInline>()
-        parseInline(s, Flags(), null, out)
+        parseInline(s, Flags(), null, out, 0)
         return out
     }
 

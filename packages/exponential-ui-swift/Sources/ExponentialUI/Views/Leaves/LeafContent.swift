@@ -108,14 +108,20 @@ private struct ExtensionLeafView: View {
         let ctx = ExtensionContext(node: context.node, props: context.props, style: context.style, textStyle: context.textStyle, ink: context.ink, size: context.size, theme: context.model.theme, mode: context.model.mode, model: context.model, children: nil)
         // A painter that throws (or a kind without one) paints an empty box
         // and reports `onPaintError`; the surface keeps painting.
-        switch Self.paint(kind: kind, ctx, model: context.model) {
-        case let .success(view):
-            view
-        case let .failure(error):
-            // Reported from the body: `paintError` dedupes and defers the
-            // host call past this update.
-            let _ = context.model.paintError(componentId: context.node.id, message: error.message)
+        // A node that failed on these very props is not painted again.
+        let props = context.props.json
+        if context.model.paintFailed(componentId: context.node.id, props: props) {
             Color.clear.frame(width: context.size.width, height: context.size.height)
+        } else {
+            switch Self.paint(kind: kind, ctx, model: context.model) {
+            case let .success(view):
+                view
+            case let .failure(error):
+                // Reported from the body: `paintError` records it and defers
+                // the host call past this update.
+                let _ = context.model.paintError(componentId: context.node.id, message: error.message, props: props)
+                Color.clear.frame(width: context.size.width, height: context.size.height)
+            }
         }
     }
 

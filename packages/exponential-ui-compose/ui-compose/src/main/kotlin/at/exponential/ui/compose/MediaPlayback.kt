@@ -11,74 +11,176 @@ import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DataSource
+import androidx.media3.datasource.DataSpec
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import at.exponential.ui.host.MediaLimits
 import at.exponential.ui.host.MediaRequest
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.IOException
 import java.util.UUID
 
 /**
  * How a policed Video / AudioPlayer request plays (React's `<video src>`,
- * Swift's `MediaLoader.Playback`): a request without headers streams
- * straight into the player; one that carries headers (`/api/attachments`
- * auth) or a `data:` url is fetched under `media.limits` into a temporary
- * file first (React's blob url).
+ * Swift's `MediaLoader.Playback`): an http(s) request STREAMS into the
+ * player with its headers (`/api/attachments` auth; catalog/host.json: the
+ * media byte limits do not apply to Video / Audio); a `data:` url is
+ * written to a temporary [File] first (bounded by the message itself, not
+ * `maxBytes`).
  */
 sealed interface PlaybackSource {
-    data class Stream(val url: String) : PlaybackSource
+    data class Stream(val url: String, val headers: Map<String, String> = emptyMap()) : PlaybackSource
 
-    data class Fetch(val request: MediaRequest) : PlaybackSource
+    data class File(val request: MediaRequest) : PlaybackSource
 
     companion object {
-        fun of(request: MediaRequest): PlaybackSource? {
-            val scheme = request.url.substringBefore(':', "").lowercase()
-            if (scheme.isEmpty()) return null
-            return if (scheme != "data" && request.headers.isEmpty()) Stream(request.url) else Fetch(request)
+        fun of(request: MediaRequest): PlaybackSource? = when (LeafImages.schemeOf(request.url)) {
+            "http", "https" -> Stream(request.url, request.headers)
+            "data" -> File(request)
+            else -> null
         }
+
+        /**
+         * [request] ready to open: a stream's redirect chain resolved and
+         * policed per hop ([LeafImages.resolveStream]: the final url + that
+         * hop's headers); a `data:` request as is. null = denied or failed.
+         */
+        suspend fun resolve(request: MediaRequest, limits: MediaLimits = MediaLimits.contract, police: (String) -> MediaRequest? = { null }): PlaybackSource? =
+            when (val source = of(request)) {
+                is Stream -> withContext(Dispatchers.IO) {
+                    runCatching { LeafImages.resolveStream(request, limits, police) }.getOrNull()
+                }?.let { Stream(it.url, it.headers) }
+                else -> source
+            }
     }
 }
 
 /**
- * The files fetched requests play from: [LeafImages.fetch] (the limits, a
- * redirect re-policed per hop) written under the app's cache dir, one per
- * url + headers.
+ * The temporary files `data:` players open, under the cache dir's
+ * `exponential-ui-media` (emptied on the first use per process): one per
+ * request, refcounted by the live playbacks (the last [release] deletes
+ * it) and bounded to [CAPACITY] files (an eviction deletes the oldest; its
+ * player keeps the open descriptor).
  */
 object MediaFiles {
-    private val files = HashMap<String, File>()
+    const val CAPACITY = 8
+
+    private class Entry(val file: File, var users: Int)
+
+    private val entries = LinkedHashMap<String, Entry>(16, 0.75f, true)
+    private var swept = false
 
     fun key(request: MediaRequest): String =
         request.url + "|" + request.headers.toSortedMap().entries.joinToString("&") { "${it.key}=${it.value}" }
 
+    fun dir(context: Context): File = File(context.cacheDir, "exponential-ui-media")
+
     /**
-     * The uri a player opens for [request]: the stream itself, or the
-     * fetched file; null when the fetch failed (over a limit, HTTP error,
-     * a redirect the policy denies).
+     * The file [request] plays from, held for the caller until [release]
+     * (fetched once while any playback holds it); null when the fetch
+     * failed. A redirect is re-policed per hop.
      */
-    suspend fun playableUri(
-        context: Context,
-        request: MediaRequest,
-        limits: MediaLimits = MediaLimits.contract,
-        police: (String) -> MediaRequest? = { null },
-    ): Uri? = when (val source = PlaybackSource.of(request)) {
-        is PlaybackSource.Stream -> Uri.parse(source.url)
-        is PlaybackSource.Fetch -> file(context, source.request, limits, police)?.let(Uri::fromFile)
-        null -> null
+    suspend fun acquire(context: Context, request: MediaRequest, police: (String) -> MediaRequest? = { null }): File? {
+        val key = key(request)
+        synchronized(this) {
+            entries[key]?.takeIf { it.file.exists() }?.let {
+                it.users += 1
+                return it.file
+            }
+        }
+        // NonCancellable: a written file is always registered (else it would leak).
+        return withContext(Dispatchers.IO + NonCancellable) {
+            val bytes = runCatching { LeafImages.fetch(request, MediaLimits(Long.MAX_VALUE, MediaLimits.contract.timeoutMs, 0), police) }.getOrNull()
+                ?: return@withContext null
+            sweep(context)
+            val file = runCatching { File(dir(context).apply { mkdirs() }, "${UUID.randomUUID()}.media").apply { writeBytes(bytes) } }.getOrNull()
+                ?: return@withContext null
+            synchronized(this@MediaFiles) {
+                entries[key]?.takeIf { it.file.exists() }?.let {
+                    it.users += 1
+                    file.delete()
+                    return@withContext it.file
+                }
+                entries[key] = Entry(file, 1)
+                while (entries.size > CAPACITY) {
+                    val eldest = entries.entries.iterator()
+                    eldest.next().value.file.delete()
+                    eldest.remove()
+                }
+            }
+            file
+        }
     }
 
-    private suspend fun file(context: Context, request: MediaRequest, limits: MediaLimits, police: (String) -> MediaRequest?): File? {
-        val key = key(request)
-        synchronized(files) { files[key]?.takeIf { it.exists() } }?.let { return it }
-        val file = withContext(Dispatchers.IO) {
-            runCatching {
-                val bytes = LeafImages.fetch(request, limits, police)
-                val dir = File(context.cacheDir, "exponential-ui-media").apply { mkdirs() }
-                File(dir, "${UUID.randomUUID()}.media").apply { writeBytes(bytes) }
-            }.getOrNull()
-        } ?: return null
-        synchronized(files) { files[key] = file }
-        return file
+    /** Drop one hold on [file]: the last one deletes it. */
+    fun release(file: File) {
+        synchronized(this) {
+            val it = entries.entries.iterator()
+            while (it.hasNext()) {
+                val e = it.next()
+                if (e.value.file != file) continue
+                e.value.users -= 1
+                if (e.value.users <= 0) {
+                    it.remove()
+                    file.delete()
+                }
+                return
+            }
+        }
+    }
+
+    /** The files currently tracked (tests). */
+    internal fun tracked(): List<File> = synchronized(this) { entries.values.map { it.file } }
+
+    /** Forget every entry and sweep again on the next use (tests). */
+    internal fun reset() = synchronized(this) {
+        entries.clear()
+        swept = false
+    }
+
+    /** The first use per process empties the directory (files a previous process left). */
+    private fun sweep(context: Context) = synchronized(this) {
+        if (swept) return@synchronized
+        swept = true
+        dir(context).listFiles()?.forEach { it.delete() }
+    }
+}
+
+/**
+ * A stream's data source pinned to the origin the probe resolved: after
+ * every open the source's uri must keep that scheme + host + port, else it
+ * closes and fails. ExoPlayer's HTTP source follows same-protocol
+ * redirects itself (with the headers), so a later hop to another origin
+ * fails the stream instead of being re-policed.
+ */
+@OptIn(UnstableApi::class)
+internal class PinnedDataSource(private val inner: DataSource, private val origin: Uri) : DataSource by inner {
+    override fun open(dataSpec: DataSpec): Long {
+        val length = inner.open(dataSpec)
+        val uri = inner.uri
+        if (uri == null || !sameOrigin(uri, origin)) {
+            inner.close()
+            throw IOException("media moved off ${origin.scheme}://${origin.authority} to $uri")
+        }
+        return length
+    }
+
+    companion object {
+        fun sameOrigin(a: Uri, b: Uri): Boolean =
+            a.scheme.equals(b.scheme, ignoreCase = true) && a.host.equals(b.host, ignoreCase = true) && port(a) == port(b)
+
+        private fun port(u: Uri): Int = if (u.port != -1) u.port else if (u.scheme.equals("https", ignoreCase = true)) 443 else 80
     }
 }
 
@@ -88,8 +190,11 @@ object MediaFiles {
  * (`SurfaceModel.mediaRequest`: the host's resolveUrl, then the media
  * policy); a denied src never reaches a player and the leaf stays the
  * static poster / controls. Nothing loads before playback starts (a press,
- * or `autoplay`); a request with headers is fetched under `media.limits`
- * first ([MediaFiles]). Compose state: the leaves recompose on it.
+ * or `autoplay`); an http(s) src streams with its headers after its
+ * redirects are policed ([PlaybackSource.resolve]), a `data:` src plays
+ * from a [MediaFiles] file. ONE open at a time: a second press while it
+ * opens waits for it, another src cancels it. Compose state: the leaves
+ * recompose on it.
  */
 @OptIn(UnstableApi::class)
 class MediaPlayback(private val context: Context) {
@@ -97,6 +202,10 @@ class MediaPlayback(private val context: Context) {
     var player by mutableStateOf<ExoPlayer?>(null)
         private set
     var playing by mutableStateOf(false)
+        private set
+
+    /** True while a source opens (the probe or the file fetch): the play controls wait. */
+    var loading by mutableStateOf(false)
         private set
 
     /** Milliseconds played and the item's length (null until it is known). */
@@ -109,9 +218,23 @@ class MediaPlayback(private val context: Context) {
     var opened: MediaRequest? = null
         private set
 
-    /** The uri the player was given (tests: the stream, or the fetched file). */
+    /** The uri the player was given (tests: the resolved stream, or the file). */
     var openedUri: Uri? = null
         private set
+
+    /** The stream the player opened (the final hop's url + headers); null for a file. */
+    var openedStream: PlaybackSource.Stream? = null
+        private set
+
+    /** Players built and released (tests). */
+    internal var playersBuilt = 0
+        private set
+    internal var playersReleased = 0
+        private set
+
+    private var opening: Deferred<Unit>? = null
+    private var generation = 0
+    private var file: File? = null
 
     private val listener = object : Player.Listener {
         override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -149,19 +272,79 @@ class MediaPlayback(private val context: Context) {
             playing = true
             return
         }
+        val inFlight = opening
+        if (inFlight != null && request == opened) {
+            awaitQuietly(inFlight)
+            return
+        }
         stop()
         opened = request
-        val uri = MediaFiles.playableUri(context, request, limits, police) ?: return
-        if (opened != request) return
-        val exo = withContext(Dispatchers.Main.immediate) {
-            ExoPlayer.Builder(context).build().apply {
-                if (muted) volume = 0f
-                addListener(listener)
-                setMediaItem(MediaItem.fromUri(uri))
-                prepare()
-                play()
+        loading = true
+        val gen = generation
+        coroutineScope {
+            val task = async { open(gen, request, muted, limits, police) }
+            opening = task
+            try {
+                awaitQuietly(task)
+            } finally {
+                if (opening === task) {
+                    opening = null
+                    loading = false
+                }
             }
         }
+    }
+
+    /** Await an open; ITS cancellation (another src replaced it) is no error of the caller's. */
+    private suspend fun awaitQuietly(task: Deferred<Unit>) {
+        try {
+            task.await()
+        } catch (e: CancellationException) {
+            currentCoroutineContext().ensureActive()
+        }
+    }
+
+    private suspend fun open(gen: Int, request: MediaRequest, muted: Boolean, limits: MediaLimits, police: (String) -> MediaRequest?) {
+        when (val source = PlaybackSource.resolve(request, limits, police)) {
+            is PlaybackSource.Stream -> withContext(Dispatchers.Main.immediate) {
+                if (gen != generation) return@withContext
+                val uri = Uri.parse(source.url)
+                val http = DefaultHttpDataSource.Factory()
+                    .setDefaultRequestProperties(source.headers)
+                    .setAllowCrossProtocolRedirects(false)
+                    .setConnectTimeoutMs(limits.timeoutMs.toInt())
+                    .setReadTimeoutMs(limits.timeoutMs.toInt())
+                val pinned = DataSource.Factory { PinnedDataSource(http.createDataSource(), uri) }
+                install(ExoPlayer.Builder(context).setMediaSourceFactory(DefaultMediaSourceFactory(pinned)), uri, muted)
+                openedStream = source
+            }
+            is PlaybackSource.File -> {
+                val f = MediaFiles.acquire(context, source.request, police) ?: return
+                var held = false
+                try {
+                    withContext(Dispatchers.Main.immediate) {
+                        if (gen != generation) return@withContext
+                        install(ExoPlayer.Builder(context), Uri.fromFile(f), muted)
+                        file = f
+                        held = true
+                    }
+                } finally {
+                    if (!held) MediaFiles.release(f)
+                }
+            }
+            null -> {}
+        }
+    }
+
+    private fun install(builder: ExoPlayer.Builder, uri: Uri, muted: Boolean) {
+        val exo = builder.build().apply {
+            if (muted) volume = 0f
+            addListener(listener)
+            setMediaItem(MediaItem.fromUri(uri))
+            prepare()
+            play()
+        }
+        playersBuilt += 1
         openedUri = uri
         player = exo
         playing = true
@@ -190,15 +373,23 @@ class MediaPlayback(private val context: Context) {
         if (d != C.TIME_UNSET && d > 0) durationMs = d
     }
 
-    /** Drop the player (the leaf left the screen or its src changed). */
+    /** Drop the player, any open in flight and the file it held (the leaf left the screen or its src changed). */
     fun stop() {
+        generation += 1
+        opening?.cancel()
+        opening = null
+        loading = false
         player?.let {
             it.removeListener(listener)
             it.release()
+            playersReleased += 1
         }
+        file?.let(MediaFiles::release)
+        file = null
         player = null
         opened = null
         openedUri = null
+        openedStream = null
         playing = false
         positionMs = 0
         durationMs = null

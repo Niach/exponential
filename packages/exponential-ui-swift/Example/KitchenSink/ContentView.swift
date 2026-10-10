@@ -113,7 +113,10 @@ final class SinkState: ObservableObject {
 
     static func theme(_ id: String) -> ThemeHandle? {
         if id == "brand", let url = Bundle.main.url(forResource: "brand.theme", withExtension: "json"), let json = try? String(contentsOf: url, encoding: .utf8) {
-            return try? ThemeHandle.load(json: json)
+            // An unusable theme file falls back to the default and says why.
+            return ThemeHandle.loadOrDefault(json: json) { issues in
+                for issue in issues { print("brand theme: \(issue.path): \(issue.message)") }
+            }
         }
         return ThemeHandle.builtin(id)
     }

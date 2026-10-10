@@ -186,7 +186,7 @@ class SafeHostTest {
     // onPaintError
 
     @Test
-    fun paintErrorsAreSentOnceAsRenderFailed() {
+    fun paintErrorsAreSentOncePerComponentAsRenderFailed() {
         val t = MemoryTransport()
         val seen = ArrayList<PaintError>()
         val h = ExponentialHost(
@@ -198,8 +198,14 @@ class SafeHostTest {
             CoroutineScope(Dispatchers.Unconfined),
         )
         h.connect()
+        fun update(vararg components: String) =
+            t.feed(msg("""{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[${components.joinToString(",")}]}}"""))
         t.feed(msg("""{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"$core"}}"""))
-        t.feed(msg("""{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Text","text":"hi"}]}}"""))
+        update(
+            """{"id":"root","component":"Stack","children":["chart","other"]}""",
+            """{"id":"chart","component":"Text","text":"a"}""",
+            """{"id":"other","component":"Text","text":"b"}""",
+        )
         val m = h.surface("s1")!!
         m.paintFailed("chart", "Chart: bad series")
         m.paintFailed("chart", "Chart: bad series")
@@ -211,18 +217,57 @@ class SafeHostTest {
         assertEquals("/components/chart", err["path"]?.string)
         assertEquals(listOf(PaintError("s1", "chart", "Chart: bad series")), seen)
         assertEquals("Chart: bad series", m.paintFailures["chart"])
-        // Straight to the host: deduped there too.
-        h.paintError(PaintError("s1", "chart", "Chart: bad series"))
-        assertEquals(1, t.sent.size)
-        // Another message is another error.
+        // Keyed by component, not message: the model and the host both dedupe.
         m.paintFailed("chart", "Chart: other")
+        h.paintError(PaintError("s1", "chart", "Chart: other"))
+        assertEquals(1, t.sent.size)
+        // An update naming ANOTHER component leaves chart's failure (its props are the failed ones).
+        update("""{"id":"other","component":"Text","text":"c"}""")
+        assertTrue(m.paintFailures.containsKey("chart"))
+        m.paintFailed("chart", "Chart: bad series")
+        assertEquals(1, t.sent.size)
+        m.paintFailed("other", "Text: broken")
         assertEquals(2, t.sent.size)
-        // New components clear the dedupe (the model's and the host's).
-        t.feed(msg("""{"version":"v0.9","updateComponents":{"surfaceId":"s1","components":[{"id":"root","component":"Text","text":"again"}]}}"""))
-        assertTrue(m.paintFailures.isEmpty())
+        // chart's props change: only its entry clears, it paints (and reports) again.
+        update("""{"id":"chart","component":"Text","text":"a2"}""")
+        assertEquals(setOf("other"), m.paintFailures.keys.toSet())
         m.paintFailed("chart", "Chart: bad series")
         assertEquals(3, t.sent.size)
+        // A component that left the surface drops its entry.
+        update("""{"id":"root","component":"Stack","children":["chart"]}""")
+        assertEquals(setOf("chart"), m.paintFailures.keys.toSet())
+        // A new createSurface forgets the host's keys.
+        t.feed(msg("""{"version":"v0.9","createSurface":{"surfaceId":"s1","catalogId":"$core"}}"""))
+        h.paintError(PaintError("s1", "chart", "Chart: bad series"))
+        assertEquals(4, t.sent.size)
         assertEquals(RENDER_FAILED, t.sent.last()["error"]?.get("code")?.string)
+    }
+
+    @Test
+    fun aFailedNodeStaysFailedUntilItsOwnPropsChange() {
+        val reports = ArrayList<PaintError>()
+        val m = makeModel(fixed = true, host = object : HostPlugin {
+            override fun onPaintError(error: PaintError) {
+                reports.add(error)
+            }
+        })
+        fun tree(a: String, b: String) = m.setNested(
+            """{"id":"root","component":"Stack","children":[
+              {"id":"a","component":"Text","props":{"text":"$a"}},
+              {"id":"b","component":"Text","props":{"text":"$b"}}
+            ]}""",
+        )
+        tree("1", "1")
+        m.paintFailed("a", "boom")
+        m.paintFailed("b", "boom")
+        assertEquals(2, reports.size)
+        // b changes, a does not: only b paints again.
+        tree("1", "2")
+        assertEquals(setOf("a"), m.paintFailures.keys.toSet())
+        m.paintFailed("a", "boom")
+        assertEquals(2, reports.size)
+        m.paintFailed("b", "boom")
+        assertEquals(3, reports.size)
     }
 
     @Test
