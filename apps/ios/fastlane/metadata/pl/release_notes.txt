@@ -1,6 +1,19 @@
-- Guide: Changes i Results issue to teraz jeden Guide; każda sekcja raportu agenta otwiera własny diff, a Show complete diff znajduje się na dole
-- Uruchomienia: wątek uruchomienia czyta się tura po turze z Twoimi wiadomościami pomiędzy, a stosowy pull request scala się jednym przyciskiem Merge stack
-- Edytor: przycisk + otwiera jedno menu (zaimplementuj issue, uruchom akcję, dodaj plik lub obraz do 50 MB, nakład pracy, subagenci, serwery MCP, obsługa komputera); sugestie to dyskretne wiersze pod polem
-- Linki: link w odpowiedzi agenta lub w Guide prowadzący do uruchomienia lub issue otwiera się w aplikacji, pozostałe linki w przeglądarce w aplikacji, a gołe adresy URL można stuknąć
-- Akcje: nieudane scalenie proponuje Fix merge conflicts, wbudowaną akcję, która wykonuje rebase, rozwiązuje konflikty i scala pull request
-- Poprawki: Reviews podaje issue pull requesta, którego repozytorium jest połączone w innym zespole, tekst sesji już się nie nakłada, zniknął zdublowany przycisk, a runda dopracowania wyrównuje wiersze, odstępy i teksty w całej aplikacji
+- Guide: Changes i Results zgłoszenia to teraz jeden Guide; każda sekcja raportu agenta otwiera własny diff, Show complete diff jest na dole, a Merge siedzi na dolnym pasku, dopóki pull request jest otwarty
+- Uruchomienia: uruchomienie otwiera się jako wątek z wierszem stanu (urządzenie, czas, ostatnie narzędzie) i czyta się turami z Twoimi wiadomościami pomiędzy; Show work otwiera pełną transkrypcję, strzałka przeskakuje do najnowszej wiadomości, a lista zadań pokazuje postęp
+- Uruchomienia: logo agenta kręci się, gdy pracuje, bursztyn czeka na Ciebie, zielony ma otwarty pull request, niebieski jest gotowy, a uruchomienie pokazuje Working, aż agent naprawdę skończy
+- Pisanie: przycisk + otwiera jedno menu (zrealizuj zgłoszenie, uruchom akcję, dodaj plik lub obraz do 50 MB, wysiłek, subagenci, serwery MCP, Computer use); sugestie to dyskretne wiersze pod polem
+- Linki: link do uruchomienia lub zgłoszenia w odpowiedzi agenta albo w Guide otwiera się w aplikacji, pozostałe w wbudowanej przeglądarce, a gołe adresy URL można stuknąć
+- Stosy: zablokowane zgłoszenie może wystartować jako Stacked PR, który buduje cały ciąg pull requestów od dołu, a pull request ze stosu scala się jednym przyciskiem Merge stack
+- Akcje: automatyzacje są teraz wyzwalaczami na akcji, którą uruchamiają, każda akcja to strona z promptem, wyzwalaczami i uruchomieniami, nieudany merge proponuje Fix merge conflicts, Tidy up porządkuje tablicę, a usunięcie akcji wymaga potwierdzenia
+- Nawigacja: aplikacja otwiera się na stronie Agent z kartami Inbox, Devices, Reviews, Agent i Actions; Reviews, uruchomienia, akcje i urządzenia obejmują wszystkie Twoje zespoły, a Inbox, My issues i Drafts przesuwa się w bok
+- Reviews: pull request z czatu lub akcji otwiera swój Guide w aplikacji, a pull request, którego repozytorium jest połączone w innym zespole, wskazuje swoje zgłoszenie
+- Nowe zgłoszenie: tworzenie zgłoszenia otwiera pełną stronę ze wszystkimi właściwościami, zapisywaną jako szkic podczas pisania; zgłoszenie utworzone ze szkicu na innym urządzeniu otwiera się tutaj, a opuszczenie szkicu z treścią pyta Create, Keep as draft lub Discard
+- Zgłoszenia: Start coding otwiera listę Ready to code, gdy czegoś brakuje, podzgłoszenie wskazuje rodzica i pokazuje postęp pierścieniem, relacje grupują się w zwijane sekcje, a tytuł chowa się w nagłówku przy przewijaniu
+- GitHub: jedna strona z przewodnikiem łączy Twoje konto GitHub, instaluje aplikację i wyświetla repozytoria, do których możesz pushować
+- Opinie: zgłoszenie z widgetu jest zgłoszeniem; odpowiedz zgłaszającemu z pola komentarza, a jego odpowiedzi wracają jako komentarze
+- Konto: zmień e-mail kodem, połącz lub odłącz logowanie Google, Apple i OIDC, o ile zostaje inny sposób wejścia, i zarządzaj kluczami dostępu
+- Serwery MCP: raz połącz swoje konto z zespołowym serwerem MCP w sieci, a każde uruchomienie na dowolnym komputerze z niego korzysta
+- Urządzenia: blok gotowości mówi, czego komputerowi jeszcze brakuje, Computer use można włączyć dla każdego urządzenia, a każde logowanie agenta oferuje Sign out
+- Okna i powiadomienia: każde potwierdzenie i wybór używa tej samej karty, Return nigdy nie wybiera destrukcyjnej odpowiedzi, a powiadomienia się układają, stuknij, by rozwinąć, przesuń, by odrzucić
+- Dołączanie do zespołu: zaproszenie proponuje krok konfiguracji urządzenia, gdy jeszcze go nie masz, a rejestracja kodem e-mail pyta o imię
+- Poprawki: tablice pokazują wskaźnik, aż dotrą ich zgłoszenia, tekst sesji już się nie nakłada, zdublowany przycisk zniknął, uruchomienie w pustym repozytorium startuje, a runda dopracowania wyrównuje wiersze, odstępy i teksty w całej aplikacji

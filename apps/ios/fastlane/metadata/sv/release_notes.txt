@@ -1,6 +1,19 @@
-- Guide: ett issues Changes och Results är nu en enda Guide; varje avsnitt i agentens rapport öppnar sin egen diff, och Show complete diff ligger längst ned
-- Körningar: körningstråden läses tur för tur med dina egna meddelanden emellan, och en staplad pull request mergas med en enda Merge stack-kontroll
-- Redigering: knappen + öppnar en enda meny (implementera ett issue, kör en åtgärd, lägg till en fil eller bild på upp till 50 MB, insats, subagenter, MCP-servrar, datoranvändning); förslag är diskreta rader under fältet
-- Länkar: en länk i ett agentsvar eller i Guide som pekar på en körning eller ett issue öppnas i appen, andra länkar öppnas i appens webbläsare, och nakna URL:er går att trycka på
-- Åtgärder: en misslyckad merge erbjuder Fix merge conflicts, en inbyggd åtgärd som rebasar, löser konflikter och mergar pull requesten
-- Korrigeringar: Reviews namnger issuet för en pull request vars repository är anslutet i ett annat team, sessionstext överlappar inte längre, en dubblerad knapp är borta, och en putsrunda samordnar rader, avstånd och texter i hela appen
+- Guide: ett ärendes Changes och Results är nu en enda Guide; varje avsnitt i agentens rapport öppnar sin egen diff, Show complete diff ligger längst ned, och Merge sitter i bottenfältet medan pull requesten är öppen
+- Körningar: en körning öppnas som en tråd med en statusrad (enhet, förfluten tid, senaste verktygsrad) och läses tur för tur med dina egna meddelanden emellan; Show work öppnar hela transkriptet, en pil hoppar till det senaste meddelandet, och uppgiftslistan visar förloppet
+- Körningar: agentens märke snurrar medan den arbetar, bärnsten väntar på dig, grönt har en öppen pull request, blått är klart, och en körning visar Working tills agenten verkligen är klar
+- Skrivfält: knappen + öppnar en meny (implementera ett ärende, kör en åtgärd, lägg till en fil eller bild på upp till 50 MB, ansträngning, subagenter, MCP-servrar, Computer use); förslag är diskreta rader under fältet
+- Länkar: en länk i ett agentsvar eller en Guide som pekar på en körning eller ett ärende öppnas i appen, andra länkar i den inbyggda webbläsaren, och nakna URL:er går att trycka på
+- Staplar: ett blockerat ärende kan starta som Stacked PR, som bygger hela raden av pull requests nedifrån och upp, och en staplad pull request mergas med en enda Merge stack-kontroll
+- Åtgärder: automatiseringar är nu utlösare på åtgärden de kör, varje åtgärd är en sida med prompt, utlösare och körningar, en misslyckad merge erbjuder Fix merge conflicts, Tidy up städar en tavla, och att ta bort en åtgärd frågar först
+- Navigering: appen öppnas på Agent-sidan med flikarna Inbox, Devices, Reviews, Agent och Actions; Reviews, körningar, åtgärder och enheter visar alla dina team, och Inbox, My issues och Drafts sveper i sidled
+- Reviews: en pull request från en chatt- eller åtgärdskörning öppnar sin Guide i appen, och en pull request vars repository är anslutet i ett annat team namnger sitt ärende
+- Nytt ärende: att skapa ett ärende öppnar en hel sida med alla egenskaper, sparad som utkast medan du skriver; ett ärende skapat från ett utkast på en annan enhet landar på ärendet här, och att lämna ett utkast med innehåll frågar Create, Keep as draft eller Discard
+- Ärenden: Start coding öppnar en Ready to code-checklista när något saknas, ett underärende namnger sitt överordnade ärende och visar förloppet med en ring, relationer grupperas i hopfällbara avsnitt, och titeln glider in i sidhuvudet när du scrollar
+- GitHub: en guidad sida ansluter ditt GitHub-konto, installerar appen och listar de repositories du kan pusha till
+- Feedback: ett widgetinskick är ett ärende; svara rapportören från kommentarsfältet, och svaren kommer tillbaka som kommentarer
+- Konto: byt e-post med en kod, koppla eller koppla från Google-, Apple- och OIDC-inloggningar så länge ett annat sätt in finns kvar, och hantera passkeys
+- MCP-servrar: anslut ditt eget konto till en team-MCP-server en gång på webben, och varje körning du startar på valfri dator använder den
+- Enheter: beredskapsblocket visar vad en dator fortfarande behöver, Computer use kan slås på per enhet, och varje agentinloggning erbjuder Sign out
+- Dialoger och notiser: varje bekräftelse och val använder samma kort, Return väljer aldrig ett destruktivt svar, och notiser staplas, tryck för att expandera, svep för att avfärda
+- Gå med i ett team: inbjudan erbjuder enhetssteget när du inte äger någon enhet än, och registrering med en e-postkod frågar efter ditt namn
+- Korrigeringar: tavlor visar en spinner tills deras ärenden har kommit, sessionstext överlappar inte längre, en dubblerad knapp är borta, en körning på ett tomt repository startar, och en putsrunda justerar rader, avstånd och texter i hela appen

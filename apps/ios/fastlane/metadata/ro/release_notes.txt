@@ -1,6 +1,19 @@
-- Guide: Changes și Results ale unui issue sunt acum un singur Guide; fiecare secțiune a raportului agentului își deschide propriul diff, iar Show complete diff se află jos
-- Rulări: firul rulării se citește tură cu tură, cu propriile tale mesaje între ele, iar un pull request suprapus se îmbină cu un singur control Merge stack
-- Editor: butonul + deschide un singur meniu (implementează un issue, rulează o acțiune, adaugă un fișier sau o imagine de până la 50 MB, efort, subagenți, servere MCP, utilizarea computerului); sugestiile sunt rânduri discrete sub casetă
-- Linkuri: un link dintr-un răspuns al agentului sau din Guide care duce la o rulare sau la un issue se deschide în aplicație, celelalte linkuri în browserul din aplicație, iar URL-urile simple pot fi atinse
-- Acțiuni: o îmbinare eșuată oferă Fix merge conflicts, o acțiune integrată care face rebase, rezolvă conflictele și îmbină pull requestul
-- Remedieri: Reviews numește issue-ul unui pull request al cărui depozit este conectat într-o altă echipă, textul sesiunii nu se mai suprapune, un buton dublat a dispărut, iar o rundă de finisare aliniază rândurile, spațierea și textele în toată aplicația
+- Guide: Changes și Results ale unui issue sunt acum un singur Guide; fiecare secțiune din raportul agentului își deschide propriul diff, Show complete diff e jos, iar Merge stă în bara de jos cât timp pull request-ul e deschis
+- Rulări: o rulare se deschide ca fir cu un rând de stare (dispozitiv, timp scurs, ultimul instrument) și se citește tură cu tură, cu mesajele tale între ele; Show work deschide transcrierea completă, o săgeată sare la cel mai nou mesaj, iar lista de sarcini arată progresul
+- Rulări: sigla agentului se rotește cât lucrează, chihlimbar te așteaptă, verde are un pull request deschis, albastru e gata, iar o rulare arată Working până când agentul chiar termină
+- Compunere: butonul + deschide un singur meniu (implementează un issue, rulează o acțiune, adaugă un fișier sau o imagine de până la 50 MB, efort, subagenți, servere MCP, Computer use); sugestiile sunt rânduri discrete sub câmp
+- Linkuri: un link spre o rulare sau un issue dintr-un răspuns al agentului sau dintr-un Guide se deschide în aplicație, celelalte în browserul integrat, iar URL-urile simple pot fi atinse
+- Stive: un issue blocat poate porni ca Stacked PR, care construiește tot șirul de pull request-uri de jos în sus, iar un pull request stivuit se îmbină cu un singur control Merge stack
+- Acțiuni: automatizările sunt acum declanșatoare pe acțiunea pe care o rulează, fiecare acțiune e o pagină cu prompt, declanșatoare și rulări, un merge eșuat oferă Fix merge conflicts, Tidy up curăță un board, iar ștergerea unei acțiuni cere confirmare
+- Navigare: aplicația se deschide pe pagina Agent cu filele Inbox, Devices, Reviews, Agent și Actions; Reviews, rulările, acțiunile și dispozitivele cuprind toate echipele tale, iar Inbox, My issues și Drafts se glisează lateral
+- Reviews: un pull request dintr-un chat sau o acțiune își deschide Guide-ul în aplicație, iar un pull request al cărui repository e conectat în altă echipă își numește issue-ul
+- Issue nou: crearea unui issue deschide o pagină completă cu toate proprietățile, salvată ca ciornă în timp ce scrii; un issue creat dintr-o ciornă pe alt dispozitiv ajunge aici pe issue, iar părăsirea unei ciorne cu conținut întreabă Create, Keep as draft sau Discard
+- Issues: Start coding deschide o listă Ready to code când lipsește ceva, un sub-issue își numește părintele și arată progresul cu un inel, relațiile se grupează în secțiuni pliabile, iar titlul intră în antet la derulare
+- GitHub: o pagină ghidată îți conectează contul GitHub, instalează aplicația și listează repository-urile în care poți face push
+- Feedback: o trimitere din widget e un issue; răspunde raportorului din câmpul de comentarii, iar răspunsurile lui revin ca comentarii
+- Cont: schimbă-ți emailul cu un cod, conectează sau deconectează autentificările Google, Apple și OIDC cât timp rămâne altă cale de acces, și gestionează passkey-urile
+- Servere MCP: conectează-ți contul o singură dată pe web la un server MCP al echipei, iar fiecare rulare pornită pe orice mașină îl folosește
+- Dispozitive: blocul de pregătire spune ce îi mai trebuie unei mașini, Computer use se poate activa per dispozitiv, iar fiecare autentificare de agent oferă Sign out
+- Dialoguri și notificări: fiecare confirmare și alegere folosește același card, Return nu alege niciodată un răspuns distructiv, iar notificările se stivuiesc, atinge pentru a extinde, glisează pentru a închide
+- Intrarea într-o echipă: invitația oferă pasul de configurare a dispozitivului dacă nu ai încă unul, iar înscrierea cu cod pe email îți cere numele
+- Remedieri: boardurile arată un indicator până sosesc issue-urile, textul sesiunii nu se mai suprapune, un buton dublat a dispărut, o rulare pe un repository gol pornește, iar o rundă de finisare aliniază rânduri, spațieri și texte în toată aplicația

@@ -1,6 +1,19 @@
-- Guide: Changes a Results u issue jsou nyní jeden Guide; každá sekce zprávy agenta otevře vlastní diff a Show complete diff je úplně dole
-- Běhy: vlákno běhu se čte tah po tahu s vašimi zprávami mezi nimi a stohovaný pull request se sloučí jediným ovládacím prvkem Merge stack
-- Editor: tlačítko + otevře jedno menu (implementovat issue, spustit akci, přidat soubor nebo obrázek do 50 MB, úsilí, subagenti, MCP servery, ovládání počítače); návrhy jsou nenápadné řádky pod polem
-- Odkazy: odkaz v odpovědi agenta nebo v Guide, který vede na běh nebo issue, se otevře v aplikaci, ostatní odkazy v prohlížeči v aplikaci a holé URL adresy lze klepnout
-- Akce: neúspěšné sloučení nabídne Fix merge conflicts, vestavěnou akci, která pull request rebasuje, vyřeší konflikty a sloučí
-- Opravy: Reviews uvádí issue pull requestu, jehož repozitář je připojen v jiném týmu, text relace se už nepřekrývá, zdvojené tlačítko zmizelo a kolo vylepšení sjednotilo řádky, mezery a texty v celé aplikaci
+- Guide: Changes a Results issue jsou nyní jeden Guide; každá sekce zprávy agenta otevře vlastní diff, Show complete diff je dole a Merge je ve spodní liště, dokud je pull request otevřený
+- Běhy: běh se otevře jako vlákno se stavovým řádkem (zařízení, uplynulý čas, poslední nástroj) a čte se tah po tahu s vašimi zprávami mezi nimi; Show work otevře celý přepis, šipka skočí na nejnovější zprávu a seznam úkolů ukazuje postup
+- Běhy: logo agenta se točí, když pracuje, jantarová čeká na vás, zelená má otevřený pull request, modrá je hotovo a běh ukazuje Working, dokud agent opravdu neskončí
+- Psaní: tlačítko + otevře jedno menu (implementovat issue, spustit akci, přidat soubor nebo obrázek do 50 MB, úsilí, subagenti, MCP servery, Computer use); návrhy jsou nenápadné řádky pod polem
+- Odkazy: odkaz na běh nebo issue v odpovědi agenta nebo v Guide se otevře v aplikaci, ostatní odkazy ve vestavěném prohlížeči a holé URL adresy lze klepnout
+- Stacky: blokované issue může začít jako Stacked PR, který postaví celou řadu pull requestů zdola nahoru, a stackovaný pull request se mergne jedním ovládáním Merge stack
+- Akce: automatizace jsou nyní spouštěče na akci, kterou spouštějí, každá akce je stránka s promptem, spouštěči a běhy, neúspěšný merge nabídne Fix merge conflicts, Tidy up uklidí board a smazání akce se nejdřív zeptá
+- Navigace: aplikace se otevře na stránce Agent s kartami Inbox, Devices, Reviews, Agent a Actions; Reviews, běhy, akce a zařízení zahrnují všechny vaše týmy a mezi Inbox, My issues a Drafts se přejíždí do stran
+- Reviews: pull request z chatu nebo běhu akce otevře v aplikaci svůj Guide a pull request, jehož repozitář je připojen v jiném týmu, uvede své issue
+- Nové issue: vytvoření issue otevře celou stránku se všemi vlastnostmi, ukládanou jako koncept při psaní; issue vytvořené z konceptu na jiném zařízení se zde otevře a opuštění konceptu s obsahem nabídne Create, Keep as draft nebo Discard
+- Issues: Start coding otevře checklist Ready to code, když něco chybí, podúkol uvádí nadřazené issue a ukazuje postup kroužkem, vztahy se seskupují do sbalitelných sekcí a název se při posouvání přesune do záhlaví
+- GitHub: jedna průvodní stránka připojí váš účet GitHub, nainstaluje aplikaci a vypíše repozitáře, do kterých můžete pushovat
+- Zpětná vazba: odeslání z widgetu je issue; odpovězte oznamovateli z pole komentáře a jeho odpovědi se vrátí jako komentáře
+- Účet: změňte e-mail pomocí kódu, propojte nebo odpojte přihlášení Google, Apple a OIDC, dokud zbývá jiný způsob přístupu, a spravujte passkeys
+- MCP servery: jednou na webu připojte svůj účet k týmovému MCP serveru a každý běh, který spustíte na jakémkoli počítači, ho použije
+- Zařízení: blok připravenosti říká, co počítači ještě chybí, Computer use lze zapnout pro každé zařízení a každé přihlášení agenta nabízí Sign out
+- Dialogy a oznámení: každé potvrzení a volba používá stejnou kartu, Return nikdy nevybere destruktivní odpověď a oznámení se skládají, klepnutím se rozbalí, přejetím zavřou
+- Připojení k týmu: pozvánka nabídne krok nastavení zařízení, pokud ještě žádné nemáte, a registrace s e-mailovým kódem se zeptá na jméno
+- Opravy: boardy ukazují indikátor, dokud nedorazí jejich issues, text relace se už nepřekrývá, zdvojené tlačítko zmizelo, běh v prázdném repozitáři se spustí a kolo vylepšení sjednotilo řádky, mezery a texty v celé aplikaci
