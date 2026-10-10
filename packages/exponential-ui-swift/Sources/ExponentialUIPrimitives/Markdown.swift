@@ -74,61 +74,134 @@ public enum Markdown {
         out.append(MarkdownInline(text: String(text), bold: f.bold, italic: f.italic, strike: f.strike, link: link))
     }
 
+    /// Link labels (and emphasis) nest at most this deep; a deeper `[` is
+    /// text (hostile input cannot recurse without bound).
+    public static let maxNesting = 32
+
     /// `[label](href)` at the start of `s` → (label, href, consumed
     /// characters). The label balances brackets; the destination balances
     /// parentheses (CommonMark: `[a](https://x/A_(b))` → `https://x/A_(b)`),
-    /// takes `\(` / `\)` escapes and holds no whitespace.
-    static func linkAt(_ s: Substring, emptyLabel: Bool = false) -> (label: Substring, href: String, consumed: Int)? {
+    /// takes `\(` / `\)` escapes and holds no whitespace. Both closers come
+    /// from `scan` (built once per string), so trying a link is O(1) until
+    /// it matches: `"[a](".repeat(n)` stays linear.
+    static func linkAt(_ s: Substring, emptyLabel: Bool = false, scan: InlineScan? = nil) -> (label: Substring, href: String, consumed: Int)? {
         guard s.hasPrefix("[") else { return nil }
-        var i = s.index(after: s.startIndex)
-        var depth = 0
-        var labelEnd: Substring.Index?
-        while i < s.endIndex {
-            let c = s[i]
-            if c == "\\" {
-                i = s.index(after: i)
-                if i < s.endIndex { i = s.index(after: i) }
-                continue
-            }
-            if c == "[" {
-                depth += 1
-            } else if c == "]" {
-                if depth == 0 {
-                    labelEnd = i
-                    break
-                }
-                depth -= 1
-            }
-            i = s.index(after: i)
-        }
-        guard let labelEnd else { return nil }
-        let label = s[s.index(after: s.startIndex)..<labelEnd]
-        var j = s.index(after: labelEnd)
-        guard emptyLabel || !label.isEmpty, j < s.endIndex, s[j] == "(" else { return nil }
-        j = s.index(after: j)
+        let scan = scan ?? InlineScan(s.base)
+        guard let open = scan.ordinal[s.startIndex], let limit = scan.ordinal[s.endIndex],
+              let close = scan.closeBracket(open, limit: limit) else { return nil }
+        let label = s[scan.index[open + 1]..<scan.index[close]]
+        let paren = close + 1
+        guard emptyLabel || !label.isEmpty, paren < limit, scan.chars[paren] == "(",
+              let end = scan.closeParen(paren, limit: limit) else { return nil }
         var href = ""
-        var parens = 0
-        while j < s.endIndex {
-            let c = s[j]
-            if c.isWhitespace { return nil }
-            if c == "\\", s.index(after: j) < s.endIndex, s[s.index(after: j)].isPunctuation || s[s.index(after: j)].isSymbol {
-                j = s.index(after: j)
-                href.append(s[j])
-            } else if c == "(" {
-                parens += 1
-                href.append(c)
-            } else if c == ")" {
-                if parens == 0 {
-                    return (label, href, s.distance(from: s.startIndex, to: j) + 1)
-                }
-                parens -= 1
-                href.append(c)
-            } else {
-                href.append(c)
+        var j = paren + 1
+        while j < end {
+            let c = scan.chars[j]
+            if c == "\\", j + 1 < end, scan.chars[j + 1].isPunctuation || scan.chars[j + 1].isSymbol {
+                j += 1
             }
-            j = s.index(after: j)
+            href.append(scan.chars[j])
+            j += 1
         }
-        return nil
+        return (label, href, end - open + 1)
+    }
+
+    /// One string's bracket and parenthesis closers, found in ONE pass each
+    /// (`linkAt`'s rules: a label skips `\` + any character, a destination
+    /// `\` + punctuation and ends at whitespace). A closer is the first `]`
+    /// / `)` after the opener at the opener's depth: the depth before each
+    /// character, and the closers listed per depth.
+    final class InlineScan {
+        let chars: [Character]
+        /// Ordinal → string index (`count` = the end index).
+        let index: [String.Index]
+        let ordinal: [String.Index: Int]
+        private var bracketDepth: [Int] = []
+        private var bracketClosers: [Int: [Int]] = [:]
+        private var parenDepth: [Int] = []
+        private var parenClosers: [Int: [Int]] = [:]
+        private var spaces: [Int] = []
+
+        init(_ base: String) {
+            var chars: [Character] = []
+            var index: [String.Index] = []
+            var i = base.startIndex
+            while i < base.endIndex {
+                chars.append(base[i])
+                index.append(i)
+                i = base.index(after: i)
+            }
+            index.append(base.endIndex)
+            self.chars = chars
+            self.index = index
+            var ordinal: [String.Index: Int] = [:]
+            ordinal.reserveCapacity(index.count)
+            for (n, idx) in index.enumerated() { ordinal[idx] = n }
+            self.ordinal = ordinal
+            let n = chars.count
+            bracketDepth = Array(repeating: 0, count: n + 1)
+            parenDepth = Array(repeating: 0, count: n + 1)
+            var d = 0
+            var p = 0
+            while p < n {
+                bracketDepth[p] = d
+                if chars[p] == "\\" {
+                    if p + 1 < n { bracketDepth[p + 1] = d }
+                    p += 2
+                    continue
+                }
+                if chars[p] == "[" { d += 1 } else if chars[p] == "]" {
+                    bracketClosers[bracketDepth[p], default: []].append(p)
+                    d -= 1
+                }
+                p += 1
+            }
+            if n < bracketDepth.count { bracketDepth[n] = d }
+            d = 0
+            p = 0
+            while p < n {
+                parenDepth[p] = d
+                let c = chars[p]
+                if c == "\\", p + 1 < n, chars[p + 1].isPunctuation || chars[p + 1].isSymbol {
+                    parenDepth[p + 1] = d
+                    p += 2
+                    continue
+                }
+                if c.isWhitespace { spaces.append(p) } else if c == "(" { d += 1 } else if c == ")" {
+                    parenClosers[parenDepth[p], default: []].append(p)
+                    d -= 1
+                }
+                p += 1
+            }
+            if n < parenDepth.count { parenDepth[n] = d }
+        }
+
+        /// The first element of sorted `list` greater than `after`.
+        private static func first(_ list: [Int]?, after: Int) -> Int? {
+            guard let list else { return nil }
+            var lo = 0, hi = list.count
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                if list[mid] > after { hi = mid } else { lo = mid + 1 }
+            }
+            return lo < list.count ? list[lo] : nil
+        }
+
+        /// The `]` closing the label opened at `open`, before `limit`.
+        func closeBracket(_ open: Int, limit: Int) -> Int? {
+            guard open + 1 <= chars.count else { return nil }
+            guard let p = Self.first(bracketClosers[bracketDepth[open + 1]], after: open), p < limit else { return nil }
+            return p
+        }
+
+        /// The `)` closing the destination opened at `open`, before `limit`
+        /// and before any whitespace.
+        func closeParen(_ open: Int, limit: Int) -> Int? {
+            guard open + 1 <= chars.count else { return nil }
+            guard let p = Self.first(parenClosers[parenDepth[open + 1]], after: open), p < limit else { return nil }
+            if let space = Self.first(spaces, after: open), space < p { return nil }
+            return p
+        }
     }
 
     /// `![alt](src)` filling all of `line` → (src, alt).
@@ -149,7 +222,8 @@ public enum Markdown {
         return (inner, delim.count * 2 + inner.count)
     }
 
-    private static func parseInline(_ s: Substring, _ f: Flags, _ link: String?, _ out: inout [MarkdownInline]) {
+    private static func parseInline(_ s: Substring, _ f: Flags, _ link: String?, _ out: inout [MarkdownInline], scan: InlineScan, depth: Int = 0) {
+        let nest = depth < maxNesting
         var plainStart = s.startIndex
         var i = s.startIndex
         while i < s.endIndex {
@@ -164,19 +238,19 @@ public enum Markdown {
                     handled = body.distance(from: body.startIndex, to: end) + 2
                 }
             } else if c == "!", rest.dropFirst().hasPrefix("[") {
-                if let (alt, _, n) = linkAt(rest.dropFirst(), emptyLabel: true) {
+                if let (alt, _, n) = linkAt(rest.dropFirst(), emptyLabel: true, scan: scan) {
                     // An image inside a line paints its alt text.
                     push(&out, s[plainStart..<i], f, link)
                     push(&out, alt, f, link)
                     handled = n + 1
                 }
-            } else if c == "[" {
-                if let (label, href, n) = linkAt(rest) {
+            } else if c == "[", nest {
+                if let (label, href, n) = linkAt(rest, scan: scan) {
                     push(&out, s[plainStart..<i], f, link)
-                    parseInline(label, f, href, &out)
+                    parseInline(label, f, href, &out, scan: scan, depth: depth + 1)
                     handled = n
                 }
-            } else if c == "*" || c == "_" || c == "~" {
+            } else if nest, c == "*" || c == "_" || c == "~" {
                 let prevAlnum = i > s.startIndex && { let p = s[s.index(before: i)]; return p.isLetter || p.isNumber }()
                 if !(c == "_" && prevAlnum) {
                     let double = c == "*" ? "**" : (c == "_" ? "__" : "~~")
@@ -184,14 +258,14 @@ public enum Markdown {
                         push(&out, s[plainStart..<i], f, link)
                         var nf = f
                         if c == "~" { nf.strike = true } else { nf.bold = true }
-                        parseInline(inner, nf, link, &out)
+                        parseInline(inner, nf, link, &out, scan: scan, depth: depth + 1)
                         handled = n
                     } else if c != "~" {
                         if let (inner, n) = delimited(rest, String(c)) {
                             push(&out, s[plainStart..<i], f, link)
                             var nf = f
                             nf.italic = true
-                            parseInline(inner, nf, link, &out)
+                            parseInline(inner, nf, link, &out, scan: scan, depth: depth + 1)
                             handled = n
                         }
                     }
@@ -210,7 +284,7 @@ public enum Markdown {
     /// The inline spans of one line of markdown.
     public static func parseInline(_ s: String) -> [MarkdownInline] {
         var out: [MarkdownInline] = []
-        parseInline(Substring(s), Flags(), nil, &out)
+        parseInline(Substring(s), Flags(), nil, &out, scan: InlineScan(s))
         return out
     }
 
