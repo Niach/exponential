@@ -71,6 +71,9 @@ android {
             // share a JVM ("UniffiHandleMap.get: Invalid handle").
             it.forkEvery = 1
             it.maxParallelForks = 2
+            // A CI failure prints its whole stack (the short format names only the
+            // test method's frame, never the coroutine body's failing line).
+            it.testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
         }
     }
 
