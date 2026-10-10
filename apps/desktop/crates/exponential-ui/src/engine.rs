@@ -54,35 +54,41 @@ impl<T> CacheEntry<T> {
     }
 }
 
-/// taffy's nine size slots, twice (parent width known / unknown).
-const CACHE_SIZE: usize = 18;
-
+/// The size slots: taffy's nine (by how many dimensions are known and
+/// whether an unknown one is sized under min-content), × parent width
+/// known / unknown for a percentage-sensitive node, × the sizing mode.
 #[derive(Debug, Clone, Default)]
 struct Cache {
     layout: Option<CacheEntry<LayoutOutput>>,
-    sizes: [Option<CacheEntry<Size<f32>>>; CACHE_SIZE],
+    /// Only the slots this node was asked for (most use one to three), by
+    /// slot number.
+    sizes: Vec<(u8, CacheEntry<Size<f32>>)>,
 }
 
 impl Cache {
-    /// taffy's slot choice (by how many dimensions are known and whether
-    /// an unknown one is sized under min-content), per parent-width state
-    /// for a percentage-sensitive node.
-    fn slot(input: &LayoutInput, percent: bool) -> usize {
+    /// The slot of a size request. The sizing mode has slots of its own:
+    /// an entry only answers its own mode, so sharing a slot made an
+    /// inherent-size and a content-size request of one node evict each
+    /// other, and nested BLOCK boxes over a wrapping text re-measured their
+    /// subtree per level (2^depth: 47 nested Boxes never finished).
+    fn slot(input: &LayoutInput, percent: bool) -> u8 {
         use AvailableSpace::MinContent;
         let (known, available) = (input.known_dimensions, input.available_space);
         let base = match (known.width.is_some(), known.height.is_some()) {
             (true, true) => 0,
-            (true, false) => 1 + (available.height == MinContent) as usize,
-            (false, true) => 3 + (available.width == MinContent) as usize,
-            (false, false) => 5 + (available.height == MinContent) as usize + 2 * (available.width == MinContent) as usize,
+            (true, false) => 1 + (available.height == MinContent) as u8,
+            (false, true) => 3 + (available.width == MinContent) as u8,
+            (false, false) => 5 + (available.height == MinContent) as u8 + 2 * (available.width == MinContent) as u8,
         };
-        base + if percent && input.parent_size.width.is_some() { 9 } else { 0 }
+        let parent = if percent && input.parent_size.width.is_some() { 9 } else { 0 };
+        let sizing = if input.sizing_mode == taffy::SizingMode::ContentSize { 18 } else { 0 };
+        base + parent + sizing
     }
 
     fn get(&self, input: &LayoutInput, percent: bool) -> Option<LayoutOutput> {
         match input.run_mode {
             RunMode::PerformLayout => self.layout.filter(|e| e.matches(input, percent)).map(|e| e.content),
-            RunMode::ComputeSize => self.sizes.iter().flatten().find(|e| e.matches(input, percent)).map(|e| LayoutOutput::from_outer_size(e.content)),
+            RunMode::ComputeSize => self.sizes.iter().find(|(_, e)| e.matches(input, percent)).map(|(_, e)| LayoutOutput::from_outer_size(e.content)),
             RunMode::PerformHiddenLayout => None,
         }
     }
@@ -91,13 +97,21 @@ impl Cache {
         let (known, available, parent, axis, sizing) = (input.known_dimensions, input.available_space, input.parent_size, input.axis, input.sizing_mode);
         match input.run_mode {
             RunMode::PerformLayout => self.layout = Some(CacheEntry { known, available, parent, axis, sizing, content: output }),
-            RunMode::ComputeSize => self.sizes[Self::slot(input, percent)] = Some(CacheEntry { known, available, parent, axis, sizing, content: output.size }),
+            RunMode::ComputeSize => {
+                let entry = CacheEntry { known, available, parent, axis, sizing, content: output.size };
+                let slot = Self::slot(input, percent);
+                match self.sizes.iter_mut().find(|(s, _)| *s == slot) {
+                    Some(held) => held.1 = entry,
+                    None => self.sizes.push((slot, entry)),
+                }
+            }
             RunMode::PerformHiddenLayout => {}
         }
     }
 
     fn clear(&mut self) {
-        *self = Cache::default();
+        self.layout = None;
+        self.sizes.clear();
     }
 }
 
@@ -561,6 +575,38 @@ mod cache_tests {
                 e.compute(0, Size { width: AvailableSpace::Definite(400.0), height: AvailableSpace::MaxContent }, &mut measure);
                 assert!(calls.get() <= 8, "depth {depth} (percent {percent}): {} measures", calls.get());
                 assert_eq!(e.layout(depth as u32).size.height, 10.0);
+            }
+        }
+    }
+
+    /// Nested BLOCK boxes over a WRAPPING leaf (its height follows the
+    /// width it gets) measure it a constant number of times at any depth:
+    /// a content-size and an inherent-size request no longer evict each
+    /// other's slot (47 nested Boxes over a sentence used to never finish).
+    #[test]
+    fn nested_block_boxes_over_a_wrapping_leaf_measure_it_a_constant_number_of_times() {
+        for display in [Display::Block, Display::Flex] {
+            for depth in [4usize, 30, 50] {
+                let mut e = Engine::new();
+                e.resize(depth + 1);
+                for i in 0..depth {
+                    e.set_style(i as u32, Style { display, flex_direction: FlexDirection::Column, ..Style::default() });
+                    e.set_children(i as u32, &[(i + 1) as u32]);
+                }
+                e.set_measured(depth as u32, true);
+                let calls = std::cell::Cell::new(0);
+                let mut measure = |_i: u32, k: Size<Option<f32>>, a: Size<AvailableSpace>| {
+                    calls.set(calls.get() + 1);
+                    let width = k.width.unwrap_or(match a.width {
+                        AvailableSpace::Definite(w) => w.min(300.0),
+                        AvailableSpace::MinContent => 60.0,
+                        AvailableSpace::MaxContent => 300.0,
+                    });
+                    LeafAnswer { size: Size { width, height: k.height.unwrap_or((300.0 / width).ceil() * 16.0) }, baseline: None }
+                };
+                e.compute(0, Size { width: AvailableSpace::Definite(200.0), height: AvailableSpace::MaxContent }, &mut measure);
+                assert!(calls.get() <= 12, "{display:?} depth {depth}: {} measures", calls.get());
+                assert_eq!(e.layout(depth as u32).size.height, 32.0);
             }
         }
     }

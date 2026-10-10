@@ -16,11 +16,12 @@ use serde_json::{json, Value};
 
 const CORE: &str = "https://ui.exponential.at/catalogs/core/v1";
 
-/// `root` → `n1` → … → `n<depth-1>` → a Text leaf, each a `component`.
+/// `root` → `n1` → … → `n<depth-1>` → a Text leaf that WRAPS (its height
+/// follows the width it gets), each a `component`.
 fn chain(component: &str, depth: usize) -> Vec<Value> {
     let id = |i: usize| if i == 0 { "root".to_string() } else { format!("n{i}") };
     let mut out: Vec<Value> = (0..depth).map(|i| json!({"id": id(i), "component": component, "children": [id(i + 1)]})).collect();
-    out.push(json!({"id": id(depth), "component": "Text", "text": "deep"}));
+    out.push(json!({"id": id(depth), "component": "Text", "text": "the deepest words wrap at a narrow width"}));
     out
 }
 
@@ -59,7 +60,9 @@ fn timed<R>(budget_ms: u64, what: &str, f: impl FnOnce() -> R) -> R {
 }
 
 /// Item 1: layout time is linear in flex nesting depth (taffy 0.12's cache
-/// made it double per level: 20 nested Stacks = 0.6 s, 14 Cards = 160 s).
+/// made it double per level: 20 nested Stacks = 0.6 s, 14 Cards = 160 s),
+/// and in BLOCK nesting over a wrapping text (an inherent-size and a
+/// content-size request shared a cache slot: 47 nested Boxes never ended).
 /// The engine alone is gated at 50 levels (`engine::cache_tests`).
 #[test]
 fn depth_30_and_max_depth_nested_containers_lay_out_in_milliseconds() {
