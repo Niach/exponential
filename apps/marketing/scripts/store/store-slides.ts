@@ -126,7 +126,7 @@ export const SLIDES: Slide[] = [
     decorShot: `board`,
     eyebrow: `Exponential`,
     headline: [`The next-gen`, `dev platform`],
-    sub: `Issues, user feedback and coding agents in one workspace, in sync on every device.`,
+    sub: `Issues, user feedback and coding agents in one place, in sync on every device.`,
     forms: PHONES,
   },
   {
