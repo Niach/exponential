@@ -15,6 +15,6 @@ Bring your own agents. Claude Code, Codex or pi run locally on your connected de
 • Answer your agent's questions right from your phone
 • Save actions for repeating AI tasks like code reviews, deploys or merge conflicts, and run them with one tap
 
-Customer support in the same workspace. Tickets from your users land next to your issues, replies go out by email, and the whole team sees the conversation.
+Customer support in the same place. Tickets from your users land next to your issues, replies go out by email, and the whole team sees the conversation.
 
 Free for teams of up to three on the hosted cloud, one plan when you grow. Exponential is open source under Apache-2.0, so self-hosting is free at any company size.
