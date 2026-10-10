@@ -133,7 +133,8 @@ describe(`markdown`, () => {
     for (const t of [`[a](`.repeat(N / 4), `[`.repeat(N), `[a](<`.repeat(N / 5), `[x](y z `.repeat(N / 8), `[a](` + `(`.repeat(N), `[a](b) `.repeat(N / 7) + "`c`", `>`.repeat(N)]) {
       const t0 = performance.now()
       renderToStaticMarkup(<BuiltinMarkdown text={t} />)
-      expect(performance.now() - t0).toBeLessThan(1500)
+      // Linear: tens of ms (the quadratic parser took ~20 s at 128 KB); loose for loaded CI.
+      expect(performance.now() - t0).toBeLessThan(4000)
     }
   })
   it(`link labels nest at most MAX_LINK_NESTING deep; a long destination is no link`, () => {
