@@ -80,6 +80,7 @@ describe(`round 4: the template budget (the Rust build's items, one issue)`, () 
       }
       expect(warn.mock.calls.map((a) => a[0]), c.name).toEqual(c.issues.map((i) => `[exponential-ui] ${id}: ${i.id}: ${i.message}`))
       warn.mockRestore()
-    })
+      // Cases near maxComponents paint ~20k nodes into jsdom: seconds on a CI runner.
+    }, 60_000)
   }
 })
