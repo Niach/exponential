@@ -6,6 +6,7 @@
 import { FUNCTION_NAMES, ICON_NAMES } from "./catalog.generated"
 import { catalogView, isKnownToken, parseTokenRef } from "./catalog"
 import { isCall, isDynamic } from "./expr"
+import { isDataSchema } from "./dynamic"
 import { BREAKPOINTS, isResponsiveValue } from "./macros"
 import { isStringRef, parseStringRef } from "./strings"
 import { validateStyle } from "./style"
@@ -13,6 +14,14 @@ import type { CatalogView } from "./catalog"
 import type { ComponentDef, ExtensionDef, PropSchema } from "./types"
 
 const ICONS: ReadonlySet<string> = new Set(ICON_NAMES)
+const CORE_VIEW = catalogView()
+const VIEWS = new WeakMap<readonly ExtensionDef[], CatalogView>()
+function viewOf(extensions: readonly ExtensionDef[] | undefined): CatalogView {
+  if (!extensions || extensions.length === 0) return CORE_VIEW
+  let view = VIEWS.get(extensions)
+  if (!view) VIEWS.set(extensions, (view = catalogView(extensions)))
+  return view
+}
 const FUNCTIONS: ReadonlySet<string> = new Set(FUNCTION_NAMES)
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
@@ -140,33 +149,77 @@ export function isCallableName(name: string): boolean {
   return FUNCTIONS.has(name) || /^[A-Za-z_][\w-]*(\.[A-Za-z_][\w-]*)+$/.test(name)
 }
 
-/** Every `{call}` at any depth of `value` whose name is neither a catalog
- *  function nor a namespaced host function (round 4: a typo is caught at
- *  validate time, not when the user presses). */
-function checkCalls(value: unknown, path: string, issues: PropIssue[]): void {
+function checkCall(value: { call: string }, path: string, issues: PropIssue[]): void {
+  if (!isCallableName(value.call))
+    issues.push({ path, message: `unknown function "${value.call}"; known: the catalog functions, or a namespaced host function (app.toast)` })
+}
+
+/** Every `{call}` at any depth of an EXPRESSION (`visible`, a call's args,
+ *  an event context): each resolves at any depth (`resolveDynamic`), so
+ *  every `{call}` in it is a call. */
+function checkCallsDeep(value: unknown, path: string, issues: PropIssue[]): void {
   if (Array.isArray(value)) {
-    value.forEach((v, i) => checkCalls(v, `${path}[${i}]`, issues))
+    value.forEach((v, i) => checkCallsDeep(v, `${path}[${i}]`, issues))
     return
   }
   if (typeof value !== `object` || value === null) return
-  if (isCall(value) && !isCallableName(value.call))
-    issues.push({ path, message: `unknown function "${value.call}"; known: the catalog functions, or a namespaced host function (app.toast)` })
-  for (const [k, v] of Object.entries(value)) checkCalls(v, `${path}.${k}`, issues)
+  if (isCall(value)) checkCall(value, path, issues)
+  for (const [k, v] of Object.entries(value)) checkCallsDeep(v, `${path}.${k}`, issues)
+}
+
+/** The calls a PROP makes, walked along its schema exactly as the bind
+ *  pass resolves it (`resolveProp`): a `{call}` AT a position is a call
+ *  (its args are expressions); a DATA position (Table `rows`: shape-less
+ *  objects) is the author's literal data, never descended (a row
+ *  `{call: "+1 555 0100"}` is a row); arrays and shaped objects walk per
+ *  item / property; a `style` prop resolves at any depth; anything else is
+ *  a literal. */
+function checkPropCalls(value: unknown, schema: PropSchema | undefined, path: string, view: CatalogView, issues: PropIssue[]): void {
+  if (isCall(value)) {
+    checkCall(value, path, issues)
+    checkCallsDeep(value.args, `${path}.args`, issues)
+    return
+  }
+  if (!schema || isDataSchema(schema)) return
+  if (schema.type === `style`) return checkCallsDeep(value, path, issues)
+  if (schema.type === `array` && schema.items && Array.isArray(value)) {
+    value.forEach((item, i) => checkPropCalls(item, schema.items, `${path}[${i}]`, view, issues))
+    return
+  }
+  const shape = schema.type === `object` && schema.shape ? view.defs[schema.shape] : undefined
+  if (shape && typeof value === `object` && value !== null && !Array.isArray(value))
+    for (const [k, v] of Object.entries(value)) checkPropCalls(v, shape.properties[k], `${path}.${k}`, view, issues)
+}
+
+/** The calls an ACTION makes: its `functionCall` (name + args) and its
+ *  event context (an expression). Nothing else in it is evaluated. */
+function checkActionCalls(action: unknown, path: string, issues: PropIssue[]): void {
+  if (typeof action !== `object` || action === null) return
+  const { functionCall, event } = action as { functionCall?: unknown; event?: unknown }
+  if (isCall(functionCall)) {
+    checkCall(functionCall, `${path}.functionCall`, issues)
+    checkCallsDeep(functionCall.args, `${path}.functionCall.args`, issues)
+  }
+  if (typeof event === `object` && event !== null) checkCallsDeep((event as { context?: unknown }).context, `${path}.event.context`, issues)
 }
 
 /** What validateProps leaves out, round 4 (VAPP-103): the node's `style`
  *  (whitelisted keys, known tokens, `$color.*` colours), every function a
- *  prop, `visible` or an `on` action calls, and a Table's slot columns
- *  (each `type: slot` column names one of the node's slots). In this order;
- *  the Rust core (`validate::validate_node`) reports the same issues. */
+ *  prop (along its schema: never inside DATA), `visible` or an `on` action
+ *  calls, and a Table's slot columns (each `type: slot` column names one of
+ *  the node's slots). In this order; the Rust core
+ *  (`validate::validate_node`) reports the same issues. */
 export function validateNode(
-  node: { component: string; props: Record<string, unknown>; style?: unknown; visible?: unknown; on?: Record<string, unknown>; slots?: Record<string, unknown> }
+  node: { component: string; props: Record<string, unknown>; style?: unknown; visible?: unknown; on?: Record<string, unknown>; slots?: Record<string, unknown> },
+  options: { extensions?: readonly ExtensionDef[] } = {}
 ): PropIssue[] {
   const issues: PropIssue[] = []
+  const view = viewOf(options.extensions)
+  const def = view.components[node.component]
   if (node.style !== undefined) for (const issue of validateStyle(node.style, { path: `style` })) issues.push(issue)
-  for (const [k, v] of Object.entries(node.props)) checkCalls(v, `props.${k}`, issues)
-  if (node.visible !== undefined) checkCalls(node.visible, `visible`, issues)
-  for (const [event, action] of Object.entries(node.on ?? {})) checkCalls(action, `on.${event}`, issues)
+  for (const [k, v] of Object.entries(node.props)) checkPropCalls(v, def?.props[k], `props.${k}`, view, issues)
+  if (node.visible !== undefined) checkCallsDeep(node.visible, `visible`, issues)
+  for (const [event, action] of Object.entries(node.on ?? {})) checkActionCalls(action, `on.${event}`, issues)
   if (node.component === `Table` && Array.isArray(node.props.columns)) {
     const slots = Object.keys(node.slots ?? {})
     node.props.columns.forEach((column, i) => {

@@ -49,6 +49,18 @@ const VALIDATE: { name: string; input: NestedNode }[] = [
   { name: `prop: an unknown function in a binding`, input: { id: `root`, component: `Text`, props: { text: { call: `concatt`, args: { values: [`a`, `b`] } } } } },
   { name: `visible: an unknown function`, input: { id: `root`, component: `Text`, props: { text: `x` }, visible: { call: `nott`, args: { value: { path: `/hide` } } } } },
   {
+    name: `data: a literal Table row with a call key is a row, never a function`,
+    input: { id: `root`, component: `Table`, props: { columns: [{ key: `name`, label: `Name` }, { key: `call`, label: `Call` }], rows: [{ id: `r1`, name: `Ana`, call: `+1 555 0100` }, { id: `r2`, call: `follow up`, args: {} }] } },
+  },
+  {
+    name: `shaped: a call in a bindable option label is checked`,
+    input: { id: `root`, component: `Select`, props: { name: `s`, options: [{ label: { call: `uppr`, args: { value: `a` } }, value: `a` }, { label: `B`, value: `b` }] } },
+  },
+  {
+    name: `action: an unknown function nested in another call's args`,
+    input: { id: `root`, component: `Button`, props: { label: `Go` }, on: { press: { functionCall: { call: `set`, args: { path: `/n`, value: { call: `ad`, args: { a: 1, b: 2 } } } } } } },
+  },
+  {
     name: `Table: a slot column naming a missing slot`,
     input: {
       id: `root`,

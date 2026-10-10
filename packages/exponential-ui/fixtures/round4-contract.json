@@ -255,6 +255,102 @@
       ]
     },
     {
+      "name": "data: a literal Table row with a call key is a row, never a function",
+      "input": {
+        "id": "root",
+        "component": "Table",
+        "props": {
+          "columns": [
+            {
+              "key": "name",
+              "label": "Name"
+            },
+            {
+              "key": "call",
+              "label": "Call"
+            }
+          ],
+          "rows": [
+            {
+              "id": "r1",
+              "name": "Ana",
+              "call": "+1 555 0100"
+            },
+            {
+              "id": "r2",
+              "call": "follow up",
+              "args": {}
+            }
+          ]
+        }
+      },
+      "issues": []
+    },
+    {
+      "name": "shaped: a call in a bindable option label is checked",
+      "input": {
+        "id": "root",
+        "component": "Select",
+        "props": {
+          "name": "s",
+          "options": [
+            {
+              "label": {
+                "call": "uppr",
+                "args": {
+                  "value": "a"
+                }
+              },
+              "value": "a"
+            },
+            {
+              "label": "B",
+              "value": "b"
+            }
+          ]
+        }
+      },
+      "issues": [
+        {
+          "id": "root",
+          "message": "props.options[0].label: unknown function \"uppr\"; known: the catalog functions, or a namespaced host function (app.toast)"
+        }
+      ]
+    },
+    {
+      "name": "action: an unknown function nested in another call's args",
+      "input": {
+        "id": "root",
+        "component": "Button",
+        "props": {
+          "label": "Go"
+        },
+        "on": {
+          "press": {
+            "functionCall": {
+              "call": "set",
+              "args": {
+                "path": "/n",
+                "value": {
+                  "call": "ad",
+                  "args": {
+                    "a": 1,
+                    "b": 2
+                  }
+                }
+              }
+            }
+          }
+        }
+      },
+      "issues": [
+        {
+          "id": "root",
+          "message": "on.press.functionCall.args.value: unknown function \"ad\"; known: the catalog functions, or a namespaced host function (app.toast)"
+        }
+      ]
+    },
+    {
       "name": "Table: a slot column naming a missing slot",
       "input": {
         "id": "root",

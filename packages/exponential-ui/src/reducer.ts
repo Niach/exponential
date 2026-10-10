@@ -306,7 +306,7 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
           issues.push({ id, message: `${node.component} takes no children` })
         for (const slot of Object.keys(node.slots ?? {}))
           if (!slotAllowed(def.slots, slot)) issues.push({ id, message: `slots.${slot}: ${node.component} has no such slot` })
-        for (const issue of validateNode(node)) issues.push({ id, message: `${issue.path}: ${issue.message}` })
+        for (const issue of validateNode(node, { extensions })) issues.push({ id, message: `${issue.path}: ${issue.message}` })
       }
     }
     return node
@@ -378,7 +378,7 @@ export function reduceNested(tree: NestedNode, options: Omit<ReduceOptions, `roo
         issues.push({ id: n.id, message: `${n.component} takes no children` })
       for (const slot of Object.keys(node.slots ?? {}))
         if (!slotAllowed(def.slots, slot)) issues.push({ id: n.id, message: `slots.${slot}: ${n.component} has no such slot` })
-      for (const issue of validateNode(node)) issues.push({ id: n.id, message: `${issue.path}: ${issue.message}` })
+      for (const issue of validateNode(node, { extensions })) issues.push({ id: n.id, message: `${issue.path}: ${issue.message}` })
     }
     return node
   }
