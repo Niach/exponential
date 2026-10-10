@@ -240,6 +240,13 @@ describe(`paint failures reach the host (onPaintError → RENDER_FAILED)`, () =>
     expect(host.issues.at(-1)).toMatchObject({ code: `RENDER_FAILED`, surfaceId: `s` })
     host.paintError({ surfaceId: `s`, componentId: `md`, message: `Markdown failed to paint: boom` })
     expect((transport.sent as ClientMessage[]).filter((m) => `error` in m)).toHaveLength(1)
+    // A re-reduce for ANOTHER component does not re-report md (same props) …
+    act(() => transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `t`, component: `Text`, text: `changed` }] } }))
+    expect(seen).toEqual([`md`])
+    // … md's own props changing does.
+    act(() => transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `md`, component: `Markdown`, text: `y` }] } }))
+    expect(seen).toEqual([`md`, `md`])
+    expect((transport.sent as ClientMessage[]).filter((m) => `error` in m)).toHaveLength(2)
   })
   it(`a Select with options: [null] paints without throwing`, () => {
     const seen: unknown[] = []

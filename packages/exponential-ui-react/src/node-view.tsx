@@ -269,6 +269,15 @@ const BoundNode = memo(function BoundNode({ node, scope }: { node: UiNode; scope
   )
 })
 
+/** A failed node's identity for the once-per-props rule. */
+function propsSignature(node: UiNode): string {
+  try {
+    return `${node.component}\u0000${JSON.stringify(node.props)}`
+  } catch {
+    return node.component
+  }
+}
+
 /** The plain painters (no formatting, no host code) skip the boundary. */
 const UNGUARDED = new Set([`Box`, `Text`])
 
@@ -291,7 +300,13 @@ class PaintBoundary extends Component<{ node: UiNode; domId: string; children: R
     return { failed: true }
   }
   componentDidCatch(error: unknown): void {
-    const { node } = this.props
+    const { node, domId } = this.props
+    // Reported ONCE per painted node until its props change (a re-reduce
+    // hands every node a new object; that alone never re-reports).
+    const failures = this.context?.paintFailures
+    const signature = propsSignature(node)
+    if (failures?.get(domId) === signature) return
+    failures?.set(domId, signature)
     const message = `${node.component} failed to paint: ${error instanceof Error ? error.message : String(error)}`
     const report = this.context?.host.onPaintError
     if (report) {
@@ -301,6 +316,19 @@ class PaintBoundary extends Component<{ node: UiNode; domId: string; children: R
         console.error(`[exponential-ui] onPaintError threw`, e)
       }
     } else console.error(`[exponential-ui] ${node.component} "${node.id}" failed to paint`, error)
+  }
+  componentDidMount(): void {
+    this.painted()
+  }
+  componentDidUpdate(): void {
+    this.painted()
+  }
+  componentWillUnmount(): void {
+    this.context?.paintFailures?.delete(this.props.domId)
+  }
+  /** A node that paints again is no longer a remembered failure. */
+  private painted(): void {
+    if (!this.state.failed) this.context?.paintFailures?.delete(this.props.domId)
   }
   render(): ReactNode {
     const { node, domId, children } = this.props

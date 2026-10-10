@@ -441,6 +441,7 @@ export function ExponentialSurface({
       if (scrollers.current.get(id) === scroll) scrollers.current.delete(id)
     }
   }, [])
+  const paintFailures = useRef(new Map<string, string>()).current
   const hostValue = host ?? EMPTY_HOST
   // Every open passes the URL policy (the host's opener or a new tab).
   const openUrl = useCallback((url: string) => openAllowed(hostValue, url), [hostValue])
@@ -469,6 +470,7 @@ export function ExponentialSurface({
       formatter,
       now,
       registerScroller,
+      paintFailures,
       strings,
       t,
       breakpoint,
@@ -477,7 +479,7 @@ export function ExponentialSurface({
       hover,
       announce,
     }),
-    [surfaceId, compiled, theme, mode, hostValue, extensions, extensionDefs, data, setData, templateNode, budget, states, measure, portal, toastLayer, direction, functions, openUrl, locale, formatter, now, registerScroller, strings, t, breakpoint, xq, reducedMotion, hover, announce]
+    [surfaceId, compiled, theme, mode, hostValue, extensions, extensionDefs, data, setData, templateNode, budget, states, measure, portal, toastLayer, direction, functions, openUrl, locale, formatter, now, registerScroller, paintFailures, strings, t, breakpoint, xq, reducedMotion, hover, announce]
   )
 
   const nodeEl = useCallback((id: string): HTMLElement | null => rootEl?.querySelector<HTMLElement>(`[data-xui-id="${typeof CSS !== `undefined` && CSS.escape ? CSS.escape(id) : id.replace(/"/g, `\\"`)}"]`) ?? null, [rootEl])

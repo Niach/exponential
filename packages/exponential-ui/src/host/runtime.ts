@@ -143,6 +143,12 @@ export class SurfaceStore {
     return this.list
   }
 
+  /** The flat component with this id (undefined = none). */
+  component(id: string): FlatComponent | undefined {
+    const at = this.positions.get(id)
+    return at === undefined ? undefined : this.list[at]
+  }
+
   get root(): UiNode | null {
     return this.reduce().root
   }
@@ -211,7 +217,9 @@ export class ExponentialHost {
   readonly router: HostRouter
   private stores = new Map<string, SurfaceStore>()
   private subscriptions = new Map<string, (() => void)[]>()
-  private paintErrors = new Set<string>()
+  /** Per surface: the FLAT component owning a failed node → that
+   *  component as it was when it failed + the node ids already reported. */
+  private paintErrors = new Map<string, Map<string, { component: FlatComponent | undefined; ids: Set<string> }>>()
   private listeners = new Set<Listener>()
   private functions: Record<string, HostFunction>
   private sources: SourceResolvers
@@ -359,10 +367,14 @@ export class ExponentialHost {
         this.notify()
         return
       }
-      case `components`:
-        this.forgetPaintErrors(op.surfaceId)
+      case `components`: {
+        // An updated component's failures are forgotten (its props
+        // changed: it may paint now, or fail anew); the rest stay reported.
+        const failed = this.paintErrors.get(op.surfaceId)
+        if (failed) for (const c of op.components) failed.delete(c.id)
         this.stores.get(op.surfaceId)?.setComponents(op.components)
         return
+      }
       case `data`: {
         const error = this.stores.get(op.surfaceId)?.setData(op.path, op.value)
         if (error) this.send(errorMessage(`VALIDATION_FAILED`, op.surfaceId, error, op.path || `/`))
@@ -482,19 +494,29 @@ export class ExponentialHost {
     return true
   }
 
-  /** `onPaintError` (catalog/host.json `paint`): a component's painter
-   *  failed. Forwarded ONCE per surface + component + message as an A2UI
-   *  `RENDER_FAILED` error (and so a host issue). */
+  /** A renderer's painter for `componentId` failed. Reported ONCE per
+   *  surface + component id (whatever the message) as an A2UI
+   *  `RENDER_FAILED` error (and so a host issue), and not again until that
+   *  component's props change (an `updateComponents` naming it, or the
+   *  surface re-created). A part or template-instance id counts under the
+   *  flat component it belongs to (`card.body` → `card`), so the record is
+   *  bounded by the surface's components. */
   paintError(error: { surfaceId: string; componentId: string; message: string }): void {
-    const key = `${error.surfaceId}\u0000${error.componentId}\u0000${error.message}`
-    if (this.paintErrors.has(key)) return
-    this.paintErrors.add(key)
+    const store = this.stores.get(error.surfaceId)
+    let owner = error.componentId
+    while (store && !store.component(owner) && owner.includes(`.`)) owner = owner.slice(0, owner.lastIndexOf(`.`))
+    const current = store?.component(owner)
+    let failed = this.paintErrors.get(error.surfaceId)
+    if (!failed) this.paintErrors.set(error.surfaceId, (failed = new Map()))
+    let entry = failed.get(owner)
+    if (!entry || entry.component !== current) failed.set(owner, (entry = { component: current, ids: new Set() }))
+    if (entry.ids.has(error.componentId)) return
+    entry.ids.add(error.componentId)
     this.send(errorMessage(RENDER_FAILED, error.surfaceId, error.message, `/components/${error.componentId}`))
   }
 
   private forgetPaintErrors(surfaceId: string): void {
-    const prefix = `${surfaceId}\u0000`
-    for (const k of this.paintErrors) if (k.startsWith(prefix)) this.paintErrors.delete(k)
+    this.paintErrors.delete(surfaceId)
   }
 
   /** The media policy every src passes (`policy.media`). */

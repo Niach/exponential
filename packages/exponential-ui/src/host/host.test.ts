@@ -220,18 +220,30 @@ describe(`ExponentialHost`, () => {
     expect(MEDIA_LIMITS).toEqual(hostContract.media.limits)
   })
 
-  test(`VAPP-103: paintError → ONE RENDER_FAILED error per surface + component + message, reset by new components`, () => {
+  test(`VAPP-103: paintError → ONE RENDER_FAILED per surface + component id, again only once its props change`, () => {
     const transport = new MemoryTransport()
     const host = new ExponentialHost({ transport })
     host.connect()
     transport.feed({ version: `v0.9`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
+    transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Box`, children: [`c`, `d`] }, { id: `c`, component: `Markdown`, text: `x` }, { id: `d`, component: `Text`, text: `d` }] } })
     const e = { surfaceId: `s`, componentId: `c`, message: `boom` }
     host.paintError(e)
     host.paintError(e)
+    // Another message for the same component is the same failure.
+    host.paintError({ ...e, message: `boom at 12:01` })
     expect(transport.sent).toEqual([{ version: `v0.9`, error: { code: `RENDER_FAILED`, surfaceId: `s`, message: `boom`, path: `/components/c` } }])
-    transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Text`, text: `x` }] } })
+    // An update to ANOTHER component keeps c reported.
+    transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `d`, component: `Text`, text: `d2` }] } })
+    host.paintError(e)
+    expect(transport.sent).toHaveLength(1)
+    // c's props change: it may fail anew.
+    transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `c`, component: `Markdown`, text: `y` }] } })
     host.paintError(e)
     expect(transport.sent).toHaveLength(2)
+    // A part id counts under its component.
+    host.paintError({ ...e, componentId: `c.body` })
+    host.paintError({ ...e, componentId: `c.body` })
+    expect(transport.sent).toHaveLength(3)
     expect(host.issues.at(-1)?.code).toBe(`RENDER_FAILED`)
   })
 })
