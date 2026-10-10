@@ -1,6 +1,6 @@
 Vibecode together.
 
-Exponential er en realtids-issue-tracker til teams, der bygger med AI. Issues, kundesupport og kodeagenter i ét workspace, synkroniseret på alle dine enheder.
+Exponential er en realtids-issue-tracker til teams, der bygger med AI. Issues, kundesupport og kodeagenter ét sted, synkroniseret på alle dine enheder.
 
 Hold styr på arbejdet sammen med dit team:
 • Issues med prioriteter, labels, deadlines og egne statusser
@@ -15,6 +15,6 @@ Tag dine egne agenter med. Claude Code, Codex eller pi kører lokalt på din til
 • Svar på din agents spørgsmål direkte fra telefonen
 • Gem actions til tilbagevendende AI-opgaver som code reviews, deploys eller merge conflicts, og kør dem med ét tryk
 
-Kundesupport i samme workspace. Tickets fra dine brugere lander ved siden af dine issues, svar sendes som e-mail, og hele teamet kan følge samtalen.
+Kundesupport samme sted. Tickets fra dine brugere lander ved siden af dine issues, svar sendes som e-mail, og hele teamet kan følge samtalen.
 
 Gratis for teams på op til tre i den hostede cloud, én samlet plan når I vokser. Exponential er open source under Apache-2.0, så self-hosting er gratis uanset virksomhedens størrelse.

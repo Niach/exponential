@@ -1,1 +1,1 @@
-Vibecode together. Issues, Support und Coding-Agents in einem Echtzeit-Workspace. Agents laufen lokal mit deinem Abo.
+Vibecode together. Issues, Support und Coding-Agents an einem Ort, in Echtzeit. Agents laufen lokal mit deinem Abo.
