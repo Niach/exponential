@@ -4,7 +4,8 @@ name: record-compose-fixtures
 # snapshot, the swift-parity-pending list, the real-font ratchet) compare
 # pixel- and layout-exact under Robolectric, so they must be recorded on the
 # same platform CI verifies them on (ubuntu). A Mac-recorded set fails the
-# `compose` job. This workflow re-records them on ubuntu, verifies the
+# `compose` job. This workflow re-records them (and the real-font ratchet
+# `ui-compose/src/test/conformance-known.json`) on ubuntu, verifies the
 # re-recorded set passes, and uploads it as the `compose-fixtures` artifact
 # to commit by hand (`workflow_dispatch`, or a push that edits this file).
 # The `gpui` job (VAPP-102) does the same for the gpui conformance RATCHET
@@ -45,6 +46,7 @@ jobs:
           CARGO_TARGET_DIR: ${{ github.workspace }}/apps/desktop/target
           EXPONENTIAL_UI_CONFORMANCE_REPORT: ${{ github.workspace }}/.conformance/exponential-ui-compose.json
           EXPONENTIAL_UI_RECORD: '1'
+          EXP_UI_WRITE_FIXTURES: '1'  # the real-font ratchet (RealFontConformanceTest) re-records its budget too
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
           ./gradlew :ui-compose:testDebugUnitTest --no-daemon
@@ -62,6 +64,7 @@ jobs:
           name: compose-fixtures
           path: |
             packages/exponential-ui-compose/ui-compose/src/test/snapshots/
+            packages/exponential-ui-compose/ui-compose/src/test/conformance-known.json
             packages/exponential-ui-compose/ui-compose/conformance/
             .conformance/
           include-hidden-files: true  # .conformance/ is a dot-directory; upload-artifact v4 skips hidden paths by default

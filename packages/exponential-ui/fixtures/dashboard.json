@@ -1,0 +1,752 @@
+{
+  "$comment": "VAPP-103: the conformance DASHBOARD, an agent-style project dashboard laid out by every renderer in the real-font geometry matrix (fixtures/conformance-cases.json `dashboard`, data = dashboard.data.json): an AppBar with trailing actions + a Menu, three KPI cards (Heading + Badge + Sparkline / Progress) in a responsive Grid (1 → 3 columns at md), Tabs whose active panel holds a search Input + Segmented filter toolbar and a sortable, multi-select Table with a badge, a currency and an Avatar SLOT column, an activity List from a data template beside an EmptyState card, and a closed Dialog holding a Form (overlay layers are not geometry-compared, so only its trigger is). Current catalog names only, colours = $color.* tokens.",
+  "id": "dash",
+  "component": "Box",
+  "style": {
+    "display": "flex",
+    "flexDirection": "column",
+    "gap": "$spacing.lg",
+    "padding": "$spacing.lg",
+    "width": "100%",
+    "backgroundColor": "$color.background",
+    "direction": "ltr"
+  },
+  "children": [
+    {
+      "id": "dash-bar",
+      "component": "AppBar",
+      "props": {
+        "title": "Agent runs",
+        "subtitle": {
+          "path": "/team"
+        }
+      },
+      "slots": {
+        "trailing": {
+          "id": "dash-actions",
+          "component": "Stack",
+          "props": {
+            "direction": "horizontal",
+            "gap": "xs",
+            "align": "center"
+          },
+          "children": [
+            {
+              "id": "dash-search",
+              "component": "Button",
+              "props": {
+                "icon": "search",
+                "variant": "ghost",
+                "size": "icon",
+                "label": "Search"
+              },
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "search"
+                  }
+                }
+              }
+            },
+            {
+              "id": "dash-new",
+              "component": "Button",
+              "props": {
+                "label": "New run",
+                "icon": "ui-send",
+                "size": "sm"
+              },
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "newRun"
+                  }
+                }
+              }
+            },
+            {
+              "id": "dash-menu",
+              "component": "Menu",
+              "props": {
+                "items": [
+                  {
+                    "label": "Export CSV",
+                    "value": "export",
+                    "icon": "ui-copy"
+                  },
+                  {
+                    "label": "Archive finished",
+                    "value": "archive",
+                    "icon": "ui-archive"
+                  },
+                  {
+                    "label": "Settings",
+                    "value": "settings",
+                    "icon": "nav-settings"
+                  }
+                ]
+              },
+              "on": {
+                "select": {
+                  "event": {
+                    "name": "dashMenu"
+                  }
+                }
+              },
+              "children": [
+                {
+                  "id": "dash-menu-trigger",
+                  "component": "Button",
+                  "props": {
+                    "icon": "ui-more",
+                    "variant": "ghost",
+                    "size": "icon",
+                    "label": "More"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      }
+    },
+    {
+      "id": "kpis",
+      "component": "Grid",
+      "props": {
+        "columns": {
+          "base": 1,
+          "md": 3
+        },
+        "gap": "md"
+      },
+      "children": [
+        {
+          "id": "kpi-1",
+          "component": "Card",
+          "children": [
+            {
+              "id": "kpi-1-body",
+              "component": "Stack",
+              "props": {
+                "direction": "vertical",
+                "gap": "sm"
+              },
+              "children": [
+                {
+                  "id": "kpi-1-label",
+                  "component": "Text",
+                  "props": {
+                    "text": "Runs this week",
+                    "variant": "muted"
+                  }
+                },
+                {
+                  "id": "kpi-1-row",
+                  "component": "Stack",
+                  "props": {
+                    "direction": "horizontal",
+                    "gap": "sm",
+                    "align": "center",
+                    "justify": "between"
+                  },
+                  "children": [
+                    {
+                      "id": "kpi-1-value",
+                      "component": "Heading",
+                      "props": {
+                        "text": "128",
+                        "level": "h2"
+                      }
+                    },
+                    {
+                      "id": "kpi-1-delta",
+                      "component": "Badge",
+                      "props": {
+                        "text": "+12%",
+                        "variant": "secondary"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "kpi-1-spark",
+                  "component": "Sparkline",
+                  "props": {
+                    "values": [
+                      8,
+                      12,
+                      9,
+                      15,
+                      14,
+                      21,
+                      18
+                    ],
+                    "tone": "success",
+                    "height": 32
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kpi-2",
+          "component": "Card",
+          "children": [
+            {
+              "id": "kpi-2-body",
+              "component": "Stack",
+              "props": {
+                "direction": "vertical",
+                "gap": "sm"
+              },
+              "children": [
+                {
+                  "id": "kpi-2-label",
+                  "component": "Text",
+                  "props": {
+                    "text": "Median time to merge",
+                    "variant": "muted"
+                  }
+                },
+                {
+                  "id": "kpi-2-row",
+                  "component": "Stack",
+                  "props": {
+                    "direction": "horizontal",
+                    "gap": "sm",
+                    "align": "center",
+                    "justify": "between"
+                  },
+                  "children": [
+                    {
+                      "id": "kpi-2-value",
+                      "component": "Heading",
+                      "props": {
+                        "text": "3h 40m",
+                        "level": "h2"
+                      }
+                    },
+                    {
+                      "id": "kpi-2-delta",
+                      "component": "Badge",
+                      "props": {
+                        "text": "-18%",
+                        "variant": "secondary"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "kpi-2-spark",
+                  "component": "Sparkline",
+                  "props": {
+                    "values": [
+                      6,
+                      5.5,
+                      5.8,
+                      4.9,
+                      4.2,
+                      4.0,
+                      3.7
+                    ],
+                    "tone": "info",
+                    "height": 32
+                  }
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "id": "kpi-3",
+          "component": "Card",
+          "children": [
+            {
+              "id": "kpi-3-body",
+              "component": "Stack",
+              "props": {
+                "direction": "vertical",
+                "gap": "sm"
+              },
+              "children": [
+                {
+                  "id": "kpi-3-label",
+                  "component": "Text",
+                  "props": {
+                    "text": "Monthly budget",
+                    "variant": "muted"
+                  }
+                },
+                {
+                  "id": "kpi-3-row",
+                  "component": "Stack",
+                  "props": {
+                    "direction": "horizontal",
+                    "gap": "sm",
+                    "align": "center",
+                    "justify": "between"
+                  },
+                  "children": [
+                    {
+                      "id": "kpi-3-value",
+                      "component": "Heading",
+                      "props": {
+                        "text": "$412",
+                        "level": "h2"
+                      }
+                    },
+                    {
+                      "id": "kpi-3-delta",
+                      "component": "Badge",
+                      "props": {
+                        "text": "72%",
+                        "variant": "secondary"
+                      }
+                    }
+                  ]
+                },
+                {
+                  "id": "kpi-3-progress",
+                  "component": "Progress",
+                  "props": {
+                    "value": 72,
+                    "max": 100,
+                    "label": "Budget used",
+                    "tone": "warning"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dash-tabs",
+      "component": "Tabs",
+      "props": {
+        "tabs": [
+          {
+            "label": "Overview",
+            "value": "overview",
+            "icon": "nav-boards"
+          },
+          {
+            "label": "Runs",
+            "value": "runs",
+            "count": 4
+          },
+          {
+            "label": "Reviews",
+            "value": "reviews",
+            "icon": "nav-reviews"
+          }
+        ],
+        "value": {
+          "path": "/ui/tab"
+        }
+      },
+      "on": {
+        "change": {
+          "event": {
+            "name": "tab"
+          }
+        }
+      },
+      "children": [
+        {
+          "id": "tab-overview",
+          "component": "Text",
+          "props": {
+            "text": "Throughput, cost and review load across every board."
+          }
+        },
+        {
+          "id": "tab-runs",
+          "component": "Stack",
+          "props": {
+            "direction": "vertical",
+            "gap": "md"
+          },
+          "children": [
+            {
+              "id": "runs-toolbar",
+              "component": "Stack",
+              "props": {
+                "direction": "horizontal",
+                "gap": "sm",
+                "align": "end",
+                "wrap": true
+              },
+              "children": [
+                {
+                  "id": "runs-search",
+                  "component": "Input",
+                  "props": {
+                    "label": "Search runs",
+                    "name": "q",
+                    "type": "search",
+                    "placeholder": "Filter by title or owner",
+                    "value": {
+                      "path": "/filter/q"
+                    }
+                  },
+                  "style": {
+                    "flexGrow": 1,
+                    "flexBasis": 240,
+                    "minWidth": 0
+                  }
+                },
+                {
+                  "id": "runs-filter",
+                  "component": "Segmented",
+                  "props": {
+                    "items": [
+                      {
+                        "label": "All",
+                        "value": "all"
+                      },
+                      {
+                        "label": "Running",
+                        "value": "running"
+                      },
+                      {
+                        "label": "In review",
+                        "value": "review"
+                      },
+                      {
+                        "label": "Merged",
+                        "value": "merged"
+                      }
+                    ],
+                    "value": {
+                      "path": "/filter/state"
+                    },
+                    "variant": "segmented"
+                  },
+                  "on": {
+                    "change": {
+                      "event": {
+                        "name": "filterState"
+                      }
+                    }
+                  }
+                }
+              ]
+            },
+            {
+              "id": "runs-table",
+              "component": "Table",
+              "props": {
+                "columns": [
+                  {
+                    "key": "owner",
+                    "label": "Owner",
+                    "type": "slot",
+                    "slot": "ownerCell",
+                    "width": 64
+                  },
+                  {
+                    "key": "title",
+                    "label": "Run",
+                    "sortable": true
+                  },
+                  {
+                    "key": "state",
+                    "label": "State",
+                    "type": "badge"
+                  },
+                  {
+                    "key": "turns",
+                    "label": "Turns",
+                    "type": "number",
+                    "align": "end",
+                    "sortable": true,
+                    "width": 72
+                  },
+                  {
+                    "key": "cost",
+                    "label": "Cost",
+                    "type": "currency",
+                    "currency": "USD",
+                    "decimals": 2,
+                    "align": "end",
+                    "width": 88
+                  }
+                ],
+                "rows": {
+                  "path": "/runs"
+                },
+                "rowKey": "id",
+                "selectable": "multiple",
+                "selected": {
+                  "path": "/ui/selected"
+                },
+                "sort": {
+                  "key": "turns",
+                  "direction": "desc"
+                },
+                "caption": "Four runs this week",
+                "striped": true
+              },
+              "slots": {
+                "ownerCell": {
+                  "id": "runs-owner",
+                  "component": "Avatar",
+                  "props": {
+                    "name": {
+                      "path": "owner"
+                    },
+                    "size": "sm"
+                  }
+                }
+              },
+              "on": {
+                "sort": {
+                  "event": {
+                    "name": "sortRuns"
+                  }
+                },
+                "select": {
+                  "event": {
+                    "name": "selectRuns"
+                  }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "tab-reviews",
+          "component": "Text",
+          "props": {
+            "text": "Open pull requests waiting for a review."
+          }
+        }
+      ]
+    },
+    {
+      "id": "dash-lower",
+      "component": "Grid",
+      "props": {
+        "columns": {
+          "base": 1,
+          "md": 2
+        },
+        "gap": "md"
+      },
+      "children": [
+        {
+          "id": "activity-card",
+          "component": "Card",
+          "props": {
+            "title": "Activity",
+            "padded": false
+          },
+          "children": [
+            {
+              "id": "activity",
+              "component": "List",
+              "props": {
+                "direction": "vertical",
+                "divided": true
+              },
+              "template": {
+                "component": "activity-item",
+                "path": "/activity"
+              },
+              "children": []
+            },
+            {
+              "id": "activity-item",
+              "component": "Row",
+              "props": {
+                "title": {
+                  "path": "title"
+                },
+                "subtitle": {
+                  "path": "who"
+                },
+                "meta": {
+                  "path": "when"
+                },
+                "icon": "ui-issue"
+              }
+            }
+          ]
+        },
+        {
+          "id": "reviews-card",
+          "component": "Card",
+          "props": {
+            "title": "Reviews"
+          },
+          "children": [
+            {
+              "id": "reviews-empty",
+              "component": "EmptyState",
+              "props": {
+                "icon": "nav-reviews",
+                "title": "No reviews waiting",
+                "description": "Pull requests that need you show up here.",
+                "actionLabel": "Open the queue"
+              },
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "openReviews"
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "dash-footer",
+      "component": "Stack",
+      "props": {
+        "direction": "horizontal",
+        "gap": "sm",
+        "justify": "end",
+        "wrap": true
+      },
+      "children": [
+        {
+          "id": "dash-export",
+          "component": "Button",
+          "props": {
+            "label": "Export",
+            "variant": "outline",
+            "icon": "ui-copy"
+          },
+          "on": {
+            "press": {
+              "event": {
+                "name": "export"
+              }
+            }
+          }
+        },
+        {
+          "id": "invite",
+          "component": "Dialog",
+          "props": {
+            "title": "Invite a member",
+            "description": "They join the team and see every board.",
+            "open": {
+              "path": "/ui/inviteOpen"
+            },
+            "dismissible": true
+          },
+          "slots": {
+            "trigger": {
+              "id": "invite-trigger",
+              "component": "Button",
+              "props": {
+                "label": "Invite member",
+                "icon": "ui-assignee"
+              }
+            },
+            "footer": {
+              "id": "invite-send",
+              "component": "Button",
+              "props": {
+                "label": "Send invite"
+              },
+              "on": {
+                "press": {
+                  "event": {
+                    "name": "sendInvite"
+                  }
+                }
+              }
+            }
+          },
+          "children": [
+            {
+              "id": "invite-form",
+              "component": "Form",
+              "props": {
+                "name": "invite",
+                "summary": true
+              },
+              "on": {
+                "submit": {
+                  "event": {
+                    "name": "invite"
+                  }
+                }
+              },
+              "children": [
+                {
+                  "id": "invite-email",
+                  "component": "Input",
+                  "props": {
+                    "label": "Email",
+                    "name": "email",
+                    "type": "email",
+                    "placeholder": "you@example.com",
+                    "value": {
+                      "path": "/invite/email"
+                    },
+                    "checks": [
+                      {
+                        "condition": {
+                          "call": "email",
+                          "args": {
+                            "value": {
+                              "path": "/invite/email"
+                            }
+                          }
+                        },
+                        "message": "Enter an email address"
+                      }
+                    ]
+                  }
+                },
+                {
+                  "id": "invite-role",
+                  "component": "Select",
+                  "props": {
+                    "label": "Role",
+                    "name": "role",
+                    "options": [
+                      {
+                        "label": "Member",
+                        "value": "member"
+                      },
+                      {
+                        "label": "Owner",
+                        "value": "owner"
+                      }
+                    ],
+                    "value": {
+                      "path": "/invite/role"
+                    }
+                  }
+                },
+                {
+                  "id": "invite-note",
+                  "component": "Textarea",
+                  "props": {
+                    "label": "Note",
+                    "name": "note",
+                    "rows": 3,
+                    "placeholder": "Optional",
+                    "value": {
+                      "path": "/invite/note"
+                    }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

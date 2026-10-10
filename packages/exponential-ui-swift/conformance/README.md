@@ -2,8 +2,8 @@
 
 The SwiftUI half of the renderer conformance harness
 ([`packages/exponential-ui/conformance`](../../exponential-ui/conformance/README.md),
-round 1): every case of `fixtures/conformance-cases.json` (2 fixtures × 3
-themes × dark × widths 390/600/900/1280 × ltr/rtl = 48 cases) laid out by
+round 1): every case of `fixtures/conformance-cases.json` (fixtures × themes
+× modes × widths × directions, the matrix of the harness README) laid out by
 `SurfaceModel` with the painter's REAL measurer (CoreText) and compared with
 the committed web baseline (`fixtures/conformance-baseline.json`, React in
 headless Chromium with the same fonts).
@@ -93,10 +93,10 @@ With these, every text node whose box is the text's own matches Chromium
 within 1 px across the matrix; the remaining text-component divergences are
 cascades (a sibling's width in a flex row: badges, list metas).
 
-## Today (the budget after the round-2 adoption, VAPP-99/100)
+## Today (the budget after the round-2 adoption, VAPP-99/100; matrix widened in VAPP-103)
 
-48 cases: size 0 · position 0 · wrap 0 · origins 0 · only swift 0; only web
-6–8 per kitchen-sink case (174 in all): the web's paint-only parts the core
+Every case: size 0 · position 0 · wrap 0 · origins 0 · only swift 0; only web
+6–8 per kitchen-sink case (0 in the responsive and dashboard cases): the web's paint-only parts the core
 does not lay out (`media-img.fallback`, `accordion.count.1`, `ring.label`,
 `video.controls`, `audio.track`, `audio.controls`, `chip-user.image.fallback`,
 `page-1.fallback`). The budget equals Compose's

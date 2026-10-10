@@ -14,6 +14,9 @@ import basicFixture from "../fixtures/catalog-basic-map.json" with { type: "json
 import extensionFixture from "../fixtures/catalog-extension.json" with { type: "json" }
 import kitchenSink from "../fixtures/kitchen-sink.json" with { type: "json" }
 import kitchenExpanded from "../fixtures/kitchen-sink.expanded.json" with { type: "json" }
+import dashboard from "../fixtures/dashboard.json" with { type: "json" }
+import dashboardData from "../fixtures/dashboard.data.json" with { type: "json" }
+import conformanceCases from "../fixtures/conformance-cases.json" with { type: "json" }
 import type { ExtensionDef, FlatComponent, NestedNode, UiNode } from "./types"
 
 const canon = (value: unknown) => JSON.stringify(value)
@@ -166,5 +169,38 @@ describe(`kitchen-sink.json`, () => {
     const ids = preorder(result.root)
     expect(new Set(ids).size).toBe(ids.length)
     walk(result.root, (n) => expect(coreCatalog.components[n.component]?.kind, n.id).toBe(`native`))
+  })
+})
+
+// VAPP-103: the conformance dashboard (a geometry-matrix fixture every
+// renderer lays out) speaks the current vocabulary only.
+describe(`dashboard.json`, () => {
+  test(`is in the real-font matrix in both modes`, () => {
+    expect(conformanceCases.fixtures.dashboard).toEqual({ tree: `packages/exponential-ui/fixtures/dashboard.json`, data: `packages/exponential-ui/fixtures/dashboard.data.json` })
+    expect([...conformanceCases.modes].sort()).toEqual([`dark`, `light`])
+  })
+
+  test(`reduces with no issues, unique ids and current catalog names only`, () => {
+    const result = reduceNested(dashboard as unknown as NestedNode, { catalogId: CORE_CATALOG_ID })
+    expect(result.issues).toEqual([])
+    const ids = preorder(result.root)
+    expect(new Set(ids).size).toBe(ids.length)
+    const authored = new Set<string>()
+    const visit = (n: NestedNode) => {
+      authored.add(n.component)
+      for (const slot of Object.values(n.slots ?? {})) visit(slot)
+      ;(n.children ?? []).forEach(visit)
+    }
+    visit(dashboard as unknown as NestedNode)
+    for (const name of authored) expect(componentNames().includes(name), name).toBe(true)
+    walk(result.root, (n) => expect(coreCatalog.components[n.component]?.kind, n.id).toBe(`native`))
+  })
+
+  test(`colours are $color tokens and the data has what the bindings read`, () => {
+    const literal = JSON.stringify(dashboard).match(/"#[0-9a-fA-F]{3,8}"|rgba?\(|oklch\(/g)
+    expect(literal).toBeNull()
+    expect(dashboardData.runs.length).toBeGreaterThan(0)
+    expect(dashboardData.activity.length).toBeGreaterThan(0)
+    expect(dashboardData.ui.inviteOpen).toBe(false)
   })
 })

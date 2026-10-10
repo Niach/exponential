@@ -204,7 +204,7 @@ export default function ConformancePage({ path }: PageProps) {
           <h2>The real-font harness</h2>
           <p>
             The suites lock the <strong>contract</strong> with a fixed fake measure. The real-font harness locks what
-            real text does to it: the kitchen sink and the responsive cases, rendered by React (headless Chromium) and
+            real text does to it: the kitchen sink, the responsive cases and a project dashboard in both modes, rendered by React (headless Chromium) and
             gpui with the same committed fonts (Inter, Geist, JetBrains Mono, Nunito, Fira Code), compared frame by frame against a
             committed web baseline.
           </p>

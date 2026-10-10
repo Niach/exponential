@@ -470,9 +470,11 @@ an origin not listed in the test's `SURVIVORS` (each with a reason). The
 writer (`EXP_UI_WRITE_FIXTURES=1`) keeps `causes` and `rules` and rewrites
 `renderer`, `survivors`, `coverageGaps` and `cases`. A node only one side
 places fails unless the test's `COVERAGE_GAPS` lists it with a reason.
-Today: 48 cases, 0 size / position / wrap divergences, 0 origins, 0
-survivors; 9 coverage gaps (8 parts gpui paints inside a leaf, the
-Resizable grip the DOM does not tag).
+Today (every fixture × theme × mode × width × direction of the matrix):
+0 size / position / wrap divergences, 0 origins, 0 survivors; the coverage
+gaps are parts gpui paints inside a leaf, plus the Resizable grip the DOM
+does not tag. The ratchet records on Linux only (the `gpui` job of
+`.github/workflows/record-compose-fixtures.yml`).
 
 ## Public API
 

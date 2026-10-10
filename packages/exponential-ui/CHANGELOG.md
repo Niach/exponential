@@ -13,3 +13,4 @@ First release.
 - The host API shared by every renderer: transports, functions, bindings, negotiation, URL policy and declarative packages.
 - The agent prompt and the validator.
 - The fixtures every renderer replays, plus the conformance suite and `conformance:check`.
+- The real-font geometry matrix: the kitchen sink, the responsive section and a project dashboard, in every built-in theme, both modes, four widths and both directions.

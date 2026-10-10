@@ -1,0 +1,74 @@
+{
+  "$comment": "VAPP-103: the data model the conformance dashboard (dashboard.json) lays out against: the Table's runs and selection, the activity template's items, the bound Tabs value, filter inputs and the (closed) invite Dialog's form.",
+  "team": "Platform team",
+  "ui": {
+    "tab": "runs",
+    "selected": [
+      "r2"
+    ],
+    "inviteOpen": false
+  },
+  "filter": {
+    "q": "",
+    "state": "all"
+  },
+  "runs": [
+    {
+      "id": "r1",
+      "owner": "Alex Chen",
+      "title": "Fix the flaky sync test on CI",
+      "state": "Running",
+      "turns": 42,
+      "cost": 3.18
+    },
+    {
+      "id": "r2",
+      "owner": "Mia Novak",
+      "title": "Batch: EXP-874 +2",
+      "state": "In review",
+      "turns": 117,
+      "cost": 9.4
+    },
+    {
+      "id": "r3",
+      "owner": "Sam Okafor",
+      "title": "Tidy up the Design board",
+      "state": "Merged",
+      "turns": 8,
+      "cost": 0.52
+    },
+    {
+      "id": "r4",
+      "owner": "Lena Hart",
+      "title": "Add light mode to the conformance matrix",
+      "state": "Running",
+      "turns": 64,
+      "cost": 5.07
+    }
+  ],
+  "activity": [
+    {
+      "id": "a1",
+      "title": "Opened PR #812",
+      "who": "Mia Novak",
+      "when": "2m"
+    },
+    {
+      "id": "a2",
+      "title": "Merged the sync fix",
+      "who": "Alex Chen",
+      "when": "18m"
+    },
+    {
+      "id": "a3",
+      "title": "Asked for a review on the dashboard layout",
+      "who": "Lena Hart",
+      "when": "1h"
+    }
+  ],
+  "invite": {
+    "email": "",
+    "role": "member",
+    "note": ""
+  }
+}
