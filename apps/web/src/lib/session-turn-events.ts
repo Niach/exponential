@@ -13,9 +13,14 @@ import { parseSteerMessage } from "@/lib/steer-image-message"
 // A message carries the relay's `at` when the store kept it; one without is
 // stamped when it ARRIVES live (a lone new row), never a history replay's
 // bulk (its times are unknown, so those rows stay out of the turns). The
-// run's own start opens the first turn (its prompt is the issue or the
-// composer's text, no bubble), so results published before any observed edge
-// land there instead of in the newest turn.
+// FIRST non-empty feed the log sees is always a replay (the store joined
+// with history, however short), so nothing in it is stamped: rows count as
+// live only after that, and only when they carry ids above every row seen
+// (a history page prepends lower ids). The run's own start opens the first
+// turn (its prompt is the issue or the composer's text, no bubble), so
+// results published before any observed edge land there instead of in the
+// newest turn. The per-session log is released with the session's feed
+// store (`releaseTurnLog`) and keeps a bounded `seen` set.
 
 interface FeedRow {
   id: number
@@ -30,8 +35,11 @@ export interface TurnLog {
   edges: Extract<SessionTurnEvent, { kind: `turn` }>[]
   /** Feed row id → the time it is placed at. */
   messageAt: Map<number, number>
-  /** Every feed row id seen so far. */
+  /** Every feed row id seen so far (the newest `SEEN_CAP`). */
   seen: Set<number>
+  /** The highest row id seen so far; a live arrival has a higher one. */
+  maxSeen: number
+  /** A non-empty feed was folded in: later lone rows are live arrivals. */
   primed: boolean
   lastState: TurnState | null
   lastStart: number | null
@@ -40,11 +48,16 @@ export interface TurnLog {
 /** A lone new row (or two: an echo and its twin) is a live arrival. */
 export const LIVE_ARRIVAL_MAX_ROWS = 2
 
+/** The `seen` set keeps this many ids (the newest); the store's feed is
+ *  itself capped well below it, so a trimmed row never reads as fresh. */
+export const SEEN_CAP = 4_096
+
 export function emptyTurnLog(): TurnLog {
   return {
     edges: [],
     messageAt: new Map(),
     seen: new Set(),
+    maxSeen: -1,
     primed: false,
     lastState: null,
     lastStart: null,
@@ -78,14 +91,37 @@ export function recordFeedMessages(
   now: number
 ): void {
   const fresh = feed.filter((row) => !log.seen.has(row.id))
-  const live = log.primed && fresh.length <= LIVE_ARRIVAL_MAX_ROWS
+  // Live = the log already folded a non-empty feed (so this is not the
+  // replay the view mounted on), a lone row or two, every one NEWER than
+  // anything seen (a history page prepends older ids).
+  const live =
+    log.primed &&
+    fresh.length <= LIVE_ARRIVAL_MAX_ROWS &&
+    fresh.every((row) => row.id > log.maxSeen)
   for (const row of fresh) {
     log.seen.add(row.id)
+    if (row.id > log.maxSeen) log.maxSeen = row.id
     if (row.kind !== `user_message` || row.subagentId) continue
     if (typeof row.at === `number` && Number.isFinite(row.at)) log.messageAt.set(row.id, row.at)
     else if (live) log.messageAt.set(row.id, now)
   }
-  log.primed = true
+  if (feed.length > 0) log.primed = true
+  trimSeen(log)
+}
+
+/** Keep `seen` (and the placements of rows the feed can no longer hold)
+ *  bounded: drop the oldest ids past `SEEN_CAP`. Ids only grow, so a
+ *  dropped id never comes back as a fresh row. */
+function trimSeen(log: TurnLog): void {
+  if (log.seen.size <= SEEN_CAP) return
+  const drop = log.seen.size - SEEN_CAP
+  let dropped = 0
+  for (const id of log.seen) {
+    if (dropped >= drop) break
+    log.seen.delete(id)
+    log.messageAt.delete(id)
+    dropped++
+  }
 }
 
 /** The events `sessionTurns` walks: the run's start, the placed messages
@@ -164,6 +200,17 @@ export function turnLogFor(sessionId: string): TurnLog {
     logs.set(sessionId, log)
   }
   return log
+}
+
+/** Drop a session's log: called when its feed store is disposed (the feed
+ *  it was folded from is gone, so the next view starts over). */
+export function releaseTurnLog(sessionId: string): void {
+  logs.delete(sessionId)
+}
+
+/** Whether a log is held for the session (tests, diagnostics). */
+export function hasTurnLog(sessionId: string): boolean {
+  return logs.has(sessionId)
 }
 
 /** The owner's turn events for `sessionTurns` (see above). */

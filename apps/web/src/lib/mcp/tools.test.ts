@@ -324,6 +324,7 @@ vi.mock(`@/lib/session-guide-diff`, () => ({
 }))
 
 import {
+  invalidateOpenPulls,
   loadRepositoryByFullName,
   loadRepositoryForTeam,
 } from "@/lib/trpc/repositories"
@@ -350,7 +351,12 @@ import {
   inferBaseBranch,
 } from "@/lib/pr-stacks"
 import { claimPrOpen } from "@/lib/integrations/pr-actor-claims"
-import { runHasReportBody, runPrBody, syncRunPrBody } from "@/lib/run-pr-body"
+import {
+  runHasReportBody,
+  runPrBody,
+  stampRunResultsPrUrl,
+  syncRunPrBody,
+} from "@/lib/run-pr-body"
 import { loadGuideDiff } from "@/lib/session-guide-diff"
 import { retiredIdentifiers } from "@/lib/issue-resolver"
 import {
@@ -2319,6 +2325,41 @@ describe(`exponential_pr_open batch session parking`, () => {
     )
   })
 
+  // The guide stamp gets the url the row carried BEFORE this PR: a run that
+  // already had one wrote its untagged topics for THAT PR, and the park has
+  // overwritten the column by the time the stamp runs.
+  it(`hands the guide stamp the run's prior PR url`, async () => {
+    armPrOpen()
+    dbRows.current = [
+      {
+        id: SESSION,
+        teamId: WS,
+        issueId: null,
+        branch: null,
+        prUrl: `https://github.com/acme/app/pull/3`,
+        prNumber: 3,
+        status: `running`,
+        needsInput: false,
+        mergedOwnPr: false,
+        userId: `user-1`,
+        hostUserId: null,
+      },
+    ]
+
+    const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({
+      issueIds: [UUID, PROJ],
+      title: `Batch PR`,
+      head: `exp/batch-abcd1234`,
+    })
+
+    expect(parseOk(result)).toMatchObject({ number: 7 })
+    expect(stampRunResultsPrUrl).toHaveBeenCalledWith(
+      SESSION,
+      `https://github.com/acme/app/pull/7`,
+      { priorPrUrl: `https://github.com/acme/app/pull/3` }
+    )
+  })
+
   it(`parks the EXACT header session, stamping the combined PR and its branch`, async () => {
     const updates = armPrOpen()
     dbRows.current = [
@@ -3475,6 +3516,37 @@ describe(`exponential_sessions_guide`, () => {
     expect(written.at as number).toBeGreaterThanOrEqual(before)
   })
 
+  // The PR body and the Guide match the tag byte for byte against the
+  // row's stamped url, so a `/files` tail or an upper-case host would
+  // silently drop the topic from both.
+  it(`canonicalises the topic's prUrl to the GitHub PR url`, async () => {
+    dbRows.current = [runRow({ results: [] })]
+    await collectTools(USER, SESSION, OWN_RUN).get(`exponential_sessions_guide`)!({
+      topic: `Reviews`,
+      text: `Linked by pr_url.`,
+      prUrl: `http://GitHub.com/o/r/pull/12/files?diff=split#top`,
+    })
+    const written = (updateSet.mock.calls[0]![0] as { results: Array<Record<string, unknown>> })
+      .results[0]!
+    expect(written.prUrl).toBe(`https://github.com/o/r/pull/12`)
+  })
+
+  it(`refuses a prUrl that is not a GitHub pull request url`, async () => {
+    dbRows.current = [runRow({ results: [] })]
+    for (const prUrl of [
+      `https://github.com/o/r/issues/12`,
+      `https://gitlab.com/o/r/-/merge_requests/1`,
+      `not a url`,
+    ]) {
+      const result = await collectTools(USER, SESSION, OWN_RUN).get(
+        `exponential_sessions_guide`
+      )!({ topic: `Reviews`, text: `x`, prUrl })
+      expect(result.isError).toBe(true)
+      expect(result.content[0].text).toContain(`prUrl must be a GitHub pull request URL`)
+    }
+    expect(updateSet).not.toHaveBeenCalled()
+  })
+
   it(`refuses a prUrl without text`, async () => {
     dbRows.current = [runRow({ results: [] })]
     const result = await collectTools(USER, SESSION, OWN_RUN).get(
@@ -3780,6 +3852,30 @@ describe(`exponential_pr_open — repositoryId path`, () => {
     expect(db.transaction).not.toHaveBeenCalled()
   })
 
+  it(`a failed stack join on the chore form is a warning, the PR stays open`, async () => {
+    armRepoPr()
+    vi.mocked(inferBaseBranch).mockResolvedValueOnce({ base: `exp/chat-1a2b3c4d`, prNumber: 8 })
+    vi.mocked(ensureGithubStack).mockRejectedValueOnce(
+      new Error(`GitHub could not stack PRs #8, #9 (422): nope`)
+    )
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+
+    const result = await collectTools(USER, null).get(`exponential_pr_open`)!({
+      repositoryId: REPO,
+      head: `exp/refresh-screenshots-1a2b3c4d`,
+      title: `Refresh screenshots`,
+    })
+
+    expect(result.isError).toBeFalsy()
+    expect(parseOk(result)).toMatchObject({
+      number: 9,
+      warning: `PR #9 is open and linked, but joining the GitHub stack of #8 failed: GitHub could not stack PRs #8, #9 (422): nope`,
+    })
+    expect(parseOk(result)).not.toHaveProperty(`stack`)
+    expect(invalidateOpenPulls).toHaveBeenCalledWith(WS)
+    warn.mockRestore()
+  })
+
   // EXP-1248 (M17): the chore form infers its base and joins the stack too.
   it(`no base: opens on the inferred open PR's branch and joins its stack`, async () => {
     armRepoPr()
@@ -3798,6 +3894,8 @@ describe(`exponential_pr_open — repositoryId path`, () => {
     })
 
     expect(parseOk(result)).toMatchObject({ number: 9, stack: { number: 3, position: 2, size: 2 } })
+    // EXP-1244: the chore form drops the team's cached open-PR list too.
+    expect(invalidateOpenPulls).toHaveBeenCalledWith(WS)
     expect(inferBaseBranch).toHaveBeenCalledWith(
       expect.objectContaining({ repo: `acme/app`, head: `exp/refresh-screenshots-1a2b3c4d`, defaultBranch: `main` })
     )
@@ -6592,12 +6690,15 @@ describe(`exponential_pr_open — a follow-up run based on its parent's branch`,
     expect(ensureGithubStack).not.toHaveBeenCalled()
   })
 
-  it(`a failed stack join is the tool's error, with the PR still linked`, async () => {
+  // The PR exists and is linked by the time the join runs: a thrown error
+  // made the agent retry a pr_open that could only fail the same way.
+  it(`a failed stack join is a warning on the opened PR, never the tool's error`, async () => {
     const updates = armPrOpen()
     dbRows.current = [lowerRow()]
     vi.mocked(ensureGithubStack).mockRejectedValueOnce(
       new Error(`GitHub could not stack PRs #241, #242 (422): nope`)
     )
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
 
     const result = await tool(`exponential_pr_open`)({
       issueId: UUID,
@@ -6606,14 +6707,20 @@ describe(`exponential_pr_open — a follow-up run based on its parent's branch`,
       base: `exp/EXP-11`,
     })
 
-    expect(result.isError).toBe(true)
-    expect(result.content[0].text).toBe(
-      `PR #242 is open and linked, but joining the GitHub stack of #241 failed: GitHub could not stack PRs #241, #242 (422): nope`
-    )
+    expect(result.isError).toBeFalsy()
+    expect(parseOk(result)).toMatchObject({
+      number: 242,
+      url: `https://github.com/acme/app/pull/242`,
+      warning: `PR #242 is open and linked, but joining the GitHub stack of #241 failed: GitHub could not stack PRs #241, #242 (422): nope`,
+    })
+    expect(parseOk(result)).not.toHaveProperty(`stack`)
     expect(
       updates.find((u) => u.set.prUrl === `https://github.com/acme/app/pull/242`)
     ).toBeDefined()
+    expect(warn).toHaveBeenCalled()
+    warn.mockRestore()
   })
+
 
   // C7: a second follow-up on the same parent forks the line: a tree.
   it(`a sibling already on the parent's branch makes a tree: no stack call, no error`, async () => {

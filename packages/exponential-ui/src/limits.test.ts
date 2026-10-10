@@ -6,6 +6,7 @@
 import { describe, expect, test } from "bun:test"
 import { CORE_CATALOG_ID } from "./catalog"
 import { POINTER_ISSUES, runAction, writePointer } from "./dynamic"
+import { MAX_RANGE_ITEMS } from "./expr"
 import { LIMIT_ISSUES, LIMITS, MAX_COMPONENTS, MAX_DEPTH, MAX_MESSAGE_BYTES, MAX_POINTER_BYTES, MAX_POINTER_SEGMENTS, MAX_TEMPLATE_ITEMS } from "./limits"
 import { templateBudget, templateInstances, templateSiteKey } from "./list"
 import { reduceNested, reduceSurface } from "./reducer"
@@ -163,5 +164,38 @@ describe(`limits (catalog/limits.json)`, () => {
     expect(store.components.map((c) => c.id)).toEqual([`root`, `x`])
     const same = store.components
     expect(store.components).toBe(same)
+  })
+})
+
+describe(`R8 hardening (the Rust core's robustness.rs)`, () => {
+  test(`F51: a Rating with a huge max reduces within the budget`, () => {
+    for (const max of [1e8, 1e300]) {
+      const r = timed(10_000, () => reduceSurface([{ id: `root`, component: `Rating`, max }], { catalogId: CORE_CATALOG_ID }))
+      const msgs = issues(r)
+      expect(msgs).toContain(`root: props.max: expected at most 100`)
+      expect(msgs.filter((m) => m.endsWith(LIMIT_ISSUES.components)).length).toBe(1)
+      expect(count(r.root)).toBeLessThanOrEqual(MAX_COMPONENTS)
+      expect(r.root.children.length).toBe(MAX_RANGE_ITEMS)
+    }
+    const sane = reduceSurface([{ id: `root`, component: `Rating`, max: 7 }], { catalogId: CORE_CATALOG_ID })
+    expect(issues(sane)).toEqual([])
+    expect(sane.root.children.length).toBe(7)
+    expect(issues(reduceSurface([{ id: `root`, component: `Rating`, max: 0 }], { catalogId: CORE_CATALOG_ID }))).toEqual([`root: props.max: expected at least 1`])
+  })
+
+  test(`F52: placeholder floods stop at the budget`, () => {
+    const n = 100_000
+    const r = timed(10_000, () => reduceSurface([{ id: `root`, component: `Stack`, children: Array.from({ length: n }, () => `x`) }], { catalogId: CORE_CATALOG_ID }))
+    expect(r.root.children.length).toBe(MAX_COMPONENTS - 1)
+    const msgs = issues(r)
+    expect(msgs.filter((m) => m.endsWith(LIMIT_ISSUES.components)).length).toBe(1)
+    expect(msgs.filter((m) => m === `x: no component with this id`).length).toBe(MAX_COMPONENTS - 1)
+    expect(msgs.length).toBe(MAX_COMPONENTS)
+    const twice = timed(10_000, () => reduceSurface([{ id: `root`, component: `Stack`, children: Array.from({ length: n }, () => `a`) }, { id: `a`, component: `Text`, text: `x` }], { catalogId: CORE_CATALOG_ID }))
+    expect(twice.root.children.length).toBe(1)
+    expect(issues(twice)).toEqual([`a: ${LIMIT_ISSUES.usedTwice}`])
+    // A cycle is still a cycle.
+    const cyc = reduceSurface([{ id: `root`, component: `Stack`, children: [`a`] }, { id: `a`, component: `Stack`, children: [`root`] }], { catalogId: CORE_CATALOG_ID })
+    expect(issues(cyc)).toEqual([`root: cycle through this id`])
   })
 })

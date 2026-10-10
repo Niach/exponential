@@ -86,6 +86,10 @@ export interface DomainContract {
     launchKeys: string[]
     /** EXP-1249: the device cap for the per-run `computerUse` flag. */
     computerUseCap: string
+    /** The device cap for non-image file attachments in start prompts and
+     *  steer messages (the host localizes `[name](/api/attachments/<id>)`
+     *  lines); a device without it gets images only. */
+    steerFilesCap: string
   }
   /**
    * EXP-481: how fresh a devices row's last_seen_at must be to render
@@ -191,6 +195,9 @@ export interface DomainContract {
     fixConflictsSubmit: string
     prPlaceholder: string
     conflictNote: string
+    /** The refusal (server + composers x4) when a file attachment targets a
+     *  device without `codingSession.steerFilesCap`. */
+    filesNeedNewerDevice: string
   }
   /**
    * EXP-785: ACP's tool-call kinds, carried on the `tool` steer event so

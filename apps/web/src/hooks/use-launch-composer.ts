@@ -62,6 +62,11 @@ import {
   resumeWorktree,
   type SteerDevice,
 } from "@/lib/steer-devices"
+import {
+  FILES_NEED_NEWER_DEVICE,
+  deviceAcceptsFiles,
+  gateFilesForDevice,
+} from "@/lib/steer-files-gate"
 import { uploadTeamSessionImageFile } from "@/lib/storage/issue-image-upload"
 import {
   useLaunchOptions,
@@ -217,6 +222,10 @@ export interface LaunchComposerModel {
   /** Stages files and drops their markers at `caret`; returns the caret
    * behind the last marker (the field puts its cursor there). */
   addFiles: (files: File[], caret: number) => number
+  /** F6: the picked device takes non-image files (`steer-files` cap, or no
+   * device picked yet). False = the pick is images only, files are dropped
+   * with `FILES_NEED_NEWER_DEVICE`. */
+  acceptsFiles: boolean
   removeImage: (url: string) => void
 
   /** The team's connected repositories (null until fetched) — the
@@ -620,8 +629,12 @@ export function useLaunchComposer({
 
   // ── Images and files ──────────────────────────────────────────────────────
 
+  // F6: an older device (no `steer-files` cap) takes images only.
+  const acceptsFiles = deviceAcceptsFiles(device)
   const addFiles = useCallback(
-    (files: File[], caret: number) => {
+    (picked: File[], caret: number) => {
+      const { files, droppedFiles } = gateFilesForDevice(picked, acceptsFiles)
+      if (droppedFiles > 0) toast.error(FILES_NEED_NEWER_DEVICE)
       const staged = stagePendingImages(imagesRef.current, files, text, caret)
       if (staged.added > 0) {
         setImages(staged.images)
@@ -632,7 +645,7 @@ export function useLaunchComposer({
       if (staged.fileOverflow > 0) toast.error(FILE_CAP_TOAST)
       return staged.caret
     },
-    [text]
+    [text, acceptsFiles]
   )
 
   const removeImage = useCallback(
@@ -847,6 +860,12 @@ export function useLaunchComposer({
    *  first issue, the typed text wrapped by `stackedStartPrompt`. */
   const start = async (stacked?: { plan: StackPlan; issueId: string }) => {
     if (blocked || !device) return
+    // F6: a file staged before the pick moved to an older device would be
+    // refused server-side with this very sentence; say it before uploading.
+    if (!acceptsFiles && imagesRef.current.some((image) => image.kind === `file`)) {
+      toast.error(FILES_NEED_NEWER_DEVICE)
+      return
+    }
     setBlockedOpen(false)
     setSending(true)
     try {
@@ -959,6 +978,7 @@ export function useLaunchComposer({
     setText,
     images,
     addFiles,
+    acceptsFiles,
     removeImage,
     repos,
     repoId,

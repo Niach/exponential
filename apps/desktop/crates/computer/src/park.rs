@@ -16,6 +16,7 @@
 
 use std::ffi::CStr;
 use std::ptr;
+use std::sync::Mutex;
 
 use x11::xinput2 as xi;
 use x11::xlib;
@@ -63,10 +64,17 @@ unsafe extern "C" fn ignore_x_error(
     0
 }
 
+/// `XSetErrorHandler` is process-global and tool calls (so parks) run at
+/// once: one park at a time, so a park never restores another park's
+/// "previous" handler, i.e. our ignoring one, as the process default.
+static PARK_LOCK: Mutex<()> = Mutex::new(());
+
 fn park() -> Result<usize, String> {
+    let _one_at_a_time = PARK_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     // SAFETY: plain Xlib/XI2 calls on a display this function opens and
     // closes itself; every pointer handed back by the server is freed with
-    // the matching X call before the display closes.
+    // the matching X call before the display closes. The error handler swap
+    // is serialised by `PARK_LOCK`.
     unsafe {
         let display = xlib::XOpenDisplay(ptr::null());
         if display.is_null() {

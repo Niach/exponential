@@ -4487,7 +4487,7 @@
           "bindable": false,
           "responsive": false,
           "default": 5,
-          "description": "How many stars."
+          "description": "How many stars (1 to 100)."
         },
         {
           "name": "readOnly",

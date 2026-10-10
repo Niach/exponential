@@ -48,12 +48,18 @@ public final class SessionTurnLog: @unchecked Sendable {
         public let isUserMessage: Bool
         public let text: String
         public let subagentId: String?
+        /// The row's own time (ms) when the feed knows it; such a row is
+        /// placed by it, never by the live rule (web + Android `at`).
+        public let at: Double?
 
-        public init(id: Int, isUserMessage: Bool, text: String = "", subagentId: String? = nil) {
+        public init(
+            id: Int, isUserMessage: Bool, text: String = "", subagentId: String? = nil, at: Double? = nil
+        ) {
             self.id = id
             self.isUserMessage = isUserMessage
             self.text = text
             self.subagentId = subagentId
+            self.at = at
         }
     }
 
@@ -68,15 +74,22 @@ public final class SessionTurnLog: @unchecked Sendable {
     }
 
     /// Fold the feed's rows into the log: place every main-agent message.
+    /// Rows count as live only after the first NON-EMPTY feed (F35 ×4): the
+    /// view often folds an empty feed first, and a short history replay
+    /// landing next (rows without a time) must not be stamped `now`.
     public func recordFeedMessages(_ feed: [Row], now: Double) {
         let fresh = feed.filter { !seen.contains($0.id) }
         let live = primed && fresh.count <= Self.liveArrivalMaxRows
         for row in fresh {
             seen.insert(row.id)
             guard row.isUserMessage, row.subagentId == nil else { continue }
-            if live { messageAt[row.id] = now }
+            if let at = row.at, at.isFinite {
+                messageAt[row.id] = at
+            } else if live {
+                messageAt[row.id] = now
+            }
         }
-        primed = true
+        if !feed.isEmpty { primed = true }
     }
 
     /// The events `sessionTurns` walks: the run's start, the placed messages

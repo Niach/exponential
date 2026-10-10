@@ -45,6 +45,9 @@ data class CreateInviteInput(val teamId: String, val role: String = "member")
 @Serializable
 data class CreateInviteResult(val token: String)
 
+@Serializable
+data class RevokeInviteInput(val id: String)
+
 @Singleton
 class TeamInvitesApi @Inject constructor(private val trpc: TrpcClient) {
 
@@ -66,6 +69,18 @@ class TeamInvitesApi @Inject constructor(private val trpc: TrpcClient) {
             inputSerializer = AcceptInviteInput.serializer(),
             outputSerializer = AcceptInviteResult.serializer(),
         )
+
+    /** Kill a pending link (owner-only server-side; EXP-630: a placeholder's
+     *  row stays on the roster reading "Invite expired"). */
+    suspend fun revoke(accountId: String, id: String) {
+        trpc.mutation(
+            accountId,
+            path = "teamInvites.revoke",
+            input = RevokeInviteInput(id),
+            inputSerializer = RevokeInviteInput.serializer(),
+            outputSerializer = OkResult.serializer(),
+        )
+    }
 
     suspend fun getByToken(accountId: String, token: String): InvitePreview =
         trpc.query(

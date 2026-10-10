@@ -1,7 +1,7 @@
 import { z } from "zod"
 import { REPO_FULL_NAME_RE } from "@/lib/repo-full-name"
 import { TRPCError } from "@trpc/server"
-import { and, asc, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, isNull, like, or, sql } from "drizzle-orm"
 import type { db } from "@/db/connection"
 import { router, authedProcedure } from "@/lib/trpc"
 import { boardVisible } from "@/lib/board-visibility"
@@ -42,11 +42,13 @@ import {
   basedOnMergedPr,
   loadGuardDefaultBranches,
   openStackMember,
+  repoPrUrlPattern,
   stackLanding,
   squashCommitTitle,
   stackedOnMessage,
   stackedOnOpenPr,
   stackStopBranches,
+  type StackMember,
 } from "@/lib/pr-merge-guard"
 import { ensureGithubStack, mergeThrough } from "@/lib/pr-stacks"
 import {
@@ -402,9 +404,35 @@ interface CachedOpenPulls {
 }
 const openPullsCache = new Map<string, CachedOpenPulls>()
 
-/** EXP-1244: drop a team's cached `openPulls` once one of its PRs gets linked. */
+/** EXP-1244: drop a team's cached `openPulls` once one of its PRs gets linked
+ *  (the MCP `pr_open` paths, the webhook's PR-opened stamping, a merge). */
 export function invalidateOpenPulls(teamId: string): void {
   openPullsCache.delete(teamId)
+}
+
+/**
+ * Every PR url an issue or a run row (EXP-734: a chat/action run's chore PR)
+ * carries in these repositories, ACROSS teams: a linked PR is linked no
+ * matter whose issue holds it. Exported for `openPulls`' test.
+ */
+export async function linkedPrUrls(
+  database: Pick<typeof db, `select`>,
+  repoFullNames: ReadonlyArray<string>
+): Promise<Set<string>> {
+  if (repoFullNames.length === 0) return new Set()
+  const inRepos = (column: typeof issues.prUrl | typeof codingSessions.prUrl) =>
+    or(...repoFullNames.map((name) => like(column, repoPrUrlPattern(name))))
+  const issueRows = await database
+    .select({ prUrl: issues.prUrl })
+    .from(issues)
+    .where(inRepos(issues.prUrl))
+  const sessionRows = await database
+    .select({ prUrl: codingSessions.prUrl })
+    .from(codingSessions)
+    .where(inRepos(codingSessions.prUrl))
+  return new Set(
+    [...issueRows, ...sessionRows].flatMap((row) => (row.prUrl ? [row.prUrl] : []))
+  )
 }
 
 /** Pure: GitHub now names a DIFFERENT installation for the row's full name
@@ -562,11 +590,7 @@ export async function mergeRepositoryPull(opts: {
   // plainly (issues.mergePr's rule). An issue-less run PR is at most a stack
   // BOTTOM or a tree root (nothing issue-backed walks below it): it lands
   // alone, so it merges plainly.
-  let landing: Array<{
-    identifier: string | null
-    prNumber: number
-    prUrl: string
-  }> | null = null
+  let landing: StackMember[] | null = null
   if (onPr[0]) {
     landing = stackLanding(
       await openStackMember(db, { issueId: onPr[0].id, teamId: repo.teamId }),
@@ -605,12 +629,26 @@ export async function mergeRepositoryPull(opts: {
   // merge call would beat it, squashing INTO the parent's kept branch. Await
   // the heal, then refuse while GitHub still reports the merged branch as
   // the base (same as `issues.mergePr`). Before any claim.
-  // A merge through a stack sits on an OPEN PR: no merged parent to heal.
-  if (based && !(landing && landing.length > 1)) {
+  // A merge THROUGH a stack lands the whole line at once: the branch that
+  // matters is the BOTTOM member's base (every other member sits on an open
+  // PR), so the bottom is what gets healed, as the old per-member loop did.
+  const healTarget =
+    landing && landing.length > 1
+      ? landing[0]!.prBaseBranch
+        ? {
+            prNumber: landing[0]!.prNumber,
+            prUrl: landing[0]!.prUrl,
+            prBaseBranch: landing[0]!.prBaseBranch,
+          }
+        : null
+      : based
+        ? { prNumber, prUrl, prBaseBranch: based.prBaseBranch }
+        : null
+  if (healTarget) {
     const mergedParent = await basedOnMergedPr(db, {
       teamId: repo.teamId,
       repoFullName: repo.fullName,
-      prBaseBranch: based.prBaseBranch,
+      prBaseBranch: healTarget.prBaseBranch,
     })
     if (mergedParent) {
       const { retargetChildrenOfMergedPr } = await import(
@@ -619,19 +657,22 @@ export async function mergeRepositoryPull(opts: {
       try {
         await retargetChildrenOfMergedPr({
           prUrl: mergedParent.prUrl,
-          headBranch: based.prBaseBranch,
+          headBranch: healTarget.prBaseBranch,
           teamId: repo.teamId,
         })
       } catch (err) {
         // The check below refuses a PR left on the merged branch.
-        console.error(`retarget before merging ${repo.fullName}#${prNumber}:`, err)
+        console.error(
+          `retarget before merging ${repo.fullName}#${healTarget.prNumber}:`,
+          err
+        )
       }
       await awaitRebaseOffMergedBranch(db, {
         repoFullName: repo.fullName,
-        prNumber,
-        prUrl,
-        prBaseBranch: based.prBaseBranch,
-        mergedBranch: based.prBaseBranch,
+        prNumber: healTarget.prNumber,
+        prUrl: healTarget.prUrl,
+        prBaseBranch: healTarget.prBaseBranch,
+        mergedBranch: healTarget.prBaseBranch,
         token,
       })
     }
@@ -901,26 +942,13 @@ export const repositoriesRouter = router({
 
       // PRs already linked to an issue are excluded by URL — the issue rows
       // carry them (regardless of the row's possibly-drifted prState).
-      const linkedRows = await ctx.db
-        .select({ prUrl: issues.prUrl })
-        .from(issues)
-        .innerJoin(boards, eq(boards.id, issues.boardId))
-        .where(and(eq(boards.teamId, input.teamId), isNotNull(issues.prUrl)))
-      // EXP-734: so are the chore PRs of action/chat runs — their session
-      // rows carry them and the Reviews "Agent runs" group renders those.
-      const sessionRows = await ctx.db
-        .select({ prUrl: codingSessions.prUrl })
-        .from(codingSessions)
-        .where(
-          and(
-            eq(codingSessions.teamId, input.teamId),
-            isNotNull(codingSessions.prUrl)
-          )
-        )
-      const linkedUrls = new Set(
-        [...linkedRows, ...sessionRows]
-          .map((row) => row.prUrl)
-          .filter(Boolean)
+      // EXP-1244: linked by ANY team's rows, keyed on the repo's PR urls, not
+      // the caller's team: two teams on one repository (or an issue moved
+      // across teams) must not re-surface a PR an issue already owns. The
+      // exclusion only HIDES a row, it exposes nothing of the other team.
+      const linkedUrls = await linkedPrUrls(
+        ctx.db,
+        repos.map((repo) => repo.fullName)
       )
 
       const results = await Promise.all(

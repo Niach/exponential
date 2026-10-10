@@ -30,6 +30,10 @@ struct WorkMergePill: View {
     let steerEnabled: Bool
     /// A `.session` target's own PR number, for the confirm's title.
     var runPrNumber: Int?
+    /// The issue's TEAM: the Work screen can sit on a non-active team
+    /// (Reviews lists every team), and the recovery run's composer aligns
+    /// its pools to this before it builds, else it cannot pick the PR.
+    var teamId: String?
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -221,6 +225,7 @@ struct WorkMergePill: View {
             seed: AgentComposerSeed(
                 actionId: DomainContract.builtinFixConflictsId,
                 prIssueId: issueId,
+                teamId: teamId,
                 conflict: true
             )
         ))

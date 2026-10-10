@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::io::Read;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use serde_json::{json, Value};
 
@@ -24,9 +24,15 @@ const PROTOCOL_VERSIONS: &[&str] = &["2025-06-18", "2025-03-26", "2024-11-05"];
 const BODY_MAX_BYTES: u64 = 4 * 1024 * 1024;
 /// A script bigger than this is a mistake, not a program.
 const SCRIPT_MAX_BYTES: usize = 256 * 1024;
-/// One nested call's ceiling (a computer-use verify poll is bounded well
-/// under this; a hung upstream must not pin the script forever).
-const CALL_TIMEOUT: Duration = Duration::from_secs(600);
+/// One nested call's ceiling: past the longest legitimate upstream call
+/// (`exponential_sessions_get` waits for idle up to 600 s, plus its 10 s
+/// grace and a poll), so a hung upstream cannot pin the script forever and
+/// a slow-but-honest one is not cut short.
+const CALL_TIMEOUT: Duration = Duration::from_secs(660);
+/// A catalog loaded while some upstream was unreachable is kept this long
+/// before those servers are tried again: a dead team server must not add
+/// its connect timeout to EVERY exec/describe.
+const UNREACHABLE_TTL: Duration = Duration::from_secs(60);
 
 /// One admitted run.
 pub(crate) struct Run {
@@ -36,7 +42,9 @@ pub(crate) struct Run {
     upstreams: Vec<Upstream>,
     direct_only: Vec<String>,
     http: reqwest::blocking::Client,
-    catalog: Mutex<Option<Arc<Catalog>>>,
+    /// The loaded catalog and when it expires (`None` = never: every
+    /// upstream answered).
+    catalog: Mutex<Option<(Arc<Catalog>, Option<Instant>)>>,
     clients: Mutex<HashMap<String, Arc<McpClient>>>,
     /// Set by a revoke: a script in flight ends at its next tick.
     cancelled: Arc<AtomicBool>,
@@ -60,22 +68,27 @@ impl Run {
         }
     }
 
-    /// The run's tool catalog, loaded on first use. A load with unreachable
-    /// servers is NOT cached, so the next call tries them again.
+    /// The run's tool catalog, loaded on first use. A load with every
+    /// upstream answering is kept for the run; one with unreachable servers
+    /// is kept for [`UNREACHABLE_TTL`], then they are tried again.
     fn catalog(&self) -> Arc<Catalog> {
-        if let Some(catalog) = self.catalog.lock().unwrap().clone() {
-            return catalog;
+        if let Some((catalog, expires)) = self.catalog.lock().unwrap().clone() {
+            if expires.is_none_or(|at| Instant::now() < at) {
+                return catalog;
+            }
         }
         let loaded = Arc::new(Catalog::load(&self.upstreams, self.direct_only.clone(), &self.http));
-        if loaded.unreachable.is_empty() {
-            *self.catalog.lock().unwrap() = Some(loaded.clone());
+        let expires = if loaded.unreachable.is_empty() {
+            None
         } else {
             log::warn!(
                 "[codemode] {}: unreachable upstreams: {}",
                 self.label,
                 loaded.unreachable.iter().map(|(name, _)| name.as_str()).collect::<Vec<_>>().join(", ")
             );
-        }
+            Some(Instant::now() + UNREACHABLE_TTL)
+        };
+        *self.catalog.lock().unwrap() = Some((loaded.clone(), expires));
         loaded
     }
 
@@ -228,12 +241,13 @@ fn exec(run: &Arc<Run>, arguments: &Value) -> Value {
     let host: Arc<dyn CallHost> = run.clone();
     let outcome = runtime::run_script(script, catalog, host, run.cancelled.clone(), Limits { timeout, ..Limits::default() });
     log::info!(
-        "[codemode] {}: exec {} in {:?}, {} calls ({} failed){}",
+        "[codemode] {}: exec {} in {:?}, {} calls ({} failed, {} threads){}",
         run.label,
         if outcome.ok() { "ok" } else { "failed" },
         outcome.elapsed,
         outcome.calls.count,
         outcome.calls.failed,
+        outcome.workers,
         if outcome.truncated { ", truncated" } else { "" }
     );
     outcome_result(&outcome)
@@ -329,7 +343,9 @@ text (Promise.allSettled tolerates it); `tools.<s>.<t>.raw(args)` returns the wh
 images replaced by `[image omitted; N bytes]`. The script is the body of an async function: top-level \
 `await` and `return` work. Back comes: console lines + the returned value as JSON (64 KB cap). \
 `ALL_TOOLS` is the name list with one-line summaries; `describe` has the schemas. No fs, network, imports \
-or timers besides sleep. One call = a direct tool call, not a script.";
+or timers besides sleep. timeout_ms ends the script at any await or call; a synchronous loop that never \
+awaits is bounded only by a 10M-iterations-per-function ceiling, so keep loops short and await inside \
+them. One call = a direct tool call, not a script.";
 
 const DESCRIBE_DESCRIPTION: &str = "Input schemas of this run's MCP tools for use inside `exec`. `names` as \
 `mcp__<server>__<tool>`, `<server>.<tool>` or a bare tool name when unambiguous; omit it for every tool's \
@@ -412,10 +428,13 @@ mod tests {
                 };
                 let reply = match message["method"].as_str().unwrap_or_default() {
                     "initialize" => json!({ "jsonrpc": "2.0", "id": id, "result": {} }),
-                    "tools/list" => json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": [
+                    "tools/list" => {
+                        record.lock().unwrap().push("tools/list".to_string());
+                        json!({ "jsonrpc": "2.0", "id": id, "result": { "tools": [
                         { "name": "list_windows", "description": "List windows.", "inputSchema": { "type": "object" } },
                         { "name": "slow", "description": "Sleep ms.", "inputSchema": { "type": "object" } },
-                    ] } }),
+                    ] } })
+                    }
                     "tools/call" => {
                         let name = message["params"]["name"].as_str().unwrap_or_default().to_string();
                         record.lock().unwrap().push(format!("{auth} {name}"));
@@ -489,7 +508,7 @@ mod tests {
         assert_eq!(result["structuredContent"]["calls"]["count"], json!(3));
         assert!(started.elapsed() < Duration::from_millis(1000), "two 300 ms calls overlapped: {:?}", started.elapsed());
         let seen = seen.lock().unwrap();
-        assert!(seen.iter().all(|line| line.starts_with("Bearer computer-secret ")), "{seen:?}");
+        assert!(seen.iter().filter(|line| *line != "tools/list").all(|line| line.starts_with("Bearer computer-secret ")), "{seen:?}");
 
         let described = call(&hub, &token, "describe", json!({ "names": ["computer.slow", "ghost"] }));
         assert_eq!(described["result"]["structuredContent"]["tools"][0]["name"], json!("mcp__computer__slow"));
@@ -499,6 +518,32 @@ mod tests {
         let failed = call(&hub, &token, "exec", json!({ "script": "await tools.playwright.click({});" }));
         assert_eq!(failed["result"]["isError"], json!(true));
         assert!(failed["result"]["structuredContent"]["error"].as_str().unwrap().contains("direct-call") || failed["result"]["structuredContent"]["error"].as_str().unwrap().contains("TypeError"), "{failed}");
+    }
+
+    /// F32: a dead upstream does not make every exec/describe reload the
+    /// catalog (and wait for it); the partial catalog is kept for a while,
+    /// then the dead server is tried again.
+    #[test]
+    fn a_partial_catalog_is_cached_for_a_while_and_the_dead_upstream_retried_later() {
+        let (computer, seen) = upstream("computer");
+        let dead = Upstream { name: "linear".into(), url: "http://127.0.0.1:1/mcp".into(), headers: Vec::new() };
+        let hub = Hub::new();
+        let token = hub.grant("s1", "EXP-1", vec![computer, dead], Vec::new());
+        let lists = || seen.lock().unwrap().iter().filter(|line| *line == "tools/list").count();
+        let first = call(&hub, &token, "describe", json!({}));
+        let all = first["result"]["structuredContent"].to_string();
+        assert!(all.contains("mcp__computer__slow") && all.contains("linear"), "{all}");
+        assert_eq!(lists(), 1);
+        call(&hub, &token, "describe", json!({}));
+        call(&hub, &token, "exec", json!({ "script": "return ALL_TOOLS.includes('unreachable: linear');" }));
+        assert_eq!(lists(), 1, "the partial catalog was reloaded");
+        let run = hub.run(&token).unwrap();
+        let (catalog, expires) = run.catalog.lock().unwrap().clone().unwrap();
+        assert_eq!(catalog.unreachable.len(), 1);
+        assert!(expires.is_some(), "a partial catalog expires");
+        *run.catalog.lock().unwrap() = Some((catalog, Some(Instant::now() - Duration::from_secs(1))));
+        call(&hub, &token, "describe", json!({}));
+        assert_eq!(lists(), 2, "an expired partial catalog is reloaded");
     }
 
     #[test]

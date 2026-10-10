@@ -103,4 +103,18 @@ class SessionTurnEventsTest {
         assertEquals("08:53", userMessageCaption(" ", at, null, utc))
         assertEquals("Danny", userMessageCaption("Danny", null, "", utc))
     }
+
+    // F35 (web + iOS, the same rule): rows count as live only after the
+    // first NON-EMPTY feed, so a short history replay without `at` that
+    // follows an empty composition is never stamped `now`.
+    @Test
+    fun `never stamps a short history replay that follows an empty feed`() {
+        val log = emptyTurnLog()
+        recordFeedMessages(log, emptyList(), 1_000)
+        val replay = listOf(message(1, "old one"), message(2, "old two"))
+        recordFeedMessages(log, replay, 2_000)
+        assertTrue(log.messageAt.isEmpty())
+        recordFeedMessages(log, replay + message(3, "follow-up"), 7_000)
+        assertEquals(listOf(3L to 7_000L), log.messageAt.toList())
+    }
 }

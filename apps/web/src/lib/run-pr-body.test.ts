@@ -8,16 +8,42 @@ const state = vi.hoisted(() => ({
   selectThrows: false,
   token: { token: `tok`, installationId: 1, expiresAt: 0 } as unknown,
   patch: vi.fn(async (_opts: unknown) => {}),
+  // The stamp's row-locked read-modify-write: what it SET on the row.
+  updates: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock(`@/db/connection`, () => {
   const chain: Record<string, unknown> = {}
   for (const name of [`from`, `leftJoin`, `where`]) chain[name] = () => chain
-  chain.limit = async () => {
+  const read = async () => {
     if (state.selectThrows) throw new Error(`db down`)
     return state.row ? [state.row] : []
   }
-  return { db: { select: () => chain } }
+  // An eager promise (the sync-ordering test below depends on it) that also
+  // answers the stamp's `.for('update')` row lock.
+  chain.limit = () => {
+    const eager = read()
+    // The lock path awaits `.for()` instead, so a rejected eager read must
+    // not surface as an unhandled rejection.
+    eager.catch(() => {})
+    return Object.assign(eager, { for: () => read() })
+  }
+  const tx = {
+    select: () => chain,
+    update: () => ({
+      set: (values: Record<string, unknown>) => ({
+        where: async () => {
+          state.updates.push(values)
+        },
+      }),
+    }),
+  }
+  return {
+    db: {
+      select: () => chain,
+      transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(tx),
+    },
+  }
 })
 vi.mock(`@/lib/integrations/github-app`, () => ({
   resolveRepoInstallationTokenInfo: async () => state.token,
@@ -30,6 +56,7 @@ import {
   loadRunReport,
   pendingRunPrBodySyncs,
   runPrBody,
+  stampRunResultsPrUrl,
   syncRunPrBody,
 } from "./run-pr-body"
 
@@ -51,6 +78,62 @@ beforeEach(() => {
   state.selectThrows = false
   state.token = { token: `tok`, installationId: 1, expiresAt: 0 }
   state.patch.mockReset()
+  state.updates.length = 0
+})
+
+// EXP-1251: the untagged topics a run filed before its PR opened belong to
+// that PR. A run that ALREADY had a PR wrote them for that one (a report
+// filed before the tags existed), so a second PR must not claim them.
+describe(`stampRunResultsPrUrl`, () => {
+  const untagged = (topic: string, text: string) => ({
+    topic,
+    label: null,
+    attachmentId: null,
+    width: null,
+    height: null,
+    text,
+  })
+  const tagged = (topic: string, prUrl: string) => ({ ...untagged(topic, `t`), prUrl })
+
+  it(`tags the untagged topics with the run's FIRST PR`, async () => {
+    state.row = { results: [untagged(`Summary`, `Did it`), tagged(`b`, `https://github.com/acme/web/pull/1`)] }
+    expect(await stampRunResultsPrUrl(`s1`, `https://github.com/acme/web/pull/7`)).toBe(true)
+    const results = state.updates[0]!.results as Array<{ prUrl?: string }>
+    expect(results.map((row) => row.prUrl)).toEqual([
+      `https://github.com/acme/web/pull/7`,
+      `https://github.com/acme/web/pull/1`,
+    ])
+  })
+
+  it(`a run that already had a PR tags them with THAT url, never the new one`, async () => {
+    state.row = { results: [untagged(`Summary`, `Did it`)] }
+    expect(
+      await stampRunResultsPrUrl(`s1`, `https://github.com/acme/web/pull/9`, {
+        priorPrUrl: `https://github.com/acme/web/pull/7`,
+      })
+    ).toBe(true)
+    const results = state.updates[0]!.results as Array<{ prUrl?: string }>
+    expect(results.map((row) => row.prUrl)).toEqual([`https://github.com/acme/web/pull/7`])
+  })
+
+  it(`a blank prior url means a first PR`, async () => {
+    state.row = { results: [untagged(`Summary`, `Did it`)] }
+    await stampRunResultsPrUrl(`s1`, `https://github.com/acme/web/pull/9`, { priorPrUrl: ` ` })
+    const results = state.updates[0]!.results as Array<{ prUrl?: string }>
+    expect(results.map((row) => row.prUrl)).toEqual([`https://github.com/acme/web/pull/9`])
+  })
+
+  it(`writes nothing when every topic is tagged, and never throws`, async () => {
+    state.row = { results: [tagged(`a`, `https://github.com/acme/web/pull/1`)] }
+    expect(await stampRunResultsPrUrl(`s1`, `https://github.com/acme/web/pull/7`)).toBe(false)
+    expect(state.updates).toHaveLength(0)
+    state.row = null
+    expect(await stampRunResultsPrUrl(`s1`, `https://github.com/acme/web/pull/7`)).toBe(false)
+    state.selectThrows = true
+    const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+    expect(await stampRunResultsPrUrl(`s1`, `https://github.com/acme/web/pull/7`)).toBe(false)
+    warn.mockRestore()
+  })
 })
 
 describe(`loadRunReport`, () => {

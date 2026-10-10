@@ -63,6 +63,11 @@ describe(`values and selectors`, () => {
     expect(cssValue(`boxShadow`, [{ x: 0, y: 1, blur: 2, spread: 0, color: `#0000000d` }])).toBe(`0px 1px 2px 0px #0000000d`)
     expect(cssValue(`native`, true)).toBeNull()
   })
+  it(`a quote in a family name is escaped, never the end of the CSS string (F50)`, () => {
+    expect(cssValue(`fontFamily`, `Say "hi"`, {})).toBe(`"Say \\"hi\\""`)
+    expect(cssValue(`fontFamily`, `a\\b`, {})).toBe(`"a\\\\b"`)
+    expect(cssValue(`fontFamily`, `Inter`, { Inter: { fallback: `ui-sans-serif, sans-serif` } })).toBe(`"Inter", ui-sans-serif, sans-serif`)
+  })
   it(`shorthands expand to physical sides`, () => {
     expect(declarations({ paddingHorizontal: `$spacing.md`, marginVertical: 4 })).toEqual([
       [`padding-left`, `var(--xui-spacing-md)`],

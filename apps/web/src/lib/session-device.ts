@@ -18,6 +18,8 @@ export interface SessionDevice {
    * window; `null` = no devices row could be resolved (unknown, never
    * paused). */
   online: boolean | null
+  /** The resolved row's synced caps; absent = no row, or none reported. */
+  caps?: string[]
 }
 
 type SessionDeviceRow = Pick<
@@ -27,7 +29,7 @@ type SessionDeviceRow = Pick<
 type DeviceLike = Pick<
   Device,
   `deviceId` | `label` | `userId` | `lastSeenAt`
->
+> & { caps?: unknown }
 
 /**
  * Resolve the session's device row by `device_id` (preferring the session
@@ -49,6 +51,9 @@ export function resolveSessionDevice(
   return {
     label: row.label || session.deviceLabel,
     online: deviceRowIsOnline(row.lastSeenAt, now),
+    ...(Array.isArray(row.caps)
+      ? { caps: row.caps.filter((cap): cap is string => typeof cap === `string`) }
+      : {}),
   }
 }
 

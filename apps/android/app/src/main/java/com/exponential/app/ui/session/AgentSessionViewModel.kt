@@ -55,6 +55,9 @@ import com.exponential.app.domain.resolveMergeTarget
 import com.exponential.app.domain.resumeTargetFor
 import com.exponential.app.domain.runChain
 import com.exponential.app.domain.runHasEnded
+import com.exponential.app.domain.canonicalContentType
+import com.exponential.app.domain.isInlineImage
+import com.exponential.app.domain.steerFilePickRefusal
 import com.exponential.app.domain.toSteerDevice
 import com.exponential.app.domain.resolveSessionDevice
 import com.exponential.app.ui.markdown.AttachmentDims
@@ -813,8 +816,16 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  this, so a half-typed message is never clobbered by a pick. */
     fun sendCommand(text: String): Boolean = connection.sendMessage(text)
 
-    fun addPendingImage(uri: Uri, bytes: ByteArray, filename: String, mime: String) =
+    fun addPendingImage(uri: Uri, bytes: ByteArray, filename: String, mime: String) {
+        // F6: a non-image file needs this run's host to localize it
+        // (`steer-files` cap); an older host gets images only.
+        val isImage = isInlineImage(canonicalContentType(mime))
+        steerFilePickRefusal(isImage, hostSteerDevice.value?.caps)?.let { message ->
+            connection.refusePendingAttachment(message)
+            return
+        }
         connection.addPendingImage(uri, bytes, filename, mime)
+    }
 
     fun removePendingImage(index: Int) = connection.removePendingImage(index)
 

@@ -1,0 +1,5 @@
+- Guide: an issue's Changes and Results are one Guide; each report section opens its own diff
+- Runs: the thread reads turn by turn; one Merge stack control lands a stacked pull request
+- Composer: the + button opens one menu with file or image, effort, MCP servers and computer use
+- Links: an agent's reply opens runs and issues in the app
+- Fixes: a failed merge offers Fix merge conflicts, the Work screen no longer redraws every frame, Reviews names cross-team repository issues, polish round

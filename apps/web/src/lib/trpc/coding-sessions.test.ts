@@ -666,6 +666,46 @@ describe(`codingSessions.start — batch path`, () => {
 })
 
 // EXP-484: the run records which agent CLI drives it.
+// The device that starts a run with a non-image attachment must advertise
+// `steer-files` (it localizes the file lines for the agent); images never
+// look the device up, and a device with the cap passes everything.
+describe(`codingSessions.start — steer-files gate`, () => {
+  const FILE = `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`
+  const IMG = `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`
+
+  it(`refuses a non-image attachment from a device without the cap`, async () => {
+    // The gate's content-type read, then its device read.
+    selectResults.push([{ contentType: `application/pdf` }])
+    selectResults.push([{ caps: [`start-prompt`] }])
+    const error = await rejectionOf(
+      caller.start({ teamId: TEAM_ID, deviceId: `dev-1`, attachmentIds: [FILE] })
+    )
+    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
+    expect((error as TRPCError).message).toBe(
+      `Attaching files needs the device on 0.14.66 or newer; images still work`
+    )
+    expect(inserts).toHaveLength(0)
+  })
+
+  it(`passes a non-image attachment from a device with the cap`, async () => {
+    selectResults.push([{ contentType: `application/pdf` }])
+    selectResults.push([{ caps: [`start-prompt`, `steer-files`] }])
+    // resolveSessionDevice's own registry read.
+    selectResults.push([{ deviceId: `dev-1`, label: `Mac` }])
+    await caller.start({ teamId: TEAM_ID, deviceId: `dev-1`, attachmentIds: [FILE] })
+    expect(inserts).toHaveLength(1)
+    expect(updates.some((u) => u.table === sessionAttachments)).toBe(true)
+  })
+
+  it(`never reads the device for images only`, async () => {
+    selectResults.push([{ contentType: `image/png` }])
+    selectResults.push([{ deviceId: `dev-1`, label: `Mac` }])
+    await caller.start({ teamId: TEAM_ID, deviceId: `dev-1`, attachmentIds: [IMG] })
+    expect(inserts).toHaveLength(1)
+    expect(selectResults).toHaveLength(0)
+  })
+})
+
 describe(`codingSessions.start — agent (EXP-484)`, () => {
   it(`stores the named agent on an issue run`, async () => {
     await caller.start({ issueId: ISSUE_ID, agent: `codex` })

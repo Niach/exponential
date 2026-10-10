@@ -401,9 +401,9 @@ struct ActionDetailView: View {
         .contentShape(Rectangle())
     }
 
-    /// "Claude Code · Opus · High" — only what the trigger PINS; an unset
-    /// field means the machine's own launch default, which is not ours to
-    /// name here.
+    /// "Claude Code · Opus" (agent · model, the web caption ×4) — only what
+    /// the trigger PINS; an unset field means the machine's own launch
+    /// default, which is not ours to name here. Effort stays off the row.
     private func launchCaption(_ trigger: ActionTrigger) -> String? {
         var parts: [String] = []
         if let agent = trigger.agent, !agent.isEmpty {
@@ -411,9 +411,6 @@ struct ActionDetailView: View {
         }
         if let model = trigger.model, !model.isEmpty {
             parts.append(LaunchVocabulary.modelLabel(model))
-        }
-        if let effort = trigger.effort, !effort.isEmpty {
-            parts.append(LaunchVocabulary.effortLabel(effort))
         }
         return parts.isEmpty ? nil : parts.joined(separator: " · ")
     }

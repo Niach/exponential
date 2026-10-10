@@ -79,3 +79,18 @@ fun pendingInvites(
     invite.acceptedAt == null &&
         (WireTimestamps.parseEpochMs(invite.expiresAt) ?: Long.MIN_VALUE) > nowMs
 }
+
+/**
+ * "Expires Mon D" — the short date every client prints on a pending invite
+ * row (web `inviteExpiryLabel`). The stamp arrives as Postgres text OR ISO;
+ * one that parses as neither prints as it came.
+ */
+fun inviteExpiryLabel(
+    expiresAt: String,
+    zone: java.time.ZoneId = java.time.ZoneId.systemDefault(),
+    locale: java.util.Locale = java.util.Locale.getDefault(),
+): String {
+    val epochMs = WireTimestamps.parseEpochMs(expiresAt) ?: return "Expires $expiresAt"
+    val date = java.time.Instant.ofEpochMilli(epochMs).atZone(zone).toLocalDate()
+    return "Expires ${date.format(java.time.format.DateTimeFormatter.ofPattern("MMM d", locale))}"
+}

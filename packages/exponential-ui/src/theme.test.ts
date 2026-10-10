@@ -4,7 +4,7 @@ import { describe, expect, test } from "bun:test"
 import { CORE_CATALOG_ID } from "./catalog"
 import { reduceNested } from "./reducer"
 import { RECIPE_KEYS, RECIPE_STATES, recipeParts } from "./recipes"
-import { THEME_SCHEMA_ID, ThemeError, loadTheme, nodeRecipeQuery, resolveNodeStyle, resolveRecipe, resolveToken, tryLoadTheme, validateTheme } from "./theme"
+import { THEME_SCHEMA_ID, ThemeError, isFontText, loadTheme, nodeRecipeQuery, resolveNodeStyle, resolveRecipe, resolveToken, tryLoadTheme, validateTheme } from "./theme"
 import { BUILTIN_THEMES, BUILTIN_THEME_IDS, builtinTheme, builtinThemes } from "./themes"
 import { STYLE_VISUAL_KEYS } from "./style"
 import kitchenSink from "../fixtures/kitchen-sink.json" with { type: "json" }
@@ -184,6 +184,31 @@ describe(`errors`, () => {
     }
     expect(tryLoadTheme({ $schema: THEME_SCHEMA_ID, id: `x`, name: `X`, extends: `nope` }, { themes: BUILTIN_THEMES }).issues[0].message).toContain(`unknown theme "nope"`)
     expect(validateTheme(`neutral`)).toHaveLength(1)
+  })
+
+  test(`font text that could break out of a stylesheet is refused (F50)`, () => {
+    const withFamily = (sans: string, fallback?: string) => {
+      const source = JSON.parse(JSON.stringify(BUILTIN_THEMES[0])) as Record<string, any>
+      source.tokens.type.family.sans = sans
+      source.fonts = { ...source.fonts, [sans]: { fallback: fallback ?? `sans-serif` } }
+      return source
+    }
+    const paths = (source: unknown) => validateTheme(source, { themes: BUILTIN_THEMES }).map((i) => `${i.path}: ${i.message}`)
+    expect(paths(withFamily(`Inter`))).toEqual([])
+    expect(paths(withFamily(`Segoe UI`, `"Helvetica Neue", 'Noto Sans', sans-serif`))).toEqual([])
+    for (const bad of [`a"}`, `Inter; background:url(x)`, `Inter}body{color:red`, `Inter\\`, `"Inter`, `Inter(1)`]) {
+      const issues = paths(withFamily(bad))
+      expect(issues.some((i) => i.startsWith(`tokens.type.family.sans: expected a font family name: letters`))).toBe(true)
+    }
+    for (const bad of [`red;background:url(x)`, `sans-serif}`, `'Noto Sans, serif`, ``]) {
+      const issues = paths(withFamily(`Inter`, bad))
+      expect(issues).toContain(`fonts.Inter.fallback: expected a font fallback list: letters, digits, spaces, hyphens, commas and balanced quotes only`)
+    }
+    expect(isFontText(`Comic Neue`)).toBe(true)
+    expect(isFontText(`ui-monospace, SFMono-Regular, Menlo, monospace`)).toBe(true)
+    expect(isFontText(`a"b"c`)).toBe(true)
+    expect(isFontText(`a"b`)).toBe(false)
+    expect(isFontText(42)).toBe(false)
   })
 
   test(`a root theme must give every token a value`, () => {

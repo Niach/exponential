@@ -71,11 +71,16 @@ fn check_scalar(schema: &PropSchema, value: &Value, path: &str, view: &CatalogVi
                 issue(issues, path, "expected yyyy-mm-dd");
             }
         }
-        "number" => {
-            if !value.as_f64().is_some_and(f64::is_finite) {
-                issue(issues, path, "expected a number");
+        "number" => match value.as_f64().filter(|n| n.is_finite()) {
+            None => issue(issues, path, "expected a number"),
+            Some(n) => {
+                if let Some(min) = schema.minimum.filter(|min| n < *min) {
+                    issue(issues, path, format!("expected at least {}", crate::json::number_to_string(min)));
+                } else if let Some(max) = schema.maximum.filter(|max| n > *max) {
+                    issue(issues, path, format!("expected at most {}", crate::json::number_to_string(max)));
+                }
             }
-        }
+        },
         "boolean" => {
             if !value.is_boolean() {
                 issue(issues, path, "expected a boolean");

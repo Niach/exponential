@@ -1,5 +1,6 @@
-- Runs: een run opent als een thread met een statusregel (Building on your machine, verstreken tijd, laatste toolregel) en de resultaten erin; Show work opent het volledige transcript
-- Concepten: een issue dat op een ander apparaat vanuit een concept is gemaakt, opent hier als issue, en een verwijderd concept sluit overal
-- Acties: het verwijderen van een actie vraagt eerst om bevestiging, op de gedeelde meldingskaart
-- Apparaten: Codex heeft geen CLI-installatie meer nodig; de IDE downloadt het bij de eerste aanmelding
-- Oplossingen: het mergen van een pull request van een agent zonder issue werkt, en resultaatafbeeldingen worden betrouwbaar geüpload
+- Guide: de Changes en Results van een issue zijn nu één Guide; elke sectie van het agentrapport opent een eigen diff, en Show complete diff staat onderaan
+- Runs: de run-thread leest beurt voor beurt met je eigen berichten ertussen, en een gestapelde pull request wordt gemerged met één Merge stack-knop
+- Invoer: de knop + opent één menu (een issue implementeren, een actie uitvoeren, een bestand of afbeelding tot 50 MB toevoegen, inspanning, subagents, MCP-servers, computergebruik); suggesties zijn rustige rijen onder het veld
+- Links: een link in een antwoord van de agent of in de Guide die naar een run of issue wijst, opent in de app, andere links openen in de ingebouwde browser, en kale URL's zijn tikbaar
+- Acties: een mislukte merge biedt Fix merge conflicts aan, een ingebouwde actie die de pull request rebaset, conflicten oplost en merget
+- Oplossingen: Reviews noemt het issue van een pull request waarvan de repository in een ander team is gekoppeld, sessietekst overlapt niet meer, een dubbele knop is weg, en een poetsronde stemt rijen, witruimte en teksten in de hele app op elkaar af

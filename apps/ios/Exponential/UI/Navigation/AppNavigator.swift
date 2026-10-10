@@ -856,10 +856,14 @@ struct MainNavigator: View {
                 .environment(\.accountId, accountId)
         case let .issue(accountId, id):
             // EXP-893: the Work screen on its Issue face.
+            // `.id(id)`: a Stack card swaps the top route IN PLACE, and the
+            // screen must rebuild for the other issue, not keep its state.
             WorkScreen(subject: .issue(id: id))
+                .id(id)
                 .environment(\.accountId, accountId)
         case let .issueFace(accountId, id, face):
             WorkScreen(subject: .issue(id: id), initialFace: face)
+                .id(id)
                 .environment(\.accountId, accountId)
         case let .issueDraft(accountId, draftId, boardId, statusId, parentId):
             IssueDraftPageView(

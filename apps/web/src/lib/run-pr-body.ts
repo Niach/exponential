@@ -179,11 +179,19 @@ async function syncRunPrBodyNow(
  * text topics it filed so far without a `prUrl` are that PR's, so they get
  * its url (under the run's row lock, a jsonb read-modify-write). Tagged
  * topics keep theirs. Best effort: false on any error, never throws.
+ *
+ * `priorPrUrl` = the url the row carried BEFORE this PR (the caller's
+ * snapshot; the park has overwritten the column by now). A run that already
+ * had a PR wrote its untagged topics for THAT one (a report filed before the
+ * tags existed), so they get the first url, never the new PR's; only a run
+ * with no prior PR tags them with the new one.
  */
 export async function stampRunResultsPrUrl(
   sessionId: string,
-  prUrl: string
+  prUrl: string,
+  opts: { priorPrUrl?: string | null } = {}
 ): Promise<boolean> {
+  const target = opts.priorPrUrl?.trim() || prUrl
   try {
     return await db.transaction(async (tx) => {
       const [locked] = await tx
@@ -195,7 +203,7 @@ export async function stampRunResultsPrUrl(
       if (!locked) return false
       const stamped = stampUntaggedResults(
         (locked.results ?? null) as CodingSessionResult[] | null,
-        prUrl
+        target
       )
       if (!stamped.changed) return false
       await tx

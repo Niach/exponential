@@ -2069,14 +2069,22 @@ struct AgentSessionView: View {
     }
 
     /// Wave D: Files-app picks, ANY type — an inline image queues as an image
-    /// (marker and all), the rest as file tiles capped at four.
+    /// (marker and all), the rest as file tiles capped at four. F6: the run's
+    /// HOST (`switchDevice`, the synced row; none = an old or unseen machine)
+    /// takes files only with `steer-files`; elsewhere a file pick says why
+    /// and is dropped, images still queue.
     private func ingestFiles(_ urls: [URL]) async {
         guard let model else { return }
         model.steerImageError = nil
+        let caps = model.switchDevice?.caps
         for url in urls {
             let outcome = await AttachmentPicks.readPickedSteerFile(at: url)
             guard let picked = outcome.attachment else {
                 model.steerImageError = outcome.failure
+                continue
+            }
+            guard SteerFiles.accepts(contentType: picked.contentType, caps: caps) else {
+                model.steerImageError = SteerFiles.needsNewerDeviceNotice
                 continue
             }
             if AttachmentFiles.isInlineImage(contentType: picked.contentType) {

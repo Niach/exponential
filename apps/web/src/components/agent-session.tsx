@@ -202,6 +202,7 @@ import {
 } from "@/lib/agent-feed"
 import { workingCaption } from "@/lib/working-caption"
 import { SteerComposer } from "@/components/steer-composer"
+import { deviceAcceptsFiles } from "@/lib/steer-files-gate"
 import { ResumeRunPill, StopRunPill } from "@/components/run-action-pills"
 import {
   MergeCapsule,
@@ -1337,6 +1338,7 @@ export function AgentSessionView({
                 agent={session.agent}
                 config={config}
                 usageSlot={usageSlot}
+                acceptsFiles={deviceAcceptsFiles(device)}
                 autoFocus
                 onEmptyBlur={() => setComposerOpen(false)}
               />
@@ -2093,6 +2095,7 @@ export function AgentSessionView({
                   sessionId={session.id}
                   users={teamUsers}
                   agent={session.agent}
+                  acceptsFiles={deviceAcceptsFiles(device)}
                   // EXP-746: the live config rides down as a PROP. The
                   // composer deliberately subscribes to the draft snapshot
                   // only (a keystroke must not re-render the feed), and this

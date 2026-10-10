@@ -44,9 +44,13 @@ function stackPrName(member: LandingPr): string {
 }
 
 /** Byte-locked like `stackedOnMessage`: a plain merge on an open-stack
- *  member, naming what a merge through it lands (bottom first). */
+ *  member. Shown VERBATIM to people (the merge toast, old natives' Changes
+ *  face and session rows), so it names the product control, never the API
+ *  flag; the members below it (bottom first) say what Merge stack lands
+ *  with it. `landing` = the whole landing, this PR last. */
 export function openStackMessage(landing: ReadonlyArray<LandingPr>): string {
-  return `This pull request is part of an open stack. Merging through it lands ${landing.map(stackPrName).join(`, `)}; merge with mergeStack to land them.`
+  const below = landing.length > 1 ? landing.slice(0, -1) : landing
+  return `This pull request is part of an open stack. Use Merge stack to land it with the pull requests below it: ${below.map(stackPrName).join(`, `)}.`
 }
 
 /** The squash commit's title for an issue's PR, on every merge path. */
@@ -58,7 +62,9 @@ export function squashCommitTitle(
   return `${identifier}: ${title} (#${prNumber})`
 }
 
-function repoPrUrlPattern(repoFullName: string): string {
+/** The LIKE pattern matching every PR url of a repository (its canonical
+ *  `https://github.com/<owner>/<repo>/pull/<n>` form). */
+export function repoPrUrlPattern(repoFullName: string): string {
   return `https://github.com/${escapeLikePattern(repoFullName)}/pull/%`
 }
 

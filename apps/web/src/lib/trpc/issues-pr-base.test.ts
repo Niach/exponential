@@ -554,7 +554,9 @@ describe(`issues.mergePr 405 diagnosis (EXP-324)`, () => {
     })
   })
 
-  it(`keeps GitHub's message and offers the recovery run when the diagnosis cannot run`, async () => {
+  it(`keeps GitHub's message but offers NO recovery run when the diagnosis cannot run`, async () => {
+    // An undiagnosed 405 is an unknown state: CONFLICT (the clients'
+    // Fix-conflicts trigger) needs a diagnosed content conflict.
     h.selectQueue.push([mergeRow])
     h.mergePullRequestSmart.mockRejectedValueOnce(
       new GitHubMergeError(405, `Pull Request is not mergeable`)
@@ -564,7 +566,7 @@ describe(`issues.mergePr 405 diagnosis (EXP-324)`, () => {
     await expect(
       caller.mergePr({ issueId: ISSUE_ID })
     ).rejects.toMatchObject({
-      code: `CONFLICT`,
+      code: `PRECONDITION_FAILED`,
       message: `Pull Request is not mergeable`,
     })
   })

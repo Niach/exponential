@@ -43,9 +43,16 @@ export function tokenVar(ref: string): string | null {
   return name ? `var(${name})` : null
 }
 
+/** A CSS string literal: backslashes and quotes escaped, so a family name
+ *  can never end the string early (`validateTheme` refuses them too; this
+ *  mirrors the core's `css.ts` `cssString`). */
+function cssString(text: string): string {
+  return `"${text.replace(/\\/g, `\\\\`).replace(/"/g, `\\"`)}"`
+}
+
 function fontStack(family: string, fonts: Record<string, FontSpec>): string {
   const fallback = fonts[family]?.fallback
-  return fallback ? `"${family}", ${fallback}` : `"${family}"`
+  return fallback ? `${cssString(family)}, ${fallback}` : cssString(family)
 }
 
 /** One style value → its CSS text; `null` = nothing to emit. */

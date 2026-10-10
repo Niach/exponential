@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest"
 import { sessionTurns } from "@exp/ui"
 import {
+  SEEN_CAP,
   emptyTurnLog,
   firstTurnEndKnown,
+  hasTurnLog,
   recordFeedMessages,
   recordTurnSlot,
+  releaseTurnLog,
   turnEventsOf,
+  turnLogFor,
 } from "@/lib/session-turn-events"
 
 // EXP-1245: the owner's turn facts off the relay feed — observed turn edges,
@@ -55,6 +59,71 @@ describe(`session turn events`, () => {
       [4, 7_000],
       [5, 8_000],
     ])
+  })
+
+  // F35: `primed` used to flip on the first EMPTY composition, so a short
+  // history replay (one or two rows without `at`) read as a live arrival
+  // and was stamped `now`. Only a feed AFTER the first non-empty one is live.
+  it(`never stamps the first non-empty feed, however short`, () => {
+    const log = emptyTurnLog()
+    recordFeedMessages(log, [], 1_000)
+    recordFeedMessages(log, [], 1_500)
+    const replay = [{ id: 1, kind: `user_message`, text: `replayed` }]
+    recordFeedMessages(log, replay, 2_000)
+    expect(log.messageAt.size).toBe(0)
+    recordFeedMessages(log, [...replay, { id: 2, kind: `user_message`, text: `live` }], 3_000)
+    expect([...log.messageAt.entries()]).toEqual([[2, 3_000]])
+  })
+
+  it(`never stamps a history page's older rows, even one or two`, () => {
+    const log = emptyTurnLog()
+    recordFeedMessages(log, [{ id: 10, kind: `narration`, text: `x` }], 2_000)
+    // A history page prepends lower ids: not live, whatever its size.
+    recordFeedMessages(
+      log,
+      [{ id: 9, kind: `user_message`, text: `older` }, { id: 10, kind: `narration`, text: `x` }],
+      3_000
+    )
+    expect(log.messageAt.size).toBe(0)
+    recordFeedMessages(
+      log,
+      [
+        { id: 9, kind: `user_message`, text: `older` },
+        { id: 10, kind: `narration`, text: `x` },
+        { id: 11, kind: `user_message`, text: `new` },
+      ],
+      4_000
+    )
+    expect([...log.messageAt.entries()]).toEqual([[11, 4_000]])
+  })
+
+  // F16: the per-session registry and its `seen` set are bounded.
+  it(`caps the seen set, dropping the oldest ids and their placements`, () => {
+    const log = emptyTurnLog()
+    const rows = Array.from({ length: SEEN_CAP + 10 }, (_, i) => ({
+      id: i,
+      kind: `user_message`,
+      text: `m${i}`,
+      at: 1_000 + i,
+    }))
+    recordFeedMessages(log, rows, 9_000)
+    expect(log.seen.size).toBe(SEEN_CAP)
+    expect(log.seen.has(0)).toBe(false)
+    expect(log.seen.has(9)).toBe(false)
+    expect(log.seen.has(10)).toBe(true)
+    expect(log.messageAt.has(9)).toBe(false)
+    expect(log.messageAt.get(10)).toBe(1_010)
+    expect(log.maxSeen).toBe(SEEN_CAP + 9)
+  })
+
+  it(`releases a session's log`, () => {
+    const log = turnLogFor(`s-release`)
+    expect(turnLogFor(`s-release`)).toBe(log)
+    expect(hasTurnLog(`s-release`)).toBe(true)
+    releaseTurnLog(`s-release`)
+    expect(hasTurnLog(`s-release`)).toBe(false)
+    expect(turnLogFor(`s-release`)).not.toBe(log)
+    releaseTurnLog(`s-release`)
   })
 
   it(`skips a subagent's message`, () => {

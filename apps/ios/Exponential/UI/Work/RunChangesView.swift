@@ -60,6 +60,7 @@ struct RunChangesView: View {
                             // issue-linked PR.
                             steerEnabled: false,
                             runPrNumber: session?.prNumber,
+                            teamId: session?.teamId,
                             state: $mergeState
                         )
                     }

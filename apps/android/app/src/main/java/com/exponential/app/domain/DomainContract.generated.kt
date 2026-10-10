@@ -96,6 +96,7 @@ object DomainContract {
     const val codingSessionStaleMs: Long = 7200000L
     val codingSessionLaunchKeys: List<String> = listOf("agent", "model", "effort", "subagentModel", "ultracode", "planMode", "resume", "mcpServerIds", "account", "computerUse")
     const val codingSessionComputerUseCap: String = "computer-use-run"
+    const val codingSessionSteerFilesCap: String = "steer-files"
     const val deviceOnlineWindowMs: Long = 90000L
     const val builtinCreateActionId: String = "builtin:create-action"
     const val builtinFixConflictsId: String = "builtin:fix-conflicts"
@@ -154,6 +155,7 @@ object DomainContract {
     const val composerUiFixConflictsSubmit: String = "Fix conflicts"
     const val composerUiPrPlaceholder: String = "Select a pull request…"
     const val composerUiConflictNote: String = "Merge refused: the branch has conflicts."
+    const val composerUiFilesNeedNewerDevice: String = "Attaching files needs the device on 0.14.66 or newer; images still work"
 
     const val issueStatusCategoryBacklog: String = "backlog"
     const val issueStatusCategoryUnstarted: String = "unstarted"

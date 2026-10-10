@@ -181,6 +181,11 @@ pub struct PropSchema {
     pub enum_: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub values: Option<Vec<Value>>,
+    /// `number`: the inclusive bounds a literal must respect (R8 F51).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub minimum: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub maximum: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub items: Option<Box<PropSchema>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

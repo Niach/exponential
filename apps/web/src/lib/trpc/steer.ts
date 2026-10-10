@@ -45,6 +45,7 @@ import {
   resolveStartPrompt,
   type StartPromptLookups,
 } from "@/lib/start-prompt"
+import { parseSteerMessage } from "@/lib/steer-image-message"
 import {
   deviceRowIsOnline,
   deviceUsageWallAt,
@@ -658,6 +659,42 @@ export const steerRouter = router({
         })
       }
 
+      // A device without the `steer-files` cap localizes only the prompt's
+      // image embeds; a `[name](/api/attachments/<id>)` file line would reach
+      // the agent as an unusable link. Refuse with the contract sentence when
+      // any file line names a non-image attachment (the prompt's ids are
+      // already verified as the caller's own); images-only prompts and a
+      // device with the cap pass. Compat shim: delete once
+      // CLIENT_MIN_VERSION_DESKTOP/CLI >= 0.14.66.
+      const requireSteerFilesCap = async (
+        device: TargetDevice,
+        prompt: string | undefined
+      ) => {
+        if (!prompt) return
+        if (device.caps.includes(contract.codingSession.steerFilesCap)) return
+        const files = parseSteerMessage(prompt).files
+        if (files.length === 0) return
+        const { db } = await import(`@/db/connection`)
+        const rows = await db
+          .select({ contentType: sessionAttachments.contentType })
+          .from(sessionAttachments)
+          .where(
+            inArray(
+              sessionAttachments.id,
+              files.map((file) => file.id)
+            )
+          )
+        const nonImage = rows.some(
+          (row: { contentType: string }) =>
+            !row.contentType.toLowerCase().startsWith(`image/`)
+        )
+        if (!nonImage) return
+        throw new TRPCError({
+          code: `PRECONDITION_FAILED`,
+          message: contract.composerUi.filesNeedNewerDevice,
+        })
+      }
+
       // EXP-792: every picked MCP server must be a row of the subject's team
       // (lib/mcp-servers-guard.ts).
       const assertMcpServersInTeam = (teamId: string) =>
@@ -1192,6 +1229,7 @@ export const steerRouter = router({
         const actionAccount = resolveLaunchAccount(device, actionAgent)
         requireUsageHeadroom(device, actionAgent, actionAccount, input.model)
         requireStartPromptCap(device, prompt)
+        await requireSteerFilesCap(device, prompt)
         const startId = mintStartId(ownerId, userId)
         const result = await relayPostStart(config, {
           userId: ownerId,
@@ -1324,6 +1362,7 @@ export const steerRouter = router({
       const account = resolveLaunchAccount(device, agent)
       requireUsageHeadroom(device, agent, account, input.model)
       requireStartPromptCap(device, prompt)
+      await requireSteerFilesCap(device, prompt)
 
       const options = {
         agent: input.agent,

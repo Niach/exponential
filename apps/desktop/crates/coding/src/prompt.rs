@@ -26,9 +26,10 @@
 /// lived only in the playbook.
 /// EXP-1154 — the report IS the PR body, so it is filed before the PR.
 pub const PUBLISH_RESULTS: &str = "Before you open the pull request, file your Guide with the \
-`exponential_sessions_guide` MCP tool; it becomes the PR body. Give it a `Summary` and one \
-short topic per change, each 2 or 3 sentences plus the `files` it touched, and screenshot every \
-changed screen you can run; name any screen you could not capture in the report.";
+`exponential_sessions_guide` MCP tool (older servers: `exponential_sessions_results`); it \
+becomes the PR body. Give it a `Summary` and one short topic per change, each 2 or 3 sentences \
+plus the `files` it touched, and screenshot every changed screen you can run; name any screen \
+you could not capture in the report.";
 
 pub const WORKTREE_CLEAN: &str = "Before you finish, leave the worktree clean: commit and push \
 everything you keep, discard anything you don't (`git checkout -- .`, `git clean -fd` for files \
@@ -235,10 +236,10 @@ Implement the change, then commit and push your branch and open a pull \
 request by calling the `exponential_pr_open` MCP tool. Opening the PR \
 moves the issue to `in_review` automatically, and merging it later completes it to \
 `done` — you do not set the issue status yourself. Do not use `gh`. Before you open the pull \
-request, file your Guide with the `exponential_sessions_guide` MCP tool; it becomes the PR \
-body. Give it a `Summary` and one short topic per change, each 2 or 3 sentences plus the `files` \
-it touched, and screenshot every changed screen you can run; name any screen you could not \
-capture in the report. Before you finish, leave the \
+request, file your Guide with the `exponential_sessions_guide` MCP tool (older servers: \
+`exponential_sessions_results`); it becomes the PR body. Give it a `Summary` and one short topic \
+per change, each 2 or 3 sentences plus the `files` it touched, and screenshot every changed \
+screen you can run; name any screen you could not capture in the report. Before you finish, leave the \
 worktree clean: commit and push everything you keep, discard anything you don't (`git checkout -- \
 .`, `git clean -fd` for files you created). This session stays open after you finish: summarize \
 what you did here and keep answering follow-ups. Call the `exponential_sessions_end` MCP tool \

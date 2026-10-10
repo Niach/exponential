@@ -25,9 +25,21 @@ describe(`menuEntriesFromCatalog`, () => {
     const entries = menuEntriesFromCatalog(items, vi.fn())
     expect(entries.map((e) => e.kind)).toEqual([`header`, `item`, `toggle`, `separator`, `submenu`, `item`])
     expect(entries[0]).toMatchObject({ kind: `header`, title: `Issue` })
-    expect(entries[1]).toMatchObject({ kind: `item`, id: `copy`, label: `Copy link`, shortcut: `⌘C`, icon: conceptIcon(`ui-copy`) })
+    expect(entries[1]).toMatchObject({ kind: `item`, id: `1:copy`, label: `Copy link`, shortcut: `⌘C`, icon: conceptIcon(`ui-copy`) })
     expect(entries[2]).toMatchObject({ kind: `toggle`, checked: true })
     expect(entries[5]).toMatchObject({ kind: `item`, destructive: true, disabled: true })
+  })
+
+  it(`keys rows on their position and value, so twins stay distinct`, () => {
+    const twins: MenuItemLike[] = [
+      { label: `A`, value: `same` },
+      { label: `B`, value: `same` },
+      { label: `C` },
+      { label: `D` },
+    ]
+    const ids = menuEntriesFromCatalog(twins, vi.fn()).map((e) => e.id)
+    expect(ids).toEqual([`0:same`, `1:same`, `2:`, `3:`])
+    expect(new Set(ids).size).toBe(ids.length)
   })
 
   it(`keeps one level of submenu`, () => {

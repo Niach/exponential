@@ -193,8 +193,11 @@ async function recipeOpenOnboardingDevices(page: Page, ctx: RecipeCtx): Promise<
 async function recipeScrollToComments(page: Page): Promise<void> {
   const width = page.viewportSize()?.width ?? 0
   const hasComposer = width >= 768
+  // The LAST placeholder is the thread's bottom composer; the threaded reply
+  // boxes above it carry the same placeholder since EXP-1245 and `.first()`
+  // landed the frame on the first comment instead (2026-10-10).
   const target = hasComposer
-    ? page.getByPlaceholder(`Leave a reply…`).first()
+    ? page.getByPlaceholder(`Leave a reply…`).last()
     : page.getByText(/^Activity/).first()
   // Deliberately the same 20s the other recipes give a control they know is
   // mounted: long enough for a first Electric sync, and loud when it is not.
@@ -217,16 +220,22 @@ async function recipeScrollToComments(page: Page): Promise<void> {
   // floating bottom bar, so its target is the Activity header, and "scroll its
   // container to the end" would mean something quite different there — it
   // reframes the shot past the header it was asked to reach.
+  // Twice: the thread below the fold can still be laying out after the first
+  // scroll (EXP-1245 renders the activity feed progressively), which left the
+  // first pass short of the composer.
   if (hasComposer) {
-    await target.evaluate((node) => {
-      for (let el = node.parentElement; el; el = el.parentElement) {
-        if (el.scrollHeight <= el.clientHeight + 1) continue
-        const before = el.scrollTop
-        el.scrollTop = el.scrollHeight
-        if (el.scrollTop !== before) return
-      }
-      window.scrollTo(0, document.documentElement.scrollHeight)
-    })
+    for (let pass = 0; pass < 2; pass += 1) {
+      await target.evaluate((node) => {
+        for (let el = node.parentElement; el; el = el.parentElement) {
+          if (el.scrollHeight <= el.clientHeight + 1) continue
+          const before = el.scrollTop
+          el.scrollTop = el.scrollHeight
+          if (el.scrollTop !== before) return
+        }
+        window.scrollTo(0, document.documentElement.scrollHeight)
+      })
+      await page.waitForTimeout(300)
+    }
   }
   // Let the smooth-scroll land before the anchor wait starts measuring.
   await page.waitForTimeout(400)

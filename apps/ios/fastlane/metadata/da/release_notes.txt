@@ -1,5 +1,6 @@
-- Kørsler: en kørsel åbner som en tråd med en statuslinje (Building on your machine, forløbet tid, seneste værktøjslinje) og resultaterne direkte i tråden; Show work åbner hele transskriptionen
-- Kladder: et issue oprettet fra en kladde på en anden enhed lander på issuet her, og en kasseret kladde lukkes overalt
-- Handlinger: sletning af en handling spørger først, på det fælles advarselskort
-- Enheder: Codex kræver ikke længere en CLI-installation; IDE'en henter den ved første login
-- Rettelser: sammenfletning af en agents pull request uden et issue virker, og resultatbilleder uploades pålideligt
+- Guide: et issues Changes og Results er nu én Guide; hver sektion i agentens rapport åbner sin egen diff, og Show complete diff ligger nederst
+- Kørsler: kørselstråden læses tur for tur med dine egne beskeder imellem, og en stablet pull request merges med én Merge stack-knap
+- Editor: knappen + åbner én menu (implementer et issue, kør en handling, tilføj en fil eller et billede på op til 50 MB, indsats, subagenter, MCP-servere, computerbrug); forslag er diskrete rækker under feltet
+- Links: et link i et agentsvar eller i Guide, der peger på en kørsel eller et issue, åbner i appen, andre links åbner i appens browser, og rene URL'er kan trykkes på
+- Handlinger: en mislykket merge tilbyder Fix merge conflicts, en indbygget handling, der rebaser, løser konflikter og merger pull requesten
+- Rettelser: Reviews navngiver issuet for en pull request, hvis repository er forbundet i et andet team, sessionstekst overlapper ikke længere, en dobbelt knap er væk, og en finpudsningsrunde ensretter rækker, afstande og tekster i hele appen

@@ -31,6 +31,10 @@ export interface PropSchema {
   enum?: string
   /** … an inline list of values. */
   values?: readonly (string | number)[]
+  /** `number`: the inclusive bounds a literal must respect (R8 F51: a
+   *  Rating's `max` stops at 100); both validators refuse a value outside. */
+  minimum?: number
+  maximum?: number
   /** `array`: the item schema. */
   items?: PropSchema
   /** `object`: the name of a shared shape in `defs`; none = any object. */

@@ -44,6 +44,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -58,6 +59,7 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.domain.BoardRepoLabel
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.GithubCopy
+import com.exponential.app.domain.inviteExpiryLabel
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.CircleIconButton
@@ -219,7 +221,7 @@ fun TeamSettingsScreen(
         ) {
             BoardsSection(state, viewModel, isOwner, onConfirm = { confirm = it })
             RepositoriesSection(state, viewModel, isOwner, onConfirm = { confirm = it })
-            MembersSection(state, isOwner, onConfirm = { confirm = it })
+            MembersSection(state, isOwner, onConfirm = { confirm = it }, onRevokeInvite = viewModel::revokeInvite)
             LabelsSection(state, viewModel, onConfirm = { confirm = it })
             DangerZone(state, viewModel, isOwner)
         }
@@ -654,6 +656,7 @@ private fun MembersSection(
     state: TeamSettingsState,
     isOwner: Boolean,
     onConfirm: (SettingsConfirm) -> Unit,
+    onRevokeInvite: (inviteId: String) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SectionHeader("Members")
@@ -819,6 +822,74 @@ private fun MembersSection(
         val teamId = state.team?.id
         if (isOwner && teamId != null) {
             InviteLinkCard(teamId = teamId)
+        }
+        // EXP-1267 ×4 (web `InviteControls`): the open links, owner-only like
+        // the invite controls they belong to. Row anatomy = mail/link glyph ·
+        // email or "Link invite" · role pill · "Expires Mon D" · revoke.
+        if (isOwner && state.pendingInvites.isNotEmpty()) {
+            SectionHeader("Pending invites")
+            state.pendingInvites.forEach { invite ->
+                val email = invite.email?.takeIf { it.isNotBlank() }
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .flatRow()
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .testTag("pending-invite-${invite.id}"),
+                ) {
+                    Icon(
+                        if (email != null) ExpIcons.uiMail else ExpIcons.uiLink,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f),
+                    ) {
+                        // EXP-698: a link invite carries no address; it says
+                        // what it is instead of collapsing the slot.
+                        Text(
+                            email ?: "Link invite",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (email != null) {
+                                MaterialTheme.colorScheme.onSurface
+                            } else {
+                                MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+                            },
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        GlassPill(
+                            invite.role,
+                            size = PillSize.Sm,
+                            mode = PillMode.Readonly,
+                            icon = if (invite.role == DomainContract.teamRoleOwner) {
+                                ExpIcons.uiOwner
+                            } else {
+                                ExpIcons.uiMember
+                            },
+                        )
+                        Text(
+                            inviteExpiryLabel(invite.expiresAt),
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            maxLines = 1,
+                        )
+                    }
+                    CircleIconButton(
+                        ExpIcons.uiDelete,
+                        contentDescription = "Revoke invite",
+                        onClick = { onRevokeInvite(invite.id) },
+                        glyphSize = 16.dp,
+                        borderless = true,
+                    )
+                }
+            }
         }
     }
 }

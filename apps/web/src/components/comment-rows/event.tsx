@@ -124,12 +124,13 @@ export function EventRow({
         <StatusIcon option={option} className="!h-3.5 !w-3.5 shrink-0" />
       )
       // ×4: `changed status from {from} to {to}`, the team status rows'
-      // display names (the payload's name snapshot, else the resolved row).
-      const toName = statusLabel(payload, `to`) || option.name
+      // display names (the payload's name snapshot, else the team row the
+      // statusId / enum anchor resolves to, F47 = desktop timeline.rs).
+      const toName = statusLabel(payload, `to`, resolveStatus) || option.name
       const hasFrom =
         Boolean(payload.from) || Boolean(optionalString(payload.fromStatusId))
       const fromName = hasFrom
-        ? statusLabel(payload, `from`) ||
+        ? statusLabel(payload, `from`, resolveStatus) ||
           resolveStatus({
             status: String(payload.from ?? ``),
             statusId: optionalString(payload.fromStatusId),

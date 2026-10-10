@@ -1,5 +1,6 @@
-- Pokretanja: pokretanje se otvara kao nit s retkom statusa (Building on your machine, proteklo vrijeme, posljednji redak alata) i rezultatima unutar niti; Show work otvara cijeli prijepis
-- Skice: issue stvoren iz skice na drugom uređaju ovdje se otvara kao issue, a odbačena skica zatvara se posvuda
-- Radnje: brisanje radnje najprije traži potvrdu, na zajedničkoj kartici upozorenja
-- Uređaji: Codex više ne treba instalaciju CLI-ja; IDE ga preuzima pri prvoj prijavi
-- Ispravci: spajanje agentovog pull requesta bez issuea radi, a slike rezultata pouzdano se učitavaju
+- Guide: Changes i Results nekog issuea sada su jedan Guide; svaki odjeljak agentova izvješća otvara vlastiti diff, a Show complete diff nalazi se na dnu
+- Pokretanja: nit pokretanja čita se potez po potez s vašim porukama između, a složeni pull request spaja se jednom kontrolom Merge stack
+- Uređivač: gumb + otvara jedan izbornik (implementiraj issue, pokreni radnju, dodaj datoteku ili sliku do 50 MB, trud, podagenti, MCP poslužitelji, korištenje računala); prijedlozi su diskretni retci ispod polja
+- Poveznice: poveznica u agentovu odgovoru ili u Guideu koja vodi na pokretanje ili issue otvara se u aplikaciji, ostale poveznice u pregledniku unutar aplikacije, a gole URL adrese mogu se dodirnuti
+- Radnje: neuspjelo spajanje nudi Fix merge conflicts, ugrađenu radnju koja radi rebase, rješava sukobe i spaja pull request
+- Ispravci: Reviews navodi issue pull requesta čiji je repozitorij povezan u drugom timu, tekst sesije se više ne preklapa, dvostruki gumb je uklonjen, a krug dorade usklađuje retke, razmake i tekstove u cijeloj aplikaciji

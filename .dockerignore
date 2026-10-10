@@ -41,3 +41,11 @@ packages/licenses/texts
 # store stays IN the context: a containerized marketing/styleguide build reads
 # it, and 5.6MB of webp is negligible.
 .shots-raw
+
+# VAPP-88/103: the native Exponential UI renderers and the generated
+# conformance manifest never take part in an image build (the web image needs
+# packages/exponential-ui/{package.json,src,vendor,fixtures} and
+# packages/exponential-ui-react only).
+packages/exponential-ui-swift
+packages/exponential-ui-compose
+packages/exponential-ui/conformance

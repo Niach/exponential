@@ -14,6 +14,13 @@
 //! same tool, the same prompt section and the same limits. Stdio team
 //! servers stay direct-call only (a second instance of a stdio server is
 //! not the same server); every HTTP upstream is reachable.
+//!
+//! Limits: a script runs in-process on boa with no module loader, no fs,
+//! no network; its deadline is observed at every await, call and native
+//! (`runtime.rs`). What boa cannot interrupt is a synchronous loop that
+//! never awaits: the caller still gets its timeout, but that one engine
+//! thread keeps a core until boa's per-function loop ceiling ends it, or
+//! until the host exits when the loop re-enters a helper per iteration.
 
 mod catalog;
 mod client;

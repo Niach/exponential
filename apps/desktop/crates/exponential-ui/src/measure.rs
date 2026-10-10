@@ -119,6 +119,34 @@ pub struct Intrinsics {
     pub baseline: Option<f32>,
 }
 
+impl Intrinsics {
+    /// R8 F53: a host measurer's answer with every NaN or infinite number
+    /// replaced (0; a baseline that is not finite = none) and the widths
+    /// ordered (`min_content_width <= max_content_width`): the memo clamps
+    /// against them (`f32::clamp` panics on NaN) and taffy sizes by them.
+    /// Non-negative too: a negative width or height is 0.
+    pub fn sanitised(self) -> Intrinsics {
+        let min = finite_or_zero(self.min_content_width);
+        let max = finite_or_zero(self.max_content_width);
+        Intrinsics {
+            min_content_width: min.min(max),
+            max_content_width: max.max(min),
+            height_at_max_content: finite_or_zero(self.height_at_max_content),
+            baseline: self.baseline.filter(|b| b.is_finite()),
+        }
+    }
+}
+
+/// `v` when finite and non-negative, else 0 (R8 F53: a host's NaN, ±inf or
+/// negative size never reaches the memo or taffy).
+pub fn finite_or_zero(v: f32) -> f32 {
+    if v.is_finite() && v > 0.0 {
+        v
+    } else {
+        0.0
+    }
+}
+
 /// Second phase: the height of leaf `index` when laid out `width` wide.
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub struct HeightRequest {

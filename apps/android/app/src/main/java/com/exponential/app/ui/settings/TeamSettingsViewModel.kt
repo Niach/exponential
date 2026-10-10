@@ -6,6 +6,9 @@ import com.exponential.app.data.TeamSelection
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.PlaceholderStatus
 import com.exponential.app.domain.GithubCopy
+import com.exponential.app.domain.WireTimestamps
+import com.exponential.app.domain.membersInJoinOrder
+import com.exponential.app.domain.pendingInvites
 import com.exponential.app.domain.placeholderStatuses
 import com.exponential.app.data.api.BoardsApi
 import com.exponential.app.data.api.CreateLabelInput
@@ -16,6 +19,7 @@ import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.api.UpdateLabelInput
 import com.exponential.app.data.api.TeamRepo
+import com.exponential.app.data.api.TeamInvitesApi
 import com.exponential.app.data.api.TeamMembersApi
 import com.exponential.app.data.api.TeamsApi
 import com.exponential.app.data.auth.AuthRepository
@@ -56,7 +60,11 @@ data class MemberRow(
 
 data class TeamSettingsState(
     val team: TeamEntity? = null,
+    /** In join order (EXP-1267 ×4, `membersInJoinOrder`). */
     val members: List<MemberRow> = emptyList(),
+    /** The team's open invite links (unaccepted AND unexpired, `pendingInvites`),
+     *  oldest first — the owner-only "Pending invites" rows under the roster. */
+    val pendingInvites: List<TeamInviteEntity> = emptyList(),
     val labels: List<LabelEntity> = emptyList(),
     val boards: List<BoardEntity> = emptyList(),
     // Server-only repositories registry, loaded over tRPC (never synced).
@@ -104,6 +112,7 @@ class TeamSettingsViewModel @Inject constructor(
     private val selection: TeamSelection,
     private val holder: DatabaseHolder,
     private val membersApi: TeamMembersApi,
+    private val invitesApi: TeamInvitesApi,
     private val labelsApi: LabelsApi,
     private val teamsApi: TeamsApi,
     private val repositoriesApi: RepositoriesApi,
@@ -346,7 +355,7 @@ class TeamSettingsViewModel @Inject constructor(
             team = team,
             // Rows whose user hasn't synced yet (user == null) still render
             // (userDisplayName degrades to a "Member <id>" placeholder).
-            members = members
+            members = membersInJoinOrder(members)
                 .map { m ->
                     MemberRow(
                         m,
@@ -354,6 +363,8 @@ class TeamSettingsViewModel @Inject constructor(
                         placeholders[m.userId],
                     )
                 },
+            pendingInvites = pendingInvites(invites)
+                .sortedWith(compareBy({ WireTimestamps.parseEpochMs(it.createdAt) ?: Long.MAX_VALUE }, { it.id })),
             labels = labels,
             boards = boards,
             repos = repos,
@@ -375,6 +386,13 @@ class TeamSettingsViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return@launch
         runCatching { membersApi.updateRole(accountId, memberId, role) }
             .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't change the role") }
+    }
+
+    /** Owner-only (the rows are): kill a pending invite link. */
+    fun revokeInvite(inviteId: String) = viewModelScope.launch {
+        val accountId = auth.activeAccountId.value ?: return@launch
+        runCatching { invitesApi.revoke(accountId, inviteId) }
+            .onFailure { _transient.value = trpcErrorMessage(it, "Couldn't revoke the invite") }
     }
 
     fun removeMember(memberId: String) = viewModelScope.launch {

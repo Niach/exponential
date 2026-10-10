@@ -528,8 +528,10 @@ fn leaf(d: &LeafData) -> FfiLeaf {
     }
 }
 
+/// R8 F53: a Swift/Kotlin measurer's NaN or infinite answer is sanitised
+/// here (and again where the core stores it): never a panic in the memo.
 fn intrinsics(i: &FfiIntrinsics) -> Intrinsics {
-    Intrinsics { min_content_width: i.min_content_width, max_content_width: i.max_content_width, height_at_max_content: i.height_at_max_content, baseline: i.baseline }
+    Intrinsics { min_content_width: i.min_content_width, max_content_width: i.max_content_width, height_at_max_content: i.height_at_max_content, baseline: i.baseline }.sanitised()
 }
 
 fn frame(f: &exponential_ui::surface::PlacedFrame) -> FfiFrame {
@@ -1273,7 +1275,7 @@ impl Surface {
                         self.core().layout_intrinsics(&answers)
                     }
                     LayoutStep::Heights(leaves, requests) => {
-                        let heights = measurer.measure_heights(leaves_of(self, &leaves), requests.iter().map(|r| FfiHeightRequest { index: r.index, width: r.width }).collect());
+                        let heights: Vec<f32> = measurer.measure_heights(leaves_of(self, &leaves), requests.iter().map(|r| FfiHeightRequest { index: r.index, width: r.width }).collect()).into_iter().map(exponential_ui::measure::finite_or_zero).collect();
                         self.core().layout_heights(&heights)
                     }
                     LayoutStep::Done(out) => break convert(*out),

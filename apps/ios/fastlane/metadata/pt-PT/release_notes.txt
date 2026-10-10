@@ -1,5 +1,6 @@
-- Execuções: uma execução abre como um fio com uma linha de estado (Building on your machine, tempo decorrido, última linha de ferramenta) e os resultados integrados; Show work abre a transcrição completa
-- Rascunhos: um issue criado a partir de um rascunho noutro dispositivo abre aqui como issue, e um rascunho descartado fecha em todo o lado
-- Ações: eliminar uma ação pede confirmação primeiro, no cartão de alerta partilhado
-- Dispositivos: o Codex já não precisa de instalar uma CLI; o IDE transfere-o no primeiro início de sessão
-- Correções: unir o pull request de um agente sem issue funciona, e as imagens de resultados são carregadas de forma fiável
+- Guide: Changes e Results de um issue são agora um único Guide; cada secção do relatório do agente abre o seu próprio diff, e Show complete diff fica no fundo
+- Execuções: o fio da execução lê-se turno a turno com as suas próprias mensagens pelo meio, e um pull request empilhado é integrado com um único controlo Merge stack
+- Editor: o botão + abre um único menu (implementar um issue, executar uma ação, adicionar um ficheiro ou imagem até 50 MB, esforço, subagentes, servidores MCP, utilização do computador); as sugestões são linhas discretas sob a caixa
+- Ligações: uma ligação numa resposta do agente ou no Guide que aponta para uma execução ou issue abre na app, as restantes ligações abrem no browser integrado, e os URL simples podem ser tocados
+- Ações: uma integração falhada oferece Fix merge conflicts, uma ação incorporada que faz rebase, resolve os conflitos e integra o pull request
+- Correções: Reviews indica o issue de um pull request cujo repositório está ligado noutra equipa, o texto da sessão já não se sobrepõe, um botão duplicado desapareceu, e uma ronda de afinação alinha linhas, espaçamentos e textos em toda a app

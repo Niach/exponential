@@ -40,13 +40,22 @@ export function gradientCss(gradient: GradientValue): string {
   return `linear-gradient(${gradient.angle}deg, ${gradient.stops.map((s) => `${s.color} ${Math.round(s.offset * 10000) / 100}%`).join(`, `)})`
 }
 
+/** A CSS string literal: backslashes and quotes escaped, so a family name
+ *  can never end the string early (`validateTheme` also refuses them). */
+export function cssString(text: string): string {
+  return `"${text.replace(/\\/g, `\\\\`).replace(/"/g, `\\"`)}"`
+}
+
+/** `font-family` for a theme family: the quoted name, then its `fonts`
+ *  fallback list. Shared by the React renderer's `theme-css.ts`. */
+export function fontStack(family: string, fonts: Record<string, FontSpec>): string {
+  const fallback = fonts[family]?.fallback
+  return fallback ? `${cssString(family)}, ${fallback}` : cssString(family)
+}
+
 function cssValue(key: string, value: unknown, fonts: Record<string, FontSpec>, style: Record<string, unknown>): string | null {
   if (key === `boxShadow`) return Array.isArray(value) ? shadowCss(value as Shadow[]) : String(value)
-  if (key === `fontFamily`) {
-    const family = String(value)
-    const fallback = fonts[family]?.fallback
-    return fallback ? `"${family}", ${fallback}` : `"${family}"`
-  }
+  if (key === `fontFamily`) return fontStack(String(value), fonts)
   if (key === `gridTemplateAreas` && Array.isArray(value)) return value.map((row) => `"${row}"`).join(` `)
   if (key === `backgroundGradient`) return typeof value === `object` && value !== null ? gradientCss(value as GradientValue) : null
   if (key === `backdropBlur`) return typeof value === `number` ? `blur(${value}px)` : null

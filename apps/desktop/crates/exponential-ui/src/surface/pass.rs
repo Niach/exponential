@@ -122,10 +122,13 @@ impl Surface {
             .collect()
     }
 
+    /// R8 F53: every stored answer is sanitised (`Intrinsics::sanitised`,
+    /// `finite_or_zero`): a host's NaN or infinite size never reaches the
+    /// memo, whose clamps would panic on it.
     fn apply_intrinsics(&mut self, missing: &[usize], answers: &[Intrinsics]) {
         for (k, &i) in missing.iter().enumerate() {
             if let Some(a) = answers.get(k) {
-                self.memo.intrinsics.insert(i as u32, *a);
+                self.memo.intrinsics.insert(i as u32, a.sanitised());
                 self.memo_versions.insert(i as u32, self.node_state[i].content_version);
                 self.engine.mark_dirty(i as u32);
             }
@@ -135,7 +138,7 @@ impl Surface {
     fn apply_heights(&mut self, requests: &[HeightRequest], heights: &[f32]) {
         for (k, r) in requests.iter().enumerate() {
             if let Some(h) = heights.get(k) {
-                self.memo.heights.insert((r.index, MeasureMemo::width_key(r.width)), *h);
+                self.memo.heights.insert((r.index, MeasureMemo::width_key(r.width)), crate::measure::finite_or_zero(*h));
                 self.engine.mark_dirty(r.index);
             }
         }

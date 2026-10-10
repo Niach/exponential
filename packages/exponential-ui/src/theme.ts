@@ -90,6 +90,20 @@ const KEY_GROUPS: Record<string, readonly string[]> = {
   animation: [],
 }
 const COLOR_KEYS = new Set([`backgroundColor`, `color`, `borderColor`])
+/** The ONLY free text a theme contributes to a stylesheet verbatim: a family
+ *  NAME (`tokens.type.family.*`) and a `fonts.*.fallback` list, both pasted
+ *  into `font-family` by the web renderers' `fontStack`. Letters, digits,
+ *  spaces, hyphens, commas and (balanced) quotes only, so a theme from a
+ *  share link can never close a declaration (`;`, `}`) or open a function
+ *  (`url(`). Every other string is an enum, a hex colour, a token ref or
+ *  the regex-gated `transform`. */
+const FONT_TEXT = /^[A-Za-z0-9 ,'"-]+$/
+const FONT_TEXT_RULE = `letters, digits, spaces, hyphens, commas and balanced quotes only`
+export function isFontText(value: unknown): value is string {
+  if (typeof value !== `string` || value.length === 0 || !FONT_TEXT.test(value)) return false
+  const count = (quote: string) => value.split(quote).length - 1
+  return count(`"`) % 2 === 0 && count(`'`) % 2 === 0
+}
 const TOKEN_ONLY_KEYS = new Set([`fontFamily`, `boxShadow`, `transition`, `transitionEasing`, `backdropBlur`])
 const ENUM_KEYS = new Set([`borderStyle`, `textDecoration`, `textTransform`, `fontStyle`, `animation`])
 
@@ -190,6 +204,7 @@ function checkTokens(value: unknown, path: string, issues: ThemeIssue[]): void {
             for (const [name, v] of Object.entries(map)) {
               if (!TOKEN_GROUPS[g].includes(name)) issues.push({ path: `${at}.${sub}.${name}`, message: `unknown token; known: ${known(TOKEN_GROUPS[g])}` })
               else if (typeof v !== `string` || v.length === 0) issues.push({ path: `${at}.${sub}.${name}`, message: `expected a font family name` })
+              else if (!isFontText(v)) issues.push({ path: `${at}.${sub}.${name}`, message: `expected a font family name: ${FONT_TEXT_RULE}` })
             }
         } else checkNumberMap(map, `${at}.${sub}`, TOKEN_GROUPS[g], issues)
       }
@@ -218,6 +233,7 @@ function checkFonts(value: unknown, path: string, issues: ThemeIssue[]): void {
     }
     for (const key of Object.keys(spec)) if (![`fallback`, `weights`, `source`].includes(key)) issues.push({ path: `${at}.${key}`, message: `unknown font key; known: fallback|weights|source` })
     if (spec.fallback !== undefined && typeof spec.fallback !== `string`) issues.push({ path: `${at}.fallback`, message: `expected a string` })
+    else if (spec.fallback !== undefined && !isFontText(spec.fallback)) issues.push({ path: `${at}.fallback`, message: `expected a font fallback list: ${FONT_TEXT_RULE}` })
     if (spec.weights !== undefined && (!Array.isArray(spec.weights) || !spec.weights.every((w) => typeof w === `number`))) issues.push({ path: `${at}.weights`, message: `expected a list of numbers` })
     if (spec.source !== undefined && spec.source !== `system` && spec.source !== `host`) issues.push({ path: `${at}.source`, message: `expected system|host` })
   }

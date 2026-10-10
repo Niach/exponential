@@ -220,6 +220,13 @@ fn function_form(text: &str) -> Option<(&str, &str)> {
     None
 }
 
+/// The most indexes `range(n)` yields (R8 F51): a Rating's `max` of 1e8 or
+/// 1e300 would otherwise allocate that many items before the component
+/// budget could refuse them. Equals `limits::MAX_TEMPLATE_ITEMS`; a larger
+/// `n` is silently clamped (the reducer's `maxComponents` reports the
+/// overflow). Mirrors `MAX_RANGE_ITEMS` in `src/expr.ts`.
+pub const MAX_RANGE_ITEMS: usize = 10_000;
+
 /// One expression: `len(path)`, `range(n)`, `path|fallback`, `!path`, `path`.
 /// The function forms wrap the whole expression and are tried first, so a
 /// fallback inside their parentheses stays theirs.
@@ -233,11 +240,12 @@ pub fn eval_expr(expr: &str, ctx: &ExprContext) -> Option<Value> {
             }
             return Some(json::number(js_len(inner.as_ref()) as f64));
         }
-        // range: the indexes 0..n-1; a bound count cannot be expanded (→ no items).
+        // range: the indexes 0..n-1 (at most MAX_RANGE_ITEMS; NaN = 0); a
+        // bound count cannot be expanded (→ no items).
         if is_dynamic_opt(&inner) {
             return None;
         }
-        let n = to_number(inner.as_ref()).floor().max(0.0) as usize;
+        let n = to_number(inner.as_ref()).floor().clamp(0.0, MAX_RANGE_ITEMS as f64) as usize;
         return Some(Value::Array((0..n).map(|i| json::number(i as f64)).collect()));
     }
     if let Some(bar) = text.find('|') {
@@ -799,4 +807,19 @@ mod tests {
         assert_eq!(core_function("fill", &args(json!({"template": "Page {page} of {total}", "params": {"page": 2}}))), Some(Some(json!("Page 2 of {total}"))));
         assert_eq!(core_function("nope", &args(json!({}))), None);
     }
+
+    /// R8 F51: `range(n)` stops at MAX_RANGE_ITEMS; NaN and negatives are empty.
+    #[test]
+    fn range_is_clamped() {
+        let props = json!({"huge": 1e8, "vast": 1e300, "neg": -3, "nan": "x"});
+        let props = props.as_object().unwrap().clone();
+        let ctx = ExprContext { id: "r", props: &props, vars: IndexMap::new() };
+        let len = |e: &str| ev(json!(e), &ctx).and_then(|v| v.as_array().map(Vec::len));
+        assert_eq!(len("{range(props.huge)}"), Some(MAX_RANGE_ITEMS));
+        assert_eq!(len("{range(props.vast)}"), Some(MAX_RANGE_ITEMS));
+        assert_eq!(len("{range(props.neg)}"), Some(0));
+        assert_eq!(len("{range(props.nan)}"), Some(0));
+        assert_eq!(len("{range(props.missing|5)}"), Some(5));
+    }
+
 }

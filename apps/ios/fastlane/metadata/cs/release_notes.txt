@@ -1,5 +1,6 @@
-- Běhy: běh se otevře jako vlákno se stavovým řádkem (Building on your machine, uplynulý čas, poslední řádek nástroje) a výsledky přímo v něm; Show work otevře celý přepis
-- Koncepty: issue vytvořené z konceptu na jiném zařízení se zde otevře jako issue a zahozený koncept se zavře všude
-- Akce: smazání akce se nejprve zeptá, na sdílené kartě upozornění
-- Zařízení: Codex už nepotřebuje instalaci CLI; IDE ho stáhne při prvním přihlášení
-- Opravy: sloučení pull requestu agenta bez issue funguje a obrázky výsledků se nahrávají spolehlivě
+- Guide: Changes a Results u issue jsou nyní jeden Guide; každá sekce zprávy agenta otevře vlastní diff a Show complete diff je úplně dole
+- Běhy: vlákno běhu se čte tah po tahu s vašimi zprávami mezi nimi a stohovaný pull request se sloučí jediným ovládacím prvkem Merge stack
+- Editor: tlačítko + otevře jedno menu (implementovat issue, spustit akci, přidat soubor nebo obrázek do 50 MB, úsilí, subagenti, MCP servery, ovládání počítače); návrhy jsou nenápadné řádky pod polem
+- Odkazy: odkaz v odpovědi agenta nebo v Guide, který vede na běh nebo issue, se otevře v aplikaci, ostatní odkazy v prohlížeči v aplikaci a holé URL adresy lze klepnout
+- Akce: neúspěšné sloučení nabídne Fix merge conflicts, vestavěnou akci, která pull request rebasuje, vyřeší konflikty a sloučí
+- Opravy: Reviews uvádí issue pull requestu, jehož repozitář je připojen v jiném týmu, text relace se už nepřekrývá, zdvojené tlačítko zmizelo a kolo vylepšení sjednotilo řádky, mezery a texty v celé aplikaci

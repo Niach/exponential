@@ -248,12 +248,27 @@ struct AgentMarkdownText: View {
         let accountId = context?.accountId.nilIfEmpty ?? deps.auth.activeAccountId ?? ""
         let base = context?.baseURL ?? deps.auth.instanceBaseURL(forAccountId: accountId)
         let origin = base?.absoluteString ?? ""
-        return { url in Self.linkAction(url, origin: origin, accountId: accountId, deps: deps) }
+        return { url in
+            Self.linkAction(url, base: base, origin: origin, accountId: accountId, deps: deps)
+        }
     }
 
     private static func linkAction(
-        _ url: URL, origin: String, accountId: String, deps: AppDependencies
+        _ tapped: URL, base: URL?, origin: String, accountId: String, deps: AppDependencies
     ) -> (() -> Void)? {
+        // F37: a RELATIVE href (`/t/acme/agent`) only means something against
+        // the account's instance; resolved there it classifies as before, and
+        // without an instance it is nothing to open (never a bare path into
+        // the Safari sheet).
+        let url: URL
+        if tapped.scheme == nil {
+            guard let base,
+                  let resolved = URL(string: tapped.absoluteString, relativeTo: base)?.absoluteURL
+            else { return {} }
+            url = resolved
+        } else {
+            url = tapped
+        }
         switch AppLink.classify(url.absoluteString, origin: origin) {
         case .external:
             // EXP-1188: a web source opens in the in-app Safari sheet, like

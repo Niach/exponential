@@ -46,6 +46,13 @@ pub(crate) const ATTACH_REJECTED: &str = "Images up to 10 MB and files up to 50 
 /// Wave D: the file cap notice ×4.
 pub(crate) const FILES_CAP: &str = "Up to 4 files per message";
 
+/// Release train 2026-10-10: the pinned sentence ×4 (and the server's
+/// refusal) when the target machine lacks the `steer-files` cap — an older
+/// host that localizes images only, so a file line would reach its agent as
+/// an unusable link. The pick then takes images alone.
+pub(crate) const FILES_NEED_NEWER_DEVICE: &str =
+    domain::contract::COMPOSER_UI_FILES_NEED_NEWER_DEVICE;
+
 /// The FILE tile's width — glyph + a truncated filename.
 const FILE_TILE_W: f32 = 160.;
 
@@ -94,8 +101,28 @@ pub(crate) type Uploaded = (u64, String, String);
 
 /// Is `content_type` one of the five inline image types (an IMAGE tile with
 /// a marker)? Everything else stages as a file.
-fn is_inline_image(content_type: &str) -> bool {
+pub(crate) fn is_inline_image(content_type: &str) -> bool {
     ACCEPTED_IMAGE_CONTENT_TYPES.contains(&content_type)
+}
+
+/// The composer's target gate: with `files_allowed` (the local machine, or
+/// a remote one advertising `steer-files`) every entry passes; without it
+/// only the inline images do. Returns what stays and whether a FILE was
+/// dropped (the caller shows [`FILES_NEED_NEWER_DEVICE`] then). Pure.
+pub(crate) fn gate_files_for_target(
+    entries: Vec<StagedFile>,
+    files_allowed: bool,
+) -> (Vec<StagedFile>, bool) {
+    if files_allowed {
+        return (entries, false);
+    }
+    let before = entries.len();
+    let kept: Vec<StagedFile> = entries
+        .into_iter()
+        .filter(|(_, content_type, _)| is_inline_image(content_type))
+        .collect();
+    let dropped = kept.len() < before;
+    (kept, dropped)
 }
 
 /// The composer's staged images.
@@ -124,6 +151,12 @@ impl PendingImages {
 
     fn file_count(&self) -> usize {
         self.pending.iter().filter(|item| item.is_file).count()
+    }
+
+    /// Any non-image FILE staged (the target gate's launch blocker: the
+    /// machine may have been switched after the pick).
+    pub(crate) fn has_files(&self) -> bool {
+        self.file_count() > 0
     }
 
     /// Add clipboard / picked images AND files to the draft, applying the web
@@ -549,6 +582,35 @@ mod tests {
             content_type: "image/png".into(),
             image: Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, vec![key as u8])),
         }
+    }
+
+    /// The target gate: a machine without `steer-files` takes images only,
+    /// and says so once a file was dropped; a qualifying target (the local
+    /// machine always) takes everything untouched.
+    #[test]
+    fn an_old_target_takes_images_only_and_a_qualifying_one_everything() {
+        let entries = || {
+            vec![
+                ("shot.png".to_string(), "image/png".to_string(), vec![1]),
+                ("notes.pdf".to_string(), "application/pdf".to_string(), vec![2]),
+            ]
+        };
+        let (kept, dropped) = gate_files_for_target(entries(), false);
+        assert_eq!(kept.len(), 1);
+        assert_eq!(kept[0].0, "shot.png");
+        assert!(dropped);
+        let (kept, dropped) = gate_files_for_target(entries(), true);
+        assert_eq!(kept.len(), 2);
+        assert!(!dropped);
+        // Images alone pass an old target silently.
+        let images = vec![("shot.png".to_string(), "image/png".to_string(), vec![1])];
+        let (kept, dropped) = gate_files_for_target(images, false);
+        assert_eq!(kept.len(), 1);
+        assert!(!dropped);
+        assert_eq!(
+            FILES_NEED_NEWER_DEVICE,
+            "Attaching files needs the device on 0.14.66 or newer; images still work"
+        );
     }
 
     /// The upload is sequential and idempotent: landed ids are reused, a

@@ -810,6 +810,10 @@ pub(crate) struct RemoteDefaults {
     /// start's per-run `computerUse`. Without it the "+" menu offers no
     /// Computer use row (the run would silently take the machine's switch).
     pub(crate) computer_use_run: bool,
+    /// The machine advertises `steer-files` — it localizes non-image FILE
+    /// attachments. Without it the composer's pick takes images only (the
+    /// server refuses a file to such a device anyway).
+    pub(crate) steer_files: bool,
 }
 
 /// The launch cluster's own state: which agent runs, its
@@ -1161,6 +1165,13 @@ impl LaunchOptionsSection {
         self.remote.as_ref().is_none_or(|remote| remote.computer_use_run)
     }
 
+    /// Whether the "Add file or image" pick may stage non-image FILES for
+    /// this target — always on this machine (this build localizes them), on
+    /// a remote one only with the `steer-files` cap.
+    pub(crate) fn files_offered(&self) -> bool {
+        files_offered_for(self.remote.as_ref().map(|remote| remote.steer_files))
+    }
+
     /// EXP-1249: the target machine's own Computer use switch — what a run
     /// with no pick of its own gets.
     pub(crate) fn computer_use_default(&self, cx: &App) -> bool {
@@ -1393,9 +1404,24 @@ fn set_choice(select: &ChoiceSelect, value: &str, window: &mut Window, cx: &mut 
     });
 }
 
+/// [`LaunchOptionsSection::files_offered`]'s pure rule: `None` = this
+/// machine (always), `Some(cap)` = the remote target's `steer-files` cap.
+fn files_offered_for(remote_steer_files: Option<bool>) -> bool {
+    remote_steer_files.is_none_or(|steer_files| steer_files)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The file pick's target gate: the local machine always takes files, a
+    /// remote one only with the `steer-files` cap.
+    #[test]
+    fn files_are_offered_locally_and_on_a_remote_with_the_cap() {
+        assert!(files_offered_for(None));
+        assert!(files_offered_for(Some(true)));
+        assert!(!files_offered_for(Some(false)));
+    }
 
     fn server(id: &str, name: &str, on_by_default: bool) -> McpServerOption {
         McpServerOption {

@@ -182,7 +182,9 @@ export function isPreviewOrigin(from: string | null | undefined): boolean {
  * (`previewSlotKey`: both Inbox tabs = one list): a new
  * item REPLACES the tab that list opened last, in place; an item that already
  * has a tab just focuses it, and that tab keeps its own origin (it is not the
- * slot, so the next list step never replaces it).
+ * slot, so the next list step never replaces it). A slot tab that is LIVE
+ * (its run was started from the preview) is never replaced either: the next
+ * item opens a fresh tab, which becomes the slot.
  */
 export function upsertFromRoute(
   state: WorkTabsState,
@@ -194,9 +196,22 @@ export function upsertFromRoute(
   const nextFrom = (stored: string | null) =>
     preview || !creates ? stored : (route.from ?? stored)
   // A new tab takes the list's preview slot when it has one, else the end.
+  // A LIVE slot tab (a run was just started there) is never replaced: the
+  // new item opens in a fresh tab, which is the slot from then on (the LAST
+  // non-live tab of the list's origin is the slot, so the fresh tab wins
+  // over the live one even once that run ends).
   const place = (tab: WorkTab): WorkTabsState => {
     const key = previewSlotKey(route.from)
-    const slot = key ? tabs.findIndex((t) => previewSlotKey(t.from) === key) : -1
+    let slot = -1
+    if (key) {
+      for (let i = tabs.length - 1; i >= 0; i--) {
+        const t = tabs[i]!
+        if (!t.live && previewSlotKey(t.from) === key) {
+          slot = i
+          break
+        }
+      }
+    }
     if (slot >= 0) tabs[slot] = tab
     else tabs.push(tab)
     return { ...state, tabs }

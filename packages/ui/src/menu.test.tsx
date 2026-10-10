@@ -417,4 +417,17 @@ describe(`the gesture host`, () => {
     expect(fireEvent.contextMenu(screen.getByTestId(`tab`), { clientX: 5, clientY: 5 })).toBe(false)
     expect(screen.getByText(`Close t1`)).toBeTruthy()
   })
+
+  // A kind named like an Object built-in is not a menu the host answers for.
+  it(`MenuGestureHost ignores a kind that only matches an Object built-in`, () => {
+    render(
+      <MenuGestureHost menus={{}}>
+        <div data-testid="proto" {...menuProps(`toString`, `x`)}>
+          x
+        </div>
+      </MenuGestureHost>
+    )
+    expect(fireEvent.contextMenu(screen.getByTestId(`proto`), { clientX: 5, clientY: 5 })).toBe(true)
+    expect(screen.queryByRole(`menu`)).toBeNull()
+  })
 })

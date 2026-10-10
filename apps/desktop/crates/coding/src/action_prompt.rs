@@ -321,11 +321,16 @@ triggers. Do not commit, push, or change any files — only call the MCP tools. 
 /// `exponential_pr_merge` MCP tool — merging completes every linked issue.
 /// If the base goes stale MID-RUN (the parent merges while the agent works),
 /// the prompt points at `exponential_pr_retarget` as the self-heal.
+/// `stacked` (the server's `base_kind == "open-parent"`): the PR is a member
+/// of an open stack, so a plain `exponential_pr_merge` would be refused by
+/// the stack guard — the run pushes the resolved branch and STOPS, reporting
+/// that the stack is ready for Merge stack.
 /// EXP-825: `extra` is the composer's free text, appended last.
 pub fn fix_pr_conflicts_prompt(
     identifier: &str,
     branch: &str,
     base_branch: &str,
+    stacked: bool,
     unattended: bool,
     extra: Option<&str>,
 ) -> String {
@@ -337,14 +342,23 @@ stopped)."
     } else {
         "Finally report the merge result here (merged, or why you stopped)."
     };
-    let merge_rule = format!(
-        "merge the pull request by calling the `exponential_pr_merge` MCP tool with issueId \
+    let merge_rule = if stacked {
+        format!(
+            "stop there: do NOT call `exponential_pr_merge`. This pull request is a member of an \
+open stack (its base `{base_branch}` is another open pull request's branch), so it lands \
+with Merge stack once the pull requests below it are ready. Report that the stack is ready \
+for Merge stack."
+        )
+    } else {
+        format!(
+            "merge the pull request by calling the `exponential_pr_merge` MCP tool with issueId \
 `{identifier}` — merging completes every issue linked to the PR. If the merge is \
 rejected because the base branch is stale, merged, or closed, call the \
 `exponential_pr_retarget` MCP tool with the same issueId (omit `base` to retarget \
 onto the repository's default branch), rebase onto the new base, push again with \
 `--force-with-lease`, and retry the merge."
-    );
+        )
+    };
     let prompt = format!(
         "The pull request for `{identifier}` (branch `{branch}`) has merge conflicts and \
 cannot be merged. You are in a worktree checked out to `{branch}`. First run \
@@ -516,6 +530,8 @@ pub fn builtin_prompt_preview(action_id: &str) -> Option<String> {
             "<the issue you pick>",
             "<its PR branch>",
             "<the PR's base branch>",
+            // The preview shows the plain (non-stacked) program.
+            false,
             false,
             None,
         )),
@@ -1070,7 +1086,7 @@ afterwards, so keep answering follow-ups."
     /// mid-run.
     #[test]
     fn fix_pr_conflicts_prompt_rebases_pushes_and_merges_via_mcp() {
-        let prompt = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", false, None);
+        let prompt = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", false, false, None);
         assert_eq!(
             prompt,
             "The pull request for `EXP-42` (branch `exp/EXP-42`) has merge conflicts and \
@@ -1092,7 +1108,7 @@ cannot be resolved safely, do NOT push or merge: stop and summarize what blocks 
 rebase instead. Finally report the merge result here (merged, or why you stopped)."
         );
         // EXP-679: the unattended variant swaps ONLY the report sentence.
-        let unattended = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", true, None);
+        let unattended = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", false, true, None);
         assert_eq!(
             unattended,
             prompt.replace(
@@ -1113,7 +1129,7 @@ why you stopped)."
         // the agent re-verifies the checkout matches origin before pushing.
         assert!(prompt.contains("git rev-parse origin/exp/EXP-42"));
         // EXP-825: the composer's free text rides last.
-        let extra = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", false, Some("Keep the lockfile from main."));
+        let extra = fix_pr_conflicts_prompt("EXP-42", "exp/EXP-42", "main", false, false, Some("Keep the lockfile from main."));
         assert_eq!(
             extra,
             format!("{prompt}\n\n## Additional instructions from the requester\n\nKeep the lockfile from main.\n")
@@ -1124,11 +1140,31 @@ why you stopped)."
     /// resolved (a PR based on another branch), not the repo default.
     #[test]
     fn fix_pr_conflicts_prompt_substitutes_a_non_default_base() {
-        let prompt = fix_pr_conflicts_prompt("EXP-320", "exp/EXP-320", "exp/EXP-314", false, None);
+        let prompt = fix_pr_conflicts_prompt("EXP-320", "exp/EXP-320", "exp/EXP-314", false, false, None);
         assert!(
             prompt.contains("rebase onto `origin/exp/EXP-314` (the pull request's base branch)")
         );
         assert!(!prompt.contains("origin/main"));
+    }
+
+    /// A stack member (the server's `base_kind == "open-parent"`): the run
+    /// pushes the resolved branch and STOPS — a plain merge would be refused
+    /// by the stack guard — and reports the stack ready for Merge stack. The
+    /// non-stacked prompt keeps its merge step untouched.
+    #[test]
+    fn fix_pr_conflicts_prompt_on_a_stack_member_pushes_and_stops_without_merging() {
+        let stacked = fix_pr_conflicts_prompt("EXP-320", "exp/EXP-320", "exp/EXP-314", true, false, None);
+        assert!(stacked.contains("push the branch with `--force-with-lease` and stop there: do NOT call `exponential_pr_merge`."));
+        assert!(stacked.contains("member of an open stack (its base `exp/EXP-314` is another open pull request's branch)"));
+        assert!(stacked.contains("Report that the stack is ready for Merge stack."));
+        assert!(!stacked.contains("exponential_pr_retarget"));
+        assert!(!stacked.contains("merge the pull request by calling"));
+        // The conflict guard and the report rule stay.
+        assert!(stacked.contains("do NOT push or merge: stop and summarize"));
+        assert!(stacked.ends_with("Finally report the merge result here (merged, or why you stopped)."));
+        let plain = fix_pr_conflicts_prompt("EXP-320", "exp/EXP-320", "exp/EXP-314", false, false, None);
+        assert!(plain.contains("merge the pull request by calling the `exponential_pr_merge` MCP tool"));
+        assert!(!plain.contains("Merge stack"));
     }
 
     /// EXP-298: the builtin detail screens render these — they must resolve

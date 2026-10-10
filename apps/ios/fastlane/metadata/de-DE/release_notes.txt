@@ -1,5 +1,6 @@
-- Runs: ein Lauf öffnet sich als Thread mit einer Statuszeile (Building on your machine, verstrichene Zeit, letzte Tool-Zeile) und seinen Ergebnissen direkt darin; Show work öffnet das vollständige Transkript
-- Entwürfe: ein Issue, das auf einem anderen Gerät aus einem Entwurf erstellt wurde, öffnet sich hier als Issue, und ein verworfener Entwurf schließt sich überall
-- Actions: das Löschen einer Action fragt zuerst nach, auf der gemeinsamen Hinweiskarte
-- Geräte: Codex braucht keine CLI-Installation mehr; die IDE lädt es bei der ersten Anmeldung herunter
-- Fehlerbehebungen: das Mergen eines Pull Requests eines Agenten ohne Issue funktioniert, und Ergebnisbilder werden zuverlässig hochgeladen
+- Guide: Changes und Results eines Issues sind jetzt ein einziger Guide; jeder Abschnitt des Agent-Berichts öffnet seinen eigenen Diff, und Show complete diff steht ganz unten
+- Runs: der Run-Thread liest sich Zug um Zug mit deinen eigenen Nachrichten dazwischen, und ein gestapelter Pull Request wird mit einer einzigen Merge stack-Steuerung gemergt
+- Eingabe: die Schaltfläche + öffnet ein einziges Menü (Issue umsetzen, Action ausführen, Datei oder Bild bis 50 MB hinzufügen, Aufwand, Subagents, MCP-Server, Computer Use); Vorschläge sind dezente Zeilen unter dem Feld
+- Links: ein Link in einer Agent-Antwort oder im Guide, der auf einen Run oder ein Issue zeigt, öffnet sich in der App, andere Links im In-App-Browser, und nackte URLs sind antippbar
+- Actions: ein fehlgeschlagener Merge bietet Fix merge conflicts an, eine eingebaute Action, die den Pull Request rebased, Konflikte löst und mergt
+- Fehlerbehebungen: Reviews nennt das Issue eines Pull Requests, dessen Repository in einem anderen Team verbunden ist, Sitzungstext überlappt nicht mehr, eine doppelte Schaltfläche ist weg, und eine Feinschliff-Runde gleicht Zeilen, Abstände und Texte in der ganzen App an

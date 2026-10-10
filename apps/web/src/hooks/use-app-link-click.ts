@@ -1,12 +1,15 @@
 import { useCallback, type MouseEvent } from "react"
 import { useNavigate } from "@tanstack/react-router"
-import { classifyAppLink } from "@/lib/app-link"
+import { classifyAppLink, isRoutedAppPath } from "@/lib/app-link"
 
 /** EXP-1188: the click handler for a container of agent prose. A link into
  *  this instance (an issue, a run, any app page) routes in-app instead of
  *  reloading or opening a tab; a source opens in a new tab; a link with no
  *  real host opens nothing. Capture phase: the read-only editor never sees
- *  it. A modified click on an in-app link keeps the browser's own behaviour. */
+ *  it. A modified click on an in-app link keeps the browser's own behaviour.
+ *  A same-origin link the router does not serve (an attachment, a static
+ *  file, the widget) is an ordinary link: the browser follows it as the
+ *  anchor says (same tab, or its own `target`), never the SPA not-found. */
 export function useAppLinkClick() {
   const navigate = useNavigate()
   return useCallback(
@@ -28,6 +31,7 @@ export function useAppLinkClick() {
         return
       }
       if (modified) return
+      if (link.kind === `app` && !isRoutedAppPath(link.path)) return
       event.preventDefault()
       switch (link.kind) {
         case `issue`:

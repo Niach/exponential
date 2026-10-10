@@ -227,23 +227,16 @@ impl Render for DraftsView {
                 cx,
             ))
         } else {
-            let count = drafts.len();
             let rows: Vec<gpui::AnyElement> = drafts
                 .iter()
                 .enumerate()
                 .map(|(index, draft)| self.draft_row(index, draft, cx))
                 .collect();
+            // ×4: a filled group band with NO count (CLAUDE.md "Lists ×4"),
+            // like the web Drafts list.
             v_flex()
                 .min_w_0()
-                .child(
-                    crate::surface::glass_section_band(None, "Drafts", None, cx).child(
-                        div()
-                            .flex_shrink_0()
-                            .text_xs()
-                            .text_color(cx.theme().foreground.opacity(0.5))
-                            .child(SharedString::from(format!("{count}"))),
-                    ),
-                )
+                .child(crate::surface::glass_section_band(None, "Drafts", None, cx))
                 .children(rows)
         };
 

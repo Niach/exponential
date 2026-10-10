@@ -436,6 +436,7 @@ export async function applyPrOpenedState(opts: {
   // PR on an issue must never inherit an earlier PR's base.
   baseBranch?: string | null
 }): Promise<void> {
+  let linkedTeamId: string | null = null
   const applied = await db.transaction(async (tx) => {
     const txId = await generateTxId(tx)
     void txId
@@ -453,6 +454,7 @@ export async function applyPrOpenedState(opts: {
 
     if (!current) return false
     if (current.prUrl) return false // already linked (idempotent)
+    linkedTeamId = current.teamId
 
     // The link write is the atomic claim (REV-48): the read above is a plain
     // snapshot, so two concurrent deliveries (webhook redelivery racing the
@@ -507,6 +509,15 @@ export async function applyPrOpenedState(opts: {
       actorViaAgent: opts.actorViaAgent,
       githubActorUserId: opts.githubActorUserId ?? null,
     })
+    // EXP-1244: the PR just left the team's "unlinked" Reviews list; drop
+    // the cached `repositories.openPulls` so the next read agrees. Lazy:
+    // the router module is never this module's load-time dependency.
+    if (linkedTeamId) {
+      const teamId: string = linkedTeamId
+      void import(`@/lib/trpc/repositories`)
+        .then((mod) => mod.invalidateOpenPulls(teamId))
+        .catch(() => {})
+    }
   }
 }
 

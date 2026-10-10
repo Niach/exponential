@@ -245,7 +245,9 @@ interface UserDao {
 
 @Dao
 interface TeamMemberDao {
-    @Query("SELECT * FROM team_members WHERE team_id = :teamId")
+    // EXP-1267 ×4: join order (`membersInJoinOrder` re-sorts across the mixed
+    // Postgres-text/ISO stamp forms; this keeps the DB emission stable).
+    @Query("SELECT * FROM team_members WHERE team_id = :teamId ORDER BY created_at, id")
     fun observeByTeam(teamId: String): Flow<List<TeamMemberEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)

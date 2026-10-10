@@ -572,6 +572,7 @@ struct WorkScreen: View {
                 prIssues: mergeRow.flatMap { prGraphModel?.stackPool(for: $0) } ?? [],
                 steerEnabled: steerEnabled,
                 runPrNumber: shownSession?.prNumber,
+                teamId: teamId,
                 state: $mergeState,
                 identifier: page == .guide ? "work-merge-pr" : "work-merge-pr-\(page.rawValue)",
                 style: style

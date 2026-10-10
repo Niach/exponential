@@ -70,6 +70,22 @@ describe(`EventRow`, () => {
     }
   })
 
+  it(`names a name-less status change through the status resolver (F47)`, () => {
+    // Outside a provider the resolver is the constructed builtin set, so the
+    // legacy anchor reads as the row's display name, never a lowercase munge.
+    const text = line(
+      <EventRow
+        event={event({
+          type: `status_changed`,
+          payload: { from: `backlog`, to: `in_progress` },
+        })}
+        userMap={userMap}
+        labelMap={labelMap}
+      />
+    )
+    expect(text).toContain(`changed status from Backlog to In Progress`)
+  })
+
   it(`still renders nothing for created and for unknown types`, () => {
     const created = render(
       <EventRow
