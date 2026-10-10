@@ -45,6 +45,31 @@ final class NativeHardeningTests: XCTestCase {
         XCTAssertEqual(SurfaceModel.sliderRange(min: -1, max: -0.5, step: 0).range, -1 ... -0.5)
     }
 
+    // MARK: - Example themes
+
+    /// Every theme file an example or sample host ships loads strictly (a
+    /// missing `$schema` or a bad token fails here, not on a device).
+    func testEveryExampleAndSampleThemeLoads() throws {
+        let pkg = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let repo = pkg.deletingLastPathComponent().deletingLastPathComponent()
+        let files = [
+            pkg.appendingPathComponent("Example/KitchenSink/Resources/brand.theme.json"),
+            repo.appendingPathComponent("samples/exponential-ui/shared/sample.theme.json"),
+        ]
+        for file in files {
+            let json = try String(contentsOf: file, encoding: .utf8)
+            XCTAssertNoThrow(try ThemeHandle.load(json: json), file.lastPathComponent)
+            var issues: [ThemeHandle.ThemeIssue] = []
+            _ = ThemeHandle.loadOrDefault(json: json) { issues = $0 }
+            XCTAssertEqual(issues.count, 0, "\(file.lastPathComponent): \(issues)")
+        }
+        // A file without `$schema` is refused, and loadOrDefault says why.
+        var issues: [ThemeHandle.ThemeIssue] = []
+        let fallback = ThemeHandle.loadOrDefault(json: #"{"id":"x","name":"X","extends":"neutral"}"#) { issues = $0 }
+        XCTAssertFalse(issues.isEmpty)
+        XCTAssertNotNil(fallback)
+    }
+
     // MARK: - Input types
 
     func testInputTypesMapToKeyboardAutofillAndAutocorrection() {
