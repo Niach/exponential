@@ -79,7 +79,8 @@ export function VideoNative({ node, props, rootProps }: NativeProps) {
   const part = useParts(node, props)
   const src = str(props.src)
   const poster = str(props.poster)
-  const url = useMediaSrc(ctx.host, src)
+  // The video streams (no byte caps); its poster is an image (the limits hold).
+  const url = useMediaSrc(ctx.host, src, `stream`)
   const posterUrl = useMediaSrc(ctx.host, poster)
   // Round 2 §7: height = width / `aspectRatio` (default 16:9), never the
   // browser's 300×150.
@@ -97,7 +98,7 @@ export function AudioPlayerNative({ node, props, rootProps }: NativeProps) {
   const part = useParts(node, props)
   const src = str(props.src)
   const title = str(props.title)
-  const url = useMediaSrc(ctx.host, src)
+  const url = useMediaSrc(ctx.host, src, `stream`)
   return (
     <div {...(rootProps as Record<string, unknown>)} style={mergeStyle(rootProps, { flexDirection: `column`, gap: `var(--xui-spacing-xs)` })}>
       {title ? <span {...(part(`track`) as Record<string, string>)}>{title}</span> : null}

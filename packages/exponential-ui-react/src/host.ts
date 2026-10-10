@@ -78,6 +78,13 @@ export interface HostPlugin {
    *  url is used as is. Its url is re-checked against `media`'s schemes and
    *  hosts. */
   mediaRequest?: (src: string) => MediaRequest | null
+  /** Video/Audio (`catalog/host.json` media: the byte limits do not apply,
+   *  they stream): a url the browser's player loads WITHOUT headers for a
+   *  request that carries some (a signed or cookie-authed url), so the
+   *  player streams and seeks. Its result passes the media policy again.
+   *  Unset = the request is fetched whole into a blob url, without the
+   *  byte/pixel caps (only the response headers are timed). */
+  mediaStreamUrl?: (request: MediaRequest) => string | Promise<string>
   /** A richer markdown renderer than the built-in one. */
   Markdown?: ComponentType<{ text: string; className?: string }>
   /** Rewrites a media src BEFORE the media policy (signed URLs). */

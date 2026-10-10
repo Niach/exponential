@@ -30,8 +30,12 @@ export function mediaRequestOf(host: HostPlugin, src: unknown): MediaRequest | n
   const rewritten = host.resolveUrl ? host.resolveUrl(src) : src
   const req = host.mediaRequest ? host.mediaRequest(rewritten) : mediaRequest(rewritten, { baseUrl: documentBase(), ...host.media })
   if (!req) return null
-  const d = decideUrl({ schemes: host.media?.schemes ?? DEFAULT_MEDIA_SCHEMES, hosts: host.media?.hosts }, req.url)
-  return d.allowed ? req : null
+  return mediaUrlAllowed(host, req.url) ? req : null
+}
+
+/** Does an absolute media url pass the media schemes/hosts? */
+export function mediaUrlAllowed(host: HostPlugin, url: string): boolean {
+  return decideUrl({ schemes: host.media?.schemes ?? DEFAULT_MEDIA_SCHEMES, hosts: host.media?.hosts }, url).allowed
 }
 
 /** The default opener: only what the policy allows, in a new tab. */

@@ -5,13 +5,13 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { act, cleanup, fireEvent, render } from "@testing-library/react"
-import { CORE_CATALOG_ID, ExponentialHost, MemoryTransport, reduceNested } from "@exponential-at/ui"
+import { CORE_CATALOG_ID, ExponentialHost, MEDIA_LIMITS, MemoryTransport, reduceNested } from "@exponential-at/ui"
 import type { ClientMessage, NestedNode } from "@exponential-at/ui"
 import { ExponentialSurface } from "./surface"
 import { HostSurface } from "./host-surface"
 import { renderToStaticMarkup } from "react-dom/server"
 import { BuiltinMarkdown, MAX_LINK_DEST, MAX_LINK_NESTING, linkAt, parseList, renderMarkdown } from "./markdown"
-import { fetchLimited } from "./media"
+import { clearMediaCache, fetchLimited } from "./media"
 import type { HostPlugin } from "./host"
 
 afterEach(() => {
@@ -164,6 +164,37 @@ describe(`media limits`, () => {
     new DataView(png.buffer).setUint32(20, 30_000)
     vi.spyOn(globalThis, `fetch`).mockResolvedValue(new Response(png, { status: 200 }))
     await expect(fetchLimited(`https://x.test/a.png`, {}, { ...limits, maxBytes: 1000 })).rejects.toThrow(/40000×30000/)
+  })
+  it(`Video/Audio with headers stream past the byte caps; the poster keeps the image limits`, async () => {
+    clearMediaCache()
+    let n = 0
+    vi.spyOn(URL, `createObjectURL`).mockImplementation(() => `blob:media-${++n}`)
+    vi.spyOn(URL, `revokeObjectURL`).mockImplementation(() => {})
+    // Over the 20 MB image cap, as an authed video is.
+    vi.spyOn(globalThis, `fetch`).mockImplementation(async () => new Response(new Uint8Array(8), { status: 200, headers: { "content-length": String(MEDIA_LIMITS.maxBytes + 1) } }))
+    const host: HostPlugin = { mediaRequest: (src) => ({ url: src, headers: { authorization: `Bearer t` } }) }
+    const c = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/clip.mp4`, poster: `https://exponential.at/poster.png` } }, host)
+    await vi.waitFor(() => expect(c.querySelector(`video`)!.getAttribute(`src`)).toMatch(/^blob:media-/))
+    expect(c.querySelector(`video`)!.getAttribute(`poster`)).toBeNull()
+    cleanup()
+    const a = paint({ id: `a`, component: `AudioPlayer`, props: { src: `https://exponential.at/talk.m4a` } }, host)
+    await vi.waitFor(() => expect(a.querySelector(`audio`)!.getAttribute(`src`)).toMatch(/^blob:media-/))
+  })
+  it(`a host mediaStreamUrl hands the player a header-less url, re-checked by the policy`, async () => {
+    const fetchSpy = vi.spyOn(globalThis, `fetch`)
+    const streamed: string[] = []
+    const host: HostPlugin = {
+      mediaRequest: (src) => ({ url: src, headers: { authorization: `Bearer t` } }),
+      mediaStreamUrl: async (req) => (streamed.push(req.url), req.url.endsWith(`evil.mp4`) ? `javascript:alert(1)` : `${req.url}?sig=abc`),
+    }
+    const c = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/clip.mp4` } }, host)
+    await vi.waitFor(() => expect(c.querySelector(`video`)!.getAttribute(`src`)).toBe(`https://exponential.at/clip.mp4?sig=abc`))
+    expect(streamed).toEqual([`https://exponential.at/clip.mp4`])
+    expect(fetchSpy).not.toHaveBeenCalled()
+    cleanup()
+    const d = paint({ id: `v`, component: `Video`, props: { src: `https://exponential.at/evil.mp4` } }, host)
+    await new Promise((r) => setTimeout(r, 10))
+    expect(d.querySelector(`video`)!.getAttribute(`src`)).toBeNull()
   })
   it(`a request past timeoutMs is aborted`, async () => {
     vi.spyOn(globalThis, `fetch`).mockImplementation((_u, init) => new Promise((_, reject) => (init?.signal as AbortSignal).addEventListener(`abort`, () => reject(new Error(`aborted`)))))
