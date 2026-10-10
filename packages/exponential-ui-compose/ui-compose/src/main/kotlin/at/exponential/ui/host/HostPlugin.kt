@@ -23,7 +23,7 @@ data class SurfaceActionEvent(
 
 /**
  * A function call the core does not run itself: an `on.<event>` with
- * `{functionCall: {call, args}}` (A2UI; `function` is the legacy key) to a
+ * `{functionCall: {call, args}}` (A2UI) to a
  * name outside the catalog's built-ins. An [ExponentialHost] gates it
  * through its policy and runs the registered handler.
  */

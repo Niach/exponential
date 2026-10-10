@@ -17,6 +17,7 @@ import at.exponential.ui.json.JsonValue
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
 import org.junit.Test
@@ -78,13 +79,29 @@ class SafePaintTest {
     @Test
     fun aHugeHeaderIsRefusedBeforeDecoding() {
         val bytes = pngHeader(40_000, 30_000)
-        assertEquals(40_000 to 30_000, LeafImages.bounds(bytes))
+        assertEquals(LeafImages.PixelSize(40_000, 30_000, 1), LeafImages.pixelSize(bytes))
         try {
             LeafImages.decode(bytes, MediaLimits.contract)
             fail("decoded a 1.2 gigapixel picture")
         } catch (e: LeafImages.LoadFailure) {
             assertEquals(LeafImages.Failure.TooManyPixels, e.reason)
         }
+        // The core's rule (React, gpui, SwiftUI alike): an SVG's size counts, frames multiply.
+        val svg = """<svg xmlns="http://www.w3.org/2000/svg" width="20000" height="20000"/>""".toByteArray()
+        assertEquals(LeafImages.PixelSize(20_000, 20_000, 1), LeafImages.pixelSize(svg))
+        val gif = ByteArrayOutputStream().apply {
+            write("GIF89a".toByteArray()); write(byteArrayOf(0x00, 0x10, 0x00, 0x10, 0x00, 0x00, 0x00))
+            repeat(3) { write(byteArrayOf(0x2C, 0, 0, 0, 0, 0x00, 0x10, 0x00, 0x10, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00)) }
+            write(0x3B)
+        }.toByteArray()
+        assertEquals(LeafImages.PixelSize(4096, 4096, 3), LeafImages.pixelSize(gif))
+        try {
+            LeafImages.decode(gif, MediaLimits(maxBytes = 1 shl 20, timeoutMs = 5_000, maxPixels = 4096L * 4096 * 2))
+            fail("3 frames over 2 frames' pixels")
+        } catch (e: LeafImages.LoadFailure) {
+            assertEquals(LeafImages.Failure.TooManyPixels, e.reason)
+        }
+        assertNull("a PNG whose size cannot be read is refused", LeafImages.pixelSize(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1)))
         // A real small picture decodes within the limits.
         val png = ByteArrayOutputStream().also { Bitmap.createBitmap(4, 3, Bitmap.Config.ARGB_8888).compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
         val img = LeafImages.decode(png, MediaLimits.contract)

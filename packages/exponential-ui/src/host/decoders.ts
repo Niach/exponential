@@ -4,6 +4,7 @@
 
 import { MCP_ACTION_TOOL, MCP_MIME_TYPES, SSE_EVENTS } from "./contract"
 import type { ClientMessage } from "./contract"
+import { LIMIT_ISSUES, MAX_MESSAGE_BYTES } from "../limits"
 
 export interface DecodeIssue {
   /** 1-based line (JSONL) or event (SSE) number. */
@@ -26,33 +27,97 @@ function parseLine(line: string, at: number, out: Decoded): void {
   }
 }
 
+/** UTF-8 bytes of a string (a surrogate pair = 4; chunk-safe per unit). */
+function utf8Bytes(text: string): number {
+  let n = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    n += c < 0x80 ? 1 : c < 0x800 ? 2 : c >= 0xd800 && c <= 0xdfff ? 2 : 3
+  }
+  return n
+}
+
+/** VAPP-103: the line splitter both stream decoders share (the Rust core's
+ *  `Lines`): each push scans its chunk once, the unterminated tail is kept
+ *  as pieces (never rescanned), and a line past `maxMessageBytes` is
+ *  `null` (its bytes are dropped up to the next newline, never buffered). */
+class Lines {
+  private parts: string[] = []
+  private bytes = 0
+  /** Inside an oversized line: drop until its newline. */
+  private skipping = false
+
+  push(chunk: string): (string | null)[] {
+    const out: (string | null)[] = []
+    let start = 0
+    if (this.skipping) {
+      const i = chunk.indexOf(`\n`)
+      if (i < 0) return out
+      this.skipping = false
+      start = i + 1
+    }
+    let nl = chunk.indexOf(`\n`, start)
+    while (nl >= 0) {
+      const piece = chunk.slice(start, nl)
+      const oversized = this.bytes + utf8Bytes(piece) > MAX_MESSAGE_BYTES
+      out.push(oversized ? null : this.parts.length ? this.parts.join(``) + piece : piece)
+      this.parts = []
+      this.bytes = 0
+      start = nl + 1
+      nl = chunk.indexOf(`\n`, start)
+    }
+    if (start < chunk.length) {
+      const tail = chunk.slice(start)
+      this.parts.push(tail)
+      this.bytes += utf8Bytes(tail)
+    }
+    if (this.bytes > MAX_MESSAGE_BYTES) {
+      out.push(null)
+      this.parts = []
+      this.bytes = 0
+      this.skipping = true
+    }
+    return out
+  }
+
+  /** The unterminated tail (null inside an oversized line). */
+  end(): string | null {
+    const skipping = this.skipping
+    const tail = this.parts.join(``)
+    this.parts = []
+    this.bytes = 0
+    this.skipping = false
+    return skipping ? null : tail
+  }
+}
+
+const oversized = (at: number, what: `line` | `event`): DecodeIssue => ({ at, message: `${what} ${at}: ${LIMIT_ISSUES.messageBytes}` })
+
 /** One message per line. `push` takes any chunking (a line may span
- *  chunks), `end` flushes a last line without a newline. */
+ *  chunks), `end` flushes a last line without a newline. A line past
+ *  `maxMessageBytes` is an issue (`line N: message larger than … bytes`),
+ *  never buffered. */
 export class JsonlDecoder {
-  private buffer = ``
+  private lines = new Lines()
   private line = 0
 
   push(chunk: string): Decoded {
     const out: Decoded = { messages: [], issues: [] }
-    this.buffer += chunk
-    let nl = this.buffer.indexOf(`\n`)
-    while (nl >= 0) {
-      const raw = this.buffer.slice(0, nl)
-      this.buffer = this.buffer.slice(nl + 1)
+    for (const raw of this.lines.push(chunk)) {
       this.line += 1
-      parseLine(raw, this.line, out)
-      nl = this.buffer.indexOf(`\n`)
+      if (raw === null) out.issues.push(oversized(this.line, `line`))
+      else parseLine(raw, this.line, out)
     }
     return out
   }
 
   end(): Decoded {
     const out: Decoded = { messages: [], issues: [] }
-    if (this.buffer.trim()) {
+    const raw = this.lines.end()
+    if (raw !== null && raw.trim()) {
       this.line += 1
-      parseLine(this.buffer, this.line, out)
+      parseLine(raw, this.line, out)
     }
-    this.buffer = ``
     return out
   }
 }
@@ -83,31 +148,39 @@ export class SseDecoder {
   /** The last `retry:` field (ms): the server resumes the stream after it
    *  ends (a transport reconnects on a clean end only then). */
   retryMs?: number
-  private buffer = ``
+  private lines = new Lines()
   private data: string[] = []
+  /** The event's data bytes so far (past `maxMessageBytes` it is dropped
+   *  and dispatches as an issue). */
+  private dataBytes = 0
+  private oversized = false
   private event = ``
   private count = 0
 
   push(chunk: string): Decoded {
     const out: Decoded = { messages: [], issues: [] }
-    this.buffer += chunk
-    let nl = this.buffer.indexOf(`\n`)
-    while (nl >= 0) {
-      let line = this.buffer.slice(0, nl)
-      this.buffer = this.buffer.slice(nl + 1)
-      if (line.endsWith(`\r`)) line = line.slice(0, -1)
-      this.line(line, out)
-      nl = this.buffer.indexOf(`\n`)
+    for (const raw of this.lines.push(chunk)) {
+      if (raw === null) this.dropData()
+      else this.line(raw.endsWith(`\r`) ? raw.slice(0, -1) : raw, out)
     }
     return out
   }
 
   end(): Decoded {
     const out: Decoded = { messages: [], issues: [] }
-    if (this.buffer) this.line(this.buffer, out)
-    this.buffer = ``
+    const raw = this.lines.end()
+    if (raw === null) this.dropData()
+    else if (raw) this.line(raw, out)
     this.dispatch(out)
     return out
+  }
+
+  /** The event is past `maxMessageBytes`: forget its data (it dispatches
+   *  as an issue). */
+  private dropData(): void {
+    this.data = []
+    this.dataBytes = 0
+    this.oversized = true
   }
 
   private line(line: string, out: Decoded): void {
@@ -117,12 +190,25 @@ export class SseDecoder {
     const field = colon < 0 ? line : line.slice(0, colon)
     let value = colon < 0 ? `` : line.slice(colon + 1)
     if (value.startsWith(` `)) value = value.slice(1)
-    if (field === `data`) this.data.push(value)
-    else if (field === `event`) this.event = value
+    if (field === `data`) {
+      if (this.oversized) return
+      this.dataBytes += utf8Bytes(value) + 1
+      if (this.dataBytes > MAX_MESSAGE_BYTES) return this.dropData()
+      this.data.push(value)
+    } else if (field === `event`) this.event = value
     else if (field === `retry` && /^\d+$/.test(value)) this.retryMs = Number(value)
   }
 
   private dispatch(out: Decoded): void {
+    this.dataBytes = 0
+    if (this.oversized) {
+      this.oversized = false
+      this.count += 1
+      this.data = []
+      this.event = ``
+      out.issues.push(oversized(this.count, `event`))
+      return
+    }
     if (!this.data.length) {
       this.event = ``
       return

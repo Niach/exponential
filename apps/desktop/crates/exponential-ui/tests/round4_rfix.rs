@@ -68,3 +68,44 @@ fn the_reducer_checks_extension_calls_against_the_view() {
     let issues = reduce_nested(&node, &ReduceOptions::new(catalog).with_view(view)).issues;
     assert!(issues.iter().any(|i| i.id == "t" && i.message.starts_with("props.values[1]") && i.message.contains("unknown function \"nope\"")), "{issues:?}");
 }
+
+/// One wire naming: every OutEvent is camelCase, kinds AND fields
+/// (`componentId` on action, input, pickFiles and functionCall alike;
+/// `delayMs`), the host API's form.
+#[test]
+fn out_events_are_camel_case_on_the_wire() {
+    use exponential_ui::surface::OutEvent;
+    let wire = |e: OutEvent| serde_json::to_value(e).unwrap();
+    assert_eq!(
+        wire(OutEvent::Action { name: "save".into(), component_id: "b".into(), event: "press".into(), context: json!({}), payload: None }),
+        json!({"kind": "action", "name": "save", "componentId": "b", "event": "press", "context": {}})
+    );
+    assert_eq!(
+        wire(OutEvent::Input { component_id: "q".into(), name: "q".into(), path: Some("/q".into()), value: json!("a"), commit: false }),
+        json!({"kind": "input", "componentId": "q", "name": "q", "path": "/q", "value": "a", "commit": false})
+    );
+    assert_eq!(wire(OutEvent::PickFiles { component_id: "up".into(), accept: None, multiple: true }), json!({"kind": "pickFiles", "componentId": "up", "multiple": true}));
+    assert_eq!(wire(OutEvent::FunctionCall { component_id: "b".into(), name: "app.toast".into(), args: json!({}) }), json!({"kind": "functionCall", "componentId": "b", "name": "app.toast", "args": {}}));
+    assert_eq!(wire(OutEvent::HoverTimer { owner: "hc".into(), delay_ms: 150 }), json!({"kind": "hoverTimer", "owner": "hc", "delayMs": 150}));
+    // And back.
+    let back: OutEvent = serde_json::from_value(json!({"kind": "pickFiles", "componentId": "up", "multiple": false})).unwrap();
+    assert_eq!(back, OutEvent::PickFiles { component_id: "up".into(), accept: None, multiple: false });
+}
+
+/// The image header every renderer's pixel cap reads (the natives through
+/// the FFI): unknown formats pass to the platform, a known one without a
+/// readable size is refused, frames multiply.
+#[test]
+fn the_image_header_names_size_frames_or_unreadable() {
+    use exponential_ui::host::{image_header, media_image_check, ImageHeader};
+    let mut gif = b"GIF89a\x00\x10\x00\x10\x00\x00\x00".to_vec();
+    for _ in 0..3 {
+        gif.extend_from_slice(b"\x2c\x00\x00\x00\x00\x00\x10\x00\x10\x00\x02\x02\x44\x01\x00");
+    }
+    gif.push(0x3b);
+    assert_eq!(image_header(&gif), ImageHeader::Size { width: 4096, height: 4096, frames: 3 });
+    assert_eq!(media_image_check(&gif, 1 << 20, 4096 * 4096 * 2), Err("media is 4096×4096 × 3 frames, over 33554432 pixels".to_string()));
+    assert_eq!(image_header(b"\x89PNG\r\n\x1a\n\x01"), ImageHeader::Unreadable);
+    assert_eq!(image_header(b"II*\x00"), ImageHeader::Unknown, "TIFF: the platform decides");
+    assert_eq!(image_header(br#"<svg xmlns="http://www.w3.org/2000/svg" width="20000" height="20000"/>"#), ImageHeader::Size { width: 20_000, height: 20_000, frames: 1 });
+}

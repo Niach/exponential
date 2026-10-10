@@ -249,9 +249,11 @@ pub struct LayoutOutput {
 }
 
 /// What the host must do after an interaction (`non_exhaustive`: match with
-/// a wildcard arm; new kinds are additive).
+/// a wildcard arm; new kinds are additive). The wire form is camelCase
+/// throughout, kinds AND fields (`{kind: "action", componentId, …}`,
+/// `{kind: "hoverTimer", owner, delayMs}`), as the host API's.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 #[non_exhaustive]
 pub enum OutEvent {
     /// A server event (A2UI `action`): forward it. `context` = the author's
@@ -264,15 +266,8 @@ pub enum OutEvent {
     /// its registry and runs it through the policy gate
     /// (`host::decide_function`, VAPP-91). `args` = the call's args resolved
     /// against the data model and scope. Serialized `{kind: "functionCall",
-    /// componentId, name, args}` (the host API's camelCase; `action`,
-    /// `input` and `pickFiles` still carry `component_id`, which the
-    /// Compose renderer decodes).
-    FunctionCall {
-        #[serde(rename = "componentId")]
-        component_id: String,
-        name: String,
-        args: Value,
-    },
+    /// componentId, name, args}`.
+    FunctionCall { component_id: String, name: String, args: Value },
     /// A bound value was written through to the data model.
     DataChanged { path: String, value: Value },
     /// A host-owned input edit (the host forwards with its revision).

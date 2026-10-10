@@ -181,6 +181,15 @@ describe(`media limits`, () => {
     vi.spyOn(globalThis, `fetch`).mockResolvedValue(new Response(png, { status: 200 }))
     await expect(fetchLimited(`https://x.test/a.png`, {}, { ...limits, maxBytes: 1000 })).rejects.toThrow(/40000×30000/)
   })
+  it(`SVG sizes and unreadable rasters follow the core's pixel rule (mediaImageWithinLimits)`, async () => {
+    const svg = new TextEncoder().encode(`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200"></svg>`)
+    vi.spyOn(globalThis, `fetch`).mockResolvedValue(new Response(svg, { status: 200 }))
+    await expect(fetchLimited(`https://x.test/a.svg`, {}, { ...limits, maxBytes: 1000 })).rejects.toThrow(/200×200, over 1000 pixels/)
+    vi.restoreAllMocks()
+    const broken = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3])
+    vi.spyOn(globalThis, `fetch`).mockResolvedValue(new Response(broken, { status: 200 }))
+    await expect(fetchLimited(`https://x.test/b.png`, {}, { ...limits, maxBytes: 1000 })).rejects.toThrow(/unreadable/)
+  })
   it(`Video/Audio with headers stream past the byte caps; the poster keeps the image limits`, async () => {
     clearMediaCache()
     let n = 0

@@ -1,6 +1,8 @@
 package at.exponential.ui.compose
 
 import android.graphics.BitmapFactory
+import at.exponential.ui.ffi.FfiImageHeader
+import at.exponential.ui.ffi.mediaImageHeader
 import android.util.LruCache
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -266,27 +268,40 @@ object LeafImages {
         return bytes
     }
 
-    /**
-     * The width × height the image header claims (BitmapFactory
-     * `inJustDecodeBounds`: nothing decoded); null when it is no image.
-     */
-    fun bounds(bytes: ByteArray): Pair<Int, Int>? {
-        val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
-        return if (opts.outWidth <= 0 || opts.outHeight <= 0) null else opts.outWidth to opts.outHeight
-    }
+    /** An image's size before any decode: width × height × frames count against `maxPixels`. */
+    data class PixelSize(val width: Long, val height: Long, val frames: Long)
 
-    /** Check the header's pixel count against [limits] BEFORE any decode. Throws [LoadFailure]. */
-    fun checkPixels(width: Int, height: Int, limits: MediaLimits) {
-        if (width.toLong() * height.toLong() > limits.maxPixels) {
-            throw LoadFailure(Failure.TooManyPixels, "${width}×$height over ${limits.maxPixels} pixels")
+    /**
+     * Width × height × frames before any decode, the core's ONE rule
+     * (`mediaImageHeader`, as React, gpui and SwiftUI): PNG, JPEG, GIF,
+     * WebP, BMP and SVG read by the core (an unreadable one = null,
+     * refused; an animated GIF, APNG or WebP counts its frames); any other
+     * format from BitmapFactory `inJustDecodeBounds` (one frame).
+     */
+    fun pixelSize(bytes: ByteArray): PixelSize? = when (val header = mediaImageHeader(bytes)) {
+        is FfiImageHeader.Size -> PixelSize(header.width.toLong(), header.height.toLong(), max(header.frames.toLong(), 1L))
+        FfiImageHeader.Unreadable -> null
+        FfiImageHeader.Unknown -> {
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+            if (opts.outWidth <= 0 || opts.outHeight <= 0) null else PixelSize(opts.outWidth.toLong(), opts.outHeight.toLong(), 1L)
         }
     }
 
-    /** Decode within the limits: the header first (refused over `maxPixels`), then a downsampled decode. */
+    /** Check width × height × frames against [limits] BEFORE any decode. Throws [LoadFailure]. */
+    fun checkPixels(size: PixelSize, limits: MediaLimits) {
+        if (size.width * size.height * size.frames > limits.maxPixels) {
+            val frames = if (size.frames > 1) " × ${size.frames} frames" else ""
+            throw LoadFailure(Failure.TooManyPixels, "${size.width}×${size.height}$frames over ${limits.maxPixels} pixels")
+        }
+    }
+
+    /** Decode within the limits: the size first (refused over `maxPixels`), then a downsampled decode. */
     fun decode(bytes: ByteArray, limits: MediaLimits = MediaLimits.contract): ImageBitmap {
-        val (w, h) = bounds(bytes) ?: throw LoadFailure(Failure.Undecodable, "no image header")
-        checkPixels(w, h, limits)
+        val size = pixelSize(bytes) ?: throw LoadFailure(Failure.Undecodable, "no image header")
+        checkPixels(size, limits)
+        val w = size.width.toInt()
+        val h = size.height.toInt()
         var sample = 1
         while (max(w, h) / sample > MAX_SIDE) sample *= 2
         val opts = BitmapFactory.Options().apply { inSampleSize = sample }

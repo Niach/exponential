@@ -30,13 +30,13 @@ extension SurfaceModel {
             let v = JSONValue.parse(e.json)
             switch e.kind {
             case "action":
-                host.onAction(SurfaceActionEvent(surfaceId: id, event: v["event"]?.string ?? "", name: v["name"]?.string ?? "", componentId: v["component_id"]?.string ?? "", context: v["context"] ?? .object([:]), payload: v["payload"]))
+                host.onAction(SurfaceActionEvent(surfaceId: id, event: v["event"]?.string ?? "", name: v["name"]?.string ?? "", componentId: v["componentId"]?.string ?? "", context: v["context"] ?? .object([:]), payload: v["payload"]))
             case "openUrl":
                 openLink(v["url"]?.string ?? "")
             case "functionCall":
-                host.onFunctionCall(SurfaceFunctionCall(surfaceId: id, componentId: v["componentId"]?.string ?? v["component_id"]?.string ?? "", name: v["name"]?.string ?? "", args: v["args"]?.object ?? [:]))
+                host.onFunctionCall(SurfaceFunctionCall(surfaceId: id, componentId: v["componentId"]?.string ?? "", name: v["name"]?.string ?? "", args: v["args"]?.object ?? [:]))
             case "input":
-                let component = v["component_id"]?.string ?? ""
+                let component = v["componentId"]?.string ?? ""
                 let revision: Int
                 if let r = inputRevision {
                     revision = r
@@ -54,9 +54,9 @@ extension SurfaceModel {
             case "copy":
                 copyToPasteboard(v["text"]?.string ?? "")
             case "pickFiles":
-                pickFiles(componentId: v["component_id"]?.string ?? "", accept: v["accept"]?.string, multiple: v["multiple"]?.bool ?? false)
+                pickFiles(componentId: v["componentId"]?.string ?? "", accept: v["accept"]?.string, multiple: v["multiple"]?.bool ?? false)
             case "hoverTimer":
-                scheduleHoverTimeout(owner: v["owner"]?.string ?? "", delayMs: v["delay_ms"]?.number ?? 0)
+                scheduleHoverTimeout(owner: v["owner"]?.string ?? "", delayMs: v["delayMs"]?.number ?? 0)
             default:
                 // `dataChanged` (the core already wrote it), `relayout`.
                 break

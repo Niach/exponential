@@ -480,15 +480,18 @@ pub fn image_frames(bytes: &[u8]) -> u32 {
     frames.max(1)
 }
 
-/// VAPP-103 rfix: the pixel cap on a whole image before it decodes: a
-/// raster format (PNG, JPEG, GIF, WebP, BMP) or an SVG whose size cannot be
-/// read is REFUSED (`media: image dimensions unreadable`), and width ×
-/// height × [`image_frames`] must fit `maxPixels` (`media is W×H × N
-/// frames, over … pixels`). Bytes of no known image format pass (the
-/// decoder refuses them).
-pub fn media_image_within_limits(bytes: &[u8]) -> Result<(), String> {
-    use super::contract::MEDIA_MAX_PIXELS;
-    media_within_limits(bytes.len() as u64, None)?;
+/// What a whole image's bytes say before any decode (VAPP-103): no known
+/// image format, a raster (PNG, JPEG, GIF, WebP, BMP) or SVG whose size
+/// cannot be read, or its size and [`image_frames`]. Every renderer's
+/// pixel cap reads this ONE answer (the natives through the FFI).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageHeader {
+    Unknown,
+    Unreadable,
+    Size { width: u32, height: u32, frames: u32 },
+}
+
+pub fn image_header(bytes: &[u8]) -> ImageHeader {
     let raster = bytes.starts_with(b"\x89PNG\r\n\x1a\n")
         || bytes.starts_with(b"GIF87a")
         || bytes.starts_with(b"GIF89a")
@@ -496,17 +499,46 @@ pub fn media_image_within_limits(bytes: &[u8]) -> Result<(), String> {
         || bytes.starts_with(b"\xff\xd8")
         || (bytes.len() >= 12 && &bytes[..4] == b"RIFF" && &bytes[8..12] == b"WEBP");
     if !raster && !is_svg(bytes) {
-        return Ok(());
+        return ImageHeader::Unknown;
     }
-    let (w, h) = image_dimensions(bytes).ok_or("media: image dimensions unreadable")?;
-    let frames = image_frames(bytes);
-    if frames <= 1 {
-        return media_within_limits(bytes.len() as u64, Some((w, h)));
+    match image_dimensions(bytes) {
+        Some((width, height)) => ImageHeader::Size { width, height, frames: image_frames(bytes) },
+        None => ImageHeader::Unreadable,
     }
-    if (w as u128) * (h as u128) * (frames as u128) > MEDIA_MAX_PIXELS as u128 {
-        return Err(format!("media is {w}×{h} × {frames} frames, over {MEDIA_MAX_PIXELS} pixels"));
+}
+
+/// VAPP-103 rfix: the pixel cap on a whole image before it decodes, under
+/// `max_bytes` / `max_pixels`: a raster format or an SVG whose size cannot
+/// be read is REFUSED (`media: image dimensions unreadable`), and width ×
+/// height × [`image_frames`] must fit `max_pixels` (`media is W×H × N
+/// frames, over … pixels`). Bytes of no known image format pass (the
+/// decoder refuses them).
+pub fn media_image_check(bytes: &[u8], max_bytes: u64, max_pixels: u64) -> Result<(), String> {
+    if bytes.len() as u64 > max_bytes {
+        return Err(format!("media is over {max_bytes} bytes"));
     }
-    Ok(())
+    match image_header(bytes) {
+        ImageHeader::Unknown => Ok(()),
+        ImageHeader::Unreadable => Err("media: image dimensions unreadable".into()),
+        ImageHeader::Size { width: w, height: h, frames } if frames <= 1 => {
+            if w as u128 * h as u128 > max_pixels as u128 {
+                return Err(format!("media is {w}×{h}, over {max_pixels} pixels"));
+            }
+            Ok(())
+        }
+        ImageHeader::Size { width: w, height: h, frames } => {
+            if w as u128 * h as u128 * frames as u128 > max_pixels as u128 {
+                return Err(format!("media is {w}×{h} × {frames} frames, over {max_pixels} pixels"));
+            }
+            Ok(())
+        }
+    }
+}
+
+/// [`media_image_check`] under the contract's `media.limits`.
+pub fn media_image_within_limits(bytes: &[u8]) -> Result<(), String> {
+    use super::contract::{MEDIA_MAX_BYTES, MEDIA_MAX_PIXELS};
+    media_image_check(bytes, MEDIA_MAX_BYTES, MEDIA_MAX_PIXELS)
 }
 
 /// Whether a load fits `media.limits`: `bytes` read so far (or the

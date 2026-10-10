@@ -179,8 +179,8 @@ class SafeHostTest {
         assertEquals(LeafImages.Failure.Denied, failure { LeafImages.fetch(MediaRequest("file:///etc/passwd")) })
         assertEquals(LeafImages.Failure.TooLarge, failure { LeafImages.readCapped(ByteArrayInputStream(ByteArray(2048)), 1024) })
         assertEquals(LeafImages.Failure.Timeout, failure { LeafImages.readCapped(ByteArrayInputStream(ByteArray(10)), 1024, deadline = System.nanoTime() - 1) })
-        assertEquals(LeafImages.Failure.TooManyPixels, failure { LeafImages.checkPixels(40_000, 30_000, MediaLimits.contract) })
-        LeafImages.checkPixels(8192, 4096, MediaLimits.contract)
+        assertEquals(LeafImages.Failure.TooManyPixels, failure { LeafImages.checkPixels(LeafImages.PixelSize(40_000, 30_000, 1), MediaLimits.contract) })
+        LeafImages.checkPixels(LeafImages.PixelSize(8192, 4096, 1), MediaLimits.contract)
     }
 
     // onPaintError

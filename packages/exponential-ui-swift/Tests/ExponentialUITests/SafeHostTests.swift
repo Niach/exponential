@@ -162,11 +162,21 @@ final class SafeHostTests: XCTestCase {
 
     func testAPictureOverMaxPixelsIsRefusedBeforeDecoding() {
         let bomb = Self.pngHeader(40_000, 30_000)
-        XCTAssertEqual(MediaLoader.pixelSize(bomb).map { [$0.0, $0.1] }, [40_000, 30_000], "read from the header")
+        XCTAssertEqual(MediaLoader.pixelSize(bomb).map { [$0.width, $0.height, $0.frames] }, [40_000, 30_000, 1], "read from the header")
         guard case .failure(.tooManyPixels(40_000, 30_000)) = MediaLoader.decode(bomb, limits: .contract) else { return XCTFail("decoded a 1.2 Gpx header") }
         guard case .success(let image) = MediaLoader.decode(Self.realPng(8, 4), limits: .contract) else { return XCTFail("a small png decodes") }
         XCTAssertEqual(image.size.width, 8)
         guard case .failure(.undecodable) = MediaLoader.decode(Data("<svg/>".utf8), limits: .contract) else { return XCTFail("no header, no decode") }
+        // The core's rule (React, gpui alike): an SVG's size counts, frames multiply.
+        let svg = Data(#"<svg xmlns="http://www.w3.org/2000/svg" width="20000" height="20000"/>"#.utf8)
+        guard case .failure(.tooManyPixels(20_000, 20_000)) = MediaLoader.decode(svg, limits: .contract) else { return XCTFail("a 400 Mpx svg") }
+        var gif = Data("GIF89a".utf8) + Data([0x00, 0x10, 0x00, 0x10, 0x00, 0x00, 0x00])
+        for _ in 0..<3 { gif += Data([0x2C, 0, 0, 0, 0, 0x00, 0x10, 0x00, 0x10, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00]) }
+        gif += Data([0x3B])
+        XCTAssertEqual(MediaLoader.pixelSize(gif).map { [$0.width, $0.height, $0.frames] }, [4096, 4096, 3])
+        var frames = MediaLimits.contract
+        frames.maxPixels = 4096 * 4096 * 2
+        guard case .failure(.tooManyPixels(4096, 4096)) = MediaLoader.decode(gif, limits: frames) else { return XCTFail("3 frames over 2 frames' pixels") }
         var tight = MediaLimits.contract
         tight.maxBytes = 10
         guard case .failure(.tooLarge) = MediaLoader.decode(Self.realPng(8, 4), limits: tight) else { return XCTFail("byte cap") }

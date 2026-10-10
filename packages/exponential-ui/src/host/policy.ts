@@ -328,9 +328,10 @@ export function imageFrames(bytes: Uint8Array): number {
  *  Rust core's `media_image_within_limits`): a raster (PNG, JPEG, GIF, WebP,
  *  BMP) or SVG whose size cannot be read is refused, and width × height ×
  *  `imageFrames` must fit `maxPixels`. Null = within the limits, else the
- *  reason; bytes of no known image format pass (the decoder refuses them). */
-export function mediaImageWithinLimits(bytes: Uint8Array): string | null {
-  const { maxBytes, maxPixels } = MEDIA_LIMITS
+ *  reason; bytes of no known image format pass (the decoder refuses them).
+ *  `limits` defaults to `MEDIA_LIMITS` (a host may pass its own). */
+export function mediaImageWithinLimits(bytes: Uint8Array, limits: { maxBytes: number; maxPixels: number } = MEDIA_LIMITS): string | null {
+  const { maxBytes, maxPixels } = limits
   if (bytes.length > maxBytes) return `media is over ${maxBytes} bytes`
   const starts = (sig: number[], at = 0) => sig.every((b, i) => bytes[at + i] === b)
   const raster =

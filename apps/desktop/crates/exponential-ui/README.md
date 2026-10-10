@@ -240,7 +240,7 @@ The pure half of the host API, JSON-equal to the TS reference
 `supported_catalog_ids` / `client_capabilities`, `validate_package` /
 `template_messages`, `action_message` / `error_message`; `contract.rs`
 mirrors `catalog/host.json` (drift-tested). An `on.<event>`
-`{functionCall: …}` (or the legacy `function`) to a non-built-in name yields
+`{functionCall: …}` to a non-built-in name yields
 `OutEvent::FunctionCall { component_id, name, args }` (args resolved); the
 facade exposes all of it as JSON-string functions and a `HostRouter` object.
 `tests/conformance.rs` runs the whole conformance suite against the core.

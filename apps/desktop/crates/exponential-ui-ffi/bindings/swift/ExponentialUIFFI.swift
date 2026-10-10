@@ -615,6 +615,24 @@ fileprivate struct FfiConverterString: FfiConverter {
     }
 }
 
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterData: FfiConverterRustBuffer {
+    typealias SwiftType = Data
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> Data {
+        let len: Int32 = try readInt(&buf)
+        return Data(try readBytes(&buf, count: Int(len)))
+    }
+
+    public static func write(_ value: Data, into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        writeBytes(&buf, value)
+    }
+}
+
 
 
 
@@ -5616,6 +5634,96 @@ public func FfiConverterTypeFfiVisual_lower(_ value: FfiVisual) -> RustBuffer {
     return FfiConverterTypeFfiVisual.lower(value)
 }
 
+// Note that we don't yet support `indirect` for enums.
+// See https://github.com/mozilla/uniffi-rs/issues/396 for further discussion.
+/**
+ * What a whole image's bytes say before any decode (VAPP-103, the core's
+ * `image_header`): the natives' media loaders apply the one pixel × frame
+ * rule over it (`media.limits`).
+ */
+
+public enum FfiImageHeader: Equatable, Hashable {
+    
+    /**
+     * No known image format (the platform decoder decides).
+     */
+    case unknown
+    /**
+     * A raster or SVG whose size cannot be read: refused.
+     */
+    case unreadable
+    case size(width: UInt32, height: UInt32, frames: UInt32
+    )
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension FfiImageHeader: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeFfiImageHeader: FfiConverterRustBuffer {
+    typealias SwiftType = FfiImageHeader
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> FfiImageHeader {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .unknown
+        
+        case 2: return .unreadable
+        
+        case 3: return .size(width: try FfiConverterUInt32.read(from: &buf), height: try FfiConverterUInt32.read(from: &buf), frames: try FfiConverterUInt32.read(from: &buf)
+        )
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: FfiImageHeader, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .unknown:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .unreadable:
+            writeInt(&buf, Int32(2))
+        
+        
+        case let .size(width,height,frames):
+            writeInt(&buf, Int32(3))
+            FfiConverterUInt32.write(width, into: &buf)
+            FfiConverterUInt32.write(height, into: &buf)
+            FfiConverterUInt32.write(frames, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiImageHeader_lift(_ buf: RustBuffer) throws -> FfiImageHeader {
+    return try FfiConverterTypeFfiImageHeader.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeFfiImageHeader_lower(_ value: FfiImageHeader) -> RustBuffer {
+    return FfiConverterTypeFfiImageHeader.lower(value)
+}
+
+
 
 public enum UiError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
@@ -6831,6 +6939,17 @@ public func mcpActionCallJson(messageJson: String, tool: String?)throws  -> Stri
 })
 }
 /**
+ * The image header of `bytes` (PNG, JPEG, GIF, WebP, BMP, SVG; frames of
+ * an animated GIF, APNG or WebP).
+ */
+public func mediaImageHeader(bytes: Data) -> FfiImageHeader  {
+    return try!  FfiConverterTypeFfiImageHeader_lift(try! rustCall() {
+    uniffi_exponential_ui_ffi_fn_func_media_image_header(
+        FfiConverterData.lower(bytes),$0
+    )
+})
+}
+/**
  * The media loader's request `{url, headers}` JSON (null when the url does
  * not resolve). `options_json` = `{baseUrl?, rules?: [{prefix, headers}]}`.
  */
@@ -7235,6 +7354,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_mcp_action_call_json() != 5104) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_exponential_ui_ffi_checksum_func_media_image_header() != 16289) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_exponential_ui_ffi_checksum_func_media_request_json() != 38964) {

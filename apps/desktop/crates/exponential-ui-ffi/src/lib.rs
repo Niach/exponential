@@ -2357,6 +2357,29 @@ pub fn media_request_json(url: String, options_json: String) -> Result<Option<St
     Ok(h::media_request(&url, &options).map(|r| json_string(&r)))
 }
 
+/// What a whole image's bytes say before any decode (VAPP-103, the core's
+/// `image_header`): the natives' media loaders apply the one pixel × frame
+/// rule over it (`media.limits`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum FfiImageHeader {
+    /// No known image format (the platform decoder decides).
+    Unknown,
+    /// A raster or SVG whose size cannot be read: refused.
+    Unreadable,
+    Size { width: u32, height: u32, frames: u32 },
+}
+
+/// The image header of `bytes` (PNG, JPEG, GIF, WebP, BMP, SVG; frames of
+/// an animated GIF, APNG or WebP).
+#[uniffi::export]
+pub fn media_image_header(bytes: Vec<u8>) -> FfiImageHeader {
+    shield("media_image_header", || FfiImageHeader::Unreadable, || match h::image_header(&bytes) {
+        h::ImageHeader::Unknown => FfiImageHeader::Unknown,
+        h::ImageHeader::Unreadable => FfiImageHeader::Unreadable,
+        h::ImageHeader::Size { width, height, frames } => FfiImageHeader::Size { width, height, frames },
+    })
+}
+
 /// A binding source URI → `{uri, scheme, name, params}` JSON, null when it
 /// does not parse.
 #[uniffi::export]

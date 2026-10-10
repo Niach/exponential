@@ -21,7 +21,7 @@
 // never evicted.
 
 import { useEffect, useState } from "react"
-import { MEDIA_LIMITS, imageDimensions } from "@exponential-at/ui"
+import { MEDIA_LIMITS, mediaImageWithinLimits } from "@exponential-at/ui"
 import type { HostPlugin } from "./host"
 import { mediaRequestOf, mediaUrlAllowed } from "./urls"
 
@@ -163,7 +163,9 @@ export async function fetchStream(url: string, headers: Record<string, string>, 
 
 /** A fetch under `MEDIA_LIMITS`: the whole request within `timeoutMs`, the
  *  body (Content-Length up front, then as it streams) within `maxBytes`, an
- *  image header's width × height within `maxPixels` (before any decode). */
+ *  image's width × height × frames within `maxPixels` before any decode
+ *  (`mediaImageWithinLimits`: SVG sizes count, an unreadable raster is
+ *  refused). */
 export async function fetchLimited(url: string, headers: Record<string, string>, limits: { maxBytes: number; timeoutMs: number; maxPixels: number } = MEDIA_LIMITS): Promise<Blob> {
   const abort = new AbortController()
   const timer = setTimeout(() => abort.abort(new Error(`media timed out after ${limits.timeoutMs} ms`)), limits.timeoutMs)
@@ -191,23 +193,22 @@ export async function fetchLimited(url: string, headers: Record<string, string>,
       if (all.byteLength > limits.maxBytes) throw over()
       chunks.push(all)
     }
-    const head = chunks.length === 1 ? chunks[0]! : concat(chunks, 64 * 1024)
-    const dims = imageDimensions(head)
-    if (dims && dims[0] * dims[1] > limits.maxPixels) throw new Error(`media is ${dims[0]}×${dims[1]}, over ${limits.maxPixels} pixels`)
+    // The whole body: SVG sizes, animation frames and unreadable rasters
+    // follow the core's pixel × frame rule (gpui, SwiftUI, Compose alike).
+    const refused = mediaImageWithinLimits(chunks.length === 1 ? chunks[0]! : concat(chunks), limits)
+    if (refused) throw new Error(refused)
     return new Blob(chunks as BlobPart[], { type: r.headers.get(`content-type`) ?? `` })
   } finally {
     clearTimeout(timer)
   }
 }
 
-function concat(chunks: readonly Uint8Array[], max: number): Uint8Array {
-  const out = new Uint8Array(Math.min(max, chunks.reduce((n, c) => n + c.byteLength, 0)))
+function concat(chunks: readonly Uint8Array[]): Uint8Array {
+  const out = new Uint8Array(chunks.reduce((n, c) => n + c.byteLength, 0))
   let at = 0
   for (const c of chunks) {
-    if (at >= out.length) break
-    const part = c.subarray(0, out.length - at)
-    out.set(part, at)
-    at += part.length
+    out.set(c, at)
+    at += c.byteLength
   }
   return out
 }

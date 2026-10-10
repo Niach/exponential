@@ -38,6 +38,7 @@ import { neutralTheme } from "../themes"
 import { CORE_CATALOG_ID } from "../catalog"
 import { englishFormatter } from "../format"
 import { A11Y_COMMANDS } from "../a11y"
+import { LIMIT_ISSUES, MAX_MESSAGE_BYTES } from "../limits"
 
 function feed(dec: { push(c: string): Decoded; end(): Decoded }, chunks: string[]): Decoded {
   const out: Decoded = { messages: [], issues: [] }
@@ -396,5 +397,45 @@ describe(`stream transports`, () => {
     await tick(30) // one reconnect, from the new loop only
     t.close()
     expect(gets.length).toBe(3)
+  })
+})
+
+describe(`VAPP-103: the stream decoders cap a line or event at maxMessageBytes (the Rust core's rule)`, () => {
+  test(`a JSONL line past the limit is ONE issue, never buffered; the lines around it decode`, () => {
+    const d = new JsonlDecoder()
+    const out = d.push(`{"a":1}\n`)
+    const big = `x`.repeat(1 << 20)
+    const add = (o: { messages: unknown[]; issues: unknown[] }) => (out.messages.push(...o.messages), out.issues.push(...(o.issues as typeof out.issues)))
+    for (let i = 0; i < 5; i++) add(d.push(big))
+    add(d.push(`still the big line\n{"b":2}\n`))
+    add(d.end())
+    expect(out.messages).toEqual([{ a: 1 }, { b: 2 }])
+    expect(out.issues).toEqual([{ at: 2, message: `line 2: ${LIMIT_ISSUES.messageBytes}` }])
+    // One chunk, multi-byte: the limit counts UTF-8 bytes.
+    const wide = new JsonlDecoder()
+    const one = wide.push(`${`é`.repeat(MAX_MESSAGE_BYTES / 2 + 1)}\n{"c":3}\n`)
+    expect([one.messages.length, one.issues.length]).toEqual([1, 1])
+    expect(new JsonlDecoder().push(`"${`é`.repeat(MAX_MESSAGE_BYTES / 2 - 1)}"\n`).issues).toEqual([])
+  })
+
+  test(`a JSONL stream fed in tiny chunks decodes linearly`, () => {
+    const line = `{"text":"${`z`.repeat(200_000)}"}\n`
+    const d = new JsonlDecoder()
+    const t = performance.now()
+    let messages = 0
+    for (let i = 0; i < line.length; i += 7) messages += d.push(line.slice(i, i + 7)).messages.length
+    expect(messages).toBe(1)
+    expect(performance.now() - t).toBeLessThan(2000)
+  })
+
+  test(`an SSE event past the limit is ONE issue; its data is dropped`, () => {
+    const d = new SseDecoder()
+    const out = d.push(`data: {"a":1}\n\n`)
+    const chunk = `data: ${`x`.repeat(1 << 20)}\n`
+    for (let i = 0; i < 5; i++) d.push(chunk)
+    const rest = d.push(`\ndata: {"b":2}\n\n`)
+    const end = d.end()
+    expect([...out.messages, ...rest.messages, ...end.messages]).toEqual([{ a: 1 }, { b: 2 }])
+    expect([...out.issues, ...rest.issues, ...end.issues]).toEqual([{ at: 2, message: `event 2: ${LIMIT_ISSUES.messageBytes}` }])
   })
 })

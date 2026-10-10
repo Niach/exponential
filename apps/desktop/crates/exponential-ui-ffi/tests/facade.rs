@@ -409,7 +409,7 @@ fn a_hover_card_closes_through_the_hover_timer() {
     let timer = surface.take_events().into_iter().find(|e| e.kind == "hoverTimer").expect("a hover timer");
     let t: Value = serde_json::from_str(&timer.json).unwrap();
     assert_eq!(t["owner"], json!("hc"));
-    assert_eq!(t["delay_ms"], json!(150));
+    assert_eq!(t["delayMs"], json!(150));
     assert_eq!(surface.layout_fixed(None, true).unwrap().layers.len(), 1, "still open until the timer fires");
     assert!(surface.hover_timeout("hc".into()).iter().any(|e| e.kind == "relayout"));
     assert!(surface.layout_fixed(None, true).unwrap().layers.is_empty());

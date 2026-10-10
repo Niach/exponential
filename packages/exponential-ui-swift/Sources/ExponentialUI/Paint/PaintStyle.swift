@@ -153,7 +153,7 @@ public struct PaintStyle: Equatable, Sendable {
     public var gap: CGFloat = 0
     /// `native: true` on the part's recipe.
     public var native: Bool = false
-    /// Legacy flags (either axis clips / scrolls).
+    /// The `overflow` shorthand (`hidden` / `scroll`; a per-axis value wins).
     public var overflowHidden = false
     public var overflowScroll = false
     public var clipX = false
