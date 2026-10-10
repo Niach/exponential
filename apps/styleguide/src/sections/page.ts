@@ -136,6 +136,9 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`session-thread`]: `Lists & rows`,
   [`pr-graph-badge`]: `Buttons & chips`,
   [`jump-to-bottom`]: `Buttons & chips`,
+  [`team-agents-settings`]: `Surfaces`,
+  [`your-agent-settings`]: `Surfaces`,
+  [`voice-call-overlay`]: `Surfaces`,
 }
 
 /** The band an unregistered entry falls back to, so the page always draws it. */

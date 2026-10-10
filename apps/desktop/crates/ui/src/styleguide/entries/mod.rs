@@ -37,12 +37,18 @@ pub(crate) mod mcp_app_views;
 pub(crate) mod run_status_row;
 pub(crate) mod session_thread;
 pub(crate) mod composer_options;
+pub(crate) mod team_agents_settings;
+pub(crate) mod your_agent_settings;
+pub(crate) mod voice_call_overlay;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
-/// than a demo. None is any more: EXP-1031 filled the last one (`toast`).
-/// The check stays so a future entry can land as a placeholder first.
-pub(crate) fn is_placeholder(_id: &str) -> bool {
-    false
+/// than a demo. EXP-1268/1269 landed three design drafts on the web page
+/// first; their IDE entries say so until the surfaces are built.
+pub(crate) fn is_placeholder(id: &str) -> bool {
+    matches!(
+        id,
+        team_agents_settings::ID | your_agent_settings::ID | voice_call_overlay::ID
+    )
 }
 
 /// A demo: the entry's element, built with the window and the app so it
@@ -92,4 +98,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: run_status_row::ID, owner: run_status_row::OWNER, render: run_status_row::render },
     Entry { id: session_thread::ID, owner: session_thread::OWNER, render: session_thread::render },
     Entry { id: composer_options::ID, owner: composer_options::OWNER, render: composer_options::render },
+    Entry { id: team_agents_settings::ID, owner: team_agents_settings::OWNER, render: team_agents_settings::render },
+    Entry { id: your_agent_settings::ID, owner: your_agent_settings::OWNER, render: your_agent_settings::render },
+    Entry { id: voice_call_overlay::ID, owner: voice_call_overlay::OWNER, render: voice_call_overlay::render },
 ];
