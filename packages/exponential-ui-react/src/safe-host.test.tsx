@@ -51,6 +51,21 @@ describe(`FileUpload: a file url passes the URL policy`, () => {
   })
 })
 
+describe(`Link: an external href opens through host.openUrl`, () => {
+  it(`external + host.openUrl: the host opens it (no bare new tab); a denied one never reaches it`, () => {
+    const openUrl = vi.fn()
+    const c = paint({ id: `l`, component: `Link`, props: { href: `https://exponential.at/docs`, label: `Docs`, external: true } }, { openUrl })
+    const ev = new MouseEvent(`click`, { bubbles: true, cancelable: true })
+    c.querySelector(`a`)!.dispatchEvent(ev)
+    expect(ev.defaultPrevented).toBe(true)
+    expect(openUrl).toHaveBeenCalledWith(`https://exponential.at/docs`)
+    cleanup()
+    const d = paint({ id: `l`, component: `Link`, props: { href: `javascript:alert(1)`, label: `x`, external: true } }, { openUrl })
+    fireEvent.click(d.querySelector(`a`)!)
+    expect(openUrl).toHaveBeenCalledTimes(1)
+  })
+})
+
 describe(`openUrl without a host opener: the policy still applies`, () => {
   it(`opens https in a new tab, never javascript:`, () => {
     const open = vi.spyOn(window, `open`).mockImplementation(() => null)
