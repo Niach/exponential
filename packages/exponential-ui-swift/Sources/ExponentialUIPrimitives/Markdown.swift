@@ -87,7 +87,7 @@ public enum Markdown {
     static func linkAt(_ s: Substring, emptyLabel: Bool = false, scan: InlineScan? = nil) -> (label: Substring, href: String, consumed: Int)? {
         guard s.hasPrefix("[") else { return nil }
         let scan = scan ?? InlineScan(s.base)
-        guard let open = scan.ordinal[s.startIndex], let limit = scan.ordinal[s.endIndex],
+        guard let open = scan.ordinal(s.startIndex), let limit = scan.ordinal(s.endIndex),
               let close = scan.closeBracket(open, limit: limit) else { return nil }
         let label = s[scan.index[open + 1]..<scan.index[close]]
         let paren = close + 1
@@ -115,7 +115,6 @@ public enum Markdown {
         let chars: [Character]
         /// Ordinal → string index (`count` = the end index).
         let index: [String.Index]
-        let ordinal: [String.Index: Int]
         private var bracketDepth: [Int] = []
         private var bracketClosers: [Int: [Int]] = [:]
         private var parenDepth: [Int] = []
@@ -134,10 +133,6 @@ public enum Markdown {
             index.append(base.endIndex)
             self.chars = chars
             self.index = index
-            var ordinal: [String.Index: Int] = [:]
-            ordinal.reserveCapacity(index.count)
-            for (n, idx) in index.enumerated() { ordinal[idx] = n }
-            self.ordinal = ordinal
             let n = chars.count
             bracketDepth = Array(repeating: 0, count: n + 1)
             parenDepth = Array(repeating: 0, count: n + 1)
@@ -174,6 +169,16 @@ public enum Markdown {
                 p += 1
             }
             if n < parenDepth.count { parenDepth[n] = d }
+        }
+
+        /// The ordinal of a character boundary of the string (binary search).
+        func ordinal(_ i: String.Index) -> Int? {
+            var lo = 0, hi = index.count
+            while lo < hi {
+                let mid = (lo + hi) / 2
+                if index[mid] < i { lo = mid + 1 } else { hi = mid }
+            }
+            return lo < index.count && index[lo] == i ? lo : nil
         }
 
         /// The first element of sorted `list` greater than `after`.

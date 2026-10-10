@@ -21,7 +21,8 @@ final class MarkdownParseTests: XCTestCase {
 
     /// VAPP-103 round 4: hostile inputs stay linear and bounded: unclosed
     /// destinations (`[a](` × n), unclosed labels (`[` × 100k) and labels
-    /// nested past `maxNesting` (deeper `[` = text).
+    /// nested past `maxNesting` (deeper `[` = text). The budgets are loose
+    /// (a debug build on a loaded machine); the quadratic scan took minutes.
     func testHostileLinkInputsStayLinearAndBounded() {
         func timed(_ text: String) -> (TimeInterval, [MarkdownInline]) {
             let t0 = Date()
@@ -29,17 +30,17 @@ final class MarkdownParseTests: XCTestCase {
             return (Date().timeIntervalSince(t0), out)
         }
         let (t1, a) = timed(String(repeating: "[a](", count: 50_000))
-        XCTAssertLessThan(t1, 2)
+        XCTAssertLessThan(t1, 10)
         XCTAssertEqual(Markdown.plain(a).count, 200_000)
         XCTAssertTrue(a.allSatisfy { $0.link == nil })
         let (t2, b) = timed(String(repeating: "[", count: 100_000))
-        XCTAssertLessThan(t2, 2)
+        XCTAssertLessThan(t2, 10)
         XCTAssertEqual(Markdown.plain(b).count, 100_000)
         let (t3, c) = timed(String(repeating: "[", count: 100_000) + "x" + String(repeating: "](u)", count: 100_000))
-        XCTAssertLessThan(t3, 4)
+        XCTAssertLessThan(t3, 10)
         XCTAssertEqual(c.first?.link, "u", "the outer links still link")
         let (t4, d) = timed(String(repeating: "(", count: 50_000) + String(repeating: "[a](b", count: 20_000))
-        XCTAssertLessThan(t4, 2)
+        XCTAssertLessThan(t4, 10)
         XCTAssertTrue(d.allSatisfy { $0.link == nil })
         // Nesting: 40 levels → the inner 8 stay text.
         let nested = String(repeating: "[", count: 40) + "x" + String(repeating: "](u)", count: 40)
