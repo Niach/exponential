@@ -1,6 +1,19 @@
-- Guide: egy issue Changes és Results nézete mostantól egyetlen Guide; az agent jelentésének minden szakasza saját diffet nyit, a Show complete diff pedig legalul található
-- Futtatások: a futtatás szála körről körre olvasható, köztük a saját üzeneteiddel, és egy egymásra épülő pull request egyetlen Merge stack vezérlővel egyesíthető
-- Szerkesztő: a + gomb egyetlen menüt nyit (issue megvalósítása, művelet futtatása, legfeljebb 50 MB-os fájl vagy kép hozzáadása, ráfordítás, alagentek, MCP-szerverek, számítógép-használat); a javaslatok visszafogott sorok a mező alatt
-- Hivatkozások: egy agent válaszában vagy a Guide-ban lévő, futtatásra vagy issue-ra mutató hivatkozás az appban nyílik meg, a többi hivatkozás az app böngészőjében, a puszta URL-ek pedig koppinthatók
-- Műveletek: sikertelen egyesítéskor a Fix merge conflicts jelenik meg, egy beépített művelet, amely rebase-el, feloldja az ütközéseket és egyesíti a pull requestet
-- Javítások: a Reviews megnevezi annak a pull requestnek az issue-ját, amelynek repója egy másik csapatban van csatlakoztatva, a munkamenet szövege már nem fedi egymást, eltűnt egy duplikált gomb, és egy finomhangolási kör egységesíti a sorokat, térközöket és szövegeket az egész appban
+- Guide: egy issue Changes és Results nézete most egyetlen Guide; az ügynök jelentésének minden szakasza saját diffet nyit, a Show complete diff alul van, a Merge pedig az alsó sávon marad, amíg a pull request nyitva van
+- Futtatások: egy futtatás szálként nyílik állapotsorral (eszköz, eltelt idő, utolsó eszközsor), és körről körre olvasható a saját üzeneteiddel; a Show work a teljes átiratot nyitja meg, egy nyíl a legújabb üzenetre ugrik, a feladatlista pedig a haladást mutatja
+- Futtatások: az ügynök jele forog, amíg dolgozik, a borostyán rád vár, a zöldnek nyitott pull requestje van, a kék kész, és a futtatás Working állapotú, amíg az ügynök tényleg nem végzett
+- Szerkesztő: a + gomb egyetlen menüt nyit (issue megvalósítása, művelet futtatása, legfeljebb 50 MB-os fájl vagy kép, ráfordítás, alügynökök, MCP-szerverek, Computer use); a javaslatok halk sorok a mező alatt
+- Linkek: egy futtatásra vagy issue-ra mutató link az ügynök válaszában vagy a Guide-ban az appban nyílik meg, a többi a beépített böngészőben, a puszta URL-ek pedig koppinthatók
+- Stackek: egy blokkolt issue indulhat Stacked PR-ként, amely alulról felfelé építi fel a pull requestek teljes sorát, a stackelt pull request pedig egyetlen Merge stack vezérlővel egyesíthető
+- Műveletek: az automatizálások most triggerek az általuk futtatott műveleten, minden művelet egy oldal prompttal, triggerekkel és futtatásokkal, a sikertelen merge Fix merge conflicts lehetőséget kínál, a Tidy up rendet rak egy boardon, a művelet törlése pedig megerősítést kér
+- Navigáció: az app az Agent oldalon nyílik Inbox, Devices, Reviews, Agent és Actions lapokkal; a Reviews, a futtatások, műveletek és eszközök minden csapatodat mutatják, az Inbox, My issues és Drafts között oldalra lehet húzni
+- Reviews: egy chatből vagy műveletből származó pull request az appban nyitja meg a Guide-ját, és egy másik csapatban csatlakoztatott repository pull requestje megnevezi az issue-ját
+- Új issue: az issue létrehozása teljes oldalt nyit minden tulajdonsággal, gépelés közben piszkozatként mentve; egy másik eszközön piszkozatból létrehozott issue itt megnyílik, és a tartalmas piszkozat elhagyásakor Create, Keep as draft vagy Discard a kérdés
+- Issue-k: a Start coding Ready to code ellenőrzőlistát nyit, ha valami hiányzik, egy al-issue megnevezi a szülőjét és gyűrűvel mutatja a haladást, a kapcsolatok összecsukható szakaszokba rendeződnek, a cím pedig görgetéskor a fejlécbe kerül
+- GitHub: egyetlen vezetett oldal összekapcsolja GitHub-fiókodat, telepíti az appot és listázza a repositorykat, ahová pusholhatsz
+- Visszajelzés: egy widgetes beküldés egy issue; a bejelentőnek a hozzászólásmezőből válaszolhatsz, és válaszai hozzászólásként érkeznek vissza
+- Fiók: módosítsd az e-mail-címed kóddal, kapcsold össze vagy le a Google, Apple és OIDC belépéseket, amíg marad más belépési mód, és kezeld a passkey-eket
+- MCP-szerverek: egyszer kapcsold össze a fiókodat a weben egy csapat MCP-szerverével, és minden futtatás, amit bármely gépen indítasz, azt használja
+- Eszközök: a készenléti blokk megmondja, mi kell még egy gépnek, a Computer use eszközönként bekapcsolható, és minden ügynökbelépés kínál Sign out lehetőséget
+- Párbeszédek és értesítések: minden megerősítés és választás ugyanazt a kártyát használja, a Return soha nem választ romboló választ, az értesítések pedig egymásra rakódnak, koppintásra kinyílnak, húzásra eltűnnek
+- Csatlakozás egy csapathoz: a meghívás felajánlja az eszközbeállítás lépést, ha még nincs eszközöd, és az e-mail-kódos regisztráció megkérdezi a neved
+- Javítások: a boardok jelzőt mutatnak, amíg az issue-k megérkeznek, a munkamenet szövege már nem fedi egymást, eltűnt egy duplikált gomb, elindul a futtatás üres repositoryn, egy csiszolási kör pedig egységesíti a sorokat, térközöket és szövegeket az egész appban

@@ -1,6 +1,19 @@
-- Guide: de Changes en Results van een issue zijn nu één Guide; elke sectie van het agentrapport opent een eigen diff, en Show complete diff staat onderaan
-- Runs: de run-thread leest beurt voor beurt met je eigen berichten ertussen, en een gestapelde pull request wordt gemerged met één Merge stack-knop
-- Invoer: de knop + opent één menu (een issue implementeren, een actie uitvoeren, een bestand of afbeelding tot 50 MB toevoegen, inspanning, subagents, MCP-servers, computergebruik); suggesties zijn rustige rijen onder het veld
+- Guide: de Changes en Results van een issue zijn nu één Guide; elke sectie van het agentrapport opent een eigen diff, Show complete diff staat onderaan, en Merge staat in de onderste balk zolang de pull request open is
+- Runs: een run opent als thread met een statusrij (apparaat, verstreken tijd, laatste toolregel) en leest beurt voor beurt met je eigen berichten ertussen; Show work opent het volledige transcript, een pijl springt naar het nieuwste bericht, en de takenlijst toont de voortgang
+- Runs: het agentteken draait terwijl hij werkt, amber wacht op jou, groen heeft een open pull request, blauw is klaar, en een run toont Working tot de agent echt klaar is
+- Invoer: de knop + opent één menu (een issue implementeren, een actie uitvoeren, een bestand of afbeelding tot 50 MB toevoegen, inspanning, subagents, MCP-servers, Computer use); suggesties zijn rustige rijen onder het veld
 - Links: een link in een antwoord van de agent of in de Guide die naar een run of issue wijst, opent in de app, andere links openen in de ingebouwde browser, en kale URL's zijn tikbaar
-- Acties: een mislukte merge biedt Fix merge conflicts aan, een ingebouwde actie die de pull request rebaset, conflicten oplost en merget
-- Oplossingen: Reviews noemt het issue van een pull request waarvan de repository in een ander team is gekoppeld, sessietekst overlapt niet meer, een dubbele knop is weg, en een poetsronde stemt rijen, witruimte en teksten in de hele app op elkaar af
+- Stacks: een geblokkeerd issue kan starten als Stacked PR die de hele reeks pull requests van onder naar boven bouwt, en een gestapelde pull request wordt gemerged met één Merge stack-knop
+- Actions: automatiseringen zijn nu triggers op de actie die ze uitvoeren, elke actie is een pagina met prompt, triggers en runs, een mislukte merge biedt Fix merge conflicts aan, Tidy up ruimt een board op, en een actie verwijderen vraagt eerst
+- Navigatie: de app opent op de Agent-pagina met de tabbladen Inbox, Devices, Reviews, Agent en Actions; Reviews, runs, acties en apparaten tonen al je teams, en Inbox, My issues en Drafts veeg je opzij
+- Reviews: een pull request uit een chat- of actierun opent zijn Guide in de app, en een pull request waarvan de repository in een ander team is gekoppeld, noemt zijn issue
+- Nieuw issue: een issue aanmaken opent een volledige pagina met elke eigenschap, opgeslagen als concept terwijl je typt; een issue gemaakt van een concept op een ander apparaat landt hier op het issue, en een concept met inhoud verlaten vraagt Create, Keep as draft of Discard
+- Issues: Start coding opent een Ready to code-checklist als er iets ontbreekt, een subissue noemt zijn ouder en toont de voortgang met een ring, relaties groeperen in inklapbare secties, en de titel schuift bij scrollen in de koptekst
+- GitHub: één begeleide pagina koppelt je GitHub-account, installeert de app en toont de repositories waarnaar je kunt pushen
+- Feedback: een widgetinzending is een issue; antwoord de melder vanuit het reactieveld en zijn antwoorden komen terug als reacties
+- Account: wijzig je e-mail met een code, koppel of ontkoppel Google-, Apple- en OIDC-logins zolang er een andere toegang blijft, en beheer passkeys
+- MCP-servers: koppel je eigen account één keer op het web aan een team-MCP-server, en elke run die je op welke machine dan ook start, gebruikt hem
+- Apparaten: het gereedheidsblok zegt wat een machine nog nodig heeft, Computer use kan per apparaat aan, en elke agentlogin biedt Sign out
+- Dialogen en meldingen: elke bevestiging en keuze gebruikt dezelfde kaart, Return kiest nooit een destructief antwoord, en meldingen stapelen, tik om uit te klappen, veeg om te sluiten
+- Lid worden van een team: de uitnodiging biedt de apparaatstap aan als je nog geen apparaat hebt, en aanmelden met een e-mailcode vraagt je naam
+- Oplossingen: boards tonen een spinner tot hun issues binnen zijn, sessietekst overlapt niet meer, een dubbele knop is weg, een run op een lege repository start, en een poetsronde stemt rijen, witruimte en teksten in de hele app op elkaar af

@@ -1,6 +1,19 @@
-- Guide: issuen Changes ja Results ovat nyt yksi Guide; jokainen agentin raportin osio avaa oman diffinsä, ja Show complete diff on alimpana
-- Ajot: ajon ketju etenee vuoro vuorolta omat viestisi välissä, ja pinottu pull request yhdistetään yhdellä Merge stack -painikkeella
-- Kirjoituskenttä: +-painike avaa yhden valikon (toteuta issue, suorita toiminto, lisää enintään 50 MB:n tiedosto tai kuva, työmäärä, aliagentit, MCP-palvelimet, tietokoneen käyttö); ehdotukset ovat hillittyjä rivejä kentän alla
-- Linkit: agentin vastauksessa tai Guidessa oleva linkki, joka osoittaa ajoon tai issueen, avautuu sovelluksessa, muut linkit sovelluksen selaimessa, ja pelkkiä URL-osoitteita voi napauttaa
-- Toiminnot: epäonnistunut yhdistäminen tarjoaa Fix merge conflicts -toimintoa, sisäänrakennettua toimintoa, joka tekee rebasen, ratkaisee konfliktit ja yhdistää pull requestin
-- Korjaukset: Reviews nimeää sen pull requestin issuen, jonka repositorio on yhdistetty toisessa tiimissä, istunnon teksti ei enää mene päällekkäin, tuplapainike on poissa, ja viimeistelykierros yhtenäistää rivit, välit ja tekstit koko sovelluksessa
+- Guide: issuen Changes ja Results ovat nyt yksi Guide; agentin raportin jokainen osio avaa oman diffinsä, Show complete diff on alhaalla, ja Merge pysyy alapalkissa, kun pull request on auki
+- Ajot: ajo avautuu ketjuna, jossa on tilarivi (laite, kulunut aika, viimeisin työkalurivi), ja se luetaan vuoro vuorolta omien viestiesi kanssa; Show work avaa koko lokin, nuoli hyppää uusimpaan viestiin, ja tehtävälista näyttää edistymisen
+- Ajot: agentin merkki pyörii sen työskennellessä, keltainen odottaa sinua, vihreällä on avoin pull request, sininen on valmis, ja ajo näyttää Working, kunnes agentti on oikeasti valmis
+- Kirjoituskenttä: +-painike avaa yhden valikon (toteuta issue, aja toiminto, lisää enintään 50 MB:n tiedosto tai kuva, vaiva, aliagentit, MCP-palvelimet, Computer use); ehdotukset ovat hillittyjä rivejä kentän alla
+- Linkit: agentin vastauksessa tai Guidessa oleva linkki ajoon tai issueen avautuu sovelluksessa, muut linkit sisäisessä selaimessa, ja paljaita URL-osoitteita voi napauttaa
+- Pinot: estetty issue voi alkaa Stacked PR:nä, joka rakentaa koko pull request -sarjan alhaalta ylös, ja pinottu pull request yhdistetään yhdellä Merge stack -ohjaimella
+- Toiminnot: automaatiot ovat nyt laukaisimia toiminnossa, jota ne ajavat, jokainen toiminto on sivu, jossa on prompt, laukaisimet ja ajot, epäonnistunut merge tarjoaa Fix merge conflicts, Tidy up siivoaa boardin, ja toiminnon poisto kysyy ensin
+- Navigointi: sovellus avautuu Agent-sivulle välilehdillä Inbox, Devices, Reviews, Agent ja Actions; Reviews, ajot, toiminnot ja laitteet kattavat kaikki tiimisi, ja Inbox, My issues ja Drafts pyyhkäistään sivuttain
+- Reviews: chatista tai toiminnosta tullut pull request avaa Guidensa sovelluksessa, ja pull request, jonka repository on yhdistetty toisessa tiimissä, nimeää issuensa
+- Uusi issue: issuen luonti avaa koko sivun kaikkine ominaisuuksineen, tallennettuna luonnoksena kirjoittaessa; toisella laitteella luonnoksesta luotu issue avautuu tässä, ja sisältöä sisältävästä luonnoksesta poistuttaessa kysytään Create, Keep as draft tai Discard
+- Issuet: Start coding avaa Ready to code -tarkistuslistan, kun jotain puuttuu, aliissue nimeää yläissuensa ja näyttää edistymisen renkaalla, suhteet ryhmittyvät taitettaviin osioihin, ja otsikko siirtyy vierittäessä yläpalkkiin
+- GitHub: yksi opastettu sivu yhdistää GitHub-tilisi, asentaa sovelluksen ja listaa repositoryt, joihin voit pushata
+- Palaute: widgetin kautta lähetetty palaute on issue; vastaa lähettäjälle kommenttikentästä, ja vastaukset palaavat kommentteina
+- Tili: vaihda sähköpostisi koodilla, liitä tai irrota Google-, Apple- ja OIDC-kirjautumiset, kunhan jokin muu kirjautumistapa jää, ja hallitse pääsyavaimia
+- MCP-palvelimet: yhdistä oma tilisi kerran verkossa tiimin MCP-palvelimeen, ja jokainen ajo, jonka käynnistät millä tahansa koneella, käyttää sitä
+- Laitteet: valmiuslohko kertoo, mitä koneelta vielä puuttuu, Computer use kytketään päälle laitekohtaisesti, ja jokainen agenttikirjautuminen tarjoaa Sign out
+- Valintaikkunat ja ilmoitukset: jokainen vahvistus ja valinta käyttää samaa korttia, Return ei koskaan valitse tuhoavaa vastausta, ja ilmoitukset pinoutuvat, napauta laajentaaksesi, pyyhkäise sulkeaksesi
+- Tiimiin liittyminen: kutsu tarjoaa laitteen määritysvaiheen, jos sinulla ei vielä ole laitetta, ja sähköpostikoodilla rekisteröityminen kysyy nimeäsi
+- Korjaukset: boardit näyttävät latausosoittimen, kunnes issuet saapuvat, istunnon teksti ei enää mene päällekkäin, tuplapainike on poissa, ajo tyhjässä repositoryssa käynnistyy, ja viimeistelykierros yhtenäistää rivit, välit ja tekstit koko sovelluksessa

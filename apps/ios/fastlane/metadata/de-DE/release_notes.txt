@@ -1,6 +1,19 @@
-- Guide: Changes und Results eines Issues sind jetzt ein einziger Guide; jeder Abschnitt des Agent-Berichts öffnet seinen eigenen Diff, und Show complete diff steht ganz unten
-- Runs: der Run-Thread liest sich Zug um Zug mit deinen eigenen Nachrichten dazwischen, und ein gestapelter Pull Request wird mit einer einzigen Merge stack-Steuerung gemergt
-- Eingabe: die Schaltfläche + öffnet ein einziges Menü (Issue umsetzen, Action ausführen, Datei oder Bild bis 50 MB hinzufügen, Aufwand, Subagents, MCP-Server, Computer Use); Vorschläge sind dezente Zeilen unter dem Feld
+- Guide: Changes und Results eines Issues sind jetzt ein Guide; jeder Abschnitt des Agent-Berichts öffnet seinen eigenen Diff, Show complete diff steht unten, und Merge sitzt in der unteren Leiste, solange der Pull Request offen ist
+- Runs: ein Run öffnet sich als Thread mit Statuszeile (Gerät, Laufzeit, letzte Tool-Zeile) und liest sich Zug um Zug mit deinen Nachrichten dazwischen; Show work öffnet das volle Protokoll, ein Pfeil springt zur neuesten Nachricht, und die Aufgabenliste zeigt den Fortschritt
+- Runs: das Agent-Symbol dreht sich, während er arbeitet, Bernstein wartet auf dich, Grün hat einen offenen Pull Request, Blau ist fertig, und ein Run zeigt Working, bis der Agent wirklich fertig ist
+- Eingabe: die Schaltfläche + öffnet ein Menü (Issue umsetzen, Action ausführen, Datei oder Bild bis 50 MB hinzufügen, Aufwand, Subagents, MCP-Server, Computer use); Vorschläge sind dezente Zeilen unter dem Feld
 - Links: ein Link in einer Agent-Antwort oder im Guide, der auf einen Run oder ein Issue zeigt, öffnet sich in der App, andere Links im In-App-Browser, und nackte URLs sind antippbar
-- Actions: ein fehlgeschlagener Merge bietet Fix merge conflicts an, eine eingebaute Action, die den Pull Request rebased, Konflikte löst und mergt
-- Fehlerbehebungen: Reviews nennt das Issue eines Pull Requests, dessen Repository in einem anderen Team verbunden ist, Sitzungstext überlappt nicht mehr, eine doppelte Schaltfläche ist weg, und eine Feinschliff-Runde gleicht Zeilen, Abstände und Texte in der ganzen App an
+- Stacks: ein blockiertes Issue kann als Stacked PR starten, der die ganze Reihe von Pull Requests von unten nach oben baut, und ein gestapelter Pull Request wird mit einer Merge stack-Steuerung gemergt
+- Actions: Automationen sind jetzt Trigger an der Action, die sie ausführen, jede Action ist eine Seite mit Prompt, Triggern und Runs, ein fehlgeschlagener Merge bietet Fix merge conflicts an, Tidy up räumt ein Board auf, und das Löschen einer Action fragt nach
+- Navigation: die App öffnet auf der Agent-Seite mit den Tabs Inbox, Devices, Reviews, Agent und Actions; Reviews, Runs, Actions und Geräte listen alle deine Teams, und Inbox, My issues und Drafts wischen seitwärts
+- Reviews: ein Pull Request aus einem Chat- oder Action-Run öffnet seinen Guide in der App, und ein Pull Request, dessen Repository in einem anderen Team verbunden ist, nennt sein Issue
+- Neues Issue: ein neues Issue öffnet eine volle Seite mit allen Eigenschaften, beim Tippen als Entwurf gespeichert; ein aus einem Entwurf auf einem anderen Gerät erstelltes Issue landet hier auf dem Issue, und ein Entwurf mit Inhalt fragt beim Verlassen Create, Keep as draft oder Discard
+- Issues: Start coding öffnet eine Ready to code-Checkliste, wenn etwas fehlt, ein Sub-Issue nennt sein Eltern-Issue und zeigt den Fortschritt als Ring, Beziehungen gruppieren sich in einklappbare Abschnitte, und der Titel klappt beim Scrollen in die Kopfzeile
+- GitHub: eine geführte Seite verbindet dein GitHub-Konto, installiert die App und listet die Repositories, in die du pushen kannst
+- Feedback: eine Widget-Einsendung ist ein Issue; antworte dem Melder aus dem Kommentarfeld, und seine Antworten kommen als Kommentare zurück
+- Konto: ändere deine E-Mail mit einem Code, verknüpfe oder trenne Google-, Apple- und OIDC-Logins, solange ein anderer Zugang bleibt, und verwalte Passkeys
+- MCP-Server: verbinde dein Konto einmal im Web mit einem Team-MCP-Server, und jeder Run, den du auf irgendeinem Rechner startest, nutzt ihn
+- Geräte: der Bereitschaftsblock sagt, was ein Rechner noch braucht, Computer use lässt sich pro Gerät einschalten, und jeder Agent-Login bietet Sign out
+- Dialoge und Hinweise: jede Bestätigung und Auswahl nutzt dieselbe Karte, Return wählt nie eine destruktive Antwort, und Hinweise stapeln sich, Tippen klappt sie auf, Wischen schließt sie
+- Team beitreten: der Einladungsablauf bietet den Geräte-Schritt an, wenn du noch kein Gerät hast, und die Registrierung mit E-Mail-Code fragt nach deinem Namen
+- Fehlerbehebungen: Boards zeigen einen Spinner, bis ihre Issues da sind, Sitzungstext überlappt nicht mehr, eine doppelte Schaltfläche ist weg, ein Run in einem leeren Repository startet, und eine Feinschliff-Runde gleicht Zeilen, Abstände und Texte in der ganzen App an

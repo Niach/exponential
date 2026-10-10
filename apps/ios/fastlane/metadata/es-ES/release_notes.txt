@@ -1,6 +1,19 @@
-- Guide: Changes y Results de un issue ahora son un solo Guide; cada sección del informe del agente abre su propio diff, y Show complete diff queda al final
-- Ejecuciones: el hilo de la ejecución se lee turno a turno con tus propios mensajes en medio, y una pull request apilada se fusiona con un solo control Merge stack
-- Editor: el botón + abre un único menú (implementar un issue, ejecutar una acción, añadir un archivo o imagen de hasta 50 MB, esfuerzo, subagentes, servidores MCP, uso del ordenador); las sugerencias son filas discretas bajo el cuadro
-- Enlaces: un enlace en una respuesta del agente o en el Guide que apunta a una ejecución o un issue se abre en la app, los demás enlaces en el navegador integrado, y las URL sueltas se pueden tocar
-- Acciones: una fusión fallida ofrece Fix merge conflicts, una acción integrada que hace rebase, resuelve los conflictos y fusiona la pull request
-- Correcciones: Reviews nombra el issue de una pull request cuyo repositorio está conectado en otro equipo, el texto de la sesión ya no se solapa, desaparece un botón duplicado, y una ronda de pulido alinea filas, espaciado y textos en toda la app
+- Guide: los Changes y Results de una incidencia son ahora un solo Guide; cada sección del informe del agente abre su propio diff, Show complete diff está abajo y Merge queda en la barra inferior mientras la pull request esté abierta
+- Ejecuciones: una ejecución se abre como hilo con una fila de estado (dispositivo, tiempo, última herramienta) y se lee turno a turno con tus mensajes intercalados; Show work abre la transcripción completa, una flecha salta al último mensaje y la lista de tareas muestra el progreso
+- Ejecuciones: el logo del agente gira mientras trabaja, ámbar te espera, verde tiene una pull request abierta, azul ha terminado y una ejecución muestra Working hasta que el agente termina de verdad
+- Redacción: el botón + abre un solo menú (implementar una incidencia, ejecutar una acción, añadir un archivo o imagen de hasta 50 MB, esfuerzo, subagentes, servidores MCP, Computer use); las sugerencias son filas discretas bajo el campo
+- Enlaces: un enlace a una ejecución o incidencia en una respuesta del agente o un Guide se abre en la app, los demás en el navegador integrado, y las URL sueltas se pueden tocar
+- Pilas: una incidencia bloqueada puede empezar como Stacked PR, que construye toda la serie de pull requests de abajo arriba, y una pull request apilada se fusiona con un solo control Merge stack
+- Acciones: las automatizaciones son ahora disparadores en la acción que ejecutan, cada acción es una página con su prompt, disparadores y ejecuciones, una fusión fallida ofrece Fix merge conflicts, Tidy up ordena un tablero y borrar una acción pide confirmación
+- Navegación: la app abre en la página Agent con las pestañas Inbox, Devices, Reviews, Agent y Actions; Reviews, ejecuciones, acciones y dispositivos incluyen todos tus equipos, e Inbox, My issues y Drafts se deslizan de lado
+- Reviews: una pull request de un chat o una acción abre su Guide en la app, y una pull request cuyo repositorio está conectado en otro equipo nombra su incidencia
+- Nueva incidencia: crear una incidencia abre una página completa con todas las propiedades, guardada como borrador mientras escribes; una incidencia creada desde un borrador en otro dispositivo aparece aquí, y salir de un borrador con contenido pregunta Create, Keep as draft o Discard
+- Incidencias: Start coding abre una lista Ready to code si falta algo, una subincidencia nombra a su padre y muestra su progreso con un anillo, las relaciones se agrupan en secciones plegables y el título se integra en la cabecera al desplazarte
+- GitHub: una página guiada conecta tu cuenta de GitHub, instala la app y lista los repositorios en los que puedes hacer push
+- Comentarios: un envío del widget es una incidencia; responde al informante desde el campo de comentarios y sus respuestas vuelven como comentarios
+- Cuenta: cambia tu correo con un código, vincula o desvincula los inicios de sesión de Google, Apple y OIDC mientras quede otro acceso, y gestiona las passkeys
+- Servidores MCP: conecta tu cuenta una vez en la web a un servidor MCP del equipo y cada ejecución que inicies en cualquier máquina lo usará
+- Dispositivos: el bloque de preparación indica lo que le falta a una máquina, Computer use se activa por dispositivo y cada inicio de sesión de agente ofrece Sign out
+- Diálogos y avisos: cada confirmación y elección usa la misma tarjeta, Return nunca elige una respuesta destructiva y los avisos se apilan, toca para ampliar, desliza para descartar
+- Unirse a un equipo: la invitación ofrece el paso de dispositivo si aún no tienes ninguno, y registrarte con un código por correo te pide el nombre
+- Correcciones: los tableros muestran un indicador hasta que llegan sus incidencias, el texto de sesión ya no se solapa, un botón duplicado ha desaparecido, una ejecución en un repositorio vacío arranca y una ronda de pulido alinea filas, espacios y textos en toda la app

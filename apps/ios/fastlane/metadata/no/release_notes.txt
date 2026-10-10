@@ -1,6 +1,19 @@
-- Guide: Changes og Results for et issue er nå én Guide; hver seksjon i agentens rapport åpner sin egen diff, og Show complete diff ligger nederst
-- Kjøringer: kjøringstråden leses tur for tur med dine egne meldinger imellom, og en stablet pull request merges med én Merge stack-kontroll
-- Redigering: knappen + åpner én meny (implementer et issue, kjør en handling, legg til en fil eller et bilde på opptil 50 MB, innsats, subagenter, MCP-servere, datamaskinbruk); forslag er diskrete rader under feltet
-- Lenker: en lenke i et agentsvar eller i Guide som peker til en kjøring eller et issue, åpnes i appen, andre lenker åpnes i appens nettleser, og nakne URL-er kan trykkes på
-- Handlinger: en mislykket merge tilbyr Fix merge conflicts, en innebygd handling som rebaser, løser konflikter og merger pull requesten
-- Rettelser: Reviews navngir issuet til en pull request der repositoriet er koblet til i et annet team, øktteksten overlapper ikke lenger, en dobbel knapp er borte, og en finpussrunde retter opp rader, avstander og tekster i hele appen
+- Guide: Changes og Results for et issue er nå én Guide; hver seksjon i agentens rapport åpner sin egen diff, Show complete diff ligger nederst, og Merge sitter i bunnlinjen mens pull requesten er åpen
+- Kjøringer: en kjøring åpnes som en tråd med en statuslinje (enhet, medgått tid, siste verktøylinje) og leses tur for tur med dine egne meldinger imellom; Show work åpner hele transkripsjonen, en pil hopper til den nyeste meldingen, og oppgavelisten viser fremdriften
+- Kjøringer: agentens merke snurrer mens den jobber, gul venter på deg, grønn har en åpen pull request, blå er ferdig, og en kjøring viser Working til agenten virkelig er ferdig
+- Skrivefelt: knappen + åpner én meny (implementer et issue, kjør en handling, legg til en fil eller et bilde på opptil 50 MB, innsats, subagenter, MCP-servere, Computer use); forslag er diskrete rader under feltet
+- Lenker: en lenke i et agentsvar eller en Guide som peker til en kjøring eller et issue, åpnes i appen, andre lenker åpnes i den innebygde nettleseren, og nakne URL-er kan trykkes på
+- Stabler: et blokkert issue kan starte som Stacked PR, som bygger hele rekken av pull requests nedenfra og opp, og en stablet pull request merges med én Merge stack-kontroll
+- Handlinger: automatiseringer er nå utløsere på handlingen de kjører, hver handling er en side med prompt, utløsere og kjøringer, en mislykket merge tilbyr Fix merge conflicts, Tidy up rydder et board, og sletting av en handling spør først
+- Navigasjon: appen åpner på Agent-siden med fanene Inbox, Devices, Reviews, Agent og Actions; Reviews, kjøringer, handlinger og enheter viser alle teamene dine, og Inbox, My issues og Drafts sveipes sidelengs
+- Reviews: en pull request fra en chat- eller handlingskjøring åpner sin Guide i appen, og en pull request der repositoryet er koblet til i et annet team, navngir sitt issue
+- Nytt issue: å opprette et issue åpner en hel side med alle egenskaper, lagret som utkast mens du skriver; et issue opprettet fra et utkast på en annen enhet lander på issuet her, og å forlate et utkast med innhold spør Create, Keep as draft eller Discard
+- Issues: Start coding åpner en Ready to code-sjekkliste når noe mangler, et underissue navngir sitt overordnede issue og viser fremdrift med en ring, relasjoner grupperes i sammenleggbare seksjoner, og tittelen glir inn i toppfeltet når du ruller
+- GitHub: én veiledet side kobler til GitHub-kontoen din, installerer appen og viser repositoryene du kan pushe til
+- Tilbakemelding: en widgetinnsending er et issue; svar innsenderen fra kommentarfeltet, og svarene kommer tilbake som kommentarer
+- Konto: endre e-postadressen med en kode, koble til eller fra Google-, Apple- og OIDC-pålogginger så lenge en annen vei inn gjenstår, og administrer passnøkler
+- MCP-servere: koble din egen konto til en team-MCP-server én gang på nettet, og hver kjøring du starter på hvilken som helst maskin, bruker den
+- Enheter: klarblokken sier hva en maskin fortsatt trenger, Computer use kan slås på per enhet, og hver agentpålogging tilbyr Sign out
+- Dialoger og varsler: hver bekreftelse og hvert valg bruker samme kort, Return velger aldri et destruktivt svar, og varsler stables, trykk for å utvide, sveip for å avvise
+- Bli med i et team: invitasjonen tilbyr enhetstrinnet når du ikke eier en enhet ennå, og registrering med en e-postkode spør om navnet ditt
+- Rettelser: boards viser en spinner til issuene er lastet, økttekst overlapper ikke lenger, en doblet knapp er borte, en kjøring på et tomt repository starter, og en finpussrunde retter inn rader, avstand og tekster i hele appen
