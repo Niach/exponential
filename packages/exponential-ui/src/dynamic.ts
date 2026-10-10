@@ -304,7 +304,7 @@ export function runAction(action: Action, data: unknown, options: ResolveOptions
   const event = action.event
     ? { name: action.event.name, ...(action.event.context ? { context: resolveDynamic(action.event.context, data, options) as Record<string, unknown> } : {}) }
     : undefined
-  // A2UI's `functionCall` (round 4: the only key; no legacy `function`).
+  // A2UI's `functionCall`.
   const fn = action.functionCall
   if (fn) {
     const args = resolveDynamic(fn.args ?? {}, data, options) as Record<string, unknown>

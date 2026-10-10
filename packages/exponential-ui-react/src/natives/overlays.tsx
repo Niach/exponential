@@ -188,7 +188,7 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   const part = useParts(node, props)
   const [open, setOpen] = useOpenState(node, scope, bool(props.open), emit)
   const side = str(props.side, `bottom`) as `top` | `right` | `bottom` | `left`
-  // `openOn: hover` (HoverCard): opens on pointer hover AND keyboard focus
+  // `openOn: hover` (a hover card): opens on pointer hover AND keyboard focus
   // of the trigger, stays while the pointer is over the content; touch
   // (no hover pointer) keeps press.
   const hoverMode = props.openOn === `hover` && ctx.hover
@@ -196,7 +196,7 @@ export function PopoverNative({ node, props, rootProps, emit, children, slots, s
   const openRef = useRef(open)
   openRef.current = open
   // THIS popover's content (focus moving from the trigger into it keeps it
-  // open; another HoverCard's content on the page does not count).
+  // open; another hover card's content on the page does not count).
   const contentRef = useRef<HTMLDivElement | null>(null)
   const schedule = (next: boolean) => {
     if (timer.current) clearTimeout(timer.current)
@@ -282,7 +282,7 @@ export function TooltipNative({ node, props, rootProps, children }: NativeProps)
 }
 
 // ---------------------------------------------------------------------------
-// Menu (round 3: ONE native for the old DropdownMenu + ContextMenu)
+// Menu (round 3: ONE native for press and context menus)
 // ---------------------------------------------------------------------------
 
 interface MenuItem {

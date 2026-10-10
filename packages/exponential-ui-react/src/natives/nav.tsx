@@ -76,7 +76,7 @@ interface Item {
 
 const joinLike = (raw: unknown, next: string[]): string | string[] => (Array.isArray(raw) ? next : next.join(`,`))
 
-/** Segmented (round 3, the rename of ToggleGroup): ONE row of segments.
+/** Segmented (round 3): ONE row of segments.
  *  `segmented` (default, the pill track) / `toggles` (bare) / `outline`
  *  (joined) = a Radix ToggleGroup (radiogroup single, toolbar of toggle
  *  buttons multiple; roving tab stop, arrows wrap, Home/End). `bar` = the

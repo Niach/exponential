@@ -162,8 +162,8 @@ const LIST_ROW_COMPACT = `h-7 gap-2 px-2 py-0 text-sm`
 /** EXP-1076: THE settings ladder — the desktop `surface::list_row` twin. An
  *  entity LIST in settings is a `GlassSectionHeader` band over gapless
  *  `ListRow`s with ONE hairline between each pair and no outer box; form
- *  FIELDS are `GlassGroup`. Gapped self-bordered `GlassRow` cards are legacy
- *  in settings. */
+ *  FIELDS are `GlassGroup`. Settings never use gapped
+ *  self-bordered `GlassRow` cards. */
 export const SETTINGS_LIST_CLASS = `flex flex-col divide-y divide-glass-stroke`
 
 /** `ListRow`'s densities: the app's `list`/`compact`, plus the catalog

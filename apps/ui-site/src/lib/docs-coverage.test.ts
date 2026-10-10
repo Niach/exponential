@@ -12,8 +12,8 @@ import { ROUTES } from "./routes"
 
 /* Every authorable component (`hidden` ones, the renderer's Unknown
    placeholder and a Row's TreeGuides part, are never authored and get no
-   page; nor do the one-release `deprecated` aliases). */
-const catalogNames = Object.entries((coreCatalog as { components: Record<string, { hidden?: boolean; deprecated?: string }> }).components)
+   page). */
+const catalogNames = Object.entries((coreCatalog as { components: Record<string, { hidden?: boolean }> }).components)
   .filter(([, c]) => !c.hidden)
   .map(([name]) => name)
 const LOREM = /lorem|ipsum|dolor sit|consectetur/i
