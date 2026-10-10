@@ -79,6 +79,17 @@ class MeasurerRulesTest {
     }
 
     @Test
+    fun snapReachesAMaxThatIsNoStop() {
+        // step 3 over 0…10: the stops end at 9, yet a value nearer 10 than 9 snaps to 10 (Swift's rule).
+        assertEquals(10.0, SurfaceModel.snap(10.0, 0.0, 10.0, 3.0), 0.0)
+        assertEquals(9.0, SurfaceModel.snap(9.4, 0.0, 10.0, 3.0), 0.0)
+        assertEquals(10.0, SurfaceModel.snap(9.6, 0.0, 10.0, 3.0), 0.0)
+        assertEquals(10.0, SurfaceModel.snap(25.0, 0.0, 10.0, 3.0), 0.0)
+        assertEquals(5.0, SurfaceModel.snap(5.0, 0.0, 10.0, 2.5), 0.0)
+        assertEquals(0.0, SurfaceModel.snap(-4.0, 0.0, 10.0, 3.0), 0.0)
+    }
+
+    @Test
     fun kitchenSinkUnderRealMeasure() {
         Fixtures.require()
         val m = makeModel("ks-real", fixed = false)

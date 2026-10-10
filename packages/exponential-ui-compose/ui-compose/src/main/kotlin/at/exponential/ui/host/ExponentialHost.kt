@@ -96,7 +96,8 @@ class ExponentialHost(
     private val packageOf = HashMap<String, String>()
     private val components = HashMap<String, LinkedHashMap<String, JsonValue>>()
     private val subscriptions = HashMap<String, MutableList<() -> Unit>>()
-    private val paintErrors = HashSet<PaintError>()
+    /** Reported paint failures: surfaceId → component ids. */
+    private val paintErrors = HashMap<String, MutableSet<String>>()
     private val bridge = Bridge()
 
     /** The core's router (one per connection). */
@@ -298,10 +299,13 @@ class ExponentialHost(
                 surfaces[sid] = model
             }
             "components" -> {
-                forgetPaintErrors(sid)
                 val model = surfaces[sid] ?: return
                 val byId = components.getOrPut(sid) { LinkedHashMap() }
-                for (c in op["components"]?.array ?: emptyList()) byId[c["id"]?.string ?: continue] = c
+                for (c in op["components"]?.array ?: emptyList()) {
+                    val cid = c["id"]?.string ?: continue
+                    byId[cid] = c
+                    paintErrors[sid]?.remove(cid)
+                }
                 runCatching { model.setComponents(JsonValue.Arr(byId.values.toList()).json) }
             }
             "data" -> surfaces[sid]?.setData(op["path"]?.string ?: "", op["value"])
@@ -421,16 +425,18 @@ class ExponentialHost(
 
     /**
      * `onPaintError` (catalog/host.json `paint`): a component's painter
-     * failed. Forwarded ONCE per surface + component + message as an A2UI
-     * `RENDER_FAILED` error at `/components/<componentId>` (the host issue).
+     * failed. Forwarded ONCE per surface + component as an A2UI
+     * `RENDER_FAILED` error at `/components/<componentId>` (the host issue),
+     * until an `updateComponents` names that component again (or the
+     * surface is created / deleted).
      */
     fun paintError(error: PaintError) {
-        if (!paintErrors.add(error)) return
+        if (!paintErrors.getOrPut(error.surfaceId) { HashSet() }.add(error.componentId)) return
         sendError(RENDER_FAILED, error.surfaceId, error.message, "/components/${error.componentId}")
     }
 
     private fun forgetPaintErrors(surfaceId: String) {
-        paintErrors.removeAll { it.surfaceId == surfaceId }
+        paintErrors.remove(surfaceId)
     }
 
     /** What the painter's surfaces call: actions, functions, urls and media go through the host, the rest to [HostOptions.plugin]. */
