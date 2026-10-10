@@ -61,7 +61,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1269`,
   title: `Team agents (team settings)`,
-  blurb: `DRAFT for EXP-1269, owner-only. One section in Team settings: where the team's agents run (a SHARED device only; an unshared machine is listed disabled with the reason), the model, when an idle agent winds down, the hour a new day starts (the dream turn writes the diary first), memory on/off, and the Caretaker toggle (the team-scoped agent of EXP-1173). Under it the Members band: one flat row per member with the avatar, the name, and the agent's state as a live dot and a caption (live / idle / off). No per-member controls here: a member turns their own agent on or off in Your agent.`,
+  blurb: `DRAFT for EXP-1269, owner-only. One section in Team settings: where the team's agents run (a SHARED device only; an unshared machine is listed disabled with the reason), the model, when an idle agent winds down, the hour a new day starts (the dream turn writes the diary first), memory on/off (whether the agents write facts and a daily diary into the team's knowledge, which lives on the server and syncs live, EXP-782), and the Caretaker toggle (the team-scoped agent of EXP-1173). Under it the Members band: one flat row per member with the avatar, the name, and the agent's state as a live dot and a caption (live / idle / off). No per-member controls here: a member only picks WHERE their session runs, in Your agent.`,
   status: {
     web: { state: `n/a`, note: `Draft (EXP-1269): no Team agents section exists yet.` },
     desktop: { state: `n/a`, note: `Draft (EXP-1269): the IDE's Settings → General mirrors it later.` },
@@ -117,7 +117,7 @@ export const entry: StyleguideEntry = {
         <GlassToggleRow
           id="demo-team-agents-memory"
           label="Memory"
-          description="Facts and a daily diary, kept on the agent device"
+          description="Agents write facts and a diary into Team knowledge"
           checked
           onCheckedChange={noop}
         />
