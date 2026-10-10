@@ -28,7 +28,7 @@ struct AvatarLeaf: View {
         Group {
             if let request {
                 AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fill: seed.isEmpty ? fallback.style.background : nil, ink: seed.isEmpty ? fallback.color : nil, fontSize: fs) {
-                    MediaImage(request: request) { image in
+                    MediaImage(request: request, options: cx.model.mediaPolicy) { image in
                         image.resizable().scaledToFill()
                     } placeholder: {
                         AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fontSize: fs)
@@ -83,7 +83,7 @@ struct ImageLeaf: View {
         let w = cx.size.width, h = cx.size.height
         Group {
             if let request {
-                MediaImage(request: request) { image in
+                MediaImage(request: request, options: cx.model.mediaPolicy) { image in
                     Self.fitted(image, fit: fit)
                         .alignmentGuide(HorizontalAlignment.leading) { d in fx * (d.width - w) }
                         .alignmentGuide(VerticalAlignment.top) { d in fy * (d.height - h) }
@@ -126,7 +126,7 @@ func formatDuration(_ ms: Double) -> String {
 /// `<video>`).
 struct VideoLeaf: View {
     let cx: LeafContext
-    @State private var playback = MediaPlayback()
+    @State private var playback = MediaPlayback(kind: .video)
 
     var body: some View {
         let src = cx.props.str("src")
@@ -141,19 +141,25 @@ struct VideoLeaf: View {
                 VideoPlayer(player: player)
             } else {
                 if let posterRequest {
-                    MediaImage(request: posterRequest) { image in
+                    MediaImage(request: posterRequest, options: cx.model.mediaPolicy) { image in
                         image.resizable().scaledToFill()
                     } placeholder: {
                         Color.clear
                     }
                 }
                 Button {
-                    Task { await playback.play(request) }
+                    Task { await playback.play(request, options: cx.model.mediaPolicy) }
                 } label: {
-                    Circle().fill(Color.white.opacity(0.18)).frame(width: 44, height: 44).overlay(ConceptIcon(name: "ui-play", size: 20, color: .white, model: cx.model))
+                    Circle().fill(Color.white.opacity(0.18)).frame(width: 44, height: 44).overlay {
+                        if playback.loading {
+                            ProgressView().controlSize(.small).tint(.white)
+                        } else {
+                            ConceptIcon(name: "ui-play", size: 20, color: .white, model: cx.model)
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
-                .disabled(request == nil)
+                .disabled(request == nil || playback.loading)
                 if let ms = cx.props.num("durationMs") {
                     Text(formatDuration(ms))
                         .font(.system(size: 12)).foregroundStyle(.white)
@@ -168,7 +174,7 @@ struct VideoLeaf: View {
         .clipped()
         .task(id: key) {
             if autoplay, let request {
-                await playback.play(request, muted: true)
+                await playback.play(request, muted: true, options: cx.model.mediaPolicy)
             } else if playback.openedKey != key {
                 playback.stop()
             }
@@ -183,7 +189,7 @@ struct VideoLeaf: View {
 /// `durationMs`). A denied src keeps the controls inert.
 struct AudioLeaf: View {
     let cx: LeafContext
-    @State private var playback = MediaPlayback()
+    @State private var playback = MediaPlayback(kind: .audio)
 
     var body: some View {
         let title = cx.props.str("title")
@@ -202,12 +208,18 @@ struct AudioLeaf: View {
             }
             HStack(spacing: 8) {
                 Button {
-                    if playback.playing { playback.pause() } else { Task { await playback.play(request) } }
+                    if playback.playing { playback.pause() } else { Task { await playback.play(request, options: cx.model.mediaPolicy) } }
                 } label: {
-                    Circle().fill(cx.ink).frame(width: 28, height: 28).overlay(ConceptIcon(name: playback.playing ? "pause" : "ui-play", size: 14, color: cx.themeColor("background") ?? .white, model: cx.model))
+                    Circle().fill(cx.ink).frame(width: 28, height: 28).overlay {
+                        if playback.loading {
+                            ProgressView().controlSize(.mini).tint(cx.themeColor("background") ?? .white)
+                        } else {
+                            ConceptIcon(name: playback.playing ? "pause" : "ui-play", size: 14, color: cx.themeColor("background") ?? .white, model: cx.model)
+                        }
+                    }
                 }
                 .buttonStyle(.plain)
-                .disabled(request == nil)
+                .disabled(request == nil || playback.loading)
                 GeometryReader { geo in
                     ZStack(alignment: .leading) {
                         Capsule().fill(mutedFg.opacity(0.35))

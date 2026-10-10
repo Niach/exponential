@@ -27,6 +27,18 @@ final class NativeHardeningTests: XCTestCase {
         XCTAssertEqual(SurfaceModel.snap(0.3337, min: 0, max: 1, step: 0), 0.3337, accuracy: 1e-9)
     }
 
+    func testAStepThatDoesNotDivideTheRangeStaysContinuousAndReachesMax() {
+        // 0...10 by 3: no platform step (it would stop at 9), the drag snaps.
+        XCTAssertNil(SurfaceModel.sliderRange(min: 0, max: 10, step: 3).step)
+        XCTAssertEqual(SurfaceModel.sliderRange(min: 0, max: 10, step: 2.5).step, 2.5)
+        XCTAssertEqual(SurfaceModel.snap(10, min: 0, max: 10, step: 3), 10)
+        XCTAssertEqual(SurfaceModel.snap(12, min: 0, max: 10, step: 3), 10)
+        XCTAssertEqual(SurfaceModel.snap(9.6, min: 0, max: 10, step: 3), 10)
+        XCTAssertEqual(SurfaceModel.snap(9.4, min: 0, max: 10, step: 3), 9)
+        XCTAssertEqual(SurfaceModel.snap(5, min: 0, max: 10, step: 2.5), 5)
+        XCTAssertEqual(SurfaceModel.snap(-1, min: 0, max: 10, step: 3), 0)
+    }
+
     func testOnlyAnEmptyOrInvertedRangeWidens() {
         XCTAssertEqual(SurfaceModel.sliderRange(min: 5, max: 5, step: 1).range, 5...6)
         XCTAssertEqual(SurfaceModel.sliderRange(min: 5, max: 2, step: 1).range, 5...6)

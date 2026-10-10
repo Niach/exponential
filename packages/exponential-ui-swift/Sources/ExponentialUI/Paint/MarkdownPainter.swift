@@ -110,7 +110,7 @@ struct MarkdownView: View {
         case .paragraph, .heading:
             linked(TextShaper.runs(block.inlines, spec, mono: mono, ink: platform(ink), link: platform(link), codeBackground: codeBg.map(platform)), spec: spec, width: width)
         case let .image(src, alt):
-            MediaImage(request: model.mediaRequest(src)) { image in
+            MediaImage(request: model.mediaRequest(src), options: model.mediaPolicy) { image in
                 image.resizable().scaledToFit().frame(maxWidth: width, maxHeight: box.height, alignment: .topLeading)
             } placeholder: {
                 Text(alt).font(.system(size: spec.size)).foregroundStyle(muted).lineLimit(2)

@@ -443,17 +443,28 @@ extension SurfaceModel {
         fire(index, "change", payload: .object(["value": .number(value)]))
     }
 
-    /// `v` snapped to `min + k·step` and clamped.
     /// The platform slider's range and step: the author's real range
-    /// (only an empty or inverted one widens to `min...min+1`), and no step
-    /// when `step <= 0` (continuous).
+    /// (only an empty or inverted one widens to `min...min+1`), and the
+    /// platform step ONLY when it divides the range evenly (≤ 1000 stops,
+    /// Compose's `sliderRange`); otherwise continuous, the value snapped by
+    /// `snap` (which still reaches `max`).
     public static func sliderRange(min: Double, max: Double, step: Double) -> (range: ClosedRange<Double>, step: Double?) {
-        (min...(max > min ? max : min + 1), step > 0 ? step : nil)
+        let hi = max > min ? max : min + 1
+        guard step > 0 else { return (min...hi, nil) }
+        let n = (hi - min) / step
+        let stops = n.rounded()
+        return (min...hi, stops >= 1 && stops <= 1000 && abs(n - stops) < 1e-6 ? step : nil)
     }
 
+    /// `v` clamped and snapped to `min + k·step`; `max` itself when the step
+    /// does not divide the range and `v` is nearer to it than to the last
+    /// stop (so the end stays reachable).
     public static func snap(_ v: Double, min: Double, max: Double, step: Double) -> Double {
-        var x = step > 0 ? min + ((v - min) / step).rounded() * step : v
-        x = Swift.min(Swift.max(x, Swift.min(min, max)), Swift.max(min, max))
+        let lo = Swift.min(min, max), hi = Swift.max(min, max)
+        let c = Swift.min(Swift.max(v, lo), hi)
+        var x = step > 0 ? min + ((c - min) / step).rounded() * step : c
+        x = Swift.min(Swift.max(x, lo), hi)
+        if step > 0, abs(hi - x) > 1e-9, abs(c - hi) < abs(c - x) { x = hi }
         return (x * 1e9).rounded() / 1e9
     }
 

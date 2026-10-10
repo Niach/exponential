@@ -29,6 +29,9 @@ extension SurfaceModel {
         return request
     }
 
+    /// The media policy a redirect of a src's request passes (the host's).
+    public var mediaPolicy: MediaOptions? { host.mediaOptions }
+
     /// A painter failed for `componentId`: report it to the host ONCE per
     /// component + message (until new components arrive), after the
     /// current view update.
