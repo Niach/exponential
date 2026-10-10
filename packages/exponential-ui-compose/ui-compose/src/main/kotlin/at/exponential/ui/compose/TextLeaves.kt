@@ -353,7 +353,7 @@ internal fun MarkdownLeaf(cx: LeafContext) {
                         picture,
                         alt,
                         Modifier.fillMaxSize(),
-                        alignment = if (cx.rtl) Alignment.CenterEnd else Alignment.CenterStart,
+                        alignment = markdownImageAlignment(cx.rtl),
                         contentScale = androidx.compose.ui.layout.ContentScale.Fit,
                     )
                 } else {
@@ -363,3 +363,6 @@ internal fun MarkdownLeaf(cx: LeafContext) {
         )
     }
 }
+
+/** A markdown block image inside its box: fitted, TOP and start aligned (Swift, React). */
+internal fun markdownImageAlignment(rtl: Boolean): Alignment = if (rtl) Alignment.TopEnd else Alignment.TopStart
