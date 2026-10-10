@@ -616,6 +616,15 @@ impl SurfaceView {
         }
     }
 
+    /// A Video / AudioPlayer press: its policed `src` to the system player
+    /// (`media::play`); `None` when the media policy denies it (inert).
+    fn media_play(&self, n: &PlacedNode, fallback: &'static str) -> natives::MediaPlay {
+        let src = n.props.get("src").and_then(Value::as_str).unwrap_or("").to_string();
+        crate::media::handoff(self.host.as_ref(), &src)?;
+        let host = self.host.clone();
+        Some(Rc::new(move |cx: &mut gpui::App| crate::media::play(host.clone(), &src, fallback, cx)))
+    }
+
     /// `onPaintError` (`catalog/host.json` paint), deferred out of render.
     pub(crate) fn paint_failed(&self, n: &PlacedNode, why: &str, cx: &mut gpui::App) {
         let host = self.host.clone();
@@ -678,8 +687,8 @@ impl SurfaceView {
             ("Icon", _) => natives::icon(&lcx),
             ("Avatar", _) => natives::avatar(&lcx),
             ("Image", _) => natives::image(&lcx, window, cx),
-            ("Video", _) => natives::video(&lcx),
-            ("AudioPlayer", _) => natives::audio(&lcx),
+            ("Video", _) => natives::video(&lcx, self.media_play(n, "mp4")),
+            ("AudioPlayer", _) => natives::audio(&lcx, self.media_play(n, "m4a")),
             ("Spinner", _) => natives::spinner(&lcx),
             ("Ring", _) => natives::ring(&lcx),
             ("Skeleton", _) => natives::skeleton(&lcx),

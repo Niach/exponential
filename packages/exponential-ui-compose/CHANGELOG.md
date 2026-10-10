@@ -12,4 +12,5 @@ First release.
 - Host-owned text fields set the Input `type`'s keyboard, autocorrection and autofill hints (email, password, phone).
 - Material sliders keep the author's range. `step` 0 is continuous; a step that divides the range is passed as M3 `steps`.
 - An extension the core refuses fails `SurfaceModel` creation; it is no longer skipped silently.
+- Video and AudioPlayer play their `src` through the media policy with Media3 ExoPlayer (`androidx.media3:media3-exoplayer` + `media3-ui` 1.11.1): poster and duration until the press, `autoplay` muted, a header-carrying or `data:` request fetched within `media.limits` into a cache file; a denied src loads nothing.
 - Robolectric unit, conformance and snapshot suites, plus instrumented tests (`src/androidTest`) that run on an emulator in CI.

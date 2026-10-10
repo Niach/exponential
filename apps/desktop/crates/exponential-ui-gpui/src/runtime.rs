@@ -882,6 +882,10 @@ impl HostPlugin for HostAdapter {
         }
     }
 
+    fn open_media_file(&self, path: &std::path::Path, cx: &mut App) {
+        self.base.open_media_file(path, cx)
+    }
+
     fn on_unknown(&self, node: &PlacedNode) {
         self.base.on_unknown(node)
     }

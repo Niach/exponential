@@ -367,7 +367,10 @@ the `exponential-ui-ffi` `.so`) now carry them too, so both rows read
 `clients: ["web", "desktop", "ios", "android"]`. The Compose painter AAR's
 runtime third-party set is Jetpack Compose (Apache-2.0, already in the Android
 app's inventory) plus JNA 5.17.0 (`net.java.dev.jna:jna@aar`, dual
-LGPL-2.1-or-later / Apache-2.0; we elect Apache-2.0); Robolectric and
+LGPL-2.1-or-later / Apache-2.0; we elect Apache-2.0) and, for Video /
+AudioPlayer playback (VAPP-103), AndroidX Media3 1.11.1
+(`media3-exoplayer` + `media3-ui`, Apache-2.0, the same line the Android
+app already ships and inventories); Robolectric and
 Roborazzi are test-only. The Exponential Android app links only
 `:ui-compose-primitives` (pure Compose, the app's own BOM), so neither JNA nor
 the `.so` reaches its `NOTICES.txt` inventory until VAPP-91 links the painter;
