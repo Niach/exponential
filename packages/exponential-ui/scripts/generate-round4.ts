@@ -17,6 +17,7 @@
 import { CORE_CATALOG_ID } from "../src/catalog"
 import { runAction, submitClosesOverlay, withOwnWrites, writePointer, absolutePath } from "../src/dynamic"
 import { CORE_FUNCTIONS, isBinding } from "../src/expr"
+import { templateBudget, templateSiteKey } from "../src/list"
 import { reduceNested } from "../src/reducer"
 import type { Action, NestedNode, UiNode } from "../src/types"
 
@@ -29,9 +30,9 @@ const json = (v: unknown) => `${JSON.stringify(v, null, 2)}\n`
 
 /** A chain of `depth` Cards around a Text: 2 levels per Card once
  *  expanded (Box > body Box). */
-const cardChain = (depth: number): NestedNode => {
-  let n: NestedNode = { id: `leaf`, component: `Text`, props: { text: `deepest` } }
-  for (let i = depth - 1; i >= 0; i--) n = { id: `card${i}`, component: `Card`, children: [n] }
+const cardChain = (depth: number, prefix = ``, leaf: NestedNode = { id: `${prefix}leaf`, component: `Text`, props: { text: `deepest` } }): NestedNode => {
+  let n = leaf
+  for (let i = depth - 1; i >= 0; i--) n = { id: `${prefix}card${i}`, component: `Card`, children: [n] }
   return n
 }
 
@@ -276,12 +277,120 @@ function byId(root: UiNode, id: string): UiNode | undefined {
   return undefined
 }
 
+// ---------------------------------------------------------------------------
+// depth (after expansion) + the template budget
+// ---------------------------------------------------------------------------
+
+const DEPTH: { name: string; input: NestedNode }[] = [
+  // card24 sits at expanded level 49: the Unknown placeholder, subtree dropped.
+  { name: `the root tree: the first node past maxDepth after expansion is the placeholder`, input: cardChain(47) },
+  // A lifted template starts at level 1 again: 25 Cards = card24 at 49.
+  {
+    name: `a lifted template is capped from its own level 1`,
+    input: { id: `root`, component: `Stack`, children: [{ id: `list`, component: `Stack`, template: { component: `tcard0`, path: `/items` } }, { id: `defs`, component: `Box`, visible: false, children: [cardChain(25, `t`)] }] },
+  },
+  // An unknown component at level 49 is already a placeholder: one issue (its own).
+  { name: `an Unknown leaf at maxDepth + 1 is not reported again`, input: cardChain(24, ``, { id: `nope`, component: `NoSuchComponent` }) },
+]
+
+/** The Unknown placeholders of a reduced result, per tree (`root` or the
+ *  template id), pre-order. */
+function placeholders(result: { root: UiNode; templates?: Record<string, UiNode> }): { tree: string; id: string; component: unknown }[] {
+  const out: { tree: string; id: string; component: unknown }[] = []
+  const walk = (tree: string, n: UiNode) => {
+    if (n.component === `Unknown`) out.push({ tree, id: n.id, component: n.props.component })
+    for (const c of n.children) walk(tree, c)
+    for (const c of Object.values(n.slots ?? {})) walk(tree, c)
+  }
+  walk(`root`, result.root)
+  for (const [id, n] of Object.entries(result.templates ?? {})) walk(id, n)
+  return out
+}
+
+/** `{ "$fill": n }` in a budget case's data = n zeros (the fixture stays small). */
+function expandFill(v: unknown): unknown {
+  if (Array.isArray(v)) return v.map(expandFill)
+  if (v && typeof v === `object`) {
+    const o = v as Record<string, unknown>
+    if (typeof o.$fill === `number`) return Array(o.$fill).fill(0)
+    return Object.fromEntries(Object.entries(o).map(([k, x]) => [k, expandFill(x)]))
+  }
+  return v
+}
+
+interface BudgetSite { holder: string; scope: string; template: string; instance: string; items: number }
+
+const BUDGET: { name: string; input: NestedNode; data: unknown; sites: BudgetSite[] }[] = [
+  {
+    // 3 static nodes; row 0 + its 9,998 cells = 9,999 items, row 1 = 10,000:
+    // row 1's first cell is refused, and every later item (row 2) with it.
+    name: `maxTemplateItems: items are charged depth-first, an item's nested items before the next item`,
+    input: {
+      id: `root`,
+      component: `Stack`,
+      children: [
+        { id: `list`, component: `Stack`, template: { component: `row`, path: `/outer` } },
+        { id: `defs`, component: `Box`, visible: false, children: [{ id: `row`, component: `Stack`, template: { component: `cell`, path: `inner` } }, { id: `cell`, component: `Text`, props: { text: `x` } }] },
+      ],
+    },
+    data: { outer: [{ inner: { $fill: 9998 } }, { inner: { $fill: 2 } }, { inner: { $fill: 2 } }] },
+    sites: [
+      { holder: `list`, scope: ``, template: `row`, instance: ``, items: 3 },
+      { holder: `row`, scope: `/outer/0`, template: `cell`, instance: `.0`, items: 9998 },
+      { holder: `row`, scope: `/outer/1`, template: `cell`, instance: `.1`, items: 2 },
+      { holder: `row`, scope: `/outer/2`, template: `cell`, instance: `.2`, items: 2 },
+    ],
+  },
+  {
+    // 4 static nodes + 3 per row: 6,665 rows fit (19,999 nodes), the next
+    // would make 20,002; the later site builds nothing (no second issue).
+    name: `maxComponents: the build starts at the reduced tree's nodes and each item costs its template subtree`,
+    input: {
+      id: `root`,
+      component: `Stack`,
+      children: [
+        { id: `rows`, component: `Stack`, template: { component: `row`, path: `/rows` } },
+        { id: `more`, component: `Stack`, template: { component: `extra`, path: `/more` } },
+        { id: `defs`, component: `Box`, visible: false, children: [{ id: `row`, component: `Stack`, children: [{ id: `row-a`, component: `Text`, props: { text: `a` } }, { id: `row-b`, component: `Text`, props: { text: `b` } }] }, { id: `extra`, component: `Text`, props: { text: `e` } }] },
+      ],
+    },
+    data: { rows: { $fill: 7000 }, more: { $fill: 1 } },
+    sites: [
+      { holder: `rows`, scope: ``, template: `row`, instance: ``, items: 7000 },
+      { holder: `more`, scope: ``, template: `extra`, instance: ``, items: 1 },
+    ],
+  },
+  {
+    name: `under both limits every item is built, no issue`,
+    input: {
+      id: `root`,
+      component: `Stack`,
+      children: [
+        { id: `rows`, component: `Stack`, template: { component: `row`, path: `/rows` } },
+        { id: `defs`, component: `Box`, visible: false, children: [{ id: `row`, component: `Text`, props: { text: `r` } }] },
+      ],
+    },
+    data: { rows: { $fill: 5 } },
+    sites: [{ holder: `rows`, scope: ``, template: `row`, instance: ``, items: 5 }],
+  },
+]
+
 export function round4Fixture() {
   const reduce = (input: NestedNode) => reduceNested(input, { catalogId: CORE_CATALOG_ID })
   return {
-    $comment: `${HEADER} Round 4 (VAPP-103), replayed by the TS reference (src/round4.test.ts) and the Rust core (tests/round4_fixtures.rs). validate: reduce the nested input with the core catalog: the issues equal \`issues\` in order (a node's style, then the functions its props, visible and on actions call, then a Table's slot columns; a colour is a \`$color.*\` token, never a literal; a host function is namespaced, \`app.toast\`). filter: call the core \`filter\` with \`args\`: the result equals \`expected\`. ownWrite: fire \`event\` with \`payload\` on \`target\` (the interaction): the component writes \`own\` (by prop, exactly what it wrote, never inferred from the payload) and sends \`sent\`; the data model equals \`expected.data\` and the action that leaves carries \`expected.action\` (its context resolved AFTER the own write, \`sent\` merged over it). closeOnSubmit: submit the valid \`form\`: the actions leave in \`actions\` order, the overlay \`expected.overlay\` closes (null = none: the NEAREST enclosing overlay of any kind decides, and only a dismissible Dialog or Drawer closes) and the data equals \`expected.data\`.`,
+    $comment: `${HEADER} Round 4 (VAPP-103), replayed by the TS reference (src/round4.test.ts) and the Rust core (tests/round4_fixtures.rs). validate: reduce the nested input with the core catalog: the issues equal \`issues\` in order. depth: reduce the nested input: the issues equal \`issues\` and the Unknown placeholders (pre-order, root then each lifted template: children before slots) equal \`placeholders\` (maxDepth holds AFTER expansion, each tree from level 1). templateBudget: reduce, set the data (\`{\"$fill\": n}\` = n zeros) and build every item: each template site (\`holder\` in \`scope\`) builds its first \`built\` items (ids \`template + instance + .i\`), and the build reports \`issues\` (ONE: the template whose next item did not fit maxTemplateItems or maxComponents) (a node's style, then the functions its props, visible and on actions call, then a Table's slot columns; a colour is a \`$color.*\` token, never a literal; a host function is namespaced, \`app.toast\`). filter: call the core \`filter\` with \`args\`: the result equals \`expected\`. ownWrite: fire \`event\` with \`payload\` on \`target\` (the interaction): the component writes \`own\` (by prop, exactly what it wrote, never inferred from the payload) and sends \`sent\`; the data model equals \`expected.data\` and the action that leaves carries \`expected.action\` (its context resolved AFTER the own write, \`sent\` merged over it). closeOnSubmit: submit the valid \`form\`: the actions leave in \`actions\` order, the overlay \`expected.overlay\` closes (null = none: the NEAREST enclosing overlay of any kind decides, and only a dismissible Dialog or Drawer closes) and the data equals \`expected.data\`.`,
     catalogId: CORE_CATALOG_ID,
     validate: VALIDATE.map((c) => ({ ...c, issues: reduce(c.input).issues })),
+    depth: DEPTH.map((c) => {
+      const result = reduce(c.input)
+      return { ...c, issues: result.issues, placeholders: placeholders(result) }
+    }),
+    templateBudget: BUDGET.map((c) => {
+      const result = reduce(c.input)
+      if (result.issues.length) throw new Error(`round4 templateBudget "${c.name}": ${JSON.stringify(result.issues)}`)
+      const budget = templateBudget(result.root, expandFill(c.data), (id) => result.templates?.[id])
+      return { ...c, sites: c.sites.map((site) => ({ ...site, built: budget.allowed.get(templateSiteKey(site.holder, site.scope)) ?? 0 })), issues: budget.issue ? [budget.issue] : [] }
+    }),
     filter: FILTER.map((c) => ({ ...c, expected: CORE_FUNCTIONS.filter!(c.args) })),
     ownWrite: OWN_WRITE.map((c) => {
       const { root, issues } = reduce(c.input)

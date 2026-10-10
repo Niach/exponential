@@ -170,40 +170,51 @@ function liftTemplates(root: UiNode, issues: ReduceIssue[], buildMissing?: (id: 
   return out
 }
 
-/** The template table expanded like the root (macros, same issue list). */
-function finishTemplates(lifted: Map<string, UiNode>, expand: boolean, extensions: readonly ExtensionDef[], issues: ReduceIssue[]): Record<string, UiNode> | undefined {
-  if (lifted.size === 0) return undefined
-  const out: Record<string, UiNode> = {}
-  for (const [id, node] of lifted) out[id] = expand ? expandMacros(node, { extensions, issues }) : node
-  return out
+/** Expand the root, then each lifted template (one issue list), and cap
+ *  each EXPANDED tree's depth right after its expansion (the Rust core's
+ *  `finish`): `maxDepth` bounds the reduced tree a host serializes, not the
+ *  authored one (a Card is two levels once expanded). */
+function finish(root: UiNode, lifted: Map<string, UiNode>, expand: boolean, extensions: readonly ExtensionDef[], catalogId: string, issues: ReduceIssue[]): ReduceResult {
+  root = capDepth(expand ? expandMacros(root, { extensions, issues }) : root, catalogId, issues)
+  if (lifted.size === 0) return { root, issues }
+  const templates: Record<string, UiNode> = {}
+  for (const [id, node] of lifted) templates[id] = capDepth(expand ? expandMacros(node, { extensions, issues }) : node, catalogId, issues)
+  return { root, issues, templates }
 }
 
-/** VAPP-103: `maxDepth` holds for the tree AFTER macro expansion (a Card is
- *  two levels once expanded): every node deeper than MAX_DEPTH (the root =
- *  1) becomes the Unknown placeholder, its subtree dropped, with the depth
- *  issue on its id (pre-order, slots before children). A placeholder the
- *  authored-depth check already placed is not reported twice. Iterative. */
+/** VAPP-103: every node at level MAX_DEPTH + 1 (the tree's root = 1;
+ *  children, then slots, one level down) becomes the Unknown placeholder
+ *  for its id and component, its subtree dropped, with the depth issue on
+ *  its id once (pre-order; an id already reported, e.g. by the authored-
+ *  depth check, is not reported again). An Unknown LEAF there is already a
+ *  placeholder: kept, never re-reported. Iterative. */
 function capDepth(root: UiNode, catalogId: string, issues: ReduceIssue[]): UiNode {
+  const reported = new Set(issues.filter((i) => i.message === LIMIT_ISSUES.depth).map((i) => i.id))
   const stack: { node: UiNode; depth: number }[] = [{ node: root, depth: 1 }]
   while (stack.length) {
     const { node, depth } = stack.pop()!
     const cap = (child: UiNode): UiNode => {
-      if (depth + 1 <= MAX_DEPTH || child.component === UNKNOWN_COMPONENT) return child
-      issues.push({ id: child.id, message: LIMIT_ISSUES.depth })
+      if (depth + 1 <= MAX_DEPTH) return child
+      if (child.component === UNKNOWN_COMPONENT && child.children.length === 0 && child.slots === undefined) return child
+      if (!reported.has(child.id)) {
+        reported.add(child.id)
+        issues.push({ id: child.id, message: LIMIT_ISSUES.depth })
+      }
       return unknown(child.id, child.component, catalogId)
     }
     const next: UiNode[] = []
+    node.children = node.children.map((child) => {
+      const capped = cap(child)
+      next.push(capped)
+      return capped
+    })
     if (node.slots)
       for (const [name, slot] of Object.entries(node.slots)) {
         const capped = cap(slot)
         node.slots[name] = capped
         next.push(capped)
       }
-    node.children = node.children.map((child) => {
-      const capped = cap(child)
-      next.push(capped)
-      return capped
-    })
+    if (depth + 1 > MAX_DEPTH) continue
     for (let i = next.length - 1; i >= 0; i--) stack.push({ node: next[i]!, depth: depth + 1 })
   }
   return root
@@ -346,9 +357,7 @@ export function reduceSurface(components: readonly FlatComponent[], options: Red
   const rootId = options.rootId ?? `root`
   let root = build(rootId, 1) ?? unknown(rootId, `#${rootId}`, options.catalogId)
   const lifted = liftTemplates(root, issues, (id) => (byId.has(id) && !placed.has(id) ? build(id, 1) : undefined))
-  if (options.expand !== false) root = capDepth(expandMacros(root, { extensions, issues }), options.catalogId, issues)
-  const templates = finishTemplates(lifted, options.expand !== false, extensions, issues)
-  return templates ? { root, issues, templates } : { root, issues }
+  return finish(root, lifted, options.expand !== false, extensions, options.catalogId, issues)
 }
 
 /** Take one node from the surface's budget; the first refusal is an issue. */
@@ -415,9 +424,7 @@ export function reduceNested(tree: NestedNode, options: Omit<ReduceOptions, `roo
   }
   let root = walk(tree, 1)!
   const lifted = liftTemplates(root, issues)
-  if (options.expand !== false) root = capDepth(expandMacros(root, { extensions, issues }), options.catalogId, issues)
-  const templates = finishTemplates(lifted, options.expand !== false, extensions, issues)
-  return templates ? { root, issues, templates } : { root, issues }
+  return finish(root, lifted, options.expand !== false, extensions, options.catalogId, issues)
 }
 
 /** Pre-order ids of a tree, the painters' accessibility order. */

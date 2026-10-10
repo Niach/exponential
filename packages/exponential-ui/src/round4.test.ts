@@ -7,6 +7,7 @@ import { CORE_CATALOG_ID } from "./catalog"
 import { readPointer, runAction, submitClosesOverlay, withOwnWrites, writePointer } from "./dynamic"
 import { CORE_FUNCTIONS } from "./expr"
 import { reduceNested } from "./reducer"
+import { templateBudget, templateSiteKey } from "./list"
 import { isCallableName } from "./validate"
 import type { Action, NestedNode, UiNode } from "./types"
 
@@ -20,6 +21,26 @@ const byId = (root: UiNode, id: string): UiNode | undefined => {
   return undefined
 }
 
+/** `{ "$fill": n }` = n zeros. */
+const expandFill = (v: unknown): unknown => {
+  if (Array.isArray(v)) return v.map(expandFill)
+  if (!v || typeof v !== `object`) return v
+  const o = v as Record<string, unknown>
+  return typeof o.$fill === `number` ? Array(o.$fill).fill(0) : Object.fromEntries(Object.entries(o).map(([k, x]) => [k, expandFill(x)]))
+}
+
+const placeholders = (result: { root: UiNode; templates?: Record<string, UiNode> }) => {
+  const out: { tree: string; id: string; component: unknown }[] = []
+  const walk = (tree: string, n: UiNode) => {
+    if (n.component === `Unknown`) out.push({ tree, id: n.id, component: n.props.component })
+    for (const c of n.children) walk(tree, c)
+    for (const c of Object.values(n.slots ?? {})) walk(tree, c)
+  }
+  walk(`root`, result.root)
+  for (const [id, n] of Object.entries(result.templates ?? {})) walk(id, n)
+  return out
+}
+
 describe(`round4-contract.json`, () => {
   test(`validate: the reducer reports bad style keys and tokens, literal colours, unknown functions and dangling slot columns`, () => {
     for (const c of fixture.validate) expect(reduce(c.input as unknown as NestedNode).issues, c.name).toEqual(c.issues)
@@ -28,6 +49,23 @@ describe(`round4-contract.json`, () => {
     expect(named(`style: an unknown token`)[0]).toContain(`style.gap`)
     expect(named(`prop: a colour token passes`)).toEqual([])
     expect(named(`action: a namespaced host function passes`)).toEqual([])
+  })
+
+  test(`depth: maxDepth holds after expansion, each lifted template from its own level 1`, () => {
+    for (const c of fixture.depth) {
+      const result = reduce(c.input as unknown as NestedNode)
+      expect(result.issues, c.name).toEqual(c.issues)
+      expect(placeholders(result), c.name).toEqual(c.placeholders)
+    }
+  })
+
+  test(`templateBudget: items charge maxTemplateItems and their subtree's nodes depth-first; the first misfit and the rest are not built, ONE issue`, () => {
+    for (const c of fixture.templateBudget) {
+      const { root, templates } = reduce(c.input as unknown as NestedNode)
+      const budget = templateBudget(root, expandFill(c.data), (id) => templates?.[id])
+      for (const site of c.sites) expect(budget.allowed.get(templateSiteKey(site.holder, site.scope)) ?? 0, `${c.name}: ${site.holder} ${site.scope}`).toBe(site.built)
+      expect(budget.issue ? [budget.issue] : [], c.name).toEqual(c.issues)
+    }
   })
 
   test(`filter: the core function keeps the matching items in order`, () => {

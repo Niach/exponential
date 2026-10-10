@@ -3,7 +3,7 @@
 // just typed (the own write lands before the context resolves), and a valid
 // Form submit inside a Dialog or Drawer closes it.
 
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render } from "@testing-library/react"
 import { CORE_CATALOG_ID, reduceNested } from "@exponential-at/ui"
 import type { NestedNode } from "@exponential-at/ui"
@@ -53,6 +53,33 @@ describe(`round 4: a valid Form submit closes the Dialog or Drawer around it`, (
       if (c.expected.overlay) expect(document.querySelector(`[data-xui-id="${c.form}"]`), `${c.expected.overlay} closed`).toBeNull()
       else expect(document.querySelector(`[data-xui-id="${c.form}"]`), `${c.name}: still open`).not.toBeNull()
       void container
+    })
+  }
+})
+
+/** `{ "$fill": n }` = n zeros. */
+const expandFill = (v: unknown): unknown => {
+  if (Array.isArray(v)) return v.map(expandFill)
+  if (!v || typeof v !== `object`) return v
+  const o = v as Record<string, unknown>
+  return typeof o.$fill === `number` ? Array(o.$fill).fill(0) : Object.fromEntries(Object.entries(o).map(([k, x]) => [k, expandFill(x)]))
+}
+
+describe(`round 4: the template budget (the Rust build's items, one issue)`, () => {
+  for (const c of fixture.templateBudget) {
+    it(c.name, () => {
+      const { root, templates } = reduceNested(c.input as unknown as NestedNode, { catalogId: CORE_CATALOG_ID })
+      const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
+      const id = `tb${fixture.templateBudget.indexOf(c)}`
+      const { container } = render(<ExponentialSurface root={root} templates={templates} data={expandFill(c.data) as Record<string, unknown>} theme="neutral" id={id} />)
+      const painted = new Set([...container.querySelectorAll(`[data-xui-id]`)].map((e) => e.getAttribute(`data-xui-id`)))
+      for (const site of c.sites) {
+        let built = 0
+        for (let i = 0; i < site.items; i++) if (painted.has(`${site.template}${site.instance}.${i}`)) built++
+        expect(built, `${c.name}: ${site.template}${site.instance}`).toBe(site.built)
+      }
+      expect(warn.mock.calls.map((a) => a[0]), c.name).toEqual(c.issues.map((i) => `[exponential-ui] ${id}: ${i.id}: ${i.message}`))
+      warn.mockRestore()
     })
   }
 })

@@ -51,3 +51,20 @@ fn update_components_reports_its_components_issues() {
     let ok = s.apply(&json!({"updateComponents": {"surfaceId": "t", "components": [{"id": "later", "component": "Text", "text": "hi"}]}})).unwrap();
     assert!(ok.issues.is_empty(), "{:?}", ok.issues);
 }
+
+/// The reducer checks an EXTENSION component's calls along its own prop
+/// schemas (`validate_node_in` over the options' view): a call nested in a
+/// TrendLine `values` item is checked, never skipped as schema-less.
+#[test]
+fn the_reducer_checks_extension_calls_against_the_view() {
+    use exponential_ui::extension::define_extension;
+    use exponential_ui::reducer::{reduce_nested, ReduceOptions};
+    let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/exponential-ui/fixtures/catalog-extension.json");
+    let file: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    let ext = define_extension(serde_json::from_value(file["extension"].clone()).unwrap()).expect("the example extension");
+    let view = exponential_ui::catalog::CatalogView::with(&[ext]);
+    let catalog = file["extension"]["id"].as_str().unwrap();
+    let node = serde_json::from_value(json!({"id": "t", "component": "TrendLine", "props": {"values": [1, {"call": "nope", "args": {}}]}})).unwrap();
+    let issues = reduce_nested(&node, &ReduceOptions::new(catalog).with_view(view)).issues;
+    assert!(issues.iter().any(|i| i.id == "t" && i.message.starts_with("props.values[1]") && i.message.contains("unknown function \"nope\"")), "{issues:?}");
+}

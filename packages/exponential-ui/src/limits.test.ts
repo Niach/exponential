@@ -81,8 +81,8 @@ describe(`limits (catalog/limits.json)`, () => {
     expect(b.allowed.get(templateSiteKey(`row`, `/rows/0`))).toBe(half - 1)
     // 2 rows + (half - 1) cells spent: the second row gets what is left.
     expect(b.allowed.get(templateSiteKey(`row`, `/rows/1`))).toBe(half - 1)
-    expect(b.exceeded).toBe(`cell`)
-    expect(templateBudget(root, { rows: [] }, (id) => templates[id]).exceeded).toBeNull()
+    expect(b.issue).toEqual({ id: `cell`, message: LIMIT_ISSUES.templateItems })
+    expect(templateBudget(root, { rows: [] }, (id) => templates[id]).issue).toBeNull()
   })
 
   test(`template instances count against maxComponents NODES: past it the rest is not built, ONE issue`, () => {
@@ -95,11 +95,10 @@ describe(`limits (catalog/limits.json)`, () => {
     const fits = Math.floor((MAX_COMPONENTS - 3) / 3)
     expect(b.allowed.get(templateSiteKey(`rows`, ``))).toBe(fits)
     expect(b.allowed.get(templateSiteKey(`more`, ``))).toBe(0)
-    expect(b.componentsExceeded).toBe(`row`)
-    expect(b.exceeded).toBeNull()
+    expect(b.issue).toEqual({ id: `row`, message: LIMIT_ISSUES.components })
     expect(3 + fits * 3).toBeLessThanOrEqual(MAX_COMPONENTS)
     const ok = templateBudget(root, { rows: Array(10).fill(0), more: [0] }, (id) => templates[id])
-    expect([ok.componentsExceeded, ok.allowed.get(templateSiteKey(`more`, ``))]).toEqual([null, 1])
+    expect([ok.issue, ok.allowed.get(templateSiteKey(`more`, ``))]).toEqual([null, 1])
   })
 
   test(`data pointers refuse gaps, huge indices, non-indices and long paths (iteratively)`, () => {

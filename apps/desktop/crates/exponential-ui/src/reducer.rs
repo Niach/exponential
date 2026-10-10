@@ -300,7 +300,7 @@ fn validate_node(node: &UiNode, id: &str, options: &ReduceOptions, skip_unknown:
             issues.push(ReduceIssue { id: id.to_string(), message: format!("slots.{slot}: {} has no such slot", node.component) });
         }
     }
-    for issue in crate::validate::validate_node(node) {
+    for issue in crate::validate::validate_node_in(node, &options.view) {
         issues.push(ReduceIssue { id: id.to_string(), message: format!("{}: {}", issue.path, issue.message) });
     }
 }
