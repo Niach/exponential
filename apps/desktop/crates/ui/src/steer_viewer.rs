@@ -123,14 +123,30 @@ enum ThreadRow {
     Card(usize),
 }
 
-gpui::actions!(
-    steer_viewer,
-    [
-        /// EXP-1228: the transcript menu's Copy row — copies the window text
-        /// selection exactly like ⌘C/Ctrl+C does over the transcript.
-        CopyTranscriptSelection,
-    ]
-);
+/// EXP-1228: the transcript menu's Copy row — copies the window text
+/// selection exactly like ⌘C/Ctrl+C does over the transcript. EXP-1266: the
+/// text is snapshotted when the menu OPENS and rides the action, whose
+/// handler is App-global ([`ensure_copy_action_registered`]): a native
+/// menu's action dispatches after the menu closes and never reached the
+/// view's element-tree `.on_action`, so the row copied nothing.
+#[derive(Clone, gpui::Action, PartialEq, Eq, serde::Deserialize)]
+#[action(namespace = steer_viewer, no_json)]
+struct CopyTranscriptSelection {
+    text: String,
+}
+
+static REGISTER_COPY_ACTION: std::sync::Once = std::sync::Once::new();
+
+/// EXP-1266: the global [`CopyTranscriptSelection`] handler, registered once
+/// per process (the `file_tree::ensure_actions_registered` rule: menu
+/// actions reach only App-global handlers).
+fn ensure_copy_action_registered(cx: &mut App) {
+    REGISTER_COPY_ACTION.call_once(|| {
+        cx.on_action(|action: &CopyTranscriptSelection, cx| {
+            cx.write_to_clipboard(gpui::ClipboardItem::new_string(action.text.clone()));
+        });
+    });
+}
 
 /// EXP-1228: the transcript's right-click menu row.
 const FEED_MENU_COPY: &str = "Copy";
@@ -4678,43 +4694,28 @@ impl SteerSessionView {
     /// EXP-1228 — the transcript's right-click menu: the composer's own
     /// native menu (gpui-component `Textarea` ships Cut · Copy · Paste ·
     /// Select All), reduced to the one row a read-only transcript can take.
-    /// Copy is disabled without a selection. The view takes focus first
-    /// unless it already holds it (the composer keeps its caret), so the
-    /// row's action reaches [`Self::on_copy_transcript_selection`].
+    /// Copy is disabled without a selection. It copies what ⌘C copies over
+    /// the transcript (gpui-component `Root`'s copy: the window text
+    /// selection), read NOW and carried by [`CopyTranscriptSelection`]
+    /// (EXP-1266) — a focused composer's own Copy would swallow the keyboard
+    /// action, so the row is an action of its own.
     fn on_feed_context_menu(
         &mut self,
         event: &gpui::MouseDownEvent,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        if !self.focus_handle.contains_focused(window, cx) {
-            window.focus(&self.focus_handle, cx);
-        }
-        let has_selection = gpui_base::TextSelection::has_selection(window, cx);
-        gpui_component::native_menu::NativeMenu::new()
-            .menu_with_disabled(
-                FEED_MENU_COPY,
-                !has_selection,
-                Box::new(CopyTranscriptSelection),
-            )
-            .show(event.position, window, cx);
-    }
-
-    /// EXP-1228: what ⌘C copies over the transcript (gpui-component `Root`'s
-    /// copy) — a focused composer's own Copy would swallow the keyboard
-    /// action, so the menu row is an action of its own.
-    fn on_copy_transcript_selection(
-        &mut self,
-        _: &CopyTranscriptSelection,
-        window: &mut Window,
-        cx: &mut gpui::Context<Self>,
-    ) {
+        ensure_copy_action_registered(cx);
         let text = gpui_base::TextSelection::selected_text(window, cx)
             .trim()
             .to_string();
-        if !text.is_empty() {
-            cx.write_to_clipboard(gpui::ClipboardItem::new_string(text));
-        }
+        gpui_component::native_menu::NativeMenu::new()
+            .menu_with_disabled(
+                FEED_MENU_COPY,
+                text.is_empty(),
+                Box::new(CopyTranscriptSelection { text }),
+            )
+            .show(event.position, window, cx);
     }
 
     /// EXP-787 — the rhythm class of list row `ix`: the feed row's own class,
@@ -8747,7 +8748,6 @@ impl Render for SteerSessionView {
             .capture_action(cx.listener(Self::on_answer_down))
             .capture_action(cx.listener(Self::on_answer_enter))
             .capture_key_down(cx.listener(Self::on_answer_key_down))
-            .on_action(cx.listener(Self::on_copy_transcript_selection))
             .size_full()
             .min_h_0()
             .overflow_hidden()
@@ -8853,6 +8853,27 @@ mod turn_thread_tests {
 
 #[cfg(test)]
 mod tests {
+    /// EXP-1266: the transcript menu's Copy dispatches after the native menu
+    /// closes, through whatever holds focus — here nothing does — so only an
+    /// App-global handler reaches it, and it copies the text snapshotted
+    /// when the menu opened.
+    #[gpui::test]
+    async fn transcript_menu_copy_reaches_the_clipboard_without_focus(
+        cx: &mut gpui::TestAppContext,
+    ) {
+        cx.update(super::ensure_copy_action_registered);
+        let cx = cx.add_empty_window();
+        cx.update(|window, cx| {
+            window.dispatch_action(
+                Box::new(super::CopyTranscriptSelection { text: "docker exec -it openclaw".into() }),
+                cx,
+            );
+        });
+        cx.run_until_parked();
+        let copied = cx.update(|_, cx| cx.read_from_clipboard().and_then(|item| item.text()));
+        assert_eq!(copied.as_deref(), Some("docker exec -it openclaw"));
+    }
+
     #[test]
     fn rate_limit_caption_keeps_message_and_countdown_apart() {
         assert_eq!(
