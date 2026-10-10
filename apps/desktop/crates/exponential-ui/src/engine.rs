@@ -26,12 +26,18 @@ use taffy::{
 /// gap or flex basis resolve against it), so only those nodes key on it, in
 /// a second bank of slots per parent-width state. A request HITS when its
 /// known dimensions equal the entry's and each unknown dimension's
-/// available space is roughly equal (taffy's own rule otherwise).
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// available space is roughly equal (taffy's own rule otherwise), the
+/// entry answered the same AXIS or both (grid sizes items one axis at a
+/// time: a width-only answer carries a meaningless height) and the same
+/// SIZING MODE (a content-size answer ignores the node's own size style;
+/// taffy's cache conflates the two).
+#[derive(Debug, Clone, Copy)]
 struct CacheEntry<T> {
     known: Size<Option<f32>>,
     available: Size<AvailableSpace>,
     parent: Size<Option<f32>>,
+    axis: taffy::RequestedAxis,
+    sizing: taffy::SizingMode,
     content: T,
 }
 
@@ -43,6 +49,8 @@ impl<T> CacheEntry<T> {
             && (known.width.is_some() || self.available.width.is_roughly_equal(input.available_space.width))
             && (known.height.is_some() || self.available.height.is_roughly_equal(input.available_space.height))
             && (!percent || self.parent == input.parent_size)
+            && (self.axis == input.axis || self.axis == taffy::RequestedAxis::Both)
+            && self.sizing == input.sizing_mode
     }
 }
 
@@ -80,10 +88,10 @@ impl Cache {
     }
 
     fn store(&mut self, input: &LayoutInput, output: LayoutOutput, percent: bool) {
-        let (known, available, parent) = (input.known_dimensions, input.available_space, input.parent_size);
+        let (known, available, parent, axis, sizing) = (input.known_dimensions, input.available_space, input.parent_size, input.axis, input.sizing_mode);
         match input.run_mode {
-            RunMode::PerformLayout => self.layout = Some(CacheEntry { known, available, parent, content: output }),
-            RunMode::ComputeSize => self.sizes[Self::slot(input, percent)] = Some(CacheEntry { known, available, parent, content: output.size }),
+            RunMode::PerformLayout => self.layout = Some(CacheEntry { known, available, parent, axis, sizing, content: output }),
+            RunMode::ComputeSize => self.sizes[Self::slot(input, percent)] = Some(CacheEntry { known, available, parent, axis, sizing, content: output.size }),
             RunMode::PerformHiddenLayout => {}
         }
     }
@@ -153,6 +161,9 @@ impl Default for ENode {
 pub struct Engine {
     nodes: Vec<ENode>,
     rounding: bool,
+    /// Tests only: every request misses (the differential reference).
+    #[cfg(test)]
+    no_cache: bool,
 }
 
 /// The measure callback: `(slot, known size, available space) → answer`.
@@ -268,6 +279,10 @@ impl View<'_, '_> {
 
 impl CacheTree for View<'_, '_> {
     fn cache_get(&self, node: NodeId, input: &LayoutInput) -> Option<LayoutOutput> {
+        #[cfg(test)]
+        if self.engine.no_cache {
+            return None;
+        }
         let n = &self.engine.nodes[slot(node)];
         n.cache.get(input, n.percent)
     }
@@ -547,6 +562,175 @@ mod cache_tests {
                 assert!(calls.get() <= 8, "depth {depth} (percent {percent}): {} measures", calls.get());
                 assert_eq!(e.layout(depth as u32).size.height, 10.0);
             }
+        }
+    }
+}
+
+#[cfg(test)]
+mod differential_tests {
+    use super::*;
+
+    struct Rng(u64);
+    impl Rng {
+        fn n(&mut self, m: u64) -> u64 {
+            self.0 = self.0.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            (self.0 >> 33) % m
+        }
+    }
+
+    fn dim(r: &mut Rng) -> Dimension {
+        match r.n(4) {
+            0 => Dimension::length((r.n(20) * 10) as f32),
+            1 => Dimension::percent((r.n(10) as f32 + 1.0) / 10.0),
+            _ => Dimension::auto(),
+        }
+    }
+
+    fn lp(r: &mut Rng) -> LengthPercentage {
+        match r.n(3) {
+            0 => LengthPercentage::length(r.n(8) as f32),
+            1 => LengthPercentage::percent(r.n(5) as f32 / 100.0),
+            _ => LengthPercentage::length(0.0),
+        }
+    }
+
+    fn style(r: &mut Rng, leaf: bool) -> Style {
+        let mut s = Style::default();
+        s.display = if leaf {
+            Display::Flex
+        } else {
+            match r.n(3) {
+                0 => Display::Block,
+                1 => Display::Grid,
+                _ => Display::Flex,
+            }
+        };
+        s.flex_direction = if r.n(2) == 0 { FlexDirection::Row } else { FlexDirection::Column };
+        if r.n(3) == 0 {
+            s.flex_wrap = FlexWrap::Wrap;
+        }
+        s.size = Size { width: dim(r), height: if r.n(3) == 0 { dim(r) } else { Dimension::auto() } };
+        if r.n(4) == 0 {
+            s.min_size.width = dim(r);
+        }
+        if r.n(4) == 0 {
+            s.max_size.width = dim(r);
+        }
+        s.padding = Rect { left: lp(r), right: lp(r), top: lp(r), bottom: lp(r) };
+        s.flex_grow = r.n(3) as f32;
+        s.flex_shrink = if r.n(4) == 0 { 0.0 } else { 1.0 };
+        if r.n(4) == 0 {
+            s.flex_basis = dim(r);
+        }
+        if r.n(4) == 0 {
+            s.align_items = Some(AlignItems::FLEX_START);
+        }
+        if r.n(5) == 0 {
+            s.gap = Size { width: lp(r), height: lp(r) };
+        }
+        s
+    }
+
+    /// A wrapping text leaf: `words` 13 px words on 16 px lines.
+    fn text(words: u32, known: Size<Option<f32>>, avail: Size<AvailableSpace>) -> Size<f32> {
+        let total = words as f32 * 13.0;
+        let w = known.width.unwrap_or(match avail.width {
+            AvailableSpace::Definite(w) => w.min(total).max(13.0),
+            AvailableSpace::MinContent => 13.0,
+            AvailableSpace::MaxContent => total,
+        });
+        let per = (w / 13.0).floor().max(1.0);
+        Size { width: w, height: known.height.unwrap_or((words as f32 / per).ceil() * 16.0) }
+    }
+
+    fn build(styles: &[Style], kids: &[Vec<u32>], no_cache: bool) -> Engine {
+        let mut e = Engine::new();
+        e.no_cache = no_cache;
+        e.resize(styles.len());
+        for i in 0..styles.len() {
+            e.set_style(i as u32, styles[i].clone());
+            e.set_children(i as u32, &kids[i]);
+            if kids[i].is_empty() {
+                e.set_measured(i as u32, true);
+            }
+        }
+        e
+    }
+
+    /// VAPP-103 rfix: a grid sizes its items one axis at a time; a
+    /// width-only cache answer must never serve a height request (the box
+    /// holding a 160 px child got height 0 and the next item overlapped it).
+    #[test]
+    fn grid_items_keep_their_heights_under_the_cache() {
+        let grid = Style { display: Display::Grid, ..Style::default() };
+        let a = Style { size: Size { width: Dimension::length(180.0), height: Dimension::auto() }, ..Style::default() };
+        let tall = Style { size: Size { width: Dimension::auto(), height: Dimension::length(160.0) }, ..Style::default() };
+        let styles = vec![grid, a, tall, Style::default()];
+        let kids = vec![vec![1, 3], vec![2], vec![], vec![]];
+        let mut e = build(&styles, &kids, false);
+        e.set_measured(2, false);
+        let mut m = |_i: u32, k: Size<Option<f32>>, a: Size<AvailableSpace>| LeafAnswer { size: text(5, k, a), baseline: None };
+        e.compute(0, Size { width: AvailableSpace::Definite(400.0), height: AvailableSpace::MaxContent }, &mut m);
+        assert_eq!(e.layout(1).size.height, 160.0);
+        assert_eq!(e.layout(3).location.y, 160.0);
+    }
+
+    /// The cache never changes a layout: random flex/grid/block trees with
+    /// percentages, laid out over a changing viewport by ONE cached engine,
+    /// equal a fresh uncached engine at every pass.
+    #[test]
+    fn cached_layout_equals_uncached_layout_on_random_trees() {
+        let viewports = [(400.0f32, None), (250.0, Some(300.0)), (400.0, None), (137.0, Some(300.0)), (400.0, Some(90.0))];
+        for seed in 0..1000u64 {
+            let mut r = Rng(seed * 7919 + 1);
+            let n = if seed % 2 == 0 { 2 + r.n(4) as usize } else { 3 + r.n(25) as usize };
+            let mut kids: Vec<Vec<u32>> = vec![vec![]; n];
+            for i in 1..n {
+                kids[r.n(i as u64) as usize].push(i as u32);
+            }
+            let styles: Vec<Style> = (0..n).map(|i| style(&mut r, kids[i].is_empty())).collect();
+            let words: Vec<u32> = (0..n).map(|_| 1 + r.n(30) as u32).collect();
+            let mut cached = build(&styles, &kids, false);
+            for (pass, &(w, h)) in viewports.iter().enumerate() {
+                let avail = Size { width: AvailableSpace::Definite(w), height: h.map_or(AvailableSpace::MaxContent, AvailableSpace::Definite) };
+                let mut m = |i: u32, k: Size<Option<f32>>, a: Size<AvailableSpace>| LeafAnswer { size: text(words[i as usize], k, a), baseline: None };
+                cached.compute(0, avail, &mut m);
+                let mut reference = build(&styles, &kids, true);
+                reference.compute(0, avail, &mut m);
+                for i in 0..n as u32 {
+                    let (a, b) = (cached.layout(i), reference.layout(i));
+                    let d = (a.size.width - b.size.width).abs()
+                        + (a.size.height - b.size.height).abs()
+                        + (a.location.x - b.location.x).abs()
+                        + (a.location.y - b.location.y).abs();
+                    assert!(d <= 0.01, "seed {seed} pass {pass} node {i}: cached {:?}@{:?} uncached {:?}@{:?}", a.size, a.location, b.size, b.location);
+                }
+            }
+        }
+    }
+
+    /// The depth bench: nested grid and block columns measure their leaf a
+    /// bounded number of times at depth 30 (the axis key must not bring
+    /// back the per-level doubling).
+    #[test]
+    fn nested_grid_and_block_measure_the_leaf_a_bounded_number_of_times() {
+        for display in [Display::Grid, Display::Block, Display::Flex] {
+            let depth = 30usize;
+            let mut e = Engine::new();
+            e.resize(depth + 1);
+            for i in 0..depth {
+                e.set_style(i as u32, Style { display, flex_direction: FlexDirection::Column, ..Style::default() });
+                e.set_children(i as u32, &[(i + 1) as u32]);
+            }
+            e.set_measured(depth as u32, true);
+            let calls = std::cell::Cell::new(0u64);
+            let mut measure = |_i: u32, _k: Size<Option<f32>>, _a: Size<AvailableSpace>| {
+                calls.set(calls.get() + 1);
+                LeafAnswer { size: Size { width: 10.0, height: 10.0 }, baseline: None }
+            };
+            e.compute(0, Size { width: AvailableSpace::Definite(400.0), height: AvailableSpace::MaxContent }, &mut measure);
+            assert!(calls.get() <= 16, "{display:?} depth {depth}: {} measures", calls.get());
+            assert_eq!(e.layout(depth as u32).size.height, 10.0);
         }
     }
 }
