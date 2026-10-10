@@ -30,7 +30,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     title: `Links in agent replies: sources, runs and issues`,
     summary: `Agents cite sources as links in their replies and Guides, a link to a run or issue on your instance opens inside the app, and a placeholder link opens nothing.`,
     body: `- **Sources**: agents now cite documentation and references as inline links, and a link to another run opens it.
-- **In-app links**: on web, desktop, iOS and Android a link in a run's thread, transcript or Guide that points at a run or issue on your instance opens it in the app instead of a browser tab; other links open in the browser as before.
+- **In-app links**: on web, desktop, iOS and Android a link in a run's thread, transcript or Guide that points at a run or issue on your instance opens it in the app instead of a browser tab. On iOS and Android every other web link opens in the in-app browser; on web and desktop in your browser.
 - **Bare URLs**: plain URLs in the desktop transcript and the iOS thread and Guide are now clickable, and the iOS Guide shows issue pills.`,
   },
   {

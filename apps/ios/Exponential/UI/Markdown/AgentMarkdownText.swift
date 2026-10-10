@@ -256,7 +256,12 @@ struct AgentMarkdownText: View {
     ) -> (() -> Void)? {
         switch AppLink.classify(url.absoluteString, origin: origin) {
         case .external:
-            return nil
+            // EXP-1188: a web source opens in the in-app Safari sheet, like
+            // Android's Custom Tab; mailto keeps the system handler.
+            guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else {
+                return nil
+            }
+            return { deps.deepLinkBus.openExternal(url) }
         case .ignore:
             return {}
         case let .session(_, sessionId):

@@ -502,8 +502,21 @@ class MarkdownAnnotateTest {
             opened.single(),
         )
         assertTrue(linkOf("https://app.exponential.at/t/acme/boards/web/issues/EXP-1") is LinkAnnotation.Clickable)
-        assertEquals("https://app.exponential.at/settings/account", (linkOf("/settings/account") as LinkAnnotation.Url).url)
-        assertEquals("https://example.com/a", (linkOf("https://example.com/a") as LinkAnnotation.Url).url)
+        // Another instance page + a web source = the in-app browser (a click);
+        // mailto keeps the system handler.
+        opened.clear()
+        (linkOf("/settings/account") as LinkAnnotation.Clickable).let { it.linkInteractionListener?.onClick(it) }
+        (linkOf("https://example.com/a") as LinkAnnotation.Clickable).let { it.linkInteractionListener?.onClick(it) }
+        assertEquals(
+            listOf(
+                com.exponential.app.domain.AppLink.App("/settings/account") to "https://app.exponential.at/settings/account",
+                com.exponential.app.domain.AppLink.External("https://example.com/a") to "https://example.com/a",
+            ),
+            opened,
+        )
+        assertEquals("mailto:a@b.co", (linkOf("mailto:a@b.co") as LinkAnnotation.Url).url)
+        assertTrue(isAgentPath("/t/acme/agent?x=1"))
+        assertTrue(!isAgentPath("/t/acme/agent/more"))
         assertNull(linkOf("https://…"))
         // Without a handler every href opens as written, as before.
         val plain = annotate("link", listOf(InlineMark(0, 4, InlineKind.Link, href = "/t/acme/sessions/abc")), null)

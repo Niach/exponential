@@ -24,7 +24,8 @@ import java.net.URI
  * EXP-1188: links in agent prose (narration, Guide, thread) that point at THIS
  * instance open in the app. [origin] = the active account's instance origin
  * (`https://host[:port]`, no trailing slash); [onOpen] navigates an
- * [AppLink.Issue] / [AppLink.Session], given the link's ABSOLUTE url.
+ * [AppLink.Issue] / [AppLink.Session] and opens an [AppLink.App] page or a
+ * web [AppLink.External] in the in-app browser, given the link's ABSOLUTE url.
  */
 class AppLinkHandler(
     val origin: String,
@@ -59,10 +60,35 @@ internal fun appLinkAnnotation(
                 linkInteractionListener = { handler.onOpen(link, url) },
             )
         }
-        is AppLink.App -> LinkAnnotation.Url(url = handler.origin + link.path, styles = styles)
-        is AppLink.External -> LinkAnnotation.Url(url = link.url, styles = styles)
+        // EXP-1188: another instance page and a web source open in the
+        // in-app browser (a Custom Tab), like iOS's Safari sheet; mailto
+        // keeps the system handler.
+        is AppLink.App -> {
+            val url = handler.origin + link.path
+            LinkAnnotation.Clickable(
+                tag = url,
+                styles = styles,
+                linkInteractionListener = { handler.onOpen(link, url) },
+            )
+        }
+        is AppLink.External ->
+            if (link.url.startsWith("mailto:", ignoreCase = true)) {
+                LinkAnnotation.Url(url = link.url, styles = styles)
+            } else {
+                LinkAnnotation.Clickable(
+                    tag = link.url,
+                    styles = styles,
+                    linkInteractionListener = { handler.onOpen(link, link.url) },
+                )
+            }
         AppLink.Ignore -> null
     }
+}
+
+/** `/t/<team>/agent` (query/hash aside): the team's Agent page. */
+internal fun isAgentPath(path: String): Boolean {
+    val segments = path.substringBefore('?').substringBefore('#').split('/').filter { it.isNotEmpty() }
+    return segments.size == 3 && segments[0] == "t" && segments[2] == "agent"
 }
 
 private fun absoluteUrl(href: String, origin: String): String {
@@ -117,7 +143,12 @@ fun rememberAppLinkHandler(): AppLinkHandler? {
                         identifier = link.identifier,
                     )
                 }
-                else -> Unit
+                // The one other page the app renders natively (EXP-825),
+                // matching iOS; every other page + source = a Custom Tab.
+                is AppLink.App ->
+                    if (isAgentPath(link.path)) bus.openAgent() else bus.openWebUrl(Uri.parse(url))
+                is AppLink.External -> bus.openWebUrl(Uri.parse(url))
+                AppLink.Ignore -> Unit
             }
         }
     }
