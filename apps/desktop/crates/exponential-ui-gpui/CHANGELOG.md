@@ -8,4 +8,5 @@ release together from a `ui-v<version>` tag (`packages/exponential-ui/release/RE
 First release.
 
 - `SurfaceView`: the gpui painter. It measures text in-process and paints one absolutely positioned div per node at the core's frames.
+- Video and AudioPlayer hand their policed `src` to the system player on a press (gpui has no media pipeline): http(s) through `open_url`, a header-carrying or `data:` request fetched within `media.limits` into a temp file for the new `HostPlugin::open_media_file`; a denied src stays inert.
 - Overlays, host-owned inputs, charts, markdown, accessibility order and the conformance runner.

@@ -10,6 +10,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -20,9 +22,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -33,7 +38,9 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -41,6 +48,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.ui.PlayerView
 import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_BRIDGE
 import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_COLUMN
 import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_RADIUS
@@ -56,6 +65,8 @@ import at.exponential.ui.primitives.RingView
 import at.exponential.ui.primitives.Rgba
 import at.exponential.ui.theme.ResolvedTextStyle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.InputStream
 import at.exponential.ui.host.MediaLimits
@@ -326,14 +337,63 @@ internal fun ImageLeaf(cx: LeafContext) {
     }
 }
 
-/** `Video`: the poster (or a dark tint) with a play button and the duration badge (static; playback is the host's). */
+/**
+ * The leaf's [MediaPlayback] (released when the leaf leaves the
+ * composition) and the policed request for its `src` (null = no src or
+ * DENIED: nothing loads, the controls stay inert).
+ */
+@Composable
+private fun rememberPlayback(cx: LeafContext): Pair<MediaPlayback, MediaRequest?> {
+    val context = LocalContext.current
+    val playback = remember { MediaPlayback(context.applicationContext ?: context) }
+    DisposableEffect(playback) { onDispose { playback.stop() } }
+    val src = cx.props.str("src")
+    val model = cx.model
+    val request = remember(src, model.host) { if (src.isEmpty()) null else model.mediaRequest(src) }
+    return playback to request
+}
+
+/**
+ * `Video`: `src` plays through the policed media request (ExoPlayer in a
+ * `PlayerView` with the platform's controls; `autoplay` = muted on
+ * appear); before that the poster (or a dark tint), a play button and the
+ * duration. A denied src stays that poster with an inert play glyph
+ * (React's sourceless `<video>`).
+ */
 @Composable
 internal fun VideoLeaf(cx: LeafContext) {
-    val poster = rememberLeafImage(cx, cx.props.str("poster"))
+    val (playback, request) = rememberPlayback(cx)
+    val model = cx.model
+    val autoplay = cx.props["autoplay"]?.bool == true
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(request, autoplay) {
+        if (autoplay && request != null) {
+            playback.play(request, muted = true, police = model::mediaRequest)
+        } else if (playback.opened != request) {
+            playback.stop()
+        }
+    }
+    val player = playback.player
     Box(Modifier.fillMaxSize().clipToBounds().background(Color.Black.copy(alpha = 0.85f))) {
+        if (player != null) {
+            AndroidView(
+                factory = { PlayerView(it).apply { useController = true } },
+                modifier = Modifier.fillMaxSize(),
+                update = { it.player = player },
+                onRelease = { it.player = null },
+            )
+            return@Box
+        }
+        val poster = rememberLeafImage(cx, cx.props.str("poster"))
         if (poster != null) Image(poster, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(
-            Modifier.align(Alignment.Center).size(44.dp).background(Color.White.copy(alpha = 0.18f), CircleShape),
+            Modifier
+                .align(Alignment.Center)
+                .size(44.dp)
+                .background(Color.White.copy(alpha = 0.18f), CircleShape)
+                .clickable(enabled = request != null, role = Role.Button) {
+                    scope.launch { playback.play(request, police = model::mediaRequest) }
+                },
             contentAlignment = Alignment.Center,
         ) { GlyphView(Glyph.Play, 20f, Color.White) }
         cx.props.num("durationMs")?.let { ms ->
@@ -351,14 +411,34 @@ internal fun VideoLeaf(cx: LeafContext) {
     }
 }
 
-/** `AudioPlayer`: the title line over a static controls capsule (play, track, `0:00 / duration`). */
+/**
+ * `AudioPlayer`: the title line over a controls capsule. `src` plays
+ * through the policed media request: play / pause, the track fills with
+ * the position (a press seeks), `elapsed / length` (the item's, else
+ * `durationMs`). A denied src keeps the controls inert.
+ */
 @Composable
 internal fun AudioLeaf(cx: LeafContext) {
+    val (playback, request) = rememberPlayback(cx)
+    val model = cx.model
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(request) { if (playback.opened != request) playback.stop() }
+    // The position while it plays (4 Hz, Swift's periodic observer).
+    LaunchedEffect(playback.player, playback.playing) {
+        while (playback.playing) {
+            playback.tick()
+            delay(250)
+        }
+        playback.tick()
+    }
     val title = cx.props.str("title")
     val muted = cx.themeColor("muted") ?: cx.ink.copy(alpha = 0.1f)
     val mutedFg = cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = 0.6f)
     val track = cx.part("AudioPlayer", "track")
-    val duration = cx.props.num("durationMs")?.let(DateModel::formatDuration) ?: "0:00"
+    val known = cx.props.num("durationMs")?.toLong()
+    val length = playback.durationMs ?: known
+    val progress = length?.takeIf { it > 0 }?.let { (playback.positionMs.toFloat() / it).coerceIn(0f, 1f) } ?: 0f
+    val elapsed = DateModel.formatDuration(playback.positionMs.toDouble())
     InnerBox(cx) {
         Column(verticalArrangement = Arrangement.spacedBy(cx.spacing("xs").dp)) {
             if (title.isNotEmpty()) LeafLine(cx, title, color = track.color ?: cx.ink)
@@ -367,12 +447,31 @@ internal fun AudioLeaf(cx: LeafContext) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(28.dp).background(cx.ink, CircleShape), contentAlignment = Alignment.Center) {
-                    GlyphView(Glyph.Play, 14f, cx.themeColor("background") ?: Color.White)
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .background(cx.ink, CircleShape)
+                        .clickable(enabled = request != null, role = Role.Button) {
+                            if (playback.playing) playback.pause() else scope.launch { playback.play(request, police = model::mediaRequest) }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    GlyphView(if (playback.playing) Glyph.Pause else Glyph.Play, 14f, cx.themeColor("background") ?: Color.White)
                 }
-                Box(Modifier.weight(1f).height(4.dp).background(mutedFg.copy(alpha = mutedFg.alpha * 0.35f), CircleShape))
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .pointerInput(playback, known) {
+                            detectTapGestures { o -> playback.seek(if (size.width > 0) o.x / size.width else 0f, known) }
+                        },
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Box(Modifier.fillMaxWidth().height(4.dp).background(mutedFg.copy(alpha = mutedFg.alpha * 0.35f), CircleShape))
+                    if (progress > 0f) Box(Modifier.fillMaxWidth(progress).height(4.dp).background(mutedFg, CircleShape))
+                }
                 BasicText(
-                    "0:00 / $duration",
+                    "$elapsed / ${length?.let { DateModel.formatDuration(it.toDouble()) } ?: "0:00"}",
                     style = cx.composeTextStyle(ts = ResolvedTextStyle(12f, 400, 16f, cx.textStyle.fontFamily), color = mutedFg),
                     maxLines = 1,
                 )

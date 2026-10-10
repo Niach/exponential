@@ -115,6 +115,16 @@ pub trait HostPlugin: 'static {
         }
     }
 
+    /// A `Video` / `AudioPlayer` press hands its policed source to the
+    /// system player (gpui has no media pipeline, so nothing plays inline):
+    /// an http(s) src without headers goes through [`Self::open_url`]; a
+    /// request with headers or a `data:` url is fetched under the media
+    /// limits into a temporary file, and that file (or a host-allowed
+    /// `file:` src) arrives here. Default: the system opener.
+    fn open_media_file(&self, path: &std::path::Path, cx: &mut gpui::App) {
+        cx.open_with_system(path)
+    }
+
     /// `onPaintError` (`catalog/host.json` paint): a component's painter
     /// failed (it panicked) and painted an empty box.
     /// [`crate::runtime::host_plugin`] forwards it to the agent as an A2UI

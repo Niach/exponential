@@ -90,8 +90,14 @@ fn read_file(url: &str) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-#[cfg(feature = "net")]
 fn fetch_http(key: &MediaKey) -> Result<Vec<u8>, String> {
+    fetch_http_typed(key).map(|(bytes, _)| bytes)
+}
+
+/// The body of an http(s) request under the media limits, with its
+/// `Content-Type`.
+#[cfg(feature = "net")]
+fn fetch_http_typed(key: &MediaKey) -> Result<(Vec<u8>, Option<String>), String> {
     use std::io::Read;
     use std::time::Duration;
     let client = reqwest::blocking::Client::builder()
@@ -117,13 +123,14 @@ fn fetch_http(key: &MediaKey) -> Result<Vec<u8>, String> {
     if let Some(len) = res.content_length() {
         media_within_limits(len, None)?;
     }
+    let mime = res.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).map(|v| v.split(';').next().unwrap_or("").trim().to_ascii_lowercase());
     let mut out = Vec::new();
     res.take(MEDIA_MAX_BYTES + 1).read_to_end(&mut out).map_err(|e| e.to_string())?;
-    Ok(out)
+    Ok((out, mime))
 }
 
 #[cfg(not(feature = "net"))]
-fn fetch_http(key: &MediaKey) -> Result<Vec<u8>, String> {
+fn fetch_http_typed(key: &MediaKey) -> Result<(Vec<u8>, Option<String>), String> {
     Err(format!("{}: http(s) media needs the `net` feature", key.url))
 }
 
@@ -161,6 +168,123 @@ pub fn allowed_request(host: &dyn HostPlugin, src: &str) -> Option<MediaRequest>
     let options = host.media_options();
     let recheck = MediaOptions { schemes: options.schemes, hosts: options.hosts, ..Default::default() };
     media_request(&req.url, &recheck).map(|_| req)
+}
+
+// VAPP-103: Video / AudioPlayer playback. gpui has no audio or video
+// pipeline (and none is in the lockfile), so a press hands the policed
+// source to the system player: the honest desktop equivalent of the
+// platform player the other renderers open inline.
+
+/// How a policed Video / AudioPlayer src reaches the system player (Swift's
+/// `MediaLoader.Playback`: stream unless the request carries headers or is
+/// a `data:` url).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Handoff {
+    /// An http(s) url without headers: opened through
+    /// [`HostPlugin::open_url`] (the URL policy, then the opener).
+    Open(String),
+    /// A `file:` src the host's media schemes list: its path, opened as is
+    /// through [`HostPlugin::open_media_file`].
+    File(std::path::PathBuf),
+    /// Headers (auth) or a `data:` url: fetched under the media limits into
+    /// a temporary file ([`fetch_to_file`]) that
+    /// [`HostPlugin::open_media_file`] opens.
+    Fetch(MediaKey),
+}
+
+/// The hand-off for a media `src`; `None` = no src or the media policy
+/// DENIES it (nothing loads, the play control stays inert).
+pub fn handoff(host: &dyn HostPlugin, src: &str) -> Option<Handoff> {
+    let req = allowed_request(host, src)?;
+    let scheme = req.url.split(':').next().unwrap_or("").to_ascii_lowercase();
+    match scheme.as_str() {
+        "file" => url::Url::parse(&req.url).ok()?.to_file_path().ok().map(Handoff::File),
+        "data" => Some(Handoff::Fetch(MediaKey::from(&req))),
+        "http" | "https" if req.headers.is_empty() => Some(Handoff::Open(req.url)),
+        "http" | "https" => Some(Handoff::Fetch(MediaKey::from(&req))),
+        _ => None,
+    }
+}
+
+/// A `data:` url's MIME type and bytes (any type; the byte cap applies).
+fn data_payload(url: &str) -> Result<(Vec<u8>, Option<String>), String> {
+    let rest = url.strip_prefix("data:").ok_or("not a data url")?;
+    let (meta, data) = rest.split_once(',').ok_or("data url without a comma")?;
+    if meta.ends_with(";base64") && (data.len() as u64 / 4) * 3 > MEDIA_MAX_BYTES {
+        return Err(format!("data url over {MEDIA_MAX_BYTES} bytes"));
+    }
+    let mime = meta.split(';').next().unwrap_or("").trim().to_ascii_lowercase();
+    let bytes = if meta.ends_with(";base64") { crate::paint::natives::base64_decode(data).ok_or("bad base64")? } else { crate::paint::natives::percent_decode(data) };
+    Ok((bytes, (!mime.is_empty()).then_some(mime)))
+}
+
+/// The file extension the system opener needs: the MIME type's, else the
+/// url path's, else `fallback`.
+fn extension(mime: Option<&str>, url: &str, fallback: &str) -> String {
+    let by_mime = match mime.unwrap_or("") {
+        "video/mp4" => Some("mp4"),
+        "video/quicktime" => Some("mov"),
+        "video/webm" => Some("webm"),
+        "video/ogg" => Some("ogv"),
+        "audio/mpeg" | "audio/mp3" => Some("mp3"),
+        "audio/mp4" | "audio/x-m4a" | "audio/aac" => Some("m4a"),
+        "audio/wav" | "audio/x-wav" | "audio/wave" => Some("wav"),
+        "audio/ogg" => Some("ogg"),
+        "audio/webm" => Some("webm"),
+        "audio/flac" | "audio/x-flac" => Some("flac"),
+        _ => None,
+    };
+    if let Some(ext) = by_mime {
+        return ext.to_string();
+    }
+    if !url.starts_with("data:") {
+        let path = url.split(['?', '#']).next().unwrap_or("");
+        let last = path.rsplit('/').next().unwrap_or("");
+        if let Some((_, ext)) = last.rsplit_once('.') {
+            if !ext.is_empty() && ext.len() <= 5 && ext.chars().all(|c| c.is_ascii_alphanumeric()) {
+                return ext.to_ascii_lowercase();
+            }
+        }
+    }
+    fallback.to_string()
+}
+
+/// Fetch a policed request under the media limits (timeout, Content-Length,
+/// the body as it streams) into a fresh temporary file named with the
+/// media's extension (`fallback` when neither the type nor the url says).
+pub fn fetch_to_file(key: &MediaKey, fallback: &str) -> Result<std::path::PathBuf, String> {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let (bytes, mime) = if key.url.starts_with("data:") { data_payload(&key.url)? } else { fetch_http_typed(key)? };
+    media_within_limits(bytes.len() as u64, None)?;
+    let dir = std::env::temp_dir().join("exponential-ui-media");
+    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let name = format!("{}-{nanos}-{}.{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed), extension(mime.as_deref(), &key.url, fallback));
+    let path = dir.join(name);
+    std::fs::write(&path, &bytes).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// A Video / AudioPlayer press: hand `src` to the system player through
+/// [`handoff`] (a denied src does nothing). A fetch runs on the background
+/// executor; its file then goes to [`HostPlugin::open_media_file`].
+/// `fallback` = the extension when the media names none (`mp4`, `m4a`).
+pub fn play(host: std::rc::Rc<dyn HostPlugin>, src: &str, fallback: &'static str, cx: &mut App) {
+    match handoff(host.as_ref(), src) {
+        None => {}
+        Some(Handoff::Open(url)) => host.open_url(&url, cx),
+        Some(Handoff::File(path)) => host.open_media_file(&path, cx),
+        Some(Handoff::Fetch(key)) => {
+            let fetch = cx.background_executor().spawn(async move { fetch_to_file(&key, fallback) });
+            cx.spawn(async move |cx| {
+                if let Ok(path) = fetch.await {
+                    let _ = cx.update(|cx| host.open_media_file(&path, cx));
+                }
+            })
+            .detach();
+        }
+    }
 }
 
 #[cfg(test)]
@@ -224,4 +348,72 @@ mod tests {
         assert!(err.contains("bytes"), "{err}");
         std::fs::remove_dir_all(&dir).ok();
     }
+
+    // VAPP-103: Video / AudioPlayer hand-off.
+
+    struct Signing;
+    impl HostPlugin for Signing {
+        fn media_options(&self) -> MediaOptions {
+            let headers = [("Authorization".to_string(), "Bearer t0k".to_string())].into_iter().collect();
+            MediaOptions { rules: Some(vec![exponential_ui::host::MediaRule { prefix: "https://files.example/".into(), headers }]), ..Default::default() }
+        }
+    }
+
+    /// Records what reaches the system player.
+    #[derive(Default, Clone)]
+    struct Opener(std::rc::Rc<std::cell::RefCell<Vec<String>>>);
+    impl HostPlugin for Opener {
+        fn open_url(&self, url: &str, _cx: &mut App) {
+            self.0.borrow_mut().push(format!("url {url}"));
+        }
+        fn open_media_file(&self, path: &std::path::Path, _cx: &mut App) {
+            self.0.borrow_mut().push(format!("file {}", path.display()));
+        }
+    }
+
+    #[test]
+    fn a_src_streams_unless_it_carries_headers_or_data() {
+        assert_eq!(handoff(&Plain, "https://cdn.example/a.mp4"), Some(Handoff::Open("https://cdn.example/a.mp4".into())));
+        let Some(Handoff::Fetch(key)) = handoff(&Signing, "https://files.example/a.mp4") else { panic!("a signed src fetches") };
+        assert_eq!(key.headers, vec![("Authorization".to_string(), "Bearer t0k".to_string())]);
+        assert!(matches!(handoff(&Plain, "data:audio/wav;base64,UklGRg=="), Some(Handoff::Fetch(_))));
+        assert_eq!(handoff(&Files, "file:///tmp/a.mp3"), Some(Handoff::File("/tmp/a.mp3".into())));
+        // Denied: nothing loads, nothing opens.
+        for src in ["", "file:///tmp/a.mp3", "/a.mp4", "javascript:alert(1)", "ftp://x.example/a.mp4"] {
+            assert_eq!(handoff(&Plain, src), None, "{src}");
+        }
+        assert_eq!(handoff(&Widening, "https://x.test/a.mp4"), None);
+    }
+
+    #[test]
+    fn a_fetched_src_lands_in_a_file_named_for_its_type() {
+        let path = fetch_to_file(&MediaKey { url: "data:audio/wav;base64,UklGRg==".into(), headers: vec![] }, "m4a").unwrap();
+        assert_eq!(path.extension().and_then(|e| e.to_str()), Some("wav"));
+        assert_eq!(std::fs::read(&path).unwrap(), b"RIFF");
+        std::fs::remove_file(&path).ok();
+        assert_eq!(extension(None, "https://x.example/clip.MOV?sig=1", "mp4"), "mov");
+        assert_eq!(extension(Some("application/octet-stream"), "https://x.example/api/attachments/7", "m4a"), "m4a");
+        // Over the byte cap: refused before decoding, no file.
+        let big = format!("data:video/mp4;base64,{}", "A".repeat((MEDIA_MAX_BYTES / 3 * 4 + 8) as usize));
+        assert!(fetch_to_file(&MediaKey { url: big, headers: vec![] }, "mp4").unwrap_err().contains("bytes"));
+    }
+
+    #[gpui::test]
+    fn a_press_hands_only_a_policed_src_to_the_system_player(cx: &mut gpui::TestAppContext) {
+        let opener = Opener::default();
+        let host: std::rc::Rc<dyn HostPlugin> = std::rc::Rc::new(opener.clone());
+        cx.update(|cx| {
+            play(host.clone(), "https://cdn.example/a.mp4", "mp4", cx);
+            play(host.clone(), "javascript:alert(1)", "mp4", cx);
+            play(host.clone(), "file:///etc/passwd", "mp4", cx);
+            play(host.clone(), "data:audio/wav;base64,UklGRg==", "m4a", cx);
+        });
+        cx.run_until_parked();
+        let log = opener.0.borrow().clone();
+        assert_eq!(log.len(), 2, "{log:?}");
+        assert_eq!(log[0], "url https://cdn.example/a.mp4");
+        assert!(log[1].starts_with("file ") && log[1].ends_with(".wav"), "{log:?}");
+        std::fs::remove_file(log[1].trim_start_matches("file ")).ok();
+    }
+
 }

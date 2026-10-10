@@ -133,6 +133,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation("${libs.jna.aar.get()}@aar")
+    // VAPP-103: Video / AudioPlayer play their policed src (ExoPlayer; PlayerView = the platform controls).
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
 
     testImplementation(libs.junit)
     testImplementation(libs.jna.aar)

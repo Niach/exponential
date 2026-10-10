@@ -471,7 +471,7 @@
     },
     "Video": {
       "kind": "native", "group": "media", "lite": false, "children": "none",
-      "description": "An inline video player with native controls.",
+      "description": "A video player: the poster until play, then the platform player with its controls.",
       "props": {
         "src": { "type": "url", "required": true, "bindable": true, "description": "The video URL (H.264 + AAC MP4 plays everywhere)." },
         "poster": { "type": "url", "description": "A still shown before playback." },
@@ -484,7 +484,7 @@
     },
     "AudioPlayer": {
       "kind": "native", "group": "media", "lite": false, "children": "none",
-      "description": "An inline audio player with a title and native controls.",
+      "description": "An audio player with a title and a play control.",
       "props": {
         "src": { "type": "url", "required": true, "bindable": true, "description": "The audio URL." },
         "title": { "type": "string", "description": "What is playing." },

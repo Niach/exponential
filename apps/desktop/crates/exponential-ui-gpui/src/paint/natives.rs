@@ -6,6 +6,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::f32::consts::PI;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -521,7 +522,7 @@ pub fn base64_encode(bytes: &[u8]) -> String {
     out
 }
 
-fn percent_decode(s: &str) -> Vec<u8> {
+pub(crate) fn percent_decode(s: &str) -> Vec<u8> {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
@@ -720,15 +721,32 @@ pub fn fmt_duration(ms: f64) -> String {
     }
 }
 
-/// `Video`: the poster (or a dark tint) with a play button and the duration.
-pub fn video(cx: &LeafCx) -> AnyElement {
+/// A Video / AudioPlayer press (`media::play`: the policed src handed to
+/// the system player); `None` = no src or a DENIED one: the control is
+/// inert.
+pub type MediaPlay = Option<Rc<dyn Fn(&mut App)>>;
+
+/// The round play control: a pressable button with `play`, else inert.
+fn play_control(id: String, size: f32, el: Div, play: MediaPlay) -> AnyElement {
+    let el = el.size(px(size)).flex_none().rounded_full().flex().items_center().justify_center();
+    match play {
+        Some(play) => el.id(SharedString::from(id)).cursor_pointer().role(gpui::Role::Button).on_click(move |_, _, cx| play(cx)).into_any_element(),
+        None => el.into_any_element(),
+    }
+}
+
+/// `Video`: the poster (or a dark tint) with a play button and the
+/// duration. gpui has no video pipeline: the press hands the policed src
+/// to the system player (`media::play`); `autoplay` opens nothing.
+pub fn video(cx: &LeafCx, play: MediaPlay) -> AnyElement {
     let poster = cx.str("poster");
     let mut out = rounded(div().size_full().relative().overflow_hidden().bg(gpui::black().opacity(0.85)), cx.radii);
     if let Some(source) = crate::media::image_source(cx.host, poster) {
         out = out.child(img(source).absolute().size_full().object_fit(ObjectFit::Cover).with_fallback(|| div().into_any_element()));
     }
     let white = gpui::white();
-    out = out.child(div().absolute().size_full().flex().items_center().justify_center().child(div().size(px(44.0)).rounded_full().bg(white.opacity(0.18)).flex().items_center().justify_center().child(icons::glyph(Glyph::Play, 20.0, white))));
+    let button = play_control(format!("{}.play", cx.node.id), 44.0, div().bg(white.opacity(0.18)).child(icons::glyph(Glyph::Play, 20.0, white)), play);
+    out = out.child(div().absolute().size_full().flex().items_center().justify_center().child(button));
     if let Some(ms) = cx.num("durationMs") {
         let d = div().absolute().bottom(px(6.0)).px(px(6.0)).rounded(px(4.0)).bg(gpui::black().opacity(0.6)).text_color(white).text_size(px(12.0)).child(SharedString::from(fmt_duration(ms)));
         out = out.child(if cx.rtl { d.left(px(8.0)) } else { d.right(px(8.0)) });
@@ -736,8 +754,10 @@ pub fn video(cx: &LeafCx) -> AnyElement {
     out.into_any_element()
 }
 
-/// `AudioPlayer`: the title line over a controls bar.
-pub fn audio(cx: &LeafCx) -> AnyElement {
+/// `AudioPlayer`: the title line over a controls bar. Like `Video`, the
+/// play press hands the policed src to the system player (its controls
+/// play, pause and seek); the bar stays `0:00 / durationMs`.
+pub fn audio(cx: &LeafCx, play: MediaPlay) -> AnyElement {
     let title = cx.str("title");
     let gap = spacing(cx.theme, "xs");
     let muted = cx.theme_color("muted").unwrap_or(cx.ink.opacity(0.1));
@@ -760,7 +780,7 @@ pub fn audio(cx: &LeafCx) -> AnyElement {
             .items_center()
             .gap(px(8.0))
             .px(px(8.0))
-            .child(div().size(px(28.0)).rounded_full().bg(cx.ink).flex().items_center().justify_center().child(icons::glyph(Glyph::Play, 14.0, cx.theme_color("background").unwrap_or(gpui::white()))))
+            .child(play_control(format!("{}.play", cx.node.id), 28.0, div().bg(cx.ink).child(icons::glyph(Glyph::Play, 14.0, cx.theme_color("background").unwrap_or(gpui::white()))), play))
             .child(div().flex_1().h(px(4.0)).rounded_full().bg(muted_fg.opacity(0.35)))
             .child(div().text_size(px(12.0)).text_color(muted_fg).child(SharedString::from(format!("0:00 / {duration}")))),
     )

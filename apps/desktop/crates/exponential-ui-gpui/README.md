@@ -136,6 +136,9 @@ view.update(cx, |v, cx| {
     `resolve_url` then `media_options()`: https/http/data, `file` only when
     listed; `None` = denied). Whatever it returns is re-checked against
     `media_options()`'s schemes and hosts.
+  - `open_media_file` opens a fetched (or host-allowed `file:`) Video /
+    AudioPlayer source in the system player (default
+    `cx.open_with_system`); see Playback.
   - `on_paint_error` hears a painter that panicked (it paints an empty
     box); the host runtime forwards it as an A2UI `RENDER_FAILED` error.
   - `announce(text, live)` speaks live regions, Form errors, `copied`. The
@@ -433,6 +436,16 @@ host.update(cx, |h, cx| h.connect(cx));
   before any decode; every redirect hop passes the policy again. gpui's own
   `img(url)` needs an app-installed `http_client` (the IDE has none) and
   cannot carry headers.
+- **Playback** (`media::play`). gpui has no audio or video pipeline, so
+  `Video` and `AudioPlayer` do not play inline: the play press hands the
+  policed `src` to the SYSTEM player. An http(s) src without headers goes
+  through `HostPlugin::open_url` (the URL policy); a request with headers
+  or a `data:` url is fetched under `media.limits` into a temporary file
+  (named for its MIME type), which `HostPlugin::open_media_file` opens
+  (default: `cx.open_with_system`), as does a host-allowed `file:` src. A
+  denied src leaves the play control inert. `autoplay` opens nothing, and
+  the AudioPlayer bar stays `0:00 / durationMs` (the system player has the
+  controls).
 - **Tests.** `tests/host.rs` covers ops through the host, sources and
   cancel, the gate, consent and package narrowing, the URL policy, media
   headers, a MemoryTransport round trip, presses becoming client messages

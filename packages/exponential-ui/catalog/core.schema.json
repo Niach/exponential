@@ -3214,7 +3214,7 @@
     },
     "Video": {
       "type": "object",
-      "description": "An inline video player with native controls.",
+      "description": "A video player: the poster until play, then the platform player with its controls.",
       "allOf": [
         {
           "$ref": "#/$defs/ComponentCommon"
@@ -3279,7 +3279,7 @@
     },
     "AudioPlayer": {
       "type": "object",
-      "description": "An inline audio player with a title and native controls.",
+      "description": "An audio player with a title and a play control.",
       "allOf": [
         {
           "$ref": "#/$defs/ComponentCommon"
