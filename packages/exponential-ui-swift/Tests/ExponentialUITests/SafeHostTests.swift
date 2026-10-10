@@ -308,7 +308,7 @@ final class SafeHostTests: XCTestCase {
 
     // MARK: - onPaintError
 
-    func testPaintErrorsBecomeOneRenderFailedPerComponentAndMessage() async throws {
+    func testPaintErrorsBecomeOneRenderFailedPerComponent() async throws {
         let transport = MemoryTransport()
         let host = ExponentialHost(HostOptions(transport: transport))
         host.connect()
@@ -316,7 +316,9 @@ final class SafeHostTests: XCTestCase {
         let e = SurfacePaintError(surfaceId: "s1", componentId: "chart", message: "bad series")
         host.paintError(e)
         host.paintError(e)
+        // Keyed by component, not message.
         host.paintError(SurfacePaintError(surfaceId: "s1", componentId: "chart", message: "other"))
+        host.paintError(SurfacePaintError(surfaceId: "s1", componentId: "table", message: "other"))
         await settle()
         let errors = transport.sentMessages.compactMap { $0["error"] }
         XCTAssertEqual(errors.count, 2)
@@ -324,11 +326,18 @@ final class SafeHostTests: XCTestCase {
         XCTAssertEqual(errors.first?["surfaceId"], .string("s1"))
         XCTAssertEqual(errors.first?["message"], .string("bad series"))
         XCTAssertEqual(errors.first?["path"], .string("/components/chart"))
-        // New components clear the surface's dedupe set.
+        // An update of OTHER components keeps chart's report...
         host.receive(msg("updateComponents", .object(["surfaceId": .string("s1"), "components": .array([.object(["id": .string("root"), "component": .string("Text"), "text": .string("x")])])])))
         host.paintError(e)
         await settle()
+        XCTAssertEqual(transport.sentMessages.compactMap { $0["error"] }.count, 2)
+        // ... one naming chart clears it (per node).
+        host.receive(msg("updateComponents", .object(["surfaceId": .string("s1"), "components": .array([.object(["id": .string("chart"), "component": .string("Text"), "text": .string("y")])])])))
+        host.paintError(e)
+        host.paintError(SurfacePaintError(surfaceId: "s1", componentId: "table", message: "other"))
+        await settle()
         XCTAssertEqual(transport.sentMessages.compactMap { $0["error"] }.count, 3)
+        XCTAssertEqual(transport.sentMessages.compactMap { $0["error"] }.last?["path"], .string("/components/chart"))
         // The bridge routes a model's report to the host.
         host.plugin.onPaintError(SurfacePaintError(surfaceId: "s1", componentId: "c2", message: "m"))
         await settle()
@@ -340,7 +349,11 @@ final class SafeHostTests: XCTestCase {
             var description: String { "boom" }
         }
         func measure(_ leaf: ExtensionLeaf, wrap: CGFloat?) -> CGSize? { CGSize(width: 120, height: 40) }
-        func paint(_ context: ExtensionContext) throws -> AnyView { throw Boom() }
+        var calls = 0
+        func paint(_ context: ExtensionContext) throws -> AnyView {
+            calls += 1
+            throw Boom()
+        }
     }
 
     func testAThrowingPainterPaintsAnEmptyBoxAndReportsOnce() async throws {
@@ -361,11 +374,26 @@ final class SafeHostTests: XCTestCase {
         let leaves = m.nodes.filter { $0.component == "Extension" }
         XCTAssertFalse(leaves.isEmpty)
         paint(m)
+        let calls = painter.calls
         paint(m)
         await settle()
         XCTAssertEqual(Set(reports.map(\.componentId)), Set(leaves.map(\.id)), "every failing leaf reported")
-        XCTAssertEqual(reports.count, leaves.count, "once per component + message")
+        XCTAssertEqual(reports.count, leaves.count, "once per component")
         XCTAssertTrue(reports.allSatisfy { $0.surfaceId == "ext" && $0.message.contains("boom") })
+        XCTAssertEqual(painter.calls, calls, "a failed node is not painted again on the same props")
+        // New props on ONE node clear its failure only: it paints (and
+        // reports) again, the others stay failed.
+        let first = try XCTUnwrap(leaves.first)
+        XCTAssertTrue(m.paintFailed(componentId: first.id, props: m.node(first.index)!.props.json))
+        XCTAssertFalse(m.paintFailed(componentId: first.id, props: "{\"changed\":true}"))
+        for other in leaves.dropFirst() { XCTAssertTrue(m.paintFailed(componentId: other.id, props: m.node(other.index)!.props.json)) }
+        m.paintError(componentId: first.id, message: "boom again", props: "{\"changed\":true}")
+        m.paintError(componentId: first.id, message: "boom again", props: "{\"changed\":true}")
+        await settle()
+        XCTAssertEqual(reports.count, leaves.count + 1)
+        // A full replacement forgets every failure.
+        try m.setComponents(json: c["components"]!.json)
+        XCTAssertTrue(m.paintFailures.isEmpty)
     }
 
     func testASelectWithNullOptionsSkipsThem() throws {

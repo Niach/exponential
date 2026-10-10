@@ -133,9 +133,9 @@ public final class SurfaceModel {
     @ObservationIgnored var interaction: [String: InteractionState] = [:]
     @ObservationIgnored var pressedId: String?
     @ObservationIgnored var revisions: [String: Int] = [:]
-    /// `componentId\0message` of the paint errors already reported (cleared
-    /// on new components).
-    @ObservationIgnored var reportedPaintErrors: Set<String> = []
+    /// The components whose painter failed, by id (`paintError`; cleared
+    /// per node when its props change or it leaves the surface).
+    @ObservationIgnored var paintFailures: [String: PaintFailure] = [:]
     @ObservationIgnored var fields: [String: FieldState] = [:]
     @ObservationIgnored var layerReturn: [String: String] = [:]
     @ObservationIgnored var openLayerKeys: [String] = []
@@ -196,7 +196,6 @@ public final class SurfaceModel {
     @discardableResult
     public func apply(_ message: JSONValue) throws -> FfiApplyOutcome {
         let out = try surface.apply(messageJson: message.json)
-        if out.structureChanged { reportedPaintErrors.removeAll() }
         invalidate(structure: out.structureChanged)
         return out
     }
@@ -204,7 +203,6 @@ public final class SurfaceModel {
     @discardableResult
     public func apply(json: String) throws -> FfiApplyOutcome {
         let out = try surface.apply(messageJson: json)
-        if out.structureChanged { reportedPaintErrors.removeAll() }
         invalidate(structure: out.structureChanged)
         return out
     }
@@ -213,7 +211,7 @@ public final class SurfaceModel {
     @discardableResult
     public func setNested(json: String) throws -> FfiApplyOutcome {
         let out = try surface.setNested(nestedJson: json)
-        reportedPaintErrors.removeAll()
+        paintFailures.removeAll()
         invalidate(structure: true)
         return out
     }
@@ -222,7 +220,7 @@ public final class SurfaceModel {
     @discardableResult
     public func setComponents(json: String) throws -> FfiApplyOutcome {
         let out = try surface.setComponents(componentsJson: json)
-        reportedPaintErrors.removeAll()
+        paintFailures.removeAll()
         invalidate(structure: true)
         return out
     }
@@ -458,6 +456,7 @@ public final class SurfaceModel {
         structureVersion = surface.structureVersion()
         pruneFields()
         pruneInteraction()
+        prunePaintFailures()
     }
 
     /// The resolved visuals and text styles: every slot (`nil`) or the

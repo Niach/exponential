@@ -230,7 +230,7 @@ public final class ExponentialHost {
             surfaces[surfaceId] = model
             if !surfaceIds.contains(surfaceId) { surfaceIds.append(surfaceId) }
         case "components":
-            forgetPaintErrors(surfaceId)
+            forgetPaintErrors(surfaceId, components: (op["components"]?.array ?? []).compactMap { $0["id"]?.string })
             guard let model = surfaces[surfaceId] else { return }
             _ = try? model.setComponents(json: (op["components"] ?? .array([])).json)
         case "data":
@@ -351,16 +351,22 @@ public final class ExponentialHost {
     }
 
     /// `onPaintError` (`catalog/host.json` `paint`): a component's painter
-    /// failed. Sent ONCE per surface + component + message as an A2UI
-    /// `RENDER_FAILED` error at `/components/<componentId>`.
+    /// failed. Sent ONCE per surface + component (whatever the message) as
+    /// an A2UI `RENDER_FAILED` error at `/components/<componentId>`, until
+    /// an `updateComponents` names that component again.
     public func paintError(_ error: SurfacePaintError) {
-        let key = "\(error.surfaceId)\u{0}\(error.componentId)\u{0}\(error.message)"
+        let key = "\(error.surfaceId)\u{0}\(error.componentId)"
         guard !paintErrors.contains(key) else { return }
         paintErrors.insert(key)
         send(errorMessageJson(code: PaintContract.errorCode, surfaceId: error.surfaceId, message: error.message, path: "/components/\(error.componentId)"))
     }
 
-    private func forgetPaintErrors(_ surfaceId: String) {
+    /// Forget the surface's reported components (`components` = only those).
+    private func forgetPaintErrors(_ surfaceId: String, components: [String]? = nil) {
+        if let components {
+            for c in components { paintErrors.remove("\(surfaceId)\u{0}\(c)") }
+            return
+        }
         let prefix = "\(surfaceId)\u{0}"
         paintErrors = paintErrors.filter { !$0.hasPrefix(prefix) }
     }
