@@ -131,6 +131,10 @@ pub trait HostPlugin: 'static {
     /// `RENDER_FAILED` error.
     fn on_paint_error(&self, _error: &PaintError, _cx: &mut gpui::App) {}
 
+    /// A component whose painter failed got new props: it paints again (a
+    /// new failure reports again).
+    fn on_paint_retry(&self, _surface_id: &str, _component_id: &str, _cx: &mut gpui::App) {}
+
     /// An `Unknown` placeholder was painted (once per structure version).
     fn on_unknown(&self, _node: &PlacedNode) {}
 

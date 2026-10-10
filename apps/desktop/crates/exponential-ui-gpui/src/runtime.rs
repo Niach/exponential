@@ -245,7 +245,8 @@ pub struct ExponentialHost {
     /// The effective URL policy (the media `baseUrl` when it names none),
     /// shared like `media`.
     urls: Rc<RefCell<UrlPolicy>>,
-    /// `onPaintError` dedupe: surface \0 component \0 message.
+    /// `onPaintError` dedupe: surface \0 component (cleared per component
+    /// when its props change, per surface on create/delete).
     paint_errors: std::collections::HashSet<String>,
     theme: Option<Arc<ResolvedTheme>>,
     mode: Mode,
@@ -611,7 +612,6 @@ impl ExponentialHost {
                 cx.notify();
             }
             "components" => {
-                self.forget_paint_errors(&sid);
                 let Some(entry) = self.surfaces.iter().find(|s| s.id == sid) else { return };
                 let incoming: Vec<FlatComponent> = match serde_json::from_value(op["components"].clone()) {
                     Ok(c) => c,
@@ -769,13 +769,20 @@ impl ExponentialHost {
     /// `onPaintError` (`catalog/host.json` paint): a component's painter
     /// failed. Forwarded ONCE per surface + component + message as an A2UI
     /// `RENDER_FAILED` error (and so a host issue).
+    /// `onPaintError` → ONE `RENDER_FAILED` per surface + component until
+    /// its props change ([`Self::paint_retry`]) or the surface is recreated.
     pub fn paint_error(&mut self, error: &PaintError) {
-        let key = format!("{}\0{}\0{}", error.surface_id, error.component_id, error.message);
+        let key = format!("{}\0{}", error.surface_id, error.component_id);
         if !self.paint_errors.insert(key) {
             return;
         }
         let path = format!("/components/{}", error.component_id);
         self.send(error_message(RENDER_FAILED, &error.surface_id, &error.message, Some(&path)));
+    }
+
+    /// A failed component got new props: its next failure reports again.
+    pub fn paint_retry(&mut self, surface_id: &str, component_id: &str) {
+        self.paint_errors.remove(&format!("{surface_id}\0{component_id}"));
     }
 
     fn forget_paint_errors(&mut self, surface_id: &str) {
@@ -882,6 +889,13 @@ impl HostPlugin for HostAdapter {
             host.update(cx, |h, _| h.paint_error(error));
         }
         self.base.on_paint_error(error, cx)
+    }
+
+    fn on_paint_retry(&self, surface_id: &str, component_id: &str, cx: &mut App) {
+        if let Some(host) = self.host.upgrade() {
+            host.update(cx, |h, _| h.paint_retry(surface_id, component_id));
+        }
+        self.base.on_paint_retry(surface_id, component_id, cx)
     }
 
     fn on_input(&self, event: &InputEvent, cx: &mut App) {

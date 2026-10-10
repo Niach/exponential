@@ -76,14 +76,15 @@ impl ExtensionPainter for TrendLine {
 }
 
 /// A painter that panics (a prop it cannot paint).
-struct Broken;
+struct Broken(Rc<std::cell::Cell<u32>>);
 
 impl ExtensionPainter for Broken {
     fn measure(&self, _: &LeafRequest, _: Option<f32>, _: &mut Window, _: &mut App) -> Option<(f32, f32)> {
         Some((40.0, 24.0))
     }
     fn paint(&self, _: PaintContext, _: &mut Window, _: &mut App) -> AnyElement {
-        panic!("boom")
+        self.0.set(self.0.get() + 1);
+        panic!("boom {}", self.0.get())
     }
 }
 
@@ -569,17 +570,35 @@ fn a_panicking_painter_paints_nothing_and_reaches_the_host(cx: &mut TestAppConte
     let log = Recorder::default();
     let options = SurfaceViewOptions { catalog_id: c.catalog_id.clone(), extensions: vec![ext], host: Rc::new(log.clone()), ..Default::default() };
     let (view, vcx) = open(cx, options);
+    let calls = Rc::new(std::cell::Cell::new(0));
+    let components = c.components.clone();
     view.update(vcx, |v, cx| {
-        v.register_painter("TrendLine", Box::new(Broken));
-        v.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "surface", "components": c.components}}), cx).unwrap();
+        v.register_painter("TrendLine", Box::new(Broken(calls.clone())));
+        v.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "surface", "components": components}}), cx).unwrap();
     });
     let hook = std::panic::take_hook();
     std::panic::set_hook(Box::new(|_| {}));
-    draw(vcx);
-    std::panic::set_hook(hook);
+    for _ in 0..4 {
+        draw(vcx);
+    }
     assert!(nodes(&view, vcx) > 0, "the surface still paints");
     let errors = log.0.borrow().paint_errors.clone();
-    assert!(!errors.is_empty(), "the host heard the failure");
+    assert_eq!(errors.len(), 1, "the host heard the failure once");
     assert_eq!(errors[0].surface_id, "surface");
     assert!(errors[0].message.contains("boom"), "{}", errors[0].message);
+    // VAPP-103 rfix: the failed painter never runs again on the same props
+    // (it panicked, and logged a backtrace, every frame).
+    assert_eq!(calls.get(), 1, "4 frames, one paint attempt");
+    // New props: it paints (and fails, and reports) again, once.
+    let mut changed = serde_json::to_value(&c.components).unwrap();
+    changed[0]["values"] = json!([1, 2]);
+    view.update(vcx, |v, cx| {
+        v.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "surface", "components": changed}}), cx).unwrap();
+    });
+    for _ in 0..3 {
+        draw(vcx);
+    }
+    std::panic::set_hook(hook);
+    assert_eq!(calls.get(), 2);
+    assert_eq!(log.0.borrow().paint_errors.len(), 2);
 }

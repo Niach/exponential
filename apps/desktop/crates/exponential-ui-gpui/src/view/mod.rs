@@ -355,6 +355,10 @@ pub struct SurfaceView {
     /// Added to the motion clock ([`Self::advance_clock`]).
     clock_skew: std::time::Duration,
     debug_bounds: Option<BoundsLog>,
+    /// VAPP-103 rfix: component id → the props hash its painter panicked
+    /// on. Until the props change it paints an empty box WITHOUT running
+    /// the painter again (no panic, no backtrace, no report per frame).
+    failed_paints: RefCell<HashMap<String, u64>>,
     this: WeakEntity<SurfaceView>,
     /// A measure replacing the gpui text system (golden geometry: the core's
     /// FIXED measure, `SurfaceViewOptions::fixed_measure` or
@@ -523,6 +527,7 @@ impl SurfaceView {
             ghosting: Cell::new(false),
             clock_skew: std::time::Duration::ZERO,
             debug_bounds: None,
+            failed_paints: RefCell::new(HashMap::new()),
             this: cx.entity().downgrade(),
             measure_override: options.fixed_measure.map(|m| Box::new(m) as Box<dyn Measure>),
             paint_trace: RefCell::new(None),

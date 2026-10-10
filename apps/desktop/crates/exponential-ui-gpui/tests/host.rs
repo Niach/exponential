@@ -277,7 +277,8 @@ fn urls_pass_the_url_policy_and_media_gets_its_headers(cx: &mut TestAppContext) 
 #[gpui::test]
 fn paint_errors_become_one_render_failed_message(cx: &mut TestAppContext) {
     // VAPP-103: `onPaintError` → an A2UI RENDER_FAILED error, once per
-    // surface + component + message, reset by new components.
+    // surface + component (rfix: whatever the message), until the view says
+    // its props changed (`on_paint_retry`).
     init(cx);
     let t = MemoryTransport::new();
     let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), ..Default::default() });
@@ -293,10 +294,16 @@ fn paint_errors_become_one_render_failed_message(cx: &mut TestAppContext) {
     let sent: Vec<Value> = t.sent().into_iter().filter_map(|m| m.get("error").cloned()).collect();
     assert_eq!(sent, vec![json!({"code": "RENDER_FAILED", "surfaceId": "s", "message": "Text failed to paint: boom", "path": "/components/root"})]);
     assert_eq!(host.read_with(cx, |h, _| h.issues().last().map(|i| i.code.clone())), Some("RENDER_FAILED".to_string()));
-    t.feed([components("s", json!([{"id": "root", "component": "Text", "text": "y"}]))]);
+    let other = PaintError { message: "Text failed to paint: boom at 0x7f00".into(), ..error.clone() };
+    t.feed([components("s", json!([{"id": "other", "component": "Text", "text": "y"}]))]);
     cx.run_until_parked();
-    cx.update(|cx| plugin.on_paint_error(&error, cx));
-    assert_eq!(sent_errors(&t).len(), 2, "new components: it may fail again");
+    cx.update(|cx| plugin.on_paint_error(&other, cx));
+    assert_eq!(sent_errors(&t).len(), 1, "a varying message and an unrelated update never re-report");
+    cx.update(|cx| {
+        plugin.on_paint_retry("s", "root", cx);
+        plugin.on_paint_error(&other, cx);
+    });
+    assert_eq!(sent_errors(&t).len(), 2, "new props: it may fail again");
 }
 
 #[gpui::test]

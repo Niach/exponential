@@ -224,9 +224,12 @@ impl SurfaceView {
         }
         let ink = self.inks.get(i).copied().unwrap_or(gpui::white());
         if n.component == "Extension" {
+            if self.paint_blocked(n, cx) {
+                return Some(el.into_any_element());
+            }
             return Some(self.paint_extension(el, index, n, w, h, place, abs, window, cx));
         }
-        if leaf {
+        if leaf && !self.paint_blocked(n, cx) {
             // A painter that panics (a prop it cannot paint) leaves an empty
             // box and reaches the host (`onPaintError`); the surface stays.
             let painted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.paint_leaf(index, n, &style, ink, w, h, radii, window, cx)));
@@ -625,8 +628,25 @@ impl SurfaceView {
         Some(Rc::new(move |cx: &mut gpui::App| crate::media::play(host.clone(), &src, fallback, cx)))
     }
 
-    /// `onPaintError` (`catalog/host.json` paint), deferred out of render.
+    /// Did `n`'s painter fail on these very props? Then it stays an empty
+    /// box. Changed props forget the failure (here and the host's dedupe:
+    /// [`HostPlugin::on_paint_retry`]) and paint again.
+    pub(crate) fn paint_blocked(&self, n: &PlacedNode, cx: &mut gpui::App) -> bool {
+        let mut failed = self.failed_paints.borrow_mut();
+        let Some(&hash) = failed.get(&n.id) else { return false };
+        if hash == props_hash(n) {
+            return true;
+        }
+        failed.remove(&n.id);
+        let (host, surface_id, component_id) = (self.host.clone(), self.surface.id.clone(), n.id.clone());
+        cx.defer(move |cx| host.on_paint_retry(&surface_id, &component_id, cx));
+        false
+    }
+
+    /// `onPaintError` (`catalog/host.json` paint), deferred out of render;
+    /// the node is remembered with its props ([`Self::paint_blocked`]).
     pub(crate) fn paint_failed(&self, n: &PlacedNode, why: &str, cx: &mut gpui::App) {
+        self.failed_paints.borrow_mut().insert(n.id.clone(), props_hash(n));
         let host = self.host.clone();
         let error = PaintError { surface_id: self.surface.id.clone(), component_id: n.id.clone(), message: format!("{} failed to paint: {why}", n.component) };
         cx.defer(move |cx| host.on_paint_error(&error, cx));
@@ -1292,4 +1312,13 @@ mod tests {
 /// A caught panic's message (`&str` / `String` payloads).
 pub(crate) fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
     panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panicked".into())
+}
+
+/// A node's component + props, hashed (what a failed paint is keyed on).
+fn props_hash(n: &PlacedNode) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    n.component.hash(&mut h);
+    serde_json::to_string(&n.props).unwrap_or_default().hash(&mut h);
+    h.finish()
 }
