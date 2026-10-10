@@ -109,17 +109,26 @@ pub fn link_at(s: &str) -> Option<(&str, String, usize)> {
         }
         i += 1;
     }
+    link_closed_at(s, i)
+}
+
+/// [`link_at`] with the label's closing `]` already found at `i`
+/// (`s.len()` or more = none).
+fn link_closed_at(s: &str, i: usize) -> Option<(&str, String, usize)> {
+    let b = s.as_bytes();
     if i >= b.len() || b.get(i + 1) != Some(&b'(') {
         return None;
     }
     let label = &s[1..i];
     let mut j = i + 2;
     let dest = if b.get(j) == Some(&b'<') {
-        let close = s[j..].find('>')? + j;
-        let inner = &s[j + 1..close];
-        if inner.contains(['\n', '<']) {
+        // The first `>`, `<` or newline ends the scan (a run of unclosed
+        // `<` destinations stays linear).
+        let close = s[j + 1..].find(['>', '<', '\n'])? + j + 1;
+        if b[close] != b'>' {
             return None;
         }
+        let inner = &s[j + 1..close];
         j = close + 1;
         inner.to_string()
     } else {
@@ -135,7 +144,12 @@ pub fn link_at(s: &str) -> Option<(&str, String, usize)> {
                 break;
             }
             if c == b'(' {
+                // CommonMark lets an implementation cap the nesting (at
+                // least 32): every scan stays short.
                 parens += 1;
+                if parens > MAX_NESTING {
+                    return None;
+                }
             } else if c == b')' {
                 if parens == 0 {
                     break;
@@ -229,9 +243,58 @@ fn delimited<'a>(s: &'a str, delim: &str) -> Option<(&'a str, usize)> {
     Some((inner, delim.len() * 2 + end))
 }
 
-fn parse_inline_into(s: &str, f: Flags, link: Option<&str>, out: &mut Vec<Inline>) {
-    let mut plain_start = 0;
-    let mut i = 0;
+/// Link labels (and destination parentheses) nest at most this deep; a
+/// deeper `[label](href)` is text (100k nested `[` aborted on the stack and
+/// cost O(n²)).
+const MAX_NESTING: i32 = 32;
+
+/// One inline parse: the text and, per byte, the closing `]` of the `[`
+/// there (`usize::MAX` = none), found ONCE (escapes skip the next byte), so
+/// a run of unclosed or nested brackets stays linear.
+struct InlineSrc<'a> {
+    s: &'a str,
+    close: Vec<usize>,
+}
+
+impl<'a> InlineSrc<'a> {
+    fn new(s: &'a str) -> Self {
+        let b = s.as_bytes();
+        let mut close = vec![usize::MAX; b.len()];
+        let mut open: Vec<usize> = Vec::new();
+        let mut i = 0;
+        while i < b.len() {
+            match b[i] {
+                b'\\' => i += 1,
+                b'[' => open.push(i),
+                b']' => {
+                    if let Some(o) = open.pop() {
+                        close[o] = i;
+                    }
+                }
+                _ => {}
+            }
+            i += 1;
+        }
+        InlineSrc { s, close }
+    }
+
+    /// The link at byte `i` inside `[i, end)`: (label range, href, consumed).
+    fn link(&self, i: usize, end: usize) -> Option<(Range<usize>, String, usize)> {
+        let c = self.close[i];
+        if c >= end {
+            return None;
+        }
+        let (_, href, n) = link_closed_at(&self.s[i..end], c - i)?;
+        Some((i + 1..c, href, n))
+    }
+}
+
+/// The spans of `src.s[start..end]` (`depth` = enclosing link labels).
+#[allow(clippy::too_many_arguments)]
+fn parse_inline_into(src: &InlineSrc, start: usize, end: usize, f: Flags, link: Option<&str>, depth: i32, out: &mut Vec<Inline>) {
+    let s = &src.s[..end];
+    let mut plain_start = start;
+    let mut i = start;
     let bytes = s.as_bytes();
     while i < s.len() {
         if !s.is_char_boundary(i) {
@@ -242,22 +305,22 @@ fn parse_inline_into(s: &str, f: Flags, link: Option<&str>, out: &mut Vec<Inline
         let c = bytes[i];
         let mut handled: Option<usize> = None;
         if c == b'`' {
-            if let Some(end) = rest[1..].find('`') {
+            if let Some(close) = rest[1..].find('`') {
                 push_text(out, &s[plain_start..i], f, link);
-                out.push(Inline { text: rest[1..1 + end].to_string(), code: true, link: link.map(str::to_string), ..Inline::default() });
-                handled = Some(end + 2);
+                out.push(Inline { text: rest[1..1 + close].to_string(), code: true, link: link.map(str::to_string), ..Inline::default() });
+                handled = Some(close + 2);
             }
         } else if c == b'!' && rest[1..].starts_with('[') {
             // An image inside a line paints its alt text.
-            if let Some((alt, _src, n)) = link_at(&rest[1..]) {
+            if let Some((alt, _src, n)) = src.link(i + 1, end) {
                 push_text(out, &s[plain_start..i], f, link);
-                push_text(out, alt, f, link);
+                push_text(out, &s[alt], f, link);
                 handled = Some(n + 1);
             }
-        } else if c == b'[' {
-            if let Some((label, href, n)) = link_at(rest) {
+        } else if c == b'[' && depth < MAX_NESTING {
+            if let Some((label, href, n)) = src.link(i, end) {
                 push_text(out, &s[plain_start..i], f, link);
-                parse_inline_into(label, f, Some(href.as_str()), out);
+                parse_inline_into(src, label.start, label.end, f, Some(href.as_str()), depth + 1, out);
                 handled = Some(n);
             }
         } else if (c == b'*' || c == b'_' || c == b'~') && !(c == b'_' && s[..i].chars().next_back().is_some_and(char::is_alphanumeric)) {
@@ -269,13 +332,14 @@ fn parse_inline_into(s: &str, f: Flags, link: Option<&str>, out: &mut Vec<Inline
             if let Some((inner, n)) = delimited(rest, double) {
                 push_text(out, &s[plain_start..i], f, link);
                 let nf = if c == b'~' { Flags { strike: true, ..f } } else { Flags { bold: true, ..f } };
-                parse_inline_into(inner, nf, link, out);
+                let at = i + double.len();
+                parse_inline_into(src, at, at + inner.len(), nf, link, depth, out);
                 handled = Some(n);
             } else if c != b'~' {
                 let single = if c == b'*' { "*" } else { "_" };
                 if let Some((inner, n)) = delimited(rest, single) {
                     push_text(out, &s[plain_start..i], f, link);
-                    parse_inline_into(inner, Flags { italic: true, ..f }, link, out);
+                    parse_inline_into(src, i + 1, i + 1 + inner.len(), Flags { italic: true, ..f }, link, depth, out);
                     handled = Some(n);
                 }
             }
@@ -294,7 +358,8 @@ fn parse_inline_into(s: &str, f: Flags, link: Option<&str>, out: &mut Vec<Inline
 /// The inline spans of one line of markdown.
 pub fn parse_inline(s: &str) -> Vec<Inline> {
     let mut out = Vec::new();
-    parse_inline_into(s, Flags::default(), None, &mut out);
+    let src = InlineSrc::new(s);
+    parse_inline_into(&src, 0, s.len(), Flags::default(), None, 0, &mut out);
     out
 }
 
@@ -1138,6 +1203,33 @@ mod tests {
         let spans = parse_inline("see [w](https://en.wikipedia.org/wiki/A_(b)) end");
         assert!(spans.iter().any(|s| s.link.as_deref() == Some("https://en.wikipedia.org/wiki/A_(b)") && s.text == "w"));
         assert_eq!(plain(&spans), "see w end");
+    }
+
+    /// VAPP-103 rfix: 100k nested link labels aborted on the stack (and
+    /// cost O(n²)); unclosed runs of `[`, `[a](<` and `[a](x(` were
+    /// quadratic. Labels nest 32 deep (deeper = text), every case is linear
+    /// and runs on a small stack.
+    #[test]
+    fn hostile_brackets_parse_linearly_on_a_small_stack() {
+        let n = 100_000;
+        let cases = [
+            format!("{}a{}", "[".repeat(n), "](x)".repeat(n)),
+            "[".repeat(n),
+            "[a](<".repeat(n / 5),
+            "[a](x(".repeat(n / 6),
+            "![a](".repeat(n / 5),
+            format!("{}a{}", "[*".repeat(n / 2), "*](x)".repeat(n / 2)),
+        ];
+        for case in cases {
+            let t = std::time::Instant::now();
+            let text = std::thread::Builder::new().stack_size(256 * 1024).spawn(move || plain(&parse_inline(&case)).len()).unwrap().join().expect("no stack overflow");
+            assert!(text > 0);
+            assert!(t.elapsed() < std::time::Duration::from_secs(3), "{:?}", t.elapsed());
+        }
+        // 32 levels still link; the 33rd label is text.
+        let deep = |k: usize| format!("{}a{}", "[".repeat(k), "](x)".repeat(k));
+        assert!(parse_inline(&deep(32)).iter().all(|s| s.link.as_deref() == Some("x")));
+        assert!(parse_inline(&deep(33)).iter().any(|s| s.text.contains('[')));
     }
 
     #[test]
