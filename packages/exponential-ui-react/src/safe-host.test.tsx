@@ -9,7 +9,8 @@ import { CORE_CATALOG_ID, ExponentialHost, MemoryTransport, reduceNested } from 
 import type { ClientMessage, NestedNode } from "@exponential-at/ui"
 import { ExponentialSurface } from "./surface"
 import { HostSurface } from "./host-surface"
-import { linkAt, parseList, renderMarkdown } from "./markdown"
+import { renderToStaticMarkup } from "react-dom/server"
+import { BuiltinMarkdown, MAX_LINK_DEST, MAX_LINK_NESTING, linkAt, parseList, renderMarkdown } from "./markdown"
 import { fetchLimited } from "./media"
 import type { HostPlugin } from "./host"
 
@@ -111,6 +112,28 @@ describe(`markdown`, () => {
     expect(container.querySelector(`.xui-Markdown-image`)).toBeNull()
     expect([...container.querySelectorAll(`.xui-Markdown-paragraph`)].map((p) => p.textContent)).toEqual([`pic`])
     expect(container.innerHTML).not.toContain(`javascript`)
+  })
+  it(`link parsing is linear: 128 KB of unclosed brackets / parens / quotes parses fast`, () => {
+    const N = 128 * 1024
+    for (const t of [`[a](`.repeat(N / 4), `[`.repeat(N), `[a](<`.repeat(N / 5), `[x](y z `.repeat(N / 8), `[a](` + `(`.repeat(N), `[a](b) `.repeat(N / 7) + "`c`", `>`.repeat(N)]) {
+      const t0 = performance.now()
+      renderToStaticMarkup(<BuiltinMarkdown text={t} />)
+      expect(performance.now() - t0).toBeLessThan(1500)
+    }
+  })
+  it(`link labels nest at most MAX_LINK_NESTING deep; a long destination is no link`, () => {
+    let nest = `x`
+    for (let k = 0; k < 40; k++) nest = `[${nest}](https://e.com/${k})`
+    expect(renderToStaticMarkup(<BuiltinMarkdown text={nest} />).match(/<a /g)).toHaveLength(MAX_LINK_NESTING)
+    expect(linkAt(`[a](https://e.com/${`x`.repeat(MAX_LINK_DEST)})`, 0)).toBeNull()
+    expect(linkAt(`[a](https://e.com/${`x`.repeat(100)})`, 0)?.dest).toHaveLength(114)
+    expect(linkAt(`\\[a](b)`, 1)).toBeNull()
+  })
+  it(`a markdown link opens through host.openUrl when the host has one`, () => {
+    const openUrl = vi.fn()
+    const { container } = render(<BuiltinMarkdown text={`[docs](https://exponential.at/d)`} host={{ openUrl }} />)
+    fireEvent.click(container.querySelector(`a`)!)
+    expect(openUrl).toHaveBeenCalledWith(`https://exponential.at/d`)
   })
   it(`lists nest by indentation`, () => {
     const list = parseList([`- a`, `  - a1`, `    1. deep`, `  - a2`, `- b`, `- [x] done`])
