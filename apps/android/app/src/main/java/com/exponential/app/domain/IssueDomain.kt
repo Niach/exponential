@@ -7,8 +7,8 @@ import java.time.LocalDate
 
 enum class IssueStatus(val wire: String, val label: String) {
     Backlog("backlog", "Backlog"),
-    InProgress("in_progress", "In progress"),
-    InReview("in_review", "In review"),
+    InProgress("in_progress", "In Progress"),
+    InReview("in_review", "In Review"),
     Done("done", "Done"),
     Cancelled("cancelled", "Cancelled"),
     Duplicate("duplicate", "Duplicate");

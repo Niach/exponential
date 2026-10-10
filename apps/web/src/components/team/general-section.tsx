@@ -184,7 +184,6 @@ export function TeamGeneralSection({ team }: { team: Team }) {
           <GlassToggleRow
             id="team-yolo-mode"
             label="Yolo mode"
-            description="Merge every PR an agent opens right away and hide Reviews. A PR that fails to merge still shows up there."
             checked={team.yoloMode}
             disabled={yoloBusy}
             onCheckedChange={(next) => void toggleYolo(next)}

@@ -116,9 +116,11 @@ fun SectionBand(
  * EXP-1248: THE issue status group band (web `IssueGroupBand`, desktop
  * `issue_group_band`, iOS `IssueGroupBand`) — the ONE list band that keeps a
  * count: fold chevron · status glyph · name · count, the whole strip toggling
- * its group. Phones draw it untinted (EXP-620), so it scrolls with its rows on
- * the app background. [horizontalInset] lines its glyphs up with the rows below
- * (the board list carries its gutter in the content, My Issues in the list).
+ * its group. P35: the phones ×3 draw it as THE filled band (iOS
+ * `GlassSectionBand`, `glassSectionBand()` here), a plain scrolling item over
+ * its rows. [gutter] is the OUTER inset that lines the band's edges up with
+ * the rows below (the board list carries its gutter in the content, My Issues
+ * in the list).
  */
 @Composable
 fun IssueGroupBand(
@@ -129,14 +131,17 @@ fun IssueGroupBand(
     collapsed: Boolean,
     onToggle: () -> Unit,
     modifier: Modifier = Modifier,
-    horizontalInset: Dp = 8.dp,
+    gutter: Dp = 0.dp,
 ) {
     Row(
         modifier = modifier
             .fillMaxWidth()
+            .padding(horizontal = gutter)
+            .padding(bottom = 4.dp)
+            .glassSectionBand()
             .clickable(onClick = onToggle)
             .testTag("issue-group-band")
-            .padding(horizontal = horizontalInset, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(

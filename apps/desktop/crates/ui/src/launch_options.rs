@@ -48,6 +48,9 @@ use crate::surface;
 /// run then follows the agent CLI's own defaults, same wording as launch.
 pub(crate) const CLI_DEFAULT_LABEL: &str = "CLI default";
 
+/// The unset SUBAGENT model's label ×4 (web `CLI_DEFAULT_MODEL`).
+pub(crate) const SUBAGENT_DEFAULT_LABEL: &str = "Default";
+
 // ---------------------------------------------------------------------------
 // EXP-792 — the MCP servers multiselect
 // ---------------------------------------------------------------------------
@@ -335,12 +338,13 @@ pub(crate) fn choice_pin_row<V: Render, S: 'static>(
         .px_0()
         .py_0()
         .text_color(foreground.opacity(0.7))
-        .dropdown_caret(true)
         // EXP-697: NOT `.label()` — upstream draws that in a `flex_none` box,
         // so a long model name wraps onto a second line.
         .child(surface::picker_value_label(SharedString::from(pin_label(
             choices, picked,
-        ))));
+        ))))
+        // A grouped picker row ends in chevron-right ×4, not a caret.
+        .child(surface::picker_row_chevron(cx));
     let control = pin_menu(trigger, choices, picked, pick, access, cx).into_any_element();
     surface::glass_picker_row(label, None, control, cx)
 }
@@ -731,14 +735,14 @@ impl<V: Render> AgentDefaultsGroup<V> {
         rows.push(surface::glass_picker_row(
             "Model",
             None,
-            surface::glass_picker_select(Select::new(&model)).into_any_element(),
+            surface::glass_picker_select(Select::new(&model), cx).into_any_element(),
             cx,
         ));
         if let Some(subagent) = subagent {
             rows.push(surface::glass_picker_row(
                 "Subagent model",
                 None,
-                surface::glass_picker_select(Select::new(&subagent)).into_any_element(),
+                surface::glass_picker_select(Select::new(&subagent), cx).into_any_element(),
                 cx,
             ));
         }
@@ -747,7 +751,7 @@ impl<V: Render> AgentDefaultsGroup<V> {
             // The hint the two-column layout carried under the Effort select
             // (EXP-206) becomes the row's own second line.
             effort_disabled.then(|| SharedString::from("ultracode sets effort")),
-            surface::glass_picker_select(Select::new(&effort))
+            surface::glass_picker_select(Select::new(&effort), cx)
                 .disabled(effort_disabled)
                 // `appearance(false)` drops the component's own disabled
                 // dimming with the rest of the field chrome — put it back.
@@ -1349,7 +1353,12 @@ impl ComposerMenu {
     /// The Subagents row's trailing value (`None` = no row).
     pub(crate) fn subagent_value(&self) -> Option<String> {
         self.subagent_picked.as_deref().map(|picked| {
-            pin_label(&SUBAGENT_MODEL_CHOICES, Some(picked).filter(|value| !value.is_empty()))
+            Some(picked)
+                .filter(|value| !value.is_empty())
+                .map_or_else(
+                    || SUBAGENT_DEFAULT_LABEL.to_string(),
+                    |picked| pin_label(&SUBAGENT_MODEL_CHOICES, Some(picked)),
+                )
         })
     }
 
@@ -1431,7 +1440,7 @@ mod tests {
             computer_use: Some(true),
         };
         assert_eq!(menu.effort_value(), "High");
-        assert_eq!(menu.subagent_value().as_deref(), Some(CLI_DEFAULT_LABEL));
+        assert_eq!(menu.subagent_value().as_deref(), Some(SUBAGENT_DEFAULT_LABEL));
         assert_eq!(menu.mcp_value().as_deref(), Some("1"));
         let locked = ComposerMenu { effort_locked: true, ..menu.clone() };
         assert_eq!(locked.effort_value(), "Ultracode");

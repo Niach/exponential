@@ -2,7 +2,8 @@
 //!
 //! Web parity: `components/team/statuses-section.tsx` — one section per
 //! `IssueStatusCategory::DISPLAY_ORDER` entry, rows carrying the tinted
-//! status glyph + name + live issue count, and a per-category "+" footer with
+//! status glyph + name + live issue count, a lock slot (builtins) and ONE
+//! "..." menu (Move up / Move down / Delete), and a per-category "+" band add with
 //! the labels pane's inline create form (name input + `ColorSwatchGrid`).
 //!
 //! The 7 BUILTIN rows (`builtin_key != None`) are locked: never renamed,
@@ -27,13 +28,15 @@
 use std::collections::HashMap;
 
 use gpui::{
-    div, App, AppContext as _, ElementId, Entity, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription, Window,
+    div, App, AppContext as _, ElementId, Entity, InteractiveElement as _, IntoElement,
+    ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
+    Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariant, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
+    menu::DropdownMenu as _,
     popover::Popover,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
@@ -758,38 +761,37 @@ impl StatusesPane {
                 ))),
         );
 
-        // Move up / down — available on BUILTINS too (only name/color and
-        // delete are locked). Disabled at the category edges, where the
-        // server-side move is an idempotent no-op anyway.
-        let up_row = row.clone();
-        let down_row = row.clone();
-        line = line
-            .child(
-                // EXP-862: a reorder chevron is a GHOST glyph — no circle.
-                crate::controls::ghost_icon_button(
-                    row_id("status-up", &status_id),
-                    Icon::new(registry::UI_CHEVRON_UP),
-                    cx,
-                )
-                    .tooltip("Move up")
-                    .disabled(first_in_category)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.move_status(&up_row, api::statuses::MoveDirection::Up, cx);
-                    })),
-            )
-            .child(
-                crate::controls::ghost_icon_button(
-                    row_id("status-down", &status_id),
-                    Icon::new(registry::UI_CHEVRON_DOWN),
-                    cx,
-                )
-                    .tooltip("Move down")
-                    .disabled(last_in_category)
-                    .on_click(cx.listener(move |this, _, _, cx| {
-                        this.move_status(&down_row, api::statuses::MoveDirection::Down, cx);
-                    })),
-            );
-        if builtin.is_none() {
+        // The lock slot (web parity): a builtin wears the lock glyph, a
+        // custom row reserves the same width so the counts, the Default
+        // badge and the name column line up across the category.
+        line = line.child(
+            div()
+                .id(row_id("status-lock", &status_id))
+                .size(gpui::px(CTL_SM_H))
+                .flex_shrink_0()
+                .flex()
+                .items_center()
+                .justify_center()
+                .when(builtin.is_some(), |slot| {
+                    slot.child(
+                        Icon::new(registry::UI_PRIVATE)
+                            .xsmall()
+                            .text_color(cx.theme().muted_foreground),
+                    )
+                    .tooltip(|window, cx| {
+                        gpui_component::tooltip::Tooltip::new(
+                            "Built-in status: reorderable, but not renamable, \
+                             recolorable or deletable.",
+                        )
+                        .build(window, cx)
+                    })
+                }),
+        );
+
+        // ONE "..." menu (THE Menu): Move up / Move down — available on
+        // BUILTINS too (only name/color and delete are locked), disabled at
+        // the category edges — then Delete on custom rows.
+        let delete = builtin.is_none().then(|| {
             // Delete ALWAYS opens the one confirm-and-reassign dialog
             // (EXP-320) — candidates and the Backlog preselect are computed
             // here, where the resolved siblings are at hand.
@@ -809,39 +811,73 @@ impl StatusesPane {
                 .find(|(candidate, _)| candidate.builtin_key.as_deref() == Some("backlog"))
                 .map(|(candidate, _)| candidate.id.clone())
                 .or_else(|| candidates.first().map(|status| status.group_key.clone()));
-            let del_id = status_id.clone();
-            let del_name = row.name.clone();
-            line = line.child(
-                crate::controls::ghost_icon_button(
-                    row_id("status-delete", &status_id),
-                    Icon::new(registry::UI_DELETE),
-                    cx,
-                )
-                    .tooltip("Delete status")
-                    .on_click(cx.listener(move |this, _, window, cx| {
-                        let Some(preselected) = preselected.clone() else {
-                            return;
-                        };
-                        this.open_delete_dialog(
-                            del_id.clone(),
-                            del_name.clone(),
-                            count,
-                            candidates.clone(),
-                            preselected,
-                            window,
+            (status_id.clone(), row.name.clone(), candidates, preselected)
+        });
+        let pane = cx.entity().downgrade();
+        let menu_row = row.clone();
+        line = line.child(
+            crate::controls::ghost_icon_button(
+                row_id("status-actions", &status_id),
+                Icon::new(registry::UI_MORE),
+                cx,
+            )
+            .tooltip(SharedString::from(format!("Status actions for {}", row.name)))
+            .dropdown_menu(move |mut menu, _, cx| {
+                for (label, icon, direction, disabled) in [
+                    (
+                        "Move up",
+                        registry::UI_CHEVRON_UP,
+                        api::statuses::MoveDirection::Up,
+                        first_in_category,
+                    ),
+                    (
+                        "Move down",
+                        registry::UI_CHEVRON_DOWN,
+                        api::statuses::MoveDirection::Down,
+                        last_in_category,
+                    ),
+                ] {
+                    let pane = pane.clone();
+                    let row = menu_row.clone();
+                    menu = menu.item(
+                        crate::controls::pointer_label_item(label, disabled)
+                            .icon(Icon::new(icon))
+                            .on_click(move |_, _, cx| {
+                                let _ = pane.update(cx, |this, cx| {
+                                    this.move_status(&row, direction, cx);
+                                });
+                            }),
+                    );
+                }
+                if let Some((del_id, del_name, candidates, preselected)) = delete.clone() {
+                    let pane = pane.clone();
+                    menu = menu.item(
+                        crate::controls::danger_menu_item(
+                            "Delete",
+                            Icon::new(registry::UI_DELETE),
                             cx,
-                        );
-                    })),
-            );
-        } else {
-            // Builtins cannot be deleted — reserve the button's width so the
-            // counts and badges stay column-aligned with the custom rows.
-            line = line.child(
-                div()
-                    .size(gpui::px(crate::controls::CTL_MD_H))
-                    .flex_shrink_0(),
-            );
-        }
+                        )
+                        .on_click(move |_, window, cx| {
+                            let Some(preselected) = preselected.clone() else {
+                                return;
+                            };
+                            let _ = pane.update(cx, |this, cx| {
+                                this.open_delete_dialog(
+                                    del_id.clone(),
+                                    del_name.clone(),
+                                    count,
+                                    candidates.clone(),
+                                    preselected,
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                    );
+                }
+                menu
+            }),
+        );
 
         let error = self
             .row_error
@@ -1000,14 +1036,14 @@ impl Render for StatusesPane {
                 && rows.len() >= ISSUE_STATUS_STARTED_MAX;
             // EXP-1076: the category's add control rides the BAND's trailing
             // slot (web `GlassSectionHeader trailing`), not a row under the
-            // list, and it is the ICON-ONLY "+" the web draws there
-            // (`Button variant="glass" size="icon-sm"`) — a labelled pill in
+            // list, and it is the ICON-ONLY GHOST "+" (the filled circle is
+            // reserved for primary actions) — a labelled pill in
             // a band a category name already explains is the same word
             // twice. The web's `aria-label` is this tooltip; when the
             // category is capped it carries the REASON instead, the web's
             // `IconTooltip` on its disabled button.
             let add = (can_add && self.creating != Some(category)).then(|| {
-                crate::controls::glass_icon_button(
+                crate::controls::ghost_icon_button(
                     category_id("status-new", category),
                     Icon::new(registry::UI_ADD),
                     cx,

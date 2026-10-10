@@ -3,11 +3,12 @@ import ExpUI
 import SwiftUI
 
 /// First-run wizard (shared onboarding spec, EXP-8 + EXP-188 + EXP-725): the
-/// SAME four steps in the SAME order on all four clients, wrapped on mobile by
-/// a welcome page and a done page.
+/// SAME four steps in the SAME order on all four clients, closed on mobile by
+/// a done page.
 ///
-///   0 welcome  — app name + one-line value prop + "Get started"
-///   1 team     — create-or-join (signups get NO auto-created team; create →
+///   1 team     — web's choice page ("Welcome to Exponential" under the mark,
+///                outline Create a team / Join a team pushing their pages):
+///                create-or-join (signups get NO auto-created team; create →
 ///                owner, join → paste an invite link and exit the wizard,
 ///                via step 4 first when the joiner owns no machine, EXP-1169)
 ///   2 board    — name + optional repository with inline GitHub connect
@@ -28,19 +29,20 @@ import SwiftUI
 /// reconcileWithServer before the user ever creates anything.
 ///
 /// Copy for steps 2-4 lives in `OnboardingCopy` and is byte-identical across
-/// the four clients; step 1 keeps the mobile wording of `TeamSetupView`.
+/// the four clients; step 1's words live in `TeamSetupCopy`.
 struct OnboardingView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.motion) private var motion
 
-    private static let welcomePage = 0
     private static let teamPage = 1
     private static let boardPage = 2
     private static let invitePage = 3
     private static let devicesPage = 4
     private static let donePage = 5
 
-    @State private var page = OnboardingView.welcomePage
+    // Polish round ×4: the team step's choice page IS the welcome ("Welcome
+    // to Exponential" under the mark), so the wizard opens on it.
+    @State private var page = OnboardingView.teamPage
     @State private var teamId: String?
     @State private var resolvingTeam = true
     @State private var teamError: String?
@@ -66,7 +68,6 @@ struct OnboardingView: View {
                     // distinct view so the transition has something to run on.
                     Group {
                         switch page {
-                        case Self.welcomePage: welcomeStep
                         case Self.teamPage: teamStep
                         case Self.boardPage: boardStep
                         case Self.invitePage: inviteStep
@@ -88,10 +89,7 @@ struct OnboardingView: View {
                     // escape is persistent rather than bolted onto the team
                     // step's error state.
                     Spacer().frame(height: 32)
-                    Button(OnboardingCopy.signOut) { signOut() }
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .buttonStyle(.plain)
+                    OnboardingSignedInFooter(email: deps.auth.userEmail) { signOut() }
                 }
                 .padding(.horizontal, 32)
                 .padding(.vertical, 48)
@@ -112,84 +110,44 @@ struct OnboardingView: View {
         OnboardingAdvanceButton(done: done, action: action)
     }
 
-    // MARK: - Welcome
-
-    private var welcomeStep: some View {
-        VStack(spacing: 0) {
-            Spacer().frame(height: 64)
-
-            Text("Exponential")
-                .font(.system(size: 34, weight: .bold))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-
-            Spacer().frame(height: 12)
-
-            Text("Track issues and ship with your team.")
-                .font(.body)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .multilineTextAlignment(.center)
-
-            Spacer().frame(height: 48)
-
-            GlassSubmitButton("Get started") {
-                withAnimation(motion.standard) { page = Self.teamPage }
-            }
-        }
-    }
-
     // MARK: - Step 1: Create or join a team
 
     private var teamStep: some View {
-        VStack(spacing: 0) {
-            Text("Set up your team")
-                .font(.system(size: 24, weight: .bold))
-                .foregroundStyle(.white)
-                .multilineTextAlignment(.center)
-
-            Spacer().frame(height: 8)
-
-            Text("Create a team, or join one with an invite link from a teammate.")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .multilineTextAlignment(.center)
-
-            Spacer().frame(height: 24)
-
-            Group {
-                if resolvingTeam {
-                    HStack(spacing: 10) {
-                        ProgressView().controlSize(.small).tint(.white.opacity(0.6))
-                        Text("Checking your teams…")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    }
-                    .padding(.vertical, 32)
-                } else if let teamError {
-                    VStack(spacing: 12) {
-                        Text(teamError)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .multilineTextAlignment(.center)
-                        GlassSubmitButton(OnboardingCopy.retry) {
-                            Task { await resolveTeam() }
-                        }
-                    }
-                    .padding(24)
-                    .glassCard()
-                } else {
-                    TeamSetupView(
-                        onCreated: { team in
-                            teamId = team.id
-                            withAnimation(motion.standard) { page = Self.boardPage }
-                        },
-                        onJoined: {
-                            Task { await enterJoinedTeam() }
-                        }
-                    )
+        Group {
+            if resolvingTeam {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small).tint(.white.opacity(0.6))
+                    Text("Checking your teams…")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
+                .padding(.vertical, 32)
+            } else if let teamError {
+                VStack(spacing: 12) {
+                    Text(teamError)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                        .multilineTextAlignment(.center)
+                    GlassSubmitButton(OnboardingCopy.retry) {
+                        Task { await resolveTeam() }
+                    }
+                }
+            } else {
+                // Web's choice page: the mark over "Welcome to Exponential",
+                // outline Create a team / Join a team pushing their pages.
+                TeamSetupView(
+                    onCreated: { team in
+                        teamId = team.id
+                        withAnimation(motion.standard) { page = Self.boardPage }
+                    },
+                    onJoined: {
+                        Task { await enterJoinedTeam() }
+                    },
+                    showsBrandHeading: true
+                )
             }
         }
+        .padding(.top, 48)
         .task { await resolveTeam() }
     }
 
@@ -436,7 +394,8 @@ struct OnboardingStepHeader: View {
 }
 
 /// The ONE trailing control the two skippable steps share: "Skip for now"
-/// until the step was actually used, "Continue" after.
+/// as the SECONDARY (outline) button until the step was actually used, the
+/// primary "Continue" after (polish round ×4).
 struct OnboardingAdvanceButton: View {
     let done: Bool
     let action: () -> Void
@@ -444,10 +403,39 @@ struct OnboardingAdvanceButton: View {
     var body: some View {
         VStack(spacing: 0) {
             Spacer().frame(height: 20)
-            GlassSubmitButton(
-                done ? OnboardingCopy.continueLabel : OnboardingCopy.skip,
-                action: action
-            )
+            if done {
+                GlassSubmitButton(OnboardingCopy.continueLabel, action: action)
+            } else {
+                GlassOAuthButton(OnboardingCopy.skip, action: action) {
+                    EmptyView()
+                }
+            }
         }
+    }
+}
+
+/// Every step's footer ×4 (web `SignedInFooter`): muted "Signed in as
+/// {email} · Sign out". The wizard is the FIRST authed surface, so a session
+/// the server has invalidated must always have this way back to LoginView.
+struct OnboardingSignedInFooter: View {
+    let email: String?
+    let onSignOut: () -> Void
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let email, !email.isEmpty {
+                Text("Signed in as \(email)")
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+                    .accessibilityIdentifier("onboarding-signed-in-as")
+                Text("·")
+            }
+            Button(OnboardingCopy.signOut, action: onSignOut)
+                .buttonStyle(.plain)
+                .fixedSize()
+        }
+        .font(.caption)
+        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        .frame(maxWidth: .infinity)
     }
 }

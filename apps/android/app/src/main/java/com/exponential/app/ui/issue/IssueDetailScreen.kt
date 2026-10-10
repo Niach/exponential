@@ -674,6 +674,10 @@ fun IssueFace(
                     onOpenEstimate = { controller.activeSheet = IssueSheet.Estimate },
                     onOpenLabels = { controller.activeSheet = IssueSheet.Labels },
                     onOpenProperties = { controller.propertiesOpen = true },
+                    // P46: the face carries the board chip too (last).
+                    board = state.board?.name,
+                    boardEntity = state.board,
+                    onOpenBoard = if (isModerator) { { controller.openMoveBoard() } } else null,
                 )
 
                 // EXP-893: no Coding-now / Watch row under the chips any more —

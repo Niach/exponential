@@ -72,18 +72,43 @@ public struct AccountLimitBars: View {
 /// The picker's trigger content — also what a LONE login renders (no menu to
 /// open), so the two read identically.
 public struct AccountPickerTriggerLabel: View {
+    /// `capsule` = the composer's chip (chevron-down); `rowValue` = a FORM
+    /// row's plain trailing value + chevron-right, like every picker row
+    /// beside it (polish pin: picker rows end in chevron-right ×4).
+    public enum Style: Sendable {
+        case capsule
+        case rowValue
+    }
+
     let option: AccountOption?
     let mark: Image?
     var chevron: Bool = true
+    var style: Style = .capsule
 
-    public init(option: AccountOption?, mark: Image?, chevron: Bool = true) {
+    public init(option: AccountOption?, mark: Image?, chevron: Bool = true, style: Style = .capsule) {
         self.option = option
         self.mark = mark
         self.chevron = chevron
+        self.style = style
     }
 
     public var body: some View {
-        HStack(spacing: 5) {
+        switch style {
+        case .capsule:
+            content
+                .padding(.horizontal, 10)
+                .frame(height: 28)
+                .background(GlassTokens.fillRow, in: Capsule())
+                .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
+                .contentShape(Capsule())
+        case .rowValue:
+            content
+                .contentShape(Rectangle())
+        }
+    }
+
+    private var content: some View {
+        HStack(spacing: style == .rowValue ? 6 : 5) {
             if let mark {
                 mark
                     .resizable()
@@ -92,7 +117,7 @@ public struct AccountPickerTriggerLabel: View {
             }
             if let option {
                 Text(option.email)
-                    .font(.caption.weight(.medium))
+                    .font(style == .rowValue ? .body : .caption.weight(.medium))
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
                     .lineLimit(1)
                     .truncationMode(.middle)
@@ -104,15 +129,16 @@ public struct AccountPickerTriggerLabel: View {
                 }
             }
             if chevron {
-                AppIcon(AppIcons.uiChevronDown, size: 10)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                switch style {
+                case .capsule:
+                    AppIcon(AppIcons.uiChevronDown, size: 10)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                case .rowValue:
+                    AppIcon(AppIcons.uiChevronRight, size: 14)
+                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                }
             }
         }
-        .padding(.horizontal, 10)
-        .frame(height: 28)
-        .background(GlassTokens.fillRow, in: Capsule())
-        .overlay(Capsule().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline))
-        .contentShape(Capsule())
     }
 }
 

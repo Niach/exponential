@@ -304,13 +304,7 @@ impl StoragePane {
         cx: &mut gpui::Context<Self>,
     ) -> gpui::Div {
         let muted = cx.theme().muted_foreground;
-        let status: &str = if !row.is_image {
-            "File"
-        } else if row.referenced {
-            "In use"
-        } else {
-            "Unreferenced"
-        };
+        let status = attachment_status(row.is_image, &row.content_type, row.referenced);
         let row_for_delete = row.clone();
 
         // Image filenames open the in-app lightbox (EXP-316) — same
@@ -463,7 +457,11 @@ impl StoragePane {
                 h_flex()
                     .w(gpui::px(STORAGE_COL_STATUS))
                     .flex_shrink_0()
-                    .child(status_chip(status, cx)),
+                    .child(status_chip(
+                        SharedString::from(format!("storage-status-{}", row.id)),
+                        status,
+                        cx,
+                    )),
             )
             .child(
                 // EXP-862: a row's trash is a GHOST glyph, never a circle.
@@ -492,20 +490,42 @@ impl Render for StoragePane {
         };
         self.ensure_loaded(&team_id, cx);
 
-        let mut body =
-            section(cx).child(crate::surface::glass_section_header("Storage", None, cx));
-
-        // Refresh lives at the TOP of the pane (EXP-316) — inside the
-        // summary/sweep header row once the list is up, on its own row while
-        // loading or after a failure.
-        let refresh = crate::surface::glass_pill_button("storage-refresh", crate::surface::PillSize::Sm, cx)
-            .label("Refresh")
-            .loading(matches!(self.load, Load::Loading))
-            .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)));
+        // Web parity: the bulk Sweep rides the band's trailing slot; there
+        // is no Refresh — the list fetches on open and refetches after every
+        // delete and sweep.
+        let candidates = match &self.load {
+            Load::Ready(Loaded { list: Ok(list), .. }) => list
+                .attachments
+                .iter()
+                .filter(|row| row.is_image && !row.referenced)
+                .count(),
+            _ => 0,
+        };
+        let sweep_label = if candidates > 0 {
+            format!("Sweep unreferenced images ({candidates})")
+        } else {
+            "Sweep unreferenced images".to_string()
+        };
+        let sweep = crate::surface::glass_pill_button(
+            "storage-sweep",
+            crate::surface::PillSize::Sm,
+            cx,
+        )
+        .icon(Icon::from(ExpIcon::Trash2).xsmall())
+        .label(SharedString::from(sweep_label))
+        .disabled(candidates == 0 || self.busy)
+        .on_click(cx.listener(move |this, _, window, cx| {
+            this.confirm_sweep(candidates, window, cx);
+        }))
+        .into_any_element();
+        let mut body = section(cx).child(crate::surface::glass_section_header(
+            "Storage",
+            Some(sweep),
+            cx,
+        ));
 
         match &self.load {
             Load::Idle | Load::Loading => {
-                body = body.child(h_flex().w_full().justify_end().child(refresh));
                 body = body.child(
                     v_flex()
                         .gap_2()
@@ -517,7 +537,6 @@ impl Render for StoragePane {
             Load::Ready(Loaded {
                 list: Err(message), ..
             }) => {
-                body = body.child(h_flex().w_full().justify_end().child(refresh));
                 body = body.child(error_notice(SharedString::from(message.clone()), cx));
             }
             Load::Ready(Loaded {
@@ -546,47 +565,22 @@ impl Render for StoragePane {
                     });
                 let rows = list.attachments.clone();
                 let total_bytes = list.total_bytes;
-                let candidates = rows
-                    .iter()
-                    .filter(|row| row.is_image && !row.referenced)
-                    .count();
                 let plural = if rows.len() == 1 { "" } else { "s" };
-                let sweep_label = if candidates > 0 {
-                    format!("Sweep unreferenced images ({candidates})")
-                } else {
-                    "Sweep unreferenced images".to_string()
-                };
 
                 body = body.children(meter);
 
-                // Header line: usage summary left, the bulk sweep right.
+                // The usage summary line (the sweep sits in the band).
                 body = body.child(
-                    h_flex()
+                    div()
                         .w_full()
-                        .items_center()
-                        .gap_2()
-                        .child(
-                            div()
-                                .flex_1()
-                                .min_w_0()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(SharedString::from(format!(
-                                    "{} attachment{plural} · {}",
-                                    rows.len(),
-                                    format_bytes(total_bytes)
-                                ))),
-                        )
-                        .child(refresh)
-                        .child(
-                            crate::surface::glass_pill_button("storage-sweep", crate::surface::PillSize::Sm, cx)
-                                .icon(Icon::from(ExpIcon::Trash2).xsmall())
-                                .label(SharedString::from(sweep_label))
-                                .disabled(candidates == 0 || self.busy)
-                                .on_click(cx.listener(move |this, _, window, cx| {
-                                    this.confirm_sweep(candidates, window, cx);
-                                })),
-                        ),
+                        .min_w_0()
+                        .text_sm()
+                        .text_color(cx.theme().muted_foreground)
+                        .child(SharedString::from(format!(
+                            "{} attachment{plural} · {}",
+                            rows.len(),
+                            format_bytes(total_bytes)
+                        ))),
                 );
 
                 if rows.is_empty() {
@@ -666,19 +660,25 @@ const STORAGE_COL_DATE: f32 = 90.;
 /// with the chip's label length.
 const STORAGE_COL_STATUS: f32 = 104.;
 
-/// Outline status chip (web `Badge` at compact density): images are
-/// "In use" / "Unreferenced", non-images are "File".
-fn status_chip(label: &'static str, cx: &App) -> impl IntoElement {
-    div()
-        .flex_shrink_0()
-        .px_1p5()
-        .py_0p5()
-        .rounded(cx.theme().radius)
-        .border_1()
-        .border_color(super::row_stroke(cx))
-        .text_xs()
-        .text_color(cx.theme().muted_foreground)
-        .child(label)
+/// The row's status label (web parity): "File" for anything that is not an
+/// image, a video or audio; otherwise "In use" / "Unreferenced".
+fn attachment_status(is_image: bool, content_type: &str, referenced: bool) -> &'static str {
+    let content_type = content_type.trim().to_ascii_lowercase();
+    let is_media =
+        is_image || content_type.starts_with("video/") || content_type.starts_with("audio/");
+    if !is_media {
+        "File"
+    } else if referenced {
+        "In use"
+    } else {
+        "Unreferenced"
+    }
+}
+
+/// The status chip = the shared small READONLY glass pill (web `Pill`).
+fn status_chip(id: SharedString, label: &'static str, cx: &App) -> impl IntoElement {
+    use crate::surface::{PillMode, PillSize};
+    crate::surface::glass_pill(id, PillSize::Sm, PillMode::Readonly, cx).child(label)
 }
 
 /// Web `formatDate` ("Jul 1, 2026"): month + day + year off the ISO
@@ -730,6 +730,14 @@ fn sweep_result_message(deleted: i64, freed_bytes: i64, skipped_recent: i64) -> 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn media_is_never_labelled_file() {
+        assert_eq!(attachment_status(false, "video/mp4", true), "In use");
+        assert_eq!(attachment_status(false, "audio/mpeg", false), "Unreferenced");
+        assert_eq!(attachment_status(true, "image/png", false), "Unreferenced");
+        assert_eq!(attachment_status(false, "application/pdf", true), "File");
+    }
 
     #[test]
     fn created_dates_read_like_the_web_table() {

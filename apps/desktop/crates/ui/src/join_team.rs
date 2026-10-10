@@ -29,7 +29,7 @@ use gpui_component::{
     h_flex,
     input::{InputEvent, InputState},
     scroll::{Scrollbar, ScrollbarAxis},
-    v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
+    v_flex, ActiveTheme as _, Disableable as _, ElementExt as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -146,8 +146,18 @@ pub struct JoinTeamView {
     /// (ghost Back leading, the primary trailing); absent ⇒ the standalone
     /// dialog's Cancel/Join row is unchanged.
     on_back: Option<Rc<dyn Fn(&mut Window, &mut App)>>,
+    /// P9, dialog host only: the form's natural height and the scroll body's
+    /// box last frame, and the content height the window was last fitted to
+    /// — the dialog follows its content (no dead pane under a preview).
+    content_h: Rc<std::cell::Cell<gpui::Pixels>>,
+    body_h: Rc<std::cell::Cell<gpui::Pixels>>,
+    fitted: Option<gpui::Pixels>,
     _subscriptions: Vec<Subscription>,
 }
+
+/// ×2 (web wizard): the join field's placeholder and the preview button.
+pub(crate) const PASTE_PLACEHOLDER: &str = "Paste an invite link";
+pub(crate) const CONTINUE: &str = "Continue";
 
 impl JoinTeamView {
     pub(crate) fn new(
@@ -157,7 +167,7 @@ impl JoinTeamView {
         cx: &mut gpui::Context<Self>,
     ) -> Self {
         let token_input = cx.new(|cx| {
-            InputState::new(window, cx).placeholder("Paste an invite link or token…")
+            InputState::new(window, cx).placeholder(PASTE_PLACEHOLDER)
         });
         let subscriptions = vec![cx.subscribe_in(
             &token_input,
@@ -179,9 +189,16 @@ impl JoinTeamView {
             focused_once: false,
             body_scroll: ScrollHandle::new(),
             on_back: None,
+            content_h: Rc::default(),
+            body_h: Rc::default(),
+            fitted: None,
             _subscriptions: subscriptions,
         };
         if let Some(token) = token {
+            // P9: the deep link's token SHOWS in the field it previews.
+            let value = token.clone();
+            this.token_input
+                .update(cx, |state, cx| state.set_value(value, window, cx));
             this.start_preview(token, cx);
         }
         this
@@ -202,7 +219,7 @@ impl JoinTeamView {
             Preview::Loading => {}
             _ => {
                 let Some(token) = extract_token(&self.token_input.read(cx).value()) else {
-                    self.error = Some("Paste an invite link or token first.".into());
+                    self.error = Some("Paste an invite link first.".into());
                     cx.notify();
                     return;
                 };
@@ -383,6 +400,38 @@ impl JoinTeamView {
     }
 }
 
+impl JoinTeamView {
+    /// P9 — size the dialog WINDOW to the form (the trigger dialog's fit):
+    /// content plus the chrome around the scroll body, between the dialog's
+    /// opening height and 85% of the screen it sits on. Refits only when the
+    /// content moved; never touches a maximized or fullscreen window.
+    fn fit_window(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        let content = self.content_h.get();
+        let body = self.body_h.get();
+        if content <= px(0.) || body <= px(0.) || self.fitted == Some(content) {
+            return;
+        }
+        if window.is_maximized() || window.is_fullscreen() {
+            return;
+        }
+        self.fitted = Some(content);
+        let current = window.viewport_size();
+        let chrome = (current.height - body).max(px(0.));
+        let cap = window
+            .display(cx)
+            .map(|display| display.bounds().size.height * 0.85)
+            .unwrap_or(px(640.));
+        let target = (content + chrome).min(cap).max(px(DIALOG_MIN_H));
+        if (target - current.height).abs() <= px(1.) {
+            return;
+        }
+        native_dialog::resize_dialog_keeping_top(window, cx, size(current.width, target));
+    }
+}
+
+/// The dialog's floor: the paste field and the footer.
+const DIALOG_MIN_H: f32 = 200.;
+
 impl Render for JoinTeamView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         // First render focuses the token field. (Embedded mode used to skip
@@ -409,7 +458,7 @@ impl Render for JoinTeamView {
         );
 
         let (primary_label, primary_disabled): (&'static str, bool) = match &self.preview {
-            Preview::Idle => ("Preview invite", false),
+            Preview::Idle => (CONTINUE, false),
             Preview::Loading => {
                 form = form.child(
                     div()
@@ -417,7 +466,7 @@ impl Render for JoinTeamView {
                         .text_color(cx.theme().muted_foreground)
                         .child("Looking up the invite…"),
                 );
-                ("Preview invite", true)
+                (CONTINUE, true)
             }
             Preview::Failed(message) => {
                 form = form.child(
@@ -429,7 +478,7 @@ impl Render for JoinTeamView {
                         .child(Icon::new(registry::UI_WARNING).xsmall())
                         .child(message.clone()),
                 );
-                ("Preview invite", false)
+                (CONTINUE, false)
             }
             Preview::Ready(invite) => {
                 let used = invite.accepted_at.is_some();
@@ -512,7 +561,11 @@ impl Render for JoinTeamView {
         }
 
         // EXP-369: the form scrolls, the buttons stay pinned at the bottom
-        // edge (see [`DialogContent::self_scrolling`] in [`open`]).
+        // edge (see [`DialogContent::self_scrolling`] in [`open`]). P9: the
+        // window follows the form's height (both boxes report at prepaint).
+        self.fit_window(window, cx);
+        let view_id = cx.entity_id();
+        let (content_slot, body_slot) = (self.content_h.clone(), self.body_h.clone());
         let body_scroll = self.body_scroll.clone();
         v_flex()
             .size_full()
@@ -522,13 +575,30 @@ impl Render for JoinTeamView {
                     .relative()
                     .flex_1()
                     .min_h_0()
+                    .on_prepaint(move |bounds, _, cx| {
+                        if body_slot.get() != bounds.size.height {
+                            body_slot.set(bounds.size.height);
+                            cx.notify(view_id);
+                        }
+                    })
                     .child(
                         v_flex()
                             .id("join-team-scroll")
                             .size_full()
                             .overflow_y_scroll()
                             .track_scroll(&body_scroll)
-                            .child(form),
+                            .child(
+                                v_flex()
+                                    .w_full()
+                                    .flex_shrink_0()
+                                    .on_prepaint(move |bounds, _, cx| {
+                                        if content_slot.get() != bounds.size.height {
+                                            content_slot.set(bounds.size.height);
+                                            cx.notify(view_id);
+                                        }
+                                    })
+                                    .child(form),
+                            ),
                     )
                     .child(
                         div()

@@ -59,21 +59,21 @@ class EventPhrasesTest {
     @Test
     fun statusChangedWithFromAndTo() {
         assertEquals(
-            "changed the status from Backlog to In review",
+            "changed status from Backlog to In Review",
             phrase(event("status_changed", """{"from":"backlog","to":"in_review"}""")),
         )
     }
 
     @Test
     fun statusChangedWithOnlyTo() {
-        assertEquals("changed the status to Done", phrase(event("status_changed", """{"to":"done"}""")))
+        assertEquals("changed status to Done", phrase(event("status_changed", """{"to":"done"}""")))
     }
 
     @Test
     fun statusChangedUnknownWireValueStaysVerbatim() {
         // An unknown status from a newer server must NOT mislabel as Backlog.
         assertEquals(
-            "changed the status from Backlog to triaged new",
+            "changed status from Backlog to triaged new",
             phrase(event("status_changed", """{"from":"backlog","to":"triaged_new"}""")),
         )
     }
@@ -82,7 +82,7 @@ class EventPhrasesTest {
     @Test
     fun statusChangedPrefersTheStatusRowNames() {
         assertEquals(
-            "changed the status from Triage to Shipping",
+            "changed status from Triage to Shipping",
             phrase(
                 event(
                     "status_changed",
@@ -92,14 +92,14 @@ class EventPhrasesTest {
         )
         // Only a toName: the from side still falls back to the anchor label.
         assertEquals(
-            "changed the status from Backlog to Shipping",
+            "changed status from Backlog to Shipping",
             phrase(event("status_changed", """{"from":"backlog","to":"in_progress","toName":"Shipping"}""")),
         )
     }
 
     @Test
     fun statusChangedWithoutPayloadFallsBack() {
-        assertEquals("changed the status", phrase(event("status_changed", null)))
+        assertEquals("changed status", phrase(event("status_changed", null)))
     }
 
     @Test

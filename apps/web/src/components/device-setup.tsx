@@ -48,7 +48,7 @@ import {
   DESKTOP_RELEASES_URL,
   desktopDownloadHref,
 } from "@/lib/desktop-download"
-import { relativeTime } from "@/components/comment-rows/format"
+import { compactRelativeTime } from "@/lib/relative-time"
 import {
   composeDeviceList,
   deviceIsMine,
@@ -134,7 +134,7 @@ export function DeviceStatusLine({
   if (!online) {
     return (
       <div className="truncate text-xs text-muted-foreground">
-        {lastSeenAt ? `Last seen ${relativeTime(lastSeenAt)}` : `Offline`}
+        {lastSeenAt ? `Last seen ${compactRelativeTime(lastSeenAt)}` : `Offline`}
       </div>
     )
   }

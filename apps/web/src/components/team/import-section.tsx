@@ -241,7 +241,6 @@ export function TeamImportSection({
 
   return (
     <div className="space-y-6">
-      <h2 className="text-lg font-semibold">Import</h2>
 
       {loadError && (
         <Alert variant="destructive">
@@ -371,7 +370,6 @@ function ConnectStep({
         <section className="group">
           <GlassSectionHeader
             label="Recent imports"
-            count={jobs.length}
             trailing={
               <Button
                 variant="ghost"
@@ -659,7 +657,7 @@ function MapStep({
       <PreviewSummary preview={preview} />
 
       <section>
-        <GlassSectionHeader label="Boards" count={boardTargets.length} />
+        <GlassSectionHeader label="Boards" />
         {preview.supportsProjectRouting && (
           <GlassGroup className="mb-3">
             <div className="space-y-2 p-4">
@@ -785,7 +783,7 @@ function MapStep({
       </section>
 
       <section>
-        <GlassSectionHeader label="Statuses" count={statusGroups.length} />
+        <GlassSectionHeader label="Statuses" />
         <div className={SETTINGS_LIST_CLASS}>
           {statusGroups.map((group) => {
             // The group speaks with one voice: the first key carries the
@@ -893,7 +891,7 @@ function MapStep({
       </section>
 
       <section>
-        <GlassSectionHeader label="Labels" count={visibleLabels.length} />
+        <GlassSectionHeader label="Labels" />
         <div className={SETTINGS_LIST_CLASS}>
           {visibleLabels.map((label) => {
             const entry: LabelPlan = plan.labels[label.key] ?? { mode: `create` }
@@ -941,7 +939,6 @@ function MapStep({
       <section>
         <GlassSectionHeader
           label="Members"
-          count={visibleUsers.length}
           trailing={
             seatsLeft !== undefined && seatsLeft !== null ? (
               <SeatCapsule

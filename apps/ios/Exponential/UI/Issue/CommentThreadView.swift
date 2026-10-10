@@ -1150,12 +1150,8 @@ private func commentAvatarView(
     }
 }
 
+/// Activity and comment times = the LONG wording ×4 ("5 minutes ago",
+/// polish round); `RelativeTime` parses both Electric wire forms (EXP-169).
 private func relativeDate(_ s: String) -> String {
-    // Electric syncs created_at as Postgres text (space separator, hour-only
-    // offset), which ISO8601DateFormatter alone rejects — WireTimestamps
-    // handles both wire forms (EXP-169).
-    guard let date = WireTimestamps.parse(s) else { return "" }
-    let formatter = RelativeDateTimeFormatter()
-    formatter.unitsStyle = .short
-    return formatter.localizedString(for: date, relativeTo: Date())
+    RelativeTime.long(wire: s)
 }

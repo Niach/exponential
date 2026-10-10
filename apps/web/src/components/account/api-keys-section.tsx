@@ -53,7 +53,14 @@ function deviceName(row: ApiKeyRow): string {
 function formatDate(value: Date | string | null): string {
   if (!value) return `–`
   const date = value instanceof Date ? value : new Date(value)
-  return Number.isNaN(date.getTime()) ? `–` : date.toLocaleDateString()
+  // "Mar 4, 2026" — the IDE's api_keys.rs prints the same shape.
+  return Number.isNaN(date.getTime())
+    ? `–`
+    : date.toLocaleDateString(`en-US`, {
+        month: `short`,
+        day: `numeric`,
+        year: `numeric`,
+      })
 }
 
 function keyPreview(row: ApiKeyRow): string {

@@ -5,10 +5,13 @@ import type { IssueGroup } from "@/lib/board-view"
 import { useMyIssuesData } from "@/hooks/use-my-issues-data"
 import { useSession } from "@/hooks/use-session"
 import {
+  Button,
   conceptIcon,
   SEGMENTED_ROW_COMPACT,
   SegmentedControl,
 } from "@exp/ui"
+import { useUnreadNotificationCount } from "@/hooks/use-unread-notifications"
+import { trpc } from "@/lib/trpc-client"
 import { BoardIssueListPane } from "@/components/board-issue-list-pane"
 import { BulkActionBar } from "@/components/bulk-action-bar"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
@@ -22,6 +25,26 @@ import { InboxView } from "@/components/inbox/inbox-view"
 
 const InboxTabIcon = conceptIcon(`nav-inbox`)
 const MyIssuesTabIcon = conceptIcon(`ui-assignee`)
+const MarkReadIcon = conceptIcon(`notification-mark-read`)
+
+/** "Mark all read" = the strip's trailing ghost glyph (desktop
+ *  `sidebar.rs`'s Inbox strip), present only while something is unread. */
+function MarkAllReadGlyph() {
+  const unread = useUnreadNotificationCount()
+  if (unread === 0) return null
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className="shrink-0"
+      aria-label="Mark all read"
+      title="Mark all read"
+      onClick={() => void trpc.notifications.markAllRead.mutate()}
+    >
+      <MarkReadIcon />
+    </Button>
+  )
+}
 
 /** The open detail's identity, off the route params — which row is active. */
 function useActiveDetail(): {
@@ -138,7 +161,7 @@ export function InboxListNav({
     tab === `my-issues` ? `my-issues` : `inbox`
   )
   // The host stays mounted across inbox ↔ detail, so a new `tab` (the Inbox
-  // page's URL, Back to My Issues) must win over the local pick.
+  // page's URL, Back to My issues) must win over the local pick.
   useEffect(() => {
     setActive(tab === `my-issues` ? `my-issues` : `inbox`)
   }, [tab])
@@ -153,9 +176,10 @@ export function InboxListNav({
           }}
           options={[
             { value: `inbox`, label: `Inbox`, icon: InboxTabIcon },
-            { value: `my-issues`, label: `My Issues`, icon: MyIssuesTabIcon },
+            { value: `my-issues`, label: `My issues`, icon: MyIssuesTabIcon },
           ]}
         />
+        {active === `inbox` && <MarkAllReadGlyph />}
       </div>
       <div className="flex min-h-0 flex-1 flex-col">
         {active === `inbox` ? (

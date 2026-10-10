@@ -71,6 +71,13 @@ struct AgentMarkdownText: View {
         lineHeight: DesignTokens.Transcript.bodyLineHeight
     )
 
+    /// The Guide's report sections: the transcript's measure, but NEUTRAL
+    /// code spans (the interchange style) — no chat palette (polish pin ×4).
+    static let guideReport = MarkdownStyle.Overrides(
+        bodySize: DesignTokens.Transcript.bodySize,
+        lineHeight: DesignTokens.Transcript.bodyLineHeight
+    )
+
     init(
         text: String,
         context: AgentMarkdownContext? = nil,

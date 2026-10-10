@@ -22,6 +22,16 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
         case name
     }
 
+    /// A branch picked on the cloud chooser (`InstanceView`) before this
+    /// screen existed — consumed once the config lands.
+    enum Intent: Equatable {
+        case email
+        case passkey
+        case oidc(String)
+    }
+
+    static var pendingIntent: Intent?
+
     var email = ""
     var password = ""
     var code = ""
@@ -128,6 +138,18 @@ final class LoginViewModel: NSObject, ASWebAuthenticationPresentationContextProv
     /// with both offers the code first; the password form is one link away.
     var usesCodeFlow: Bool {
         (config?.emailOtpEnabled ?? false) && !usePasswordInstead
+    }
+
+    /// Run the branch the cloud chooser picked (once).
+    func consumePendingIntent() {
+        guard let intent = Self.pendingIntent else { return }
+        Self.pendingIntent = nil
+        guard config != nil else { return }
+        switch intent {
+        case .email: showEmailStep()
+        case .passkey: startPasskeyLogin()
+        case let .oidc(providerId): startOAuthFlow(providerId: providerId)
+        }
     }
 
     func showEmailStep() {

@@ -755,7 +755,7 @@ impl DeviceSettingsView {
             surface::glass_picker_row(
                 "Computer use model",
                 None,
-                surface::glass_picker_select(Select::new(&self.computer_use_model_select))
+                surface::glass_picker_select(Select::new(&self.computer_use_model_select), cx)
                     .into_any_element(),
                 cx,
             )
@@ -1825,24 +1825,31 @@ impl DeviceSettingsView {
             .and_then(|row| row.label.clone())
             .unwrap_or_else(|| self.device_id.clone());
         // EXP-1020: a ROW of the same shell, not a section of its own — a
-        // destructive row needs no headline to be found.
+        // destructive row needs no headline to be found. ×4: a full-width
+        // ghost row in destructive text (web `justify-start text-destructive`).
+        let danger = cx.theme().danger;
         v_flex()
             .w_full()
             .gap_2()
-            .child(surface::glass_group_rows(vec![surface::glass_row_shell()
-                .min_w_0()
-                .gap_2()
-                .child(
+            .child(
+                surface::glass_group().child(
                     gpui_component::button::Button::new("device-remove")
-                        .danger()
-                        .web_sm()
-                        .icon(Icon::new(registry::UI_DELETE))
+                        .ghost()
+                        .cursor_pointer()
+                        .w_full()
+                        .h_auto()
+                        .px_4()
+                        .py_3()
+                        .justify_start()
+                        .text_color(danger)
+                        .icon(Icon::new(registry::UI_DELETE).size_3p5().text_color(danger))
                         .label("Remove device")
                         .disabled(self.remove_busy)
                         .on_click(cx.listener(move |this, _, window, cx| {
                             this.prompt_remove(label.clone(), window, cx);
                         })),
-                )]))
+                ),
+            )
             .children(self.error_line("remove", cx))
     }
 }

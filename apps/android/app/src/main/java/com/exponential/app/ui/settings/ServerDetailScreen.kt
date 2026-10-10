@@ -1,5 +1,6 @@
 package com.exponential.app.ui.settings
 
+import com.exponential.app.ui.components.PickerRow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -95,6 +96,36 @@ class ServerDetailViewModel @Inject constructor(
     // process-lifetime so teardown always completes; every job here is bounded
     // (the unregister is timeout-capped, the rest is local work).
     private val teardownScope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+
+    /**
+     * The account's stored timezone (null = unset, shown as "UTC", web
+     * parity) and whether it has loaded — the row waits for the read, so it
+     * never flashes a wrong zone.
+     */
+    var timezone by mutableStateOf<String?>(null)
+        private set
+    var timezoneLoaded by mutableStateOf(false)
+        private set
+
+    fun loadTimezone(accountId: String) {
+        viewModelScope.launch {
+            runCatching { usersApi.timezone(accountId) }
+                .onSuccess {
+                    timezone = it
+                    timezoneLoaded = true
+                }
+        }
+    }
+
+    /** An explicit pick: optimistic, reverted when the server refuses it. */
+    fun pickTimezone(accountId: String, zone: String) {
+        val previous = timezone
+        timezone = zone
+        viewModelScope.launch {
+            runCatching { usersApi.setTimezone(accountId, zone, onlyIfUnset = false) }
+                .onFailure { timezone = previous }
+        }
+    }
 
     var deletingAccount by mutableStateOf(false)
         private set
@@ -468,6 +499,25 @@ fun ServerDetailScreen(
                 }
             }
 
+            // Pinned ×4: Timezone right under the identity card, a picker row.
+            if (account?.token != null) {
+                LaunchedEffect(accountId, account.token) { viewModel.loadTimezone(accountId) }
+                if (viewModel.timezoneLoaded) {
+                    val current = viewModel.timezone ?: "UTC"
+                    val zones = remember(current) { timezoneOptions(current) }
+                    Column(Modifier.fillMaxWidth().glassGroup()) {
+                        PickerRow(
+                            label = "Timezone",
+                            value = current,
+                            options = zones,
+                            selected = current,
+                            optionLabel = { it },
+                            onSelect = { viewModel.pickTimezone(accountId, it) },
+                        )
+                    }
+                }
+            }
+
             // EXP-1126: how this account signs in — only with a live session.
             if (account?.token != null) {
                 LaunchedEffect(accountId, account.token) { viewModel.loadMethods(accountId) }
@@ -593,3 +643,11 @@ private fun ActionRow(
     }
 }
 
+
+/** Every IANA zone the runtime knows, sorted; a stored zone it lacks still lists. */
+internal fun timezoneOptions(current: String): List<String> {
+    val zones = java.time.ZoneId.getAvailableZoneIds()
+        .filter { '/' in it || it == "UTC" }
+        .sorted()
+    return if (current in zones) zones else listOf(current) + zones
+}

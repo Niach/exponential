@@ -13,6 +13,31 @@ require "shellwords"
 
 default_platform(:android)
 
+# ── EXP-1267: fast, parallel-safe capture lanes ──────────────────────────────
+#
+# `screenshots` (store) and `styleguide_screenshots` may run AT THE SAME TIME,
+# next to the iOS lanes, as long as each one targets its OWN emulator:
+#
+# - ANDROID_SERIAL picks the device. adb honours it for every command the lanes
+#   run (status bar, pop-rect pull) and the lanes pass it to screengrab as
+#   `specific_device`. Unset with several devices attached = screengrab takes
+#   the first one, so ALWAYS set it when lanes run in parallel.
+# - the app is no longer reinstalled (`reinstall_app(false)`): the suites sign
+#   in in-process with a session they reuse across runs (androidTest
+#   ScreenshotSession), so the app's per-user caches survive between runs.
+# - SCREENGRAB_SKIP_BUILD=1 skips the gradle step: two lanes building the same
+#   module at once would fight over app/build/. Build ONCE first:
+#     ./gradlew :app:assembleProductionDebug :app:assembleProductionDebugAndroidTest
+# - output dirs are per lane already (screenshots-raw/, styleguide-screenshots/).
+#
+# Concurrent invocation (from apps/android, one process each; two emulators,
+# e.g. `emulator -avd Medium_Phone_API_36.0 -port 5554` and a second instance
+# `emulator -avd Medium_Phone_API_36.0 -read-only -port 5556`):
+#   ANDROID_SERIAL=emulator-5554 SCREENGRAB_SKIP_BUILD=1 bundle exec fastlane screenshots
+#   ANDROID_SERIAL=emulator-5556 SCREENGRAB_SKIP_BUILD=1 bundle exec fastlane styleguide_screenshots
+# A `-read-only` instance keeps the app's state (and so its reused session)
+# only while it runs.
+
 # Matches the `production` product flavor (flavorDimensions "env") — the only flavor
 # that ships to the public Play listing. gradle() concatenates flavor + build_type into
 # task names like `bundleProductionRelease` / `assembleProductionRelease`.
@@ -154,6 +179,23 @@ platform :android do
   # icons. Best effort both ways; a capture never fails over the status bar.
   STATUS_BAR_CLOCK = "0941".freeze
 
+  # The device a lane drives (EXP-1267): ANDROID_SERIAL, which adb itself
+  # honours for the lane's own `adb` calls; nil = screengrab's default pick.
+  def lane_device
+    serial = ENV["ANDROID_SERIAL"].to_s.strip
+    serial.empty? ? nil : serial
+  end
+
+  def build_capture_apks
+    if ENV["SCREENGRAB_SKIP_BUILD"].to_s.strip == "1"
+      UI.message("SCREENGRAB_SKIP_BUILD=1 — using the APKs already built")
+      return
+    end
+    gradle(
+      tasks: [":app:assembleProductionDebug", ":app:assembleProductionDebugAndroidTest"],
+    )
+  end
+
   def demo_broadcast(*args)
     sh("adb shell am broadcast -a com.android.systemui.demo -e #{args.shelljoin}", log: false)
   end
@@ -208,20 +250,15 @@ platform :android do
        "(repo root) before sync_store, which composites the Play set (EXP-580). " \
        "`shots:1_board,2_issue-detail` narrows the run to those shot ids (EXP-642)."
   lane :screenshots do |options|
-    gradle(
-      tasks: [":app:assembleProductionDebug", ":app:assembleProductionDebugAndroidTest"],
-    )
+    build_capture_apks
 
     # Everything else (APK paths, package name, locales, output dir) comes from
     # fastlane/Screengrabfile.
+    args = {}
     launch_arguments = screenshot_launch_arguments(options)
-    with_pinned_status_bar do
-      if launch_arguments
-        screengrab(launch_arguments: launch_arguments)
-      else
-        screengrab
-      end
-    end
+    args[:launch_arguments] = launch_arguments if launch_arguments
+    args[:specific_device] = lane_device if lane_device
+    with_pinned_status_bar { screengrab(args) }
 
     # Pop-out rect sidecars land beside the raw PNGs screengrab just wrote.
     pull_pop_rects(File.expand_path("exp-pop", __dir__))
@@ -237,13 +274,12 @@ platform :android do
        "`shots:sg_reviews,sg_search` narrows the run to those shot ids (EXP-642). " \
        "Config lives in fastlane/Screengrabfile-styleguide."
   lane :styleguide_screenshots do |options|
-    gradle(
-      tasks: [":app:assembleProductionDebug", ":app:assembleProductionDebugAndroidTest"],
-    )
+    build_capture_apks
 
     config = screengrab_options_from("Screengrabfile-styleguide")
     launch_arguments = screenshot_launch_arguments(options)
     config[:launch_arguments] = launch_arguments if launch_arguments
+    config[:specific_device] = lane_device if lane_device
     with_pinned_status_bar { screengrab(config) }
   end
 

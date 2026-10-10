@@ -6,13 +6,7 @@ import {
   promptActions,
   removeMemberPrompt,
 } from "@/lib/prompts"
-import {
-  Crown,
-  LoaderCircle,
-  Ellipsis,
-  ShieldCheck,
-  Trash2,
-} from "lucide-react"
+import { LoaderCircle, Ellipsis, Trash2 } from "lucide-react"
 import {
   conceptIcon,
   Pill,
@@ -40,6 +34,7 @@ import { trpc } from "@/lib/trpc-client"
 import { invalidateBillingCache } from "@/hooks/use-billing"
 import { useTeamById, useTeamInvites } from "@/hooks/use-team-data"
 import { displayUserName } from "@/lib/user-display"
+import { formatDate } from "@/lib/utils"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
 import { InviteLinkRow, InviteMemberForm } from "./invite-member-form"
@@ -56,6 +51,26 @@ const UiRemoveMemberIcon = conceptIcon(`ui-remove-member`)
 // EXP-774: the invite glyphs are registry concepts so the IDE draws the same.
 const UiMailIcon = conceptIcon(`ui-mail`)
 const UiLinkIcon = conceptIcon(`ui-link`)
+const OwnerIcon = conceptIcon(`ui-owner`)
+const MemberIcon = conceptIcon(`ui-member`)
+
+/** The role glyph the role pill leads with, member and invite rows alike. */
+function RoleGlyph({ role }: { role: string }) {
+  return role === `owner` ? (
+    <OwnerIcon className="size-3" />
+  ) : (
+    <MemberIcon className="size-3" />
+  )
+}
+
+/** Members list in JOIN order (×4): oldest membership first. */
+export function membersInJoinOrder(members: TeamMember[]): TeamMember[] {
+  return [...members].sort((a, b) => {
+    const at = new Date(a.createdAt).getTime()
+    const bt = new Date(b.createdAt).getTime()
+    return at !== bt ? at - bt : a.id.localeCompare(b.id)
+  })
+}
 
 
 export function TeamMembersSection({
@@ -156,17 +171,11 @@ export function TeamMembersSection({
       <GlassSectionHeader label="Members" />
       <div className="space-y-4">
         <div className={SETTINGS_LIST_CLASS}>
-          {members.map((member) => {
+          {membersInJoinOrder(members).map((member) => {
             const isSelf = member.userId === currentUserId
             const user = userMap.get(member.userId)
             const displayName = displayUserName(user, member.userId)
             const placeholder = placeholders.get(member.userId)
-            const roleIcon =
-              member.role === `owner` ? (
-                <Crown className="size-3" />
-              ) : (
-                <ShieldCheck className="size-3" />
-              )
 
             return (
               <ListRow
@@ -191,7 +200,9 @@ export function TeamMembersSection({
                           <span className="text-muted-foreground"> (you)</span>
                         )}
                       </span>
-                      <Pill leading={roleIcon}>{member.role}</Pill>
+                      <Pill leading={<RoleGlyph role={member.role} />}>
+                        {member.role}
+                      </Pill>
                       {placeholder && (
                         <Pill
                           leading={<UiMailIcon className="size-3" />}
@@ -252,7 +263,7 @@ export function TeamMembersSection({
                                   })
                                 }
                               >
-                                <Crown className="mr-2 h-4 w-4" />
+                                <OwnerIcon className="mr-2 h-4 w-4" />
                                 Make owner
                               </DropdownMenuItem>
                             )}
@@ -266,7 +277,7 @@ export function TeamMembersSection({
                                   })
                                 }
                               >
-                                <ShieldCheck className="mr-2 h-4 w-4" />
+                                <MemberIcon className="mr-2 h-4 w-4" />
                                 Make member
                               </DropdownMenuItem>
                             )}
@@ -390,6 +401,11 @@ export function TeamMembersSection({
   )
 }
 
+/** "Expires Mon D" — the short date every client prints on invite rows. */
+export function inviteExpiryLabel(expiresAt: Date | string): string {
+  return `Expires ${formatDate(new Date(expiresAt))}`
+}
+
 function InviteControls({ teamId }: { teamId: string }) {
   const [generating, setGenerating] = useState(false)
   const [inviteUrl, setInviteUrl] = useState<string | null>(null)
@@ -446,15 +462,9 @@ function InviteControls({ teamId }: { teamId: string }) {
   return (
     <div className="space-y-4">
       <div>
-        <div className="text-sm font-medium">Invite members</div>
-        <div className="text-xs text-muted-foreground">
-          Send an invite by email — they join the team right away and can be
-          assigned work before they sign in — or generate a link to share
-          yourself
-        </div>
+        <GlassSectionHeader label="Invite members" />
+        <InviteMemberForm teamId={teamId} />
       </div>
-
-      <InviteMemberForm teamId={teamId} />
 
       {inviteUrl && <InviteLinkRow url={inviteUrl} />}
 
@@ -477,10 +487,14 @@ function InviteControls({ teamId }: { teamId: string }) {
                 key={invite.id}
                 className="justify-between px-3 py-2 text-sm"
               >
+                {/* ×4 anatomy: email or "Link invite" · role pill ·
+                    "Expires Mon D"; a link invite wears the link glyph. */}
                 <div className="flex min-w-0 items-center gap-3">
-                  <Pill leading={<UiMailIcon className="size-3" />}>
-                    {invite.role}
-                  </Pill>
+                  {invite.email ? (
+                    <UiMailIcon className="size-4 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <UiLinkIcon className="size-4 shrink-0 text-muted-foreground" />
+                  )}
                   {/* EXP-698: a link invite carries no address, and an empty
                       slot collapsed the row so the chips of a mixed list never
                       lined up. It says what it is instead. */}
@@ -493,9 +507,11 @@ function InviteControls({ teamId }: { teamId: string }) {
                       Link invite
                     </span>
                   )}
+                  <Pill leading={<RoleGlyph role={invite.role} />}>
+                    {invite.role}
+                  </Pill>
                   <span className="shrink-0 text-muted-foreground">
-                    Expires{` `}
-                    {new Date(invite.expiresAt).toLocaleDateString()}
+                    {inviteExpiryLabel(invite.expiresAt)}
                   </span>
                 </div>
                 <Button

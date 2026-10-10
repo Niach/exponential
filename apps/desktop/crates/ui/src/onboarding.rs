@@ -722,30 +722,13 @@ impl Render for OnboardingView {
             WizardStep::Devices { .. } => self.devices_page(window, cx),
         };
 
-        // Footer: the last row INSIDE the card body. Every step is skippable;
-        // the tools step's primary Continue appears once the report is fully
-        // green (both dismiss it). Create/Join contribute nothing here — the
-        // embedded forms render their own Back / primary row (web parity:
-        // those pages carry no "Set up later", Back goes to the choice page
-        // which keeps the skip).
+        // Footer: the last row INSIDE the card body. The tools step's primary
+        // Continue appears once the report is fully green. The team step has
+        // none (×4: no "Set up later"; the escape is the signed-in row under
+        // every step) — Create/Join render their own Back / primary row.
         let footer: Option<gpui::AnyElement> = match &step {
             WizardStep::Syncing => None,
-            WizardStep::Team => match self.team_page {
-                TeamPage::Choice => Some(
-                    h_flex()
-                        .justify_end()
-                        .child(
-                            Button::new("onboarding-skip-team")
-                                .ghost().web_sm()
-                                .label("Set up later")
-                                .on_click(cx.listener(|this, _, _, cx| {
-                                    this.complete_account_steps(cx);
-                                })),
-                        )
-                        .into_any_element(),
-                ),
-                TeamPage::Create | TeamPage::Join => None,
-            },
+            WizardStep::Team => None,
             WizardStep::Board { .. } => Some(
                 h_flex()
                     .justify_end()
@@ -774,8 +757,9 @@ impl Render for OnboardingView {
                                     this.complete_invite_step(cx);
                                 }))
                         } else {
+                            // ×4: the skip is the SECONDARY (outline) button.
                             Button::new("onboarding-invite-advance")
-                                .ghost().web_sm()
+                                .outline().web_md()
                                 .label(copy::SKIP)
                                 .on_click(cx.listener(|this, _, _, cx| {
                                     this.complete_invite_step(cx);
@@ -948,17 +932,24 @@ impl Render for OnboardingView {
                     )
             }
         };
+        // ×4: the muted "Signed in as {email} · Sign out" row under EVERY
+        // step (web `SignedInFooter`) — the wizard has no sidebar, so this is
+        // the wrong account's only way out.
+        let signed_in = signed_in_footer(cx);
         if pinned_footer {
             return div()
                 .size_full()
                 .py_8()
                 .flex()
+                .flex_col()
                 .items_center()
                 .justify_center()
                 .text_color(cx.theme().foreground)
-                .child(column)
+                .child(column.min_h_0())
+                .children(signed_in)
                 .into_any_element();
         }
+        let column = column.children(signed_in);
         div()
             .id("onboarding-scroll")
             .size_full()
@@ -974,9 +965,53 @@ impl Render for OnboardingView {
     }
 }
 
+/// The web wizard's `SignedInFooter` ×4: muted "Signed in as {email} · Sign
+/// out", the last word a link. `None` without an active account (nobody to
+/// sign out).
+fn signed_in_footer(cx: &App) -> Option<gpui::AnyElement> {
+    let email = queries::active_account(cx)?.email;
+    let muted = cx.theme().muted_foreground;
+    let foreground = cx.theme().foreground;
+    Some(
+        h_flex()
+            .mt_4()
+            .w_full()
+            .justify_center()
+            .items_center()
+            .gap_1()
+            .text_xs()
+            .text_color(muted)
+            .child(div().min_w_0().truncate().child(signed_in_label(&email)))
+            .child(div().flex_shrink_0().child("·"))
+            .child(
+                div()
+                    .id("onboarding-sign-out")
+                    .flex_shrink_0()
+                    .cursor_pointer()
+                    .hover(move |style| style.text_color(foreground))
+                    .child(SIGN_OUT)
+                    .on_click(|_, _, cx| crate::sign_out_active(cx)),
+            )
+            .into_any_element(),
+    )
+}
+
+const SIGN_OUT: &str = "Sign out";
+
+fn signed_in_label(email: &str) -> String {
+    format!("Signed in as {email}")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The footer copy ×4 (web `wizard.test.tsx`).
+    #[test]
+    fn signed_in_footer_copy() {
+        assert_eq!(signed_in_label("who@example.com"), "Signed in as who@example.com");
+        assert_eq!(SIGN_OUT, "Sign out");
+    }
 
     fn team(id: &str, has_boards: bool) -> Option<(String, bool)> {
         Some((id.to_string(), has_boards))

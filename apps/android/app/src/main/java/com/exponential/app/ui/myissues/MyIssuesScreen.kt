@@ -40,7 +40,7 @@ import com.exponential.app.ui.issue.LongPressIssueRow
 import com.exponential.app.ui.theme.TextEmphasis
 
 /**
- * "My Issues" (masterplan §5a): a cross-board list of everything assigned
+ * "My issues" (masterplan §5a): a cross-board list of everything assigned
  * to me on the active account, grouped by status. A fixed built-in view — no
  * filters, no saved views. Lives on as the My Issues segment of the "My Work"
  * tab (PersonalScreen, EXP-58); embedded there rather than routed to.
@@ -52,7 +52,7 @@ fun MyIssuesListContent(
     viewModel: MyIssuesViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    var collapsed by remember { mutableStateOf(emptySet<IssueStatus>()) }
+    var collapsed by remember { mutableStateOf(emptySet<String>()) }
     // EXP-980: the row whose blocks badge opened the mini-graph (null = none).
     var graphIssueId by remember { mutableStateOf<String?>(null) }
 
@@ -81,16 +81,16 @@ fun MyIssuesListContent(
             verticalArrangement = Arrangement.spacedBy(3.dp),
         ) {
             state.groups.forEach { group ->
-                val isCollapsed = group.status in collapsed
-                item(key = "header-${group.status.wire}") {
+                val isCollapsed = group.key in collapsed
+                item(key = "header-${group.key}") {
                     IssueGroupBand(
                         glyph = { StatusIcon(group.status, size = 14.dp) },
-                        name = group.status.label,
+                        name = group.status.name,
                         count = group.issues.size,
                         collapsed = isCollapsed,
                         onToggle = {
                             collapsed =
-                                if (isCollapsed) collapsed - group.status else collapsed + group.status
+                                if (isCollapsed) collapsed - group.key else collapsed + group.key
                         },
                     )
                 }

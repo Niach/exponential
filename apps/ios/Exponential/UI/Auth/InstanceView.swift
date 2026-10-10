@@ -34,54 +34,54 @@ struct InstanceView: View {
         ZStack {
             AppBackground()
 
-            VStack(alignment: .leading, spacing: 0) {
-                Text("Exponential")
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundStyle(.white)
+            // Polish round ×4: the cloud chooser IS the LoginView layout —
+            // the brand mark over "Continue to Exponential", no subtitle, no
+            // card, the same Continue list as web, "Use a self-hosted
+            // instance" below and the muted Privacy · Terms pair last.
+            ScrollView {
+                VStack(spacing: 24) {
+                    AuthBrandHeading(title: "Continue to Exponential")
 
-                Spacer().frame(height: 8)
-
-                Text("Connect to Exponential")
-                    .font(.body)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-                Spacer().frame(height: 32)
-
-                VStack(alignment: .leading, spacing: 16) {
-                    if !cloudAlreadyAdded {
-                        cloudSection
-                    }
-
-                    if showSelfHost || cloudAlreadyAdded {
-                        selfHostSection
-                    }
-
-                    if let error = viewModel?.error {
-                        Text(error)
-                            .font(.callout)
-                            .foregroundStyle(.red)
-                            .padding(.horizontal, 4)
-                    }
-
-                    if showCancel {
-                        Button {
-                            onCancel?()
-                        } label: {
-                            Text("Cancel")
-                                .font(.body)
-                                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                                // Full-width hit target — .plain hit-tests only opaque pixels.
-                                .contentShape(Rectangle())
+                    VStack(spacing: 16) {
+                        if !cloudAlreadyAdded {
+                            cloudSection
                         }
-                        .buttonStyle(.plain)
+
+                        if showSelfHost || cloudAlreadyAdded {
+                            selfHostSection
+                        }
+
+                        if let error = viewModel?.error {
+                            Text(error)
+                                .font(.callout)
+                                .foregroundStyle(.red)
+                                .frame(maxWidth: .infinity, alignment: .center)
+                        }
+
+                        if showCancel {
+                            Button {
+                                onCancel?()
+                            } label: {
+                                Text("Cancel")
+                                    .font(.body)
+                                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                                    .frame(maxWidth: .infinity)
+                                    .padding(.vertical, 12)
+                                    // Full-width hit target — .plain hit-tests only opaque pixels.
+                                    .contentShape(Rectangle())
+                            }
+                            .buttonStyle(.plain)
+                        }
                     }
+
+                    AuthLegalFooter()
                 }
-                .padding(24)
-                .glassCard()
+                .padding(.horizontal, 32)
+                .padding(.vertical, 48)
+                .frame(maxWidth: .infinity)
             }
-            .padding(.horizontal, 32)
+            .defaultScrollAnchor(.center)
+            .scrollBounceBehavior(.basedOnSize)
         }
         .onAppear {
             focused = false
@@ -127,6 +127,35 @@ struct InstanceView: View {
                     // is drawn in GoogleLogoMark.
                     GoogleLogoMark()
                         .frame(width: 17, height: 17)
+                }
+            }
+            // The rest of the Continue list (email, passkey, OIDC) signs in
+            // through LoginView against the cloud: commit the cloud URL and
+            // hand LoginView the picked branch. First-run only — the
+            // add-server cover keeps its OAuth pair.
+            if !showCancel {
+                ForEach(vm.cloudConfig?.oidcProviders ?? []) { provider in
+                    GlassOAuthButton("Continue with \(provider.name)", action: {
+                        vm.continueOnCloud(.oidc(provider.id))
+                    }) {
+                        EmptyView()
+                    }
+                }
+                if vm.emailAvailable {
+                    GlassOAuthButton("Continue with email", action: {
+                        vm.continueOnCloud(.email)
+                    }) {
+                        AppIcon(AppIcons.uiMail, size: AppIcon.Size.medium)
+                    }
+                    .accessibilityIdentifier("instance-continue-with-email-button")
+                }
+                if vm.passkeyAvailable {
+                    GlassOAuthButton("Login with passkey", action: {
+                        vm.continueOnCloud(.passkey)
+                    }) {
+                        AppIcon(AppIcons.authPasskey, size: AppIcon.Size.medium)
+                    }
+                    .accessibilityIdentifier("instance-passkey-button")
                 }
             }
         }
@@ -178,9 +207,6 @@ struct InstanceView: View {
         }
         .accessibilityIdentifier("instance-continue-button")
 
-        Text("Self-hosted? Enter the full URL of your server.")
-            .font(.caption)
-            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
     }
 
 }

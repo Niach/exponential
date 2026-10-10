@@ -246,7 +246,7 @@
       "web": {
         "route": "/onboarding",
         "anchor": {
-          "text": "Name your team",
+          "text": "Team name",
           "timeoutMs": 30000
         },
         "auth": "newcomer",
@@ -279,7 +279,7 @@
       "web": {
         "route": "/onboarding",
         "anchor": {
-          "text": "Ask a teammate for an invite link",
+          "text": "Invite link",
           "timeoutMs": 30000
         },
         "auth": "newcomer",
@@ -378,7 +378,7 @@
       "web": {
         "route": "/invite/$inviteToken",
         "anchor": {
-          "text": "Team Invite",
+          "text": "Team invite",
           "timeoutMs": 30000
         },
         "auth": "newcomer",
@@ -741,7 +741,7 @@
         }
       },
       "notes": {
-        "desktop": "EXP-1192: always three columns, Linear-style — the root sidebar, then the notifications as a second sidebar INSIDE the content card (the Inbox | My Issues strip and Mark all read on top), then the main pane: an empty state (\"No notification selected\") until a notification is picked, after which its issue or run opens beside the list without re-sliding it."
+        "desktop": "EXP-1192: always three columns, Linear-style — the root sidebar, then the notifications as a second sidebar INSIDE the content card (the Inbox | My issues strip and Mark all read on top), then the main pane: an empty state (\"No notification selected\") until a notification is picked, after which its issue or run opens beside the list without re-sliding it."
       }
     },
     {
@@ -774,7 +774,7 @@
         }
       },
       "notes": {
-        "desktop": "EXP-1192: no full-width page — My Issues is the SECOND tab of the Inbox's second sidebar (the Inbox | My Issues strip inside the content card), with the main pane empty until an issue is picked, which then opens beside the list. `EXP_DEV_TOOL=my-issues` opens it."
+        "desktop": "EXP-1192: no full-width page — My issues is the SECOND tab of the Inbox's second sidebar (the Inbox | My issues strip inside the content card), with the main pane empty until an issue is picked, which then opens beside the list. `EXP_DEV_TOOL=my-issues` opens it."
       }
     },
     {
@@ -1172,8 +1172,8 @@
       "notes": {
         "web": "The diff is fetched live from GitHub, so this view is the slowest in the catalog and the most network-flaky. Keep the generous anchor timeout. EXP-916: every file card starts OPEN (only a file past contract.diffUi.collapseThresholdLines folds itself), so the recipe only WAITS for the first hunk row of the first card and clicks its header just in case; the anchor is a line of the first card's own patch (strings.xml's added feature_topic_api_error string). EXP-1251: the page sits under the Guide (a back row to it); on md+ the file tree is the column beside the cards, the phone lists the files in the bar's sheet beside the white Merge capsule.",
         "desktop": "EXP-1251: the issue tab's Guide owns the diff pages (`steer_viewer` guide_page) and nothing deep-links straight to the complete diff any more, so `issue:<id>?face=guide` lands on the Guide; the desktop half of this view is the `guide` drive until a page deep link exists.",
-        "ios": "EXP-1251: 05_review opens the issue from Reviews on its Guide, then taps the Changes row (else Show complete diff) and waits for guide-section-page + changes-file-row before the shot.",
-        "android": "EXP-1251: 5_review shoots the GUIDE face (work-guide + guide-changes-row; the pop-out stays on the bare work-merge-pr capsule), not a section page."
+        "ios": "EXP-1251: 05_review opens the issue from Reviews on its Guide, then taps Show complete diff (else the one Changes row of a report-less Guide) and waits for guide-section-page + changes-file-row before the shot.",
+        "android": "EXP-1251: 5_review opens the issue from Reviews on its Guide, taps Show complete diff (or the single Changes row without a report) and shoots that page; the pop-out is the page capsule work-merge-pr-section."
       }
     },
     {
@@ -1213,7 +1213,7 @@
       "notes": {
         "web": "EXP-1204. The run is Jonas's finished chat run (seed `DEMO_SESSION_IDS.runChanges`), so the demo user is a TEAMMATE and the page is `TeammateRunGuide`: the stub header with the GitHub button over the run's Guide, read-only, no steer ticket. `?view=guide&section=all` opens the Guide's Show complete diff page (every file card, the file tree beside them on md+), the same page review-diff captures for an issue. The owner's own run draws the same Guide on its run face. Like review-diff the diff is fetched live from GitHub (`codingSessions.prFiles` → the run's `pr_url`), which also insists the PR's repo is a TEAM repository: the seed registers it (`android/kotlin`, an ARCHIVED repo on purpose — a team repo's OPEN PRs would land in the Reviews queue as an external group, and an archived repo can never grow one). The anchor is a line of the first file's own patch (the ResolverImpl import #125 adds).",
         "desktop": "EXP_DEV_RUN_FACE=guide-all lands the run tab on the Guide's Show complete diff page (the same page the web route opens).",
-        "ios": "EXP-1251: the Reviews 'Agent runs' row opens the run on its Guide; the flow taps the Guide's Changes row (else Show complete diff), waits for guide-section-page, then changes-file-row, and shoots the section page.",
+        "ios": "EXP-1251: the Reviews 'Agent runs' row opens the run on its Guide; the flow taps Show complete diff (else the one Changes row of a report-less Guide), waits for guide-section-page, then changes-file-row, and shoots that page.",
         "android": "EXP-1251: the review-run-row opens RunChangesScreen on the Guide; the flow taps guide-changes-row, waits for guide-section + changes-file-row, shoots, then backs out twice."
       }
     },

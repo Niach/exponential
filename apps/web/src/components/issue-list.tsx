@@ -43,6 +43,7 @@ const DueDateIcon = conceptIcon(`ui-due-date`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
 const EmptyIssuesIcon = conceptIcon(`ui-checklist`)
 const AvatarPlaceholderIcon = conceptIcon(`ui-avatar-placeholder`)
+const CheckIcon = conceptIcon(`ui-check`)
 
 // REV-46: the desktop IDE virtualizes this exact list (issue_list.rs
 // v_virtual_list — "the list can be long; virtualization is mandatory"). The
@@ -76,6 +77,8 @@ interface IssueListProps {
   // disabled when false. Title/description/labels remain mutable by anyone
   // whose canMutateIssue is true.
   canModerate?: boolean
+  /** My issues: phones drop the assignee avatar (always the viewer). */
+  hideAssigneeOnPhone?: boolean
   // True while the Electric issues collection is still loading its first
   // snapshot — renders skeleton rows instead of an empty state.
   isLoading?: boolean
@@ -197,6 +200,8 @@ interface IssueRowProps {
   isSolo: boolean
   bulkEnabled: boolean
   mobileSelectionActive: boolean
+  /** My issues on phones: the row minus the assignee (always the viewer). */
+  hideAssigneeOnPhone: boolean
   isSelected: boolean
   // Any selection exists — keeps every row's checkbox visible (not just
   // hovered) while a selection is in progress.
@@ -238,6 +243,7 @@ const IssueRow = memo(function IssueRow({
   isSolo,
   bulkEnabled,
   mobileSelectionActive,
+  hideAssigneeOnPhone,
   isSelected,
   anySelected,
   canMutateRow,
@@ -265,7 +271,7 @@ const IssueRow = memo(function IssueRow({
         // templates. The mobile fill is chosen here rather than by class
         // order: `bg-glass-active` and `bg-glass-row` are both `bg-*`
         // utilities, so which one won would come down to stylesheet order.
-        className={`relative max-md:flex max-md:items-center max-md:gap-2.5 max-md:rounded-md max-md:border max-md:border-glass-stroke md:grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 md:hover:bg-glass-row md:border-b md:border-border/30 group/row cursor-pointer ${isSelected ? `max-md:bg-glass-active max-md:border-glass-stroke-active` : `max-md:bg-glass-row`}`}
+        className={`relative max-md:flex max-md:items-center max-md:gap-2 max-md:rounded-md max-md:border max-md:border-glass-stroke md:grid ${rowGridClass} items-center h-12 md:h-10 px-3 md:px-6 md:hover:bg-glass-row md:border-b md:border-border/30 group/row cursor-pointer ${isSelected ? `max-md:bg-glass-active max-md:border-glass-stroke-active` : `max-md:bg-glass-row`}`}
         onClick={() => {
           // A macOS ctrl-click (a right-click that Firefox follows with a
           // click) is swallowed by the menu host itself (gestures.ts), so a
@@ -336,8 +342,24 @@ const IssueRow = memo(function IssueRow({
             />
           </div>
         )}
+        {/* Phone selection mode: a leading round check on EVERY row (empty
+            or checked), as the natives draw it. */}
+        {mobileSelectionActive && (
+          <span
+            role="checkbox"
+            aria-checked={isSelected}
+            aria-label={`Select ${issue.identifier}`}
+            data-testid={`issue-select-${issue.identifier}`}
+            className={`flex size-5 shrink-0 items-center justify-center rounded-full border md:hidden ${isSelected ? `border-primary bg-primary text-primary-foreground` : `border-muted-foreground/50`}`}
+          >
+            {isSelected && <CheckIcon className="size-3" />}
+          </span>
+        )}
+        {/* Phones: the 32px tap targets bleed into the row gap (`-mx-2`), so
+            the glyphs sit as tight as the natives' and the title keeps its
+            room for the label dots and due date. */}
         <div
-          className="flex items-center justify-center max-md:shrink-0"
+          className="flex items-center justify-center max-md:shrink-0 max-md:-mx-2"
           style={indent > 0 ? { paddingLeft: indent } : undefined}
           onClick={(e) => e.stopPropagation()}
         >
@@ -350,11 +372,11 @@ const IssueRow = memo(function IssueRow({
         {/* Native parity (EXP-620): the identifier shows on mobile too, on a
             min-width column so the status glyph and title line up across rows
             for typical digit counts without clipping longer identifiers. */}
-        <span className="text-xs text-muted-foreground font-mono truncate max-md:min-w-[3.75rem] max-md:shrink-0">
+        <span className="text-xs text-muted-foreground font-mono truncate max-md:min-w-[3.25rem] max-md:shrink-0">
           {issue.identifier}
         </span>
         <div
-          className="flex items-center justify-center"
+          className="flex items-center justify-center max-md:shrink-0 max-md:-mx-2"
           onClick={(e) => e.stopPropagation()}
         >
           <StatusDropdown
@@ -388,10 +410,10 @@ const IssueRow = memo(function IssueRow({
             </Pill>
           ))}
         </div>
-        {/* EXP-698: below `sm` the title gets the whole line — the dots and
-            the due date are what truncated it to "Pus…". */}
+        {/* Phones ×3: up to three label dots and the due date at EVERY
+            width, as the natives draw them. */}
         {issueLabels.length > 0 && (
-          <div className="hidden sm:flex md:hidden items-center gap-1 shrink-0">
+          <div className="flex md:hidden items-center gap-1 shrink-0">
             {issueLabels.slice(0, 3).map((label) => (
               <div
                 key={label.id}
@@ -404,10 +426,12 @@ const IssueRow = memo(function IssueRow({
         {/* Solo teams hide the avatar entirely on every client (`isSolo` here,
             `singleMemberTeam` on iOS, `soloMemberId` on Android). `order` puts
             it after the due date on mobile, matching the native row; at md+
-            the grid keeps the established column sequence. */}
+            the grid keeps the established column sequence. Phones draw the
+            avatar only when assigned (no dashed placeholder), and never in
+            My issues. */}
         {!isSolo && (
           <div
-            className="flex items-center justify-center max-md:order-1"
+            className={`flex items-center justify-center max-md:order-1 ${!issue.assigneeId || hideAssigneeOnPhone ? `max-md:hidden` : ``}`}
             onClick={(e) => e.stopPropagation()}
           >
             <AssigneeCell
@@ -422,7 +446,9 @@ const IssueRow = memo(function IssueRow({
             detail, never inline from the list (EXP-247). The
             tone (red overdue / orange today) is what explains
             the overdue-first ordering — REV2-48. */}
-        <div className="max-sm:hidden flex items-center justify-end">
+        <div
+          className={`flex items-center justify-end ${issue.dueDate ? `` : `max-md:hidden`}`}
+        >
           {issue.dueDate && (
             <span
               className={`flex items-center gap-1 px-1 ${dueDateToneClass(issue.dueDate, today)}`}
@@ -469,6 +495,7 @@ export function IssueList({
   selectedIds = EMPTY_SELECTION,
   onSelectedIdsChange: setSelectedIds = noopSetSelectedIds,
   menuFrom,
+  hideAssigneeOnPhone = false,
 }: IssueListProps) {
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   // Extra rows revealed per group id beyond GROUP_ROW_CAP via "Show more"
@@ -794,16 +821,14 @@ export function IssueList({
             {/* EXP-862: the ONE group band (`components/issue-group-header`)
                 — the sidebar's issue lists draw the very same one. The whole
                 strip folds its group, so the Collapsible root is driven from
-                here instead of through a Trigger. EXP-620: a phone's header
-                is plain text on the app background, no tint, matching
-                iOS/Android (`useIsMobile` shares the 768px breakpoint with
-                `md:`, so it agrees with the band's own classes). */}
+                here instead of through a Trigger. Phones ×3 draw the same
+                FILLED band (iOS's GlassSectionBand). */}
             <IssueGroupHeader
               status={option}
               count={group.issues.length}
               open={isOpen}
               onToggle={() => toggleGroup(option.id)}
-              tinted={!isMobile}
+              tinted
               trailing={
                 canCreate ? (
                   <Button
@@ -851,6 +876,7 @@ export function IssueList({
                     isSolo={isSolo}
                     bulkEnabled={bulkEnabled}
                     mobileSelectionActive={mobileSelectionActive}
+                    hideAssigneeOnPhone={hideAssigneeOnPhone}
                     isSelected={selectedIds.has(issue.id)}
                     anySelected={selectedIds.size > 0}
                     canMutateRow={rowCanMutate && canModerate}

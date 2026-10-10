@@ -2,7 +2,7 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// "My Work" (EXP-58): Inbox and My Issues merged into one board-independent
+/// "My Work" (EXP-58): Inbox and My issues merged into one board-independent
 /// bottom-bar destination — the web UI's inbox + my-issues pairing — behind a
 /// glass-pill segmented control. The Inbox segment carries the unread count
 /// and hosts Mark all read; the segment choice survives relaunch via
@@ -30,7 +30,7 @@ struct MyWorkView: View {
         var label: String {
             switch self {
             case .inbox: return "Inbox"
-            case .myIssues: return "My Issues"
+            case .myIssues: return "My issues"
             case .drafts: return "Drafts"
             }
         }
@@ -38,6 +38,16 @@ struct MyWorkView: View {
 
     private var hasDrafts: Bool {
         !(draftsViewModel?.rows.isEmpty ?? true)
+    }
+
+    /// The segment's plain trailing count: unread notifications for Inbox,
+    /// resolvable drafts for Drafts, none for My issues.
+    private func segmentCount(_ option: Segment) -> Int {
+        switch option {
+        case .inbox: return inboxViewModel?.totalUnread ?? 0
+        case .myIssues: return 0
+        case .drafts: return draftsViewModel?.rows.count ?? 0
+        }
     }
 
     /// Drafts appear only once there is one to show.
@@ -72,7 +82,20 @@ struct MyWorkView: View {
                     options: segments,
                     selection: segment,
                     label: { $0.label },
-                    badge: { $0 == .inbox ? (inboxViewModel?.totalUnread ?? 0) : 0 },
+                    // Polish round (pinned ×3): label + a PLAIN trailing
+                    // count — unread for Inbox, drafts for Drafts — never a
+                    // filled badge, never an icon.
+                    accessory: { option in
+                        let count = segmentCount(option)
+                        guard count > 0 else { return nil }
+                        return AnyView(
+                            Text("\(count)")
+                                .font(.subheadline.weight(.medium))
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .monospacedDigit()
+                                .lineLimit(1)
+                        )
+                    },
                     onSelect: selectSegment
                 )
                 .padding(.horizontal, 16)

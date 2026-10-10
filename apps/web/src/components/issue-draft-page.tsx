@@ -436,6 +436,7 @@ export function IssueDraftPage({
           onDueDateSelect={editor.setDueDate}
           boardColor={board?.color ?? `#71717a`}
           boardPrefix={board?.prefix ?? ``}
+          boardName={board?.name}
           boardIcon={board?.icon}
           boardRepositoryId={board?.repositoryId}
           boardId={editor.boardId}

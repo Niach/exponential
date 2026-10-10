@@ -119,15 +119,9 @@ enum PopRects {
             return
         }
         let environment = ProcessInfo().environment
-        var simulator = environment["SIMULATOR_DEVICE_NAME"] ?? "simulator"
-        // Parallel runs prefix the device name; SnapshotHelper strips it too.
-        if let regex = try? NSRegularExpression(pattern: "Clone [0-9]+ of ") {
-            simulator = regex.stringByReplacingMatches(
-                in: simulator,
-                range: NSRange(location: 0, length: simulator.count),
-                withTemplate: ""
-            )
-        }
+        // The same canonical name SnapshotHelper files the PNG under (no
+        // "Clone N of " prefix, no lane suffix — EXP-1267).
+        let simulator = Snapshot.canonicalDeviceName(environment["SIMULATOR_DEVICE_NAME"] ?? "simulator")
         let payload: [String: Any] = [
             "shot": shot,
             "platform": "ios",

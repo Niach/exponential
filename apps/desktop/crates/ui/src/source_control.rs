@@ -659,7 +659,7 @@ impl SourceControlView {
                 .justify_center()
                 .text_xs()
                 .text_color(theme.muted_foreground)
-                .child("Select a commit from History to view its diff.")
+                .child("Select a commit to view its diff.")
                 .into_any_element(),
             // The definite height (`flex_1` + `min_h_0` in the column) is
             // load-bearing: without it the DiffView's virtual list resolves

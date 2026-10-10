@@ -435,7 +435,7 @@ enum EntityRefResolver {
             icon: icon,
             eyebrow: eyebrow,
             title: title,
-            subtitle: relativeDate(comment.createdAt),
+            subtitle: RelativeTime.long(wire: comment.createdAt),
             excerpt: comment.body,
             rows: rows,
             open: .issue(comment.issueId)
@@ -469,7 +469,7 @@ enum EntityRefResolver {
             ),
             eyebrow: sessionRowIdentifier(issue: issue, session: session, batchIssues: batchIssues) ?? "Run",
             title: sessionRowTitle(issue: issue, session: session, batchIssues: batchIssues),
-            subtitle: "Started \(relativeDate(session.startedAt))",
+            subtitle: "Started \(RelativeTime.long(wire: session.startedAt))",
             facts: facts,
             open: .session(session.id)
         )
@@ -574,7 +574,7 @@ enum EntityRefResolver {
             icon: .glyph(AppIcons.navNotifications, nil),
             eyebrow: "Notification",
             title: notification.title,
-            subtitle: relativeDate(notification.createdAt),
+            subtitle: RelativeTime.compact(wire: notification.createdAt),
             excerpt: notification.body,
             open: notification.issueId.map { .issue($0) } ?? .myWork
         )
@@ -714,10 +714,12 @@ enum EntityRefResolver {
         return first.uppercased() + text.dropFirst()
     }
 
+    /// Future instants (invite expiry) in the long wording: "in 3 days".
     private static func relativeDate(_ wire: String) -> String {
         guard let date = WireTimestamps.parse(wire) else { return "" }
         let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
+        formatter.locale = Locale(identifier: "en_US")
+        formatter.unitsStyle = .full
         return formatter.localizedString(for: date, relativeTo: Date())
     }
 }

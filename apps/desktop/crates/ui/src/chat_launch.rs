@@ -90,7 +90,7 @@ pub(crate) fn text_blocker(subject: &SubjectKind, text: &str, image_count: usize
         SubjectKind::Chat if has_text || image_count > 0 => None,
         SubjectKind::Chat => Some(TYPE_A_MESSAGE),
         _ if has_text => None,
-        _ => Some("Describe the action to create."),
+        _ => Some(DESCRIBE_THE_ACTION),
     }
 }
 
@@ -102,11 +102,15 @@ pub(crate) fn text_blocker(subject: &SubjectKind, text: &str, image_count: usize
 /// untouched field is noise on every page load. Every other blocker says
 /// something the reader cannot see for themselves and is rendered as before.
 pub(crate) fn note_for_blocker(blocker: Option<&str>) -> Option<&str> {
-    blocker.filter(|reason| *reason != TYPE_A_MESSAGE)
+    blocker.filter(|reason| *reason != TYPE_A_MESSAGE && *reason != DESCRIBE_THE_ACTION)
 }
 
 /// The chat composer's empty-draft blocker (see [`note_for_blocker`]).
 const TYPE_A_MESSAGE: &str = "Type a message.";
+
+/// The Create action composer's empty-request blocker: like
+/// [`TYPE_A_MESSAGE`], the placeholder already says it, so it only blocks.
+const DESCRIBE_THE_ACTION: &str = "Describe the action to create.";
 
 /// The issue-count gates: at least one, at most [`MAX_ISSUES_PER_RUN`].
 pub(crate) fn issue_count_blocker(count: usize) -> Option<String> {
@@ -458,8 +462,10 @@ mod tests {
         };
         assert_eq!(
             note_for_blocker(text_blocker(&create, "", 0)),
-            Some("Describe the action to create.")
+            None,
+            "the Create action placeholder is the instruction too"
         );
+        assert!(text_blocker(&create, "", 0).is_some());
         assert_eq!(
             note_for_blocker(Some("Select at least one issue.")),
             Some("Select at least one issue.")

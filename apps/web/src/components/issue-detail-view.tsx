@@ -742,9 +742,11 @@ export function IssueDetailView({
           style={{ paddingTop: showMobileHeader ? mobileHeaderSize.height : 0 }}
         >
           {duplicateBanner}
-          {propsTray(false, false)}
           {parentLine}
           <div ref={titleRef}>{titleField}</div>
+          {/* The title first, then the tray, as on the natives and the New
+              issue page. */}
+          {propsTray(false, false)}
           {editor}
           {attachmentError}
           {filesSection}

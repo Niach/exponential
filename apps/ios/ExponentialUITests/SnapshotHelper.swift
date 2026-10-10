@@ -174,14 +174,11 @@ open class Snapshot: NSObject {
             let image = screenshot.image
             #endif
 
-            guard var simulator = ProcessInfo().environment["SIMULATOR_DEVICE_NAME"], let screenshotsDir = screenshotsDirectory else { return }
+            guard let rawSimulator = ProcessInfo().environment["SIMULATOR_DEVICE_NAME"], let screenshotsDir = screenshotsDirectory else { return }
+            // EXP-1267: one canonical device name, whatever simulator the lane ran on.
+            let simulator = canonicalDeviceName(rawSimulator)
 
             do {
-                // The simulator name contains "Clone X of " inside the screenshot file when running parallelized UI Tests on concurrent devices
-                let regex = try NSRegularExpression(pattern: "Clone [0-9]+ of ")
-                let range = NSRange(location: 0, length: simulator.count)
-                simulator = regex.stringByReplacingMatches(in: simulator, range: range, withTemplate: "")
-
                 let path = screenshotsDir.appendingPathComponent("\(simulator)-\(name).png")
                 #if swift(<5.0)
                     try UIImagePNGRepresentation(image)?.write(to: path, options: .atomic)
@@ -227,7 +224,31 @@ open class Snapshot: NSObject {
         _ = XCTWaiter.wait(for: [networkLoadingIndicatorDisappeared], timeout: timeout)
     }
 
+    /// The device name a screenshot (and its pop-rect sidecar) is filed under.
+    /// Strips "Clone N of " (parallel UI testing) and, EXP-1267, the lane suffix
+    /// of the lane-owned simulators the Fastfile creates ("iPhone 17 Pro Max
+    /// exp-store" → "iPhone 17 Pro Max"), so every lane writes the canonical
+    /// `<device>-<shot>.png` names the importer and the store compositor read.
+    class func canonicalDeviceName(_ name: String) -> String {
+        var result = name
+        for pattern in ["Clone [0-9]+ of ", " exp-[A-Za-z0-9_-]+$"] {
+            if let regex = try? NSRegularExpression(pattern: pattern) {
+                result = regex.stringByReplacingMatches(
+                    in: result, range: NSRange(location: 0, length: (result as NSString).length), withTemplate: ""
+                )
+            }
+        }
+        return result
+    }
+
     class func getCacheDirectory() throws -> URL {
+        // EXP-1267: a lane run next to another one gets its OWN cache dir (the
+        // language/locale/launch-argument files fastlane writes and the PNGs
+        // its collector moves out), set by the Fastfile and forwarded by
+        // xcodebuild as TEST_RUNNER_EXP_SNAPSHOT_CACHE_DIR.
+        if let override = ProcessInfo().environment["EXP_SNAPSHOT_CACHE_DIR"], !override.isEmpty {
+            return URL(fileURLWithPath: override, isDirectory: true)
+        }
         let cachePath = "Library/Caches/tools.fastlane"
         // on OSX config is stored in /Users/<username>/Library
         // and on iOS/tvOS/WatchOS it's in simulator's home dir

@@ -24,7 +24,6 @@ import {
   Dialog,
   DialogBody,
   DialogContent,
-  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
@@ -416,13 +415,13 @@ export function WidgetConfigDialog({
       {/* Wide on desktop (EXP-267): this is the longest form dialog in the
           app — since EXP-435 it's organized into General / Form / Appearance
           tabs, with the whole-panel preview beside the appearance knobs. */}
-      <DialogContent mobile="sheet-full" className="sm:max-w-3xl">
+      <DialogContent
+        mobile="sheet-full"
+        className="sm:max-w-3xl"
+        aria-describedby={undefined}
+      >
         <DialogHeader>
           <DialogTitle>{editTarget ? `Edit widget` : `New widget`}</DialogTitle>
-          <DialogDescription>
-            Every submission lands as an issue on the board. The key in the
-            snippet is public; restrict it to your domains.
-          </DialogDescription>
         </DialogHeader>
         {/* EXP-718: from `sm` up the body is a column so the Appearance tab
             can hand the two panes their OWN scroll — the whole-panel preview
@@ -462,9 +461,6 @@ export function WidgetConfigDialog({
                     ))}
                   </SelectContent>
                 </Select>
-                <p className="text-xs text-muted-foreground">
-                  Every submission lands as an issue on this board.
-                </p>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="widget-domains">Allowed domains</Label>
@@ -548,11 +544,6 @@ export function WidgetConfigDialog({
                     </div>
                   </div>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  A reporter who leaves an address keeps a conversation through
-                  the emailed link and hears back when you reply to them. Hide
-                  the email field for teams that follow up in person.
-                </p>
               </div>
               <div className="space-y-2">
                 <Label>Labels</Label>
@@ -690,14 +681,6 @@ export function WidgetConfigDialog({
                         </SelectItem>
                       </SelectContent>
                     </Select>
-                    <p className="text-xs text-muted-foreground">
-                      Your site can also switch it live via
-                      {` `}
-                      <code className="font-mono text-[11px]">
-                        ExponentialWidget.setTheme(…)
-                      </code>
-                      .
-                    </p>
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="widget-button-label">Button label</Label>
@@ -808,17 +791,11 @@ export function WidgetConfigDialog({
                         })}
                       </div>
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      Defaults: floating button bottom right on desktop, edge
-                      tab middle right on mobile.
-                    </p>
                   </div>
                 </div>
                 <div className="space-y-2 sm:min-h-0 sm:overflow-y-auto sm:pr-1">
                   <span className="text-xs text-muted-foreground">
-                    Launcher preview (
-                    {launcherDevice === `desktop` ? `desktop` : `mobile`}) —
-                    hover it
+                    Launcher preview
                   </span>
                   <WidgetLauncherPreviewViewport
                     mode={formLauncher[launcherDevice].mode}

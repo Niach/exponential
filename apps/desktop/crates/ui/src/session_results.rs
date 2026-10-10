@@ -177,7 +177,7 @@ pub(crate) fn guide_page_view(
     };
     match page {
         GuidePage::All => coverage.complete.as_ref().map(|set| {
-            view(None, domain::contract::DIFF_UI_GUIDE_SHOW_COMPLETE_DIFF.to_string(), set)
+            view(None, domain::contract::DIFF_UI_GUIDE_CHANGES_ROW.to_string(), set)
         }),
         GuidePage::Other => coverage
             .other

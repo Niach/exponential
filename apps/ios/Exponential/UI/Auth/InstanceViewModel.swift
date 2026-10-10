@@ -39,6 +39,22 @@ final class InstanceViewModel: NSObject, ASWebAuthenticationPresentationContextP
     var googleAvailable: Bool { cloudConfig?.googleLoginEnabled != false }
     var appleAvailable: Bool { cloudConfig?.appleLoginEnabled ?? true }
     var hasDirectOAuth: Bool { googleAvailable || appleAvailable }
+    // Same optimism for the rest of the cloud's Continue list: our cloud
+    // ships a mail transport (email code) and an https base (passkeys).
+    var emailAvailable: Bool {
+        guard let config = cloudConfig else { return true }
+        return config.emailOtpEnabled || config.passwordEnabled
+    }
+    var passkeyAvailable: Bool { cloudConfig?.passkeyEnabled ?? true }
+
+    /// Email, passkey and OIDC sign in through `LoginView` against the cloud:
+    /// commit the cloud URL (the navigator swaps to LoginView) and hand it the
+    /// branch to open, so the tap lands straight in that step.
+    func continueOnCloud(_ intent: LoginViewModel.Intent) {
+        error = nil
+        LoginViewModel.pendingIntent = intent
+        auth.setInstanceUrl(AppConstants.defaultCloudUrl)
+    }
 
     // MARK: - Cloud auth config
 

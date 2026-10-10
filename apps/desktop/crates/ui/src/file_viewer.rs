@@ -241,9 +241,12 @@ impl FileViewerView {
     }
 
     fn render_notice(&self, message: &str, cx: &App) -> AnyElement {
+        // Centred, like Source Control's empty diff pane.
         v_flex()
             .size_full()
             .p_4()
+            .items_center()
+            .justify_center()
             .child(
                 div()
                     .text_xs()

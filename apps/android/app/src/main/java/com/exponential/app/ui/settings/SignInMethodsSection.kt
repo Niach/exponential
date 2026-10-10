@@ -176,7 +176,7 @@ private fun EmailCodeRow(methods: SignInMethodsDto, onChange: () -> Unit) {
             )
         },
         title = "Email code",
-        subtitle = if (methods.emailOtpEnabled) methods.email else "Sign-in codes are off on this instance",
+        subtitle = emailCodeCaption(methods.email, methods.emailOtpEnabled),
         trailing = if (methods.emailOtpEnabled) {
             { RowButton("Change", onClick = onChange, testTag = "sign-in-email-change") }
         } else {
@@ -492,3 +492,8 @@ private fun formatMethodDate(value: String?): String? {
     val ms = value?.let { WireTimestamps.parseEpochMs(it) } ?: return null
     return Instant.ofEpochMilli(ms).atZone(ZoneId.systemDefault()).toLocalDate().format(METHOD_DATE)
 }
+
+/** P95: the Email code row's caption ×4 (web `emailCodeCaption`): the address,
+ *  plus "Off on this server" when the server sends no codes. */
+internal fun emailCodeCaption(email: String, enabled: Boolean): String =
+    if (enabled) email else "$email · Off on this server"

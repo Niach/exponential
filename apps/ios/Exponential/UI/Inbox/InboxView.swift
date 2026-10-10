@@ -303,14 +303,11 @@ struct InboxListContent: View {
         }
     }
 
+    /// A LIST caption: the compact `just now · 5m · 2h · 3d` ×4 (web
+    /// inbox-view, desktop `inbox::relative_time`). `RelativeTime` parses
+    /// both Electric wire forms (EXP-169).
     private func relativeDate(_ s: String) -> String {
-        // Electric syncs created_at as Postgres text (space separator, hour-only
-        // offset), which ISO8601DateFormatter alone rejects — WireTimestamps
-        // handles both wire forms (EXP-169).
-        guard let date = WireTimestamps.parse(s) else { return "" }
-        let formatter = RelativeDateTimeFormatter()
-        formatter.unitsStyle = .short
-        return formatter.localizedString(for: date, relativeTo: Date())
+        RelativeTime.compact(wire: s)
     }
 
     private func emptyState(_ label: String) -> some View {

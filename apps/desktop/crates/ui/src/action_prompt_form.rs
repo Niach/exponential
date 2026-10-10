@@ -447,10 +447,6 @@ impl Render for ActionPromptForm {
                     cx,
                 ),
             ]))
-            .child(div().px_1().text_xs().text_color(muted).child(
-                "With a repository the run clones it first; without one the agent \
-                 works in a scratch directory.",
-            ))
             // FEED-73: the action's MCP servers — team MCPs only, hidden
             // when the team has none.
             .when(!self.team_mcps.is_empty(), |this| {
@@ -573,8 +569,8 @@ impl ActionPromptForm {
             .px_0()
             .py_0()
             .text_color(cx.theme().foreground.opacity(0.7))
-            .dropdown_caret(true)
             .child(crate::surface::picker_value_label(SharedString::from(label)))
+            .child(crate::surface::picker_row_chevron(cx))
             .into_any_element();
         let view = cx.entity().downgrade();
         crate::picker::mcp_server_picker::mcp_server_picker(
@@ -616,10 +612,10 @@ impl ActionPromptForm {
             .px_0()
             .py_0()
             .text_color(cx.theme().foreground.opacity(0.7))
-            .dropdown_caret(true)
             // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
             // box, so a long `owner/repo` wraps onto a second line.
             .child(crate::surface::picker_value_label(label))
+            .child(crate::surface::picker_row_chevron(cx))
             .disabled(self.repos.is_none() || read_only);
         let Some(rows) = self.repos.clone() else {
             return trigger.into_any_element();

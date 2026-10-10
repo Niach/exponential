@@ -83,30 +83,22 @@ fun LoginScreen(
         }
     }
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .windowInsetsPadding(WindowInsets.systemBars)
-            .padding(24.dp),
-        verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.Start,
+    // The cloud chooser picked a method (email / passkey): open it at once.
+    LaunchedEffect(state.config) {
+        if (state.config == null) return@LaunchedEffect
+        when (PendingLoginMethod.consume()) {
+            PendingLoginMethod.EMAIL -> viewModel.continueWithEmail()
+            PendingLoginMethod.PASSKEY -> context.findActivity()?.let { viewModel.startPasskeyLogin(it) }
+        }
+    }
+
+    // EXP-857 + P1/P2: the one login frame ×4 — mark, "Continue to
+    // Exponential" (this screen never says "Sign in"), the instance it signs
+    // into, the Continue list, Privacy · Terms.
+    AuthShell(
+        title = "Continue to Exponential",
+        subtitle = instanceUrl.takeIf { it.isNotBlank() },
     ) {
-        Text(
-            // EXP-857: the one login title on all four clients. This screen no
-            // longer says "Sign in" anywhere.
-            "Continue to Exponential",
-            style = MaterialTheme.typography.titleLarge,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        Spacer(Modifier.height(4.dp))
-        Text(
-            instanceUrl,
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Spacer(Modifier.height(24.dp))
-
         when {
             state.configLoading -> {
                 Box(
@@ -478,10 +470,12 @@ fun LoginScreen(
             }
         }
 
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(16.dp))
 
-        TextButton(onClick = onChangeInstance) {
-            Text("Connect to a different instance")
+        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+            TextButton(onClick = onChangeInstance) {
+                Text("Connect to a different instance")
+            }
         }
     }
 }

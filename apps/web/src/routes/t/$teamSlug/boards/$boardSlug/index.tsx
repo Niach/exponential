@@ -5,16 +5,11 @@ import { BulkActionBar } from "@/components/bulk-action-bar"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { IssueList } from "@/components/issue-list"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
-import { Button, conceptIcon } from "@exp/ui"
 import { useBoardViewData } from "@/hooks/use-board-view-data"
 import { useOpenNewDraft } from "@/hooks/use-open-new-draft"
-import { useIssueSearch } from "@/hooks/use-issue-search"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import type { StatusRowOption } from "@/lib/team-statuses"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
-
-// EXP-317: the cross-client nav glyphs come from the shared registry.
-const NavSearchIcon = conceptIcon(`nav-search`)
 
 // validateSearch drops anything unrecognised.
 type BoardSearch = {
@@ -39,7 +34,6 @@ export const Route = createFileRoute(
 function BoardPage() {
   const { boardSlug, teamSlug } = Route.useParams()
   const navigate = useNavigate()
-  const issueSearch = useIssueSearch()
   const openNewDraft = useOpenNewDraft(teamSlug)
 
   const {
@@ -61,9 +55,8 @@ function BoardPage() {
 
   const permissions = useTeamPermissions(team)
 
-  // Bulk-selection state lives here so the action bar can render in the
-  // header region above the list (EXP-251);
-  // IssueList keeps all the selection mechanics.
+  // Bulk-selection state lives here so the floating action bar can render
+  // over the list; IssueList keeps all the selection mechanics.
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const selectedIssues = useMemo(
     () =>
@@ -99,50 +92,15 @@ function BoardPage() {
   }
 
   return (
-    <div className="flex flex-col h-full">
-      {/* EXP-449: title-less control row — the page name lives in the
-          sidebar/topbar and the New-issue button moved into the sidebar
-          header, so this bar is just the left-hand actions plus the mobile
-          Search button. Fixed height so hosting the bulk action bar here
-          never reflows the list below (FEED-12); below md the bar floats
-          itself above the tab bar. */}
-      <div className="px-4 md:px-6">
-        <div className="flex h-14 items-center justify-between gap-2">
-          {/* EXP-642: the bulk bar sits LEFT. */}
-          <div className="flex min-w-0 items-center gap-1">
-            {selectedIssues.length > 0 ? (
-              <BulkActionBar
-                issues={selectedIssues}
-                issueLabelMap={issueLabelMap}
-                labels={labelList}
-                users={users}
-                teamId={team.id}
-                onClear={() => setSelectedIds(new Set())}
-              />
-            ) : null}
-          </div>
-          <div className="flex shrink-0 items-center gap-1">
-            {/* EXP-686: Search left the mobile tab bar and sits in the board
-                header — native parity. The desktop sidebar header already
-                carries its own Search button. */}
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 text-muted-foreground hover:text-foreground md:hidden"
-              aria-label="Search"
-              onClick={issueSearch.open}
-            >
-              <NavSearchIcon className="size-4" />
-            </Button>
-          </div>
-        </div>
-      </div>
-
+    <div className="relative flex h-full flex-col">
       <div
         // EXP-698 r5: one clearance for both states — the bulk bar REPLACES
         // the tab bar on phones, so TAB_BAR_CLEARANCE's `max()` of the two
-        // measured heights already covers a live selection.
-        className={`flex-1 overflow-auto ${TAB_BAR_CLEARANCE}`}
+        // measured heights already covers a live selection; md+ reserves the
+        // floating bar's height while a selection lives.
+        className={`flex-1 overflow-auto ${TAB_BAR_CLEARANCE} ${
+          selectedIssues.length > 0 ? `md:pb-20` : ``
+        }`}
       >
         <IssueList
           groups={visibleGroups}
@@ -185,6 +143,23 @@ function BoardPage() {
           }
         />
       </div>
+      {selectedIssues.length > 0 && (
+        // The bulk bar FLOATS bottom-centre at every width ×4 (desktop, the
+        // natives): md+ over the list's bottom edge (click-through strip),
+        // phones in the tab bar's slot (the bar positions itself there).
+        <div className="pointer-events-none absolute inset-x-0 bottom-4 z-10 flex justify-center px-4">
+          <div className="pointer-events-auto">
+            <BulkActionBar
+              issues={selectedIssues}
+              issueLabelMap={issueLabelMap}
+              labels={labelList}
+              users={users}
+              teamId={team.id}
+              onClear={() => setSelectedIds(new Set())}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

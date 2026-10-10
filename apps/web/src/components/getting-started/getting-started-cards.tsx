@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react"
 import { Link } from "@tanstack/react-router"
-import { BookOpen, CircleCheck, Download, Lock } from "lucide-react"
+import { CircleCheck, Download, Lock } from "lucide-react"
 import type { LucideIcon } from "lucide-react"
 import { Button, GlassGroup, Meter, conceptIcon, toast } from "@exp/ui"
 import { openGithubConnect, POPUP_BLOCKED_MESSAGE } from "@/lib/github-connect"
@@ -8,7 +8,6 @@ import {
   DESKTOP_RELEASES_URL,
   desktopDownloadHref,
 } from "@/lib/desktop-download"
-import { docsUrl } from "@/lib/docs-links"
 import { cn } from "@/lib/utils"
 import { useGettingStartedProgressContext } from "@/hooks/use-getting-started-progress"
 import type {
@@ -123,7 +122,8 @@ function GettingStartedCard({
           {locked && hint ? hint : description}
         </p>
       </div>
-      {!locked && children && (
+      {/* A done step drops its action, as on desktop. */}
+      {!locked && state !== `done` && children && (
         <div className="mt-auto space-y-3 p-4">{children}</div>
       )}
     </GlassGroup>
@@ -333,12 +333,6 @@ export function GettingStartedCards({
             />
           </div>
         )}
-        <Button size="sm" variant="outline" asChild>
-          <a href={docsUrl()} target="_blank" rel="noreferrer">
-            <BookOpen className="mr-1.5 size-4" />
-            Read the docs
-          </a>
-        </Button>
       </div>
 
       <div

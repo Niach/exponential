@@ -3,7 +3,7 @@ import ExpCore
 import Foundation
 import GRDB
 
-/// "My Issues" — the fixed cross-board view (masterplan §5a): every issue in
+/// "My issues" — the fixed cross-board view (masterplan §5a): every issue in
 /// the active account assigned to the signed-in user, grouped by status.
 /// Mirrors `IssueListViewModel`'s GRDB observations minus the board
 /// predicate; no filter bar / saved views by design (fixed built-in view).
@@ -18,6 +18,14 @@ final class MyIssuesViewModel {
     /// the reader still counts as a blocker, so this pool is wider than the
     /// list itself.
     var relationIssues: [IssueEntity] = []
+    /// P14: every synced `issue_statuses` row (all teams) — each issue
+    /// resolves against its own team's rows.
+    var statusRows: [IssueStatusEntity] = []
+    /// Every synced label and issue↔label row — the rows' label dots.
+    var labels: [LabelEntity] = []
+    var issueLabels: [IssueLabelEntity] = []
+    /// Folded group ids (session-only, like the board list).
+    var collapsedStatuses: Set<String> = []
 
     private let accountId: String
     private let db: DatabaseManager
@@ -29,6 +37,9 @@ final class MyIssuesViewModel {
     private var issueTask: Task<Void, Never>?
     private var boardTask: Task<Void, Never>?
     private var relationTask: Task<Void, Never>?
+    private var statusTask: Task<Void, Never>?
+    private var labelTask: Task<Void, Never>?
+    private var issueLabelTask: Task<Void, Never>?
 
     init(accountId: String, db: DatabaseManager, auth: AuthRepository) {
         self.accountId = accountId
@@ -83,14 +94,53 @@ final class MyIssuesViewModel {
             } catch {}
         }
 
-        // Boards resolve each row's board prefix/name (rows span boards).
+        // Boards resolve each issue's TEAM (rows span boards and teams), so
+        // the issue resolves against its own team's status rows.
         let boardObservation = ValueObservation.tracking { db in
             try BoardEntity.fetchAll(db)
         }
         boardTask = Task { [weak self] in
             do {
                 for try await boards in boardObservation.values(in: pool) {
-                    self?.boards = boards
+                    guard let self else { return }
+                    self.boards = boards
+                    self.rebuildRows()
+                }
+            } catch {}
+        }
+
+        // P14: the team status rows the groups resolve against.
+        let statusObservation = ValueObservation.tracking { db in
+            try IssueStatusEntity.fetchAll(db)
+        }
+        statusTask = Task { [weak self] in
+            do {
+                for try await rows in statusObservation.values(in: pool) {
+                    guard let self else { return }
+                    self.statusRows = rows
+                    self.rebuildRows()
+                }
+            } catch {}
+        }
+
+        // The rows' label dots (the board list's own reads).
+        let labelObservation = ValueObservation.tracking { db in
+            try LabelEntity.fetchAll(db)
+        }
+        labelTask = Task { [weak self] in
+            do {
+                for try await labels in labelObservation.values(in: pool) {
+                    self?.labels = labels
+                }
+            } catch {}
+        }
+        let issueLabelObservation = ValueObservation.tracking { db in
+            try IssueLabelEntity.fetchAll(db)
+        }
+        issueLabelTask = Task { [weak self] in
+            do {
+                for try await issueLabels in issueLabelObservation.values(in: pool) {
+                    self?.issueLabels = issueLabels
                 }
             } catch {}
         }
@@ -103,15 +153,22 @@ final class MyIssuesViewModel {
         boardTask = nil
         relationTask?.cancel()
         relationTask = nil
+        statusTask?.cancel()
+        statusTask = nil
+        labelTask?.cancel()
+        labelTask = nil
+        issueLabelTask?.cancel()
+        issueLabelTask = nil
     }
 
     // MARK: - Rendered rows (EXP-980)
 
-    /// One rendered group: an anchor status and the rows displayed under it.
+    /// One rendered group: a resolved team status (merged across teams by
+    /// category + name, `CrossTeamStatusGroups`) and the rows under it.
     struct RenderGroup: Identifiable {
-        let status: IssueStatus
+        let id: String
+        let status: ResolvedIssueStatus
         let rows: [NestedIssueRow]
-        var id: String { status.rawValue }
     }
 
     /// The list, nested and ready to draw — recomputed once per incoming
@@ -130,8 +187,15 @@ final class MyIssuesViewModel {
     }
 
     private func rebuildRows() {
-        let statuses = IssueStatus.displayOrder
-        let sorted = statuses.map { issuesForStatus($0) }
+        let teamOfBoard = Dictionary(
+            boards.map { ($0.id, $0.teamId) }, uniquingKeysWith: { a, _ in a }
+        )
+        let groups = CrossTeamStatusGroups.groups(
+            issues: issues,
+            teamIdOf: { teamOfBoard[$0.boardId] },
+            statusRows: statusRows
+        )
+        let sorted = groups.map(\.issues)
         let byId = Dictionary(
             sorted.flatMap { $0 }.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a }
         )
@@ -140,29 +204,35 @@ final class MyIssuesViewModel {
             relations: relations,
             identifierOf: { byId[$0]?.identifier ?? $0 }
         )
-        renderGroups = zip(statuses, nested).compactMap { status, rows in
+        renderGroups = zip(groups, nested).compactMap { group, rows in
             let mapped = rows.compactMap { row in
                 byId[row.id].map { NestedIssueRow(issue: $0, depth: row.depth) }
             }
-            return mapped.isEmpty ? nil : RenderGroup(status: status, rows: mapped)
+            return mapped.isEmpty ? nil : RenderGroup(id: group.id, status: group.status, rows: mapped)
         }
         blockCounts = IssueGraph.blockCounts(relations: relations, issues: relationIssues)
     }
 
-    /// EXP-314: "Assigned to you" spans TEAMS, and status rows are
-    /// team-scoped — grouping by row id would split one "In Progress" into a
-    /// group per team. Cross-team surfaces therefore keep ANCHOR-enum
-    /// grouping; only the per-board list groups by resolved status row.
-    func issuesForStatus(_ status: IssueStatus) -> [IssueEntity] {
-        // Canonical in-group ordering (EXP-38) — same comparator as the
-        // board board, so "Assigned to you" matches every other surface.
-        IssueSorting.sorted(
-            issues.filter { IssueStatus.from($0.status) == status },
-            status: status
-        )
+    /// The status a row draws: its own team's resolved row (P14).
+    func resolved(_ issue: IssueEntity) -> ResolvedIssueStatus {
+        let teamId = boards.first { $0.id == issue.boardId }?.teamId
+        let team = teamId.map { id in
+            IssueStatusResolver.teamStatusesOrFallback(statusRows.filter { $0.teamId == id })
+        } ?? IssueStatusResolver.builtinFallbackTeam
+        return IssueStatusResolver.resolve(issue, team: team)
     }
 
-    func board(forId id: String) -> BoardEntity? {
-        boards.first { $0.id == id }
+    /// Up to the row's label dots, in the board list's order.
+    func labelsFor(issueId: String) -> [LabelEntity] {
+        let labelIds = issueLabels.filter { $0.issueId == issueId }.map(\.labelId)
+        return labels.filter { labelIds.contains($0.id) }
+    }
+
+    func toggleStatusCollapsed(_ groupId: String) {
+        if collapsedStatuses.contains(groupId) {
+            collapsedStatuses.remove(groupId)
+        } else {
+            collapsedStatuses.insert(groupId)
+        }
     }
 }

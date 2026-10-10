@@ -20,6 +20,11 @@ struct ServerDetailView: View {
     // the account store doesn't. Nil until the users shape has landed.
     @State private var user: UserEntity?
     @State private var userObservationTask: Task<Void, Never>?
+    /// The stored `users.timezone` (nil = unset → "UTC", web parity) and
+    /// whether the read landed — the row renders only after it did, so it
+    /// never flashes a wrong zone.
+    @State private var timezone: String?
+    @State private var timezoneLoaded = false
 
     private var account: ServerAccount? {
         deps.auth.accounts.first { $0.id == accountId }
@@ -57,6 +62,11 @@ struct ServerDetailView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
                     identitySection
+                    // ×4: Timezone right under the identity card, a picker
+                    // row (the daily digest's clock, EXP-369).
+                    if account?.token != nil, timezoneLoaded {
+                        timezoneSection
+                    }
                     // EXP-1126: how this account signs in — only while it
                     // holds a session (every call is bearer-authenticated).
                     if account?.token != nil {
@@ -72,6 +82,7 @@ struct ServerDetailView: View {
         .navigationTitle(account?.displayName ?? "Server")
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .onAppear { startObservingUser() }
+        .task(id: accountId) { await loadTimezone() }
         .onDisappear { userObservationTask?.cancel() }
         // EXP-1215: the app's own alert card (`GlassAlert`), ×4. Each on a
         // zero-size node of its own (EXP-240): two presentations stacked on
@@ -206,6 +217,54 @@ struct ServerDetailView: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
             .glassRow()
+        }
+    }
+
+    /// Every IANA zone the phone knows, plus the stored one should the phone
+    /// lack it (web `timezoneOptions`).
+    private static let knownZones: [String] = TimeZone.knownTimeZoneIdentifiers.sorted()
+
+    private var timezoneSection: some View {
+        let current = timezone ?? "UTC"
+        let zones = Self.knownZones.contains(current) ? Self.knownZones : [current] + Self.knownZones
+        return GlassPicker(
+            items: zones.map { PickerItem(value: $0, label: $0) },
+            mode: .single,
+            value: [current],
+            onChange: { picked in
+                guard let next = picked.first, next != current else { return }
+                Task { await setTimezone(next) }
+            },
+            search: true,
+            emptyText: "No matching timezone.",
+            title: "Timezone"
+        ) {
+            GlassPickerRowLabel("Timezone", value: current)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+        }
+        .glassSection()
+    }
+
+    private func loadTimezone() async {
+        guard account?.token != nil else { return }
+        do {
+            timezone = try await deps.usersApi.timezone(accountId: accountId)
+            timezoneLoaded = true
+        } catch {
+            // No row rather than a guessed zone; the next visit retries.
+        }
+    }
+
+    /// Optimistic: the row reads the pick at once and reverts on a refusal.
+    private func setTimezone(_ next: String) async {
+        let previous = timezone
+        timezone = next
+        do {
+            try await deps.usersApi.setTimezone(accountId: accountId, timezone: next, onlyIfUnset: false)
+        } catch {
+            timezone = previous
+            toaster.error("Couldn't update timezone", description: error.trpcUserMessage)
         }
     }
 

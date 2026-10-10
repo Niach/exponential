@@ -16,14 +16,13 @@ use gpui::{
 use gpui_component::{
     button::Button,
     menu::DropdownMenu as _,
-    v_flex, ActiveTheme as _,
+    ActiveTheme as _,
 };
 use sync::Store;
 
 use coding::ActionInputValue;
 
 use crate::action_run::ActionRepoRow;
-use crate::controls::WebControl as _;
 
 /// The input types a run can still be handed (contract `actionInputType`).
 pub(crate) const PICK_INPUT_TYPES: [&str; 4] = ["repo", "board", "pr", "icon"];
@@ -308,14 +307,10 @@ impl ActionInputPicks {
             "repo" => {
                 let pick_label: SharedString = match self.repo.get(&input.key) {
                     Some(repo) => repo.full_name.clone().into(),
-                    None => "Select repository…".into(),
+                    None => unset_label(optional, "Select repository…"),
                 };
                 let repos = team_repos.to_vec();
-                Button::new((prefix, ix))
-                    .outline()
-                    .cursor_pointer()
-                    .web_input_sm()
-                    .label(pick_label)
+                row_trigger(prefix, ix, pick_label, cx)
                     .dropdown_menu(move |mut menu, _window, _cx| {
                         if optional {
                             let view = view.clone();
@@ -361,15 +356,10 @@ impl ActionInputPicks {
                 let picked = self.board.get(&input.key).cloned();
                 let pick_label: SharedString = match &picked {
                     Some((_, name)) => name.clone().into(),
-                    None => "Select board…".into(),
+                    None => unset_label(optional, "Select board…"),
                 };
                 let boards = Store::global(cx).collections().boards_in_team(team_id, cx);
-                let trigger = Button::new((prefix, ix))
-                    .outline()
-                    .cursor_pointer()
-                    .web_input_sm()
-                    .label(pick_label)
-                    .into_any_element();
+                let trigger = row_trigger(prefix, ix, pick_label, cx).into_any_element();
                 let picker_id = SharedString::from(format!("{prefix}-board-{ix}"));
                 crate::picker::deferred(move |window, cx| {
                     use crate::picker::board_picker::NO_BOARD_VALUE;
@@ -417,14 +407,10 @@ impl ActionInputPicks {
             "pr" => {
                 let pick_label: SharedString = match self.pr.get(&input.key) {
                     Some((_, label)) => label.clone().into(),
-                    None => "Select pull request…".into(),
+                    None => unset_label(optional, "Select pull request…"),
                 };
                 let pulls = pr_pick_options(cx, team_id);
-                Button::new((prefix, ix))
-                    .outline()
-                    .cursor_pointer()
-                    .web_input_sm()
-                    .label(pick_label)
+                row_trigger(prefix, ix, pick_label, cx)
                     .dropdown_menu(pr_menu(view, key, optional, pulls, access))
                     .into_any_element()
             }
@@ -466,12 +452,25 @@ impl ActionInputPicks {
                 .child(unsupported_reason_for(&input.input_type))
                 .into_any_element(),
         };
-        v_flex()
-            .gap_1()
-            .child(div().text_xs().text_color(muted).child(label))
-            .child(field)
-            .into_any_element()
+        // P72 ×4: ONE grouped picker row — the label leading, the value and
+        // its chevron trailing (the action page's repository row).
+        crate::surface::glass_group_rows(vec![crate::surface::glass_picker_row(
+            label, None, field, cx,
+        )])
+        .into_any_element()
     }
+}
+
+/// A picker row's trailing trigger: the value at 70% + the row chevron, no
+/// field chrome ([`crate::trigger_editor::picker_trigger`]).
+fn row_trigger(prefix: &'static str, ix: usize, label: SharedString, cx: &App) -> Button {
+    crate::trigger_editor::picker_trigger(SharedString::from(format!("{prefix}-{ix}")), label, cx)
+}
+
+/// An unset input's value: "None" when it is optional (nothing IS a value),
+/// the pick prompt when it is required.
+fn unset_label(optional: bool, prompt: &'static str) -> SharedString {
+    if optional { "None".into() } else { prompt.into() }
 }
 
 /// The `pr` input's ONE dropdown — the open-PR list of [`pr_pick_options`]

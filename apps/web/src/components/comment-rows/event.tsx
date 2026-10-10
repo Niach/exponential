@@ -123,12 +123,30 @@ export function EventRow({
       icon = (
         <StatusIcon option={option} className="!h-3.5 !w-3.5 shrink-0" />
       )
+      // ×4: `changed status from {from} to {to}`, the team status rows'
+      // display names (the payload's name snapshot, else the resolved row).
+      const toName = statusLabel(payload, `to`) || option.name
+      const hasFrom =
+        Boolean(payload.from) || Boolean(optionalString(payload.fromStatusId))
+      const fromName = hasFrom
+        ? statusLabel(payload, `from`) ||
+          resolveStatus({
+            status: String(payload.from ?? ``),
+            statusId: optionalString(payload.fromStatusId),
+          }).name
+        : ``
       text = (
         <>
-          changed status to{` `}
-          <span className="font-medium text-foreground">
-            {statusLabel(payload, `to`)}
-          </span>
+          changed status{` `}
+          {fromName && (
+            <>
+              from{` `}
+              <span className="font-medium text-foreground">{fromName}</span>
+              {` `}
+            </>
+          )}
+          to{` `}
+          <span className="font-medium text-foreground">{toName}</span>
         </>
       )
       break

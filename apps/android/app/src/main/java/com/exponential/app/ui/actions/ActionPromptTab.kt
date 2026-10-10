@@ -210,15 +210,8 @@ fun ActionPromptTab(
                 enabled = editable,
             )
         }
-        Spacer(Modifier.height(4.dp))
-        Text(
-            "With a repository the run clones it first; without one the agent works in a " +
-                "scratch directory.",
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-        )
-        Spacer(Modifier.height(8.dp))
+        // P69: no explanatory note under the row (label + state only).
+        Spacer(Modifier.height(12.dp))
 
         // The prompt: monospace, tall, and parked while `actions.get` is
         // still in flight (the body is the one field sync can't hand us).

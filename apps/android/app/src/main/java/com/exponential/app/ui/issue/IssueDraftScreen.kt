@@ -376,6 +376,7 @@ fun IssueDraftScreen(
                             onOpenProperties = null,
                             board = boardLabel,
                             onOpenBoard = { sheet = DraftSheet.Board },
+                            boardEntity = if (shareMode) null else board,
                         )
 
                         Spacer(Modifier.height(16.dp))

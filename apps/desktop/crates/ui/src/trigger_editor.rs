@@ -30,14 +30,14 @@
 //!
 //! [`render`]: TriggerEditorState::render
 
+use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, App, AppContext as _, ClickEvent, Context, Div, Entity, InteractiveElement as _,
+    div, App, ClickEvent, Context, Div, InteractiveElement as _,
     IntoElement, ParentElement, Render, SharedString, StatefulInteractiveElement as _, Styled,
     Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
-    input::{InputState},
     menu::DropdownMenu as _,
     v_flex, ActiveTheme as _,
 };
@@ -55,7 +55,6 @@ use crate::surface;
 // (`picker::account_picker` since EXP-1021), fed by the bound machine's
 // logins.
 use crate::launch_options;
-use crate::controls::glass_input;
 
 /// Which pane the section shows. EXP-583 dropped the `None` mode: a stored
 /// trigger exists to fire, so its when-part is never absent — a manual action
@@ -154,8 +153,9 @@ pub(crate) struct TriggerEditorState {
     weekday: u32,
     /// 1..=28 — every month has one (monthly only).
     day_of_month: u32,
-    /// "HH:MM" local wall clock, parse-validated in [`Self::to_trigger`].
-    time: Entity<InputState>,
+    /// The local wall-clock time, minutes past midnight (0..1440), picked
+    /// as a 24h `HH:mm` hour + minute pair (the natives' time row).
+    minute_of_day: u32,
     event: EventKind,
     board_ids: Vec<String>,
     label_ids: Vec<String>,
@@ -492,18 +492,16 @@ pub(crate) fn trigger_sentence(when: &ParsedTrigger) -> String {
 impl TriggerEditorState {
     pub(crate) fn new<V: 'static>(
         team_id: String,
-        window: &mut Window,
-        cx: &mut Context<V>,
+        _window: &mut Window,
+        _cx: &mut Context<V>,
     ) -> Self {
-        let time = cx.new(|cx| InputState::new(window, cx).placeholder("07:00"));
-        time.update(cx, |state, cx| state.set_value("09:00", window, cx));
         Self {
             team_id,
             mode: TriggerMode::Schedule,
             interval: ScheduleInterval::Daily,
             weekday: 1,
             day_of_month: 1,
-            time,
+            minute_of_day: DEFAULT_MINUTE_OF_DAY,
             event: EventKind::Created,
             board_ids: Vec::new(),
             label_ids: Vec::new(),
@@ -644,7 +642,7 @@ impl TriggerEditorState {
     /// Seed the WHEN half from a stored trigger element (or a suggestion's
     /// when-part). An element this build cannot read never gets here — the
     /// tolerant read drops it before any row, so there is nothing to open.
-    pub(crate) fn seed_trigger(&mut self, trigger: Option<&Value>, window: &mut Window, cx: &mut App) {
+    pub(crate) fn seed_trigger(&mut self, trigger: Option<&Value>, _window: &mut Window, _cx: &mut App) {
         let Some(parsed) = trigger.and_then(parse_trigger) else {
             return;
         };
@@ -658,13 +656,7 @@ impl TriggerEditorState {
                 if let Some(day) = schedule.day_of_month {
                     self.day_of_month = day;
                 }
-                let time = format!(
-                    "{:02}:{:02}",
-                    schedule.minute_of_day / 60,
-                    schedule.minute_of_day % 60
-                );
-                self.time
-                    .update(cx, |state, cx| state.set_value(time, window, cx));
+                self.minute_of_day = schedule.minute_of_day.min(MINUTES_PER_DAY - 1);
             }
             TriggerKind::Event(spec) => {
                 self.mode = TriggerMode::Event;
@@ -699,12 +691,10 @@ impl TriggerEditorState {
     /// Build the WIRE when-part — nothing else ([`trigger_element`] adds the
     /// runner, the flag and an event's source around it).
     /// `Err` = a readable validation message.
-    pub(crate) fn to_trigger(&self, cx: &App) -> Result<Value, SharedString> {
+    pub(crate) fn to_trigger(&self, _cx: &App) -> Result<Value, SharedString> {
         match self.mode {
             TriggerMode::Schedule => {
-                let raw = self.time.read(cx).value();
-                let minute_of_day = parse_minute_of_day(&raw)
-                    .ok_or::<SharedString>("Enter a time like 07:00.".into())?;
+                let minute_of_day = self.minute_of_day.min(MINUTES_PER_DAY - 1);
                 let mut trigger = json!({
                     "kind": "schedule",
                     "interval": interval_wire(self.interval),
@@ -847,7 +837,7 @@ impl TriggerEditorState {
         &self,
         prefix: &'static str,
         access: fn(&mut V) -> &mut Self,
-        window: &Window,
+        _window: &Window,
         cx: &mut Context<V>,
     ) -> Vec<Div> {
         let interval_label = INTERVAL_LABELS
@@ -934,12 +924,64 @@ impl TriggerEditorState {
                 rows.push(surface::glass_picker_row("Day of month", None, control, cx));
             }
         }
-        rows.push(surface::glass_input_row(
+        rows.push(surface::glass_picker_row(
             "Time",
-            surface::glass_row_input(glass_input(&self.time, window, cx)).into_any_element(),
+            None,
+            self.time_picker(prefix, access, cx),
             cx,
         ));
         rows
+    }
+
+    /// The Time row's trailing value ×4: the 24h `HH:mm`, its hour and its
+    /// minute each a picker (every hour, every minute — the natives' time
+    /// wheel), then the row's chevron.
+    fn time_picker<V: Render>(
+        &self,
+        prefix: &'static str,
+        access: fn(&mut V) -> &mut Self,
+        cx: &mut Context<V>,
+    ) -> gpui::AnyElement {
+        let label = time_label(self.minute_of_day);
+        let (hour_label, minute_label) = label.split_once(':').unwrap_or(("09", "00"));
+        let current = self.minute_of_day;
+        let part = |id: String, text: String, count: u32, is_hour: bool, cx: &mut Context<V>| {
+            let view = cx.entity().downgrade();
+            picker_trigger_bare(id.into(), text, cx).dropdown_menu(move |menu, _window, _cx| {
+                let mut menu = menu.scrollable(true).max_h(gpui::px(320.));
+                for value in 0..count {
+                    let view = view.clone();
+                    let picked = if is_hour { current / 60 } else { current % 60 } == value;
+                    menu = menu.item(
+                        crate::controls::pointer_label_item(format!("{value:02}"), false)
+                            .checked(picked)
+                            .on_click(move |_, _, cx| {
+                                if let Some(view) = view.upgrade() {
+                                    view.update(cx, |view, cx| {
+                                        let state = access(view);
+                                        state.minute_of_day = if is_hour {
+                                            with_time_part(state.minute_of_day, Some(value), None)
+                                        } else {
+                                            with_time_part(state.minute_of_day, None, Some(value))
+                                        };
+                                        cx.notify();
+                                    });
+                                }
+                            }),
+                    );
+                }
+                menu
+            })
+        };
+        let hour = part(format!("{prefix}-time-hour"), hour_label.to_string(), 24, true, cx);
+        let minute = part(format!("{prefix}-time-minute"), minute_label.to_string(), 60, false, cx);
+        gpui_component::h_flex()
+            .items_center()
+            .child(hour)
+            .child(":")
+            .child(minute)
+            .child(surface::picker_row_chevron(cx))
+            .into_any_element()
     }
 
     /// The On-event kind's rows: `When`, the always-applicable `Board` filter
@@ -1264,13 +1306,13 @@ impl TriggerEditorState {
                 // line without the affordance (the mark and the email still
                 // say which login the run spends).
                 let alone = options.len() < 2;
-                let trigger = picker_trigger(
+                let trigger = picker_trigger_bare(
                     format!("{prefix}-account").into(),
                     SharedString::from(current.email.clone()),
                     cx,
                 )
                 .icon(crate::coding_selects::agent_mark(current.agent))
-                .dropdown_caret(!alone)
+                .when(!alone, |trigger| trigger.child(surface::picker_row_chevron(cx)))
                 .into_any_element();
                 let picked = current.account_option_key();
                 let rows = options.clone();
@@ -1344,8 +1386,8 @@ impl TriggerEditorState {
                         .px_0()
                         .py_0()
                         .text_color(foreground.opacity(0.7))
-                        .dropdown_caret(true)
                         .label(launch_options::CLI_DEFAULT_LABEL)
+                        .child(surface::picker_row_chevron(cx))
                         .disabled(true)
                         .into_any_element();
                     // `appearance`-free buttons lose the component's own
@@ -1384,6 +1426,17 @@ impl TriggerEditorState {
 /// EXP-810: `pub(crate)` — the MCP server editor's Transport/Auth rows are
 /// the same closed-vocabulary picker trigger.
 pub(crate) fn picker_trigger(id: SharedString, label: impl Into<SharedString>, cx: &App) -> Button {
+    // A grouped picker row ends in chevron-right ×4, not a caret.
+    picker_trigger_bare(id, label, cx).child(surface::picker_row_chevron(cx))
+}
+
+/// [`picker_trigger`] without its trailing chevron (a row with nothing else
+/// to pick, or one that appends the chevron after its own children).
+pub(crate) fn picker_trigger_bare(
+    id: SharedString,
+    label: impl Into<SharedString>,
+    cx: &App,
+) -> Button {
     Button::new(id)
         .ghost()
         .cursor_pointer()
@@ -1391,7 +1444,6 @@ pub(crate) fn picker_trigger(id: SharedString, label: impl Into<SharedString>, c
         .px_0()
         .py_0()
         .text_color(cx.theme().foreground.opacity(0.7))
-        .dropdown_caret(true)
         // EXP-697: NOT `.label()` — upstream draws that in a `flex_none` box,
         // so a long option wraps onto a second line.
         .child(surface::picker_value_label(label))
@@ -1413,13 +1465,22 @@ fn interval_wire(interval: ScheduleInterval) -> &'static str {
     }
 }
 
-/// "HH:MM" → minute of day. Strict: two fields, in range, no stray text — a
-/// typo must surface as the validation message, never as a 09:00 default.
-fn parse_minute_of_day(raw: &str) -> Option<u32> {
-    let (hours, minutes) = raw.trim().split_once(':')?;
-    let hours: u32 = hours.trim().parse().ok()?;
-    let minutes: u32 = minutes.trim().parse().ok()?;
-    (hours < 24 && minutes < 60).then_some(hours * 60 + minutes)
+const MINUTES_PER_DAY: u32 = 24 * 60;
+
+/// A new schedule's time: 09:00.
+const DEFAULT_MINUTE_OF_DAY: u32 = 9 * 60;
+
+/// Minute of day → the 24h `HH:mm` the time row shows ×4.
+fn time_label(minute_of_day: u32) -> String {
+    let minute_of_day = minute_of_day.min(MINUTES_PER_DAY - 1);
+    format!("{:02}:{:02}", minute_of_day / 60, minute_of_day % 60)
+}
+
+/// Replace the hour (`Some(h)`) or the minute (`Some(m)`) of a minute of day.
+fn with_time_part(minute_of_day: u32, hour: Option<u32>, minute: Option<u32>) -> u32 {
+    let hour = hour.unwrap_or(minute_of_day / 60).min(23);
+    let minute = minute.unwrap_or(minute_of_day % 60).min(59);
+    hour * 60 + minute
 }
 
 /// Which agent the strip settles on (EXP-721) — the pure half of
@@ -1643,16 +1704,17 @@ mod tests {
         assert_eq!(settle_device_account(None, &options), None);
     }
 
+    /// The time row reads 24h `HH:mm` ×4 and edits one half at a time.
     #[test]
-    fn minute_of_day_parsing_is_strict() {
-        assert_eq!(parse_minute_of_day("07:00"), Some(420));
-        assert_eq!(parse_minute_of_day("7:5"), Some(425));
-        assert_eq!(parse_minute_of_day(" 23:59 "), Some(1439));
-        assert_eq!(parse_minute_of_day("00:00"), Some(0));
-        // A typo must reach the user as the validation message.
-        for bad in ["24:00", "07:60", "0700", "", "aa:bb", "7"] {
-            assert_eq!(parse_minute_of_day(bad), None, "{bad} must not parse");
-        }
+    fn time_row_is_24h_hh_mm() {
+        assert_eq!(time_label(420), "07:00");
+        assert_eq!(time_label(425), "07:05");
+        assert_eq!(time_label(1439), "23:59");
+        assert_eq!(time_label(0), "00:00");
+        assert_eq!(time_label(5000), "23:59", "clamped, never past midnight");
+        assert_eq!(with_time_part(425, Some(18), None), 18 * 60 + 5);
+        assert_eq!(with_time_part(425, None, Some(30)), 7 * 60 + 30);
+        assert_eq!(time_label(DEFAULT_MINUTE_OF_DAY), "09:00");
     }
 
     /// The section's parse→edit→serialize loop must round-trip: what

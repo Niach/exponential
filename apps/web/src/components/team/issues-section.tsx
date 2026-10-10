@@ -23,11 +23,7 @@ import {
   type StatusPickerStatus,
   GlassGroup,
   GlassSectionHeader,
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
+  Picker,
   Switch,
 } from "@exp/ui"
 
@@ -55,36 +51,41 @@ function EstimatesCard({ team, canEdit }: { team: Team; canEdit: boolean }) {
     <div>
       <GlassSectionHeader label="Estimates" />
       <GlassGroup>
-        <div className="flex flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0">
-            <p className="text-sm">Estimate scale</p>
-          </div>
+        {/* The PR automation rows' anatomy: label leading, a fixed-width
+            Picker trigger trailing, at every width. */}
+        <div className="flex items-center justify-between gap-3 px-4 py-3">
+          <span className="min-w-0 text-sm">Estimate scale</span>
           {canEdit ? (
-            <Select
+            <Picker
+              mode="single"
               value={estimationType}
               disabled={busy}
-              onValueChange={(next) => void persist(next as IssueEstimation)}
-            >
-              <SelectTrigger className="w-full shrink-0 sm:w-64" aria-label="Estimate scale">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {ESTIMATION_TYPE_OPTIONS.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                    {option.hint && (
-                      <span className="ml-1.5 whitespace-nowrap text-muted-foreground">
-                        ({option.hint})
-                      </span>
-                    )}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              mobileTitle="Estimate scale"
+              align="end"
+              width="sm"
+              onChange={(next) => void persist(next as IssueEstimation)}
+              items={ESTIMATION_TYPE_OPTIONS.map((option) => ({
+                value: option.value,
+                label: option.label,
+                hint: option.hint || undefined,
+              }))}
+              trigger={
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-44 shrink-0 justify-start"
+                  aria-label="Estimate scale"
+                >
+                  <span className="flex-1 truncate text-left">
+                    {current?.label ?? `Not in use`}
+                  </span>
+                  <ChevronDown className="h-3 w-3 text-muted-foreground" />
+                </Button>
+              }
+            />
           ) : (
             <span className="shrink-0 text-sm text-muted-foreground">
               {current?.label ?? `Not in use`}
-              {current?.hint ? ` (${current.hint})` : ``}
             </span>
           )}
         </div>
@@ -103,13 +104,13 @@ function EstimatesCard({ team, canEdit }: { team: Team; canEdit: boolean }) {
 export const PR_AUTOMATION_ROWS = [
   {
     event: `pr_opened`,
-    label: `When a pull request opens`,
+    label: `When a PR opens`,
     verb: `opens`,
     defaultKey: `in_review`,
   },
   {
     event: `pr_merged`,
-    label: `When a pull request merges`,
+    label: `When a PR merges`,
     verb: `merges`,
     defaultKey: `done`,
   },
@@ -286,15 +287,7 @@ export function PrAutomationCard({
             )
           })}
         <div className="flex items-center justify-between gap-3 px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-sm">
-              When a pull request merges, end its runs
-            </p>
-            <p className="text-xs text-muted-foreground">
-              The run that merged its own pull request always keeps
-              running.
-            </p>
-          </div>
+          <span className="min-w-0 text-sm">When a PR merges, end its runs</span>
           <Switch
             checked={team.endSessionsOnMerge !== false}
             disabled={endSessionsBusy}

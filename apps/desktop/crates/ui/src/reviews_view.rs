@@ -320,11 +320,12 @@ impl Render for ReviewsView {
                 children.push(v_flex().min_w_0().pb_2().child(band).children(rows).into_any_element());
             }
             // EXP-734: a run's own PR is the team's work, but it completes no
-            // issue, so it gets its own band.
+            // issue, so it gets its own band. Its glyph ×4 = the pr-open
+            // concept.
             if !runs.is_empty() {
                 let band = crate::surface::glass_section_band(
                     Some(
-                        Icon::new(registry::UI_AGENT_SOURCE)
+                        Icon::new(registry::PR_OPEN)
                             .xsmall()
                             .flex_shrink_0()
                             .text_color(heading_fg.opacity(0.7))

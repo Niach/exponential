@@ -101,6 +101,7 @@ export function IssuePropertiesTray({
             source={issue.source}
             boardColor={board.color}
             boardPrefix={board.prefix}
+            boardName={board.name}
             boardIcon={board.icon}
             boardRepositoryId={board.repositoryId}
             boardId={issue.boardId}

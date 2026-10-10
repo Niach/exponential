@@ -40,6 +40,11 @@ public enum AppConstants {
     /// get the page, never a platform asset.
     public static let desktopReleasesUrl = URL(string: "https://github.com/Niach/exponential/releases/latest")!
 
+    /// The muted "Privacy · Terms" pair under every sign-in list ×4 — the
+    /// same targets as web's `AuthFormShell` (packages/ui/src/auth-form-shell.tsx).
+    public static let privacyUrl = URL(string: "https://exponential.at/privacy/")!
+    public static let termsUrl = URL(string: "https://exponential.at/terms/")!
+
     /// The one-liner that installs the headless CLI daemon on an always-on
     /// machine, pointed at `origin` (web's `buildServerInstallSnippet`). The
     /// script is served by the cloud marketing site for EVERY instance, so the

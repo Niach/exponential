@@ -6,9 +6,9 @@
 # SNAPSHOT_INSTANCE_URL env var (read by ExponentialUITests/StoreScreenshots.swift).
 # Whatever you point it at, the URL must be the one the server's BETTER_AUTH_URL
 # names — better-auth rejects any other origin ("Invalid origin: …" in the dev
-# server log), the sign-in silently fails, and the run dies 120 seconds later on
-# "Issue list never synced (missing showcase issue APP-5)", which says nothing
-# about auth (EXP-821). In particular http://127.0.0.1:5173 is NOT a synonym for
+# server log): the suite's HTTP sign-in fails (logged as "EXP-1267 session:
+# could not sign … in over HTTP"), the login-UI fallback fails the same way, and
+# the run dies on "Tab bar never appeared" / "Issue list never synced" (EXP-821). In particular http://127.0.0.1:5173 is NOT a synonym for
 # http://localhost:5173 here.
 #
 # It ALSO requires live steering to be genuinely on — three of the eight shots
@@ -25,6 +25,14 @@
 # without the secret the relay boots but answers 503 everywhere except /healthz.
 # `curl localhost:4002/healthz` should report one device and one room once the
 # stub is up.
+#
+# PARALLEL (EXP-1267): this lane, `fastlane styleguide_screenshots` and the
+# Android lanes can run at the same time — each iOS lane on its own simulators,
+# DerivedData and snapshot cache dir. From apps/ios, one process each:
+#   LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 bundle exec fastlane screenshots
+#   LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8 bundle exec fastlane styleguide_screenshots
+# Only one store lane per machine at a time: its pop-rect sidecars live in
+# fastlane's default cache dir (see the Fastfile header for SNAPSHOT_LANE_TAG).
 #
 # Captures land RAW in fastlane/screenshots-raw/. Afterwards run
 # `bun run screenshots:store` from the repo root BEFORE `sync_store`: the
@@ -43,6 +51,10 @@ end
 
 # One 6.9" iPhone + one 13" iPad — the two required App Store screenshot slots.
 # Names must match simulators from `xcrun simctl list devices available`.
+# EXP-1267: these are the MODELS. `fastlane screenshots` / `fastlane
+# styleguide_screenshots` run them on lane-owned clones ("<model> exp-<tag>",
+# see the Fastfile's ExpSnapshotLanes), so the lanes never share a simulator;
+# a bare `fastlane snapshot` uses the plain simulators named here.
 devices([
   "iPhone 17 Pro Max",
   "iPad Pro 13-inch (M5)",
@@ -76,14 +88,27 @@ clear_previous_screenshots(true)
 # Clean 9:41 status bar in every shot.
 override_status_bar(true)
 
-# The flow signs into a live backend and waits on Electric sync — run devices
-# one at a time and retry flaky runs instead of parallelizing.
+# The flow signs into a live backend and waits on Electric sync — run this
+# lane's devices one at a time. EXP-1267: fail fast — every wait in the suite
+# is bounded to seconds (ScreenshotFlow.swift `Wait`), and a failed run is
+# retried ONCE (the Fastfile also stops snapshot's own up-to-20 relaunches on
+# non-65 exits). The OTHER lanes may run concurrently (see the Fastfile).
 concurrent_simulators(false)
-number_of_retries(3)
+number_of_retries(1)
+# A failed attempt otherwise stalls up to 10 minutes in `simctl diagnose`
+# (the sysdiagnose xcodebuild collects on failure) before the retry starts.
+xcargs("-collect-test-diagnostics never")
 
-# Accounts live in the device keychain, which survives app reinstalls — erase
-# the simulator so every run starts on the fresh InstanceView sign-in flow.
-erase_simulator(true)
+# EXP-1267: never erase (it cost a reboot + a UI sign-in per run). Every launch
+# passes the app's DEBUG-only `-uiTestingReset` (fresh-install state: no
+# keychain account, cleared defaults, per-user caches kept) and signs in with a
+# session the suite reuses across runs, re-validated before each launch and
+# re-minted after a reseed; the login UI is only the fallback. See
+# ExponentialUITests/ScreenshotFlow.swift `ScreenshotSession`.
+erase_simulator(false)
+
+# The Simulator.app window is not needed (and stock snapshot would kill it).
+headless(true)
 
 # The app forces dark mode; keep the simulator chrome consistent with it.
 dark_mode(true)

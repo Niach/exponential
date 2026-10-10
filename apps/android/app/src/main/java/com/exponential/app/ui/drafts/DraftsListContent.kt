@@ -48,16 +48,8 @@ fun DraftsListContent(
         verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         item(key = "drafts-header") {
-            SectionHeader(
-                title = "Drafts",
-                trailing = {
-                    Text(
-                        drafts.size.toString(),
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
-                },
-            )
+            // P12: list bands carry no count (only issue status groups do).
+            SectionHeader(title = "Drafts")
         }
         items(drafts, key = { it.draft.id }) { row ->
             DraftListRow(

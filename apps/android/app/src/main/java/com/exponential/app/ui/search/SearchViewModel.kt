@@ -1,5 +1,8 @@
 package com.exponential.app.ui.search
 
+import com.exponential.app.data.db.IssueStatusEntity
+import com.exponential.app.domain.IssueStatusResolver
+import com.exponential.app.domain.ResolvedIssueStatus
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.exponential.app.data.api.IssuesApi
@@ -51,7 +54,12 @@ import kotlinx.coroutines.flow.transformLatest
  * same rows in the same single relevance order. [board] is null only while a
  * server hit's board has not synced.
  */
-data class SearchResult(val issue: IssueEntity, val board: BoardEntity?)
+data class SearchResult(
+    val issue: IssueEntity,
+    val board: BoardEntity?,
+    /** P53: the issue's RESOLVED team status row (statusId, then the anchor). */
+    val status: ResolvedIssueStatus = IssueStatusResolver.backlogDefault,
+)
 
 data class SearchState(
     // The debounced query the current results were computed for; blank means
@@ -85,6 +93,9 @@ class SearchViewModel @Inject constructor(
 
     private val issuesFlow = dbFlow.scopedQuery(emptyList<IssueEntity>()) { it.issueDao().observeAll() }
     private val boardsFlow = dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() }
+    private val statusesByTeamFlow = dbFlow
+        .scopedQuery(emptyList<IssueStatusEntity>()) { it.issueStatusDao().observeAll() }
+        .map { rows -> rows.groupBy { it.teamId }.mapValues { (_, team) -> IssueStatusResolver.teamStatuses(team) } }
 
     /**
      * A server response pinned to the query it answered, so a slow response
@@ -132,7 +143,8 @@ class SearchViewModel @Inject constructor(
         boardsFlow,
         debouncedQuery,
         serverSearch,
-    ) { issues, boards, query, server ->
+        statusesByTeamFlow,
+    ) { issues, boards, query, server, statusesByTeam ->
         val trimmed = query.trim()
         if (trimmed.isEmpty()) {
             SearchState(query = "")
@@ -177,7 +189,17 @@ class SearchViewModel @Inject constructor(
             // the same query read differently here than on every other client.
             SearchState(
                 query = trimmed,
-                results = matches.map { SearchResult(it, boardsById[it.boardId]) },
+                results = matches.map { issue ->
+                    val board = boardsById[issue.boardId]
+                    SearchResult(
+                        issue = issue,
+                        board = board,
+                        status = IssueStatusResolver.resolve(
+                            issue,
+                            board?.teamId?.let { statusesByTeam[it] }.orEmpty(),
+                        ),
+                    )
+                },
             )
         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SearchState())

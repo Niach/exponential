@@ -2,7 +2,7 @@
 //! widget" — the one path: a submission IS an issue).
 //!
 //! Web parity: the first card of `components/team/widget-section.tsx` — the
-//! "Exponential widget" heading, its description, and one row per
+//! "Exponential widget" heading (no description) and one row per
 //! `widget_configs` row of the team.
 //!
 //! READ-ONLY on purpose. Authoring a widget is the web's job: it needs the
@@ -28,13 +28,7 @@ use crate::icons::registry;
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
-use super::{error_notice, open_url, section, section_description};
-
-/// Web copy, verbatim.
-const WIDGET_DESCRIPTION: &str =
-    "Embed the Exponential widget on your own site: visitors capture a screenshot, \
-     describe the problem, and it lands here as an issue, with reporter email and \
-     page context attached.";
+use super::{error_notice, open_url, section};
 
 enum Load {
     Idle,
@@ -208,15 +202,12 @@ impl Render for WidgetPane {
         .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)))
         .into_any_element();
 
-        let mut body = section(cx).child(
-            v_flex()
-                .child(crate::surface::glass_section_header(
-                    "Exponential widget",
-                    Some(refresh),
-                    cx,
-                ))
-                .child(section_description(WIDGET_DESCRIPTION, cx)),
-        );
+        // No explanatory paragraph under the band (web parity).
+        let mut body = section(cx).child(crate::surface::glass_section_header(
+            "Exponential widget",
+            Some(refresh),
+            cx,
+        ));
 
         let muted = cx.theme().muted_foreground;
         match &self.load {

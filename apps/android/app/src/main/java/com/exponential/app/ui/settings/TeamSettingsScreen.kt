@@ -1,5 +1,9 @@
 package com.exponential.app.ui.settings
 
+import com.exponential.app.ui.components.SectionBand
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.withStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import android.content.Intent
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
@@ -192,7 +196,7 @@ fun TeamSettingsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(state.team?.name ?: "Team") },
+                title = { Text("Settings") }, // P103: iOS + web title it "Settings"
                 navigationIcon = {
                     TopBarBackButton(onClick = onBack)
                 },
@@ -243,6 +247,7 @@ private fun BoardsSection(
                 GlassPill(
                     "New board",
                     icon = ExpIcons.uiAdd,
+                    size = PillSize.Sm, // P105: band pills are Sm (iOS)
                     onClick = { showCreateBoard = true },
                 )
             }
@@ -309,6 +314,8 @@ private fun BoardsSection(
                     contentDescription = "Change repository",
                     onClick = { repoTarget = board },
                     glyphSize = 16.dp,
+                    // P104: a ghost glyph — only primary actions get circles.
+                    borderless = true,
                 )
                 // Deleting a board is owner-only (the server enforces it too);
                 // the tap opens the destructive confirm dialog.
@@ -365,11 +372,14 @@ private fun DangerZone(
         // iOS TeamSettingsView parity (EXP-577): red section title and a
         // full-width red-on-glass capsule with the delete glyph.
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(
-                "Danger zone",
-                style = MaterialTheme.typography.titleSmall,
-                color = DesignTokens.Semantic.Red.copy(alpha = 0.8f),
-            )
+            // Pinned ×4: the Danger zone heading is a BAND with danger text.
+            SectionBand {
+                Text(
+                    "Danger zone",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = DesignTokens.Semantic.Red,
+                )
+            }
             GlassPill(
                 "Delete team",
                 icon = ExpIcons.uiDelete,
@@ -434,6 +444,7 @@ private fun RepositoriesSection(
             GlassPill(
                 GithubCopy.ADD_REPOSITORY,
                 icon = ExpIcons.uiGithub,
+                size = PillSize.Sm, // P105: band pills are Sm (iOS)
                 onClick = { showAddRepo = true },
             )
         }
@@ -673,15 +684,56 @@ private fun MembersSection(
             ) {
                 UserAvatar(user = row.user, nameOrEmail = displayName, size = 32.dp)
                 Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        buildString {
-                            append(displayName)
-                            if (isYou) append(" (you)")
-                        },
-                        style = MaterialTheme.typography.bodyMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+                    // P82/P83: name · muted "(you)" · the role pill WITH its
+                    // role glyph right after the name (web members-section).
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            buildAnnotatedString {
+                                append(displayName)
+                                if (isYou) {
+                                    withStyle(
+                                        SpanStyle(
+                                            color = MaterialTheme.colorScheme.onSurface.copy(
+                                                alpha = TextEmphasis.Tertiary,
+                                            ),
+                                        ),
+                                    ) { append(" (you)") }
+                                }
+                            },
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        GlassPill(
+                            row.member.role,
+                            size = PillSize.Sm,
+                            mode = PillMode.Readonly,
+                            icon = if (row.member.role == DomainContract.teamRoleOwner) {
+                                ExpIcons.uiOwner
+                            } else {
+                                ExpIcons.uiMember
+                            },
+                        )
+                        // EXP-630: an email invite put this member on the
+                        // roster before the person signed in — a MUTED mail
+                        // pill after the role says so ("Invited" / "Invite
+                        // expired"), exactly as web; EXP-1076: a row the
+                        // Linear import seated without ever mailing reads
+                        // "Not invited".
+                        row.placeholder?.let { placeholder ->
+                            GlassPill(
+                                placeholder.label,
+                                size = PillSize.Sm,
+                                mode = PillMode.Readonly,
+                                icon = ExpIcons.uiMail,
+                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+                            )
+                        }
+                    }
                     // Hide the sub-line when it would just repeat the primary
                     // line — a name-less Apple user's display name IS the email.
                     val email = row.user?.email
@@ -694,23 +746,6 @@ private fun MembersSection(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
-                }
-                // Role badge pill (iOS parity).
-                GlassPill(row.member.role, size = PillSize.Sm, mode = PillMode.Readonly)
-                // EXP-630: an email invite put this member on the roster before
-                // the person signed in — a MUTED mail pill right after the role
-                // says so ("Invited" / "Invite expired"), exactly as web;
-                // EXP-1076: a row the Linear import seated without ever mailing
-                // reads "Not invited". The invite surface itself stays web-only
-                // (EXP-725).
-                row.placeholder?.let { placeholder ->
-                    GlassPill(
-                        placeholder.label,
-                        size = PillSize.Sm,
-                        mode = PillMode.Readonly,
-                        icon = ExpIcons.uiMail,
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    )
                 }
                 if (hasActions) {
                     var rowMenu by remember { mutableStateOf(false) }
@@ -804,6 +839,7 @@ private fun LabelsSection(
             GlassPill(
                 "New label",
                 icon = ExpIcons.uiAdd,
+                size = PillSize.Sm, // P105: band pills are Sm (iOS)
                 onClick = { showCreate = true },
             )
         }

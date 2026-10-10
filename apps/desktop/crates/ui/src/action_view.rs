@@ -171,21 +171,22 @@ impl ActionDerived {
     }
 }
 
-/// `Claude Code · opus` — the agent and model a trigger pinned, or `None`
+/// `Claude Code` — the agent a trigger pinned, or `None`
 /// when it follows the bound machine's own launch defaults (the common case).
 fn launch_pins_label(trigger: &ActionTrigger) -> Option<String> {
-    let agent = trigger.pins.agent.as_deref().map(|agent| {
-        coding::CodingAgent::parse(agent)
-            .map(|known| known.label().to_string())
-            // An agent this build predates still names itself.
-            .unwrap_or_else(|| agent.to_string())
-    });
-    let parts: Vec<String> = [agent, trigger.pins.model.clone()]
-        .into_iter()
-        .flatten()
-        .filter(|value| !value.is_empty())
-        .collect();
-    (!parts.is_empty()).then(|| parts.join(" · "))
+    // ×4: the caption is "{device} · {agent}" — the model is a launch
+    // detail the row leaves out, like the effort.
+    trigger
+        .pins
+        .agent
+        .as_deref()
+        .filter(|agent| !agent.is_empty())
+        .map(|agent| {
+            coding::CodingAgent::parse(agent)
+                .map(|known| known.label().to_string())
+                // An agent this build predates still names itself.
+                .unwrap_or_else(|| agent.to_string())
+        })
 }
 
 impl ActionView {
@@ -896,7 +897,7 @@ mod tests {
     /// Line 2 of a Triggers row names the pinned agent and model — and says
     /// nothing when the trigger follows the device's own defaults.
     #[test]
-    fn launch_pins_label_names_the_agent_and_the_model() {
+    fn launch_pins_label_names_the_agent_only() {
         let when = json!({"id": "t-1", "deviceId": "d-1",
                           "kind": "schedule", "interval": "daily", "minuteOfDay": 540});
         assert_eq!(launch_pins_label(&trigger(when.clone())), None);
@@ -904,13 +905,10 @@ mod tests {
         let mut pinned = when.clone();
         pinned["agent"] = json!("claude");
         pinned["model"] = json!("opus");
-        // The effort is a launch detail the row leaves out.
+        // The model and the effort are launch details the row leaves out.
         pinned["effort"] = json!("high");
         let claude = coding::CodingAgent::parse("claude").expect("contract agent").label();
-        assert_eq!(
-            launch_pins_label(&trigger(pinned)),
-            Some(format!("{claude} · opus"))
-        );
+        assert_eq!(launch_pins_label(&trigger(pinned)), Some(claude.to_string()));
 
         // An agent this build predates still names itself.
         let mut future = when;

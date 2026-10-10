@@ -101,6 +101,7 @@ export function MyIssuesView({
             users={users}
             userMap={userMap}
             menuFrom="inbox:my-issues"
+            hideAssigneeOnPhone
             onNewIssue={() => {}}
             onIssueClick={(issue) => {
               const board = boardMap.get(issue.boardId)

@@ -1,7 +1,10 @@
 import { StrictMode } from "react"
 import { render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
-import { SignInMethodsSection } from "@/components/account/sign-in-methods-section"
+import {
+  emailCodeCaption,
+  SignInMethodsSection,
+} from "@/components/account/sign-in-methods-section"
 import type { SignInMethods } from "@/lib/auth/sign-in-methods"
 
 // EXP-1031: the OAuth-return outcome (`?linked=` / `?link_error=`) is a
@@ -132,5 +135,13 @@ describe(`SignInMethodsSection last way in`, () => {
     expect(
       screen.getByText(`Linked · no longer offered on this instance`)
     ).toBeTruthy()
+  })
+})
+
+// The Email code row's caption, one wording on all four clients.
+describe(`emailCodeCaption`, () => {
+  it(`is the address while codes are on, and says Off on this server otherwise`, () => {
+    expect(emailCodeCaption(`a@b.co`, true)).toBe(`a@b.co`)
+    expect(emailCodeCaption(`a@b.co`, false)).toBe(`a@b.co · Off on this server`)
   })
 })

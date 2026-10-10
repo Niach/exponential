@@ -130,7 +130,8 @@ struct DeviceSetup: View {
             icon: AppIcons.uiDevice,
             title: GettingStartedCopy.desktopTitle,
             description: GettingStartedCopy.desktopDescription,
-            actionLabel: GettingStartedCopy.desktopAction
+            actionLabel: GettingStartedCopy.desktopAction,
+            secondary: (DeviceSetupCopy.allPlatforms, { openURL(AppConstants.desktopReleasesUrl) })
         ) {
             openURL(AppConstants.desktopReleasesUrl)
         }
@@ -253,6 +254,7 @@ struct DeviceSetup: View {
         title: String,
         description: String,
         actionLabel: String,
+        secondary: (label: String, action: () -> Void)? = nil,
         action: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -272,7 +274,15 @@ struct DeviceSetup: View {
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            GlassPill(actionLabel, size: .sm, mode: .action(action))
+            // ×4 (polish round): the download action, then the outline
+            // "All platforms" link to every release asset (web's
+            // `DESKTOP_RELEASES_URL` button).
+            HStack(spacing: 8) {
+                GlassPill(actionLabel, size: .sm, mode: .action(action))
+                if let secondary {
+                    GlassPill(secondary.label, size: .sm, mode: .action(secondary.action))
+                }
+            }
         }
         .padding(10)
         .frame(maxWidth: .infinity, alignment: .leading)

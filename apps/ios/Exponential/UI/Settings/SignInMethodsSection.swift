@@ -111,7 +111,7 @@ struct SignInMethodsSection: View {
             GlassSectionBand("Passkeys")
 
             if methods.passkeys.isEmpty {
-                Text("No passkeys yet. Add one from the web app.")
+                Text("No passkeys yet.")
                     .font(.subheadline)
                     .foregroundStyle(.white.opacity(TextOpacity.tertiary))
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -132,7 +132,9 @@ struct SignInMethodsSection: View {
     private func emailRow(_ methods: SignInMethods) -> some View {
         methodRow(
             title: "Email code",
-            subtitle: methods.emailOtpEnabled ? methods.email : "Sign-in codes are off on this instance"
+            // ×4: "{email}", or "{email} · Off on this server" without a
+            // mail transport (`SignInMethods.emailCodeSubtitle`).
+            subtitle: methods.emailCodeSubtitle
         ) {
             AppIcon(AppIcons.uiMail, size: AppIcon.Size.medium)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))

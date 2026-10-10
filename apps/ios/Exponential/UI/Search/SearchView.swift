@@ -10,6 +10,7 @@ import SwiftUI
 struct SearchView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.pushRoute) private var pushRoute
     @State private var viewModel: SearchViewModel?
     @State private var query = ""
     @FocusState private var searchFocused: Bool
@@ -145,11 +146,15 @@ struct SearchView: View {
     /// sub-line carrying the board's own glyph, the board name and the
     /// identifier — byte-for-byte the web `IssueSearchSheet` row and the
     /// desktop palette's `render_issue_row`. Priority is deliberately absent:
-    /// no other client shows it here.
+    /// no other client shows it here. P54: a plain Button + `pushRoute`, not
+    /// a `NavigationLink` — a link in a List row draws the system disclosure
+    /// chevron, which no other client's search row has (EXP-698 r5).
     @ViewBuilder
     private func resultRow(_ result: SearchViewModel.Result) -> some View {
         let issue = result.issue
-        NavigationLink(value: AppRoute.issue(accountId: accountId, id: issue.id)) {
+        Button {
+            pushRoute(.issue(accountId: accountId, id: issue.id))
+        } label: {
             HStack(spacing: 10) {
                 // Anchor glyph (EXP-314): search spans teams, and status rows
                 // are team-scoped — the anchor renders correctly for builtins
@@ -185,6 +190,7 @@ struct SearchView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .glassRow()
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

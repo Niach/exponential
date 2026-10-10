@@ -51,7 +51,7 @@ import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.NeedsInputAmber
 import com.exponential.app.ui.issue.ReviewGreen
 import com.exponential.app.ui.issue.StaticDot
-import com.exponential.app.ui.issue.relativeTime
+import com.exponential.app.ui.issue.compactRelativeTime
 import com.exponential.app.ui.onboarding.OnboardingCopy
 import com.exponential.app.ui.session.DeviceSettingsSheet
 import com.exponential.app.ui.theme.TextEmphasis
@@ -102,6 +102,15 @@ fun DeviceSetup(
             actionLabel = GettingStartedCopy.DESKTOP_ACTION,
             actionIcon = ExpIcons.uiDownload,
             onAction = {
+                runCatching {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, AppConstants.DESKTOP_RELEASES_URL.toUri()),
+                    )
+                }
+            },
+            // P7: web's outline "All platforms" beside the download ×4.
+            secondaryLabel = "All platforms",
+            onSecondary = {
                 runCatching {
                     context.startActivity(
                         Intent(Intent.ACTION_VIEW, AppConstants.DESKTOP_RELEASES_URL.toUri()),
@@ -168,6 +177,8 @@ private fun InstallCard(
     actionLabel: String,
     actionIcon: androidx.compose.ui.graphics.vector.ImageVector,
     onAction: (() -> Unit)?,
+    secondaryLabel: String? = null,
+    onSecondary: (() -> Unit)? = null,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth().glassCard().padding(20.dp),
@@ -179,7 +190,12 @@ private fun InstallCard(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
         )
-        GlassPill(label = actionLabel, icon = actionIcon, onClick = onAction, enabled = onAction != null)
+        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            GlassPill(label = actionLabel, icon = actionIcon, onClick = onAction, enabled = onAction != null)
+            if (secondaryLabel != null && onSecondary != null) {
+                GlassPill(label = secondaryLabel, onClick = onSecondary)
+            }
+        }
     }
 }
 
@@ -402,7 +418,7 @@ private fun OwnDeviceRow(device: SteerDevice, onClick: () -> Unit) {
                     when {
                         blockedCaption != null -> blockedCaption
                         online -> "Online"
-                        device.lastSeenAt != null -> "Last seen ${relativeTime(device.lastSeenAt)}"
+                        device.lastSeenAt != null -> "Last seen ${compactRelativeTime(device.lastSeenAt)}"
                         else -> "Offline"
                     },
                     style = MaterialTheme.typography.bodySmall,

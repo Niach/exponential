@@ -56,10 +56,8 @@ struct Snapshot {
 const TEAM_PROMPT_TITLE: &str = "Team prompt";
 const TEAM_PROMPT_PLACEHOLDER: &str = "Rules every coding run of this team follows, as markdown.";
 
-// EXP-1105: the yolo-mode toggle's copy — byte-identical to the web.
+// EXP-1105: the yolo-mode toggle — label only, no description (web parity).
 const YOLO_MODE_TITLE: &str = "Yolo mode";
-const YOLO_MODE_HINT: &str =
-    "Hide Reviews, Files and Source Control and auto-merge every PR an agent opens. Failures still show.";
 
 /// `12.3k` / `840` — the counter's short form (web `formatByteCount`).
 fn format_byte_count(bytes: usize) -> String {
@@ -751,27 +749,29 @@ impl Render for GeneralPane {
                     .child(if saving { "Saving…" } else { "Unsaved" }),
             )
         });
-        let mut rows = vec![name_row];
-        // EXP-1105: yolo mode — owner-only and HIDDEN from everyone else,
-        // like every owner control in this pane.
-        if owner {
-            let team_id = team.id.clone();
-            rows.push(crate::surface::glass_toggle_row(
-                YOLO_MODE_TITLE,
-                Some(YOLO_MODE_HINT.into()),
-                crate::controls::web_switch("team-yolo-mode")
-                    .checked(team.yolo_mode())
-                    .disabled(self.yolo_busy)
-                    .on_click(cx.listener(move |this, checked: &bool, _, cx| {
-                        this.set_yolo_mode(team_id.clone(), *checked, cx);
-                    }))
-                    .into_any_element(),
-                cx,
-            ));
-        }
         let mut general = section(cx)
             .child(crate::surface::glass_section_header("General", None, cx))
-            .child(crate::surface::glass_group_rows(rows));
+            .child(crate::surface::glass_group_rows(vec![name_row]));
+        // EXP-1105: yolo mode — owner-only and HIDDEN from everyone else,
+        // like every owner control in this pane. Its OWN group under Name,
+        // label only (web general-section's second GlassGroup).
+        if owner {
+            let team_id = team.id.clone();
+            general = general.child(crate::surface::glass_group_rows(vec![
+                crate::surface::glass_toggle_row(
+                    YOLO_MODE_TITLE,
+                    None,
+                    crate::controls::web_switch("team-yolo-mode")
+                        .checked(team.yolo_mode())
+                        .disabled(self.yolo_busy)
+                        .on_click(cx.listener(move |this, checked: &bool, _, cx| {
+                            this.set_yolo_mode(team_id.clone(), *checked, cx);
+                        }))
+                        .into_any_element(),
+                    cx,
+                ),
+            ]));
+        }
 
         if let Some(error) = &self.error {
             general = general.child(

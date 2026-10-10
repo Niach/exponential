@@ -71,31 +71,26 @@ export function AccountOverview({
       {/* EXP-369: the account's clock — the daily digest's send hour is read
           in it. Captured from the browser on first load; explicit here. */}
       <GlassGroup>
-        <div className="flex flex-col">
-          {/* EXP-958: the ONE settings row that keeps its search field — the
-              tz database is hundreds of zones, and the Select this replaced
-              had type-ahead of its own. */}
-          <Picker
-            mode="single"
-            search
-            triggerVariant="row"
-            mobileTitle="Timezone"
-            value={timezone}
-            onChange={(zone) => {
-              if (zone !== null) handleTimezone(zone)
-            }}
-            items={timezoneOptions(timezone).map((zone) => ({
-              value: zone,
-              label: zone,
-            }))}
-            searchPlaceholder="Search zones…"
-            emptyText="No matching timezone."
-            width="lg"
-          />
-          <p className="px-4 pb-3 text-xs text-foreground/50">
-            Used to schedule your daily digest email.
-          </p>
-        </div>
+        {/* EXP-958: the ONE settings row that keeps its search field — the
+            tz database is hundreds of zones, and the Select this replaced
+            had type-ahead of its own. */}
+        <Picker
+          mode="single"
+          search
+          triggerVariant="row"
+          mobileTitle="Timezone"
+          value={timezone}
+          onChange={(zone) => {
+            if (zone !== null) handleTimezone(zone)
+          }}
+          items={timezoneOptions(timezone).map((zone) => ({
+            value: zone,
+            label: zone,
+          }))}
+          searchPlaceholder="Search zones…"
+          emptyText="No matching timezone."
+          width="lg"
+        />
       </GlassGroup>
     </div>
   )

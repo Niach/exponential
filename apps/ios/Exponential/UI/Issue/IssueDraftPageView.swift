@@ -375,7 +375,6 @@ struct IssueDraftPageView: View {
                     board: vm.showsBoardChip ? vm.board : nil,
                     showsUnsetDueDate: true,
                     backgroundOpensProperties: false,
-                    labelsBeforeDueDate: true,
                     onTapProperty: { child = $0 },
                     // No Properties sheet behind a draft: "+" adds a label.
                     onOpenProperties: { child = .labels }

@@ -41,7 +41,11 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.ui.components.GlassOAuthButton
 import com.exponential.app.ui.components.GlassSubmitButton
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.text.style.TextOverflow
 import com.exponential.app.ui.components.InviteLinkCard
 import com.exponential.app.ui.components.InviteLinkViewModel
 import com.exponential.app.ui.icons.ExpIcons
@@ -87,6 +91,7 @@ fun OnboardingScreen(
     val teamCreateError by viewModel.teamCreateError.collectAsStateWithLifecycle()
     val teamJoinError by viewModel.teamJoinError.collectAsStateWithLifecycle()
     val joined by viewModel.joined.collectAsStateWithLifecycle()
+    val userEmail by viewModel.userEmail.collectAsStateWithLifecycle()
 
     var step by remember { mutableIntStateOf(0) }
     // EXP-523: `transitionSpec` is a plain lambda, not a composable one, so the
@@ -198,15 +203,10 @@ fun OnboardingScreen(
             // bottom bar, so an account the server refuses (a deleted user
             // 401s everything) previously had no way out from any step that
             // happened not to be showing an error.
+            // Every step's footer ×4 = muted "Signed in as {email} · Sign out"
+            // (web `SignedInFooter`).
             Spacer(Modifier.height(24.dp))
-            TextButton(
-                onClick = { viewModel.signOut() },
-                colors = ButtonDefaults.textButtonColors(
-                    contentColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                ),
-            ) {
-                Text(OnboardingCopy.SIGN_OUT)
-            }
+            SignedInFooter(email = userEmail, onSignOut = { viewModel.signOut() })
         }
     }
 }
@@ -253,10 +253,9 @@ private fun InviteStep(teamId: String?, onContinue: () -> Unit) {
             )
             Spacer(Modifier.height(28.dp))
         }
-        GlassSubmitButton(
-            label = if (linkMinted) OnboardingCopy.CONTINUE else OnboardingCopy.SKIP,
-            onClick = onContinue,
-        )
+        // P6: Skip is the secondary (outline) button; only a minted link
+        // turns it into the primary Continue.
+        SkipOrContinueButton(done = linkMinted, onClick = onContinue)
     }
 }
 
@@ -318,21 +317,6 @@ private fun TeamStep(
         modifier = Modifier.widthIn(max = 460.dp).fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(
-            "Set up your team",
-            style = MaterialTheme.typography.headlineSmall,
-            color = MaterialTheme.colorScheme.onSurface,
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(12.dp))
-        Text(
-            "Create a team, or join one with an invite link from a teammate.",
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            textAlign = TextAlign.Center,
-        )
-        Spacer(Modifier.height(28.dp))
-
         when {
             !needsChoice && prepareError != null -> {
                 Text(
@@ -359,9 +343,11 @@ private fun TeamStep(
                 }
             }
             else -> {
-                // EXP-698: the same two glass cards the zero-team empty state
-                // raises in `TeamSetupSheet` — one composable, one copy.
+                // P3: web's choice page — the mark, "Welcome to Exponential",
+                // Create a team / Join a team pushing their own pages. The
+                // zero-team `TeamSetupSheet` renders the same composable.
                 TeamSetupForm(
+                    showWelcome = true,
                     state = TeamSetupFormState(
                         busy = submitting,
                         createError = createError,
@@ -477,5 +463,47 @@ private fun DoneStep(onFinish: () -> Unit) {
         )
         Spacer(Modifier.height(32.dp))
         GlassSubmitButton(label = OnboardingCopy.DONE_BUTTON, onClick = onFinish)
+    }
+}
+
+/**
+ * The wizard's trailing button ×4 (P6): "Skip for now" as the secondary
+ * outline button until the step did something, then the primary "Continue".
+ */
+@Composable
+internal fun SkipOrContinueButton(done: Boolean, onClick: () -> Unit) {
+    if (done) {
+        GlassSubmitButton(label = OnboardingCopy.CONTINUE, onClick = onClick)
+    } else {
+        GlassOAuthButton(label = OnboardingCopy.SKIP, onClick = onClick) {}
+    }
+}
+
+/** Muted "Signed in as {email} · Sign out" under every step (web `SignedInFooter`). */
+@Composable
+private fun SignedInFooter(email: String?, onSignOut: () -> Unit) {
+    val muted = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+        modifier = Modifier.fillMaxWidth().testTag("onboarding-signed-in-as"),
+    ) {
+        if (!email.isNullOrBlank()) {
+            Text(
+                "Signed in as $email",
+                style = MaterialTheme.typography.labelMedium,
+                color = muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f, fill = false),
+            )
+            Text(" · ", style = MaterialTheme.typography.labelMedium, color = muted)
+        }
+        Text(
+            OnboardingCopy.SIGN_OUT,
+            style = MaterialTheme.typography.labelMedium,
+            color = muted,
+            modifier = Modifier.clickable(onClick = onSignOut).padding(vertical = 8.dp),
+        )
     }
 }

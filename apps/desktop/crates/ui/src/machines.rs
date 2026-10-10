@@ -1059,8 +1059,21 @@ impl MachinesSection {
     }
 }
 
-/// Where the desktop app's builds live — the desktop card's download target.
+/// Where the desktop app's builds live — the desktop card's "All platforms".
 pub(crate) const DESKTOP_RELEASES_URL: &str = "https://github.com/Niach/exponential/releases/latest";
+
+/// The desktop card's primary download (web `desktopDownloadHref`): THIS
+/// OS's release asset (the names `updater::expected_asset_name` matches),
+/// the releases page on anything else.
+pub(crate) fn desktop_download_url() -> String {
+    let asset = match std::env::consts::OS {
+        "macos" => "Exponential-production.dmg",
+        "windows" => "Exponential-production-x86_64-windows.exe",
+        "linux" => "Exponential-production-x86_64.AppImage",
+        _ => return DESKTOP_RELEASES_URL.to_string(),
+    };
+    format!("{DESKTOP_RELEASES_URL}/download/{asset}")
+}
 
 /// The instance the install one-liner points the daemon at.
 pub(crate) fn server_install_origin(cx: &gpui::App) -> String {
@@ -1088,14 +1101,13 @@ pub(crate) fn open_add_server_dialog(window: &mut Window, cx: &mut gpui::App) {
     // dialog's first frame, dropped with the window.
     let server_card: Rc<RefCell<Option<Entity<crate::device_setup::ServerCard>>>> =
         Rc::new(RefCell::new(None));
-    let spec = AlertSpec::new(
-        "Add device",
-        "To start runs, install the desktop app.",
-        "Done",
-    )
-    .without_cancel()
-    .height(px(600.))
-    .content(move |window, cx| {
+    // P33: no subtitle (the cards say it). An alert window cannot follow
+    // its content, so the height is the two cards' own (the server card's
+    // code field included) plus the footer, not a 600px slab.
+    let spec = AlertSpec::new("Add device", "", "Done")
+        .without_cancel()
+        .height(px(500.))
+        .content(move |window, cx| {
         let card = server_card
             .borrow_mut()
             .get_or_insert_with(|| {

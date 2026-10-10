@@ -124,13 +124,10 @@ extension SessionStatusTone {
     }
 }
 
-/// "5m ago" off a synced timestamp. Electric syncs timestamps as Postgres
-/// text (space separator, hour-only offset), which `WireTimestamps` handles
-/// (EXP-169); empty when it does not parse. (Moved here with the retired
-/// `RunningSessionRow`; drafts and the issue's Runs list still read it.)
+/// The compact list caption ("5m", "2h") off a synced timestamp — the
+/// polish pin's LIST wording ×4 (`RelativeTime.compact`); empty when it does
+/// not parse. (Moved here with the retired `RunningSessionRow`; drafts and
+/// the issue's Runs list still read it.)
 public func relativeWireDate(_ s: String) -> String {
-    guard let date = WireTimestamps.parse(s) else { return "" }
-    let formatter = RelativeDateTimeFormatter()
-    formatter.unitsStyle = .short
-    return formatter.localizedString(for: date, relativeTo: Date())
+    RelativeTime.compact(wire: s)
 }

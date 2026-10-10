@@ -115,9 +115,9 @@ impl Render for SessionsPane {
                 .px_0()
                 .py_0()
                 .text_color(value_color)
-                .dropdown_caret(true)
                 // EXP-697: NOT `.label()` — see notifications_prefs.
                 .child(picker_value_label(choice_label(current)))
+                .child(crate::surface::picker_row_chevron(cx))
                 .dropdown_menu({
                     let entity = cx.entity();
                     move |mut menu, _, _| {

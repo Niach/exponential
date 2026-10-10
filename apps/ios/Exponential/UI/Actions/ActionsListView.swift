@@ -202,8 +202,14 @@ struct ActionsListView: View {
 
     private var suggestionsContent: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 8) {
-                ForEach(ActionSuggestion.seeds) { suggestionCard($0) }
+            // Polish pin ×4: ONE "Suggestions" band over flat, gapless,
+            // hairline-divided rows — no per-row fill, no trailing chevron.
+            LazyVStack(alignment: .leading, spacing: 0) {
+                GlassSectionBand("Suggestions")
+                ForEach(Array(ActionSuggestion.seeds.enumerated()), id: \.element.id) { index, seed in
+                    if index > 0 { GlassDivider() }
+                    suggestionCard(seed)
+                }
             }
             .padding()
         }
@@ -239,9 +245,6 @@ struct ActionsListView: View {
                 }
 
                 Spacer(minLength: 0)
-
-                AppIcon(AppIcons.uiChevronRight, size: 14)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 12)

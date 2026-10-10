@@ -61,8 +61,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  * EXP-642 reshuffled the front of the set: the old `sg_instance-picker` shot IS
  * the cloud chooser a first-run user meets, so it took over the `sg_sign-in`
  * name, and the password-form shot that used to carry it is gone (the form is a
- * self-hosting detail, not the sign-in surface). The login flow itself is
- * unchanged — the suite still signs in with it. EXP-566 had earlier retired
+ * self-hosting detail, not the sign-in surface). EXP-1267: the suite signs in
+ * with a reused session ([ScreenshotSession]); the login flow is the fallback. EXP-566 had earlier retired
  * `sg_settings-personal` in favour of sg_settings-root + sg_settings-account.
  *
  * Prereqs: the seeded local backend (apps/web/scripts/seed-screenshots.ts)
@@ -157,16 +157,22 @@ class StyleguideScreenshotsTest {
 
         private const val NAV_TIMEOUT = ScreenshotFlow.NAV_TIMEOUT
         private const val SYNC_TIMEOUT = ScreenshotFlow.SYNC_TIMEOUT
+        private const val FIRST_SYNC_TIMEOUT = ScreenshotFlow.FIRST_SYNC_TIMEOUT
+        private const val NETWORK_TIMEOUT = ScreenshotFlow.NETWORK_TIMEOUT
     }
 
     private val permissionRule: GrantPermissionRule = ScreenshotFlow.permissionRule()
 
     private val composeRule = createAndroidComposeRule<MainActivity>()
 
-    // Permission grant must land before the activity (and its permission
-    // request) launches.
+    // EXP-1267: no account at launch (the untouched instance picker for
+    // sg_sign-in) — the app is no longer reinstalled between runs.
+    private val sessionRule = ScreenshotSessionRule(email = null)
+
+    // Permission grant and the signed-out state must land before the activity
+    // (and its permission request) launches.
     @get:Rule
-    val rules: RuleChain = RuleChain.outerRule(permissionRule).around(composeRule)
+    val rules: RuleChain = RuleChain.outerRule(permissionRule).around(sessionRule).around(composeRule)
 
     private val flow by lazy { ScreenshotFlow(composeRule) }
 
@@ -198,20 +204,24 @@ class StyleguideScreenshotsTest {
 
     @Test
     fun captureStyleguideScreenshots() {
-        // --- sg_sign-in: the pre-login server chooser. The Screengrabfile
-        // reinstalls the app, so the cold launch always lands on the untouched
-        // chooser (cloud buttons + the demoted self-hosted link). Photograph it
-        // BEFORE the flow reveals the URL field — it is the same surface the
-        // web and desktop `sign-in` shots show.
+        // --- sg_sign-in: the pre-login server chooser. [sessionRule] drops
+        // every account before launch (EXP-1267: no reinstall any more), so the
+        // cold launch always lands on the untouched chooser (cloud buttons +
+        // the demoted self-hosted link). Photograph it BEFORE anything signs
+        // in — it is the same surface the web and desktop `sign-in` shots show.
         flow.awaitInstancePicker()
         flow.settle()
         flow.screenshot("sg_sign-in")
 
         // The password form is deliberately NOT photographed any more
-        // (EXP-642) — the lane still drives it to get signed in.
-        flow.chooseInstance(instanceUrl)
-        flow.awaitLoginScreen()
-        flow.submitLogin()
+        // (EXP-642). EXP-1267: the demo session (reused across runs) is
+        // signed in in-process and the open picker follows it into the app;
+        // the login form only as the fallback.
+        if (!ScreenshotSession.signIn(instanceUrl, DEMO_EMAIL, ScreenshotFlow.DEMO_PASSWORD)) {
+            flow.chooseInstance(instanceUrl)
+            flow.awaitLoginScreen()
+            flow.submitLogin()
+        }
 
         // The app lands on the Agent tab; the board shots start on Issues.
         flow.waitFor(hasTestTag("tab-issues"), SYNC_TIMEOUT)
@@ -220,8 +230,8 @@ class StyleguideScreenshotsTest {
         // --- Board: wait out session fetch + first Electric sync, then let the
         // transient "Syncing…" pill clear (it photobombed a board shot once —
         // EXP-348).
-        flow.waitFor(hasText(SHOWCASE_ISSUE_TITLE), SYNC_TIMEOUT)
-        flow.waitForGone(hasText("Syncing", substring = true), SYNC_TIMEOUT)
+        flow.waitFor(hasText(SHOWCASE_ISSUE_TITLE), FIRST_SYNC_TIMEOUT)
+        flow.waitForGone(hasText("Syncing", substring = true), FIRST_SYNC_TIMEOUT)
         flow.settle()
 
         // --- Board switcher: the board-name control in the pinned nav row
@@ -242,7 +252,11 @@ class StyleguideScreenshotsTest {
         // first card's title keeps the shot off a half-drawn sheet.
         composeRule.onNode(hasTestTag("board-switcher-new-team")).performClick()
         flow.waitFor(hasTestTag("team-setup-sheet"), NAV_TIMEOUT)
-        flow.waitFor(hasText("Create a team"), NAV_TIMEOUT)
+        // P3: the sheet opens on the choice page; "Create a team" pushes the
+        // create page, which is what this view photographs.
+        flow.waitFor(hasTestTag("team-setup-create"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("team-setup-create")).performClick()
+        flow.waitFor(hasText("Create team"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_onboarding-create-team")
         // EXP-687: sheets carry no Cancel pill — back (like a swipe down)
@@ -345,8 +359,8 @@ class StyleguideScreenshotsTest {
         // --- My Issues: the Inbox tab opens on the Inbox segment (EXP-58);
         // the segmented control's label is the only handle on it.
         composeRule.onNode(hasTestTag("tab-mywork")).performClick()
-        flow.waitFor(hasText("My Issues"), NAV_TIMEOUT)
-        composeRule.onAllNodes(hasText("My Issues")).onFirst().performClick()
+        flow.waitFor(hasText("My issues"), NAV_TIMEOUT)
+        composeRule.onAllNodes(hasText("My issues")).onFirst().performClick()
         flow.waitFor(hasText(MY_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_my-issues")
@@ -360,11 +374,11 @@ class StyleguideScreenshotsTest {
         // accounts shot too.
         composeRule.onNode(hasTestTag("tab-devices")).performClick()
         flow.waitFor(hasText("Devices"), NAV_TIMEOUT)
-        flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), SYNC_TIMEOUT)
+        flow.waitFor(hasText(DEMO_DEVICE_NAME, substring = true), NETWORK_TIMEOUT)
         // EXP-944: device rows are collapsed by default; the shot opens the
         // demo device so its logins and their usage are in frame.
         composeRule.onAllNodes(hasText(DEMO_DEVICE_NAME, substring = true)).onFirst().performClick()
-        flow.waitFor(hasTestTag("device-login-row"), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag("device-login-row"), NETWORK_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_agents")
 
@@ -386,7 +400,7 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasContentDescription("Start chat"), NAV_TIMEOUT)
         // The machine pool resolves after the page; the options pills are
         // the demo machine's, so the shot must not precede them.
-        flow.waitForGone(hasText("No desktop online", substring = true), SYNC_TIMEOUT)
+        flow.waitForGone(hasText("No desktop online", substring = true), NETWORK_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_chat")
 
@@ -591,7 +605,7 @@ class StyleguideScreenshotsTest {
             if (flow.waitForOptional(hasTestTag("work-face-guide"), NAV_TIMEOUT)) {
                 composeRule.onNode(hasTestTag("work-face-guide")).performClick()
             }
-            flow.waitFor(hasTestTag("guide-changes-row"), SYNC_TIMEOUT)
+            flow.waitFor(hasTestTag("guide-changes-row"), NETWORK_TIMEOUT)
             flow.settle()
             flow.screenshot("sg_guide")
             // At rest the Changes row can sit under the floating Merge capsule
@@ -622,13 +636,13 @@ class StyleguideScreenshotsTest {
         // the file cards draw. Back twice: the section, then the screen.
         flow.waitFor(hasText(RUN_CHANGES_TITLE, substring = true), SYNC_TIMEOUT)
         composeRule.onAllNodes(hasTestTag("review-run-row")).onFirst().performClick()
-        flow.waitFor(hasTestTag("guide-changes-row"), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag("guide-changes-row"), NETWORK_TIMEOUT)
         composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
         flow.settle()
         composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
         flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
-        flow.waitFor(hasTestTag("changes-file-row"), SYNC_TIMEOUT)
-        flow.waitFor(hasText("unchanged line", substring = true), SYNC_TIMEOUT)
+        flow.waitFor(hasTestTag("changes-file-row"), NETWORK_TIMEOUT)
+        flow.waitFor(hasText("unchanged line", substring = true), NETWORK_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_run-changes")
         composeRule.onNode(hasTestTag("guide-section-back")).performClick()
@@ -682,19 +696,30 @@ class StyleguideScreenshotsTest {
         // `onboardingCompletedAt`, so AppNavHost routes straight into the
         // wizard. NOTHING is submitted: creating a team or accepting an invite
         // would mutate the seed and burn the invite the other lanes photograph.
-        composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
-        composeRule.onAllNodes(hasText("Add server")).onFirst().performClick()
-        flow.chooseInstance(instanceUrl)
-        flow.awaitLoginScreen()
-        flow.submitLogin(ScreenshotFlow.NEWCOMER_EMAIL, ScreenshotFlow.NEWCOMER_PASSWORD)
+        //
+        // EXP-1267: the newcomer's reused session is signed in in-process,
+        // beside the demo account (exactly what "Add server" did); the Add
+        // server + login form path is only the fallback.
+        if (!ScreenshotSession.signIn(
+                instanceUrl,
+                ScreenshotFlow.NEWCOMER_EMAIL,
+                ScreenshotFlow.NEWCOMER_PASSWORD,
+                keepOtherAccounts = true,
+            )
+        ) {
+            composeRule.onNode(hasContentDescription("Back")).performClick()
+            flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
+            composeRule.onAllNodes(hasText("Add server")).onFirst().performClick()
+            flow.chooseInstance(instanceUrl)
+            flow.awaitLoginScreen()
+            flow.submitLogin(ScreenshotFlow.NEWCOMER_EMAIL, ScreenshotFlow.NEWCOMER_PASSWORD)
+        }
         flow.waitFor(hasText("Get started"), SYNC_TIMEOUT)
         composeRule.onAllNodes(hasText("Get started")).onFirst().performClick()
-        flow.waitFor(hasText("Set up your team"), NAV_TIMEOUT)
-        // The mobile wizard shows the Create and Join cards on ONE step — this
-        // single shot is the whole `onboarding` view on Android/iOS (there is no
-        // separate create-team / join screen to photograph).
-        flow.waitFor(hasText("Create team"), NAV_TIMEOUT)
+        // P3: the team step is web's choice page — the mark, "Welcome to
+        // Exponential", Create a team / Join a team.
+        flow.waitFor(hasText("Welcome to Exponential"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag("team-setup-join"), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_onboarding")
 
@@ -712,29 +737,39 @@ class StyleguideScreenshotsTest {
         // signing the newcomer out frees the login flow to bring the starter
         // in beside the still-signed-in demo account.
         composeRule.onAllNodes(hasText("Sign out")).onFirst().performClick()
-        // Where that lands depends on what else holds a token. Invalidating
-        // the ACTIVE row's session keeps the row and flips AppNavHost's
-        // `needsAuth`, so the usual outcome is the login form for the same
-        // instance; the instance picker shows when no account is left at
-        // all, and the demo user's app when the router fell back to them —
-        // the servers list then adds one the same way as above.
-        when {
-            // EXP-857: the resolved login screen leads with "Continue with
-            // email"; awaitLoginScreen below opens the form behind it.
-            flow.waitForOptional(hasTestTag("login-continue-with-email"), NAV_TIMEOUT) -> Unit
-            flow.waitForOptional(hasText(ScreenshotFlow.SELF_HOST_LINK), NAV_TIMEOUT) ->
-                flow.chooseInstance(instanceUrl)
-            else -> {
-                composeRule.onNode(hasContentDescription("Issues")).performClick()
-                flow.waitFor(hasContentDescription("Settings"), NAV_TIMEOUT)
-                composeRule.onNode(hasContentDescription("Settings")).performClick()
-                flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
-                composeRule.onAllNodes(hasText("Add server")).onFirst().performClick()
-                flow.chooseInstance(instanceUrl)
+        // EXP-1267: the starter's reused session, signed in in-process; the
+        // login form only as the fallback below.
+        if (!ScreenshotSession.signIn(
+                instanceUrl,
+                ScreenshotFlow.STARTER_EMAIL,
+                ScreenshotFlow.STARTER_PASSWORD,
+                keepOtherAccounts = true,
+            )
+        ) {
+            // Where the Sign out lands depends on what else holds a token.
+            // Invalidating the ACTIVE row's session keeps the row and flips
+            // AppNavHost's `needsAuth`, so the usual outcome is the login form
+            // for the same instance; the instance picker shows when no account
+            // is left at all, and the demo user's app when the router fell back
+            // to them — the servers list then adds one the same way as above.
+            when {
+                // EXP-857: the resolved login screen leads with "Continue with
+                // email"; awaitLoginScreen below opens the form behind it.
+                flow.waitForOptional(hasTestTag("login-continue-with-email"), NAV_TIMEOUT) -> Unit
+                flow.waitForOptional(hasText(ScreenshotFlow.SELF_HOST_LINK), NAV_TIMEOUT) ->
+                    flow.chooseInstance(instanceUrl)
+                else -> {
+                    composeRule.onNode(hasContentDescription("Issues")).performClick()
+                    flow.waitFor(hasContentDescription("Settings"), NAV_TIMEOUT)
+                    composeRule.onNode(hasContentDescription("Settings")).performClick()
+                    flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
+                    composeRule.onAllNodes(hasText("Add server")).onFirst().performClick()
+                    flow.chooseInstance(instanceUrl)
+                }
             }
+            flow.awaitLoginScreen()
+            flow.submitLogin(ScreenshotFlow.STARTER_EMAIL, ScreenshotFlow.STARTER_PASSWORD)
         }
-        flow.awaitLoginScreen()
-        flow.submitLogin(ScreenshotFlow.STARTER_EMAIL, ScreenshotFlow.STARTER_PASSWORD)
         // The welcome page is step 0 for everyone; the preset only takes
         // effect once the team step has resolved a team.
         if (flow.waitForOptional(hasText("Get started"), SYNC_TIMEOUT)) {
@@ -743,7 +778,8 @@ class StyleguideScreenshotsTest {
 
         // --- Invite step: header + the invite-link creator, before a link is
         // minted (generating one would leave a live invite in the seed).
-        flow.waitFor(hasTestTag("onboarding-invite-step"), SYNC_TIMEOUT)
+        // The starter's teams resolve off a cold first sync.
+        flow.waitFor(hasTestTag("onboarding-invite-step"), FIRST_SYNC_TIMEOUT)
         flow.waitFor(hasTestTag("invite-generate"), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_onboarding-invite")

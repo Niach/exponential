@@ -78,18 +78,18 @@ struct InviteAcceptView: View {
 
             if loading {
                 ProgressView().tint(.white)
-                Text("Accepting invite...")
+                Text("Accepting invite…")
                     .font(.body)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             } else if accepted {
                 Text("Welcome!")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.white)
-                Text("Redirecting...")
+                Text("Redirecting…")
                     .font(.body)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             } else if let error {
-                Text("Invite Failed")
+                Text("Invalid invite")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.white)
                 Text(error)

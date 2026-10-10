@@ -129,8 +129,8 @@ fun SearchScreen(
  * sub-line carrying the board's own glyph, the board name and the identifier —
  * the web `IssueSearchSheet` row, the desktop palette's `render_issue_row` and
  * the iOS `resultRow`. Priority is deliberately absent: no other client shows
- * it here. The anchor glyph is the right one cross-team (EXP-314): status rows
- * are team-scoped and search spans teams.
+ * it here. P53: the glyph is the issue's resolved TEAM status row, the one
+ * the board list draws for the same issue.
  */
 @Composable
 private fun SearchResultRow(result: SearchResult, onClick: () -> Unit) {
@@ -146,7 +146,7 @@ private fun SearchResultRow(result: SearchResult, onClick: () -> Unit) {
     ) {
         IssueRowContent(
             title = issue.title,
-            leading = { StatusIcon(IssueStatus.fromWire(issue.status), size = 16.dp) },
+            leading = { StatusIcon(result.status, size = 16.dp) },
             leadingGap = 10.dp,
             subLine = {
                 Spacer(Modifier.height(2.dp))

@@ -703,6 +703,10 @@ struct BlockTextEditor: UIViewRepresentable {
             // autocapitalisation stays sentence-shaped like every other block.
             tv.returnKeyType = returnKeyType
             tv.textContainerInset = UIEdgeInsets(top: 6, left: 6, bottom: 6, right: 6)
+        } else {
+            // Polish P50: a body starts flush with its header (author name,
+            // issue title), so UIKit's 5pt line-fragment padding goes.
+            tv.textContainer.lineFragmentPadding = 0
         }
         if !isReadOnly, let toolbar {
             tv.inputAccessoryView = toolbar
@@ -969,6 +973,9 @@ struct BlockTextEditor: UIViewRepresentable {
                 ])
                 placeholderLabel = label
             }
+            // A changed placeholder (the composer's "Additional instructions"
+            // once a chip lands) must reach the label every pass.
+            if placeholderLabel?.text != text { placeholderLabel?.text = text }
             placeholderLabel?.isHidden = false
         }
 

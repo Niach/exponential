@@ -49,7 +49,7 @@ pub use pills::{
 pub use rows::{
     bare_row_shell, disclosure_header, flat_row, flat_row_compact, glass_bar, glass_card,
     glass_group, glass_group_rows, glass_group_rows_bare, glass_input_row, glass_picker_row,
-    glass_picker_select, glass_row_card, glass_row_divider, glass_row_input, glass_row_shell,
+    glass_picker_select, glass_row_card, picker_row_chevron, glass_row_divider, glass_row_input, glass_row_shell,
     glass_section_band, glass_section_band_fold, glass_section_header, glass_tab_item,
     glass_tabs_row, glass_toggle_row, list_row, list_row_divider, picker_value_label,
     property_row, segmented, segmented_item, ChevronSide, FLAT_ROW_COMPACT_H,

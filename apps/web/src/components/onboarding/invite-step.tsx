@@ -91,7 +91,6 @@ export function InviteStep({
     <StepCard
       icon={InviteIcon}
       title={ONBOARDING_COPY.invite.title}
-      subtitle={ONBOARDING_COPY.invite.subtitle}
     >
       <div className="space-y-4 p-6">
         {inviteUrl && (

@@ -117,11 +117,9 @@ struct ComposerPlusMenu: View {
     private func value(_ id: ComposerMenu.RowId) -> String? {
         switch id {
         case .effort:
-            launch.effort == LaunchVocabulary.cliDefault ? nil : LaunchVocabulary.effortLabel(launch.effort)
+            launch.effort == LaunchVocabulary.cliDefault ? "CLI default" : LaunchVocabulary.effortLabel(launch.effort)
         case .subagents:
-            launch.subagentModel == LaunchVocabulary.cliDefault
-                ? nil
-                : LaunchVocabulary.subagentModelLabel(launch.subagentModel)
+            LaunchVocabulary.subagentModelLabel(launch.subagentModel)
         case .mcpServers:
             McpServers.pickedValue(launch.mcpServerIds)
         default:

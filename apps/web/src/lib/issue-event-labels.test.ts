@@ -11,9 +11,10 @@ describe(`statusLabel`, () => {
     expect(statusLabel({ from: `backlog`, fromName: `Icebox` }, `from`)).toBe(`Icebox`)
   })
 
-  it(`munges the legacy enum anchor when no name was recorded`, () => {
-    expect(statusLabel({ to: `in_review` }, `to`)).toBe(`in review`)
-    expect(statusLabel({ to: `in_review`, toName: null }, `to`)).toBe(`in review`)
+  it(`reads a name-less legacy anchor as the builtin row's display name`, () => {
+    expect(statusLabel({ to: `in_review` }, `to`)).toBe(`In Review`)
+    expect(statusLabel({ to: `in_review`, toName: null }, `to`)).toBe(`In Review`)
+    expect(statusLabel({ to: `some_custom` }, `to`)).toBe(`some custom`)
   })
 
   it(`keeps the retired todo label`, () => {
@@ -31,6 +32,9 @@ describe(`issueEventPhrase`, () => {
     expect(
       issueEventPhrase(`status_changed`, { toStatusId: `x`, toName: `Ready` })
     ).toBe(`changed status to Ready`)
+    expect(
+      issueEventPhrase(`status_changed`, { from: `backlog`, to: `in_progress` })
+    ).toBe(`changed status from Backlog to In Progress`)
     expect(issueEventPhrase(`status_changed`, { toStatusId: `x` })).toBe(
       `changed status`
     )

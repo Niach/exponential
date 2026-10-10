@@ -16,7 +16,7 @@
 //! the row leaves this server list and re-enters sync at its own pace).
 
 use gpui::{
-    div, Entity, IntoElement, ParentElement, Render, SharedString,
+    div, prelude::FluentBuilder as _, Entity, IntoElement, ParentElement, Render, SharedString,
     Styled, Subscription, Window,
 };
 use gpui_component::{
@@ -183,13 +183,35 @@ impl ArchivedBoardsPane {
             .px_3()
             .py_2()
             .child(board_icon_name_glyph(board.icon.as_deref().unwrap_or_default()))
-            .child(div().flex_1().min_w_0().text_sm().child(board.name.clone()))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .truncate()
+                    .text_sm()
+                    .font_weight(gpui::FontWeight::MEDIUM)
+                    .child(board.name.clone()),
+            )
+            // Web parity: the prefix as a mono readonly pill, then the
+            // "Archived Mon D, YYYY" caption.
+            .when_some(board.prefix.clone().filter(|prefix| !prefix.is_empty()), |row, prefix| {
+                row.child(
+                    crate::surface::glass_pill(
+                        SharedString::from(format!("archived-prefix-{}", board.id)),
+                        PillSize::Sm,
+                        crate::surface::PillMode::Readonly,
+                        cx,
+                    )
+                    .font_family(theme::terminal::FONT_FAMILY)
+                    .child(prefix),
+                )
+            })
             .child(
                 div()
                     .flex_shrink_0()
                     .text_xs()
                     .text_color(cx.theme().muted_foreground)
-                    .child(board.prefix.clone().unwrap_or_default()),
+                    .child(archived_on(board.archived_at.as_deref())),
             )
             .child(
                 glass_pill_button(
@@ -206,6 +228,15 @@ impl ArchivedBoardsPane {
     }
 }
 
+/// Web `formatArchivedOn`: "Archived Jul 1, 2026", bare "Archived" without a
+/// timestamp.
+fn archived_on(archived_at: Option<&str>) -> SharedString {
+    match archived_at.filter(|at| !at.is_empty()) {
+        Some(at) => format!("Archived {}", super::storage::format_created_date(at)).into(),
+        None => "Archived".into(),
+    }
+}
+
 impl Render for ArchivedBoardsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
@@ -218,16 +249,17 @@ impl Render for ArchivedBoardsPane {
         };
         self.ensure_loaded(&team_id, cx);
 
-        // EXP-720: the Sm pill, same as worktrees' Refresh — EXP-862 moved it
-        // into the band's trailing slot, where every pane's header action sits.
-        let refresh = glass_pill_button("archived-boards-refresh", PillSize::Sm, cx)
-            .label("Refresh")
-            .loading(matches!(self.load, Load::Loading))
-            .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)))
-            .into_any_element();
-        let mut body = section(cx).child(crate::surface::glass_section_header(
+        // Web parity: the archive glyph leads the band; no Refresh — the list
+        // refetches on open and after every unarchive.
+        let mut body = section(cx).child(crate::surface::glass_section_band(
+            Some(
+                Icon::from(registry::UI_ARCHIVE)
+                    .xsmall()
+                    .text_color(cx.theme().foreground.opacity(0.5))
+                    .into_any_element(),
+            ),
             "Archived boards",
-            Some(refresh),
+            None,
             cx,
         ));
 
@@ -275,5 +307,16 @@ impl Render for ArchivedBoardsPane {
         }
 
         v_flex().child(body)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::archived_on;
+
+    #[test]
+    fn archived_caption_matches_web() {
+        assert_eq!(archived_on(Some("2026-07-01T10:00:00.000Z")).as_ref(), "Archived Jul 1, 2026");
+        assert_eq!(archived_on(None).as_ref(), "Archived");
     }
 }

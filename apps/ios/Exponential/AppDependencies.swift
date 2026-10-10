@@ -75,6 +75,11 @@ final class AppDependencies: @unchecked Sendable {
     init() {
         let keychain = KeychainStore()
         let accountStore = AccountStore(keychain: keychain)
+        #if DEBUG
+        // EXP-1267: screenshot runs start from a fresh-install state without
+        // erasing the simulator (capture-only, `-uiTesting` + DEBUG).
+        UITestingSession.resetIfRequested(accountStore: accountStore)
+        #endif
         let auth = AuthRepository(accountStore: accountStore)
         let httpClient = HTTPClient(auth: auth)
         let trpc = TrpcClient(httpClient: httpClient, auth: auth)
@@ -87,6 +92,10 @@ final class AppDependencies: @unchecked Sendable {
             DatabaseManager.deleteFiles(forAccountId: accountId)
             SharedBoardMirror.remove(accountId: accountId)
         }
+        #if DEBUG
+        // EXP-1267: the session the UI test minted, persisted like a login.
+        UITestingSession.injectIfProvided(into: auth)
+        #endif
         // One-shot: after the keychain re-key to per-user account ids
         // (AccountStore.migratePerUserIdsIfNeeded), the legacy URL-keyed DB files
         // are orphaned — and may hold the WRONG user's cached data (the very bug

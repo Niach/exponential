@@ -219,12 +219,15 @@ export function FileDiffCard({
         // A PLAIN row, never a button: the hunk's skipped context is not on the
         // wire, so there is nothing to expand to (EXP-895).
         out.push(
+          // The label pins to the VISIBLE left edge (sticky inside the
+          // horizontal scroller), never centred across the scroll width —
+          // on a phone that pushed it off-screen.
           <div
             key={row.key}
-            className="bg-diff-hunk-bg/60 px-3 py-0.5 text-center whitespace-pre text-diff-gutter-fg"
+            className="bg-diff-hunk-bg/60 py-0.5 whitespace-pre text-diff-gutter-fg"
             data-diff-row="gap"
           >
-            {row.text}
+            <span className="sticky left-0 inline-block px-3">{row.text}</span>
           </div>
         )
         continue

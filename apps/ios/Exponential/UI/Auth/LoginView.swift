@@ -31,14 +31,15 @@ struct LoginView: View {
                     // EXP-857: one title across the four clients, and no button
                     // on this screen says "Sign in" any more — signing in and
                     // signing up are the same act here.
-                    Text("Continue to Exponential")
-                        .font(.system(size: 28, weight: .bold))
-                        .foregroundStyle(.white)
+                    AuthBrandHeading(title: "Continue to Exponential")
 
-                    if let instanceUrl = deps.auth.instanceUrl {
+                    if let instanceUrl = deps.auth.instanceUrl,
+                       instanceUrl != AppConstants.defaultCloudUrl {
                         Text(instanceUrl)
                             .font(.caption)
                             .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                            .frame(maxWidth: .infinity)
+                            .padding(.top, 4)
                     }
 
                     Spacer().frame(height: 24)
@@ -46,6 +47,10 @@ struct LoginView: View {
                     if let vm = viewModel {
                         loginContent(vm)
                     }
+
+                    Spacer().frame(height: 24)
+
+                    AuthLegalFooter()
                 }
                 .padding(.horizontal, 32)
                 .padding(.top, 16)
@@ -57,6 +62,7 @@ struct LoginView: View {
             }
             Task {
                 await viewModel?.loadConfig()
+                viewModel?.consumePendingIntent()
             }
         }
     }
@@ -141,8 +147,6 @@ struct LoginView: View {
                         }
                     }
                 }
-                .padding(24)
-                .glassCard()
 
                 if let error = vm.error {
                     Text(error)
@@ -169,7 +173,7 @@ struct LoginView: View {
     }
 
     /// The one-time code branch (EXP-857): address first, then the mailed code.
-    /// Both steps live in the same card the buttons are in.
+    /// Both steps live in the same stack the buttons are in.
     @ViewBuilder
     private func emailCodeForm(_ vm: LoginViewModel, config: AuthConfig) -> some View {
         VStack(spacing: 12) {

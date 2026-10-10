@@ -24,12 +24,26 @@ bun run shots -- --write-only       # re-encode .shots-raw/ into the store; driv
 bun run shots -- --repos-root /Users/Shared/Exponential/repos   # where the desktop lane finds clones
 bun run shots -- --prune            # delete store files the catalog no longer claims
 bun run shots -- --up               # docker compose --profile steer up -d first
+bun run shots -- --jobs 2           # at most two lanes at once (default: unlimited)
+bun run shots -- --serial           # one lane at a time (= --jobs 1)
+bun run shots:plan                  # print the lane schedule and exit
 ```
 
 The orchestrator (`packages/shots/src/capture-all.ts`) preflights everything it
-needs, seeds the demo team, starts the steer-relay stub, runs each platform's
-capture lane, imports the native outputs, and writes the store + index. It exits
-non-zero if any in-scope view failed, after finishing everything else.
+needs, seeds the demo team, starts the steer-relay stub, then runs the capture
+LANES IN PARALLEL (`lanes.ts`): a lane waits only on a resource it shares
+(the screen, one emulator, the device fleet a desktop run joins), each wait
+named in `shots:plan`. iOS store and styleguide own their simulators and
+DerivedData, after ONE `tuist generate`. It imports the native outputs, writes
+the store + index, and exits non-zero if any in-scope view failed, after
+finishing everything else; the summary ends with one rerun line per platform
+for just the failed views.
+
+Native lanes fail FAST (a missing element costs 8–15s, never the old 30–120s;
+one retry; `-collect-test-diagnostics never`) and REUSE the demo sign-in: no
+simulator erase / app reinstall, a cached session token validated with one
+`get-session` and re-minted after a reseed; the typed login runs only as the
+fallback.
 
 ## Only what the diff touched
 

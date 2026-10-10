@@ -107,6 +107,20 @@ public final class UsersApi: Sendable {
         )
     }
 
+    private struct TimezoneResult: Decodable {
+        let timezone: String?
+    }
+
+    /// The caller's stored IANA timezone (`users.timezone`), nil while unset —
+    /// the Account screen's Timezone row reads it.
+    public func timezone(accountId: String) async throws -> String? {
+        let result: TimezoneResult = try await trpc.query(
+            accountId: accountId,
+            path: "users.timezone"
+        )
+        return result.timezone
+    }
+
     // MARK: - Sign-in methods (EXP-1126)
 
     /// The account's sign-in methods: the email-code row's facts, every

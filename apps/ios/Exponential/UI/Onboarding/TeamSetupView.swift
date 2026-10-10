@@ -10,6 +10,19 @@ import SwiftUI
 /// afterwards (membership changes rotate every shape's server-derived where
 /// clause — the EXP-43/46 drain-lag playbook), then hands control back
 /// through the callbacks.
+/// The team step's words (polish round ×4: web `wizard.tsx` is the source).
+enum TeamSetupCopy {
+    static let welcomeTitle = "Welcome to Exponential"
+    static let createTeam = "Create a team"
+    static let joinTeam = "Join a team"
+    static let teamNameLabel = "Team name"
+    static let createSubmit = "Create team"
+    static let inviteLinkLabel = "Invite link"
+    static let invitePlaceholder = "Paste an invite link"
+    static let joinSubmit = "Continue"
+    static let back = "Back"
+}
+
 struct TeamSetupView: View {
     /// Called after `teams.create` succeeded and the pipeline restarted.
     let onCreated: (TeamResult) -> Void
@@ -19,14 +32,28 @@ struct TeamSetupView: View {
     /// step, when they own no machine: EXP-1169).
     let onJoined: () -> Void
 
+    /// The wizard draws web's choice page heading (the mark over "Welcome
+    /// to Exponential"); the Set up a team sheet has its own chrome title.
+    var showsBrandHeading = false
+
     @Environment(AppDependencies.self) private var deps
 
+    /// Polish round ×4 (web `wizard.tsx` ChoiceStep): a choice page with two
+    /// outline buttons that PUSH the create and join pages.
+    enum Mode: Equatable {
+        case choice
+        case create
+        case join
+    }
+
+    @State private var mode: Mode = .choice
     @State private var teamName = ""
     @State private var inviteInput = ""
     @State private var creating = false
     @State private var joining = false
     @State private var createError: String?
     @State private var joinError: String?
+    @Environment(\.motion) private var motion
 
     private var busy: Bool { creating || joining }
 
@@ -39,59 +66,130 @@ struct TeamSetupView: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            // Create a team
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Create a team")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                Text("Start fresh. You become the owner and can invite teammates later.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-
-                GlassTextField("e.g. Acme Inc", text: $teamName)
-                    .font(.subheadline)
-
-                if let createError {
-                    Text(createError)
-                        .font(.caption)
-                        .foregroundStyle(.red.opacity(0.8))
-                }
-
-                GlassSubmitButton(creating ? "Creating…" : "Create team", enabled: canCreate) {
-                    Task { await createTeam() }
-                }
+        Group {
+            switch mode {
+            case .choice: choicePage
+            case .create: createPage
+            case .join: joinPage
             }
-            .padding(20)
-            .glassCard()
-
-            // Join a team
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Join a team")
-                    .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.white)
-                Text("Ask a teammate for an invite link and paste it below.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-
-                GlassTextField("Invite link or token", text: $inviteInput)
-                    .font(.subheadline)
-                    .autocorrectionDisabled()
-                    .textInputAutocapitalization(.never)
-
-                if let joinError {
-                    Text(joinError)
-                        .font(.caption)
-                        .foregroundStyle(.red.opacity(0.8))
-                }
-
-                GlassSubmitButton(joining ? "Joining…" : "Join team", enabled: canJoin) {
-                    Task { await joinTeam() }
-                }
-            }
-            .padding(20)
-            .glassCard()
         }
+        .animation(motion.standard, value: mode)
+    }
+
+    // MARK: - Pages
+
+    /// No card and no line explaining what a team is: the mark, the title,
+    /// two outline buttons.
+    private var choicePage: some View {
+        VStack(spacing: 24) {
+            if showsBrandHeading {
+                AuthBrandHeading(title: TeamSetupCopy.welcomeTitle)
+            }
+            VStack(spacing: 10) {
+                GlassOAuthButton(TeamSetupCopy.createTeam, action: { mode = .create }) {
+                    AppIcon(AppIcons.uiAdd, size: AppIcon.Size.medium)
+                }
+                .accessibilityIdentifier("team-setup-create")
+                GlassOAuthButton(TeamSetupCopy.joinTeam, action: { mode = .join }) {
+                    AppIcon(AppIcons.uiLink, size: AppIcon.Size.medium)
+                }
+                .accessibilityIdentifier("team-setup-join")
+            }
+        }
+    }
+
+    private var createPage: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            pageTitle(TeamSetupCopy.createTeam)
+
+            fieldLabel(TeamSetupCopy.teamNameLabel)
+            GlassTextField("e.g. Acme Inc", text: $teamName)
+                .font(.subheadline)
+
+            if let createError {
+                Text(createError)
+                    .font(.caption)
+                    .foregroundStyle(.red.opacity(0.8))
+            }
+
+            pageFooter(
+                primary: creating ? "Creating…" : TeamSetupCopy.createSubmit,
+                enabled: canCreate,
+                loading: creating
+            ) {
+                Task { await createTeam() }
+            }
+        }
+    }
+
+    private var joinPage: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            pageTitle(TeamSetupCopy.joinTeam)
+
+            fieldLabel(TeamSetupCopy.inviteLinkLabel)
+            GlassTextField(TeamSetupCopy.invitePlaceholder, text: $inviteInput)
+                .font(.subheadline)
+                .autocorrectionDisabled()
+                .textInputAutocapitalization(.never)
+
+            if let joinError {
+                Text(joinError)
+                    .font(.caption)
+                    .foregroundStyle(.red.opacity(0.8))
+            }
+
+            pageFooter(
+                primary: joining ? "Joining…" : TeamSetupCopy.joinSubmit,
+                enabled: canJoin,
+                loading: joining
+            ) {
+                Task { await joinTeam() }
+            }
+        }
+    }
+
+    private func pageTitle(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 24, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.bottom, 12)
+    }
+
+    private func fieldLabel(_ label: String) -> some View {
+        Text(label)
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.white)
+    }
+
+    /// Back (ghost) leading, the page's primary trailing — web's step footer.
+    private func pageFooter(
+        primary: String,
+        enabled: Bool,
+        loading: Bool,
+        action: @escaping () -> Void
+    ) -> some View {
+        HStack(spacing: 12) {
+            Button {
+                createError = nil
+                joinError = nil
+                mode = .choice
+            } label: {
+                HStack(spacing: 6) {
+                    AppIcon(AppIcons.uiChevronLeft, size: AppIcon.Size.small)
+                    Text(TeamSetupCopy.back)
+                }
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .disabled(busy)
+
+            GlassSubmitButton(primary, enabled: enabled, loading: loading, action: action)
+        }
+        .padding(.top, 8)
     }
 
     // MARK: - Actions

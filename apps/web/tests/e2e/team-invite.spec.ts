@@ -58,7 +58,7 @@ test(`generates an invite and accepts it with a second user`, async ({
     await expect(
       memberPage
         .locator(`[data-slot="card-title"]`)
-        .filter({ hasText: `Team Invite` })
+        .filter({ hasText: `Team invite` })
     ).toBeVisible()
     // Signup and login are one merged page (EXP-188) — a single button
     // covers both for anonymous invitees.
@@ -73,9 +73,9 @@ test(`generates an invite and accepts it with a second user`, async ({
     })
 
     await expect(
-      memberPage.getByRole(`button`, { name: `Accept Invite` })
+      memberPage.getByRole(`button`, { name: `Accept invite` })
     ).toBeVisible()
-    await memberPage.getByRole(`button`, { name: `Accept Invite` }).click()
+    await memberPage.getByRole(`button`, { name: `Accept invite` }).click()
 
     // Accepting the invite stamps onboardingCompletedAt server-side, so the
     // invited member never sees the wizard's team/board/invite steps. But a
