@@ -359,8 +359,26 @@ pub(crate) struct Builder<'a, 'b> {
     pub(crate) flex_gaps: HashMap<u32, f32>,
     /// VAPP-103: template items this build instantiated (`maxTemplateItems`).
     pub(crate) template_items: usize,
+    /// VAPP-103 rfix: the nodes this build holds (`maxComponents`): the
+    /// reduced tree's, plus every instantiated item's template subtree (a
+    /// 500-node row × 1000 items never builds).
+    pub(crate) template_nodes: usize,
+    /// An item was refused: every later one is too (the rest).
+    pub(crate) template_refused: bool,
     /// What the build refused (template items past the limit).
     pub(crate) issues: Vec<crate::types::ReduceIssue>,
+}
+
+/// The nodes of a template subtree (children and slots; iterative).
+pub(crate) fn subtree_nodes(root: &UiNode) -> usize {
+    let mut count = 0;
+    let mut stack = vec![root];
+    while let Some(n) = stack.pop() {
+        count += 1;
+        stack.extend(n.children.iter());
+        stack.extend(n.slots.iter().flat_map(|s| s.values()));
+    }
+    count
 }
 
 pub(crate) fn obj(v: Value) -> Props {
@@ -841,7 +859,7 @@ impl<'a, 'b> Builder<'a, 'b> {
                 let suffixes = self.item_suffixes(t, &base);
                 let enclosing = self.enclosing_suffix(node);
                 for i in 0..count {
-                    if !self.take_template_item(&t.component) {
+                    if !self.take_template_item(&t.component, &tpl) {
                         break;
                     }
                     let item_scope = format!("{base}/{i}");
@@ -854,16 +872,29 @@ impl<'a, 'b> Builder<'a, 'b> {
         out
     }
 
-    /// Count one template item against `maxTemplateItems`; past it the
-    /// item is not rendered (one issue per build).
-    fn take_template_item(&mut self, template: &str) -> bool {
-        if self.template_items < crate::limits::MAX_TEMPLATE_ITEMS {
+    /// Count one template item against `maxTemplateItems` and its template
+    /// subtree's nodes (the template node + every descendant through
+    /// children and slots; nested template items are charged when THEY are
+    /// instantiated) against `maxComponents`, on top of the reduced tree's
+    /// own nodes (the build starts there). The first item that does not
+    /// fit either is refused with ONE issue per build, and so is every
+    /// later item (the rest is not rendered).
+    fn take_template_item(&mut self, template: &str, tpl: &UiNode) -> bool {
+        if self.template_refused {
+            return false;
+        }
+        let nodes = subtree_nodes(tpl);
+        let message = if self.template_items >= crate::limits::MAX_TEMPLATE_ITEMS {
+            crate::limits::template_items_issue()
+        } else if self.template_nodes + nodes > crate::limits::MAX_COMPONENTS {
+            crate::limits::components_issue()
+        } else {
             self.template_items += 1;
+            self.template_nodes += nodes;
             return true;
-        }
-        if self.issues.is_empty() {
-            self.issues.push(crate::types::ReduceIssue { id: template.to_string(), message: crate::limits::template_items_issue() });
-        }
+        };
+        self.template_refused = true;
+        self.issues.push(crate::types::ReduceIssue { id: template.to_string(), message });
         false
     }
 
@@ -914,7 +945,7 @@ impl<'a, 'b> Builder<'a, 'b> {
             return None;
         }
         let tpl = (self.ctx.template)(&t.component)?;
-        if !self.take_template_item(&t.component) {
+        if !self.take_template_item(&t.component, &tpl) {
             return None;
         }
         let item_scope = format!("{base}/{idx}");
@@ -980,7 +1011,7 @@ pub fn builtin_icon(slot: &str) -> Option<&'static str> {
 /// Build the layout tree for a normalized root. `Unknown` nodes become
 /// leaves the painter renders as the placeholder.
 pub fn build(root: &UiNode, ctx: &mut BuildContext) -> Built {
-    let mut b = Builder { ctx, nodes: Vec::new(), layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: 1, row_scopes: HashMap::new(), forms: HashMap::new(), sources: HashMap::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, issues: Vec::new() };
+    let mut b = Builder { ctx, nodes: Vec::new(), layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: 1, row_scopes: HashMap::new(), forms: HashMap::new(), sources: HashMap::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, template_nodes: subtree_nodes(root), template_refused: false, issues: Vec::new() };
     if b.add(root, None, 0, "", false).is_none() {
         // An invisible root: an empty surface (one hidden Box).
         let mut n = b.blank(&root.id, "Box", None, 0, NodeKind::Container, "");
@@ -1005,7 +1036,7 @@ pub fn build_subtree(node: &UiNode, parent: &LNode, scope: &str, seed: BuildSeed
     stub.parent = None;
     stub.children.clear();
     let layer = stub.layer;
-    let mut b = Builder { ctx, nodes: vec![stub], layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: u32::MAX / 2, row_scopes: seed.row_scopes, forms: seed.forms, sources: HashMap::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, issues: Vec::new() };
+    let mut b = Builder { ctx, nodes: vec![stub], layers: Vec::new(), lists: Vec::new(), responsive: false, toasts: Vec::new(), pending_toasts: Vec::new(), next_layer: u32::MAX / 2, row_scopes: seed.row_scopes, forms: seed.forms, sources: HashMap::new(), suffixes: HashMap::new(), flex_gaps: HashMap::new(), template_items: 0, template_nodes: subtree_nodes(node), template_refused: false, issues: Vec::new() };
     b.add(node, Some(0), layer, scope, false);
     b.flush_toasts();
     Built { nodes: b.nodes, layers: b.layers, lists: b.lists, responsive: b.responsive, toasts: b.toasts, row_scopes: b.row_scopes, forms: b.forms, issues: b.issues }

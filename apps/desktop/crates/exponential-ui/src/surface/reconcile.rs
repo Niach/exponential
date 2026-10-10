@@ -35,6 +35,8 @@ impl Surface {
         let breakpoint = self.active_breakpoint();
         let built = self.with_build_context(breakpoint.clone(), |ctx| layout_tree::build(&root, ctx));
         self.root = Some(root);
+        // A full build replaces the previous build's refusals.
+        self.build_issues.clear();
         self.note_build_issues(&built.issues);
         self.built_nodes += built.nodes.len() as u32;
         self.responsive = built.responsive;
@@ -49,10 +51,11 @@ impl Surface {
     /// The build's refusals join the surface issues (once each).
     fn note_build_issues(&mut self, issues: &[crate::types::ReduceIssue]) {
         for issue in issues {
-            if !self.issues.contains(issue) {
-                self.issues.push(issue.clone());
+            if !self.build_issues.contains(issue) {
+                self.build_issues.push(issue.clone());
             }
         }
+        self.refresh_issues();
     }
 
     /// Run `f` with the build context of this surface (templates reduced,

@@ -416,11 +416,13 @@ impl Default for SurfaceOptions {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ApplyOutcome {
     pub structure_changed: bool,
-    /// The reduce issues of a whole tree (`set_nested`, `set_components`)
-    /// or this message's own refusal (a data write). VAPP-103: a streamed
-    /// `updateComponents` reduces LAZILY (a surface sent one component
-    /// per message costs linear, not quadratic): its issues are
-    /// [`Surface::issues`] after it.
+    /// The reduce issues of a whole tree (`set_nested`, `set_components`,
+    /// `createSurface`) or this message's own refusal (a data write).
+    /// VAPP-103: a streamed `updateComponents` reduces LAZILY (a surface
+    /// sent one component per message costs linear, not quadratic): it
+    /// reports the issues its OWN components raise (unknown component,
+    /// props, `visible`, children, slots); the tree's (missing ids, cycles,
+    /// limits) are [`Surface::issues`] after it.
     pub issues: Vec<ReduceIssue>,
 }
 
@@ -476,7 +478,13 @@ pub struct Surface {
     nested: Option<NestedNode>,
     data: Value,
     root: Option<UiNode>,
+    /// Every issue: the reduce's, then the last build's (template limits),
+    /// then the styles' (each source kept apart so a rebuild replaces its
+    /// own: an overflow clears when the data shrinks).
     pub(crate) issues: Vec<ReduceIssue>,
+    reduce_issues: Vec<ReduceIssue>,
+    pub(crate) build_issues: Vec<ReduceIssue>,
+    pub(crate) style_issues: Vec<ReduceIssue>,
     local: LocalState,
     states: HashMap<String, Vec<String>>,
 
@@ -577,6 +585,9 @@ impl Surface {
             data: Value::Object(Map::new()),
             root: None,
             issues: Vec::new(),
+            reduce_issues: Vec::new(),
+            build_issues: Vec::new(),
+            style_issues: Vec::new(),
             local: LocalState::default(),
             states: HashMap::new(),
             nodes: Vec::new(),
@@ -1151,7 +1162,11 @@ impl Surface {
         // The previous version of every id this update touches (`None` =
         // new), for the local field values.
         let mut replaced: HashMap<String, Option<FlatComponent>> = HashMap::new();
+        let mut order: Vec<String> = Vec::new();
         for c in list {
+            if !replaced.contains_key(&c.id) {
+                order.push(c.id.clone());
+            }
             match self.component_index.get(&c.id) {
                 Some(&i) => {
                     let old = std::mem::replace(&mut self.components[i], c);
@@ -1168,7 +1183,18 @@ impl Surface {
         self.retain_updated_field_values(&replaced);
         self.reduce_pending = true;
         self.needs_build = true;
-        ApplyOutcome { structure_changed: true, issues: Vec::new() }
+        // The message's own components' issues now (O(message)); the tree's
+        // with the next read ([`Self::issues`]).
+        let options = ReduceOptions::new(&self.catalog_id).with_view(self.view.clone());
+        let (components, index) = (&self.components, &self.component_index);
+        let lookup = |id: &str| index.get(id).map(|&i| components[i].clone());
+        let mut issues = Vec::new();
+        for id in &order {
+            if let Some(&i) = index.get(id.as_str()) {
+                issues.extend(crate::reducer::component_issues(&components[i], &options, &lookup));
+            }
+        }
+        ApplyOutcome { structure_changed: true, issues }
     }
 
     /// The nested authoring form (fixtures, MCP templates) instead of a flat
@@ -1291,7 +1317,6 @@ impl Surface {
     }
 
     fn reduce_now(&mut self) {
-        self.reduce_pending = false;
         self.template_cache.clear();
         self.local.static_keys.clear();
         self.local.key_cache.clear();
@@ -1306,17 +1331,34 @@ impl Surface {
         match result {
             Some(r) => {
                 self.root = Some(r.root);
-                self.issues = r.issues;
+                self.reduce_issues = r.issues;
                 // Round 2: template nodes are lifted out of the tree; items
                 // instantiate them from this table.
                 self.template_cache = r.templates.unwrap_or_default().into_iter().map(|(id, n)| (id, Some(n))).collect();
             }
             None => {
                 self.root = None;
-                self.issues.clear();
+                self.reduce_issues.clear();
             }
         }
+        self.build_issues.clear();
+        self.style_issues.clear();
+        self.refresh_issues();
+        // Only a reduce that RAN clears the flag (a panic above leaves it
+        // pending: the next read reduces again, never a stale root).
+        self.reduce_pending = false;
         self.needs_build = true;
+    }
+
+    /// `issues` = the reduce's + the build's + the styles' (once each).
+    pub(crate) fn refresh_issues(&mut self) {
+        let mut all: Vec<ReduceIssue> = Vec::with_capacity(self.reduce_issues.len() + self.build_issues.len() + self.style_issues.len());
+        for issue in self.reduce_issues.iter().chain(&self.build_issues).chain(&self.style_issues) {
+            if !all.contains(issue) {
+                all.push(issue.clone());
+            }
+        }
+        self.issues = all;
     }
 
     fn gap_px(&self, name: &str) -> f32 {

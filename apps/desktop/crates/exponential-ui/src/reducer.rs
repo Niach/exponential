@@ -318,11 +318,48 @@ fn expand(node: UiNode, issues: &mut Vec<ReduceIssue>, options: &ReduceOptions) 
     }
 }
 
-/// Expand the root, then the lifted templates (one issue list).
+/// Expand the root, then the lifted templates (one issue list); then the
+/// depth cap on the EXPANDED trees (VAPP-103 rfix: a macro adds levels, so
+/// `maxDepth` bounds the reduced tree a host serializes, not the authored
+/// one).
 fn finish(root: UiNode, mut issues: Vec<ReduceIssue>, lifted: IndexMap<String, UiNode>, options: &ReduceOptions) -> ReduceResult {
-    let root = if options.expand { expand(root, &mut issues, options) } else { root };
-    let templates = (!lifted.is_empty()).then(|| lifted.into_iter().map(|(id, n)| (id, if options.expand { expand(n, &mut issues, options) } else { n })).collect());
+    let mut root = if options.expand { expand(root, &mut issues, options) } else { root };
+    cap_depth(&mut root, 1, &mut issues, &options.catalog_id);
+    let templates = (!lifted.is_empty()).then(|| {
+        lifted
+            .into_iter()
+            .map(|(id, n)| {
+                let mut n = if options.expand { expand(n, &mut issues, options) } else { n };
+                cap_depth(&mut n, 1, &mut issues, &options.catalog_id);
+                (id, n)
+            })
+            .collect()
+    });
     ReduceResult { root, issues, templates }
+}
+
+/// A node at level `maxDepth + 1` (the root = 1; children and slots one
+/// level down) becomes the Unknown placeholder for its id and component,
+/// its subtree dropped, with the depth issue (once per id).
+fn cap_depth(node: &mut UiNode, depth: usize, issues: &mut Vec<ReduceIssue>, catalog_id: &str) {
+    if depth > limits::MAX_DEPTH {
+        if node.component != UNKNOWN_COMPONENT || !node.children.is_empty() || node.slots.is_some() {
+            let issue = ReduceIssue { id: node.id.clone(), message: limits::depth_issue() };
+            if !issues.contains(&issue) {
+                issues.push(issue);
+            }
+            *node = unknown(&node.id, &node.component, catalog_id);
+        }
+        return;
+    }
+    crate::deep(|| {
+        for child in &mut node.children {
+            cap_depth(child, depth + 1, issues, catalog_id);
+        }
+        for child in node.slots.iter_mut().flat_map(|s| s.values_mut()) {
+            cap_depth(child, depth + 1, issues, catalog_id);
+        }
+    })
 }
 
 struct Builder<'a> {
@@ -445,6 +482,66 @@ impl Builder<'_> {
         validate_node(&node, id, self.options, true, &mut self.issues);
         Some(node)
     }
+}
+
+/// VAPP-103 rfix: the issues ONE component raises on its own (an unknown
+/// component or basic mapping, its props, `visible`, children it may not
+/// take, slots it lacks): what a streamed `updateComponents` reports at
+/// once while the tree reduces lazily. Tree issues (missing ids, cycles,
+/// depth, limits) come with the next reduce. `lookup` = the surface's
+/// components (a basic component consumes its children).
+pub fn component_issues(flat: &FlatComponent, options: &ReduceOptions, lookup: &dyn Fn(&str) -> Option<FlatComponent>) -> Vec<ReduceIssue> {
+    let mut issues = Vec::new();
+    let id = flat.id.as_str();
+    let stub = |cid: &str| UiNode::new(cid, UNKNOWN_COMPONENT);
+    let mut node;
+    if options.catalog_id == A2UI_BASIC_CATALOG_ID {
+        match map_basic_component(flat, lookup) {
+            None => {
+                issues.push(ReduceIssue { id: id.to_string(), message: format!("basic component {} has no mapping", flat.component) });
+                return issues;
+            }
+            Some(mapped) => {
+                node = UiNode::new(id, mapped.component);
+                node.props = mapped.props;
+                node.children = mapped.children_ids.iter().map(|c| stub(c)).collect();
+                node.template = mapped.template;
+                node.style = mapped.style;
+                node.on = mapped.on;
+                for (slot, child_id) in &mapped.slots {
+                    node.slots.get_or_insert_with(IndexMap::new).insert(slot.clone(), stub(child_id));
+                }
+            }
+        }
+    } else if !options.view.components.contains_key(&flat.component) {
+        issues.push(ReduceIssue { id: id.to_string(), message: format!("unknown component {}", flat.component) });
+        return issues;
+    } else {
+        node = UiNode::new(id, flat.component.clone());
+        node.props = own_props(flat);
+        match &flat.children {
+            Some(FlatChildren::Ids(ids)) => node.children = ids.iter().map(|c| stub(c)).collect(),
+            Some(t @ FlatChildren::Template { .. }) => node.template = t.template(),
+            None => {}
+        }
+        node.style = flat.style.clone();
+        if let Some(visible) = &flat.visible {
+            if valid_visible(visible) {
+                node.visible = Some(visible.clone());
+            } else {
+                issues.push(ReduceIssue { id: id.to_string(), message: VISIBLE_ISSUE.into() });
+            }
+        }
+        node.on = flat.on.clone();
+        for (slot, child_id) in flat.slots.iter().flatten() {
+            node.slots.get_or_insert_with(IndexMap::new).insert(slot.clone(), stub(child_id));
+        }
+    }
+    if let Some(accessibility) = flat.accessibility.as_ref().filter(|a| js_truthy(a)) {
+        node.accessibility = Some(accessibility.clone());
+    }
+    validate_node(&node, id, options, true, &mut issues);
+    issues
 }
 
 /// Reduce a flat component list. Children resolve from the root down, so

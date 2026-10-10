@@ -11,13 +11,15 @@ pub fn limit(name: &str) -> Option<usize> {
     g::LIMIT_VALUES.get(i)?.parse().ok()
 }
 
-/// Nodes the reducer places in one surface's tree (template nodes included).
+/// Nodes the reducer places in one surface's tree (template nodes
+/// included), and nodes one layout build holds: the reduced tree's plus
+/// every template item's subtree.
 pub const MAX_COMPONENTS: usize = 20_000;
-/// Component nesting levels (the root = 1): every reduced tree stays
-/// inside serde_json's 128-level recursion limit (2 JSON levels per node).
-/// The stack is never the bound: the recursive passes grow it on the heap
-/// (`crate::roomy`/`crate::deep`; `tests/robustness.rs` lays a 48-deep
-/// Card surface out on a 128 KB thread).
+/// Nesting levels of the REDUCED tree, after macro expansion (the root =
+/// 1): every reduced tree stays inside serde_json's 128-level recursion
+/// limit (2 JSON levels per node). The stack is never the bound: the
+/// recursive passes grow it on the heap (`crate::roomy`/`crate::deep`;
+/// `tests/robustness.rs` lays a 48-level surface out on a 128 KB thread).
 pub const MAX_DEPTH: usize = 48;
 /// One server message as UTF-8 JSON.
 pub const MAX_MESSAGE_BYTES: usize = 4_194_304;

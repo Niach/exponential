@@ -72,18 +72,39 @@ fn depth_30_and_max_depth_nested_containers_lay_out_in_milliseconds() {
     }
 }
 
-/// Item 3: a surface `maxDepth` deep (Cards: the heaviest macro) lays out on
-/// a quarter of an iOS thread's stack; deeper is an issue and an Unknown.
+/// Item 3: a surface `maxDepth` deep lays out on a quarter of an iOS
+/// thread's stack; deeper is an issue and an Unknown. VAPP-103 rfix: the cap
+/// holds on the REDUCED tree (a Card's macro adds levels): a 47-deep Card
+/// chain (Section and Group too) is cut where its expansion passes `maxDepth`, and every reduced
+/// tree round-trips through serde_json's default recursion limit.
 #[test]
 fn a_max_depth_surface_lays_out_on_a_small_stack() {
-    for component in ["Card", "Stack", "Section", "Group"] {
-        let frames = on_small_stack(move || {
+    for component in ["Card", "Stack", "Section", "Group", "Box"] {
+        let (issues, frames) = on_small_stack(move || {
             let mut s = surface(chain(component, MAX_DEPTH - 1));
-            assert!(s.issues().is_empty(), "{component}: {:?}", s.issues());
-            layout(&mut s).frames.len()
+            let issues = s.issues().to_vec();
+            (issues, layout(&mut s).frames.len())
         });
+        let depth_cut = issues.iter().any(|i| i.message == limits::depth_issue());
+        assert_eq!(depth_cut, matches!(component, "Card" | "Section" | "Group"), "{component}: {:?}", messages(&issues));
         assert!(frames >= MAX_DEPTH, "{component}: {frames} frames");
+        let r = reduce_surface(&flat(&chain(component, MAX_DEPTH - 1)), &ReduceOptions::new(CORE));
+        assert!(tree_depth(&r.root) <= MAX_DEPTH + 1, "{component}: reduced depth {}", tree_depth(&r.root));
+        let text = serde_json::to_string(&r).expect("serialize");
+        serde_json::from_str::<Value>(&text).unwrap_or_else(|e| panic!("{component}: the reduced JSON reparses: {e}"));
     }
+}
+
+/// Levels of a reduced tree (the root = 1; children and slots).
+fn tree_depth(root: &exponential_ui::types::UiNode) -> usize {
+    let mut max = 0;
+    let mut stack = vec![(root, 1usize)];
+    while let Some((n, d)) = stack.pop() {
+        max = max.max(d);
+        stack.extend(n.children.iter().map(|c| (c, d + 1)));
+        stack.extend(n.slots.iter().flat_map(|s| s.values()).map(|c| (c, d + 1)));
+    }
+    max
 }
 
 #[test]
@@ -154,6 +175,31 @@ fn past_max_template_items_the_rest_is_not_rendered() {
 
 /// Item 6: a surface streamed one component per message costs linear
 /// (each message re-reduced the whole surface: 2,000 messages = 3.45 s).
+/// VAPP-103 rfix: template items charge their template subtree's nodes
+/// against `maxComponents` (on top of the reduced tree's): a 500-Text row ×
+/// 1000 items was 501k nodes and 3.7 GB. Shrinking the data clears the issue.
+#[test]
+fn template_items_charge_their_nodes_against_max_components() {
+    let k = 500;
+    let mut list = vec![
+        json!({"id": "root", "component": "Stack", "children": {"componentId": "row", "path": "/items"}}),
+        json!({"id": "row", "component": "Stack", "children": (0..k).map(|i| format!("t{i}")).collect::<Vec<_>>()}),
+    ];
+    list.extend((0..k).map(|i| json!({"id": format!("t{i}"), "component": "Text", "text": "x"})));
+    let mut s = surface(list);
+    s.set_data("/items", Some(Value::Array((0..1000).map(|i| json!(i)).collect()))).unwrap();
+    let out = timed(10_000, "500-node row x 1000 items", || layout(&mut s));
+    // The root (1 node) + 39 items × 501 nodes = 19,540 ≤ 20,000 < + 501.
+    let items = (MAX_COMPONENTS - 1) / (k + 1);
+    assert!(out.frames.len() <= MAX_COMPONENTS + 10, "{} frames", out.frames.len());
+    assert!(out.frames.len() >= items * (k + 1), "{} frames", out.frames.len());
+    assert_eq!(messages(s.issues()), vec![format!("row: {}", limits::components_issue())]);
+    s.set_data("/items", Some(Value::Array((0..3).map(|i| json!(i)).collect()))).unwrap();
+    let out = layout(&mut s);
+    assert!(out.frames.len() >= 3 * (k + 1));
+    assert!(s.issues().is_empty(), "the issue clears when the data shrinks: {:?}", s.issues());
+}
+
 #[test]
 fn two_thousand_streamed_messages_cost_linear() {
     let mut s = Surface::new("t", SurfaceOptions::default());
