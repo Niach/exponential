@@ -775,7 +775,9 @@ pub fn resolve_dynamic_json(value_json: String, data_json: String, scope: String
 /// CodeBlock's tokenizer: `[[{kind, text}]]` per line.
 #[uniffi::export]
 pub fn tokenize_code_json(code: String, language: String) -> String {
-    serde_json::to_string(&exponential_ui::code::tokenize_code(&code, &language)).unwrap_or_default()
+    shield("tokenize_code_json", || "[]".to_string(), || {
+        serde_json::to_string(&exponential_ui::code::tokenize_code(&code, &language)).unwrap_or_default()
+    })
 }
 
 /// `{min, max}` of a chart (`series_json` = the Chart's `series`).
@@ -788,19 +790,25 @@ pub fn chart_extent_json(kind: String, series_json: String, min: Option<f64>, ma
 /// `{min, max, step, ticks}`: nice axis ticks.
 #[uniffi::export]
 pub fn nice_ticks_json(min: f64, max: f64, target: u32) -> String {
-    serde_json::to_string(&exponential_ui::chart::nice_ticks(min, max, target as usize)).unwrap_or_default()
+    shield("nice_ticks_json", || r#"{"min":0,"max":0,"step":0,"ticks":[]}"#.to_string(), || {
+        serde_json::to_string(&exponential_ui::chart::nice_ticks(min, max, target as usize)).unwrap_or_default()
+    })
 }
 
 /// 0 = Sunday … 6 = Saturday.
 #[uniffi::export]
 pub fn week_start(locale: String) -> u8 {
-    exponential_ui::locale::week_start(&locale)
+    shield("week_start", || 0, || {
+        exponential_ui::locale::week_start(&locale)
+    })
 }
 
 /// `ltr | rtl`.
 #[uniffi::export]
 pub fn text_direction(locale: String) -> String {
-    exponential_ui::locale::text_direction(&locale).to_string()
+    shield("text_direction", || "ltr".to_string(), || {
+        exponential_ui::locale::text_direction(&locale).to_string()
+    })
 }
 
 /// The built-in strings with `overrides_json` merged over them.
@@ -828,7 +836,9 @@ pub fn resolve_conditions_json(style_json: String, context_json: String) -> Resu
 /// A component's a11y contract `{role, keys}`, if any.
 #[uniffi::export]
 pub fn component_a11y_json(component: String) -> Option<String> {
-    exponential_ui::a11y::component_a11y(&component).map(|a| serde_json::json!({"role": a.role, "keys": a.keys}).to_string())
+    shield("component_a11y_json", || None, || {
+        exponential_ui::a11y::component_a11y(&component).map(|a| serde_json::json!({"role": a.role, "keys": a.keys}).to_string())
+    })
 }
 
 /// The issues of a style object (`[{path, message}]`).
@@ -851,11 +861,39 @@ pub struct Surface {
     last: Mutex<Option<FfiLayout>>,
     /// `FfiSettings.time_zone` as the host set it (the core never reads it).
     time_zone: Mutex<Option<String>>,
+    /// VAPP-103 rfix: the panics [`Surface::shield`] caught, as issues
+    /// (`issues_json` lists them after the core's).
+    panics: Mutex<Vec<exponential_ui::types::ReduceIssue>>,
 }
 
 impl Surface {
     fn wrap(core: CoreSurface) -> Arc<Self> {
-        Arc::new(Surface { inner: Mutex::new(core), pass: Mutex::new(()), pass_thread: Mutex::new(None), last: Mutex::new(None), time_zone: Mutex::new(None) })
+        Arc::new(Surface { inner: Mutex::new(core), pass: Mutex::new(()), pass_thread: Mutex::new(None), last: Mutex::new(None), time_zone: Mutex::new(None), panics: Mutex::new(Vec::new()) })
+    }
+
+    /// [`shield`] for a surface method: the panic is also an issue of this
+    /// surface (`{id: "ffi.<method>", message: "panicked: …"}`, once each).
+    fn shield<T>(&self, what: &str, fallback: impl FnOnce() -> T, f: impl FnOnce() -> T) -> T {
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+            Ok(v) => v,
+            Err(payload) => {
+                let issue = exponential_ui::types::ReduceIssue { id: format!("ffi.{what}"), message: format!("panicked: {}", panic_text(payload.as_ref())) };
+                let mut panics = self.panics.lock().unwrap_or_else(|e| e.into_inner());
+                if !panics.contains(&issue) {
+                    panics.push(issue);
+                }
+                drop(panics);
+                fallback()
+            }
+        }
+    }
+
+    /// The last completed layout, marked `reentrant` (nothing new to paint):
+    /// what a panicking `layout` answers.
+    fn last_layout(&self) -> FfiLayout {
+        let mut last = self.last.lock().unwrap_or_else(|e| e.into_inner()).clone().unwrap_or_else(empty_layout);
+        last.reentrant = true;
+        last
     }
 
     fn core(&self) -> std::sync::MutexGuard<'_, CoreSurface> {
@@ -890,6 +928,40 @@ impl Drop for PassGuard<'_> {
             self.surface.core().layout_abort();
         }
     }
+}
+
+/// VAPP-103 rfix: every NON-throwing exported call runs its body here.
+/// UniFFI turns a Rust panic into a Swift `try!` crash (and a Kotlin
+/// `InternalException`) for a call that cannot throw, so a panic (a core
+/// bug, a host callback that threw inside a pass) answers `fallback()`
+/// instead: a safe empty value of the same type, the panic text on stderr
+/// (a surface method also records it as an issue: [`Surface::shield`]).
+/// Calls that return `Result` already throw a catchable error; the
+/// constructors without a `Result` (`HostRouter`, `JsonlDecoder`,
+/// `SseDecoder`) only allocate their empty state and have no value to fall
+/// back to.
+fn shield<T>(what: &str, fallback: impl FnOnce() -> T, f: impl FnOnce() -> T) -> T {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) {
+        Ok(v) => v,
+        Err(payload) => {
+            eprintln!("exponential-ui-ffi: {what} panicked: {}", panic_text(payload.as_ref()));
+            fallback()
+        }
+    }
+}
+
+fn panic_text(payload: &(dyn std::any::Any + Send)) -> String {
+    payload.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| payload.downcast_ref::<String>().cloned()).unwrap_or_else(|| "unknown panic".into())
+}
+
+/// A decoder call's fallback: no messages, one issue.
+fn panic_decoded_json(what: &str) -> String {
+    serde_json::json!({"messages": [], "issues": [{"at": 0, "message": format!("{what} panicked")}]}).to_string()
+}
+
+/// A theme check's fallback: one issue.
+fn panic_issues_json(what: &str) -> String {
+    serde_json::json!([{"path": "theme", "message": format!("{what} panicked")}]).to_string()
 }
 
 fn empty_layout() -> FfiLayout {
@@ -942,17 +1014,23 @@ impl Surface {
 
     /// Paint with this `Theme` object from the next pass on.
     pub fn set_theme(&self, theme: Arc<Theme>) {
-        self.core().set_theme(Some(theme.inner.clone()));
+        self.shield("set_theme", || (), || {
+            self.core().set_theme(Some(theme.inner.clone()));
+        })
     }
 
     /// The theme in force, as a `Theme` object (null in geometry mode).
     pub fn theme(&self) -> Option<Arc<Theme>> {
-        self.core().theme().map(|t| Arc::new(Theme { inner: t.clone() }))
+        self.shield("theme", || None, || {
+            self.core().theme().map(|t| Arc::new(Theme { inner: t.clone() }))
+        })
     }
 
     /// `light|dark`.
     pub fn mode(&self) -> String {
-        self.core().mode().as_str().to_string()
+        self.shield("mode", || "light".to_string(), || {
+            self.core().mode().as_str().to_string()
+        })
     }
 
     /// Load a theme file (JSON; `extends` may name a built-in) and use it.
@@ -982,8 +1060,10 @@ impl Surface {
     }
 
     pub fn settings(&self) -> FfiSettings {
-        let zone = self.time_zone.lock().unwrap_or_else(|e| e.into_inner()).clone();
-        settings_out(self.core().settings(), zone)
+        self.shield("settings", || settings_out(&SurfaceSettings::default(), None), || {
+            let zone = self.time_zone.lock().unwrap_or_else(|e| e.into_inner()).clone();
+            settings_out(self.core().settings(), zone)
+        })
     }
 
     /// Every setting at once (what changed takes effect on the next layout).
@@ -995,7 +1075,9 @@ impl Surface {
     }
 
     pub fn set_locale(&self, locale: String) {
-        self.core().set_locale(&locale)
+        self.shield("set_locale", || (), || {
+            self.core().set_locale(&locale)
+        })
     }
 
     /// Built-in string overrides `{id: text}`.
@@ -1019,17 +1101,23 @@ impl Surface {
 
     /// Dynamic Type / font scale (1 = the theme's sizes).
     pub fn set_font_scale(&self, scale: f32) {
-        self.core().set_font_scale(scale)
+        self.shield("set_font_scale", || (), || {
+            self.core().set_font_scale(scale)
+        })
     }
 
     /// Safe-area insets layers keep clear of.
     pub fn set_insets(&self, top: f32, right: f32, bottom: f32, left: f32) {
-        self.core().set_insets(Insets { top, right, bottom, left })
+        self.shield("set_insets", || (), || {
+            self.core().set_insets(Insets { top, right, bottom, left })
+        })
     }
 
     /// A hover-capable pointer, the reduced-motion preference.
     pub fn set_pointer(&self, hover: bool, reduced_motion: bool) {
-        self.core().set_pointer(hover, reduced_motion)
+        self.shield("set_pointer", || (), || {
+            self.core().set_pointer(hover, reduced_motion)
+        })
     }
 
     /// Round 2 (VAPP-100): the theme the core resolves against, as a
@@ -1039,17 +1127,23 @@ impl Surface {
     /// core layout's values. Null in geometry mode. Read it again after a
     /// theme or settings change.
     pub fn effective_theme(&self) -> Option<Arc<Theme>> {
-        self.core().effective_theme().map(|t| Arc::new(Theme { inner: t.clone() }))
+        self.shield("effective_theme", || None, || {
+            self.core().effective_theme().map(|t| Arc::new(Theme { inner: t.clone() }))
+        })
     }
 
     /// The theme in effect (density + contrast applied), as JSON.
     pub fn effective_theme_json(&self) -> Option<String> {
-        self.core().effective_theme().map(|t| serde_json::to_string(&**t).unwrap_or_default())
+        self.shield("effective_theme_json", || None, || {
+            self.core().effective_theme().map(|t| serde_json::to_string(&**t).unwrap_or_default())
+        })
     }
 
     /// The built-in string table in effect, as JSON.
     pub fn strings_json(&self) -> String {
-        serde_json::to_string(self.core().strings()).unwrap_or_default()
+        self.shield("strings_json", || "{}".to_string(), || {
+            serde_json::to_string(self.core().strings()).unwrap_or_default()
+        })
     }
 
     /// Register an extension catalog (its JSON definition), validated.
@@ -1089,84 +1183,108 @@ impl Surface {
     }
 
     pub fn data_json(&self) -> String {
-        self.core().data().to_string()
+        self.shield("data_json", || "{}".to_string(), || {
+            self.core().data().to_string()
+        })
     }
 
     pub fn issues_json(&self) -> String {
-        serde_json::to_string(self.core().issues()).unwrap_or_default()
+        self.shield("issues_json", || serde_json::to_string(&*self.panics.lock().unwrap_or_else(|e| e.into_inner())).unwrap_or_default(), || {
+            let mut issues = self.core().issues().to_vec();
+            issues.extend(self.panics.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned());
+            serde_json::to_string(&issues).unwrap_or_default()
+        })
     }
 
     /// Height ≤ 0 = as tall as the content; `max_height` bounds a card.
     pub fn set_viewport(&self, width: f32, height: f32, max_height: Option<f32>) -> bool {
-        self.core().set_viewport(width, height, max_height)
+        self.shield("set_viewport", || false, || {
+            self.core().set_viewport(width, height, max_height)
+        })
     }
 
     /// Off = fractional frames (the default; Android rounds once itself).
     pub fn set_rounding(&self, on: bool) {
-        self.core().set_rounding(on)
+        self.shield("set_rounding", || (), || {
+            self.core().set_rounding(on)
+        })
     }
 
     pub fn set_states(&self, id: String, states: Vec<String>) -> bool {
-        self.core().set_states(&id, states)
+        self.shield("set_states", || false, || {
+            self.core().set_states(&id, states)
+        })
     }
 
     pub fn set_pressed(&self, ids: Vec<String>) -> bool {
-        self.core().set_pressed(&ids)
+        self.shield("set_pressed", || false, || {
+            self.core().set_pressed(&ids)
+        })
     }
 
     /// Round 2 (VAPP-100): the hovered set as a whole (`hover` on exactly
     /// these ids), like `set_pressed`. Recipes' `hover` and `:hover` styles
     /// resolve through it; a hover overlay's trigger opens it.
     pub fn set_hovered(&self, ids: Vec<String>) -> bool {
-        self.core().set_hovered(&ids)
+        self.shield("set_hovered", || false, || {
+            self.core().set_hovered(&ids)
+        })
     }
 
     /// One node's pointer enter (`true`) / leave, its other states kept.
     pub fn set_hover(&self, id: String, hovered: bool) -> bool {
-        self.core().set_hover(&id, hovered)
+        self.shield("set_hover", || false, || {
+            self.core().set_hover(&id, hovered)
+        })
     }
 
     pub fn invalidate_measures(&self) {
-        self.core().invalidate_measures()
+        self.shield("invalidate_measures", || (), || {
+            self.core().invalidate_measures()
+        })
     }
 
     pub fn mark_dirty(&self, index: u32) -> bool {
-        self.core().mark_dirty(index)
+        self.shield("mark_dirty", || false, || {
+            self.core().mark_dirty(index)
+        })
     }
 
     /// One layout pass through the host's measurer (at most three batched
     /// upcalls, each made WITHOUT the surface locked).
     pub fn layout(&self, measurer: Arc<dyn Measurer>) -> FfiLayout {
-        let me = std::thread::current().id();
-        if let Some(last) = self.reentered() {
-            return last;
-        }
-        let _pass = self.pass.lock().unwrap_or_else(|e| e.into_inner());
-        *self.pass_thread.lock().unwrap_or_else(|e| e.into_inner()) = Some(me);
-        // Reset on EVERY exit, unwinding included: a host measurer that
-        // throws (a Kotlin/Swift exception in a callback = a panic here)
-        // must not leave the surface thinking a pass is still running.
-        let mut guard = PassGuard { surface: self, finished: false };
-        let id = measurer.measure_id();
-        let mut step = self.core().layout_begin(id);
-        let out = loop {
-            step = match step {
-                LayoutStep::Intrinsics(leaves) => {
-                    let answers: Vec<Intrinsics> = measurer.measure_intrinsics(leaves_of(self, &leaves)).iter().map(intrinsics).collect();
-                    self.core().layout_intrinsics(&answers)
-                }
-                LayoutStep::Heights(leaves, requests) => {
-                    let heights = measurer.measure_heights(leaves_of(self, &leaves), requests.iter().map(|r| FfiHeightRequest { index: r.index, width: r.width }).collect());
-                    self.core().layout_heights(&heights)
-                }
-                LayoutStep::Done(out) => break convert(*out),
-                LayoutStep::Idle => break empty_layout(),
+        self.shield("layout", || self.last_layout(), || {
+            let me = std::thread::current().id();
+            if let Some(last) = self.reentered() {
+                return last;
+            }
+            let _pass = self.pass.lock().unwrap_or_else(|e| e.into_inner());
+            *self.pass_thread.lock().unwrap_or_else(|e| e.into_inner()) = Some(me);
+            // Reset on EVERY exit, unwinding included: a host measurer that
+            // throws (a Kotlin/Swift exception in a callback = a panic here)
+            // must not leave the surface thinking a pass is still running.
+            let mut guard = PassGuard { surface: self, finished: false };
+            let id = measurer.measure_id();
+            let mut step = self.core().layout_begin(id);
+            let out = loop {
+                step = match step {
+                    LayoutStep::Intrinsics(leaves) => {
+                        let answers: Vec<Intrinsics> = measurer.measure_intrinsics(leaves_of(self, &leaves)).iter().map(intrinsics).collect();
+                        self.core().layout_intrinsics(&answers)
+                    }
+                    LayoutStep::Heights(leaves, requests) => {
+                        let heights = measurer.measure_heights(leaves_of(self, &leaves), requests.iter().map(|r| FfiHeightRequest { index: r.index, width: r.width }).collect());
+                        self.core().layout_heights(&heights)
+                    }
+                    LayoutStep::Done(out) => break convert(*out),
+                    LayoutStep::Idle => break empty_layout(),
+                };
             };
-        };
-        guard.finished = true;
-        drop(guard);
-        *self.last.lock().unwrap_or_else(|e| e.into_inner()) = Some(out.clone());
-        out
+            guard.finished = true;
+            drop(guard);
+            *self.last.lock().unwrap_or_else(|e| e.into_inner()) = Some(out.clone());
+            out
+        })
     }
 
     /// The fixed fake measure (8 px per character, 20 px lines, control
@@ -1190,42 +1308,58 @@ impl Surface {
     }
 
     pub fn structure_version(&self) -> u64 {
-        self.core().structure_version()
+        self.shield("structure_version", || 0, || {
+            self.core().structure_version()
+        })
     }
 
     pub fn node_count(&self) -> u32 {
-        self.core().node_count() as u32
+        self.shield("node_count", || 0, || {
+            self.core().node_count() as u32
+        })
     }
 
     /// Every slot (removed ones as tombstones): fetch once, then patch with
     /// `FfiLayout.delta` through `nodes_at`.
     pub fn nodes(&self) -> Vec<FfiNode> {
-        let mut inner = self.core();
-        let placed = inner.nodes();
-        placed.iter().map(|n| node(n, inner.layout_node(n.index), inner.host_states(&n.id), inner.hover_styled(n.index))).collect()
+        self.shield("nodes", || Vec::new(), || {
+            let mut inner = self.core();
+            let placed = inner.nodes();
+            placed.iter().map(|n| node(n, inner.layout_node(n.index), inner.host_states(&n.id), inner.hover_styled(n.index))).collect()
+        })
     }
 
     /// The given slots only (a delta's `added` + `changed`).
     pub fn nodes_at(&self, indices: Vec<u32>) -> Vec<FfiNode> {
-        let mut inner = self.core();
-        let placed = inner.nodes_at(&indices);
-        placed.iter().map(|n| node(n, inner.layout_node(n.index), inner.host_states(&n.id), inner.hover_styled(n.index))).collect()
+        self.shield("nodes_at", || Vec::new(), || {
+            let mut inner = self.core();
+            let placed = inner.nodes_at(&indices);
+            placed.iter().map(|n| node(n, inner.layout_node(n.index), inner.host_states(&n.id), inner.hover_styled(n.index))).collect()
+        })
     }
 
     pub fn visuals(&self) -> Vec<FfiVisual> {
-        self.core().visuals().iter().map(visual).collect()
+        self.shield("visuals", || Vec::new(), || {
+            self.core().visuals().iter().map(visual).collect()
+        })
     }
 
     pub fn visual(&self, index: u32) -> Option<FfiVisual> {
-        self.core().visual(index).map(visual)
+        self.shield("visual", || None, || {
+            self.core().visual(index).map(visual)
+        })
     }
 
     pub fn text_style(&self, index: u32) -> Option<FfiTextStyle> {
-        self.core().text_style(index).map(text_style)
+        self.shield("text_style", || None, || {
+            self.core().text_style(index).map(text_style)
+        })
     }
 
     pub fn index_of(&self, id: String) -> Option<u32> {
-        self.core().index_of(&id)
+        self.shield("index_of", || None, || {
+            self.core().index_of(&id)
+        })
     }
 
     /// An interaction on node `index`: `press`, `change`, `select`, `submit`,
@@ -1239,27 +1373,37 @@ impl Surface {
     }
 
     pub fn set_open(&self, id: String, open: bool) -> Vec<FfiEvent> {
-        events(self.core().set_open(&id, open))
+        self.shield("set_open", || Vec::new(), || {
+            events(self.core().set_open(&id, open))
+        })
     }
 
     /// A scroll container (any overflow scroll node, a windowed List or
     /// Table) scrolled vertically.
     pub fn scroll(&self, list_id: String, offset: f32) -> bool {
-        self.core().scroll(&list_id, offset)
+        self.shield("scroll", || false, || {
+            self.core().scroll(&list_id, offset)
+        })
     }
 
     pub fn scroll_to(&self, id: String, x: f32, y: f32) -> bool {
-        self.core().scroll_to(&id, x, y)
+        self.shield("scroll_to", || false, || {
+            self.core().scroll_to(&id, x, y)
+        })
     }
 
     /// A Toast's timeout: `open: false`, `dismiss` + `change`.
     pub fn dismiss_toast(&self, id: String) -> Vec<FfiEvent> {
-        events(self.core().dismiss_toast(&id))
+        self.shield("dismiss_toast", || Vec::new(), || {
+            events(self.core().dismiss_toast(&id))
+        })
     }
 
     /// Submit a Form by id (what a `submit` Button or Enter does).
     pub fn submit_form(&self, id: String) -> Vec<FfiEvent> {
-        events(self.core().submit_form(&id))
+        self.shield("submit_form", || Vec::new(), || {
+            events(self.core().submit_form(&id))
+        })
     }
 
     /// `{"focus": {"id"}}` | `{"announce": {"text", "live"}}` |
@@ -1273,17 +1417,23 @@ impl Surface {
     /// Events raised outside a call that returns them (a hover opening a
     /// tooltip, a live region announcing).
     pub fn take_events(&self) -> Vec<FfiEvent> {
-        events(self.core().take_events())
+        self.shield("take_events", || Vec::new(), || {
+            events(self.core().take_events())
+        })
     }
 
     pub fn failing_checks(&self, id: String) -> Vec<String> {
-        self.core().failing_checks(&id)
+        self.shield("failing_checks", || Vec::new(), || {
+            self.core().failing_checks(&id)
+        })
     }
 
     /// A `hoverTimer` event fired (`{owner, delay_ms}`): close that hover
     /// overlay unless its trigger or content is hovered again.
     pub fn hover_timeout(&self, owner: String) -> Vec<FfiEvent> {
-        events(self.core().hover_timeout(&owner))
+        self.shield("hover_timeout", || Vec::new(), || {
+            events(self.core().hover_timeout(&owner))
+        })
     }
 
     /// Round 2: format through the host's formatter (built from the
@@ -1291,11 +1441,13 @@ impl Surface {
     /// formatter is called during a rebuild with the surface locked: it
     /// must not call back into the surface.
     pub fn set_formatter(&self, formatter: Option<Arc<dyn HostFormatter>>) {
-        let f: Arc<dyn exponential_ui::format::Formatter> = match formatter {
-            Some(host) => Arc::new(ForeignFormatter(host)),
-            None => Arc::new(exponential_ui::format::EnglishFormatter),
-        };
-        self.core().set_formatter(f);
+        self.shield("set_formatter", || (), || {
+            let f: Arc<dyn exponential_ui::format::Formatter> = match formatter {
+                Some(host) => Arc::new(ForeignFormatter(host)),
+                None => Arc::new(exponential_ui::format::EnglishFormatter),
+            };
+            self.core().set_formatter(f);
+        })
     }
 
     /// Round 2: the English fallback in the surface zone, as the platform's
@@ -1303,17 +1455,21 @@ impl Surface {
     /// formatter: a host with one formats in its own zone and needs none.
     /// Called with the surface locked: never call the surface from it.
     pub fn set_fallback_zone(&self, zone: Option<Arc<dyn HostZone>>) {
-        let f: Arc<dyn exponential_ui::format::Formatter> = match zone {
-            Some(zone) => Arc::new(exponential_ui::format::ZonedEnglishFormatter::new(Arc::new(move |ms| zone.offset_minutes(ms)))),
-            None => Arc::new(exponential_ui::format::EnglishFormatter),
-        };
-        self.core().set_formatter(f);
+        self.shield("set_fallback_zone", || (), || {
+            let f: Arc<dyn exponential_ui::format::Formatter> = match zone {
+                Some(zone) => Arc::new(exponential_ui::format::ZonedEnglishFormatter::new(Arc::new(move |ms| zone.offset_minutes(ms)))),
+                None => Arc::new(exponential_ui::format::EnglishFormatter),
+            };
+            self.core().set_formatter(f);
+        })
     }
 
     /// Round 2: pin the clock relative times read (epoch ms; `None` = the
     /// wall clock).
     pub fn set_clock(&self, now_ms: Option<f64>) {
-        self.core().set_clock(now_ms);
+        self.shield("set_clock", || (), || {
+            self.core().set_clock(now_ms);
+        })
     }
 
     /// Round 2: whether a time on screen moves with the clock (a
@@ -1321,27 +1477,35 @@ impl Surface {
     /// `false` with a pinned clock): call `tick` at least once a minute
     /// while it holds. Ask after a layout.
     pub fn uses_clock(&self) -> bool {
-        self.core().uses_clock()
+        self.shield("uses_clock", || false, || {
+            self.core().uses_clock()
+        })
     }
 
     /// Round 2: re-bind (call at least once a minute while the surface
     /// shows a `formatRelativeTime` without `now`).
     pub fn tick(&self) {
-        self.core().tick();
+        self.shield("tick", || (), || {
+            self.core().tick();
+        })
     }
 
     /// Round 2: the host's scroll offset of the whole surface; unbounded
     /// lists window against it, sticky nodes pin against it. True = lay
     /// out again.
     pub fn set_surface_scroll(&self, x: f32, y: f32) -> bool {
-        self.core().set_surface_scroll(x, y)
+        self.shield("set_surface_scroll", || false, || {
+            self.core().set_surface_scroll(x, y)
+        })
     }
 
     /// Round 2: bring item `index` (data order) of List/Table `id` into
     /// view; `align` = `start | center | end | nearest` (default).
     pub fn scroll_to_index(&self, id: String, index: u32, align: Option<String>) -> Vec<FfiEvent> {
-        let align = align.as_deref().and_then(exponential_ui::list::ScrollAlign::parse).unwrap_or_default();
-        events(self.core().scroll_to_index(&id, index as usize, align))
+        self.shield("scroll_to_index", || Vec::new(), || {
+            let align = align.as_deref().and_then(exponential_ui::list::ScrollAlign::parse).unwrap_or_default();
+            events(self.core().scroll_to_index(&id, index as usize, align))
+        })
     }
 }
 
@@ -1544,8 +1708,10 @@ pub fn format_pattern_json(pattern: String, fields_json: String, names_json: Opt
 /// `delta_ms` = value − now.
 #[uniffi::export]
 pub fn relative_time_unit_json(delta_ms: f64) -> String {
-    let (value, unit) = exponential_ui::format::relative_time_unit(delta_ms);
-    serde_json::json!({"value": value, "unit": unit.as_str()}).to_string()
+    shield("relative_time_unit_json", || r#"{"value":0,"unit":"second"}"#.to_string(), || {
+        let (value, unit) = exponential_ui::format::relative_time_unit(delta_ms);
+        serde_json::json!({"value": value, "unit": unit.as_str()}).to_string()
+    })
 }
 
 /// Round 2 (§2): the frame of an animation (`timing_json` = a visual's
@@ -1672,16 +1838,22 @@ impl Theme {
     }
 
     pub fn id(&self) -> String {
-        self.inner.id.clone()
+        shield("id", || String::new(), || {
+            self.inner.id.clone()
+        })
     }
 
     pub fn name(&self) -> String {
-        self.inner.name.clone()
+        shield("name", || String::new(), || {
+            self.inner.name.clone()
+        })
     }
 
     /// The RESOLVED theme as JSON (what `builtin_theme_json` returns).
     pub fn resolved_json(&self) -> String {
-        serde_json::to_string(&*self.inner).unwrap_or_default()
+        shield("resolved_json", || "{}".to_string(), || {
+            serde_json::to_string(&*self.inner).unwrap_or_default()
+        })
     }
 
     /// A sub-part's look: `owner_component/part` for the OWNER's props (the
@@ -1696,51 +1868,71 @@ impl Theme {
 
     /// A colour token for the mode (`foreground`, `primary`, `chart1`…), hex.
     pub fn color(&self, name: String, mode: String) -> Option<String> {
-        let mode = Mode::parse(&mode)?;
-        self.inner.modes.get(mode).color.get(&name).cloned()
+        shield("color", || None, || {
+            let mode = Mode::parse(&mode)?;
+            self.inner.modes.get(mode).color.get(&name).cloned()
+        })
     }
 
     /// Every colour token of the mode as `{name: hex}` JSON.
     pub fn colors_json(&self, mode: String) -> String {
-        match Mode::parse(&mode) {
-            Some(mode) => serde_json::to_string(&self.inner.modes.get(mode).color).unwrap_or_default(),
-            None => "{}".into(),
-        }
+        shield("colors_json", || "{}".to_string(), || {
+            match Mode::parse(&mode) {
+                Some(mode) => serde_json::to_string(&self.inner.modes.get(mode).color).unwrap_or_default(),
+                None => "{}".into(),
+            }
+        })
     }
 
     pub fn spacing(&self, name: String) -> Option<f64> {
-        self.inner.tokens.spacing.get(&name).copied()
+        shield("spacing", || None, || {
+            self.inner.tokens.spacing.get(&name).copied()
+        })
     }
 
     pub fn radius(&self, name: String) -> Option<f64> {
-        self.inner.tokens.radius.get(&name).copied()
+        shield("radius", || None, || {
+            self.inner.tokens.radius.get(&name).copied()
+        })
     }
 
     /// A control token in px (`input`, `switch`, `iconSm`…).
     pub fn control(&self, name: String) -> Option<f64> {
-        self.inner.tokens.control.get(&name).copied()
+        shield("control", || None, || {
+            self.inner.tokens.control.get(&name).copied()
+        })
     }
 
     pub fn type_size(&self, name: String) -> Option<f64> {
-        self.inner.tokens.r#type.size.get(&name).copied()
+        shield("type_size", || None, || {
+            self.inner.tokens.r#type.size.get(&name).copied()
+        })
     }
 
     pub fn line_height(&self, name: String) -> Option<f64> {
-        self.inner.tokens.r#type.line_height.get(&name).copied()
+        shield("line_height", || None, || {
+            self.inner.tokens.r#type.line_height.get(&name).copied()
+        })
     }
 
     pub fn opacity(&self, name: String) -> Option<f64> {
-        self.inner.tokens.opacity.get(&name).copied()
+        shield("opacity", || None, || {
+            self.inner.tokens.opacity.get(&name).copied()
+        })
     }
 
     /// A family NAME (`sans` → `Inter`); the host registers the font.
     pub fn font_family(&self, kind: String) -> Option<String> {
-        self.inner.tokens.r#type.family.get(&kind).cloned()
+        shield("font_family", || None, || {
+            self.inner.tokens.r#type.family.get(&kind).cloned()
+        })
     }
 
     /// `{family: {fallback, weights, source}}` JSON.
     pub fn fonts_json(&self) -> String {
-        serde_json::to_string(&self.inner.fonts).unwrap_or_default()
+        shield("fonts_json", || "{}".to_string(), || {
+            serde_json::to_string(&self.inner.fonts).unwrap_or_default()
+        })
     }
 
     /// The numeric box a control's recipe fixes (`{width, height, …}`), JSON.
@@ -1815,27 +2007,35 @@ pub fn load_theme_json(theme_json: String, parents_json: Option<String>) -> Resu
 /// The issues of a theme file (`[]` when it loads).
 #[uniffi::export]
 pub fn theme_issues_json(theme_json: String, parents_json: Option<String>) -> String {
-    match load_theme_inner(&theme_json, parents_json.as_deref()) {
-        Ok(_) => "[]".into(),
-        Err(UiError::Theme { issues_json }) => issues_json,
-        Err(e) => serde_json::json!([{"path": "theme", "message": e.to_string()}]).to_string(),
-    }
+    shield("theme_issues_json", || panic_issues_json("theme_issues_json"), || {
+        match load_theme_inner(&theme_json, parents_json.as_deref()) {
+            Ok(_) => "[]".into(),
+            Err(UiError::Theme { issues_json }) => issues_json,
+            Err(e) => serde_json::json!([{"path": "theme", "message": e.to_string()}]).to_string(),
+        }
+    })
 }
 
 #[uniffi::export]
 pub fn builtin_theme_ids() -> Vec<String> {
-    exponential_ui::themes::BUILTIN_THEME_IDS.iter().map(|s| s.to_string()).collect()
+    shield("builtin_theme_ids", || Vec::new(), || {
+        exponential_ui::themes::BUILTIN_THEME_IDS.iter().map(|s| s.to_string()).collect()
+    })
 }
 
 #[uniffi::export]
 pub fn default_theme_id() -> String {
-    exponential_ui::themes::DEFAULT_THEME_ID.to_string()
+    shield("default_theme_id", || String::new(), || {
+        exponential_ui::themes::DEFAULT_THEME_ID.to_string()
+    })
 }
 
 /// A built-in theme RESOLVED, as JSON.
 #[uniffi::export]
 pub fn builtin_theme_json(id: String) -> Option<String> {
-    exponential_ui::themes::builtin_theme(&id).map(|t| serde_json::to_string(&*t).unwrap_or_default())
+    shield("builtin_theme_json", || None, || {
+        exponential_ui::themes::builtin_theme(&id).map(|t| serde_json::to_string(&*t).unwrap_or_default())
+    })
 }
 
 /// A part's concrete visuals for one mode (`theme_json` = a RESOLVED theme,
@@ -1876,76 +2076,88 @@ pub fn place_overlay(anchor_x: f64, anchor_y: f64, anchor_w: f64, anchor_h: f64,
 /// compare fixtures with.
 #[uniffi::export]
 pub fn json_equal(a: String, b: String) -> bool {
-    match (serde_json::from_str::<Value>(&a), serde_json::from_str::<Value>(&b)) {
-        (Ok(a), Ok(b)) => exponential_ui::json::equal(&a, &b),
-        _ => false,
-    }
+    shield("json_equal", || false, || {
+        match (serde_json::from_str::<Value>(&a), serde_json::from_str::<Value>(&b)) {
+            (Ok(a), Ok(b)) => exponential_ui::json::equal(&a, &b),
+            _ => false,
+        }
+    })
 }
 
 /// The first path where two JSON documents differ (`""` when equal).
 #[uniffi::export]
 pub fn json_diff(a: String, b: String) -> String {
-    fn walk(a: &Value, b: &Value, path: &str) -> Option<String> {
-        match (a, b) {
-            (Value::Object(x), Value::Object(y)) => {
-                for k in x.keys().chain(y.keys()) {
-                    match (x.get(k), y.get(k)) {
-                        (Some(p), Some(q)) => {
-                            if let Some(d) = walk(p, q, &format!("{path}/{k}")) {
-                                return Some(d);
+    shield("json_diff", || "/".to_string(), || {
+        fn walk(a: &Value, b: &Value, path: &str) -> Option<String> {
+            match (a, b) {
+                (Value::Object(x), Value::Object(y)) => {
+                    for k in x.keys().chain(y.keys()) {
+                        match (x.get(k), y.get(k)) {
+                            (Some(p), Some(q)) => {
+                                if let Some(d) = walk(p, q, &format!("{path}/{k}")) {
+                                    return Some(d);
+                                }
                             }
+                            _ => return Some(format!("{path}/{k}")),
                         }
-                        _ => return Some(format!("{path}/{k}")),
                     }
-                }
-                None
-            }
-            (Value::Array(x), Value::Array(y)) => {
-                if x.len() != y.len() {
-                    return Some(format!("{path} (length {} vs {})", x.len(), y.len()));
-                }
-                for (i, (p, q)) in x.iter().zip(y).enumerate() {
-                    if let Some(d) = walk(p, q, &format!("{path}/{i}")) {
-                        return Some(d);
-                    }
-                }
-                None
-            }
-            _ => {
-                if exponential_ui::json::equal(a, b) {
                     None
-                } else {
-                    Some(format!("{path}: {a} vs {b}"))
+                }
+                (Value::Array(x), Value::Array(y)) => {
+                    if x.len() != y.len() {
+                        return Some(format!("{path} (length {} vs {})", x.len(), y.len()));
+                    }
+                    for (i, (p, q)) in x.iter().zip(y).enumerate() {
+                        if let Some(d) = walk(p, q, &format!("{path}/{i}")) {
+                            return Some(d);
+                        }
+                    }
+                    None
+                }
+                _ => {
+                    if exponential_ui::json::equal(a, b) {
+                        None
+                    } else {
+                        Some(format!("{path}: {a} vs {b}"))
+                    }
                 }
             }
         }
-    }
-    match (serde_json::from_str::<Value>(&a), serde_json::from_str::<Value>(&b)) {
-        (Ok(a), Ok(b)) => walk(&a, &b, "").unwrap_or_default(),
-        _ => "unparseable".into(),
-    }
+        match (serde_json::from_str::<Value>(&a), serde_json::from_str::<Value>(&b)) {
+            (Ok(a), Ok(b)) => walk(&a, &b, "").unwrap_or_default(),
+            _ => "unparseable".into(),
+        }
+    })
 }
 
 #[uniffi::export]
 pub fn core_catalog_id() -> String {
-    exponential_ui::catalog::CORE_CATALOG_ID.to_string()
+    shield("core_catalog_id", || String::new(), || {
+        exponential_ui::catalog::CORE_CATALOG_ID.to_string()
+    })
 }
 
 #[uniffi::export]
 pub fn basic_catalog_id() -> String {
-    exponential_ui::catalog::A2UI_BASIC_CATALOG_ID.to_string()
+    shield("basic_catalog_id", || String::new(), || {
+        exponential_ui::catalog::A2UI_BASIC_CATALOG_ID.to_string()
+    })
 }
 
 /// A synthetic ~n-node surface (nested form) for timing.
 #[uniffi::export]
 pub fn bench_tree_json(n: u32) -> String {
-    exponential_ui::bench::bench_tree_json(n as usize)
+    shield("bench_tree_json", || "{}".to_string(), || {
+        exponential_ui::bench::bench_tree_json(n as usize)
+    })
 }
 
 /// The crate version.
 #[uniffi::export]
 pub fn version() -> String {
-    env!("CARGO_PKG_VERSION").to_string()
+    shield("version", || String::new(), || {
+        env!("CARGO_PKG_VERSION").to_string()
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1982,16 +2194,18 @@ impl HostRouter {
     /// array (`[{op: create|components|data|bind|delete|send, …}]`). Never
     /// fails: unparseable text is an INVALID_MESSAGE `send` op.
     pub fn route(&self, message_json: String) -> String {
-        // VAPP-103: an oversized message is refused before it is parsed.
-        if message_json.len() > exponential_ui::limits::MAX_MESSAGE_BYTES {
-            let message = h::error_message(h::INVALID_MESSAGE, "", &exponential_ui::limits::message_bytes_issue(), None);
-            return Value::Array(vec![serde_json::json!({"op": "send", "message": message})]).to_string();
-        }
-        let ops = match serde_json::from_str::<Value>(&message_json) {
-            Ok(message) => self.inner.lock().unwrap_or_else(|e| e.into_inner()).route(&message),
-            Err(_) => vec![serde_json::json!({"op": "send", "message": h::error_message(h::INVALID_MESSAGE, "", "a message is a JSON object", None)})],
-        };
-        Value::Array(ops).to_string()
+        shield("route", || "[]".to_string(), || {
+            // VAPP-103: an oversized message is refused before it is parsed.
+            if message_json.len() > exponential_ui::limits::MAX_MESSAGE_BYTES {
+                let message = h::error_message(h::INVALID_MESSAGE, "", &exponential_ui::limits::message_bytes_issue(), None);
+                return Value::Array(vec![serde_json::json!({"op": "send", "message": message})]).to_string();
+            }
+            let ops = match serde_json::from_str::<Value>(&message_json) {
+                Ok(message) => self.inner.lock().unwrap_or_else(|e| e.into_inner()).route(&message),
+                Err(_) => vec![serde_json::json!({"op": "send", "message": h::error_message(h::INVALID_MESSAGE, "", "a message is a JSON object", None)})],
+            };
+            Value::Array(ops).to_string()
+        })
     }
 
     /// Install a declarative package (JSON); returns its issues as a JSON
@@ -2002,21 +2216,29 @@ impl HostRouter {
     }
 
     pub fn register_extension(&self, id: String) {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).register_extension(&id)
+        shield("register_extension", || (), || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).register_extension(&id)
+        })
     }
 
     pub fn supported_catalog_ids(&self) -> Vec<String> {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).supported_catalog_ids()
+        shield("supported_catalog_ids", || Vec::new(), || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).supported_catalog_ids()
+        })
     }
 
     /// The live surfaces, in creation order.
     pub fn surface_ids(&self) -> Vec<String> {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).surface_ids()
+        shield("surface_ids", || Vec::new(), || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).surface_ids()
+        })
     }
 
     /// The package whose template created the surface (its function policy).
     pub fn package_id_of(&self, surface_id: String) -> Option<String> {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).package_id_of(&surface_id)
+        shield("package_id_of", || None, || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).package_id_of(&surface_id)
+        })
     }
 }
 
@@ -2035,11 +2257,15 @@ impl JsonlDecoder {
     }
 
     pub fn push(&self, chunk: String) -> String {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).push(&chunk).to_json().to_string()
+        shield("push", || panic_decoded_json("push"), || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).push(&chunk).to_json().to_string()
+        })
     }
 
     pub fn end(&self) -> String {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).end().to_json().to_string()
+        shield("end", || panic_decoded_json("end"), || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).end().to_json().to_string()
+        })
     }
 }
 
@@ -2058,11 +2284,15 @@ impl SseDecoder {
     }
 
     pub fn push(&self, chunk: String) -> String {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).push(&chunk).to_json().to_string()
+        shield("push", || panic_decoded_json("push"), || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).push(&chunk).to_json().to_string()
+        })
     }
 
     pub fn end(&self) -> String {
-        self.inner.lock().unwrap_or_else(|e| e.into_inner()).end().to_json().to_string()
+        shield("end", || panic_decoded_json("end"), || {
+            self.inner.lock().unwrap_or_else(|e| e.into_inner()).end().to_json().to_string()
+        })
     }
 }
 
@@ -2070,7 +2300,9 @@ impl SseDecoder {
 /// `{messages, issues}` JSON.
 #[uniffi::export]
 pub fn decode_jsonl_json(text: String) -> String {
-    h::decode_jsonl(&text).to_json().to_string()
+    shield("decode_jsonl_json", || panic_decoded_json("decode_jsonl_json"), || {
+        h::decode_jsonl(&text).to_json().to_string()
+    })
 }
 
 /// The A2UI messages inside an MCP tool result (JSON) → `{messages, issues}`.
@@ -2129,19 +2361,25 @@ pub fn media_request_json(url: String, options_json: String) -> Result<Option<St
 /// does not parse.
 #[uniffi::export]
 pub fn parse_source_json(uri: String) -> Option<String> {
-    h::parse_source(&uri).map(|s| json_string(&s))
+    shield("parse_source_json", || None, || {
+        h::parse_source(&uri).map(|s| json_string(&s))
+    })
 }
 
 /// The core, the core lite, the basic catalog, then the extension ids.
 #[uniffi::export]
 pub fn supported_catalog_ids_for(extension_ids: Vec<String>) -> Vec<String> {
-    h::supported_catalog_ids(&extension_ids)
+    shield("supported_catalog_ids_for", || Vec::new(), || {
+        h::supported_catalog_ids(&extension_ids)
+    })
 }
 
 /// A2UI `a2uiClientCapabilities` JSON.
 #[uniffi::export]
 pub fn client_capabilities_json(extension_ids: Vec<String>) -> String {
-    h::client_capabilities(&extension_ids).to_string()
+    shield("client_capabilities_json", || "{}".to_string(), || {
+        h::client_capabilities(&extension_ids).to_string()
+    })
 }
 
 /// A package's issues `[{path, message}]` JSON (`catalog_ids` default: the
@@ -2173,11 +2411,15 @@ pub fn action_message_json(surface_id: String, component_id: String, name: Strin
 /// A client error message (A2UI v0.9 `error`) JSON.
 #[uniffi::export]
 pub fn error_message_json(code: String, surface_id: String, message: String, path: Option<String>) -> String {
-    h::error_message(&code, &surface_id, &message, path.as_deref()).to_string()
+    shield("error_message_json", || "{}".to_string(), || {
+        h::error_message(&code, &surface_id, &message, path.as_deref()).to_string()
+    })
 }
 
 /// `catalog/host.json` without its comments.
 #[uniffi::export]
 pub fn host_contract_json() -> String {
-    h::host_contract().to_string()
+    shield("host_contract_json", || "{}".to_string(), || {
+        h::host_contract().to_string()
+    })
 }

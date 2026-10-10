@@ -259,13 +259,14 @@ pub enum OutEvent {
     Action { name: String, component_id: String, event: String, context: Value, #[serde(skip_serializing_if = "Option::is_none")] payload: Option<Value> },
     /// `openUrl` or a `Link`.
     OpenUrl { url: String },
-    /// An `on.<event>` `functionCall` (or the legacy `function`) naming a
-    /// HOST function (not one of the catalog's built-ins, `FUNCTION_NAMES`):
-    /// the host looks it up in its registry and runs it through the policy
-    /// gate (`host::decide_function`, VAPP-91). `args` = the call's args
-    /// resolved against the data model and scope. Serialized `{kind:
-    /// "functionCall", componentId, name, args}` (the host API's camelCase;
-    /// the older variants keep `component_id`).
+    /// An `on.<event>` `functionCall` naming a HOST function (not one of
+    /// the catalog's built-ins, `FUNCTION_NAMES`): the host looks it up in
+    /// its registry and runs it through the policy gate
+    /// (`host::decide_function`, VAPP-91). `args` = the call's args resolved
+    /// against the data model and scope. Serialized `{kind: "functionCall",
+    /// componentId, name, args}` (the host API's camelCase; `action`,
+    /// `input` and `pickFiles` still carry `component_id`, which the
+    /// Compose renderer decodes).
     FunctionCall {
         #[serde(rename = "componentId")]
         component_id: String,

@@ -351,6 +351,7 @@ fn the_round_1_fixtures_replay_through_the_free_functions() {
 /// A host measurer that throws (a Kotlin/Swift exception in a callback is a
 /// panic on the Rust side) must not leave the surface stuck in a pass: the
 /// next `layout` runs normally instead of answering `reentrant` forever.
+/// Every other non-throwing call shields its body the same way.
 #[test]
 fn a_panicking_measurer_does_not_freeze_the_surface() {
     struct Throwing(Mutex<u32>);
@@ -377,8 +378,14 @@ fn a_panicking_measurer_does_not_freeze_the_surface() {
     let m = Arc::new(Throwing(Mutex::new(0)));
     let s2 = surface.clone();
     let m2 = m.clone();
+    // VAPP-103 rfix: `layout` cannot throw, so a panic must not cross the
+    // FFI (Swift `try!` crashes): the last layout comes back `reentrant`
+    // and the panic is an issue of the surface.
     let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || s2.layout(m2)));
-    assert!(caught.is_err(), "the measurer's panic propagates");
+    let out = caught.expect("the panic stays on the Rust side");
+    assert!(out.reentrant && out.frames.is_empty(), "nothing new to paint");
+    let issues: Value = serde_json::from_str(&surface.issues_json()).unwrap();
+    assert!(issues.as_array().unwrap().iter().any(|i| i["id"] == "ffi.layout" && i["message"].as_str().unwrap().contains("the host measurer threw")), "{issues}");
     for _ in 0..2 {
         let out = surface.layout(m.clone());
         assert!(!out.reentrant, "not mistaken for a re-entrant call");
