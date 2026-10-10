@@ -2559,7 +2559,7 @@
       "id": "exponential-ui-video",
       "group": "exponential-ui-catalog",
       "title": "Exponential UI · Video",
-      "blurb": "An inline video player with native controls. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/video/.",
+      "blurb": "A video player: the poster until play, then the platform player with its controls. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/video/.",
       "order": 16,
       "web": {
         "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-video",
@@ -2592,7 +2592,7 @@
       "id": "exponential-ui-audio-player",
       "group": "exponential-ui-catalog",
       "title": "Exponential UI · AudioPlayer",
-      "blurb": "An inline audio player with a title and native controls. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/audio-player/.",
+      "blurb": "An audio player with a title and a play control. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/audio-player/.",
       "order": 17,
       "web": {
         "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-audio-player",
@@ -3747,7 +3747,7 @@
       "id": "exponential-ui-sidebar",
       "group": "exponential-ui-catalog",
       "title": "Exponential UI · Sidebar",
-      "blurb": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden below a breakpoint or when `collapsed`; give narrow screens another way in (a TabBar, or a Sheet from an AppBar button). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/sidebar/.",
+      "blurb": "A two-column shell: a navigation column (`sidebar` slot) beside the children, hidden below a breakpoint or when `collapsed`; give narrow screens another way in (a `bar` Segmented, or a Drawer from an AppBar button). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/sidebar/.",
       "order": 64,
       "web": {
         "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-sidebar",

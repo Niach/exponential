@@ -45,7 +45,7 @@ export function ShotFigure({ viewId, platform, title, compact }: { viewId: strin
         <ShotImage viewId={viewId} platform={platform.id} alt={`${title} rendered by the ${platform.renderer} renderer on ${platform.label}`} />
       </div>
       <figcaption>
-        <strong>{platform.label}</strong> <span>{platform.renderer}</span>
+        <strong>{platform.label}</strong>
       </figcaption>
     </figure>
   )

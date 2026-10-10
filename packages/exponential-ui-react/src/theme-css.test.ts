@@ -1,7 +1,7 @@
 // VAPP-87: the theme → CSS compiler.
 
 import { describe, expect, it } from "vitest"
-import { builtinTheme, loadTheme, BUILTIN_THEMES } from "@exponential-at/ui"
+import { builtinTheme, loadTheme, BUILTIN_THEMES, THEME_SCHEMA_ID } from "@exponential-at/ui"
 import { compileTheme, cssValue, declarations, ruleSelectors, themeScope, tokenVar } from "./theme-css"
 import { nodeSheet } from "./box-css"
 
@@ -18,8 +18,8 @@ describe(`compileTheme`, () => {
     expect(neutral.css).toContain(`--xui-font-sans:"Geist", ui-sans-serif, system-ui, sans-serif`)
   })
   it(`two themes with one id but different content get two scopes; the same theme the same`, () => {
-    const a = loadTheme({ id: `brand`, name: `Brand`, extends: `neutral`, modes: { light: { color: { primary: `#2563eb` } } } }, { themes: BUILTIN_THEMES })
-    const b = loadTheme({ id: `brand`, name: `Brand`, extends: `neutral`, modes: { light: { color: { primary: `#dc2626` } } } }, { themes: BUILTIN_THEMES })
+    const a = loadTheme({ $schema: THEME_SCHEMA_ID, id: `brand`, name: `Brand`, extends: `neutral`, modes: { light: { color: { primary: `#2563eb` } } } }, { themes: BUILTIN_THEMES })
+    const b = loadTheme({ $schema: THEME_SCHEMA_ID, id: `brand`, name: `Brand`, extends: `neutral`, modes: { light: { color: { primary: `#dc2626` } } } }, { themes: BUILTIN_THEMES })
     expect(themeScope(a)).not.toBe(themeScope(b))
     expect(themeScope(a)).not.toBe(neutral.scope)
     expect(themeScope(builtinTheme(`neutral`))).toBe(neutral.scope)

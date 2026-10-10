@@ -19,7 +19,7 @@ use std::sync::Arc;
 use exponential_ui::host::{
     action_message, client_capabilities, combine_decisions, decide_function, decide_url, error_message, media_request, package_policy, parse_source,
     FunctionDecision, FunctionPolicy, HostRouter, MediaOptions, MediaRequest, PackageIssue, ParsedSource, UrlPolicy, FUNCTION_DENIED, FUNCTION_NOT_FOUND,
-    UNSUPPORTED_CATALOG, VALIDATION_FAILED,
+    RENDER_FAILED, UNSUPPORTED_CATALOG, VALIDATION_FAILED,
 };
 use exponential_ui::measure::TextStyle;
 use exponential_ui::surface::PlacedNode;
@@ -30,7 +30,7 @@ use gpui::{App, AppContext as _, Context, Entity, Task, WeakEntity};
 use serde_json::Value;
 
 use crate::extension::ExtensionPainter;
-use crate::host::{ActionEvent, FunctionCallEvent, HostPlugin, InputEvent, NoHost};
+use crate::host::{ActionEvent, FunctionCallEvent, HostPlugin, InputEvent, NoHost, PaintError};
 use crate::transport::{Transport, TransportEvent, TransportSink, TransportStatus};
 use crate::view::{SurfaceView, SurfaceViewOptions};
 
@@ -82,8 +82,8 @@ pub const PACKAGE_INVALID: &str = "PACKAGE_INVALID";
 pub const MAX_ISSUES: usize = 100;
 
 /// A package passed in [`HostOptions::packages`] that failed validation
-/// (the TS `PackageError`): [`ExponentialHost::new`] panics with it, so
-/// check first with [`HostOptions::validate_packages`].
+/// (the TS `PackageError`): [`HostOptions::validate_packages`] returns it;
+/// [`ExponentialHost::new`] reports it as issues instead.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PackageError {
     pub package_id: String,
@@ -161,7 +161,7 @@ pub struct HostOptions {
 
 impl HostOptions {
     /// Validate [`HostOptions::packages`] against these options' catalogs
-    /// (what [`ExponentialHost::new`] would panic on).
+    /// (what [`ExponentialHost::new`] would report and skip).
     pub fn validate_packages(&self) -> Result<(), PackageError> {
         let ids: Vec<&str> = self.extensions.iter().map(|e| e.id.as_str()).collect();
         let mut router = HostRouter::new(&ids);
@@ -225,8 +225,6 @@ struct SurfaceEntry {
     /// The server's `createSurface.theme`, resolved (wins over the host's
     /// theme, [`ExponentialHost::set_theme`] included).
     theme: Option<Arc<ResolvedTheme>>,
-    /// The flat components so far (`components` ops merge by id).
-    components: Vec<FlatComponent>,
 }
 
 /// The host runtime entity. Create it with `cx.new(|cx|
@@ -244,6 +242,12 @@ pub struct ExponentialHost {
     policy: HostPolicy,
     /// Shared with every view's plugin adapter (it needs no `cx`).
     media: Rc<RefCell<MediaOptions>>,
+    /// The effective URL policy (the media `baseUrl` when it names none),
+    /// shared like `media`.
+    urls: Rc<RefCell<UrlPolicy>>,
+    /// `onPaintError` dedupe: surface \0 component (cleared per component
+    /// when its props change, per surface on create/delete).
+    paint_errors: std::collections::HashSet<String>,
     theme: Option<Arc<ResolvedTheme>>,
     mode: Mode,
     formatter: Option<Arc<dyn exponential_ui::format::Formatter>>,
@@ -262,9 +266,10 @@ pub struct ExponentialHost {
 }
 
 impl ExponentialHost {
-    /// Panics with a [`PackageError`] when a package in
-    /// [`HostOptions::packages`] fails validation (the TS constructor
-    /// throws); [`HostOptions::validate_packages`] checks first.
+    /// A package in [`HostOptions::packages`] that fails validation is not
+    /// installed: it is reported as PACKAGE_INVALID issues (`on_issue`,
+    /// [`Self::issues`]), never a panic; [`HostOptions::validate_packages`]
+    /// turns it into a [`PackageError`] before the host exists.
     pub fn new(options: HostOptions, cx: &mut Context<Self>) -> Self {
         let (tx, rx) = flume::unbounded::<Inbound>();
         let pump = cx.spawn(async move |this, cx| {
@@ -285,6 +290,8 @@ impl ExponentialHost {
             extensions: options.extensions,
             painters: options.painters,
             media: Rc::new(RefCell::new(options.policy.media.clone().unwrap_or_default())),
+            urls: Rc::new(RefCell::new(effective_urls(&options.policy))),
+            paint_errors: Default::default(),
             policy: options.policy,
             theme: options.theme,
             mode: options.mode,
@@ -302,11 +309,11 @@ impl ExponentialHost {
             this: cx.entity().downgrade(),
             _pump: pump,
         };
+        // VAPP-103: never a panic. A package that fails validation is not
+        // installed and is reported (PACKAGE_INVALID issues, `on_issue`);
+        // `HostOptions::validate_packages` is the hard check.
         for pkg in &options.packages {
-            let issues = host.install_package(pkg);
-            if !issues.is_empty() {
-                panic!("{}", PackageError { package_id: package_id(pkg).unwrap_or_else(|| "?".into()), issues });
-            }
+            host.install_package(pkg);
         }
         host
     }
@@ -416,6 +423,7 @@ impl ExponentialHost {
 
     pub fn set_policy(&mut self, policy: HostPolicy) {
         *self.media.borrow_mut() = policy.media.clone().unwrap_or_default();
+        *self.urls.borrow_mut() = effective_urls(&policy);
         self.policy = policy;
     }
 
@@ -525,7 +533,10 @@ impl ExponentialHost {
                     return;
                 }
                 if let Some(view) = self.surface(&surface_id) {
-                    view.update(cx, |v, cx| v.set_data(&path, Some(value), cx));
+                    if let Err(e) = view.update(cx, |v, cx| v.set_data(&path, Some(value), cx)) {
+                        let at = if path.is_empty() { "/" } else { path.as_str() };
+                        self.send(error_message(VALIDATION_FAILED, &surface_id, &e, Some(at)));
+                    }
                 }
             }
         }
@@ -564,6 +575,7 @@ impl ExponentialHost {
         match op["op"].as_str().unwrap_or("") {
             "create" => {
                 self.unbind(&sid);
+                self.forget_paint_errors(&sid);
                 self.surfaces.retain(|s| s.id != sid);
                 let catalog_id = op["catalogId"].as_str().unwrap_or("").to_string();
                 let surface_theme = match op.get("theme").filter(|t| !t.is_null()).map(resolve_surface_theme) {
@@ -575,7 +587,7 @@ impl ExponentialHost {
                     }
                     None => None,
                 };
-                let plugin = host_plugin_with(self.this.clone(), self.base.clone(), self.media.clone());
+                let plugin = host_plugin_with(self.this.clone(), self.base.clone(), self.media.clone(), self.urls.clone());
                 let options = SurfaceViewOptions {
                     surface_id: sid.clone(),
                     catalog_id: catalog_id.clone(),
@@ -596,11 +608,11 @@ impl ExponentialHost {
                     v
                 });
                 let package_id = self.router.package_id_of(&sid);
-                self.surfaces.push(SurfaceEntry { id: sid, view, catalog_id, package_id, send_data_model: op["sendDataModel"] == Value::Bool(true), theme: surface_theme, components: Vec::new() });
+                self.surfaces.push(SurfaceEntry { id: sid, view, catalog_id, package_id, send_data_model: op["sendDataModel"] == Value::Bool(true), theme: surface_theme });
                 cx.notify();
             }
             "components" => {
-                let Some(entry) = self.surfaces.iter_mut().find(|s| s.id == sid) else { return };
+                let Some(entry) = self.surfaces.iter().find(|s| s.id == sid) else { return };
                 let incoming: Vec<FlatComponent> = match serde_json::from_value(op["components"].clone()) {
                     Ok(c) => c,
                     Err(e) => {
@@ -609,22 +621,19 @@ impl ExponentialHost {
                         return;
                     }
                 };
-                for c in incoming {
-                    match entry.components.iter_mut().find(|x| x.id == c.id) {
-                        Some(slot) => *slot = c,
-                        None => entry.components.push(c),
-                    }
-                }
-                let list = entry.components.clone();
+                // By id, reduced lazily (VAPP-103: a streamed surface costs linear).
                 entry.view.update(cx, |v, cx| {
-                    v.set_components(list, cx);
+                    v.update_components(incoming, cx);
                 });
             }
             "data" => {
                 if let Some(view) = self.surface(&sid) {
                     let path = op["path"].as_str().unwrap_or("").to_string();
                     let value = op.get("value").cloned();
-                    view.update(cx, |v, cx| v.set_data(&path, value, cx));
+                    if let Err(e) = view.update(cx, |v, cx| v.set_data(&path, value, cx)) {
+                        let at = if path.is_empty() { "/" } else { path.as_str() };
+                        self.send(error_message(VALIDATION_FAILED, &sid, &e, Some(at)));
+                    }
                 }
             }
             "bind" => {
@@ -652,6 +661,7 @@ impl ExponentialHost {
                 self.subscriptions.entry(sid).or_default().push((alive, cancel));
             }
             "delete" => {
+                self.forget_paint_errors(&sid);
                 self.unbind(&sid);
                 self.surfaces.retain(|s| s.id != sid);
                 cx.notify();
@@ -742,11 +752,7 @@ impl ExponentialHost {
     /// `openUrl` / `Link` through the URL policy (relative urls against the
     /// policy's or the media `baseUrl`). True when it opened.
     pub fn open_url(&mut self, url: &str, cx: &mut App) -> bool {
-        let mut policy = self.policy.urls.clone().unwrap_or_default();
-        if policy.base_url.is_none() {
-            policy.base_url = self.policy.media.as_ref().and_then(|m| m.base_url.clone());
-        }
-        let d = decide_url(Some(&policy), url);
+        let d = decide_url(Some(&self.urls.borrow()), url);
         let (true, Some(abs)) = (d.allowed, d.url) else { return false };
         match &self.policy.open_url {
             Some(open) => open(&abs, cx),
@@ -760,10 +766,44 @@ impl ExponentialHost {
         media_request(url, &self.media.borrow())
     }
 
+    /// `onPaintError` (`catalog/host.json` paint): a component's painter
+    /// failed. Forwarded ONCE per surface + component + message as an A2UI
+    /// `RENDER_FAILED` error (and so a host issue).
+    /// `onPaintError` → ONE `RENDER_FAILED` per surface + component until
+    /// its props change ([`Self::paint_retry`]) or the surface is recreated.
+    pub fn paint_error(&mut self, error: &PaintError) {
+        let key = format!("{}\0{}", error.surface_id, error.component_id);
+        if !self.paint_errors.insert(key) {
+            return;
+        }
+        let path = format!("/components/{}", error.component_id);
+        self.send(error_message(RENDER_FAILED, &error.surface_id, &error.message, Some(&path)));
+    }
+
+    /// A failed component got new props: its next failure reports again.
+    pub fn paint_retry(&mut self, surface_id: &str, component_id: &str) {
+        self.paint_errors.remove(&format!("{surface_id}\0{component_id}"));
+    }
+
+    fn forget_paint_errors(&mut self, surface_id: &str) {
+        let prefix = format!("{surface_id}\0");
+        self.paint_errors.retain(|k| !k.starts_with(&prefix));
+    }
+
     /// The painter callbacks routed through this host, over `base`.
     pub fn plugin(&self, base: Rc<dyn HostPlugin>) -> Rc<dyn HostPlugin> {
-        host_plugin_with(self.this.clone(), base, self.media.clone())
+        host_plugin_with(self.this.clone(), base, self.media.clone(), self.urls.clone())
     }
+}
+
+/// The URL policy every href passes: the host's `urls`, relative urls
+/// against its `baseUrl`, else the media `baseUrl`.
+fn effective_urls(policy: &HostPolicy) -> UrlPolicy {
+    let mut urls = policy.urls.clone().unwrap_or_default();
+    if urls.base_url.is_none() {
+        urls.base_url = policy.media.as_ref().and_then(|m| m.base_url.clone());
+    }
+    urls
 }
 
 async fn run_function(this: WeakEntity<ExponentialHost>, call: FunctionCallInfo, cx: &mut gpui::AsyncApp) -> FunctionOutcome {
@@ -785,14 +825,15 @@ pub fn host_plugin(host: &Entity<ExponentialHost>, base: Rc<dyn HostPlugin>, cx:
     host.read(cx).plugin(base)
 }
 
-fn host_plugin_with(host: WeakEntity<ExponentialHost>, base: Rc<dyn HostPlugin>, media: Rc<RefCell<MediaOptions>>) -> Rc<dyn HostPlugin> {
-    Rc::new(HostAdapter { host, base, media })
+fn host_plugin_with(host: WeakEntity<ExponentialHost>, base: Rc<dyn HostPlugin>, media: Rc<RefCell<MediaOptions>>, urls: Rc<RefCell<UrlPolicy>>) -> Rc<dyn HostPlugin> {
+    Rc::new(HostAdapter { host, base, media, urls })
 }
 
 struct HostAdapter {
     host: WeakEntity<ExponentialHost>,
     base: Rc<dyn HostPlugin>,
     media: Rc<RefCell<MediaOptions>>,
+    urls: Rc<RefCell<UrlPolicy>>,
 }
 
 impl HostPlugin for HostAdapter {
@@ -816,8 +857,45 @@ impl HostPlugin for HostAdapter {
         self.base.on_function_call(event, cx)
     }
 
+    fn url_policy(&self) -> Option<UrlPolicy> {
+        Some(self.urls.borrow().clone())
+    }
+
+    fn media_options(&self) -> MediaOptions {
+        self.media.borrow().clone()
+    }
+
+    /// The base plugin's request first (a host override: signed urls, its
+    /// own headers), re-checked against the host's media schemes and hosts
+    /// and given the host's rule headers for its url (the base's win per
+    /// header); a base that answers `None` defers to the host's policy over
+    /// `base.resolve_url(src)` (the default hook only knows the default
+    /// schemes).
     fn media_request(&self, src: &str) -> Option<MediaRequest> {
-        self.base.media_request(src).or_else(|| media_request(&self.base.resolve_url(src), &self.media.borrow()))
+        let media = self.media.borrow();
+        match self.base.media_request(src) {
+            Some(req) => {
+                let checked = media_request(&req.url, &MediaOptions { base_url: None, ..media.clone() })?;
+                let mut headers = checked.headers;
+                headers.extend(req.headers);
+                Some(MediaRequest { url: checked.url, headers })
+            }
+            None => media_request(&self.base.resolve_url(src), &media),
+        }
+    }
+
+    fn on_paint_error(&self, error: &PaintError, cx: &mut App) {
+        if let Some(host) = self.host.upgrade() {
+            host.update(cx, |h, _| h.paint_error(error));
+        }
+        self.base.on_paint_error(error, cx)
+    }
+
+    fn on_paint_retry(&self, surface_id: &str, component_id: &str, cx: &mut App) {
+        if let Some(host) = self.host.upgrade() {
+            host.update(cx, |h, _| h.paint_retry(surface_id, component_id));
+        }
+        self.base.on_paint_retry(surface_id, component_id, cx)
     }
 
     fn on_input(&self, event: &InputEvent, cx: &mut App) {
@@ -830,6 +908,10 @@ impl HostPlugin for HostAdapter {
                 h.open_url(url, cx);
             });
         }
+    }
+
+    fn open_media_file(&self, path: &std::path::Path, cx: &mut App) {
+        self.base.open_media_file(path, cx)
     }
 
     fn on_unknown(&self, node: &PlacedNode) {
@@ -891,6 +973,34 @@ pub fn iso_from_millis(ms: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::iso_from_millis;
+
+    /// VAPP-103 rfix: the base plugin's media hook runs first again (a
+    /// signed url), then the host's schemes/hosts re-check it and its rules
+    /// add their headers; a base `None` defers to the host's policy.
+    #[test]
+    fn the_base_media_hook_runs_first_under_the_hosts_policy() {
+        use super::*;
+        struct Signing;
+        impl HostPlugin for Signing {
+            fn media_request(&self, src: &str) -> Option<MediaRequest> {
+                if src.contains("deny") {
+                    return None;
+                }
+                let url = if src.contains("evil") { "https://evil.example/x".to_string() } else { format!("https://files.example{src}?sig=1") };
+                Some(MediaRequest { url, headers: [("x-sig".to_string(), "s".to_string())].into_iter().collect() })
+            }
+        }
+        let rules = vec![exponential_ui::host::MediaRule { prefix: "https://files.example/".into(), headers: [("authorization".to_string(), "Bearer t".to_string())].into_iter().collect() }];
+        let media = MediaOptions { hosts: Some(vec!["files.example".into()]), rules: Some(rules), schemes: Some(vec!["https".into(), "file".into()]), ..Default::default() };
+        let plugin = host_plugin_with(WeakEntity::new_invalid(), Rc::new(Signing), Rc::new(RefCell::new(media)), Rc::new(RefCell::new(UrlPolicy::default())));
+        let req = plugin.media_request("/a.png").expect("the override's url");
+        assert_eq!(req.url, "https://files.example/a.png?sig=1");
+        assert_eq!(req.headers.get("x-sig").map(String::as_str), Some("s"));
+        assert_eq!(req.headers.get("authorization").map(String::as_str), Some("Bearer t"));
+        assert!(plugin.media_request("/evil").is_none(), "the host's hosts list re-checks the override");
+        assert_eq!(plugin.media_request("file:///tmp/deny.png").map(|r| r.url), Some("file:///tmp/deny.png".to_string()), "a base None defers to the host's policy");
+        assert!(plugin.media_request("https://other.example/deny.png").is_none());
+    }
 
     #[test]
     fn timestamps_match_javascript_to_iso_string() {

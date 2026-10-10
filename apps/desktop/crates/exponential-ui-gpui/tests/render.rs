@@ -17,7 +17,7 @@ use exponential_ui::theme::Mode;
 use exponential_ui::themes::builtin_theme;
 use exponential_ui::{ExtensionDef, FlatComponent, NestedNode, A2UI_BASIC_CATALOG_ID};
 use exponential_ui_gpui::extension::{ExtensionPainter, PaintContext};
-use exponential_ui_gpui::host::{ActionEvent, HostPlugin, InputEvent};
+use exponential_ui_gpui::host::{ActionEvent, HostPlugin, InputEvent, PaintError};
 use exponential_ui_gpui::view::{SurfaceView, SurfaceViewOptions};
 use gpui::{div, prelude::*, px, AnyElement, App, Entity, TestAppContext, VisualTestContext, Window};
 use serde::Deserialize;
@@ -31,6 +31,7 @@ fn fixture(name: &str) -> Value {
 
 #[derive(Default)]
 struct Log {
+    paint_errors: Vec<PaintError>,
     actions: Vec<ActionEvent>,
     inputs: Vec<InputEvent>,
     unknown: Vec<String>,
@@ -47,6 +48,9 @@ impl HostPlugin for Recorder {
         self.0.borrow_mut().inputs.push(event.clone());
     }
     fn open_url(&self, _url: &str, _cx: &mut App) {}
+    fn on_paint_error(&self, error: &PaintError, _cx: &mut App) {
+        self.0.borrow_mut().paint_errors.push(error.clone());
+    }
     fn on_unknown(&self, node: &exponential_ui::surface::PlacedNode) {
         self.0.borrow_mut().unknown.push(node.id.clone());
     }
@@ -68,6 +72,19 @@ impl ExtensionPainter for TrendLine {
             row = row.child(div().w(px(4.0)).h(px((ctx.height as f64 * v / max) as f32)).bg(gpui::blue()));
         }
         row.children(ctx.children).into_any_element()
+    }
+}
+
+/// A painter that panics (a prop it cannot paint).
+struct Broken(Rc<std::cell::Cell<u32>>);
+
+impl ExtensionPainter for Broken {
+    fn measure(&self, _: &LeafRequest, _: Option<f32>, _: &mut Window, _: &mut App) -> Option<(f32, f32)> {
+        Some((40.0, 24.0))
+    }
+    fn paint(&self, _: PaintContext, _: &mut Window, _: &mut App) -> AnyElement {
+        self.0.set(self.0.get() + 1);
+        panic!("boom {}", self.0.get())
     }
 }
 
@@ -97,9 +114,9 @@ fn load_kitchen(view: &Entity<SurfaceView>, cx: &mut VisualTestContext) {
         let outcome = v.set_nested(kitchen_sink(), cx);
         assert!(outcome.issues.is_empty(), "{:?}", outcome.issues);
         let posts: Vec<Value> = (0..30).map(|i| json!({"title": format!("Post {i} about self-hosting"), "score": format!("{}", 10 + i)})).collect();
-        v.set_data("/posts", Some(Value::Array(posts)), cx);
-        v.set_data("/draft/title", Some(json!("Hello")), cx);
-        v.set_data("/ui/confirmOpen", Some(json!(false)), cx);
+        v.set_data("/posts", Some(Value::Array(posts)), cx).unwrap();
+        v.set_data("/draft/title", Some(json!("Hello")), cx).unwrap();
+        v.set_data("/ui/confirmOpen", Some(json!(false)), cx).unwrap();
         v.set_viewport_height(800.0, cx);
     });
 }
@@ -287,7 +304,7 @@ fn replay_geometry(cx: &mut TestAppContext, file: &str) -> usize {
             let outcome = v.set_nested(tree, cx);
             assert!(outcome.issues.is_empty(), "{name}: {:?}", outcome.issues);
             if round1 {
-                v.set_data("", Some(fx["data"].clone()), cx);
+                v.set_data("", Some(fx["data"].clone()), cx).unwrap();
             }
         });
         draw(vcx);
@@ -501,7 +518,7 @@ fn typing_debounces_one_change_per_burst_writes_through_and_echoes_apply_when_id
     };
     with_view(cx, &|v, window, cx| {
         v.set_nested(kitchen_sink(), cx);
-        v.set_data("/draft/title", Some(json!("Hello")), cx);
+        v.set_data("/draft/title", Some(json!("Hello")), cx).unwrap();
         v.layout_now(window, cx);
     });
     let field = "echo-field.field";
@@ -527,15 +544,61 @@ fn typing_debounces_one_change_per_burst_writes_through_and_echoes_apply_when_id
     with_view(cx, &|v, _, _| assert_eq!(v.surface().get_data("/draft/title"), Some(&json!("Hello world")), "the bound value wrote through"));
     // A host echo lands in the idle, unfocused field.
     with_view(cx, &|v, window, cx| {
-        v.set_data("/draft/title", Some(json!("Echoed")), cx);
+        v.set_data("/draft/title", Some(json!("Echoed")), cx).unwrap();
         v.layout_now(window, cx);
     });
     with_view(cx, &|v, _, cx| assert_eq!(v.field_text(field, cx).as_deref(), Some("Echoed")));
     // An edit outstanding (inside the debounce) wins over a stale echo.
     with_view(cx, &|v, window, cx| {
         v.type_into(field, "!", window, cx);
-        v.set_data("/draft/title", Some(json!("Stale")), cx);
+        v.set_data("/draft/title", Some(json!("Stale")), cx).unwrap();
         v.layout_now(window, cx);
     });
     with_view(cx, &|v, _, cx| assert_eq!(v.field_text(field, cx).as_deref(), Some("Echoed!")));
+}
+
+#[gpui::test]
+fn a_panicking_painter_paints_nothing_and_reaches_the_host(cx: &mut TestAppContext) {
+    // VAPP-103: `onPaintError` — the surface stays, the host hears it once
+    // per draw that failed (the host runtime dedupes and forwards it).
+    init(cx);
+    let file = fixture("catalog-extension.json");
+    let def: ExtensionDef = serde_json::from_value(file["extension"].clone()).unwrap();
+    let ext = define_extension(def).expect("valid extension");
+    let cases: Vec<ExtensionCase> = serde_json::from_value(file["cases"].clone()).unwrap();
+    let c = cases.into_iter().find(|c| c.name.contains("native passes through")).expect("the TrendLine case");
+    let log = Recorder::default();
+    let options = SurfaceViewOptions { catalog_id: c.catalog_id.clone(), extensions: vec![ext], host: Rc::new(log.clone()), ..Default::default() };
+    let (view, vcx) = open(cx, options);
+    let calls = Rc::new(std::cell::Cell::new(0));
+    let components = c.components.clone();
+    view.update(vcx, |v, cx| {
+        v.register_painter("TrendLine", Box::new(Broken(calls.clone())));
+        v.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "surface", "components": components}}), cx).unwrap();
+    });
+    let hook = std::panic::take_hook();
+    std::panic::set_hook(Box::new(|_| {}));
+    for _ in 0..4 {
+        draw(vcx);
+    }
+    assert!(nodes(&view, vcx) > 0, "the surface still paints");
+    let errors = log.0.borrow().paint_errors.clone();
+    assert_eq!(errors.len(), 1, "the host heard the failure once");
+    assert_eq!(errors[0].surface_id, "surface");
+    assert!(errors[0].message.contains("boom"), "{}", errors[0].message);
+    // VAPP-103 rfix: the failed painter never runs again on the same props
+    // (it panicked, and logged a backtrace, every frame).
+    assert_eq!(calls.get(), 1, "4 frames, one paint attempt");
+    // New props: it paints (and fails, and reports) again, once.
+    let mut changed = serde_json::to_value(&c.components).unwrap();
+    changed[0]["values"] = json!([1, 2]);
+    view.update(vcx, |v, cx| {
+        v.apply(&json!({"version": "v0.9", "updateComponents": {"surfaceId": "surface", "components": changed}}), cx).unwrap();
+    });
+    for _ in 0..3 {
+        draw(vcx);
+    }
+    std::panic::set_hook(hook);
+    assert_eq!(calls.get(), 2);
+    assert_eq!(log.0.borrow().paint_errors.len(), 2);
 }

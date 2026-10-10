@@ -48,6 +48,7 @@ const FUNCTION_CALL = `{"id":"docs","component":"Button","label":"Open the docs"
  "on":{"press":{"functionCall":{"call":"openUrl","args":{"url":"https://ui.exponential.at/"}}}}}`
 
 const THEME = `{
+  "$schema": "https://ui.exponential.at/schemas/theme/v1.json",
   "id": "brand", "name": "Brand", "extends": "neutral",
   "modes": { "dark": { "color": { "primary": "#818cf8" } } },
   "tokens": { "radius": { "md": 10 } },
@@ -89,7 +90,6 @@ export default function ConceptsPage({ path }: PageProps) {
       <section className="docs-hero content-hero">
         <div className="shell docs-hero-content">
           <h1>Concepts</h1>
-          <p>A2UI in five ideas, then the SDK's five words: catalog, theme, extension, host plugin, vapp.</p>
         </div>
       </section>
 
@@ -171,8 +171,8 @@ export default function ConceptsPage({ path }: PageProps) {
           <p>
             A <strong>function call</strong> runs on the client. {FUNCTION_COUNT} functions are built in on every
             renderer: the {BASIC_FUNCTION_COUNT} A2UI basic ones (checks, formatting, <code>openUrl</code>,{` `}
-            <code>and</code>/<code>or</code>/<code>not</code>) and the core ones (value functions, <code>set</code>).
-            A host can register its own behind a policy gate (see{` `}
+            <code>and</code>/<code>or</code>/<code>not</code>) and the core ones (value functions, <code>filter</code>,{` `}
+            <code>set</code>). A host can register its own, always namespaced (<code>app.toast</code>), behind a policy gate (see{` `}
             <a href="#host-plugins">host plugins</a>):
           </p>
           <DocsCode language="json">{FUNCTION_CALL}</DocsCode>

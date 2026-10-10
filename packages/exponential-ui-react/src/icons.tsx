@@ -43,8 +43,8 @@ import {
 } from "lucide-react"
 import type { IconComponent, IconMap } from "./host"
 
-/** The renderer's own chrome that is NOT a catalog part glyph (the busy
- *  spinner, media play) plus the legacy names hosts may still import. */
+/** The renderer's own chrome glyphs that are NOT catalog part glyphs (the
+ *  busy spinner, media play, the field and picker adornments). */
 export const CHROME = {
   check: Check,
   chevronDown: ChevronDown,

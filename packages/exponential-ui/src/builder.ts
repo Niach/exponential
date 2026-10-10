@@ -5,7 +5,7 @@
 
 import { TOKEN_GROUPS } from "./catalog"
 import { toThemeHex } from "./color"
-import { MODES, loadTheme } from "./theme"
+import { MODES, THEME_SCHEMA_ID, loadTheme } from "./theme"
 import type { ModeName, ResolvedTheme, Shadow, ThemeIssue, ThemeSource } from "./theme-types"
 
 /** shadcn / tweakcn variable → theme colour name. */
@@ -175,7 +175,7 @@ export function importShadcnCss(css: string): ThemeImport {
  *  carrying only what the CSS said; without one it is a root and the
  *  caller fills the rest (the builder starts from a built-in anyway). */
 export function themeFromImport(imp: ThemeImport, meta: { id: string; name: string; extends?: string }): ThemeSource {
-  const theme: ThemeSource = { id: meta.id, name: meta.name }
+  const theme: ThemeSource = { $schema: THEME_SCHEMA_ID, id: meta.id, name: meta.name }
   if (meta.extends) theme.extends = meta.extends
   const modes: ThemeSource[`modes`] = {}
   for (const mode of MODES) {
@@ -200,7 +200,7 @@ const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
  *  are already overrides). */
 export function diffTheme(full: ResolvedTheme | ThemeSource, base: ResolvedTheme, meta?: { id?: string; name?: string }): ThemeSource {
   const resolved = `chain` in full ? full : loadTheme(full, { themes: [base] })
-  const out: ThemeSource = { id: meta?.id ?? resolved.id, name: meta?.name ?? resolved.name, extends: base.id }
+  const out: ThemeSource = { $schema: THEME_SCHEMA_ID, id: meta?.id ?? resolved.id, name: meta?.name ?? resolved.name, extends: base.id }
   const modes: ThemeSource[`modes`] = {}
   for (const mode of MODES) {
     const color: Record<string, `#${string}`> = {}

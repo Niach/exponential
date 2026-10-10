@@ -42,6 +42,9 @@ unicode-bidi = "0.3.18"
 # VAPP-91 host runtime: transport threads and source emits hand their events
 # to the gpui main thread through one channel (already in the tree).
 flume.workspace = true
+# VAPP-103: a `file:` media url (only when the host's media schemes list
+# `file`) → its path; the core's url crate, ONE url in the tree.
+url = "2.5"
 # `net`: the blocking client on transport threads (its own private runtime,
 # never gpui's executors), a current-thread tokio runtime per WebSocket.
 reqwest = { workspace = true, optional = true }

@@ -71,6 +71,9 @@ android {
             // share a JVM ("UniffiHandleMap.get: Invalid handle").
             it.forkEvery = 1
             it.maxParallelForks = 2
+            // A CI failure prints its whole stack (the short format names only the
+            // test method's frame, never the coroutine body's failing line).
+            it.testLogging.exceptionFormat = org.gradle.api.tasks.testing.logging.TestExceptionFormat.FULL
         }
     }
 
@@ -133,6 +136,9 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.coroutines.android)
     implementation("${libs.jna.aar.get()}@aar")
+    // VAPP-103: Video / AudioPlayer play their policed src (ExoPlayer; PlayerView = the platform controls).
+    implementation(libs.media3.exoplayer)
+    implementation(libs.media3.ui)
 
     testImplementation(libs.junit)
     testImplementation(libs.jna.aar)

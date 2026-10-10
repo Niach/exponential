@@ -1,5 +1,11 @@
 # Exponential UI — round 2 contract
 
+> **Round 4 (VAPP-103):** this is the round's historical record. Names it
+> uses that round 3 folded (ToggleGroup, TabBar, ButtonGroup, DropdownMenu,
+> ContextMenu, Sheet, HoverCard, Pill, EntityChip, Band, RowList and the
+> ListRow family) are REMOVED from the catalog; `round-3-contract.md` §4 maps
+> each to what replaces it.
+
 Round 2 adds the authoring features round 1 left out, settles the open
 contract questions in TS and Rust together, and turns the 53 gpui-vs-web
 divergence causes into decisions. This file is the CONTRACT half: what
@@ -183,7 +189,7 @@ nothing for null/objects/arrays/NaN. No locale (use `formatNumber`).
 
 **Strings**: `invalidValue` (a failed check without a message), `message`
 (the Composer field's name), `codeBlock` (an untitled CodeBlock region),
-`dialog` (an untitled Dialog/Drawer/Sheet), `table` (an uncaptioned Table),
+`dialog` (an untitled Dialog/Drawer), `table` (an uncaptioned Table),
 `carousel` / `slide` (role descriptions), `resize` (a Resizable handle).
 Replace every hard-coded English label with them: React `natives/shared.tsx`
 `Invalid value`, `inputs.tsx` Composer `aria-label`, `code.tsx` region

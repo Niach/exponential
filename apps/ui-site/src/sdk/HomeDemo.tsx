@@ -88,7 +88,6 @@ export function HomeDemo() {
 
   const messages: Message[] = REPLAY.slice(0, shown)
   const done = shown >= REPLAY.length
-  const landed = shown > 1 ? (REPLAY[shown - 1]!.updateComponents?.components.length ?? 0) : 0
 
   return (
     <div className="sdk-home-demo" ref={root}>
@@ -103,14 +102,12 @@ export function HomeDemo() {
           {Surface && shown > 0 ? (
             <Surface surfaceId={SURFACE_ID} messages={messages} theme="exponential" mode="dark" icons={ICONS} />
           ) : (
-            <div className="sdk-home-idle">
-              <span>Press Send: the answer arrives as A2UI messages and the React renderer paints them as they land.</span>
-            </div>
+            <div className="sdk-home-idle" />
           )}
         </div>
         <div className="sdk-home-status">
           <span className={`sdk-dot${playing ? ` is-live` : ``}`} aria-hidden />
-          {shown === 0 ? `Pre-recorded replay · ${REPLAY.length} messages` : done ? `Done · ${COMPONENTS.length} components in ${REPLAY.length} messages` : `Streaming · ${landed} of ${COMPONENTS.length} components`}
+          {shown === 0 ? `Replay` : done ? `Done` : `Streaming`}
         </div>
       </div>
       <div className="sdk-home-shots" aria-label="The same surface on the native renderers">

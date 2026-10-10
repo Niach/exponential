@@ -119,6 +119,10 @@ class SurfaceMeasurer(
     val live: Map<String, String> = emptyMap(),
     /** (index, id, part) → the part's owner component. */
     val ownerOf: (Int, String, String?) -> String? = { _, _, _ -> null },
+    /** A painter failed measuring component `id` (`onPaintError`; it measures 0×0 and paints an empty box). */
+    val onPaintError: (id: String, message: String) -> Unit = { _, _ -> },
+    /** Whether a markdown image's src passes the host's media policy (the painter asks the same question). */
+    val mediaAllowed: (String) -> Boolean = { true },
 ) : Measurer {
     /** How many answers this measurer gave (stats). */
     var calls = 0
@@ -189,7 +193,13 @@ class SurfaceMeasurer(
         if (leaf.component == "Extension") {
             val kind = kinds[leaf.id] ?: return Answer(Size.Zero)
             val painter = extensions.painter(kind) ?: return Answer(Size.Zero)
-            return Answer(painter.measure(ExtensionLeaf(leaf, theme, mode), wrap) ?: Size.Zero)
+            val size = try {
+                painter.measure(ExtensionLeaf(leaf, theme, mode), wrap)
+            } catch (e: Exception) {
+                onPaintError(leaf.id, "$kind: ${e.message ?: e.toString()}")
+                null
+            }
+            return Answer(size ?: Size.Zero)
         }
         return measureLeaf(leaf, wrap)
     }
@@ -317,7 +327,7 @@ class SurfaceMeasurer(
     }
 
     private fun markdown(leaf: LeafRequest, wrap: Float?): Content {
-        val blocks = Markdown.parse(leaf.props.str("text"))
+        val blocks = Markdown.resolveImages(Markdown.parse(leaf.props.str("text")), mediaAllowed)
         val ts = leaf.textStyle
         val styles = MarkdownPainter.styles(theme, mode, ts, leaf.props)
         val md = MarkdownShaper(shaper, theme?.monoFamily)
@@ -552,7 +562,7 @@ class SurfaceMeasurer(
 
         /** A Select's trigger text: the chosen option labels or the placeholder. */
         fun selectLabel(props: Props): String {
-            val options = props.list("options")
+            val options = props.list("options").filterIsInstance<JsonValue.Obj>()
             val chosen: List<String> = when (val v = props["value"]) {
                 is JsonValue.Arr -> v.v.map { it.displayText }
                 null, JsonValue.Null -> emptyList()

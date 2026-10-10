@@ -11,7 +11,7 @@
 import { TOKEN_GROUPS } from "../src/catalog"
 import { diffTheme, exportThemeJson, importShadcnCss, parseThemeJson, themeFromImport } from "../src/builder"
 import { recipeParts } from "../src/recipes"
-import { tryLoadTheme } from "../src/theme"
+import { THEME_SCHEMA_ID, tryLoadTheme } from "../src/theme"
 import { BUILTIN_THEMES, builtinTheme } from "../src/themes"
 import type { ModeName, ResolvedTheme, ThemeIssue, ThemeSource } from "../src/theme-types"
 import { renderPreview as mountPreview } from "./preview"
@@ -33,7 +33,7 @@ export function mountBuilder(root: ParentNode = document, modeTarget: HTMLElemen
   }
 
   function freshDraft(base: string): ThemeSource {
-    return { id: `my-theme`, name: `My theme`, extends: base }
+    return { $schema: THEME_SCHEMA_ID, id: `my-theme`, name: `My theme`, extends: base }
   }
 
   function load(): State {

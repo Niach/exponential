@@ -65,7 +65,7 @@ fn run(width: f32, direction: &str, hover: bool, sizes: Option<HashMap<String, (
     let mut s = Surface::new("geo", SurfaceOptions { theme: themes::builtin_theme("neutral"), expand_controls: Some(false), ..SurfaceOptions::default() });
     let outcome = s.set_nested(tree);
     assert!(outcome.issues.is_empty(), "{:?}", outcome.issues);
-    s.set_data("", Some(j!({"ui": {"sidebarCollapsed": false, "filtersOpen": false}})));
+    s.set_data("", Some(j!({"ui": {"sidebarCollapsed": false, "filtersOpen": false}}))).unwrap();
     s.set_pointer(hover, false);
     s.set_viewport(width, 0.0, None);
     let mut m = Recording { inner: FixedMeasure { sizes: sizes.unwrap_or_default(), wrap: false }, seen: IndexMap::new() };

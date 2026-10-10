@@ -39,8 +39,9 @@ public protocol ExtensionPainter: AnyObject {
     /// The border box of the leaf at a wrap width (nil wrap = max-content,
     /// 0 = min-content). nil = 0×0.
     func measure(_ leaf: ExtensionLeaf, wrap: CGFloat?) -> CGSize?
-    /// The view drawn INSIDE the frame.
-    func paint(_ context: ExtensionContext) -> AnyView
+    /// The view drawn INSIDE the frame. A painter that throws paints an
+    /// empty box and the host's `onPaintError` hears about it (`paint`).
+    func paint(_ context: ExtensionContext) throws -> AnyView
 }
 
 /// The extension registry: catalog definitions (registered on every new
@@ -76,7 +77,8 @@ public enum ExponentialUI {
     /// `SurfaceModel.register` adds one to a live surface.
     @MainActor
     public static func register(extension json: String, painters: [String: ExtensionPainter]) throws {
-        _ = try extensionErrors(extensionJson: json)
+        let errors = try extensionErrors(extensionJson: json)
+        if !errors.isEmpty { throw UiError.Invalid(reason: "extension: " + errors.joined(separator: "; ")) }
         ExtensionRegistry.shared.register(definition: json)
         for (kind, painter) in painters { ExtensionRegistry.shared.register(kind: kind, painter: painter) }
     }

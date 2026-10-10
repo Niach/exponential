@@ -7,13 +7,13 @@ export const IcArrow = ({ size = 12 }: { size?: number }) => <ArrowRight size={s
 export const IcChev = ({ size = 13 }: { size?: number }) => <ChevronRight size={size} strokeWidth={1.8} aria-hidden />
 
 /** The hero above a docs-style page. */
-export function PageHero({ eyebrow, title, children, cta }: { eyebrow?: string; title: string; children: ReactNode; cta?: ReactNode }) {
+export function PageHero({ eyebrow, title, children, cta }: { eyebrow?: string; title: string; children?: ReactNode; cta?: ReactNode }) {
   return (
     <section className="docs-hero content-hero">
       <div className="shell docs-hero-content">
         {eyebrow && <div className="section-eyebrow">{eyebrow}</div>}
         <h1>{title}</h1>
-        <p>{children}</p>
+        {children && <p>{children}</p>}
         {cta && <div className="docs-hero-cta">{cta}</div>}
       </div>
     </section>

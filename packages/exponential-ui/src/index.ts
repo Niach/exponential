@@ -15,7 +15,6 @@ export {
   componentNames,
   coreLite,
   isOffered,
-  deprecatedComponents,
   parseTokenRef,
   isKnownToken,
 } from "./catalog"
@@ -40,28 +39,29 @@ export {
   styleKeyType,
 } from "./style"
 export type { Style, StyleProps, MediaKey, StateKey, StyleIssue, Gradient, ConditionContext, MediaCondition } from "./style"
-export { validateProps, isDynamic } from "./validate"
+export { validateProps, validateNode, isCallableName, isDynamic } from "./validate"
 export type { PropIssue } from "./validate"
-export { evalValue, evalExpr, evalCondition, evalConditionValue, truthy, isBinding, isCall, percent, valuesEqual, clampNumber, fillTemplate, CORE_FUNCTIONS, CORE_FUNCTION_NAMES } from "./expr"
+export { evalValue, evalExpr, evalCondition, evalConditionValue, truthy, isBinding, isCall, percent, valuesEqual, clampNumber, fillTemplate, filterItems, CORE_FUNCTIONS, CORE_FUNCTION_NAMES } from "./expr"
 export type { ExprContext, Dynamic } from "./expr"
 export { expandMacros, isResponsiveValue, responsiveAt, propsAt, BREAKPOINTS } from "./macros"
 // Round 1: bind-time evaluation, built-in strings, locale, the CodeBlock tokenizer.
-export { resolveDynamic, isVisible, runAction, bindTree, readPointer, writePointer, absolutePath, readPath, hasItem, isDataSchema, resolveProp, resolveNodeProps, hasRowSlots, rowScope, bindRowSlot, sectionScope, bindSectionHeader, BIND_FUNCTIONS, BIND_FUNCTION_NAMES } from "./dynamic"
+export { resolveDynamic, isVisible, runAction, withOwnWrites, submitClosesOverlay, bindTree, readPointer, writePointer, writeTokens, POINTER_ISSUES, absolutePath, readPath, hasItem, isDataSchema, resolveProp, resolveNodeProps, hasRowSlots, rowScope, bindRowSlot, sectionScope, bindSectionHeader, BIND_FUNCTIONS, BIND_FUNCTION_NAMES } from "./dynamic"
 // Round 2 (docs/round-2-contract.md): formatting, lists, panels, direction, animation.
 export { displayString, englishFormatter, intlFormatter, formatFunctions, formatPattern, parseDateValue, relativeTimeUnit, currencyDigits, FORMAT_FUNCTION_NAMES, ENGLISH_FORMAT_FUNCTIONS, ENGLISH_DATE_PATTERNS, ENGLISH_TIME_PATTERN, ENGLISH_DATE_TIME_JOIN, fixedOffset, intlZoneOffset } from "./format"
 export type { Formatter, NumberOptions, DateOptions, DateStyle, PluralCategory, RelativeUnit, ZoneOffset } from "./format"
-export { templateItemKeys, tableRowKeys, templateInstances, itemExtents, itemOffsets, virtualWindow, scrollOffsetForIndex, scrollOffsetForItem, instanceSegment, listSections, sectionRows, stickyHeader, WINDOW_OVERSCAN } from "./list"
-export type { TemplateInstance, WindowRange, ScrollAlign, ListSection } from "./list"
+export { templateItemKeys, tableRowKeys, templateInstances, itemExtents, itemOffsets, virtualWindow, scrollOffsetForIndex, scrollOffsetForItem, instanceSegment, listSections, sectionRows, stickyHeader, templateBudget, templateSiteKey, WINDOW_OVERSCAN } from "./list"
+export type { TemplateInstance, TemplateBudget, WindowRange, ScrollAlign, ListSection } from "./list"
 export { normalizeSizes, resizePanels, keyboardResize, panelExtents, dragDelta, RESIZE_STEP, PANEL_MIN, RESIZE_HANDLE_HIT } from "./resizable"
 export type { PanelLimits, ResizeKey } from "./resizable"
 export { nodeDirections, physicalTextAlign, nodeTextAlign } from "./direction"
 export type { Direction, PhysicalAlign } from "./direction"
+export { LIMITS, MAX_COMPONENTS, MAX_DEPTH, MAX_MESSAGE_BYTES, MAX_TEMPLATE_ITEMS, MAX_POINTER_BYTES, MAX_POINTER_SEGMENTS, LIMIT_ISSUES } from "./limits"
 export { LAYOUT_CONSTANTS, FIELD_INTRINSIC_WIDTH, MEDIA_INTRINSIC_WIDTH, MEDIA_ASPECT_RATIO, TREE_GUIDE_COLUMN, TREE_GUIDE_RADIUS, TREE_GUIDE_BRIDGE } from "./layout"
 export { treeGuides, applyTreeGuides, isRowRoot } from "./tree-guides"
 export type { TreeGuide } from "./tree-guides"
 export { ANIMATIONS, ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, animatesOpacity, animationTiming, animationFrame, cubicBezier, keyframesCss, animationCss, paintedOpacity } from "./animation"
 export type { AnimationDef, AnimationFrame, AnimationTiming, Keyframe } from "./animation"
-export type { DataScope, ResolveOptions, ActionOutcome, FunctionTable } from "./dynamic"
+export type { DataScope, ResolveOptions, ActionOutcome, FunctionTable, PointerWrite } from "./dynamic"
 export { DEFAULT_STRINGS, STRING_IDS, parseStringRef, isStringRef, stringTable, formatString, resolveString } from "./strings"
 export { DEFAULT_LOCALE, parseLocale, localeRegion, weekStart, textDirection, RTL_MIRRORED_ICONS, mirrorsInRtl } from "./locale"
 export type { LocaleParts } from "./locale"
@@ -107,7 +107,7 @@ export {
   shadowCss,
 } from "./theme"
 export type { ThemeOptions } from "./theme"
-export { BUILTIN_THEMES, BUILTIN_THEME_IDS, DEFAULT_THEME_ID, neutralTheme, exponentialTheme, playfulTheme, builtinTheme, builtinThemes } from "./themes"
+export { BUILTIN_THEMES, BUILTIN_THEME_IDS, DEFAULT_THEME_ID, neutralTheme, exponentialTheme, playfulTheme, builtinTheme, builtinThemes, themeOrDefault } from "./themes"
 export { styleToCss, styleAttribute, gradientCss } from "./css"
 export { SHADCN_COLOR_VARS, importShadcnCss, themeFromImport, diffTheme, exportThemeJson, parseThemeJson, parseShadow } from "./builder"
 export type { ThemeImport } from "./builder"

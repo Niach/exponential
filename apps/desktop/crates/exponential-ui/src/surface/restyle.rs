@@ -74,6 +74,10 @@ impl Surface {
     /// Restyle what is dirty (everything after a theme/mode/settings or a
     /// direction change).
     pub(super) fn restyle(&mut self) {
+        crate::roomy(|| self.restyle_now())
+    }
+
+    fn restyle_now(&mut self) {
         let direction = self.surface_direction();
         if direction != self.direction {
             self.direction = direction;
@@ -188,7 +192,13 @@ impl Surface {
         let mut taffy_style = match style::to_taffy(&flat, direction, kind) {
             Ok(s) => s,
             Err(e) => {
-                self.issues.push(crate::types::ReduceIssue { id: n.id.clone(), message: format!("style: {e}") });
+                let issue = crate::types::ReduceIssue { id: n.id.clone(), message: format!("style: {e}") };
+                if !self.issues.contains(&issue) {
+                    self.issues.push(issue.clone());
+                }
+                if !self.style_issues.contains(&issue) {
+                    self.style_issues.push(issue);
+                }
                 taffy::prelude::Style { box_sizing: taffy::style::BoxSizing::BorderBox, direction, ..taffy::prelude::Style::default() }
             }
         };

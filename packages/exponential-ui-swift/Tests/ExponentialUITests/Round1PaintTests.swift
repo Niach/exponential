@@ -308,9 +308,7 @@ final class Round1PaintTests: XCTestCase {
         host.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
         host.layoutSubtreeIfNeeded()
         #else
-        let host = UIHostingController(rootView: view).view!
-        host.frame = CGRect(x: 0, y: 0, width: 400, height: 800)
-        host.layoutIfNeeded()
+        renderInWindow(view, size: CGSize(width: 400, height: 800))
         #endif
         for id in ["g", "s", "r0", "i", "dlg-body"] {
             XCTAssertTrue(painted.contains(m.index(of: id)!), "\(id) painted")

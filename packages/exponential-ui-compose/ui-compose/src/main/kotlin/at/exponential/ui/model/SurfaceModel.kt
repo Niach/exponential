@@ -2,6 +2,7 @@ package at.exponential.ui.model
 
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.neverEqualPolicy
 import androidx.compose.runtime.setValue
@@ -22,6 +23,10 @@ import at.exponential.ui.ffi.Surface
 import at.exponential.ui.ffi.coreCatalogId
 import at.exponential.ui.ffi.defaultThemeId
 import at.exponential.ui.host.HostPlugin
+import at.exponential.ui.host.MediaRequest
+import at.exponential.ui.host.PaintError
+import at.exponential.ui.host.policedMediaRequest
+import at.exponential.ui.host.safeHref
 import at.exponential.ui.host.NoHost
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.json.Props
@@ -368,7 +373,9 @@ class SurfaceModel(
 
     init {
         surface.setRounding(options.rounding)
-        for (json in extensions.definitions) runCatching { surface.registerExtension(json) }
+        // A registered extension the core refuses fails the surface (the
+        // host learns why), never a surface silently missing its components.
+        for (json in extensions.definitions) surface.registerExtension(json)
         applySettings()
         refreshEffectiveTheme()
         primitiveTokens = effectiveTheme?.primitiveTokens(mode) ?: PrimitiveTokens.SYSTEM
@@ -480,6 +487,58 @@ class SurfaceModel(
         return out
     }
 
+    // Hrefs, media, painter failures (catalog/host.json urls / media / paint)
+
+    /** The href the host's URL policy allows for `url` (resolved), else null: the link paints as plain text. */
+    fun href(url: String): String? = safeHref(host, url)
+
+    /** Open `url` when the URL policy allows it (every Link, markdown link and `openUrl`). */
+    fun openHref(url: String) {
+        href(url)?.let(host::openUrl)
+    }
+
+    /** The media request for `src` (the host's `resolveUrl`, then the media policy); null = nothing loads. */
+    fun mediaRequest(src: String): MediaRequest? = policedMediaRequest(host, src)
+
+    /**
+     * Components whose painter failed → the message: they paint an empty box
+     * (their painter is not called) while their props stay the ones that
+     * failed.
+     */
+    val paintFailures = mutableStateMapOf<String, String>()
+
+    /** A failed component's signature when it failed (component + resolved props; null = no such node). */
+    private val failedProps = HashMap<String, Pair<String, Props>?>()
+
+    private fun signature(componentId: String): Pair<String, Props>? =
+        byId[componentId]?.let(nodes::getOrNull)?.let { it.component to it.props }
+
+    /**
+     * Component `componentId`'s painter failed: it paints an empty box until
+     * its props change ([reconcilePaintFailures]) and the host hears
+     * `onPaintError` once per failure (catalog/host.json `paint`).
+     */
+    fun paintFailed(componentId: String, message: String) {
+        if (paintFailures.containsKey(componentId)) return
+        // Without a viewport no pass reads the nodes: read them for the signature.
+        if (nodesDirty && width <= 0f) readNodes()
+        paintFailures[componentId] = message
+        failedProps[componentId] = signature(componentId)
+        host.onPaintError(PaintError(id, componentId, message))
+    }
+
+    /** Per node: a failed component whose props changed, or that left the surface, paints (and may report) again. */
+    private fun reconcilePaintFailures() {
+        if (paintFailures.isEmpty()) return
+        for (cid in paintFailures.keys.toList()) {
+            val now = signature(cid)
+            if (now == null || now != failedProps[cid]) {
+                paintFailures.remove(cid)
+                failedProps.remove(cid)
+            }
+        }
+    }
+
     /** Write at a JSON pointer (null removes). */
     fun setData(path: String, value: JsonValue?) {
         runCatching { surface.setData(path, value?.json) }
@@ -536,6 +595,8 @@ class SurfaceModel(
 
     internal fun invalidate(structure: Boolean) {
         if (structure) nodesDirty = true
+        // No pass without a viewport: the failed components still reconcile against the new props.
+        if (structure && width <= 0f && paintFailures.isNotEmpty()) readNodes()
         layoutNeeded = true
         if (width > 0f) pass()
     }
@@ -605,7 +666,7 @@ class SurfaceModel(
         if (nodesDirty) readNodes()
         var measurer: SurfaceMeasurer? = null
         val out: FfiLayout = (if (fixedMeasure) runCatching { surface.layoutFixed(null, true) }.getOrNull() else null)
-            ?: SurfaceMeasurer(effectiveTheme, mode, extensions, extensionKinds(), measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf).let {
+            ?: SurfaceMeasurer(effectiveTheme, mode, extensions, extensionKinds(), measureGeneration, textShaper(), liveTexts(), ::ownerComponentOf, ::paintFailed) { mediaRequest(it) != null }.let {
                 measurer = it
                 surface.layout(it)
             }
@@ -709,6 +770,7 @@ class SurfaceModel(
         nodesDirty = false
         pinnedDirty = true
         pruneFields()
+        reconcilePaintFailures()
     }
 
     private fun readTextStyles() {
@@ -928,10 +990,22 @@ class SurfaceModel(
 
         private fun roundHalfAway(x: Double): Double = if (x >= 0) kotlin.math.floor(x + 0.5) else -kotlin.math.floor(-x + 0.5)
 
-        /** `v` snapped to `min + k·step` and clamped. */
+        /**
+         * `v` snapped to `min + k·step` and clamped; `max` itself when it is
+         * no stop (step does not divide the range) and `v` is nearer to it
+         * than to the nearest stop (Swift's rule).
+         */
         fun snap(v: Double, min: Double, max: Double, step: Double): Double {
-            var x = if (step > 0) min + roundHalfAway((v - min) / step) * step else v
-            x = kotlin.math.min(kotlin.math.max(x, kotlin.math.min(min, max)), kotlin.math.max(min, max))
+            val lo = kotlin.math.min(min, max)
+            val hi = kotlin.math.max(min, max)
+            val clamped = kotlin.math.min(kotlin.math.max(v, lo), hi)
+            var x = if (step > 0) min + roundHalfAway((clamped - min) / step) * step else clamped
+            x = kotlin.math.min(kotlin.math.max(x, lo), hi)
+            if (step > 0 && max >= min) {
+                val stops = (max - min) / step
+                val maxIsStop = kotlin.math.abs(stops - roundHalfAway(stops)) < 1e-9
+                if (!maxIsStop && kotlin.math.abs(clamped - max) < kotlin.math.abs(clamped - x)) x = max
+            }
             return roundHalfAway(x * 1e9) / 1e9
         }
     }

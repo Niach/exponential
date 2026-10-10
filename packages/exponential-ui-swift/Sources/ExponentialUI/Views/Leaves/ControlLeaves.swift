@@ -31,7 +31,7 @@ struct TextFieldLeaf: View {
             disabled: cx.model.isDisabled(cx.index),
             submitsOnReturn: false,
             accessibilityLabel: owner.str("label").isEmpty ? owner.str("placeholder") : owner.str("label"),
-            secure: owner.str("type") == "password"
+            inputType: multiline ? "" : owner.str("type")
         )
         .frame(width: cx.inner.width, height: cx.inner.height)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
@@ -66,7 +66,7 @@ struct ComposerLeaf: View {
                 disabled: cx.model.isDisabled(cx.index),
                 submitsOnReturn: true,
                 accessibilityLabel: cx.props.str("placeholder").isEmpty ? cx.model.builtinString("send") : cx.props.str("placeholder"),
-                secure: false
+                inputType: ""
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             HStack(spacing: cx.model.spacing("xs")) {
@@ -225,8 +225,14 @@ struct SliderTrackLeaf: View {
             )
             .disabled(disabled)
         } else {
-            Slider(value: Binding(get: { value }, set: { cx.model.sliderDrag(cx.index, value: SurfaceModel.snap($0, min: min, max: max, step: step)) }), in: min...Swift.max(max, min + 1), step: step > 0 ? step : 1) { _ in
-                cx.model.sliderRelease(cx.index)
+            let geometry = SurfaceModel.sliderRange(min: min, max: max, step: step)
+            let binding = Binding(get: { value }, set: { cx.model.sliderDrag(cx.index, value: SurfaceModel.snap($0, min: min, max: max, step: step)) })
+            Group {
+                if let s = geometry.step {
+                    Slider(value: binding, in: geometry.range, step: s) { _ in cx.model.sliderRelease(cx.index) }
+                } else {
+                    Slider(value: binding, in: geometry.range) { _ in cx.model.sliderRelease(cx.index) }
+                }
             }
             .tint(cx.themeColor("primary"))
             .disabled(disabled)

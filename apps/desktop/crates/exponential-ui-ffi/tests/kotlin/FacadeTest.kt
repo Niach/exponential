@@ -383,7 +383,7 @@ fun main(args: Array<String>) {
         }
         override fun measureHeights(leaves: List<FfiLeaf>, requests: List<FfiHeightRequest>): List<Float> = requests.map { r -> leaves.first { it.index == r.index }.textStyle.lineHeight }
     }
-    val caps = Theme.load("""{"id":"caps","name":"Caps","extends":"neutral","recipes":{"Text":{"root":[{"when":{"variant":"caption"},"style":{"letterSpacing":0.5,"textTransform":"uppercase","fontStyle":"italic"}}]}}}""", null)
+    val caps = Theme.load("""{"$schema":"https://ui.exponential.at/schemas/theme/v1.json","id":"caps","name":"Caps","extends":"neutral","recipes":{"Text":{"root":[{"when":{"variant":"caption"},"style":{"letterSpacing":0.5,"textTransform":"uppercase","fontStyle":"italic"}}]}}}""", null)
     val asks = Surface.withTheme("a", coreCatalogId(), caps, "light")
     asks.setNested(Json.write(mapOf("id" to "root", "component" to "Box", "children" to listOf(
         mapOf("id" to "cap", "component" to "Text", "props" to mapOf("text" to "Overline", "variant" to "caption")),

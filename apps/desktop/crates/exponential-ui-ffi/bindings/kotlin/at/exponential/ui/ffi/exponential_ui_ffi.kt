@@ -818,6 +818,8 @@ external fun uniffi_exponential_ui_ffi_checksum_func_load_theme_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_mcp_action_call_json(
 ): Short
+external fun uniffi_exponential_ui_ffi_checksum_func_media_image_header(
+): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_media_request_json(
 ): Short
 external fun uniffi_exponential_ui_ffi_checksum_func_messages_from_mcp_result_json(
@@ -1409,6 +1411,8 @@ external fun uniffi_exponential_ui_ffi_fn_func_load_theme_json(`themeJson`: Rust
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_mcp_action_call_json(`messageJson`: RustBuffer.ByValue,`tool`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
+external fun uniffi_exponential_ui_ffi_fn_func_media_image_header(`bytes`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
+): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_media_request_json(`url`: RustBuffer.ByValue,`optionsJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
 ): RustBuffer.ByValue
 external fun uniffi_exponential_ui_ffi_fn_func_messages_from_mcp_result_json(`resultJson`: RustBuffer.ByValue,uniffi_out_err: UniffiRustCallStatus, 
@@ -1669,6 +1673,9 @@ private fun uniffiCheckApiChecksums(lib: IntegrityCheckingUniffiLib) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_mcp_action_call_json() != 5104.toShort()) {
+        throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
+    }
+    if (lib.uniffi_exponential_ui_ffi_checksum_func_media_image_header() != 16289.toShort()) {
         throw RuntimeException("UniFFI API checksum mismatch: try cleaning and rebuilding your project")
     }
     if (lib.uniffi_exponential_ui_ffi_checksum_func_media_request_json() != 38964.toShort()) {
@@ -2510,6 +2517,25 @@ public object FfiConverterString: FfiConverter<String, RustBuffer.ByValue> {
         val byteBuf = toUtf8(value)
         buf.putInt(byteBuf.limit())
         buf.put(byteBuf)
+    }
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterByteArray: FfiConverterRustBuffer<ByteArray> {
+    override fun read(buf: ByteBuffer): ByteArray {
+        val len = buf.getInt()
+        val byteArr = ByteArray(len)
+        buf.get(byteArr)
+        return byteArr
+    }
+    override fun allocationSize(value: ByteArray): ULong {
+        return 4UL + value.size.toULong()
+    }
+    override fun write(value: ByteArray, buf: ByteBuffer) {
+        buf.putInt(value.size)
+        buf.put(value)
     }
 }
 
@@ -8476,6 +8502,112 @@ public object FfiConverterTypeFfiVisual: FfiConverterRustBuffer<FfiVisual> {
 
 
 
+/**
+ * What a whole image's bytes say before any decode (VAPP-103, the core's
+ * `image_header`): the natives' media loaders apply the one pixel × frame
+ * rule over it (`media.limits`).
+ */
+sealed class FfiImageHeader {
+    
+    /**
+     * No known image format (the platform decoder decides).
+     */
+    object Unknown : FfiImageHeader()
+    
+    
+    /**
+     * A raster or SVG whose size cannot be read: refused.
+     */
+    object Unreadable : FfiImageHeader()
+    
+    
+    data class Size(
+        val `width`: kotlin.UInt, 
+        val `height`: kotlin.UInt, 
+        val `frames`: kotlin.UInt) : FfiImageHeader()
+        
+    {
+        
+
+        companion object
+    }
+    
+
+    
+
+    
+    
+
+
+    companion object
+}
+
+/**
+ * @suppress
+ */
+public object FfiConverterTypeFfiImageHeader : FfiConverterRustBuffer<FfiImageHeader>{
+    override fun read(buf: ByteBuffer): FfiImageHeader {
+        return when(buf.getInt()) {
+            1 -> FfiImageHeader.Unknown
+            2 -> FfiImageHeader.Unreadable
+            3 -> FfiImageHeader.Size(
+                FfiConverterUInt.read(buf),
+                FfiConverterUInt.read(buf),
+                FfiConverterUInt.read(buf),
+                )
+            else -> throw RuntimeException("invalid enum value, something is very wrong!!")
+        }
+    }
+
+    override fun allocationSize(value: FfiImageHeader) = when(value) {
+        is FfiImageHeader.Unknown -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is FfiImageHeader.Unreadable -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+            )
+        }
+        is FfiImageHeader.Size -> {
+            // Add the size for the Int that specifies the variant plus the size needed for all fields
+            (
+                4UL
+                + FfiConverterUInt.allocationSize(value.`width`)
+                + FfiConverterUInt.allocationSize(value.`height`)
+                + FfiConverterUInt.allocationSize(value.`frames`)
+            )
+        }
+    }
+
+    override fun write(value: FfiImageHeader, buf: ByteBuffer) {
+        when(value) {
+            is FfiImageHeader.Unknown -> {
+                buf.putInt(1)
+                Unit
+            }
+            is FfiImageHeader.Unreadable -> {
+                buf.putInt(2)
+                Unit
+            }
+            is FfiImageHeader.Size -> {
+                buf.putInt(3)
+                FfiConverterUInt.write(value.`width`, buf)
+                FfiConverterUInt.write(value.`height`, buf)
+                FfiConverterUInt.write(value.`frames`, buf)
+                Unit
+            }
+        }.let { /* this makes the `when` an expression, which ensures it is exhaustive */ }
+    }
+}
+
+
+
+
+
 
 
 sealed class UiException: kotlin.Exception() {
@@ -9927,6 +10059,20 @@ public object FfiConverterSequenceTypeFfiVisual: FfiConverterRustBuffer<List<Ffi
     UniffiLib.uniffi_exponential_ui_ffi_fn_func_mcp_action_call_json(
     
         FfiConverterString.lower(`messageJson`),FfiConverterOptionalString.lower(`tool`),_status)
+}
+    )
+    }
+    
+
+        /**
+         * The image header of `bytes` (PNG, JPEG, GIF, WebP, BMP, SVG; frames of
+         * an animated GIF, APNG or WebP).
+         */ fun `mediaImageHeader`(`bytes`: kotlin.ByteArray): FfiImageHeader {
+            return FfiConverterTypeFfiImageHeader.lift(
+    uniffiRustCall() { _status ->
+    UniffiLib.uniffi_exponential_ui_ffi_fn_func_media_image_header(
+    
+        FfiConverterByteArray.lower(`bytes`),_status)
 }
     )
     }

@@ -9,7 +9,7 @@
         "fixtures/catalog-components.json"
       ],
       "unit": "case",
-      "cases": 466,
+      "cases": 450,
       "check": "Reduce the case's nested node with the core catalog: no issues. Paint it under the default theme: no crash, no Unknown placeholder, every visible node painted."
     },
     {
@@ -18,7 +18,7 @@
         "fixtures/catalog-macros.json"
       ],
       "unit": "case",
-      "cases": 200,
+      "cases": 184,
       "check": "Expand the case: the tree equals `expanded` (JSON-equal, recipes included)."
     },
     {
@@ -72,7 +72,7 @@
         "fixtures/theme-invalid.json"
       ],
       "unit": "case",
-      "cases": 24,
+      "cases": 26,
       "check": "Validate the bad theme: the same issue paths, never a crash."
     },
     {
@@ -127,7 +127,7 @@
         "fixtures/host-policy.json"
       ],
       "unit": "case",
-      "cases": 57,
+      "cases": 67,
       "check": "Decide the function / combine / url, build the media request, parse the source, negotiate the catalog ids: each equals `expected`."
     },
     {
@@ -181,7 +181,7 @@
         "fixtures/template-items.json"
       ],
       "unit": "case",
-      "cases": 22,
+      "cases": 26,
       "check": "Key the items / rows, list the template instances (path, key, accumulated suffix), reduce the surfaces (templates lifted): equal to `expected`."
     },
     {

@@ -6,7 +6,7 @@
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::f32::consts::PI;
-use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,7 +14,7 @@ use exponential_ui::measure::TextStyle;
 use exponential_ui::surface::PlacedNode;
 use exponential_ui::theme::{Mode, ResolvedTheme};
 use gpui::{
-    canvas, div, img, point, prelude::*, px, Animation, AnimationExt as _, AnyElement, App, Bounds, Corners, Div, Font, Hsla, Image, ImageFormat, ImageSource, ObjectFit, PathBuilder, Pixels, Point,
+    canvas, div, img, point, prelude::*, px, Animation, AnimationExt as _, AnyElement, App, Bounds, Corners, Div, Font, Hsla, ImageSource, ObjectFit, PathBuilder, Pixels, Point,
     RenderImage, SharedString, TextRun, Transformation, Window,
 };
 use gpui_component::Icon;
@@ -418,9 +418,15 @@ pub fn button(cx: &LeafCx, component: &str, window: &Window) -> AnyElement {
 
 /// A Link: underlined label (`letterSpacing` painted per glyph, as
 /// measured).
+/// A `Link`: underlined when the URL policy allows its href; a denied one
+/// paints as plain text (the press opens nothing: `HostPlugin::open_url`).
 pub fn link(cx: &LeafCx) -> AnyElement {
     let label = if cx.str("label").is_empty() { cx.str("href") } else { cx.str("label") };
     let shown = crate::text::transform(label, cx.style.text_transform.as_deref()).into_owned();
+    let allowed = exponential_ui::host::safe_href(cx.host.url_policy().as_ref(), cx.str("href")).is_some();
+    if !allowed {
+        return cx.row(cx.content()).items_center().justify_center().whitespace_nowrap().child(SharedString::from(shown)).into_any_element();
+    }
     if cx.style.letter_spacing != 0.0 {
         let t = Tracked { decoration: Some(Decoration::Underline), ..cx.tracked(vec![shown], "center", true) };
         let (x, y, w, h) = cx.inner();
@@ -486,43 +492,37 @@ pub fn base64_decode(s: &str) -> Option<Vec<u8>> {
     Some(out)
 }
 
-thread_local! {
-    static DATA_IMAGES: RefCell<HashMap<String, Option<Arc<Image>>>> = RefCell::new(HashMap::new());
-}
-
-/// A `data:image/<type>;base64,…` URI decoded once (cached per process).
-pub fn data_image(src: &str) -> Option<Arc<Image>> {
+/// The bytes of a `data:image/<type>[;base64],…` URI (`None` = not an
+/// image type gpui decodes). The media loader ([`crate::media`]) applies
+/// the policy and the limits; nothing here loads a src by itself.
+pub fn data_bytes(src: &str) -> Option<Vec<u8>> {
     let rest = src.strip_prefix("data:")?;
-    if let Some(hit) = DATA_IMAGES.with(|m| m.borrow().get(src).cloned()) {
-        return hit;
+    let (meta, data) = rest.split_once(',')?;
+    let mime = meta.split(';').next().unwrap_or("").to_ascii_lowercase();
+    if !matches!(mime.as_str(), "image/png" | "image/jpeg" | "image/jpg" | "image/webp" | "image/gif" | "image/svg+xml" | "image/bmp") {
+        return None;
     }
-    let decoded = (|| {
-        let (meta, data) = rest.split_once(',')?;
-        let mime = meta.split(';').next().unwrap_or("");
-        let format = match mime {
-            "image/png" => ImageFormat::Png,
-            "image/jpeg" | "image/jpg" => ImageFormat::Jpeg,
-            "image/webp" => ImageFormat::Webp,
-            "image/gif" => ImageFormat::Gif,
-            "image/svg+xml" => ImageFormat::Svg,
-            "image/bmp" => ImageFormat::Bmp,
-            "image/tiff" => ImageFormat::Tiff,
-            _ => return None,
-        };
-        let bytes = if meta.ends_with(";base64") { base64_decode(data)? } else { percent_decode(data) };
-        Some(Arc::new(Image::from_bytes(format, bytes)))
-    })();
-    DATA_IMAGES.with(|m| {
-        let mut m = m.borrow_mut();
-        if m.len() > 256 {
-            m.clear();
-        }
-        m.insert(src.to_string(), decoded.clone());
-    });
-    decoded
+    if meta.ends_with(";base64") {
+        base64_decode(data)
+    } else {
+        Some(percent_decode(data))
+    }
 }
 
-fn percent_decode(s: &str) -> Vec<u8> {
+/// Standard base64 with padding (tests build data URIs with it).
+pub fn base64_encode(bytes: &[u8]) -> String {
+    const T: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk.iter().enumerate().fold(0u32, |acc, (i, b)| acc | (*b as u32) << (16 - 8 * i));
+        for i in 0..4 {
+            out.push(if i <= chunk.len() { T[(n >> (18 - 6 * i) & 63) as usize] as char } else { '=' });
+        }
+    }
+    out
+}
+
+pub(crate) fn percent_decode(s: &str) -> Vec<u8> {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
     let mut i = 0;
@@ -538,21 +538,6 @@ fn percent_decode(s: &str) -> Vec<u8> {
         i += 1;
     }
     out
-}
-
-/// An image source: `data:` decoded, a URL loaded, an absolute path read
-/// from disk, anything else the host app's embedded asset of that path.
-pub fn image_source(src: &str) -> Option<ImageSource> {
-    if src.is_empty() {
-        return None;
-    }
-    if src.starts_with("data:") {
-        return data_image(src).map(ImageSource::from);
-    }
-    if src.starts_with('/') && !src.starts_with("//") {
-        return Some(ImageSource::from(PathBuf::from(src)));
-    }
-    Some(ImageSource::from(src.to_string()))
 }
 
 /// `Avatar`: the image when the host resolves one, else tinted initials.
@@ -736,15 +721,32 @@ pub fn fmt_duration(ms: f64) -> String {
     }
 }
 
-/// `Video`: the poster (or a dark tint) with a play button and the duration.
-pub fn video(cx: &LeafCx) -> AnyElement {
+/// A Video / AudioPlayer press (`media::play`: the policed src handed to
+/// the system player); `None` = no src or a DENIED one: the control is
+/// inert.
+pub type MediaPlay = Option<Rc<dyn Fn(&mut App)>>;
+
+/// The round play control: a pressable button with `play`, else inert.
+fn play_control(id: String, size: f32, el: Div, play: MediaPlay) -> AnyElement {
+    let el = el.size(px(size)).flex_none().rounded_full().flex().items_center().justify_center();
+    match play {
+        Some(play) => el.id(SharedString::from(id)).cursor_pointer().role(gpui::Role::Button).on_click(move |_, _, cx| play(cx)).into_any_element(),
+        None => el.into_any_element(),
+    }
+}
+
+/// `Video`: the poster (or a dark tint) with a play button and the
+/// duration. gpui has no video pipeline: the press hands the policed src
+/// to the system player (`media::play`); `autoplay` opens nothing.
+pub fn video(cx: &LeafCx, play: MediaPlay) -> AnyElement {
     let poster = cx.str("poster");
     let mut out = rounded(div().size_full().relative().overflow_hidden().bg(gpui::black().opacity(0.85)), cx.radii);
     if let Some(source) = crate::media::image_source(cx.host, poster) {
         out = out.child(img(source).absolute().size_full().object_fit(ObjectFit::Cover).with_fallback(|| div().into_any_element()));
     }
     let white = gpui::white();
-    out = out.child(div().absolute().size_full().flex().items_center().justify_center().child(div().size(px(44.0)).rounded_full().bg(white.opacity(0.18)).flex().items_center().justify_center().child(icons::glyph(Glyph::Play, 20.0, white))));
+    let button = play_control(format!("{}.play", cx.node.id), 44.0, div().bg(white.opacity(0.18)).child(icons::glyph(Glyph::Play, 20.0, white)), play);
+    out = out.child(div().absolute().size_full().flex().items_center().justify_center().child(button));
     if let Some(ms) = cx.num("durationMs") {
         let d = div().absolute().bottom(px(6.0)).px(px(6.0)).rounded(px(4.0)).bg(gpui::black().opacity(0.6)).text_color(white).text_size(px(12.0)).child(SharedString::from(fmt_duration(ms)));
         out = out.child(if cx.rtl { d.left(px(8.0)) } else { d.right(px(8.0)) });
@@ -752,8 +754,10 @@ pub fn video(cx: &LeafCx) -> AnyElement {
     out.into_any_element()
 }
 
-/// `AudioPlayer`: the title line over a controls bar.
-pub fn audio(cx: &LeafCx) -> AnyElement {
+/// `AudioPlayer`: the title line over a controls bar. Like `Video`, the
+/// play press hands the policed src to the system player (its controls
+/// play, pause and seek); the bar stays `0:00 / durationMs`.
+pub fn audio(cx: &LeafCx, play: MediaPlay) -> AnyElement {
     let title = cx.str("title");
     let gap = spacing(cx.theme, "xs");
     let muted = cx.theme_color("muted").unwrap_or(cx.ink.opacity(0.1));
@@ -776,7 +780,7 @@ pub fn audio(cx: &LeafCx) -> AnyElement {
             .items_center()
             .gap(px(8.0))
             .px(px(8.0))
-            .child(div().size(px(28.0)).rounded_full().bg(cx.ink).flex().items_center().justify_center().child(icons::glyph(Glyph::Play, 14.0, cx.theme_color("background").unwrap_or(gpui::white()))))
+            .child(play_control(format!("{}.play", cx.node.id), 28.0, div().bg(cx.ink).child(icons::glyph(Glyph::Play, 14.0, cx.theme_color("background").unwrap_or(gpui::white()))), play))
             .child(div().flex_1().h(px(4.0)).rounded_full().bg(muted_fg.opacity(0.35)))
             .child(div().text_size(px(12.0)).text_color(muted_fg).child(SharedString::from(format!("0:00 / {duration}")))),
     )
@@ -1121,10 +1125,9 @@ mod tests {
         assert_eq!(base64_decode("aGVsbG8=").unwrap(), b"hello");
         assert_eq!(base64_decode("aGVsbG8").unwrap(), b"hello");
         assert!(base64_decode("@@").is_none());
-        let png = "data:image/png;base64,iVBORw0KGgo=";
-        assert!(data_image(png).is_some());
-        assert!(data_image("data:text/plain;base64,aGk=").is_none());
-        assert!(image_source("https://x.test/a.png").is_some());
-        assert!(image_source("").is_none());
+        assert_eq!(data_bytes("data:image/png;base64,aGVsbG8=").unwrap(), b"hello");
+        assert!(data_bytes("data:text/plain;base64,aGk=").is_none());
+        assert_eq!(base64_encode(b"hello"), "aGVsbG8=");
+        assert_eq!(base64_decode(&base64_encode(&[0, 255, 7, 9])).unwrap(), [0, 255, 7, 9]);
     }
 }

@@ -171,11 +171,17 @@ struct A11yInfo: Equatable {
             }
         }
         if !info.container && info.label == nil && info.value == nil {
-            // A leaf with nothing to read (a decorative icon).
-            info.hidden = n.isLeaf && !n.pressable
+            // A leaf with nothing to read (a decorative icon). An unnamed
+            // Avatar / Video / Chart is still content: the platform reads its
+            // image trait.
+            info.hidden = n.isLeaf && !n.pressable && !Self.unnamedMedia.contains(n.component)
+            if !info.hidden, Self.unnamedMedia.contains(n.component) { info.traits.formUnion(.isImage) }
         }
         return info
     }
+
+    /// Media that stay an accessibility element without a name.
+    static let unnamedMedia: Set<String> = ["Avatar", "Video", "Chart"]
 
     /// Roles read as one object even when the node has children.
     static let atomicRoles: Set<String> = ["progressbar", "meter", "slider", "img", "button", "link", "checkbox", "switch", "radio", "tab", "menuitem", "menuitemcheckbox", "option", "heading"]
@@ -232,7 +238,11 @@ struct A11yInfo: Equatable {
         case ("Icon", _):
             return n.props["label"]?.string
         case ("Image", _), ("Avatar", _), ("Video", _), ("Chart", _):
-            return n.accessibilityLabel ?? "image"
+            // No English fallback: an unnamed Image is decorative (hidden,
+            // contract a11y `img`); an unnamed Avatar / Video / Chart stays an
+            // element whose `.isImage` trait VoiceOver speaks in the user's
+            // language (Compose: an empty contentDescription + Role.Image).
+            return n.accessibilityLabel
         case ("Spinner", _), ("Ring", _):
             return n.accessibilityLabel ?? model.builtinString("loading")
         default:

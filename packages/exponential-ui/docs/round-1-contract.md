@@ -1,5 +1,11 @@
 # Exponential UI — round 1 contract (renderer hardening)
 
+> **Round 4 (VAPP-103):** this is the round's historical record. Names it
+> uses that round 3 folded (ToggleGroup, TabBar, ButtonGroup, DropdownMenu,
+> ContextMenu, Sheet, HoverCard, Pill, EntityChip, Band, RowList and the
+> ListRow family) are REMOVED from the catalog; `round-3-contract.md` §4 maps
+> each to what replaces it.
+
 Round 1 makes one A2UI surface render faithfully, responsively and
 accessibly on web, desktop, iOS and Android. This file is the CONTRACT half:
 what changed in `@exponential-at/ui` (catalog, macros, style, tokens,
@@ -16,7 +22,7 @@ the area you own, then §9 (your checklist), §10 (breaking changes).
 | area | change | source of truth | locked by |
 |---|---|---|---|
 | bound macro inputs (audit bug A) | the expander EMITS function calls for bound inputs; renderers evaluate at bind time | `catalog/macros.json` `$comment`, `src/expr.ts`, `src/macros.ts`, `src/dynamic.ts` | `fixtures/catalog-macros.json` (`bound:*` cases), `fixtures/bind-time.json` |
-| two-way binding for macros | `$set` → `function: {call: "set"}` on the part's action | `catalog/macros.json`, `src/macros.ts`, `src/dynamic.ts runAction` | `bind-time.json` `presses` |
+| two-way binding for macros | `$set` → `functionCall: {call: "set"}` on the part's action | `catalog/macros.json`, `src/macros.ts`, `src/dynamic.ts runAction` | `bind-time.json` `presses` |
 | core functions | `percent add sub eq lt clamp cond fallback concat coalesce text map len fill` + action `set`; the BIND table adds the basic `and or not required` (`bindFunctionNames`) | `core.catalog.json` `functions.core`, `src/expr.ts CORE_FUNCTIONS`, `src/dynamic.ts BIND_FUNCTIONS` | `expr.test.ts`, `bind-time.json`, `round1-fixes.test.ts` |
 | style conditions | max-width, min/max-height, orientation, hover, prefers-reduced-motion, `$breakpoint.*`; states `:hover` `:focus-visible` `:pressed` | `catalog/style.json` `conditions`, `src/style.ts resolveConditions` | `fixtures/style-conditions.json` |
 | style keys | 23 new keys (transition, transform, gradient, per-side widths, per-corner radii, text styling, overflowX/Y, visibility, pointerEvents, userSelect, cursor, …) | `catalog/style.json` | `style.test.ts`, schema |
@@ -101,11 +107,11 @@ Arguments resolve at ANY depth (arrays and objects of bindings/calls).
 ### Two-way binding: `$set` and the combined action
 A template part may say `"$set": {"press": {"prop": "open", "value": "{!props.open}"}}`.
 When the author's `props.open` is a DataBinding `{path: P}`, the part's
-`press` action gets `function: {call: "set", args: {path: P, value: <evaluated value>}}`
-next to any routed author event (key order `event`, then `function`). A
+`press` action gets `functionCall: {call: "set", args: {path: P, value: <evaluated value>}}`
+next to any routed author event (key order `event`, then `functionCall`). A
 literal prop adds nothing — the host keeps owning that state through the
 routed event, as before. An Action carries ONE function: when the author's
-routed handler is itself a `function` (e.g. `openUrl`), it wins, NO `set` is
+routed handler is itself a `functionCall` (e.g. `openUrl`), it wins, NO `set` is
 added and the reducer reports `on.<event>: a function action replaces the
 two-way set of props.<prop>; …` once per macro (never lost silently; locked
 by `bind-time.json` `extra` `TabBar/set:author-function`). Used by: Collapsible (open), Pagination (page),
@@ -584,7 +590,7 @@ generated outputs carry the new token groups and `contrast`.
 
 ### Rust core (`apps/desktop/crates/exponential-ui`)
 1. `expr.rs`: dynamic inputs emit calls exactly as `src/expr.ts` (member vs operand rule, `fallback`, `concat`, `$lt`, `$sub`, `$not`, `$text` over a value object, `range(...)`, key interpolation); `TemplateChild` gains `"$slot:name"` splices and `slots` values that are template nodes (AlertDialog) — `MacroTemplate.slots` becomes `IndexMap<String, SlotRef>` (string | node), plus `$set`.
-2. `macros.rs`: `$if`/`$any` → `visible` (and/or), `$set` → `function: set` (after `event`; an author FUNCTION wins and is reported), `$a11y` → `accessibility` (author label/description merged over the root's), responsive variants → media blocks, author `visible`/`accessibility` onto the root; `expr.rs`: `$clamp`, `$fill` (always emits), `$eq` numeric-string equality. Replay `catalog-macros.json` (189 cases incl. `bound:*`/`responsive:*`) and `bind-time.json` (`cases` × 3 datasets AND `extra` with `issues` + `rowSlots`).
+2. `macros.rs`: `$if`/`$any` → `visible` (and/or), `$set` → `functionCall: set` (after `event`; an author FUNCTION wins and is reported), `$a11y` → `accessibility` (author label/description merged over the root's), responsive variants → media blocks, author `visible`/`accessibility` onto the root; `expr.rs`: `$clamp`, `$fill` (always emits), `$eq` numeric-string equality. Replay `catalog-macros.json` (189 cases incl. `bound:*`/`responsive:*`) and `bind-time.json` (`cases` × 3 datasets AND `extra` with `issues` + `rowSlots`).
 3. `reducer.rs`: `visible` (validate: boolean or dynamic), template `key`, `accessibility` on the flat path, slot names checked (`*` = any).
 4. `validate.rs`: responsive values, objects without shape, `$string.` ids.
 5. `style_check.rs`: the new grammar (`STYLE_MEDIA_PATTERN`), states, unknown breakpoint tokens, `transform`/`gradient` value types, the new keys; `resolveConditions` port + `style-conditions.json` replay. Layout: per-side border widths into taffy's border rect, `overflowX/Y`, `insetBlockStart/End`, `visibility: hidden` keeps the box.
@@ -640,7 +646,7 @@ generated outputs carry the new token groups and `contrast`.
   plus `roles`.
 - **strings.json**: `of` removed; 9 ids added. **locale.json**:
   `languageAliases`, `rtlMirroredIcons`, ~90 likely regions.
-- **Actions** may carry `event` AND `function` (only the expander emits
+- **Actions** may carry `event` AND `functionCall` (only the expander emits
   both today).
 - **UiNode** may carry `visible`; style values may be dynamic after
   expansion; `template.key`; `accessibility` from the flat path.
@@ -670,4 +676,4 @@ generated outputs carry the new token groups and `contrast`.
   next step: a native `Sidebar` (or a `Drawer` mode that renders inline
   above a breakpoint) so ONE subtree moves between the column and a sheet.
 - Multiple functions per Action (an author function AND the `$set` write):
-  needs an Action shape beyond A2UI's single `function`; reported instead.
+  needs an Action shape beyond A2UI's single `functionCall`; reported instead.

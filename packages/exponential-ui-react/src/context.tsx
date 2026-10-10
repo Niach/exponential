@@ -1,7 +1,7 @@
 // VAPP-87 + round 1: what every painted node reads from its surface.
 
 import { createContext, useContext } from "react"
-import type { ExtensionDef, Formatter, ModeName, ResolvedTheme, ScrollAlign, UiNode } from "@exponential-at/ui"
+import type { ExtensionDef, Formatter, ModeName, ResolvedTheme, ScrollAlign, TemplateBudget, UiNode } from "@exponential-at/ui"
 import type { CompiledTheme } from "./theme-css"
 import type { HostPlugin } from "./host"
 import type { ReactExtension } from "./extensions"
@@ -22,6 +22,9 @@ export interface SurfaceContextValue {
   /** A template component id → its node (round 2: the reducer's LIFTED
    *  `templates`); `undefined` when absent. */
   templateNode: (componentId: string) => UiNode | undefined
+  /** VAPP-103: the surface's template items counted against
+   *  `maxTemplateItems` (`templateBudget`); absent = every item renders. */
+  templateBudget?: TemplateBudget
   /** Interaction states forced on every node (the recipe sheet). */
   states: readonly string[]
   /** Geometry mode: every leaf becomes a fixed box of this size. */
@@ -46,6 +49,10 @@ export interface SurfaceContextValue {
   /** Round 2: a windowed List/Table registers its `scrollToIndex` under its
    *  painted id (the host command); returns the unregister. */
   registerScroller: (id: string, scroll: (index: number, align?: ScrollAlign) => void) => () => void
+  /** VAPP-103: the painted ids whose painter failed → their props as they
+   *  failed (reported once until the props change; an entry leaves when
+   *  the node paints or unmounts, so it never outgrows the mounted tree). */
+  paintFailures?: Map<string, string>
   /** The built-in string table (defaults + host overrides). */
   strings: Readonly<Record<string, string>>
   /** A built-in string by id with `{name}` placeholders filled. */

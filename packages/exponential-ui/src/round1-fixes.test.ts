@@ -73,10 +73,10 @@ describe(`row-scoped Table slot cells (§3, review blocker)`, () => {
     expect(readPath({ s: `root` }, `s`, scope)).toBe(`x`)
     expect(readPath({ s: `root` }, `/s`, scope)).toBe(`root`)
     expect(readPath({}, ``, scope)).toEqual({ s: `x` })
-    expect(runAction({ function: { call: `set`, args: { path: `s`, value: 1 } } }, { a: 1 }, { scope }).data).toEqual({ a: 1 })
-    expect(runAction({ function: { call: `set`, args: { path: `/b`, value: 1 } } }, { a: 1 }, { scope }).data).toEqual({ a: 1, b: 1 })
+    expect(runAction({ functionCall: { call: `set`, args: { path: `s`, value: 1 } } }, { a: 1 }, { scope }).data).toEqual({ a: 1 })
+    expect(runAction({ functionCall: { call: `set`, args: { path: `/b`, value: 1 } } }, { a: 1 }, { scope }).data).toEqual({ a: 1, b: 1 })
     // Bound rows: a relative set writes into the row.
-    expect(runAction({ function: { call: `set`, args: { path: `s`, value: `y` } } }, { rows: [{ s: `x` }] }, { scope: { base: `/rows/0` } }).data).toEqual({ rows: [{ s: `y` }] })
+    expect(runAction({ functionCall: { call: `set`, args: { path: `s`, value: `y` } } }, { rows: [{ s: `x` }] }, { scope: { base: `/rows/0` } }).data).toEqual({ rows: [{ s: `y` }] })
   })
 
   test(`bind-time.json extra cases replay, rowSlots included`, () => {
@@ -155,7 +155,7 @@ describe(`accessibility channel (§6, review majors)`, () => {
     expect(roles).toBeGreaterThan(20)
   })
 
-  test(`macro parts carry role, states and a name: Rating, Collapsible, TabBar, Stepper, Breadcrumb, AlertDialog, AppBar, Sidebar`, () => {
+  test(`macro parts carry role, states and a name: Rating, Collapsible, Segmented bar, Stepper, Breadcrumb, AlertDialog, AppBar, Sidebar`, () => {
     const rating = expand({ id: `r`, component: `Rating`, props: { value: 3, max: 5 } })
     const star = byId(rating, `r.star.2`)!
     expect(star.accessibility).toMatchObject({ role: `button`, pressed: true })
@@ -170,8 +170,8 @@ describe(`accessibility channel (§6, review majors)`, () => {
     expect(byId(bindTree(bound, { open: true }, STRINGS)!, `c.trigger`)!.accessibility).toEqual({ role: `button`, expanded: true })
     expect(byId(expand({ id: `c`, component: `Collapsible`, props: { title: `More` } }), `c.trigger`)!.accessibility).toEqual({ role: `button`, expanded: false })
 
-    // Round 3: the TabBar alias is a `bar` Segmented native (its navigation role comes from a11y.json, the painter sets aria-current); a Section header is a heading, or a button with aria-expanded (no aria-level) when collapsible; the fold toggles against its default open.
-    const tabs = bindTree(expand({ id: `tb`, component: `TabBar`, props: { items: [{ label: `A`, value: `a` }, { label: `B`, value: `b` }], value: { path: `/tab` } } }), { tab: `b` }, STRINGS)!
+    // Round 3: a `bar` Segmented is a native (its navigation role comes from a11y.json, the painter sets aria-current); a Section header is a heading, or a button with aria-expanded (no aria-level) when collapsible; the fold toggles against its default open.
+    const tabs = bindTree(expand({ id: `tb`, component: `Segmented`, props: { variant: `bar`, items: [{ label: `A`, value: `a` }, { label: `B`, value: `b` }], value: { path: `/tab` } } }), { tab: `b` }, STRINGS)!
     expect(tabs.component).toBe(`Segmented`)
     expect(tabs.props).toMatchObject({ variant: `bar`, value: `b` })
     expect(byId(expand({ id: `s`, component: `Section`, props: { title: `More` } }), `s.header`)!.accessibility).toEqual({ role: `heading`, level: 3 })
@@ -214,13 +214,13 @@ describe(`accessibility channel (§6, review majors)`, () => {
 
 describe(`$set meets an author function (§1, review minor)`, () => {
   test(`the author's function is kept, no set is added, the reducer reports it once`, () => {
-    const { root, issues } = reduce({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } }, on: { change: { function: { call: `openUrl`, args: { url: `https://x` } } } } })
-    expect(root.children[0].on!.press).toEqual({ function: { call: `openUrl`, args: { url: `https://x` } } })
+    const { root, issues } = reduce({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } }, on: { change: { functionCall: { call: `openUrl`, args: { url: `https://x` } } } } })
+    expect(root.children[0].on!.press).toEqual({ functionCall: { call: `openUrl`, args: { url: `https://x` } } })
     expect(issues).toEqual([{ id: `s`, message: `on.change: a function action replaces the two-way set of props.open; write it in that function's handler or use an event` }])
     // An event handler still gets the set.
     const ok = reduce({ id: `s`, component: `Section`, props: { title: `More`, collapsible: true, open: { path: `/open` } }, on: { change: { event: { name: `fold` } } } })
     expect(ok.issues).toEqual([])
-    expect(ok.root.children[0].on!.press).toEqual({ event: { name: `fold`, context: { open: { call: `not`, args: { value: { call: `fallback`, args: { value: { path: `/open` }, default: true } } } } } }, function: { call: `set`, args: { path: `/open`, value: { call: `not`, args: { value: { call: `fallback`, args: { value: { path: `/open` }, default: true } } } } } } })
+    expect(ok.root.children[0].on!.press).toEqual({ event: { name: `fold`, context: { open: { call: `not`, args: { value: { call: `fallback`, args: { value: { path: `/open` }, default: true } } } } } }, functionCall: { call: `set`, args: { path: `/open`, value: { call: `not`, args: { value: { call: `fallback`, args: { value: { path: `/open` }, default: true } } } } } } })
   })
 
   test(`an A2UI functionCall counts as the author's function too (VAPP-99)`, () => {

@@ -89,6 +89,9 @@ enum class Glyph(
     /** A play triangle (filled). */
     Play(listOf("M6 3l14 9-14 9z"), filled = true),
 
+    /** Two bars (filled pause, Lucide `pause`). */
+    Pause(listOf("M7 4h2a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z", "M15 4h2a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-2a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1z"), filled = true),
+
     /** A picture frame. */
     Image(listOf("M5 3h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2z", "M9 7a2 2 0 1 0 0 4a2 2 0 1 0 0-4z", "M21 15l-3.086-3.086a2 2 0 0 0-2.828 0L6 21")),
 

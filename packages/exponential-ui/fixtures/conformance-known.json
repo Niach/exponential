@@ -12,7 +12,7 @@
       "fix": [
         "react"
       ],
-      "decision": "An overlay native (Dialog, Drawer, AlertDialog, Popover, Tooltip, a press Menu with a child trigger; the Sheet and HoverCard aliases expand to them) is LAYOUT-TRANSPARENT: its frame is its trigger's frame and the trigger is the flex item; it never fills a column or stretches a row on its own (§8.1)."
+      "decision": "An overlay native (Dialog, Drawer, AlertDialog, Popover, Tooltip, a press Menu with a child trigger) is LAYOUT-TRANSPARENT: its frame is its trigger's frame and the trigger is the flex item; it never fills a column or stretches a row on its own (§8.1)."
     },
     {
       "id": "audio",
@@ -256,7 +256,7 @@
       "fix": [
         "gpui"
       ],
-      "decision": "As `hdr-badge`: the Row's trailing count Badge (the NavRow alias) = padding + its text."
+      "decision": "As `hdr-badge`: the Row's trailing count Badge = padding + its text."
     },
     {
       "id": "nav-inbox.label",
@@ -780,6 +780,62 @@
       "onlyRef": 8,
       "onlyCand": 0
     },
+    "kitchen-sink/exponential/light/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/exponential/light/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/exponential/light/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/exponential/light/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/exponential/light/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/exponential/light/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/exponential/light/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/exponential/light/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
     "kitchen-sink/neutral/dark/390/ltr": {
       "size": 0,
       "position": 0,
@@ -830,6 +886,62 @@
       "onlyCand": 0
     },
     "kitchen-sink/neutral/dark/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/light/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/light/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/light/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/light/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/light/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/light/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/light/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/neutral/light/1280/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
@@ -892,6 +1004,62 @@
       "onlyRef": 7,
       "onlyCand": 0
     },
+    "kitchen-sink/playful/light/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/light/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 6,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/light/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/light/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/light/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/light/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 8,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/light/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
+    "kitchen-sink/playful/light/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 7,
+      "onlyCand": 0
+    },
     "responsive/exponential/dark/390/ltr": {
       "size": 0,
       "position": 0,
@@ -942,6 +1110,62 @@
       "onlyCand": 0
     },
     "responsive/exponential/dark/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/light/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/light/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/light/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/light/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/light/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/light/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/light/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/exponential/light/1280/rtl": {
       "size": 0,
       "position": 0,
       "wrap": 0,
@@ -1004,6 +1228,62 @@
       "onlyRef": 0,
       "onlyCand": 0
     },
+    "responsive/neutral/light/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/light/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/light/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/light/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/light/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/light/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/light/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/neutral/light/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
     "responsive/playful/dark/390/ltr": {
       "size": 0,
       "position": 0,
@@ -1059,6 +1339,398 @@
       "wrap": 0,
       "onlyRef": 0,
       "onlyCand": 0
+    },
+    "responsive/playful/light/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/light/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/light/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/light/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/light/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/light/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/light/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "responsive/playful/light/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/dark/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/dark/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/dark/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/dark/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/dark/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/dark/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/dark/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/dark/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/light/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/light/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/light/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/light/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/light/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/light/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/light/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/exponential/light/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/dark/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/dark/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/dark/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/dark/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/dark/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/dark/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/dark/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/dark/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/light/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/light/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/light/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/light/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/light/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/light/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/light/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/neutral/light/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/dark/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/dark/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/dark/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/dark/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/dark/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/dark/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/dark/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/dark/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/light/390/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/light/390/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/light/600/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/light/600/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/light/900/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/light/900/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/light/1280/ltr": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
+    },
+    "dashboard/playful/light/1280/rtl": {
+      "size": 0,
+      "position": 0,
+      "wrap": 0,
+      "onlyRef": 0,
+      "onlyCand": 0
     }
   },
   "survivors": [],
@@ -1066,49 +1738,49 @@
     {
       "id": "accordion.count.1",
       "only": "ref",
-      "cases": 24,
+      "cases": 48,
       "reason": "Accordion count: painted inside the trigger leaf; its room is measured (round2.rs an_accordion_count_is_measured_after_the_title)."
     },
     {
       "id": "audio.controls",
       "only": "ref",
-      "cases": 24,
+      "cases": 48,
       "reason": "AudioPlayer controls row: painted inside the AudioPlayer leaf (its height is the core's)."
     },
     {
       "id": "audio.track",
       "only": "ref",
-      "cases": 24,
+      "cases": 48,
       "reason": "AudioPlayer title line: painted inside the AudioPlayer leaf (its height is the core's)."
     },
     {
       "id": "chip-user.image.fallback",
       "only": "ref",
-      "cases": 18,
+      "cases": 36,
       "reason": "Avatar initials inside a Chip: painted inside the image leaf (the box is compared)."
     },
     {
       "id": "media-img.fallback",
       "only": "ref",
-      "cases": 24,
+      "cases": 48,
       "reason": "Image/fallback: gpui paints the broken-picture glyph inside the Image leaf (the box is compared)."
     },
     {
       "id": "page-1.fallback",
       "only": "ref",
-      "cases": 14,
+      "cases": 28,
       "reason": "Image/fallback of a Carousel page: painted inside the Image leaf; shows only where the web's load fails first."
     },
     {
       "id": "ring.label",
       "only": "ref",
-      "cases": 24,
+      "cases": 48,
       "reason": "Ring centre label: painted inside the Ring leaf."
     },
     {
       "id": "video.controls",
       "only": "ref",
-      "cases": 24,
+      "cases": 48,
       "reason": "Video controls bar: painted inside the Video leaf (16:9 box compared)."
     }
   ]

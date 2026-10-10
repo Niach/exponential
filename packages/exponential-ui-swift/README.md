@@ -22,8 +22,14 @@ bash apps/desktop/crates/exponential-ui-ffi/build-ios.sh   # → Binaries/Expone
 swift test                                                 # macOS: the painter, host + conformance tests + the primitives
 ```
 
+The xcframework holds iOS device (arm64), iOS Simulator (arm64 + x86_64) and
+macOS (arm64 + x86_64) slices, all built with the `mobile` profile (LTO, one
+codegen unit) and without the facade's `cli` feature; ~200 MB unzipped.
+
 `Package.swift` declares the binary target, the painter and its tests only
-when the xcframework is present (or `EXPONENTIAL_UI_FFI` names one); a
+when the xcframework is present in `Binaries/` (or `EXPONENTIAL_UI_FFI` names
+one elsewhere: an absolute path or one relative to this directory; the
+manifest rewrites an absolute one relative, the form SwiftPM accepts); a
 checkout that only needs the primitives (the app's Tuist graph, CI) resolves
 without a Rust toolchain. Publishing (VAPP-91, below) switches the binary
 target to `url:` + `checksum`. The generated binding
@@ -44,7 +50,16 @@ ScrollView { ExponentialSurface(model: model) }    // as wide as its container, 
   = the catalog's registry concepts → your views (nil = the placeholder
   circle); `onAction` = every A2UI action; `onInput` = host-owned text
   edits (`change` debounced 150 ms with a revision, `commit` on blur /
-  Enter); `openUrl`; `resolveUrl`; `onUnknown`; `fontFamily`; `markdown`;
+  Enter); `openUrl` (only hrefs `urlPolicy` allows reach it: Link, markdown links,
+  the openUrl function; a denied href paints as text); `resolveUrl` (a
+  rewrite BEFORE the media policy, never a bypass); `mediaRequest` /
+  `mediaOptions` (every Image, Avatar, Video + poster, AudioPlayer and markdown image src;
+  default schemes https/http/data; picture loads enforce the contract's
+  `media.limits`, and every redirect hop passes the media policy again:
+  schemes, hosts, no https→http downgrade, headers rebuilt from the rules
+  the new url matches); `onPaintError` (a failed painter paints an empty
+  box and is not painted again until its props change, reported once per
+  component; `ExponentialHost` sends it as `RENDER_FAILED`); `onUnknown`; `fontFamily`; `markdown`;
   `onUpload` = the files a FileUpload got (name, size, MIME type, URL,
   bytes; the surface already fired `upload`); `pickFiles` = `true` when
   the host shows its own picker (then `model.filesPicked(componentId:urls:)`),
@@ -138,9 +153,14 @@ ScrollView { HostSurface(host: host, surfaceId: "main") { ProgressView() } }
   `callFunction`: `openUrl` → `openURL` (the URL policy, relative urls
   against `media.baseUrl`), else `decide` (+ a template surface's package
   `functions`) → `not_found` / `deny` send the error, `ask` asks
-  `onFunctionCall`, `allow` runs the function. Images, avatars and video
-  posters load through `mediaRequest` (a `URLRequest` with the rules'
-  headers), never `AsyncImage`.
+  `onFunctionCall`, `allow` runs the function. Images, avatars, video
+  posters and Video / AudioPlayer srcs load through `mediaRequest` (a `URLRequest` with the rules'
+  headers), never `AsyncImage`. An http(s) Video / AudioPlayer src streams
+  with those headers (`AVURLAsset`, no byte cap): a policed probe resolves
+  its redirects first and the player opens the final url. AVFoundation has
+  no redirect hook, so a redirect the server sends the PLAYER but not the
+  probe is followed unpoliced. A `data:` src plays from a temporary file
+  (at most 8 kept, deleted when no player holds it).
 - **Transports.** `MemoryTransport` (`feed`, `feedJsonl`, `sent`),
   `JSONLStreamTransport` / `SSETransport` (URLSession `bytes(for:)` through
   the core's `JsonlDecoder` / `SseDecoder`, client messages POSTed to
@@ -265,7 +285,18 @@ exponential-ui-kitchen-sink` captures), `-a11yDump`. Icons are SF Symbols
 mapped from the kitchen sink's concepts; a real host hands the renderer its
 own registry.
 
-## Tests (`swift test`, macOS)
+**The list bench** (`fixtures/bench-list.json`, `NativeHardeningTests.testListBenchScrollStep`:
+100,000 rows, 390 × 800, the real TextKit measure on the main actor, Apple
+M-series, `swift test -c release`): `firstPaintMs` 167, `scrollStepMs` 8.3
+(the core's own share 2.3 ms; 78 text measurements per one-viewport step, all
+rows new to the window, so a per-row cache would not hit; text widths are
+already cached per string), `scrollToIndexMs` 12.
+
+## Tests (`swift test`, macOS; `xcodebuild test`, iOS Simulator)
+
+On iOS: `xcodebuild test -scheme ExponentialUI-Package -destination
+'platform=iOS Simulator,name=<iPhone>'` (the `#if canImport(UIKit)` paths;
+CI's `swift-ios` job, which also builds the KitchenSink app).
 
 `FixtureReplayTests` (the kitchen sink in every theme and mode, all
 catalog-component cases, macros, the basic map, the extension fixture
@@ -284,7 +315,6 @@ against the web baseline, ratcheted: [`conformance/`](conformance/README.md)).
 
 ## Known divergences from the React renderer
 
-- Video and AudioPlayer are static placeholders (poster, duration).
 - `ImageRenderer` renders the text leaves blank (they are UIKit/AppKit
   views); capture a real window instead.
 - The real-font layout gaps left are core-side (`conformance/README.md`).

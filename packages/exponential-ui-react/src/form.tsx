@@ -38,6 +38,13 @@ export interface FormContextValue {
 
 export const FormContext = createContext<FormContextValue | null>(null)
 
+/** Round 4 (VAPP-103, `submitClosesOverlay`): the NEAREST overlay around a
+ *  Form decides — a dismissible Dialog or Drawer provides its close, every
+ *  other overlay (a Popover, a non-dismissible Dialog = AlertDialog)
+ *  provides null; a valid Form submit beneath calls it right after
+ *  `submit` (the author never resets the bound `open` flag). */
+export const CloseOnSubmitContext = createContext<(() => void) | null>(null)
+
 export function useForm(): FormContextValue | null {
   return useContext(FormContext)
 }
@@ -45,6 +52,7 @@ export function useForm(): FormContextValue | null {
 export function FormNative({ node, props, rootProps, emit, children }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
+  const closeOverlay = useContext(CloseOnSubmitContext)
   const fields = useRef(new Set<FieldHandle>())
   const [attempts, setAttempts] = useState(0)
   const [summary, setSummary] = useState<{ name: string; message: string }[]>([])
@@ -85,8 +93,9 @@ export function FormNative({ node, props, rootProps, emit, children }: NativePro
     const values: Record<string, unknown> = {}
     for (const f of list) values[f.name] = f.value()
     void emit(`submit`, { values })
+    closeOverlay?.()
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [emit, ctx])
+  }, [emit, ctx, closeOverlay])
   const changed = useCallback((name: string, value: unknown) => void emit(`change`, { name, value }), [emit])
   const value = useMemo<FormContextValue>(() => ({ register, submit, changed, disabled, busy, attempts }), [register, submit, changed, disabled, busy, attempts])
   // Summary entries clear as their fields become valid.

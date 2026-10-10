@@ -122,9 +122,8 @@ class SinkState(context: Context, val options: LaunchOptions, private val scope:
         if (id != "brand") return ThemeHandle.builtin(id)
         val fixture = JsonValue.parse(assets.open("theme-extends.json").bufferedReader().use { it.readText() })
         val case = fixture["cases"]?.array?.firstOrNull { it["theme"]?.get("id")?.string == "brand" } ?: return null
-        return runCatching { ThemeHandle.load(case["theme"]!!.json) }
-            .onFailure { Log.w(LOG_TAG, "brand theme: ${it.message}") }
-            .getOrNull()
+        // Never fails the sink: an unusable theme reports why and paints the default.
+        return ThemeHandle.loadOrDefault(case["theme"]!!.json) { issues -> Log.w(LOG_TAG, "brand theme refused: $issues") }
     }
 
     companion object {

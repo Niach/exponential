@@ -16,18 +16,18 @@ Read §0, the sections you own, then §6 (your checklist).
 | `Row` | NEW macro: leading/trailing slots, identifier, title/subtitle/meta/value(+placeholder), chevron, selected, density, surface flat\|card, pressable, depth | `core.catalog.json`, `macros.json` | `catalog-macros.json` |
 | `Section` | NEW macro: a band header (title, caption, count OFF by default, glyph, leading/trailing slots, collapsible/open, tint) over hairline-divided rows (a `List` native, the windowed backend); `tree` = the rows nest by depth | same | `catalog-macros.json`, `kitchen-sink.expanded.json` |
 | tree guides | computed by the CORE from consecutive rows' `depth` (elbow, tee, pass-through); `TreeGuides` = a hidden Row part, never authored; column 14 px (the line's left edge at i·14 + 7), rounded 3 px elbow, 1 px bridge | `src/tree-guides.ts`, `layout.json` | `fixtures/tree-guides.json`, the `Row/tree:*` macro cases |
-| `Chip` | NEW macro: shape pill\|rect (Pill + EntityChip), selected, tone, dot, icon, image, detail, removable, pressable, a `leading` slot | `macros.json` | `catalog-macros.json` |
+| `Chip` | NEW macro: shape pill\|rect (the old Pill + EntityChip), selected, tone, dot, icon, image, detail, removable, pressable, a `leading` slot | `macros.json` | `catalog-macros.json` |
 | `Segmented` | native (ToggleGroup renamed): variant segmented (default) \| toggles \| outline \| bar; TabBar + ButtonGroup fold in | `core.catalog.json`, `recipes.json` | `catalog-components.json`, `control-geometry.json` |
 | `Menu` | native (DropdownMenu + ContextMenu): `openOn press\|contextmenu`, the ONE child = the trigger or the target region, `menuItem.items` bindable (a source-fed submenu) | `core.catalog.json` | `catalog-components.json`, the React + Rust bound-submenu tests |
 | `Badge` | counts and short status labels only | `core.catalog.json` | — |
-| `Sheet` | the alias is `Drawer side: bottom` (what the app calls a sheet) | `macros.json` | `catalog-macros.json` |
-| deprecated aliases | 16 components carry `deprecated: "<Replacement>"`: still reduce (a one-node macro over the replacement), never offered | `core.catalog.json` `$comment` | `catalog.test.ts`, every `<Alias>/example` case |
+| sheets | `Drawer side: bottom` (what the app calls a sheet; the Sheet name is gone) | `core.catalog.json` | `catalog-components.json` |
+| removed names | round 4 (VAPP-103) REMOVED the 16 folded names (§4): no aliases, an old name is an `unknown component` | `core.catalog.json` `$comment` | `catalog.test.ts` |
 | lite | Pagination, Accordion, Radio, Slider, Spinner, Table, Toggle leave the lite subset (with Carousel, the overlays, media, Chart) | `core.catalog.json` | `prompt-budget.json` |
 | a11y | roles gain `tree`, `treeitem` | `a11y.json` | `round1-fixes.test.ts` |
 | extension | the app extension splits RunRow into RunStatusRow + SessionRow, adds PrRow/StackRail/DiffCounts/DiffFileRow/GuideSection; IssueRow, IssueGroupBand and IssueChip are macros over Row/Section/Chip | `packages/ui/exponential-ui/extension.json` | `packages/ui/src/exponential-ui-extension.test.ts` |
 
-Counts: 88 components in the catalog, 70 offered (46 natives, 42 macros
-including the 16 aliases; 50 lite), TreeGuides hidden.
+Counts (after round 4): 72 components in the catalog, 70 offered (44
+natives, 26 macros; 50 lite), TreeGuides and Unknown hidden.
 
 ## 1. Row and Section
 
@@ -125,29 +125,25 @@ bindable: a `{path}` whose rows a host feeds (`bindDataModel` from an
 `exp:` source) becomes the submenu. Parts `trigger`, `content`, `item`,
 `separator`, `label`, `shortcut`, `check`, `submenuIndicator`; built-in
 glyphs `Menu.check`, `Menu.submenuIndicator`. The DropdownMenu and
-ContextMenu glyph rows are gone (their owners are aliases now).
+ContextMenu glyph rows are gone (round 4 removed those names).
 
-## 4. Deprecated aliases (one release)
+## 4. Removed names (round 4)
 
-| alias | expands to |
+Round 3 shipped these as one-release aliases; round 4 (VAPP-103) REMOVED
+them before any release: there is no `deprecated` key, no alias macro, no
+example case and no generated `componentDeprecated` constant. An old name
+reduces to the `Unknown` placeholder with an `unknown component <name>`
+issue, and a theme naming one fails to load (`unknown component`).
+
+| removed | write instead |
 |---|---|
-| ListRow, CardRow, PropertyRow, PickerRow, NavRow | `Row` (card = `surface: card`; property = a `value`; picker = `value` + `placeholder` + `chevron: selector`; nav = `icon` + `selected` + a `Badge` in the trailing slot, role link) |
-| Band, RowList | `Section` (no rows / no title; `guides` → `tree`) |
-| Pill, EntityChip | `Chip` (pill / rect) |
+| ListRow, CardRow, PropertyRow, PickerRow, NavRow | `Row` (card = `surface: card`; property = a `value`; picker = `value` + `placeholder` + `chevron: selector`; nav = `icon` + `selected` + a `Badge` in the trailing slot) |
+| Band, RowList | `Section` (no rows / no title; `tree` for nested rows) |
+| Pill, EntityChip | `Chip` (`shape: pill` / `rect`) |
 | ToggleGroup, TabBar, ButtonGroup | `Segmented` (`toggles`\|`outline`\|`segmented` / `bar` + fill / `outline`) |
-| DropdownMenu, ContextMenu | `Menu` (`press`, the trigger slot becomes the child / `contextmenu`) |
+| DropdownMenu, ContextMenu | `Menu` (`openOn: press` with the trigger as the child / `contextmenu`) |
 | Sheet | `Drawer side: bottom` |
 | HoverCard | `Popover openOn: hover` |
-
-An alias is `kind: macro`, `lite: false`, never in the prompt, the docs,
-the specimens or `componentNames()`; `catalog-components.json` keeps ONE
-case per alias (`<Alias>/example`) so every renderer proves it still
-expands. The generated constants carry `componentDeprecated` (the
-replacement, `""` for a live component); `docs/components.generated.json`
-carries the `deprecated` map. Over a MACRO replacement the alias is
-transparent (the expanded root's recipe names the replacement); over a
-NATIVE one (Segmented, Menu, Drawer, Popover) the root keeps the alias as
-its recipe macro.
 
 ## 5. Breaking changes
 
@@ -161,14 +157,13 @@ its recipe macro.
 
 ## 6. Per-renderer checklist
 
-Every renderer: replay the regenerated fixtures (`catalog-components.json`
-with the alias cases, `catalog-macros.json` with the `Row/tree:*` cases,
+Every renderer: replay the regenerated fixtures (`catalog-components.json`, `catalog-macros.json` with the `Row/tree:*` cases,
 `tree-guides.json`, `kitchen-sink*.json`, `control-geometry.json`,
 `theme-*.json`, `bind-time.json`); paint `Segmented` (+ `bar`) and `Menu`
 (+ `contextmenu`) under the new names; draw `TreeGuides` at 14 / 3 / 1.
 
 - **Rust core**: `tree_guides.rs` + the post-expansion pass; `Menu` and
-  `Segmented` in the layout tree, events and state; `deprecated` on the def.
+  `Segmented` in the layout tree, events and state.
 - **gpui**: the menu and segmented painters renamed, the `bar` column item,
   the rounded + bridged guides; the conformance ratchet re-recorded against
   the new web baseline.

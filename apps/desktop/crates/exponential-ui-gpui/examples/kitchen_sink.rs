@@ -75,10 +75,10 @@ fn main() {
             move |window, cx| {
                 let view = cx.new(|cx| {
                     let mut v = SurfaceView::new(SurfaceViewOptions { surface_id: "kitchen-sink".into(), theme, mode, settings: Some(settings), ..Default::default() }, window, cx);
-                    v.set_data("/draft", Some(json!({"title": ""})), cx);
-                    v.set_data("/ui", Some(json!({"confirmOpen": false})), cx);
+                    v.set_data("/draft", Some(json!({"title": ""})), cx).expect("data");
+                    v.set_data("/ui", Some(json!({"confirmOpen": false})), cx).expect("data");
                     let posts: Vec<Value> = (0..40).map(|i| json!({"title": format!("Post {}", i + 1), "score": format!("{} points", (40 - i) * 7)})).collect();
-                    v.set_data("/posts", Some(Value::Array(posts)), cx);
+                    v.set_data("/posts", Some(Value::Array(posts)), cx).expect("data");
                     // The fixture's root pins `direction: ltr`; an RTL locale
                     // lets the locale decide (the core's rule).
                     let mut raw: Value = serde_json::from_str(KITCHEN_SINK).expect("the kitchen sink parses");

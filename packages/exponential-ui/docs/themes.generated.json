@@ -2082,22 +2082,6 @@
       ]
     },
     {
-      "name": "Band",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
-    },
-    {
-      "name": "RowList",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
-    },
-    {
       "name": "Group",
       "kind": "macro",
       "parts": [
@@ -2290,14 +2274,6 @@
       ]
     },
     {
-      "name": "ToggleGroup",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
-    },
-    {
       "name": "Accordion",
       "kind": "native",
       "parts": [
@@ -2338,14 +2314,6 @@
       "props": []
     },
     {
-      "name": "ButtonGroup",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
-    },
-    {
       "name": "Breadcrumb",
       "kind": "macro",
       "parts": [
@@ -2358,14 +2326,6 @@
       "props": [
         "current"
       ]
-    },
-    {
-      "name": "TabBar",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
     },
     {
       "name": "Stepper",
@@ -2417,14 +2377,6 @@
       ]
     },
     {
-      "name": "Sheet",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
-    },
-    {
       "name": "AlertDialog",
       "kind": "macro",
       "parts": [
@@ -2448,14 +2400,6 @@
         "side",
         "openOn"
       ]
-    },
-    {
-      "name": "HoverCard",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
     },
     {
       "name": "Tooltip",
@@ -2485,22 +2429,6 @@
       "props": [
         "openOn"
       ]
-    },
-    {
-      "name": "DropdownMenu",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
-    },
-    {
-      "name": "ContextMenu",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
     },
     {
       "name": "Toast",
@@ -2560,14 +2488,6 @@
         "selected",
         "tone"
       ]
-    },
-    {
-      "name": "Pill",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
     },
     {
       "name": "EmptyState",
@@ -3005,55 +2925,6 @@
         "surface",
         "depth"
       ]
-    },
-    {
-      "name": "ListRow",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
-    },
-    {
-      "name": "CardRow",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
-    },
-    {
-      "name": "PropertyRow",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
-    },
-    {
-      "name": "PickerRow",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
-    },
-    {
-      "name": "NavRow",
-      "kind": "macro",
-      "parts": [
-        "root",
-        "count"
-      ],
-      "props": []
-    },
-    {
-      "name": "EntityChip",
-      "kind": "macro",
-      "parts": [
-        "root"
-      ],
-      "props": []
     },
     {
       "name": "TreeGuides",

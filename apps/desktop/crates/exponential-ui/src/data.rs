@@ -18,6 +18,7 @@ use serde_json::{Map, Value};
 use crate::expr::truthy;
 use crate::format::Formatter;
 use crate::json;
+use crate::limits;
 use crate::strings::{resolve_string, StringTable};
 use crate::catalog::CatalogView;
 use crate::types::{ComponentDef, DefSchema, PropSchema, UiNode};
@@ -60,64 +61,106 @@ pub fn get_pointer<'a>(data: &'a Value, pointer: &str) -> Option<&'a Value> {
     Some(cur)
 }
 
-/// Set (or remove with `None`) the value at `pointer`, creating OBJECTS on
-/// the way (the TS `writePointer`); an existing array takes an index or `-`
-/// (append).
-pub fn set_pointer(data: &mut Value, pointer: &str, value: Option<Value>) {
-    let tokens = pointer_tokens(pointer);
-    if tokens.is_empty() {
-        *data = value.unwrap_or_else(|| Value::Object(Map::new()));
-        return;
+/// A pointer's tokens for a WRITE (`` and `/` = the whole model), or the
+/// limit it breaks (`maxPointerBytes`, `maxPointerSegments`).
+pub fn write_tokens(pointer: &str) -> Result<Vec<String>, String> {
+    if pointer.len() > limits::MAX_POINTER_BYTES {
+        return Err(format!("data: pointer longer than {} bytes", limits::MAX_POINTER_BYTES));
     }
-    fn put(cur: &mut Value, tokens: &[String], value: Option<Value>) {
-        let token = &tokens[0];
-        let last = tokens.len() == 1;
+    if pointer.is_empty() || pointer == "/" {
+        return Ok(Vec::new());
+    }
+    let body = pointer.strip_prefix('/').unwrap_or(pointer);
+    if body.split('/').count() > limits::MAX_POINTER_SEGMENTS {
+        return Err(format!("data: pointer has more than {} segments", limits::MAX_POINTER_SEGMENTS));
+    }
+    Ok(body.split('/').map(unescape).collect())
+}
+
+/// The index a token names in an array of `len` items: digits up to `len`
+/// (`len` and `-` append), else the refusal (JSON Pointer: never a gap,
+/// never a key). `src/dynamic.ts arrayIndex`.
+fn array_index(token: &str, len: usize) -> Result<usize, String> {
+    if token == "-" {
+        return Ok(len);
+    }
+    if token.is_empty() || !token.bytes().all(|b| b.is_ascii_digit()) {
+        return Err(format!("data: {} is not an array index", Value::String(token.to_string())));
+    }
+    match token.parse::<usize>() {
+        Ok(i) if i <= len => Ok(i),
+        _ => Err(format!("data: index {token} is past the end of the array ({len} items)")),
+    }
+}
+
+/// Set (or remove with `None`) the value at `pointer`, creating OBJECTS on
+/// the way (the TS `writePointer`); an array takes an index up to its
+/// length (`length` and `-` append). VAPP-103: refused (data unchanged):
+/// a pointer past `maxPointerBytes` / `maxPointerSegments`, a non-index
+/// token or an index past the end of an array. Iterative: any depth.
+pub fn set_pointer(data: &mut Value, pointer: &str, value: Option<Value>) -> Result<(), String> {
+    let tokens = write_tokens(pointer)?;
+    let Some((last, path)) = tokens.split_last() else {
+        *data = value.unwrap_or_else(|| Value::Object(Map::new()));
+        return Ok(());
+    };
+    // Check first: a refusal may only come from an EXISTING array, and the
+    // walk below creates containers (fresh ones are objects).
+    let mut probe = Some(&*data);
+    for token in &tokens {
+        match probe {
+            Some(Value::Array(items)) => {
+                let i = array_index(token, items.len())?;
+                probe = items.get(i);
+            }
+            Some(Value::Object(map)) => probe = map.get(token),
+            _ => break,
+        }
+    }
+    let mut cur = data;
+    for token in path {
         if !(cur.is_object() || cur.is_array()) {
             *cur = Value::Object(Map::new());
         }
-        match cur {
+        cur = match cur {
             Value::Array(items) => {
-                let idx = if token == "-" { items.len() } else { token.parse::<usize>().unwrap_or(items.len()) };
-                if last {
-                    match value {
-                        None => {
-                            if idx < items.len() {
-                                items.remove(idx);
-                            }
-                        }
-                        Some(v) => {
-                            while items.len() <= idx {
-                                items.push(Value::Null);
-                            }
-                            items[idx] = v;
-                        }
-                    }
-                } else {
-                    while items.len() <= idx {
-                        items.push(Value::Null);
-                    }
-                    put(&mut items[idx], &tokens[1..], value);
+                let i = array_index(token, items.len())?;
+                if i == items.len() {
+                    items.push(Value::Null);
                 }
+                &mut items[i]
             }
-            Value::Object(map) => {
-                if last {
-                    match value {
-                        None => {
-                            map.remove(token);
-                        }
-                        Some(v) => {
-                            map.insert(token.clone(), v);
-                        }
-                    }
-                } else {
-                    let entry = map.entry(token.clone()).or_insert(Value::Null);
-                    put(entry, &tokens[1..], value);
-                }
-            }
+            Value::Object(map) => map.entry(token.clone()).or_insert(Value::Null),
             _ => unreachable!(),
-        }
+        };
     }
-    put(data, &tokens, value);
+    if !(cur.is_object() || cur.is_array()) {
+        *cur = Value::Object(Map::new());
+    }
+    match cur {
+        Value::Array(items) => {
+            let i = array_index(last, items.len())?;
+            match value {
+                None => {
+                    if i < items.len() {
+                        items.remove(i);
+                    }
+                }
+                Some(v) if i == items.len() => items.push(v),
+                Some(v) => items[i] = v,
+            }
+        }
+        Value::Object(map) => match value {
+            None => {
+                map.remove(last);
+            }
+            Some(v) => {
+                map.insert(last.clone(), v);
+            }
+        },
+        _ => unreachable!(),
+    }
+    Ok(())
 }
 
 /// What `resolve_value` needs.
@@ -654,19 +697,22 @@ pub struct ActionOutcome {
     /// surface reports it as `DataChanged`).
     #[serde(skip)]
     pub written: Option<(String, Value)>,
+    /// VAPP-103: the `set` was refused ([`set_pointer`]'s reason).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
 }
 
 /// What a press does: resolve the function args and the event context
 /// against the data AS IT IS, then apply `set` (relative paths against the
 /// scope, missing objects created), then hand back the event.
 pub fn run_action(action: &Value, ctx: &ResolveContext) -> ActionOutcome {
-    let mut out = ActionOutcome { data: ctx.data.clone(), event: None, call: None, written: None };
+    let mut out = ActionOutcome { data: ctx.data.clone(), event: None, call: None, written: None, error: None };
     let event = action.get("event").filter(|e| e.is_object()).map(|e| ActionEvent {
         name: e.get("name").and_then(Value::as_str).unwrap_or("").to_string(),
         context: e.get("context").filter(|c| !c.is_null()).map(|c| resolve_value(c, ctx).unwrap_or(Value::Null)),
     });
-    // A2UI's `functionCall` (VAPP-91) or the legacy `function` key.
-    if let Some(function) = action.get("functionCall").or_else(|| action.get("function")).filter(|f| f.is_object()) {
+    // A2UI's `functionCall`: the only action key.
+    if let Some(function) = action.get("functionCall").filter(|f| f.is_object()) {
         let name = function.get("call").and_then(Value::as_str).unwrap_or("").to_string();
         let args = match resolve_value(function.get("args").unwrap_or(&Value::Object(Map::new())), ctx) {
             Some(Value::Object(a)) => a,
@@ -679,13 +725,16 @@ pub fn run_action(action: &Value, ctx: &ResolveContext) -> ActionOutcome {
             ("set", Some(path)) => {
                 let pointer = absolute_path(path, ctx.scope);
                 let value = args.get("value").cloned();
-                set_pointer(&mut out.data, &pointer, Some(value.clone().unwrap_or(Value::Null)));
-                if value.is_none() {
-                    // writePointer with `undefined`: the key exists without a
-                    // value, which JSON drops.
-                    set_pointer(&mut out.data, &pointer, None);
+                // No value: the key exists without one, which JSON drops
+                // (the containers on the way are still created).
+                let written = set_pointer(&mut out.data, &pointer, Some(value.clone().unwrap_or(Value::Null))).and_then(|()| match value {
+                    None => set_pointer(&mut out.data, &pointer, None),
+                    Some(_) => Ok(()),
+                });
+                match written {
+                    Ok(()) => out.written = Some((pointer, value.unwrap_or(Value::Null))),
+                    Err(e) => out.error = Some(e),
                 }
-                out.written = Some((pointer, value.unwrap_or(Value::Null)));
             }
             _ => out.call = Some(ActionCall { call: name, args }),
         }
@@ -704,11 +753,11 @@ mod tests {
         let mut data = json!({"user": {"name": "Ada"}, "items": [1, 2]});
         assert_eq!(get_pointer(&data, "/user/name"), Some(&json!("Ada")));
         assert_eq!(get_pointer(&data, "/items/1"), Some(&json!(2)));
-        set_pointer(&mut data, "/user/age", Some(json!(36)));
-        set_pointer(&mut data, "/items/-", Some(json!(3)));
-        set_pointer(&mut data, "/items/0", None);
+        set_pointer(&mut data, "/user/age", Some(json!(36))).unwrap();
+        set_pointer(&mut data, "/items/-", Some(json!(3))).unwrap();
+        set_pointer(&mut data, "/items/0", None).unwrap();
         assert_eq!(data, json!({"user": {"name": "Ada", "age": 36}, "items": [2, 3]}));
-        set_pointer(&mut data, "/new/deep/key", Some(json!(true)));
+        set_pointer(&mut data, "/new/deep/key", Some(json!(true))).unwrap();
         assert_eq!(get_pointer(&data, "/new/deep/key"), Some(&json!(true)));
         assert_eq!(absolute_path("name", "/items/3"), "/items/3/name");
         assert_eq!(absolute_path("", "/items/3"), "/items/3");
@@ -716,7 +765,7 @@ mod tests {
         assert_eq!(absolute_path("x", ""), "/x");
         assert_eq!(absolute_path("", ""), "");
         let mut fresh = json!({});
-        set_pointer(&mut fresh, "/a/0/b", Some(json!(1)));
+        set_pointer(&mut fresh, "/a/0/b", Some(json!(1))).unwrap();
         assert_eq!(fresh, json!({"a": {"0": {"b": 1}}}), "missing containers are objects (writePointer)");
     }
 

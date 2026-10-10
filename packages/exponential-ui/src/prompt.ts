@@ -19,12 +19,13 @@ export interface PromptOptions {
 /** The rules every surface author (a model) must follow, shared by the core
  *  and the basic catalog. Kept to a few lines on purpose. */
 export const PROMPT_RULES: readonly string[] = [
-  `Reply with A2UI v0.9 messages: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]}; one component has id "root".`,
+  `Reply with A2UI v0.9 messages: createSurface{surfaceId, catalogId}, then updateComponents{surfaceId, components:[…]} (one has id "root"; resend an id to change it) and updateDataModel{surfaceId, path, value} (writes the JSON pointer; no value removes it). Keep data in the model and bind to it.`,
   `A component = {id, component, …props, children?: [ids] | {componentId, path, key?}, slots?: {name: id}, on?: {event: action}, style?, visible?}. Children are ids, never inline; {componentId, path} repeats per item, key = the item field naming it.`,
   `Include every required prop. A ~ prop may be a binding {path: "/json/pointer"} or a call {call, args}; bound values stay live. visible: false (or a binding) hides any component.`,
-  `Lay out with Stack, Grid, Card, Sidebar and List (anything longer than a screen); Box + style only for the rest. Wrap fields in Form.`,
+  `An action (on: {event: action}) = {event: {name, context?}} (sent to you; context values may be bindings, read AFTER the component's own write) and/or {functionCall: {call, args}} (runs on the client: a function below, or a namespaced host function like app.toast).`,
+  `Lay out with Stack, Grid, Card, Sidebar and List (anything longer than a screen); Box + style only for the rest. Wrap fields in Form; a valid submit closes the Dialog or Drawer around it.`,
   `Responsive: a ^ prop also takes {base, sm?, md?, lg?, xl?} (from that breakpoint up). Style conditions, one level, narrow first: "@media (min-width: $breakpoint.md)": {…} (also max-width, min-height, max-height in px or $breakpoint.sm|md|lg|xl; orientation: portrait|landscape; hover: hover|none; prefers-reduced-motion: reduce), then ":hover", ":focus-visible", ":pressed". display: "none" hides.`,
-  `Prefer catalog components over Markdown, labels and tones over colours. Built-in copy (Cancel, Search…) is localized: leave it unset.`,
+  `Prefer catalog components over Markdown, labels and tones over colours; a colour is a $color.* token, never #hex (light and dark both apply). Built-in copy (Cancel, Search…) is localized: leave it unset.`,
 ]
 
 /** Props whose meaning is the same everywhere: described ONCE in the full
@@ -139,6 +140,19 @@ function defsBlock(defs: Record<string, { description: string; properties: Recor
   )
 }
 
+const SHORT_TYPES: Readonly<Record<string, string>> = { string: `str`, number: `num`, boolean: `bool`, object: `obj` }
+
+/** Every catalog function as `name(arg:type,…)→returns` (round 4: the
+ *  model sees the argument names, not just the function names). */
+export function functionSignatures(): string[] {
+  const { names, core, basic } = coreCatalog.functions
+  return names.map((name) => {
+    const sig = core[name] ?? basic[name]
+    if (!sig) return name
+    return `${name}(${Object.entries(sig.args).map(([a, t]) => `${a}:${SHORT_TYPES[t] ?? t}`).join(`,`)})→${SHORT_TYPES[sig.returns] ?? sig.returns}`
+  })
+}
+
 /** The system prompt for a surface author. */
 export function catalogPrompt(options: PromptOptions = {}): string {
   const extensions = options.extensions ?? []
@@ -157,7 +171,7 @@ export function catalogPrompt(options: PromptOptions = {}): string {
   }
   const listed = Object.values(coreCatalog.components).filter((def) => isOffered(def) && (!options.lite || def.lite))
   lines.push(`Shapes: ${defsBlock(coreCatalog.defs, view.enums, usedShapes(listed, coreCatalog.defs)).join(`; `)}`)
-  lines.push(`Functions (client-side, the A2UI basic ones plus core ones): ${coreCatalog.functions.names.join(`, `)}.`)
+  lines.push(`Functions ({call, args}; name(arg:type)→result): ${functionSignatures().join(`, `)}. filter: where = {field: value} (an empty value matches all), query = a case-insensitive substring of fields; bind a List or Table to it.`)
   lines.push(`Style keys (Box): display, flex*, justifyContent, align*, gap, width, height, min/max sizes, aspectRatio, position (relative|absolute|sticky), top/right/bottom/left, inset*, padding*/margin* (+Horizontal/Vertical/InlineStart/End), grid*, overflow(X/Y), direction, backgroundColor, backgroundGradient {angle, stops}, backdropBlur $blur.*, color, border*, opacity, boxShadow, font*, letterSpacing, text*, transition $motion.*, transform (translate/scale/rotate, paint only), animation (pulse|spin|fade-in|slide-in-up/down/left/right|shimmer), visibility, pointerEvents, userSelect, cursor. Values: px, "N%", "auto", or tokens $spacing.md, $color.primary, $radius.lg, $control.row.`)
   for (const ext of extensions) {
     lines.push(`Extension ${ext.id} (${ext.name}):`)

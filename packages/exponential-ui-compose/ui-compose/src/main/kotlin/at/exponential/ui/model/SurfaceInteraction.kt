@@ -36,22 +36,22 @@ internal fun SurfaceModel.dispatch(events: List<FfiEvent>, inputRevision: Int? =
                     surfaceId = id,
                     event = v["event"]?.string ?: "",
                     name = v["name"]?.string ?: "",
-                    componentId = v["component_id"]?.string ?: "",
+                    componentId = v["componentId"]?.string ?: "",
                     context = v["context"] ?: JsonValue.Obj(emptyMap()),
                     payload = v["payload"],
                 ),
             )
-            "openUrl" -> host.openUrl(v["url"]?.string ?: "")
+            "openUrl" -> openHref(v["url"]?.string ?: "")
             "functionCall" -> host.onFunctionCall(
                 SurfaceFunctionCallEvent(
                     surfaceId = id,
-                    componentId = v["componentId"]?.string ?: v["component_id"]?.string ?: "",
+                    componentId = v["componentId"]?.string ?: "",
                     name = v["name"]?.string ?: "",
                     args = v["args"]?.obj ?: emptyMap(),
                 ),
             )
             "input" -> {
-                val component = v["component_id"]?.string ?: ""
+                val component = v["componentId"]?.string ?: ""
                 val revision = inputRevision ?: ((revisions[component] ?: 0) + 1).also { revisions[component] = it }
                 host.onInput(
                     SurfaceInputEvent(
@@ -69,11 +69,11 @@ internal fun SurfaceModel.dispatch(events: List<FfiEvent>, inputRevision: Int? =
             "announce" -> announce(v["text"]?.string ?: "", v["live"]?.string ?: "polite")
             "copy" -> host.copy(v["text"]?.string ?: "")
             "pickFiles" -> host.pickFiles(
-                FilePickRequest(this, v["component_id"]?.string ?: "", v["accept"]?.string, v["multiple"]?.bool ?: false),
+                FilePickRequest(this, v["componentId"]?.string ?: "", v["accept"]?.string, v["multiple"]?.bool ?: false),
             )
             "hoverTimer" -> {
                 val owner = v["owner"]?.string ?: ""
-                val delayMs = (v["delay_ms"]?.number ?: 0.0).toLong()
+                val delayMs = (v["delayMs"]?.number ?: 0.0).toLong()
                 hoverTimers.remove(owner)?.cancel()
                 hoverTimers[owner] = scope.launch {
                     delay(delayMs)

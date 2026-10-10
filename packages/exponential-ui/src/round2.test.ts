@@ -24,7 +24,7 @@ import { preorder, reduceNested, reduceSurface } from "./reducer"
 import { validateStyle } from "./style"
 import { styleToCss } from "./css"
 import { builtinTheme } from "./themes"
-import { validateTheme } from "./theme"
+import { THEME_SCHEMA_ID, validateTheme } from "./theme"
 import { DEFAULT_STRINGS } from "./strings"
 import { A11Y_COMMANDS, COMPONENT_A11Y } from "./a11y"
 import { catalogPrompt } from "./prompt"
@@ -314,7 +314,7 @@ describe(`animations.json (§2)`, () => {
 describe(`theme, strings, a11y, catalog, prompt (round 2)`, () => {
   test(`every built-in theme resolves the blur group; recipes may blur and animate`, () => {
     for (const id of [`neutral`, `exponential`, `playful`]) expect(Object.keys(builtinTheme(id).tokens.blur)).toEqual([`sm`, `md`, `lg`, `xl`])
-    const bad = validateTheme({ id: `x`, name: `X`, extends: `neutral`, recipes: { Box: { root: [{ style: { backdropBlur: 4, animation: `wobble` } }] } } }, { themes: [builtinTheme(`neutral`)] })
+    const bad = validateTheme({ $schema: THEME_SCHEMA_ID, id: `x`, name: `X`, extends: `neutral`, recipes: { Box: { root: [{ style: { backdropBlur: 4, animation: `wobble` } }] } } }, { themes: [builtinTheme(`neutral`)] })
     expect(bad.map((i) => i.path).sort()).toEqual([`recipes.Box.root[0].style.animation`, `recipes.Box.root[0].style.backdropBlur`])
   })
 

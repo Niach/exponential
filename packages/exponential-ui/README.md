@@ -20,7 +20,7 @@ nothing from the Exponential app.
 
 | path | what |
 |---|---|
-| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 17 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 88 components (70 offered + 16 one-release `deprecated` aliases + the hidden TreeGuides part, round 3) with props + descriptions |
+| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 17 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 72 components (70 offered + the hidden TreeGuides part and Unknown placeholder; round 4 removed the round-3 aliases) with props + descriptions |
 | `catalog/macros.json` | the declarative expansion table, one template per macro component |
 | `catalog/basic-map.json` | A2UI basic → core: components (+ named transforms), icons, functions |
 | `catalog/style.json` | the `Box` style whitelist (VAPP-4), one source for TS / schema / natives |
@@ -43,7 +43,7 @@ nothing from the Exponential app.
 | `fixtures/` | the contract (below) |
 | `docs/round-1-contract.md` | the renderer-hardening round: every contract change with notes per renderer |
 | `docs/round-2-contract.md` | round 2: Resizable, sticky, backdrop blur, animations, the Formatter, sections + scrollToIndex, the 53 gpui-vs-web decisions; a checklist per renderer |
-| `docs/round-3-contract.md` | round 3 (VAPP-102): ONE Row / Section / Chip / Segmented / Menu, the core-computed tree guides (`src/tree-guides.ts`, `fixtures/tree-guides.json`), the 16 deprecated aliases, the lite prune |
+| `docs/round-3-contract.md` | round 3 (VAPP-102): ONE Row / Section / Chip / Segmented / Menu, the core-computed tree guides (`src/tree-guides.ts`, `fixtures/tree-guides.json`), the 16 names round 4 removed, the lite prune |
 | `src/host/` | the host API reference: router, decoders, policy, sources, packages, the `ExponentialHost` runtime + transports |
 | `src/connector/` | the Exponential connector (MCP OAuth + `exp:` sources over MCP) and `createVappHost` |
 | `conformance/` | the conformance suite: `manifest.json` (generated), `report.schema.json`, the runner guide; round 1's real-font harness beside it (`run.ts`, `dump.ts`, `compare.ts`, `fonts.json`) |
@@ -162,6 +162,18 @@ measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).
   The template language is documented in `macros.json`'s `$comment` and
   implemented in `expr.ts` (pure, line-by-line mirrorable in Rust).
 - `validateProps(def, props)` — the mini schema (`types.ts` `PropSchema`).
+- Round 4 (VAPP-103, `fixtures/round4-contract.json`): `validateNode(node)`
+  (the reducer runs it on every authored node: the node's style, every
+  function its props / `visible` / actions call — a catalog function or a
+  namespaced host function, `isCallableName` — and a Table's slot columns);
+  colours in a node are `$color.*` tokens only; the core function
+  `filter{items, query?, fields?, where?}`; `withOwnWrites` (an action's
+  context resolves AFTER the component's own write, given explicitly by
+  prop) and
+  `submitClosesOverlay` (a valid Form submit closes the nearest overlay
+  around it when that is a dismissible Dialog/Drawer); `themeOrDefault` (never throws: the default theme + the issues); a
+  theme must name `$schema` = `THEME_SCHEMA_ID`; an action's function is
+  its `functionCall`.
 - `validateStyle` / `create` / `props` — the VAPP-4 `vapp-css` over the whitelist.
 - `defineExtension(def)` — an extension catalog: own id, `extends` the core,
   components (+ macro templates), no core name shadowed.
@@ -189,8 +201,8 @@ painters through the facade); `catalog/host.json` is the contract and
   bind | delete | send` (pure; errors `UNSUPPORTED_CATALOG`,
   `SURFACE_NOT_FOUND`, `INVALID_MESSAGE`, `TEMPLATE_NOT_FOUND` go back as
   `send`).
-- **Functions**: an `on.<event>` `{functionCall: {call, args}}` (A2UI's key;
-  `function` = the legacy alias) to a non-built-in name runs the host's
+- **Functions**: an `on.<event>` `{functionCall: {call, args}}` (A2UI's
+  key) to a non-built-in name runs the host's
   registered function after the gate: `decideFunction(policy, name,
   registered)` → `allow | ask | deny | not_found` (deny wins, then allow,
   then ask, then `default`; `harness.*` prefixes), `ask` = the host's
@@ -201,14 +213,22 @@ painters through the facade); `catalog/host.json` is the contract and
   emit lands at the bound path.
 - **Negotiation**: `supportedCatalogIds(extensionIds)` = core, core lite,
   A2UI basic, then the registered extensions; `clientCapabilities`.
-- **Policy**: `decideUrl` (schemes `https http mailto tel`, optional host
-  allowlist, relative urls against `baseUrl`) for `openUrl`/`Link`;
-  `mediaRequest(url, {baseUrl, rules})` = the image loader's url + headers
-  (auth for `/api/attachments`).
+- **Policy** (every renderer, every href and src): `decideUrl` (schemes
+  `https http mailto tel`, optional host allowlist, relative urls against
+  `baseUrl`) for `openUrl`, `Link`, markdown links and FileUpload file urls
+  (`safeHref`; denied = plain text); `mediaRequest(url, {baseUrl, rules,
+  schemes, hosts})` = the image loader's url + headers (auth for
+  `/api/attachments`), null when the media policy (default `https http
+  data`, `file` only when listed) denies it; `MEDIA_LIMITS` (20 MiB, 30 s,
+  32 Mpx across every frame, read by `mediaImageWithinLimits` before
+  decoding: header or SVG size × `imageFrames`; an unreadable raster is
+  refused) bound every image load.
 - **Runtime**: `new ExponentialHost({transport, functions, sources,
   extensions, packages, policy})`: `connect()`, `receive(message)`,
   `surface(id)` (a `SurfaceStore`), `action(...)`, `callFunction(...)`,
-  `openUrl(url)`, `mediaRequest(src)`, `status` / `hasTransport` /
+  `openUrl(url)`, `mediaRequest(src)`, `paintError({surfaceId,
+  componentId, message})` (a renderer's `onPaintError` → ONE A2UI
+  `RENDER_FAILED` error per surface + component + message), `status` / `hasTransport` /
   `unsupportedCatalog` (the `host_offline` state and the catalog-update
   banner), `issues` + `onIssue` (invalid packages, the errors it answered,
   an unusable `createSurface.theme`; a package in `packages` that fails
@@ -270,6 +290,7 @@ so. All four renderers and the core run it in CI (`exponential-ui.yml`).
 | `virtual-list.json` | round 2: the one-axis window, scrollToIndex, sections, the sticky header |
 | `animations.json` | round 2: timing + sampled frames of every `animation` per built-in theme, reduced motion, the CSS @keyframes |
 | `bench-list.json` | round 2: the 100,000-row List every renderer benches (numbers in each renderer's README) |
+| `round4-contract.json` | round 4 (VAPP-103): authored trees → the validator's issues; `filter` args → items; an Input/Switch change → the data + the action context after the own write; a Form submit → which Dialog/Drawer closes |
 | `conformance-known.json` | the gpui ratchet + round 2's 53 divergence decisions (`causes`, `rules`) |
 
 ## Commands

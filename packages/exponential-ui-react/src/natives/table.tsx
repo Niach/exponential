@@ -25,7 +25,7 @@ import { NodeView, type NativeProps } from "../node-view"
 import { partClass } from "../theme-css"
 import { useBoundState } from "./bound"
 import { displayString } from "@exponential-at/ui"
-import { arr, bool, BuiltinIcon, num, phrase, str, useParts } from "./shared"
+import { arr, bool, BuiltinIcon, num, phrase, str, useParts, objects } from "./shared"
 
 const CURRENCY_CODE = /^[A-Za-z]{3}$/
 
@@ -78,8 +78,8 @@ export function sortRows(rows: readonly Record<string, unknown>[], sort: Sort | 
 export function TableNative({ node, props, rootProps, emit, scope, domId }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  const columns = arr<TableColumn>(props.columns)
-  const rows = arr<Record<string, unknown>>(props.rows)
+  const columns = objects<TableColumn>(props.columns)
+  const rows = objects<Record<string, unknown>>(props.rows)
   const rowKey = str(props.rowKey, `id`)
   const selectable = str(props.selectable, `none`)
   const striped = bool(props.striped)
@@ -98,11 +98,11 @@ export function TableNative({ node, props, rootProps, emit, scope, domId }: Nati
   const cycle = (c: TableColumn) => {
     const next: Sort = sort?.key === c.key && sort.direction === `asc` ? { key: c.key, direction: `desc` } : { key: c.key, direction: `asc` }
     setSort(next)
-    void emit(`sort`, { sort: next })
+    void emit(`sort`, { sort: next }, { sort: next })
   }
   const select = (next: string[]) => {
     setSelected(next)
-    void emit(`select`, { selected: next })
+    void emit(`select`, { selected: next }, { selected: next })
   }
   const allKeys = rows.map(keyOf)
   const allSelected = allKeys.length > 0 && allKeys.every((k) => selected.includes(k))

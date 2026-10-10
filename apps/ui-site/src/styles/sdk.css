@@ -190,41 +190,7 @@ textarea.sdk-input {
   color: var(--fg);
   background: var(--glass-fill-active);
 }
-.sdk-chip span,
-.sdk-count {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--fg-dim);
-}
 
-/* Badges: native / macro / lite */
-.sdk-badges {
-  display: inline-flex;
-  gap: 4px;
-  vertical-align: middle;
-}
-.sdk-badge {
-  font-family: var(--font-mono);
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  line-height: 1;
-  padding: 4px 6px;
-  border-radius: 5px;
-  border: 1px solid var(--glass-stroke-strong);
-  color: var(--fg-muted);
-}
-.sdk-badge.is-native {
-  color: #a7f3d0;
-  border-color: color-mix(in oklab, #34d399 35%, transparent);
-  background: color-mix(in oklab, #34d399 10%, transparent);
-}
-.sdk-badge.is-macro {
-  color: #c7d2fe;
-  border-color: color-mix(in oklab, #818cf8 35%, transparent);
-  background: color-mix(in oklab, #818cf8 10%, transparent);
-}
 .sdk-req,
 .sdk-bindable {
   display: inline-block;
@@ -372,12 +338,7 @@ textarea.sdk-input {
   font-size: clamp(32px, 4.4vw, 46px);
   font-weight: 600;
   letter-spacing: -0.035em;
-  margin: 0 0 6px;
-}
-.sdk-index-sub {
   margin: 0 0 20px;
-  font-size: 15px;
-  color: var(--fg-muted);
 }
 .sdk-index-tools {
   display: flex;
@@ -407,28 +368,13 @@ button.sdk-chip {
   background: var(--accent);
   border-color: var(--accent);
 }
-.sdk-chip[aria-pressed="true"] span {
-  color: inherit;
-  opacity: 0.7;
-}
-.sdk-legend {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 0;
-  font-size: 11.5px;
-  color: var(--fg-dim);
-}
-.sdk-legend .sdk-pdot + .sdk-pdot,
-.sdk-legend .sdk-pdot:not(:first-child) {
-  margin-left: 10px;
-}
 .sdk-index-status {
-  min-height: 1em;
-  margin: 18px 0 0;
+  margin: 0;
   font-size: 12.5px;
   color: var(--fg-muted);
+}
+.sdk-index-status:not(:empty) {
+  margin-top: 18px;
 }
 .sdk-index-group {
   margin-top: 28px;
@@ -513,7 +459,7 @@ button.sdk-chip {
   line-height: 1.5;
   color: var(--fg-muted);
   display: -webkit-box;
-  -webkit-line-clamp: 2;
+  -webkit-line-clamp: 1;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
@@ -521,24 +467,6 @@ button.sdk-chip {
   font-family: var(--font-mono);
   font-size: 11.5px;
 }
-.sdk-dots {
-  display: inline-flex;
-  gap: 4px;
-  margin-top: auto;
-  padding-top: 4px;
-}
-.sdk-pdot {
-  display: inline-block;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  border: 1px solid var(--fg-dim);
-}
-.sdk-pdot.is-on {
-  background: var(--fg-muted);
-  border-color: var(--fg-muted);
-}
-
 /* ─── Small live renders (cards, variants) ─── */
 .sdk-mini {
   position: relative;
@@ -863,11 +791,6 @@ button.sdk-chip {
   gap: 8px;
   font-size: 14px;
 }
-.sdk-gallery-card figcaption code {
-  font-family: var(--font-mono);
-  font-size: 11px;
-  color: var(--fg-dim);
-}
 .sdk-stage.is-gallery {
   padding: 0;
   min-height: 520px;
@@ -937,11 +860,6 @@ button.sdk-chip {
 .sdk-shadow.is-dark > span {
   background: #171717;
 }
-.sdk-themes-next {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 12px;
-}
 
 /* ─── Theme builder (the builder's own chrome is .xb, scoped) ─── */
 .sdk-builder-intro {
@@ -951,19 +869,7 @@ button.sdk-chip {
   font-size: 28px;
   font-weight: 600;
   letter-spacing: -0.02em;
-  margin: 0 0 6px;
-}
-.sdk-builder-intro p {
   margin: 0;
-  max-width: 820px;
-  font-size: 14px;
-  line-height: 1.55;
-  color: var(--fg-muted);
-}
-.sdk-builder-intro a {
-  color: var(--fg);
-  text-decoration: underline;
-  text-underline-offset: 2px;
 }
 .sdk-builder {
   border-top: 1px solid var(--glass-stroke-section);
@@ -1215,15 +1121,7 @@ button.sdk-chip {
   overflow: hidden;
 }
 .sdk-home-idle {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   height: 470px;
-  padding: 24px;
-  text-align: center;
-  font-size: 13px;
-  line-height: 1.55;
-  color: var(--fg-dim);
 }
 .sdk-home-status {
   display: flex;
@@ -1493,14 +1391,8 @@ button.sdk-chip {
   .sdk-card-title {
     font-size: 13px;
   }
-  .sdk-card-title .sdk-badges {
-    display: none;
-  }
   .sdk-card-body p {
     font-size: 11.5px;
-  }
-  .sdk-legend {
-    display: none;
   }
   /* Phones: one equal-height strip that scrolls sideways. */
   .sdk-shots {
@@ -1593,7 +1485,6 @@ button.sdk-chip {
   .sdk-stage {
     padding: 14px;
   }
-  .sdk-themes-next,
   .sdk-prevnext {
     grid-template-columns: 1fr;
   }

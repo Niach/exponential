@@ -9,6 +9,7 @@ import { useSurfaceContext } from "../context"
 import { useForm } from "../form"
 import { CHROME, IconGlyph } from "../icons"
 import { useBoundState } from "./bound"
+import { linkHref } from "../urls"
 import type { NativeProps } from "../node-view"
 import { bool, str, useParts } from "./shared"
 
@@ -77,22 +78,27 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
 
 export function LinkNative({ props, rootProps, emit }: NativeProps) {
   const ctx = useSurfaceContext()
-  const href = str(props.href)
+  const raw = str(props.href)
+  // VAPP-103: the href passes the URL policy; a denied one paints as text.
+  const href = linkHref(ctx.host, raw)
   const external = bool(props.external)
-  const label = str(props.label) || href
+  const label = str(props.label) || raw
   return (
     <a
       {...(rootProps as Record<string, unknown>)}
-      href={href || `#`}
-      target={external ? `_blank` : undefined}
-      rel={external ? `noreferrer noopener` : undefined}
+      href={href}
+      data-denied={raw && !href ? `` : undefined}
+      target={href && external ? `_blank` : undefined}
+      rel={href && external ? `noreferrer noopener` : undefined}
       onClick={(e: MouseEvent) => {
         const handled = emit(`press`)
         if (!href) e.preventDefault()
         else if (!external && handled !== undefined) e.preventDefault()
-        else if (href && ctx.host.openUrl && !external) {
+        else if (ctx.host.openUrl) {
+          // A host opener takes every allowed href, external ones too (a
+          // new tab is only the fallback without one).
           e.preventDefault()
-          ctx.host.openUrl(href)
+          ctx.openUrl(href)
         }
       }}
     >
@@ -113,7 +119,7 @@ export function ToggleNative({ node, props, rootProps, emit, scope }: NativeProp
       pressed={pressed}
       onPressedChange={(next) => {
         setPressed(next)
-        void emit(`change`, { pressed: next })
+        void emit(`change`, { pressed: next }, { pressed: next })
       }}
       aria-label={icon && label ? label : undefined}
     >

@@ -1,5 +1,5 @@
 {
-  "$comment": "The renderer CONFORMANCE matrix (packages/exponential-ui/conformance): every fixture × theme × mode × width × direction is laid out by the React renderer in headless Chromium and by the gpui painter headless (gpui's cosmic-text system), both with the font set of `fonts`, and dumped as frames (conformance/dump.ts). `kitchen-sink` = fixtures/kitchen-sink.json with the React harness's data; `responsive` = the kitchen sink's responsive section exactly as layout-geometry-round1.json frames it (its `surface` + `data`), but REAL text instead of the fixed measure. The case's direction replaces the root's `direction` style. `textComponents` = the components whose `lines` both sides report (the leaves that lay out a plain text block). Tolerances: every node ±`px` on x/y/w/h; a node with text lines on either side may differ by `textLines` line heights in height (the wrap tolerance) — everything else is a divergence. Paths are repo-relative.",
+  "$comment": "The renderer CONFORMANCE matrix (packages/exponential-ui/conformance): every fixture × theme × mode × width × direction is laid out by the React renderer in headless Chromium and by the gpui painter headless (gpui's cosmic-text system), both with the font set of `fonts`, and dumped as frames (conformance/dump.ts). `kitchen-sink` = fixtures/kitchen-sink.json with the React harness's data; `responsive` = the kitchen sink's responsive section exactly as layout-geometry-round1.json frames it (its `surface` + `data`), but REAL text instead of the fixed measure; `dashboard` = fixtures/dashboard.json with dashboard.data.json, an agent-style project dashboard (app bar actions, KPI cards, tabs, a filter toolbar, a selectable Table with badge/currency/Avatar-slot columns, a templated activity List, an EmptyState, a closed Dialog with a Form). Every case runs in BOTH modes: a mode changes colours only by contract, so the light cases lock that no recipe or theme mode moves a box. The case's direction replaces the root's `direction` style. `textComponents` = the components whose `lines` both sides report (the leaves that lay out a plain text block). Tolerances: every node ±`px` on x/y/w/h; a node with text lines on either side may differ by `textLines` line heights in height (the wrap tolerance) — everything else is a divergence. Paths are repo-relative.",
   "format": 1,
   "fonts": "packages/exponential-ui/conformance/fonts.json",
   "fixtures": {
@@ -9,6 +9,10 @@
     },
     "responsive": {
       "geometry": "packages/exponential-ui/fixtures/layout-geometry-round1.json"
+    },
+    "dashboard": {
+      "tree": "packages/exponential-ui/fixtures/dashboard.json",
+      "data": "packages/exponential-ui/fixtures/dashboard.data.json"
     }
   },
   "themes": [
@@ -17,7 +21,8 @@
     "playful"
   ],
   "modes": [
-    "dark"
+    "dark",
+    "light"
   ],
   "widths": [
     390,

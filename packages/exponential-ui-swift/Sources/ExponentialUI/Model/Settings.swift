@@ -234,10 +234,16 @@ extension SurfaceModel {
     /// resolution's `chain` (the ids it extended) is not a theme key. Text
     /// surgery keeps every other key in its order (recipes match in order).
     static func loadableTheme(_ json: String) -> String {
-        guard let r = json.range(of: #""chain":\[[^\]]*\],?"#, options: .regularExpression) else { return json }
         var out = json
-        out.removeSubrange(r)
-        return out.replacingOccurrences(of: ",}", with: "}")
+        if let r = json.range(of: #""chain":\[[^\]]*\],?"#, options: .regularExpression) {
+            out.removeSubrange(r)
+            out = out.replacingOccurrences(of: ",}", with: "}")
+        }
+        // Round 4: a theme file names its format (a resolved theme does not).
+        if !out.contains("\"$schema\""), out.hasPrefix("{") {
+            out.insert(contentsOf: #""$schema":"https://ui.exponential.at/schemas/theme/v1.json","#, at: out.index(after: out.startIndex))
+        }
+        return out
     }
 
     /// `ltr` | `rtl`: the surface direction the core resolved (the locale's,

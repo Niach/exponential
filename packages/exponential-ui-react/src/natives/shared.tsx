@@ -18,6 +18,9 @@ export const str = (v: unknown, fallback = ``): string => (v === undefined || v 
 export const num = (v: unknown, fallback = 0): number => (typeof v === `number` && Number.isFinite(v) ? v : typeof v === `string` && v.trim() !== `` && Number.isFinite(Number(v)) ? Number(v) : fallback)
 export const bool = (v: unknown): boolean => v === true || v === `true`
 export const arr = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v as T[]) : [])
+/** An array of OBJECTS (options, items, tabs, columns, rows…): entries that
+ *  are not objects (`options: [null]`) are skipped, never painted. */
+export const objects = <T,>(v: unknown): T[] => (Array.isArray(v) ? (v.filter((e) => e !== null && typeof e === `object` && !Array.isArray(e)) as T[]) : [])
 
 /** A built-in PHRASE with placeholders (`removeItem` = `Remove {name}`):
  *  the surface's string table entry when it carries `id` (word order is the
@@ -146,7 +149,7 @@ export function TextPart({ part, text, as: Tag = `span`, id, htmlFor }: { part: 
  *  check without one says `$string.invalidValue`: pass the surface's). */
 export function failingChecks(checks: unknown, fallback: string = DEFAULT_STRINGS.invalidValue): string[] {
   const out: string[] = []
-  for (const check of arr<{ condition?: unknown; message?: unknown }>(checks)) {
+  for (const check of objects<{ condition?: unknown; message?: unknown }>(checks)) {
     if (check && typeof check === `object` && `condition` in check && (check.condition === false || check.condition === null || check.condition === undefined || check.condition === ``)) out.push(str(check.message, fallback))
   }
   return out

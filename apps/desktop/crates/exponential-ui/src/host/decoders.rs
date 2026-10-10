@@ -7,6 +7,7 @@ use serde_json::{json, Value};
 
 use super::contract::{MCP_ACTION_TOOL, MCP_MIME_TYPES, SSE_EVENTS};
 use super::js_trim;
+use crate::limits::MAX_MESSAGE_BYTES;
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct DecodeIssue {
@@ -43,11 +44,78 @@ fn parse_line(line: &str, at: u32, out: &mut Decoded) {
     }
 }
 
+/// VAPP-103 rfix: one line of a byte stream, or a line past
+/// `maxMessageBytes` (its bytes are dropped up to the next newline).
+#[derive(Debug, Clone, PartialEq)]
+enum Line {
+    Text(String),
+    Oversized,
+}
+
+/// The line splitter both stream decoders share: the buffer holds only the
+/// unterminated tail (each push scans the new bytes once and drains once),
+/// never more than `maxMessageBytes`.
+#[derive(Debug, Clone, Default)]
+struct Lines {
+    buffer: String,
+    /// Bytes of `buffer` already scanned (no newline in them).
+    scanned: usize,
+    /// Inside an oversized line: drop until its newline.
+    skipping: bool,
+}
+
+impl Lines {
+    fn push(&mut self, chunk: &str) -> Vec<Line> {
+        let mut out = Vec::new();
+        let mut rest = chunk;
+        if self.skipping {
+            match rest.find('\n') {
+                None => return out,
+                Some(i) => {
+                    self.skipping = false;
+                    rest = &rest[i + 1..];
+                }
+            }
+        }
+        self.buffer.push_str(rest);
+        let mut start = 0;
+        let mut from = self.scanned;
+        while let Some(i) = self.buffer[from..].find('\n') {
+            let nl = from + i;
+            let line = &self.buffer[start..nl];
+            out.push(if line.len() > MAX_MESSAGE_BYTES { Line::Oversized } else { Line::Text(line.to_string()) });
+            start = nl + 1;
+            from = start;
+        }
+        if start > 0 {
+            self.buffer.drain(..start);
+        }
+        self.scanned = self.buffer.len();
+        if self.buffer.len() > MAX_MESSAGE_BYTES {
+            out.push(Line::Oversized);
+            self.buffer = String::new();
+            self.scanned = 0;
+            self.skipping = true;
+        }
+        out
+    }
+
+    /// The unterminated tail (`None` inside an oversized line).
+    fn end(&mut self) -> Option<String> {
+        let skipping = std::mem::take(&mut self.skipping);
+        self.scanned = 0;
+        let tail = std::mem::take(&mut self.buffer);
+        (!skipping).then_some(tail)
+    }
+}
+
 /// One message per line. `push` takes any chunking (a line may span chunks),
-/// `end` flushes a last line without a newline.
+/// `end` flushes a last line without a newline. A line past
+/// `maxMessageBytes` is an issue (`line N: message larger than … bytes`),
+/// never buffered.
 #[derive(Debug, Clone, Default)]
 pub struct JsonlDecoder {
-    buffer: String,
+    lines: Lines,
     line: u32,
 }
 
@@ -58,26 +126,28 @@ impl JsonlDecoder {
 
     pub fn push(&mut self, chunk: &str) -> Decoded {
         let mut out = Decoded::default();
-        self.buffer.push_str(chunk);
-        while let Some(nl) = self.buffer.find('\n') {
-            let raw: String = self.buffer[..nl].to_string();
-            self.buffer.drain(..=nl);
+        for line in self.lines.push(chunk) {
             self.line += 1;
-            parse_line(&raw, self.line, &mut out);
+            match line {
+                Line::Text(raw) => parse_line(&raw, self.line, &mut out),
+                Line::Oversized => out.issues.push(oversized(self.line, "line")),
+            }
         }
         out
     }
 
     pub fn end(&mut self) -> Decoded {
         let mut out = Decoded::default();
-        if !js_trim(&self.buffer).is_empty() {
+        if let Some(raw) = self.lines.end().filter(|raw| !js_trim(raw).is_empty()) {
             self.line += 1;
-            let raw = std::mem::take(&mut self.buffer);
             parse_line(&raw, self.line, &mut out);
         }
-        self.buffer.clear();
         out
     }
+}
+
+fn oversized(at: u32, what: &str) -> DecodeIssue {
+    DecodeIssue { at, message: format!("{what} {at}: {}", crate::limits::message_bytes_issue()) }
 }
 
 /// A whole JSONL document (or one JSON value / a JSON array of messages).
@@ -101,8 +171,12 @@ pub fn decode_jsonl(text: &str) -> Decoded {
 /// the event. An event's data is one message or JSONL.
 #[derive(Debug, Clone, Default)]
 pub struct SseDecoder {
-    buffer: String,
+    lines: Lines,
     data: Vec<String>,
+    /// The event's data bytes so far (past `maxMessageBytes` it is dropped
+    /// and dispatches as an issue).
+    data_bytes: usize,
+    oversized: bool,
     event: String,
     count: u32,
     retry_ms: Option<u64>,
@@ -121,27 +195,37 @@ impl SseDecoder {
 
     pub fn push(&mut self, chunk: &str) -> Decoded {
         let mut out = Decoded::default();
-        self.buffer.push_str(chunk);
-        while let Some(nl) = self.buffer.find('\n') {
-            let mut line: String = self.buffer[..nl].to_string();
-            self.buffer.drain(..=nl);
-            if line.ends_with('\r') {
-                line.pop();
+        for line in self.lines.push(chunk) {
+            match line {
+                Line::Text(mut line) => {
+                    if line.ends_with('\r') {
+                        line.pop();
+                    }
+                    self.line(&line, &mut out);
+                }
+                Line::Oversized => self.drop_data(),
             }
-            self.line(&line, &mut out);
         }
         out
     }
 
     pub fn end(&mut self) -> Decoded {
         let mut out = Decoded::default();
-        if !self.buffer.is_empty() {
-            let line = std::mem::take(&mut self.buffer);
-            self.line(&line, &mut out);
+        match self.lines.end() {
+            Some(line) if !line.is_empty() => self.line(&line, &mut out),
+            Some(_) => {}
+            None => self.drop_data(),
         }
-        self.buffer.clear();
         self.dispatch(&mut out);
         out
+    }
+
+    /// The event is past `maxMessageBytes`: forget its data (it dispatches
+    /// as an issue).
+    fn drop_data(&mut self) {
+        self.data.clear();
+        self.data_bytes = 0;
+        self.oversized = true;
     }
 
     fn line(&mut self, line: &str, out: &mut Decoded) {
@@ -157,6 +241,13 @@ impl SseDecoder {
         };
         let value = value.strip_prefix(' ').unwrap_or(value);
         if field == "data" {
+            if self.oversized {
+                return;
+            }
+            self.data_bytes += value.len() + 1;
+            if self.data_bytes > MAX_MESSAGE_BYTES {
+                return self.drop_data();
+            }
             self.data.push(value.to_string());
         } else if field == "event" {
             self.event = value.to_string();
@@ -168,6 +259,14 @@ impl SseDecoder {
     }
 
     fn dispatch(&mut self, out: &mut Decoded) {
+        self.data_bytes = 0;
+        if std::mem::take(&mut self.oversized) {
+            self.count += 1;
+            self.data.clear();
+            self.event.clear();
+            out.issues.push(oversized(self.count, "event"));
+            return;
+        }
         if self.data.is_empty() {
             self.event.clear();
             return;
@@ -227,7 +326,61 @@ pub fn mcp_action_call(message: &Value, tool: Option<&str>) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::SseDecoder;
+    use super::{JsonlDecoder, SseDecoder, MAX_MESSAGE_BYTES};
+
+    /// VAPP-103 rfix: a line past `maxMessageBytes` is ONE issue and never
+    /// buffered; the lines around it decode; a stream fed byte by byte
+    /// scans linearly (the old find+drain per line was O(n²)).
+    #[test]
+    fn jsonl_caps_a_line_at_max_message_bytes() {
+        let mut d = JsonlDecoder::new();
+        let mut out = d.push("{\"a\":1}\n");
+        let big = "x".repeat(1 << 20);
+        for _ in 0..5 {
+            out.extend(d.push(&big));
+        }
+        assert!(d.lines.buffer.is_empty(), "the oversized line is not buffered");
+        out.extend(d.push("still the big line\n{\"b\":2}\n"));
+        out.extend(d.end());
+        assert_eq!(out.messages, vec![serde_json::json!({"a": 1}), serde_json::json!({"b": 2})]);
+        assert_eq!(out.issues.len(), 1);
+        assert_eq!(out.issues[0].at, 2);
+        assert_eq!(out.issues[0].message, format!("line 2: message larger than {MAX_MESSAGE_BYTES} bytes"));
+        // A one-chunk oversized line too.
+        let mut d = JsonlDecoder::new();
+        let mut out = d.push(&format!("{}\n{{\"c\":3}}\n", "y".repeat(MAX_MESSAGE_BYTES + 1)));
+        out.extend(d.end());
+        assert_eq!((out.messages.len(), out.issues.len()), (1, 1));
+    }
+
+    #[test]
+    fn jsonl_fed_byte_by_byte_is_linear() {
+        let line = format!("{{\"text\":\"{}\"}}\n", "z".repeat(200_000));
+        let mut d = JsonlDecoder::new();
+        let t = std::time::Instant::now();
+        let mut messages = 0;
+        for chunk in line.as_bytes().chunks(7) {
+            messages += d.push(std::str::from_utf8(chunk).unwrap()).messages.len();
+        }
+        assert_eq!(messages, 1);
+        assert!(t.elapsed() < std::time::Duration::from_secs(2), "{:?}", t.elapsed());
+    }
+
+    #[test]
+    fn sse_caps_an_event_at_max_message_bytes() {
+        let mut d = SseDecoder::new();
+        let mut out = d.push("data: {\"a\":1}\n\n");
+        let chunk = format!("data: {}\n", "x".repeat(1 << 20));
+        for _ in 0..5 {
+            out.extend(d.push(&chunk));
+        }
+        assert!(d.data.is_empty(), "the oversized event's data is dropped");
+        out.extend(d.push("\ndata: {\"b\":2}\n\n"));
+        out.extend(d.end());
+        assert_eq!(out.messages, vec![serde_json::json!({"a": 1}), serde_json::json!({"b": 2})]);
+        assert_eq!(out.issues.len(), 1);
+        assert_eq!(out.issues[0].message, format!("event 2: message larger than {MAX_MESSAGE_BYTES} bytes"));
+    }
 
     #[test]
     fn sse_keeps_the_last_numeric_retry_field_and_its_messages_are_unchanged() {

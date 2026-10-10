@@ -7,7 +7,7 @@
 // the keyboard model of a11y.json on the Radix-backed natives.
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { builtinTheme, loadTheme, resolveStyleValues, styleToCss, BUILTIN_THEMES, BUILTIN_THEME_IDS } from "@exponential-at/ui"
+import { builtinTheme, loadTheme, resolveStyleValues, styleToCss, BUILTIN_THEMES, BUILTIN_THEME_IDS, THEME_SCHEMA_ID } from "@exponential-at/ui"
 import conditions from "@exponential-at/ui/fixtures/style-conditions.json"
 import type { Page } from "playwright"
 import { openPage, startHarness, type Harness } from "./support"
@@ -62,7 +62,7 @@ describe(`style-conditions.json in Chromium`, () => {
           await context.close()
           return // the platform's pointer is not the context's; the other context covers it
         }
-        const theme = ctx.breakpoints ? loadTheme({ id: `bp`, name: `Breakpoints`, extends: `neutral`, tokens: { breakpoint: ctx.breakpoints } } as never, { themes: BUILTIN_THEMES }) : builtinTheme(`neutral`)
+        const theme = ctx.breakpoints ? loadTheme({ $schema: THEME_SCHEMA_ID, id: `bp`, name: `Breakpoints`, extends: `neutral`, tokens: { breakpoint: ctx.breakpoints } } as never, { themes: BUILTIN_THEMES }) : builtinTheme(`neutral`)
         const want = styleToCss(resolveStyleValues(theme, c.expected[xi], `light`), theme.fonts)
         if (ctx.reducedMotion) delete want.transition // reduced motion zeroes every duration (contract §2)
         const got = await compare(page, want, `[data-xui-id="n"]`)

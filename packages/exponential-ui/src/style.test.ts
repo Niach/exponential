@@ -26,9 +26,12 @@ describe(`Box style whitelist`, () => {
   })
 
   test(`values: px, percent, auto, tokens, colours`, () => {
-    expect(validateStyle({ width: 12, height: `50%`, minWidth: `auto`, gap: `$spacing.md`, backgroundColor: `#ff0000`, color: `$color.primary`, borderRadius: `$radius.lg`, boxShadow: `$shadow.sm`, opacity: `$opacity.secondary`, aspectRatio: `16/9`, gridTemplateAreas: [`a b`], fontWeight: 600 })).toEqual([])
+    expect(validateStyle({ width: 12, height: `50%`, minWidth: `auto`, gap: `$spacing.md`, backgroundColor: `$color.card`, color: `$color.primary`, borderRadius: `$radius.lg`, boxShadow: `$shadow.sm`, opacity: `$opacity.secondary`, aspectRatio: `16/9`, gridTemplateAreas: [`a b`], fontWeight: 600 })).toEqual([])
     expect(validateStyle({ width: `12em` })).toEqual([{ path: `style.width`, message: `width: expected px, "N%", "auto" or a numeric token` }])
-    expect(validateStyle({ color: `$spacing.md` })[0].message).toContain(`#hex or $color`)
+    expect(validateStyle({ color: `$spacing.md` })[0].message).toBe(`color: expected $color.<name>`)
+    // Round 4 (VAPP-103): a node colour is a token; a literal ignores dark mode.
+    for (const literal of [`#ff0000`, `#fff`, `red`, `rgb(0,0,0)`]) expect(validateStyle({ backgroundColor: literal }), literal).toEqual([{ path: `style.backgroundColor`, message: `backgroundColor: expected $color.<name>` }])
+    expect(validateStyle({ fontColor: `$color.primary` })).toEqual([{ path: `style.fontColor`, message: `not in the Box style whitelist` }])
     expect(validateStyle({ gap: `$spacing.huge` })).toHaveLength(1)
     expect(validateStyle({ display: `inline` })[0].message).toContain(`expected one of`)
     expect(validateStyle({ zIndex: 2 })).toEqual([{ path: `style.zIndex`, message: `not in the Box style whitelist` }])
@@ -69,7 +72,8 @@ describe(`round 1: the whitelist additions`, () => {
     expect(validateStyle({ transitionEasing: `$motion.fast` })[0].message).toBe(`transitionEasing: expected $ease.<name>`)
     expect(validateStyle({ transform: `translate(4px, -2px) scale(1.05) rotate(90deg)` })).toEqual([])
     for (const bad of [`translateX(4px)`, `scale(1.1) `, `rotate(1rad)`, `skew(10deg)`, `matrix(1,0,0,1,0,0)`]) expect(validateStyle({ transform: bad }), bad).toHaveLength(1)
-    expect(validateStyle({ backgroundGradient: { angle: 90, stops: [{ color: `$color.primary`, offset: 0 }, { color: `#00000000`, offset: 1 }] } })).toEqual([])
+    expect(validateStyle({ backgroundGradient: { angle: 90, stops: [{ color: `$color.primary`, offset: 0 }, { color: `$color.background`, offset: 1 }] } })).toEqual([])
+    expect(validateStyle({ backgroundGradient: { angle: 90, stops: [{ color: `$color.primary`, offset: 0 }, { color: `#00000000`, offset: 1 }] } })).toHaveLength(1)
     expect(validateStyle({ backgroundGradient: { angle: 90, stops: [{ color: `red`, offset: 0 }] } })).toHaveLength(1)
   })
 

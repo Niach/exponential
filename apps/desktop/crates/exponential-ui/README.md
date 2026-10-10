@@ -9,7 +9,15 @@ fixtures byte for byte. The mobile facade is the sibling crate
 
 Standalone and publishable (VAPP-91): it depends on `taffy`, `serde`,
 `serde_json` (with `preserve_order`: JSON objects keep source order like the
-TS reference) and `indexmap`, nothing from the Exponential app.
+TS reference), `indexmap`, `url` and `stacker` (VAPP-103: the recursive
+passes grow the stack on the heap when a host thread runs low), nothing from
+the Exponential app.
+
+Hostile or huge input is refused with an issue, never worked on (VAPP-103,
+`catalog/limits.json` → `limits`): nodes per surface, nesting depth, message
+bytes (the host router), template items per surface, data-pointer length; an
+id placed twice renders at its first place only; a data write past the end of
+an array is refused (JSON Pointer).
 `cargo publish --dry-run` is clean.
 
 ## What a painter gets
@@ -203,13 +211,24 @@ direction.
 | area | API |
 |---|---|
 | vocabulary | natives `Segmented` (ToggleGroup renamed; `variant` segmented \| toggles \| outline \| `bar`, content-sized unless `fill` or `bar`) and `Menu` (DropdownMenu + ContextMenu, `openOn` press \| contextmenu, glyphs `Menu.check` / `Menu.submenuIndicator`); macros `Row`, `Section`, `Chip` |
-| aliases | `ComponentDef::deprecated` names the replacement; `is_offered()` = neither hidden nor deprecated (`catalog::component_names` lists only offered ones); an alias still reduces and expands |
+| removed names | round 4 (VAPP-103) removed the folded names outright: no aliases; `is_offered()` = not hidden (`catalog::component_names` lists only offered ones) |
 | tree guides | `tree_guides::tree_guides(depths)` (the ×4 app rule) and `apply_tree_guides(root)`, run at the end of `macros::expand_macros`: every Row root's `guides` part (a hidden `TreeGuides`) gets `{depth, elbowAt?, tee, passThrough}` from its siblings; `layout::TREE_GUIDE_COLUMN` 14, `TREE_GUIDE_RADIUS` 3, `TREE_GUIDE_BRIDGE` 1 (paint only) |
 | bindable submenus | `menuItem.items` resolves along its schema: a `{path}` there becomes the submenu's rows |
 
 `tests/round3_fixtures.rs` replays `tree-guides.json` and the `Row/tree:*`
 macro cases; `tests/round3_layout.rs` covers the Menu triggers, a bound
 submenu and Segmented sizing.
+
+## Round 4 (VAPP-103, styling + semantics)
+
+| area | API |
+|---|---|
+| validation | `validate::validate_node` (run by the reducer on every authored node): style keys/tokens, `$color.*`-only colours, every called function (`is_callable_name`: a catalog function or a namespaced host function), a Table's slot columns |
+| themes | `validate_theme` requires `$schema` = `THEME_SCHEMA_ID`; `themes::theme_or_default(input)` never fails (default theme + issues) |
+| functions | `expr::filter_items` = the core `filter{items, query?, fields?, where?}` |
+| events | `Surface::fire` applies the component's own write before the context resolves; a valid Form submit closes the enclosing Dialog/Drawer; an action's function is `functionCall` only |
+
+`tests/round4_fixtures.rs` replays `fixtures/round4-contract.json`.
 
 ## Host API (`host`, VAPP-91)
 
@@ -221,7 +240,7 @@ The pure half of the host API, JSON-equal to the TS reference
 `supported_catalog_ids` / `client_capabilities`, `validate_package` /
 `template_messages`, `action_message` / `error_message`; `contract.rs`
 mirrors `catalog/host.json` (drift-tested). An `on.<event>`
-`{functionCall: …}` (or the legacy `function`) to a non-built-in name yields
+`{functionCall: …}` to a non-built-in name yields
 `OutEvent::FunctionCall { component_id, name, args }` (args resolved); the
 facade exposes all of it as JSON-string functions and a `HostRouter` object.
 `tests/conformance.rs` runs the whole conformance suite against the core.

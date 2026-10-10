@@ -10,7 +10,7 @@ import { useSurfaceContext } from "../context"
 import { IconGlyph } from "../icons"
 import type { NativeProps } from "../node-view"
 import { NodeView } from "../node-view"
-import { arr, bool, BuiltinIcon, num, str, useParts, type PartFn } from "./shared"
+import { bool, BuiltinIcon, num, str, useParts, type PartFn, objects } from "./shared"
 
 interface Tab {
   label: string
@@ -22,7 +22,7 @@ interface Tab {
 export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  const tabs = arr<Tab>(props.tabs)
+  const tabs = objects<Tab>(props.tabs)
   const external = str(props.value) || tabs[0]?.value || ``
   const [value, setValue] = useBoundState(node, scope, `value`, external)
   const fill = bool(props.fill)
@@ -32,7 +32,7 @@ export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps)
       value={value}
       onValueChange={(next) => {
         setValue(next)
-        void emit(`change`, { value: next })
+        void emit(`change`, { value: next }, { value: next })
       }}
       orientation="horizontal"
       activationMode="automatic"
@@ -76,7 +76,7 @@ interface Item {
 
 const joinLike = (raw: unknown, next: string[]): string | string[] => (Array.isArray(raw) ? next : next.join(`,`))
 
-/** Segmented (round 3, the rename of ToggleGroup): ONE row of segments.
+/** Segmented (round 3): ONE row of segments.
  *  `segmented` (default, the pill track) / `toggles` (bare) / `outline`
  *  (joined) = a Radix ToggleGroup (radiogroup single, toolbar of toggle
  *  buttons multiple; roving tab stop, arrows wrap, Home/End). `bar` = the
@@ -87,7 +87,7 @@ const joinLike = (raw: unknown, next: string[]): string | string[] => (Array.isA
 export function SegmentedNative({ node, props, rootProps, emit, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  const items = arr<Item>(props.items)
+  const items = objects<Item>(props.items)
   const variant = str(props.variant, `segmented`)
   const bar = variant === `bar`
   const multiple = !bar && props.type === `multiple`
@@ -108,7 +108,7 @@ export function SegmentedNative({ node, props, rootProps, emit, scope }: NativeP
   )
   if (bar) return <SegmentedBar node={node} rootProps={rootProps} items={items} value={value as string} part={part} content={content} onPick={(next) => {
     setValue(next)
-    void emit(`change`, { value: next })
+    void emit(`change`, { value: next }, { value: next })
   }} />
   const body = items.map((item) => {
     const selected = isSelected(item)
@@ -127,7 +127,7 @@ export function SegmentedNative({ node, props, rootProps, emit, scope }: NativeP
         loop
         onValueChange={(next: string[]) => {
           setValue(next)
-          void emit(`change`, { value: joinLike(externalRaw, next) })
+          void emit(`change`, { value: joinLike(externalRaw, next) }, { value: joinLike(externalRaw, next) })
         }}
         dir={ctx.direction}
       >
@@ -144,7 +144,7 @@ export function SegmentedNative({ node, props, rootProps, emit, scope }: NativeP
       onValueChange={(next: string) => {
         if (!next) return
         setValue(next)
-        void emit(`change`, { value: next })
+        void emit(`change`, { value: next }, { value: next })
       }}
       dir={ctx.direction}
     >
@@ -216,7 +216,7 @@ interface AccordionItem {
 export function AccordionNative({ node, props, rootProps, emit, scope }: NativeProps) {
   const ctx = useSurfaceContext()
   const part = useParts(node, props)
-  const items = arr<AccordionItem>(props.items)
+  const items = objects<AccordionItem>(props.items)
   const multiple = props.type === `multiple`
   const raw = props.value
   const external = multiple ? (Array.isArray(raw) ? raw.map(String) : raw ? String(raw).split(`,`) : []) : str(raw)
@@ -251,7 +251,7 @@ export function AccordionNative({ node, props, rootProps, emit, scope }: NativeP
         dir={ctx.direction}
         onValueChange={(next: string[]) => {
           setValue(next)
-          void emit(`change`, { value: joinLike(raw, next) })
+          void emit(`change`, { value: joinLike(raw, next) }, { value: joinLike(raw, next) })
         }}
       >
         {body}
@@ -267,7 +267,7 @@ export function AccordionNative({ node, props, rootProps, emit, scope }: NativeP
       value={value as string}
       onValueChange={(next: string) => {
         setValue(next)
-        void emit(`change`, { value: next })
+        void emit(`change`, { value: next }, { value: next })
       }}
     >
       {body}

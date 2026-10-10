@@ -1,4 +1,5 @@
 import SwiftUI
+import AVKit
 import ExponentialUIPrimitives
 
 struct IconLeaf: View {
@@ -23,11 +24,11 @@ struct AvatarLeaf: View {
         let size = min(cx.size.width, cx.size.height)
         let fs = fallback.px("fontSize")
         let src = cx.props.str("src")
-        let request = src.isEmpty ? nil : cx.model.host.mediaRequest(src)
+        let request = src.isEmpty ? nil : cx.model.mediaRequest(src)
         Group {
             if let request {
                 AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fill: seed.isEmpty ? fallback.style.background : nil, ink: seed.isEmpty ? fallback.color : nil, fontSize: fs) {
-                    MediaImage(request: request) { image in
+                    MediaImage(request: request, options: cx.model.mediaPolicy) { image in
                         image.resizable().scaledToFill()
                     } placeholder: {
                         AvatarView(name: name, seed: seed, size: size, dark: cx.dark, fontSize: fs)
@@ -75,14 +76,14 @@ struct ImageLeaf: View {
         let alt = cx.props.str("alt")
         let muted = cx.themeColor("mutedForeground") ?? cx.ink
         let fallback = cx.props.str("fallback").isEmpty ? BuiltinIcons.name("Image.fallback") : cx.props.str("fallback")
-        let request = src.isEmpty ? nil : cx.model.host.mediaRequest(src)
+        let request = src.isEmpty ? nil : cx.model.mediaRequest(src)
         let fit = cx.props.str("fit")
         let fx = CGFloat(min(1, max(0, cx.props.num("focalX") ?? 0.5)))
         let fy = CGFloat(min(1, max(0, cx.props.num("focalY") ?? 0.5)))
         let w = cx.size.width, h = cx.size.height
         Group {
             if let request {
-                MediaImage(request: request) { image in
+                MediaImage(request: request, options: cx.model.mediaPolicy) { image in
                     Self.fitted(image, fit: fit)
                         .alignmentGuide(HorizontalAlignment.leading) { d in fx * (d.width - w) }
                         .alignmentGuide(VerticalAlignment.top) { d in fy * (d.height - h) }
@@ -118,55 +119,120 @@ func formatDuration(_ ms: Double) -> String {
     return h > 0 ? String(format: "%d:%02d:%02d", h, m, s) : String(format: "%d:%02d", m, s)
 }
 
-/// `Video`: the poster (or a dark tint) with a play button and the duration.
+/// `Video`: `src` plays through the policed media request (AVKit's player
+/// with the platform's controls, `autoplay` = muted on appear); before that
+/// the poster (or a dark tint), a play button and the duration. A denied
+/// src stays that poster with an inert play glyph (React's sourceless
+/// `<video>`).
 struct VideoLeaf: View {
     let cx: LeafContext
+    @State private var playback = MediaPlayback(kind: .video)
 
     var body: some View {
+        let src = cx.props.str("src")
+        let request = src.isEmpty ? nil : cx.model.mediaRequest(src)
+        let key = request.map(MediaLoader.key)
+        let autoplay = cx.props.flag("autoplay")
         let poster = cx.props.str("poster")
-        let request = poster.isEmpty ? nil : cx.model.host.mediaRequest(poster)
+        let posterRequest = poster.isEmpty ? nil : cx.model.mediaRequest(poster)
         ZStack {
             Color.black.opacity(0.85)
-            if let request {
-                MediaImage(request: request) { image in
-                    image.resizable().scaledToFill()
-                } placeholder: {
-                    Color.clear
+            if let player = playback.player {
+                VideoPlayer(player: player)
+            } else {
+                if let posterRequest {
+                    MediaImage(request: posterRequest, options: cx.model.mediaPolicy) { image in
+                        image.resizable().scaledToFill()
+                    } placeholder: {
+                        Color.clear
+                    }
                 }
-            }
-            Circle().fill(Color.white.opacity(0.18)).frame(width: 44, height: 44).overlay(ConceptIcon(name: "ui-play", size: 20, color: .white, model: cx.model))
-            if let ms = cx.props.num("durationMs") {
-                Text(formatDuration(ms))
-                    .font(.system(size: 12)).foregroundStyle(.white)
-                    .padding(.horizontal, 6).padding(.vertical, 2)
-                    .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
-                    .padding(.trailing, 8).padding(.bottom, 6)
+                Button {
+                    Task { await playback.play(request, options: cx.model.mediaPolicy) }
+                } label: {
+                    Circle().fill(Color.white.opacity(0.18)).frame(width: 44, height: 44).overlay {
+                        if playback.loading {
+                            ProgressView().controlSize(.small).tint(.white)
+                        } else {
+                            ConceptIcon(name: "ui-play", size: 20, color: .white, model: cx.model)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(request == nil || playback.loading)
+                if let ms = cx.props.num("durationMs") {
+                    Text(formatDuration(ms))
+                        .font(.system(size: 12)).foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color.black.opacity(0.6), in: RoundedRectangle(cornerRadius: 4))
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottomTrailing)
+                        .padding(.trailing, 8).padding(.bottom, 6)
+                }
             }
         }
         .frame(width: cx.size.width, height: cx.size.height)
         .clipped()
+        .task(id: key) {
+            if autoplay, let request {
+                await playback.play(request, muted: true, options: cx.model.mediaPolicy)
+            } else if playback.openedKey != key {
+                playback.stop()
+            }
+        }
+        .onDisappear { playback.stop() }
     }
 }
 
-/// `AudioPlayer`: the title line over a controls bar.
+/// `AudioPlayer`: the title line over a controls bar. `src` plays through
+/// the policed media request: play / pause, the track fills with the
+/// position (a press seeks), `elapsed / length` (the item's, else
+/// `durationMs`). A denied src keeps the controls inert.
 struct AudioLeaf: View {
     let cx: LeafContext
+    @State private var playback = MediaPlayback(kind: .audio)
 
     var body: some View {
         let title = cx.props.str("title")
+        let src = cx.props.str("src")
+        let request = src.isEmpty ? nil : cx.model.mediaRequest(src)
+        let key = request.map(MediaLoader.key)
         let muted = cx.themeColor("muted") ?? cx.ink.opacity(0.1)
         let mutedFg = cx.themeColor("mutedForeground") ?? cx.ink.opacity(0.6)
         let track = cx.part("AudioPlayer", "track")
-        let duration = cx.props.num("durationMs").map(formatDuration) ?? "0:00"
+        let known = cx.props.num("durationMs").map { $0 / 1000 }
+        let length = playback.duration ?? known
+        let progress = length.map { $0 > 0 ? min(1, playback.time / $0) : 0 } ?? 0
         VStack(alignment: .leading, spacing: cx.spacing("xs")) {
             if !title.isEmpty {
                 Text(title).font(cx.font).foregroundStyle(track.color ?? cx.ink).lineLimit(1)
             }
             HStack(spacing: 8) {
-                Circle().fill(cx.ink).frame(width: 28, height: 28).overlay(ConceptIcon(name: "ui-play", size: 14, color: cx.themeColor("background") ?? .white, model: cx.model))
-                Capsule().fill(mutedFg.opacity(0.35)).frame(height: 4)
-                Text("0:00 / \(duration)").font(.system(size: 12)).foregroundStyle(mutedFg)
+                Button {
+                    if playback.playing { playback.pause() } else { Task { await playback.play(request, options: cx.model.mediaPolicy) } }
+                } label: {
+                    Circle().fill(cx.ink).frame(width: 28, height: 28).overlay {
+                        if playback.loading {
+                            ProgressView().controlSize(.mini).tint(cx.themeColor("background") ?? .white)
+                        } else {
+                            ConceptIcon(name: playback.playing ? "pause" : "ui-play", size: 14, color: cx.themeColor("background") ?? .white, model: cx.model)
+                        }
+                    }
+                }
+                .buttonStyle(.plain)
+                .disabled(request == nil || playback.loading)
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(mutedFg.opacity(0.35))
+                        Capsule().fill(mutedFg).frame(width: geo.size.width * progress)
+                    }
+                    .frame(height: 4)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+                    .gesture(DragGesture(minimumDistance: 0).onEnded { g in
+                        playback.seek(fraction: geo.size.width > 0 ? g.location.x / geo.size.width : 0, fallbackDuration: known)
+                    })
+                }
+                Text("\(formatDuration(playback.time * 1000)) / \(length.map { formatDuration($0 * 1000) } ?? "0:00")").font(.system(size: 12)).foregroundStyle(mutedFg)
             }
             .padding(.horizontal, 8)
             .frame(height: cx.control("row", SurfaceMeasurer.audioControlsHeight))
@@ -174,6 +240,10 @@ struct AudioLeaf: View {
         }
         .frame(width: cx.inner.width, height: cx.inner.height, alignment: .topLeading)
         .offset(x: cx.inner.minX, y: cx.inner.minY)
+        .task(id: key) {
+            if playback.openedKey != key { playback.stop() }
+        }
+        .onDisappear { playback.stop() }
     }
 }
 

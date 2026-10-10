@@ -133,7 +133,8 @@ fn gradient_error(key: &str, value: &Value) -> Option<String> {
     let Some(stops) = g.get("stops").and_then(Value::as_array).filter(|s| s.len() >= 2) else { return bad() };
     for stop in stops {
         let Some(stop) = stop.as_object() else { return bad() };
-        let color_ok = stop.get("color").is_some_and(|c| c.as_str().is_some_and(is_hex_color) || token_ok(c, &["color"]));
+        // Round 4: a node colour is a `$color.*` token, never a literal.
+        let color_ok = stop.get("color").is_some_and(|c| token_ok(c, &["color"]));
         if !color_ok {
             return bad();
         }
@@ -183,11 +184,14 @@ fn value_error(key: &str, spec: &KeySpec, value: &Value) -> Option<String> {
                 Some(format!("{key}: expected px, \"N%\", \"auto\" or a numeric token"))
             }
         }
+        // Round 4 (VAPP-103): a node colour is a `$color.*` TOKEN, never a
+        // literal, so the theme's light and dark modes both apply (a theme's
+        // recipes keep literal hex: theme.rs checks those).
         Some("color") => {
-            if s.is_some_and(is_hex_color) || token_ok(value, &["color"]) {
+            if token_ok(value, &["color"]) {
                 None
             } else {
-                Some(format!("{key}: expected #hex or $color.<name>"))
+                Some(format!("{key}: expected $color.<name>"))
             }
         }
         Some("gradient") => gradient_error(key, value),
@@ -321,14 +325,14 @@ mod tests {
     #[test]
     fn box_style_whitelist_values_px_percent_auto_tokens_colours() {
         assert_eq!(
-            v(json!({"width": 12, "height": "50%", "minWidth": "auto", "gap": "$spacing.md", "backgroundColor": "#ff0000", "color": "$color.primary", "borderRadius": "$radius.lg", "boxShadow": "$shadow.sm", "opacity": "$opacity.secondary", "aspectRatio": "16/9", "gridTemplateAreas": ["a b"], "fontWeight": 600})),
+            v(json!({"width": 12, "height": "50%", "minWidth": "auto", "gap": "$spacing.md", "backgroundColor": "$color.card", "color": "$color.primary", "borderRadius": "$radius.lg", "boxShadow": "$shadow.sm", "opacity": "$opacity.secondary", "aspectRatio": "16/9", "gridTemplateAreas": ["a b"], "fontWeight": 600})),
             vec![]
         );
         assert_eq!(
             v(json!({"width": "12em"})),
             vec![StyleIssue { path: "style.width".into(), message: "width: expected px, \"N%\", \"auto\" or a numeric token".into() }]
         );
-        assert!(v(json!({"color": "$spacing.md"}))[0].message.contains("#hex or $color"));
+        assert_eq!(v(json!({"color": "$spacing.md"}))[0].message, "color: expected $color.<name>");
         assert_eq!(v(json!({"gap": "$spacing.huge"})).len(), 1);
         assert!(v(json!({"display": "inline"}))[0].message.contains("expected one of"));
         assert_eq!(v(json!({"zIndex": 2})), vec![StyleIssue { path: "style.zIndex".into(), message: "not in the Box style whitelist".into() }]);
@@ -361,9 +365,12 @@ mod tests {
 
     #[test]
     fn round_1_value_types() {
-        assert_eq!(v(json!({"transition": "$motion.fast", "transitionEasing": "$ease.standard", "transform": "rotate(90deg)", "backgroundGradient": {"angle": 90, "stops": [{"color": "#ff0000", "offset": 0}, {"color": "$color.primary", "offset": 1}]}, "borderTopWidth": 2, "borderStyle": "dashed", "borderTopLeftRadius": 8, "letterSpacing": 1, "visibility": "hidden", "fontWeight": 300})), vec![]);
+        assert_eq!(v(json!({"transition": "$motion.fast", "transitionEasing": "$ease.standard", "transform": "rotate(90deg)", "backgroundGradient": {"angle": 90, "stops": [{"color": "$color.card", "offset": 0}, {"color": "$color.primary", "offset": 1}]}, "borderTopWidth": 2, "borderStyle": "dashed", "borderTopLeftRadius": 8, "letterSpacing": 1, "visibility": "hidden", "fontWeight": 300})), vec![]);
         assert!(v(json!({"transition": 200}))[0].message.contains("$motion"));
         assert!(v(json!({"backgroundGradient": {"angle": 90, "stops": [{"color": "#fff", "offset": 0}]}}))[0].message.contains("two or more stops"));
+        // Round 4: literal colours are refused in a node's style.
+        assert_eq!(v(json!({"backgroundColor": "#ff0000"}))[0].message, "backgroundColor: expected $color.<name>");
+        assert_eq!(v(json!({"backgroundGradient": {"angle": 90, "stops": [{"color": "$color.primary", "offset": 0}, {"color": "#00000000", "offset": 1}]}})).len(), 1);
         assert!(v(json!({"transform": "translate(1px,2px)"}))[0].message.contains("translate"));
         assert!(v(json!({"width": {"path": "/w"}}))[0].message.contains("expected px"), "authors cannot write dynamic style values");
     }

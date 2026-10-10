@@ -10,6 +10,7 @@ import type { HostOp, ServerMessage } from "./contract"
 import { supportedCatalogIds, templateMessages, validatePackage } from "./package"
 import type { PackageIssue, VappPackage } from "./package"
 import { parseSource } from "./sources"
+import { LIMIT_ISSUES, MAX_MESSAGE_BYTES } from "../limits"
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === `object` && !Array.isArray(v)
 
@@ -64,6 +65,8 @@ export class HostRouter {
 
   /** One server message → the ops to perform, in order. Never throws. */
   route(message: unknown): HostOp[] {
+    // VAPP-103: a message past `maxMessageBytes` (as UTF-8 JSON) is refused.
+    if (oversized(message)) return [this.invalid(isObject(message) ? surfaceIdOf(message) : ``, LIMIT_ISSUES.messageBytes)]
     if (!isObject(message)) return [this.invalid(``, `a message is a JSON object`)]
     if (message.version !== undefined && message.version !== A2UI_VERSION) return [this.invalid(surfaceIdOf(message), `unsupported version ${String(message.version)}`)]
     const kinds = Object.keys(message).filter((k) => k !== `version`)
@@ -135,6 +138,19 @@ export class HostRouter {
   private missing(surfaceId: string): HostOp {
     return { op: `send`, message: errorMessage(`SURFACE_NOT_FOUND`, surfaceId, `no surface ${surfaceId}; send createSurface first`) }
   }
+}
+
+/** Is the message's JSON past `maxMessageBytes`? (A string's UTF-8 size is
+ *  at most 3 bytes per UTF-16 unit: the exact count only near the limit.) */
+function oversized(message: unknown): boolean {
+  let text: string | undefined
+  try {
+    text = JSON.stringify(message)
+  } catch {
+    return false
+  }
+  if (text === undefined || text.length * 3 <= MAX_MESSAGE_BYTES) return false
+  return text.length > MAX_MESSAGE_BYTES || new TextEncoder().encode(text).length > MAX_MESSAGE_BYTES
 }
 
 function surfaceIdOf(message: Record<string, unknown>): string {

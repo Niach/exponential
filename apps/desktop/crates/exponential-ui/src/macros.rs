@@ -313,11 +313,10 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
     if let Some(sets) = &tpl.set {
         for (part_event, spec) in sets {
             let Some(bound) = exp.base_props.get(&spec.prop).filter(|b| is_binding(b)) else { continue };
-            let has_function = node.on.as_ref().and_then(|on| on.get(part_event)).and_then(|a| a.get("functionCall").filter(|f| js_truthy(f)).or_else(|| a.get("function"))).is_some_and(js_truthy);
+            let has_function = node.on.as_ref().and_then(|on| on.get(part_event)).and_then(|a| a.get("functionCall")).is_some_and(js_truthy);
             if has_function {
-                // An Action carries ONE function (`functionCall`, or the legacy
-                // `function` key): the author's routed function
-                // call wins and the bound prop is not written back (reported,
+                // An Action carries ONE `functionCall`: the author's routed
+                // function call wins and the bound prop is not written back (reported,
                 // never lost silently). Route an `event` to keep the write.
                 let macro_event = tpl.on.as_ref().and_then(|o| o.get(part_event)).unwrap_or(part_event);
                 let message = format!(
@@ -344,7 +343,7 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
                 Some(Value::Object(existing)) => existing.clone(),
                 _ => Map::new(),
             };
-            action.insert("function".into(), Value::Object(function));
+            action.insert("functionCall".into(), Value::Object(function));
             on.insert(part_event.clone(), Value::Object(action));
         }
     }
@@ -397,6 +396,9 @@ fn build_node(tpl: &MacroTemplate, exp: &mut Expansion, ctx: &ExprContext, id: S
 }
 
 /// Expand one macro node (children already native) into its template.
+/// Never inlined: its large frame stays off [`expand_tree`]'s recursion
+/// (VAPP-103: nested macros otherwise cost ~12 KB of stack per level).
+#[inline(never)]
 fn expand_macro(node: UiNode, macro_: &str, def: &MacroDef, view: &CatalogView, depth: usize, issues: &mut Vec<ReduceIssue>) -> Result<UiNode, String> {
     if depth > MAX_DEPTH {
         return Err(format!("macro {macro_}: expansion deeper than {MAX_DEPTH}"));
@@ -439,7 +441,8 @@ fn expand_macro(node: UiNode, macro_: &str, def: &MacroDef, view: &CatalogView, 
         }
     }
     root.on = (!remaining.is_empty()).then_some(remaining);
-    expand_tree(&root, view, depth + 1, issues)
+    expand_tree(&mut root, view, depth + 1, issues)?;
+    Ok(root)
 }
 
 /// JavaScript truthiness (`if (value)`).
@@ -453,23 +456,29 @@ fn js_truthy(value: &Value) -> bool {
     }
 }
 
-fn expand_tree(node: &UiNode, view: &CatalogView, depth: usize, issues: &mut Vec<ReduceIssue>) -> Result<UiNode, String> {
-    let mut out = node.clone();
-    out.children = node.children.iter().map(|c| expand_tree(c, view, depth, issues)).collect::<Result<_, _>>()?;
-    if let Some(slots) = &node.slots {
-        let mut expanded = IndexMap::new();
-        for (slot, child) in slots {
-            expanded.insert(slot.clone(), expand_tree(child, view, depth, issues)?);
-        }
-        out.slots = Some(expanded);
+/// Expand IN PLACE, children and slots first (VAPP-103: no clone per
+/// level, a small frame per level: nested macros recurse through here).
+fn expand_tree(node: &mut UiNode, view: &CatalogView, depth: usize, issues: &mut Vec<ReduceIssue>) -> Result<(), String> {
+    crate::deep(|| expand_node(node, view, depth, issues))
+}
+
+fn expand_node(node: &mut UiNode, view: &CatalogView, depth: usize, issues: &mut Vec<ReduceIssue>) -> Result<(), String> {
+    for child in &mut node.children {
+        expand_tree(child, view, depth, issues)?;
     }
-    if let Some(def) = view.macros.get(&out.component) {
-        if view.components.get(&out.component).is_some_and(|d| d.is_macro()) {
-            let component = out.component.clone();
-            return expand_macro(out, &component, def, view, depth, issues);
+    if let Some(slots) = &mut node.slots {
+        for child in slots.values_mut() {
+            expand_tree(child, view, depth, issues)?;
         }
     }
-    Ok(out)
+    if let Some(def) = view.macros.get(&node.component) {
+        if view.components.get(&node.component).is_some_and(|d| d.is_macro()) {
+            let component = node.component.clone();
+            let source = std::mem::replace(node, UiNode::new("", ""));
+            *node = expand_macro(source, &component, def, view, depth, issues)?;
+        }
+    }
+    Ok(())
 }
 
 /// The normalized tree with every macro (core + extensions) expanded into
@@ -484,8 +493,13 @@ pub fn expand_macros(root: &UiNode, view: &CatalogView) -> Result<UiNode, String
 /// replaces a `$set` write-back), deduplicated per node: the TS
 /// `expandMacros(root, {issues})`.
 pub fn expand_macros_with_issues(root: &UiNode, view: &CatalogView) -> Result<(UiNode, Vec<ReduceIssue>), String> {
+    crate::roomy(|| expand_all(root, view))
+}
+
+fn expand_all(root: &UiNode, view: &CatalogView) -> Result<(UiNode, Vec<ReduceIssue>), String> {
     let mut issues = Vec::new();
-    let mut node = expand_tree(root, view, 0, &mut issues)?;
+    let mut node = root.clone();
+    expand_tree(&mut node, view, 0, &mut issues)?;
     // Round 3: the tree guides of nested Rows come from their siblings, so
     // they are filled AFTER the whole tree is native (`tree_guides`).
     crate::tree_guides::apply_tree_guides(&mut node);

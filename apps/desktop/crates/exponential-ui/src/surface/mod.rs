@@ -249,9 +249,11 @@ pub struct LayoutOutput {
 }
 
 /// What the host must do after an interaction (`non_exhaustive`: match with
-/// a wildcard arm; new kinds are additive).
+/// a wildcard arm; new kinds are additive). The wire form is camelCase
+/// throughout, kinds AND fields (`{kind: "action", componentId, …}`,
+/// `{kind: "hoverTimer", owner, delayMs}`), as the host API's.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "camelCase")]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
 #[non_exhaustive]
 pub enum OutEvent {
     /// A server event (A2UI `action`): forward it. `context` = the author's
@@ -259,19 +261,13 @@ pub enum OutEvent {
     Action { name: String, component_id: String, event: String, context: Value, #[serde(skip_serializing_if = "Option::is_none")] payload: Option<Value> },
     /// `openUrl` or a `Link`.
     OpenUrl { url: String },
-    /// An `on.<event>` `functionCall` (or the legacy `function`) naming a
-    /// HOST function (not one of the catalog's built-ins, `FUNCTION_NAMES`):
-    /// the host looks it up in its registry and runs it through the policy
-    /// gate (`host::decide_function`, VAPP-91). `args` = the call's args
-    /// resolved against the data model and scope. Serialized `{kind:
-    /// "functionCall", componentId, name, args}` (the host API's camelCase;
-    /// the older variants keep `component_id`).
-    FunctionCall {
-        #[serde(rename = "componentId")]
-        component_id: String,
-        name: String,
-        args: Value,
-    },
+    /// An `on.<event>` `functionCall` naming a HOST function (not one of
+    /// the catalog's built-ins, `FUNCTION_NAMES`): the host looks it up in
+    /// its registry and runs it through the policy gate
+    /// (`host::decide_function`, VAPP-91). `args` = the call's args resolved
+    /// against the data model and scope. Serialized `{kind: "functionCall",
+    /// componentId, name, args}`.
+    FunctionCall { component_id: String, name: String, args: Value },
     /// A bound value was written through to the data model.
     DataChanged { path: String, value: Value },
     /// A host-owned input edit (the host forwards with its revision).
@@ -416,6 +412,13 @@ impl Default for SurfaceOptions {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct ApplyOutcome {
     pub structure_changed: bool,
+    /// The reduce issues of a whole tree (`set_nested`, `set_components`,
+    /// `createSurface`) or this message's own refusal (a data write).
+    /// VAPP-103: a streamed `updateComponents` reduces LAZILY (a surface
+    /// sent one component per message costs linear, not quadratic): it
+    /// reports the issues its OWN components raise (unknown component,
+    /// props, `visible`, children, slots); the tree's (missing ids, cycles,
+    /// limits) are [`Surface::issues`] after it.
     pub issues: Vec<ReduceIssue>,
 }
 
@@ -471,7 +474,13 @@ pub struct Surface {
     nested: Option<NestedNode>,
     data: Value,
     root: Option<UiNode>,
-    pub issues: Vec<ReduceIssue>,
+    /// Every issue: the reduce's, then the last build's (template limits),
+    /// then the styles' (each source kept apart so a rebuild replaces its
+    /// own: an overflow clears when the data shrinks).
+    pub(crate) issues: Vec<ReduceIssue>,
+    reduce_issues: Vec<ReduceIssue>,
+    pub(crate) build_issues: Vec<ReduceIssue>,
+    pub(crate) style_issues: Vec<ReduceIssue>,
     local: LocalState,
     states: HashMap<String, Vec<String>>,
 
@@ -501,6 +510,11 @@ pub struct Surface {
     /// The LIFTED templates of the last reduce (`ReduceResult::templates`,
     /// round 2), by component id.
     template_cache: HashMap<String, Option<UiNode>>,
+    /// VAPP-103: `components` changed since the last reduce (a streamed
+    /// `updateComponents` reduces on the next read, never per message).
+    reduce_pending: bool,
+    /// `components` positions by id (an update replaces BY ID in O(1)).
+    component_index: HashMap<String, usize>,
     /// Last placements by slot, so an event can find anchor frames.
     last_frames: Vec<Frame>,
     /// Measurements by node id that outlive a slot (a windowed list's rows
@@ -567,6 +581,9 @@ impl Surface {
             data: Value::Object(Map::new()),
             root: None,
             issues: Vec::new(),
+            reduce_issues: Vec::new(),
+            build_issues: Vec::new(),
+            style_issues: Vec::new(),
             local: LocalState::default(),
             states: HashMap::new(),
             nodes: Vec::new(),
@@ -592,6 +609,8 @@ impl Surface {
             style_dirty: BTreeSet::new(),
             visuals_dirty: HashSet::new(),
             template_cache: HashMap::new(),
+            reduce_pending: false,
+            component_index: HashMap::new(),
             last_frames: Vec::new(),
             archive: HashMap::new(),
             responsive: false,
@@ -1090,7 +1109,7 @@ impl Surface {
             if let Some(sid) = create.get("surfaceId").and_then(Value::as_str) {
                 self.id = sid.to_string();
             }
-            self.components.clear();
+            self.set_component_list(Vec::new());
             self.nested = None;
             self.data = Value::Object(Map::new());
             self.data_version += 1;
@@ -1102,32 +1121,20 @@ impl Surface {
         if let Some(update) = obj.get("updateComponents") {
             let components = update.get("components").ok_or("updateComponents.components is required")?;
             let list: Vec<FlatComponent> = serde_json::from_value(components.clone()).map_err(|e| format!("components: {e}"))?;
-            // A2UI: a later update replaces components BY ID and keeps the
-            // rest (the TS reference's SurfaceStore does the same, VAPP-91).
-            if self.nested.is_some() {
-                self.components.clear();
-            }
-            let before = self.components.clone();
-            for c in list {
-                match self.components.iter_mut().find(|x| x.id == c.id) {
-                    Some(slot) => *slot = c,
-                    None => self.components.push(c),
-                }
-            }
-            self.nested = None;
-            self.template_cache.clear();
-            self.retain_field_values(&before);
-            self.reduce();
-            return Ok(ApplyOutcome { structure_changed: true, issues: self.issues.clone() });
+            return Ok(self.update_components(list));
         }
+        self.ensure_reduced();
         if let Some(update) = obj.get("updateDataModel") {
             let path = update.get("path").and_then(Value::as_str).unwrap_or("");
             let value = update.get("value").cloned();
-            self.set_data(path, value);
-            return Ok(ApplyOutcome { structure_changed: self.needs_build, issues: Vec::new() });
+            let issues = match self.set_data(path, value) {
+                Ok(()) => Vec::new(),
+                Err(message) => vec![ReduceIssue { id: path.to_string(), message }],
+            };
+            return Ok(ApplyOutcome { structure_changed: self.needs_build, issues });
         }
         if obj.get("deleteSurface").is_some() {
-            self.components.clear();
+            self.set_component_list(Vec::new());
             self.nested = None;
             self.root = None;
             self.data = Value::Object(Map::new());
@@ -1139,11 +1146,58 @@ impl Surface {
         Err("unknown message: expected createSurface | updateComponents | updateDataModel | deleteSurface".into())
     }
 
+    /// An `updateComponents` payload. A2UI: a later update replaces
+    /// components BY ID and keeps the rest (the TS reference's SurfaceStore
+    /// does the same). VAPP-103: O(update) here, the tree reduces LAZILY on
+    /// the next read (layout, an event, [`Self::issues`]), so a surface
+    /// streamed one component per message costs linear, not quadratic.
+    pub fn update_components(&mut self, list: Vec<FlatComponent>) -> ApplyOutcome {
+        if self.nested.is_some() {
+            self.set_component_list(Vec::new());
+        }
+        // The previous version of every id this update touches (`None` =
+        // new), for the local field values.
+        let mut replaced: HashMap<String, Option<FlatComponent>> = HashMap::new();
+        let mut order: Vec<String> = Vec::new();
+        for c in list {
+            if !replaced.contains_key(&c.id) {
+                order.push(c.id.clone());
+            }
+            match self.component_index.get(&c.id) {
+                Some(&i) => {
+                    let old = std::mem::replace(&mut self.components[i], c);
+                    replaced.entry(old.id.clone()).or_insert(Some(old));
+                }
+                None => {
+                    replaced.entry(c.id.clone()).or_insert(None);
+                    self.component_index.insert(c.id.clone(), self.components.len());
+                    self.components.push(c);
+                }
+            }
+        }
+        self.nested = None;
+        self.retain_updated_field_values(&replaced);
+        self.reduce_pending = true;
+        self.needs_build = true;
+        // The message's own components' issues now (O(message)); the tree's
+        // with the next read ([`Self::issues`]).
+        let options = ReduceOptions::new(&self.catalog_id).with_view(self.view.clone());
+        let (components, index) = (&self.components, &self.component_index);
+        let lookup = |id: &str| index.get(id).map(|&i| components[i].clone());
+        let mut issues = Vec::new();
+        for id in &order {
+            if let Some(&i) = index.get(id.as_str()) {
+                issues.extend(crate::reducer::component_issues(&components[i], &options, &lookup));
+            }
+        }
+        ApplyOutcome { structure_changed: true, issues }
+    }
+
     /// The nested authoring form (fixtures, MCP templates) instead of a flat
     /// component list.
     pub fn set_nested(&mut self, tree: NestedNode) -> ApplyOutcome {
         self.nested = Some(tree);
-        self.components.clear();
+        self.set_component_list(Vec::new());
         self.template_cache.clear();
         self.local.field_values.clear();
         self.reduce();
@@ -1153,12 +1207,44 @@ impl Surface {
     /// A flat component list (what `updateComponents` carries).
     pub fn set_components(&mut self, components: Vec<FlatComponent>) -> ApplyOutcome {
         let before = if self.nested.is_some() { Vec::new() } else { std::mem::take(&mut self.components) };
-        self.components = components;
+        self.set_component_list(components);
         self.nested = None;
         self.template_cache.clear();
         self.retain_field_values(&before);
         self.reduce();
         ApplyOutcome { structure_changed: true, issues: self.issues.clone() }
+    }
+
+    /// Replace the whole component list (the id index follows).
+    fn set_component_list(&mut self, components: Vec<FlatComponent>) {
+        self.component_index = components.iter().enumerate().map(|(i, c)| (c.id.clone(), i)).collect();
+        self.components = components;
+    }
+
+    /// [`Self::retain_field_values`] after a by-id update: `replaced` = the
+    /// previous version of each id it touched (`None` = new); every other
+    /// component is unchanged. O(field values), never O(components).
+    fn retain_updated_field_values(&mut self, replaced: &HashMap<String, Option<FlatComponent>>) {
+        if self.local.field_values.is_empty() {
+            return;
+        }
+        let (components, index) = (&self.components, &self.component_index);
+        self.local.field_values.retain(|key, _| {
+            let mut candidate = key.as_str();
+            loop {
+                if let Some(old) = replaced.get(candidate) {
+                    let new = index.get(candidate).map(|&i| &components[i]);
+                    return matches!((old.as_ref(), new), (Some(a), Some(b)) if a == b);
+                }
+                if index.contains_key(candidate) {
+                    return true;
+                }
+                match candidate.rfind('.') {
+                    Some(i) => candidate = &candidate[..i],
+                    None => return false,
+                }
+            }
+        });
     }
 
     /// After a component update, keep an unbound control's local value
@@ -1189,21 +1275,44 @@ impl Surface {
 
     /// Write `value` at `path` (`None` removes). Templates and bindings
     /// re-resolve on the next layout.
-    pub fn set_data(&mut self, path: &str, value: Option<Value>) {
-        set_pointer(&mut self.data, path, value);
+    /// VAPP-103: a refused write (a pointer past the limits, a non-index
+    /// token or an index past the end of an array) changes nothing and
+    /// returns the reason.
+    pub fn set_data(&mut self, path: &str, value: Option<Value>) -> Result<(), String> {
+        set_pointer(&mut self.data, path, value)?;
         self.data_version += 1;
         self.needs_build = true;
+        Ok(())
     }
 
     pub fn data(&self) -> &Value {
         &self.data
     }
 
-    pub fn root(&self) -> Option<&UiNode> {
+    pub fn root(&mut self) -> Option<&UiNode> {
+        self.ensure_reduced();
         self.root.as_ref()
     }
 
+    /// The reduce issues (plus the build's: styles, template items), after
+    /// any streamed update is reduced.
+    pub fn issues(&mut self) -> &[ReduceIssue] {
+        self.ensure_reduced();
+        &self.issues
+    }
+
+    /// Reduce a streamed update now (every reader of the tree calls it).
+    pub(crate) fn ensure_reduced(&mut self) {
+        if self.reduce_pending {
+            self.reduce();
+        }
+    }
+
     fn reduce(&mut self) {
+        crate::roomy(|| self.reduce_now())
+    }
+
+    fn reduce_now(&mut self) {
         self.template_cache.clear();
         self.local.static_keys.clear();
         self.local.key_cache.clear();
@@ -1218,17 +1327,34 @@ impl Surface {
         match result {
             Some(r) => {
                 self.root = Some(r.root);
-                self.issues = r.issues;
+                self.reduce_issues = r.issues;
                 // Round 2: template nodes are lifted out of the tree; items
                 // instantiate them from this table.
                 self.template_cache = r.templates.unwrap_or_default().into_iter().map(|(id, n)| (id, Some(n))).collect();
             }
             None => {
                 self.root = None;
-                self.issues.clear();
+                self.reduce_issues.clear();
             }
         }
+        self.build_issues.clear();
+        self.style_issues.clear();
+        self.refresh_issues();
+        // Only a reduce that RAN clears the flag (a panic above leaves it
+        // pending: the next read reduces again, never a stale root).
+        self.reduce_pending = false;
         self.needs_build = true;
+    }
+
+    /// `issues` = the reduce's + the build's + the styles' (once each).
+    pub(crate) fn refresh_issues(&mut self) {
+        let mut all: Vec<ReduceIssue> = Vec::with_capacity(self.reduce_issues.len() + self.build_issues.len() + self.style_issues.len());
+        for issue in self.reduce_issues.iter().chain(&self.build_issues).chain(&self.style_issues) {
+            if !all.contains(issue) {
+                all.push(issue.clone());
+            }
+        }
+        self.issues = all;
     }
 
     fn gap_px(&self, name: &str) -> f32 {
@@ -1377,6 +1503,7 @@ impl Surface {
         if self.step_state.is_some() {
             return;
         }
+        self.ensure_reduced();
         if self.needs_build {
             self.subtree_pending.clear();
             self.rebuild();

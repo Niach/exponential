@@ -15,7 +15,7 @@
 // once per item under the item's scope, keyed by `template.key`.
 
 import { Component, Fragment, memo, useCallback, useContext, useEffect, useMemo, type CSSProperties, type ReactNode } from "react"
-import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys } from "@exponential-at/ui"
+import { UNKNOWN_COMPONENT, catalogView, instanceSegment, isResponsiveValue, nativeRecipeProps, responsiveAt, templateItemKeys, templateSiteKey, withOwnWrites } from "@exponential-at/ui"
 import type { ExtensionDef, UiNode } from "@exponential-at/ui"
 import { dynamicStyleEntries, nodeClass, queryToken, styleDirection } from "./box-css"
 import { InstanceContext, ScopeContext, SurfaceContext, resolveContextOf, useSurfaceContext, type SurfaceContextValue } from "./context"
@@ -109,17 +109,21 @@ export function forced(states: readonly string[], ...extra: (string | false | un
 }
 
 /** Run one of a node's actions (round-1 contract §1 `runAction`): the
- *  function args AND the event context resolve against the data as it is,
- *  then `set` writes (relative paths against the node's scope), any other
+ *  function args AND the event context resolve against the data WITH the
+ *  component's own write applied (round 4 `withOwnWrites`: `own` = what
+ *  the component just wrote, by prop, so the context of an Input's
+ *  `change` reads the text just typed, even before React has re-rendered
+ *  the write), then `set` writes (relative paths against the node's scope), any other
  *  function runs, then the event reaches the host with the component's
  *  payload merged OVER the author's context (the payload wins a clashing
  *  key, like the Rust core's `fire`: the author's context was resolved
  *  before the write, the payload carries the value just written). */
-export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: string, scope: string, event: string, payload?: Record<string, unknown>): Promise<void> | void {
+export function runNodeAction(ctx: SurfaceContextValue, node: UiNode, domId: string, scope: string, event: string, payload?: Record<string, unknown>, own?: Record<string, unknown>): Promise<void> | void {
   const action = node.on?.[event]
   if (!action) return undefined
-  const rctx: ResolveContext = resolveContextOf(ctx, scope)
-  const fn = (action as { functionCall?: { call: string; args?: Record<string, unknown> } }).functionCall ?? action.function
+  const base = resolveContextOf(ctx, scope)
+  const rctx: ResolveContext = own ? { ...base, data: withOwnWrites(ctx.data, node.props, own, scope ? { base: scope } : {}) } : base
+  const fn = action.functionCall
   const args = fn ? ((resolveValue(fn.args ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
   const context = action.event ? ((resolveValue(action.event.context ?? {}, rctx) as Record<string, unknown>) ?? {}) : undefined
   let pending: unknown
@@ -158,7 +162,7 @@ function runNodeEvent(ctx: SurfaceContextValue, ev: { name: string }, domId: str
 
 export function useEmitter(node: UiNode, scope: string, domId: string = node.id) {
   const ctx = useSurfaceContext()
-  return useCallback((event: string, payload?: Record<string, unknown>): Promise<void> | void => runNodeAction(ctx, node, domId, scope, event, payload), [node, ctx, scope, domId])
+  return useCallback((event: string, payload?: Record<string, unknown>, own?: Record<string, unknown>): Promise<void> | void => runNodeAction(ctx, node, domId, scope, event, payload, own), [node, ctx, scope, domId])
 }
 
 /** A node, or nothing when its `visible` resolves falsy (no layout, not in
@@ -265,13 +269,26 @@ const BoundNode = memo(function BoundNode({ node, scope }: { node: UiNode; scope
   )
 })
 
+/** A failed node's identity for the once-per-props rule. */
+function propsSignature(node: UiNode): string {
+  try {
+    return `${node.component}\u0000${JSON.stringify(node.props)}`
+  } catch {
+    return node.component
+  }
+}
+
 /** The plain painters (no formatting, no host code) skip the boundary. */
 const UNGUARDED = new Set([`Box`, `Text`])
 
 /** One node's painter that throws (a bad agent-written prop, a host
  *  override's bug) paints an EMPTY box in its place; the rest of the
- *  surface and the host stay mounted. A new node (a re-reduce) retries. */
+ *  surface and the host stay mounted, and the host hears it through
+ *  `onPaintError` (catalog/host.json paint). A new node (a re-reduce)
+ *  retries. */
 class PaintBoundary extends Component<{ node: UiNode; domId: string; children: ReactNode }, { node: UiNode; failed: boolean }> {
+  static contextType = SurfaceContext
+  declare context: SurfaceContextValue | null
   constructor(props: { node: UiNode; domId: string; children: ReactNode }) {
     super(props)
     this.state = { node: props.node, failed: false }
@@ -283,7 +300,35 @@ class PaintBoundary extends Component<{ node: UiNode; domId: string; children: R
     return { failed: true }
   }
   componentDidCatch(error: unknown): void {
-    console.error(`[exponential-ui] ${this.props.node.component} "${this.props.node.id}" failed to paint`, error)
+    const { node, domId } = this.props
+    // Reported ONCE per painted node until its props change (a re-reduce
+    // hands every node a new object; that alone never re-reports).
+    const failures = this.context?.paintFailures
+    const signature = propsSignature(node)
+    if (failures?.get(domId) === signature) return
+    failures?.set(domId, signature)
+    const message = `${node.component} failed to paint: ${error instanceof Error ? error.message : String(error)}`
+    const report = this.context?.host.onPaintError
+    if (report) {
+      try {
+        report({ surfaceId: this.context!.surfaceId, componentId: node.id, message })
+      } catch (e) {
+        console.error(`[exponential-ui] onPaintError threw`, e)
+      }
+    } else console.error(`[exponential-ui] ${node.component} "${node.id}" failed to paint`, error)
+  }
+  componentDidMount(): void {
+    this.painted()
+  }
+  componentDidUpdate(): void {
+    this.painted()
+  }
+  componentWillUnmount(): void {
+    this.context?.paintFailures?.delete(this.props.domId)
+  }
+  /** A node that paints again is no longer a remembered failure. */
+  private painted(): void {
+    if (!this.state.failed) this.context?.paintFailures?.delete(this.props.domId)
   }
   render(): ReactNode {
     const { node, domId, children } = this.props
@@ -315,7 +360,9 @@ export function templateItems(ctx: SurfaceContextValue, node: UiNode, scope: str
   const tpl = ctx.templateNode(template.component)
   if (!Array.isArray(list) || !tpl) return null
   const keys = templateItemKeys(list, template.key)
-  const items = list.map((_, index) => ({ key: keys[index], path: `${path}/${index}`, index }))
+  // VAPP-103: the surface's `maxTemplateItems` budget for this site.
+  const count = ctx.templateBudget?.allowed.get(templateSiteKey(node.id, scope)) ?? list.length
+  const items = list.slice(0, count).map((_, index) => ({ key: keys[index], path: `${path}/${index}`, index }))
   return { items, tpl }
 }
 

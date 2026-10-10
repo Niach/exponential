@@ -17,7 +17,7 @@
 import { StrictMode, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import { flushSync } from "react-dom"
 import { createRoot } from "react-dom/client"
-import { CORE_CATALOG_ID, reduceNested, reduceSurface, BUILTIN_THEME_IDS, componentDef } from "@exponential-at/ui"
+import { CORE_CATALOG_ID, reduceNested, reduceSurface, BUILTIN_THEME_IDS, THEME_SCHEMA_ID, componentDef } from "@exponential-at/ui"
 import type { FlatComponent, NestedNode, UiNode } from "@exponential-at/ui"
 import benchFixture from "@exponential-at/ui/fixtures/bench-list.json"
 import kitchenSink from "@exponential-at/ui/fixtures/kitchen-sink.json"
@@ -167,7 +167,7 @@ function Conditions() {
   type Ctx = { width: number; height?: number; states?: string[]; breakpoints?: Record<string, number> }
   const c = (conditions.cases as { style: Record<string, unknown>; contexts: Ctx[] }[])[Number(params.get(`case`) ?? 0)]
   const ctx = c.contexts[Number(params.get(`ctx`) ?? 0)]
-  const theme = ctx.breakpoints ? { id: `bp`, name: `Breakpoints`, extends: `neutral`, tokens: { breakpoint: ctx.breakpoints } } : `neutral`
+  const theme = ctx.breakpoints ? { $schema: THEME_SCHEMA_ID, id: `bp`, name: `Breakpoints`, extends: `neutral`, tokens: { breakpoint: ctx.breakpoints } } : `neutral`
   const { root } = reduceNested({ id: `n`, component: `Box`, style: { ...c.style, width: 40, height: 40 } } as unknown as NestedNode, { catalogId: CORE_CATALOG_ID, validate: false })
   // No context height = no height at all (a content-sized root is not a
   // viewport), so height conditions do not match, as in the core.
@@ -385,7 +385,7 @@ function Mount() {
       const handle: { current: SurfaceHandle | null } = { current: null }
       window.__xuiHandle = () => handle.current
       const base = options.theme ?? `neutral`
-      const theme = options.hairline === undefined ? base : ({ id: `hairline`, name: `Hairline`, extends: base, tokens: { control: { hairline: options.hairline } } } as never)
+      const theme = options.hairline === undefined ? base : ({ $schema: THEME_SCHEMA_ID, id: `hairline`, name: `Hairline`, extends: base, tokens: { control: { hairline: options.hairline } } } as never)
       remount(<ExponentialSurface id="m" root={root} templates={templates} data={options.data} theme={theme} mode="light" width={options.width ?? `100%`} direction={options.dir} handleRef={handle} host={{ icons: harnessIcons, onAction: (e) => void window.__xuiLog.push({ action: e.name, context: e.context }) }} />)
       await frames(3)
     }

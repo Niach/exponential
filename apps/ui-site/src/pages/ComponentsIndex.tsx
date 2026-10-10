@@ -4,12 +4,12 @@ import type { PageProps } from "../lib/routes"
 import { useScheme } from "../lib/scheme"
 import { themeBackgrounds } from "../sdk/backgrounds"
 import { caseAlign, studioTree, subjectOf, thumbProps } from "../sdk/ComponentStudio"
-import { groupLabel, KindBadges, PlatformDots, RichText } from "../sdk/labels"
+import { groupLabel, RichText } from "../sdk/labels"
 import { MiniSurface } from "../sdk/MiniSurface"
 
 /* The core catalog as a visual grid: every component a live mini render
    (mounted near the viewport), grouped, with search (`/` focuses it), a
-   group filter (`?group=`, `?q=`) and the platform shot dots. The cards are
+   group filter (`?group=`, `?q=`). The cards are
    prerendered; only the renders wait for hydration. */
 
 const GROUPS = groupedDocs()
@@ -67,15 +67,11 @@ export default function ComponentsIndexPage(_: PageProps) {
   }, [])
 
   const visible = useMemo(() => new Set(COMPONENT_DOCS.filter((d) => matches(d, query, group)).map((d) => d.name)), [query, group])
-  const natives = COMPONENT_DOCS.filter((d) => d.kind === `native`).length
 
   return (
     <div className="shell sdk-index">
       <header className="sdk-index-head">
         <h1>Components</h1>
-        <p className="sdk-index-sub">
-          {COMPONENT_DOCS.length} components: {natives} natives every renderer paints, {COMPONENT_DOCS.length - natives} macros built from them.
-        </p>
         <div className="sdk-index-tools">
           <label className="sdk-search">
             <span className="sdk-sr-only">Search components</span>
@@ -83,23 +79,22 @@ export default function ComponentsIndexPage(_: PageProps) {
           </label>
           <div className="sdk-filter" role="group" aria-label="Filter by group">
             <button type="button" className="sdk-chip" aria-pressed={group === `all`} onClick={() => setGroup(`all`)}>
-              All <span>{COMPONENT_DOCS.length}</span>
+              All
             </button>
             {GROUPS.map((g) => (
               <button key={g.group} type="button" className="sdk-chip" aria-pressed={group === g.group} onClick={() => setGroup(group === g.group ? `all` : g.group)}>
-                {groupLabel(g.group)} <span>{g.docs.length}</span>
+                {groupLabel(g.group)}
               </button>
             ))}
           </div>
-          <p className="sdk-legend" aria-hidden="true">
-            <span className="sdk-pdot is-on" /> native shot
-            <span className="sdk-pdot" /> pending · order: Web, iOS, Android, Desktop
-          </p>
         </div>
       </header>
 
       <p className="sdk-index-status" role="status">
-        {visible.size === COMPONENT_DOCS.length ? `` : visible.size === 0 ? `No component matches.` : `${visible.size} of ${COMPONENT_DOCS.length}`}
+        {visible.size === 0 ? `No component matches.` : ``}
+      </p>
+      <p className="sdk-sr-only" aria-live="polite">
+        {visible.size === COMPONENT_DOCS.length || visible.size === 0 ? `` : `${visible.size} of ${COMPONENT_DOCS.length}`}
       </p>
 
       {GROUPS.map((g) => {
@@ -107,7 +102,7 @@ export default function ComponentsIndexPage(_: PageProps) {
         return (
           <section key={g.group} id={g.group} className="sdk-index-group" hidden={shown.length === 0}>
             <h2>
-              {groupLabel(g.group)} <span className="sdk-count">{shown.length}</span>
+              {groupLabel(g.group)}
             </h2>
             <div className="sdk-index-grid">
               {g.docs.map((doc) => (
@@ -137,12 +132,10 @@ function ComponentCard({ doc, hidden, mode }: { doc: ComponentDoc; hidden: boole
           <a href={componentPath(doc)} className="sdk-card-link">
             {doc.name}
           </a>
-          <KindBadges doc={doc} />
         </h3>
         <p>
           <RichText text={componentSummary(doc)} />
         </p>
-        <PlatformDots viewId={doc.specimenId} />
       </div>
     </article>
   )

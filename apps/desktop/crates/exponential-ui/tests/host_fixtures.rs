@@ -55,7 +55,7 @@ fn the_contract_constants_match_catalog_host_json() {
     let all: Vec<&str> = messages["a2ui"].as_array().unwrap().iter().chain(messages["extensions"].as_array().unwrap()).map(|v| v.as_str().unwrap()).collect();
     assert_eq!(host::MESSAGE_KINDS, all.as_slice());
     for code in HOST_ERROR_CODES {
-        assert!([host::VALIDATION_FAILED, host::INVALID_MESSAGE, host::UNSUPPORTED_CATALOG, host::SURFACE_NOT_FOUND, host::TEMPLATE_NOT_FOUND, host::FUNCTION_NOT_FOUND, host::FUNCTION_DENIED].contains(code));
+        assert!([host::VALIDATION_FAILED, host::INVALID_MESSAGE, host::UNSUPPORTED_CATALOG, host::SURFACE_NOT_FOUND, host::TEMPLATE_NOT_FOUND, host::FUNCTION_NOT_FOUND, host::FUNCTION_DENIED, host::RENDER_FAILED].contains(code));
     }
     assert_eq!(contract["a2uiVersion"], json!(exponential_ui::catalog::A2UI_VERSION));
 }
@@ -67,7 +67,7 @@ fn the_built_ins_are_the_catalogs() {
     assert_eq!(host::BUILTIN_FUNCTIONS, names.as_slice());
     // The basic catalog's 14 plus the 17 core functions (`set` incl.; round 2
     // adds formatPercent + formatRelativeTime).
-    assert_eq!(host::BUILTIN_FUNCTIONS.len(), 31);
+    assert_eq!(host::BUILTIN_FUNCTIONS.len(), 32);
 }
 
 #[test]
@@ -142,7 +142,7 @@ fn button_surface(on_press: Value) -> (Surface, u32) {
     let mut surface = Surface::new("s", SurfaceOptions::default());
     let outcome = surface.set_nested(tree);
     assert!(outcome.issues.is_empty(), "{:?}", outcome.issues);
-    surface.set_data("/m", Some(json!("hi")));
+    surface.set_data("/m", Some(json!("hi"))).unwrap();
     surface.set_viewport(400.0, 0.0, None);
     surface.layout(&mut exponential_ui::measure::FixedMeasure::default());
     let index = surface.index_of("b").unwrap();
@@ -156,10 +156,12 @@ fn a_host_function_call_fires_function_call_with_the_resolved_args() {
     let call = events.iter().find(|e| matches!(e, OutEvent::FunctionCall { .. })).expect("a FunctionCall");
     assert_eq!(call, &OutEvent::FunctionCall { component_id: "b".into(), name: "harness.toast".into(), args: json!({"message": "hi", "n": 2}) });
     assert_eq!(serde_json::to_value(call).unwrap(), json!({"kind": "functionCall", "componentId": "b", "name": "harness.toast", "args": {"message": "hi", "n": 2}}));
-    // No args = `{}`; the legacy `function` key works the same.
-    let (mut surface, b) = button_surface(json!({"function": {"call": "acme.refresh"}}));
+    // No args = `{}`; a legacy `function` key is not an action (round 4).
+    let (mut surface, b) = button_surface(json!({"functionCall": {"call": "acme.refresh"}}));
     let events = surface.event(b, "press", None);
     assert!(events.contains(&OutEvent::FunctionCall { component_id: "b".into(), name: "acme.refresh".into(), args: json!({}) }));
+    let (mut surface, b) = button_surface(json!({"function": {"call": "acme.refresh"}}));
+    assert!(!surface.event(b, "press", None).iter().any(|e| matches!(e, OutEvent::FunctionCall { .. })));
 }
 
 #[test]

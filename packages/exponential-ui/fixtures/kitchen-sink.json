@@ -444,7 +444,7 @@
                   "component": "Chip",
                   "props": {
                     "label": "Bug",
-                    "dot": "#EF4444"
+                    "dot": "$color.destructive"
                   }
                 },
                 {

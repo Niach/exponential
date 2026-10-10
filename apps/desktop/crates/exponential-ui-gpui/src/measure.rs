@@ -655,7 +655,7 @@ impl<'a> GpuiMeasure<'a> {
 
     fn markdown(&mut self, leaf: &LeafRequest, wrap: Option<f32>) -> Content {
         let text = str_prop(leaf.props, "text");
-        let blocks = markdown::parse(text);
+        let blocks = markdown::parse_for(self.fonts.host.as_ref(), text);
         let ts = leaf.text_style;
         let body = TextSpec { size: ts.font_size, line_height: ts.line_height, weight: ts.font_weight, family: ts.font_family.clone() };
         let styles = MdStyles::resolve(self.theme, self.mode, body, leaf.props);

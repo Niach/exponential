@@ -4,7 +4,6 @@
    four renderers, the entry points and the packages. */
 import manifest from "@exponential-at/ui/conformance/manifest.json"
 import promptBudget from "@exponential-at/ui/fixtures/prompt-budget.json"
-import { DocsCallout } from "@exp/site-shell"
 import { CardGrid, DocsTable, IcArrow } from "../components/Content"
 import { COMPONENT_COUNT } from "../lib/catalog-facts"
 import { PACKAGES, RENDERERS } from "../lib/content"
@@ -72,7 +71,6 @@ export default function HomePage(_: PageProps) {
       <section className="home-hero">
         <div className="shell">
           <div className="home-hero-text">
-            <div className="section-eyebrow">Open source · A2UI v0.9 · Apache-2.0</div>
             <h1 className="home-title">
               Generative UI,
               <br />
@@ -101,12 +99,6 @@ export default function HomePage(_: PageProps) {
         <div className="shell">
           <div className="section-eyebrow">What generative UI is</div>
           <h2 className="section-title">The model decides what to show. The platform decides how it looks.</h2>
-          <p className="section-sub">
-            <a className="content-link" href={LINKS.a2ui}>
-              A2UI
-            </a>
-            : UI as data, never code. The client renders it with its own components.
-          </p>
           <ol className="home-steps">
             {STEPS.map((s) => (
               <li key={s.num} className="home-step glass-card">
@@ -129,7 +121,6 @@ export default function HomePage(_: PageProps) {
                 <span className="home-renderer-platform">{r.platform}</span>
                 <span className="home-renderer-framework">{r.framework}</span>
                 <code className="home-renderer-pkg">{r.pkg}</code>
-                <span className="home-renderer-note">{r.note}</span>
                 <span className="home-renderer-link">
                   The {r.framework} guide <IcArrow size={11} />
                 </span>
@@ -173,19 +164,12 @@ export default function HomePage(_: PageProps) {
         <div className="shell home-packages">
           <div>
             <h2 className="section-title">Packages</h2>
-            <p className="section-sub">
-              One <code>ui-v*</code> tag publishes all of them at one version. <strong>Nothing is published yet</strong>: install from the repository as each guide shows.
-            </p>
           </div>
           <DocsTable
             className="home-packages-table"
             head={[`Package`, `Registry`, `What`, `Until it is published`]}
             rows={PACKAGES.map((p) => [<code key="n">{p.name}</code>, p.registry, p.what, p.fromRepo])}
           />
-          <DocsCallout kind="note" title="Release status">
-            Every artifact builds and stages today; each registry goes live with its account (<code>@exponential-at</code> on npm, the crate name, <code>Niach/exponential-ui-swift</code>, the <code>at.exponential</code> Maven namespace).{` `}
-            <a href={LINKS.source(`packages/exponential-ui/release/README.md`)}>Release runbook</a>
-          </DocsCallout>
         </div>
       </section>
 

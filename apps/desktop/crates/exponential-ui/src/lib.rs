@@ -46,6 +46,33 @@
 
 pub mod generated;
 
+/// VAPP-103: run one step of a recursive pass with at least 64 KB of stack
+/// left, else on a fresh 1 MB segment: the recursion never ends in the
+/// guard page, however the tree nests.
+#[inline]
+pub(crate) fn deep<R>(f: impl FnOnce() -> R) -> R {
+    stacker::maybe_grow(64 * 1024, 1024 * 1024, f)
+}
+
+/// VAPP-103: run a whole pass (a reduce, a rebuild, a layout) with at
+/// least [`PASS_STACK`] of stack, else on a fresh 8 MB segment (mapped
+/// lazily). A `maxDepth`-deep pass takes ~400 KB in a release build, so a
+/// host thread of 1 MB (the Linux JVM's and ART's default) never switches:
+/// a host callback (the formatter, the measurer, the shaper) must run on
+/// the host's OWN stack. The JVM refuses an upcall whose stack pointer lies
+/// below its thread's stack (Linux maps a new segment there) with a
+/// StackOverflowError that JNA swallows into an empty answer: every
+/// formatted number was blank on Linux. Smaller threads (an iOS secondary
+/// thread has 512 KB) still get the segment. One check per pass, so the
+/// per-level [`deep`] rarely switches.
+#[inline]
+pub(crate) fn roomy<R>(f: impl FnOnce() -> R) -> R {
+    stacker::maybe_grow(PASS_STACK, 8 * 1024 * 1024, f)
+}
+
+/// The stack a pass asks for before it runs on its own segment ([`roomy`]).
+pub(crate) const PASS_STACK: usize = 512 * 1024;
+
 pub mod a11y;
 pub mod animation;
 pub mod basic_map;
@@ -65,6 +92,7 @@ pub mod host;
 pub mod json;
 pub mod layout;
 pub mod layout_tree;
+pub mod limits;
 pub mod list;
 pub mod locale;
 pub mod macros;

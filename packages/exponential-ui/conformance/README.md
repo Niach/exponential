@@ -6,7 +6,7 @@ drift-gated) and the report passes:
 
 ```bash
 bun run --filter @exponential-at/ui conformance:check path/to/report.json
-# CONFORMANT  my-renderer (flutter 0.3.0): 1642 cases passed in 24 suites
+# CONFORMANT  my-renderer (flutter 0.3.0): <n> cases passed in <m> suites
 ```
 
 Every suite present, every case run (the manifest's `cases` count), nothing
@@ -73,24 +73,55 @@ and the round-2 contract fixtures.
 ## With the real-font harness (VAPP-98, round 1)
 
 Round 1 (#VAPP-98) adds the other half to this directory: `run.ts` dumps the
-kitchen sink and the responsive cases from the web and desktop renderers with
-the conformance fonts and compares them with `fixtures/conformance-baseline.json`
-(geometry with real text, plus a reported pixel step). The two halves do not
-overlap: this manifest locks the CONTRACT every renderer replays case by case
-(no fonts involved), the harness locks what real text does to it. Once both
-are on master, the harness's comparison becomes suite `real-font` here
-(cases = its matrix, a renderer passes when its dump has no divergence
-beyond `conformance-known.json`), so `conformance:check` stays the one verdict.
-Runner files are named `suites` (`browser/suites.test.ts`, gpui
-`tests/suites.rs`) beside the harness's own `conformance` ones.
+cases of `fixtures/conformance-cases.json` from the web and desktop renderers
+with the conformance fonts and compares them with
+`fixtures/conformance-baseline.json` (geometry with real text, plus a reported
+pixel step). The two halves do not overlap: this manifest locks the CONTRACT
+every renderer replays case by case (no fonts involved), the harness locks
+what real text does to it. Once both are on master, the harness's comparison
+becomes suite `real-font` here (cases = its matrix, a renderer passes when its
+dump has no divergence beyond `conformance-known.json`), so
+`conformance:check` stays the one verdict. Runner files are named `suites`
+(`browser/suites.test.ts`, gpui `tests/suites.rs`) beside the harness's own
+`conformance` ones.
+
+### The matrix
+
+Every renderer runs the FULL cross product of `conformance-cases.json`
+(`allCases` in `dump.ts`; the Rust, Swift and Kotlin runners build the same
+keys `<fixture>/<theme>/<mode>/<width>/<direction>`), so adding a fixture, a
+theme, a mode or a width there widens every runner at once:
+
+| axis | values |
+|---|---|
+| fixtures | `kitchen-sink` (every component), `responsive` (the kitchen sink's responsive section, `layout-geometry-round1.json`), `dashboard` (`dashboard.json` + `dashboard.data.json`: an agent project dashboard, VAPP-103) |
+| themes | the built-ins: `exponential`, `neutral`, `playful` |
+| modes | `dark`, `light` (a mode changes colours only by contract; the light cases lock that no theme mode or recipe moves a box) |
+| widths | 390, 600, 900, 1280 |
+| directions | `ltr`, `rtl` |
+
+The web dump of the whole matrix takes well under a minute; the Swift and
+Compose ratchets a few seconds each, so the matrix is not sampled.
+
+### Recording
+
+| what | where | command |
+|---|---|---|
+| the web baseline | any machine with Chromium | `bun run --filter @exponential-at/ui conformance -- --write-baseline --skip-desktop` (whole matrix only) |
+| the SwiftUI ratchet | macOS | `EXPONENTIAL_UI_WRITE_FIXTURES=1 swift test --filter RealFont` (`packages/exponential-ui-swift`) |
+| the Compose ratchet | ubuntu (CI verifies there) | `.github/workflows/record-compose-fixtures.yml`, artifact `compose-fixtures` (`EXP_UI_WRITE_FIXTURES=1 ./gradlew :ui-compose:testDebugUnitTest --tests '*RealFontConformanceTest'`) |
+| the gpui ratchet | Linux only (`tests/conformance.rs` builds there) | the same workflow's `gpui` job, artifact `gpui-ratchet` (`EXP_UI_WRITE_FIXTURES=1 cargo test -p exponential-ui-gpui --test conformance`) |
+
+A new case without a budget fails every ratchet, so a matrix change re-records
+all four in the same change.
 
 Round 2: the dump measures LAYOUT boxes (transforms and animations off,
 `LAYOUT_ONLY_CSS`), skips inactive carousel pages (`data-xui-inactive`),
 and every painted part carries `data-xui-id="<node id>.<part>[.<index or
 row key>]"` + `data-xui-part` (catalog/recipes.json lists the parts), so the
 web and gpui dumps cover the same nodes. Nunito and Fira Code are real
-faces (`fonts/`, SIL OFL 1.1). `conformance-known.json` carries the 53
-divergence decisions (`causes`) beside the ratchet's counts.
+faces (`fonts/`, SIL OFL 1.1). `conformance-known.json` carries the
+divergence decisions (`causes`, `rules`) beside the ratchet's counts.
 
 ## Listing
 

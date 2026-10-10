@@ -1,6 +1,6 @@
 // VAPP-87: Image, Video, AudioPlayer, Avatar, Carousel.
 
-import { useEffect, useRef, useState, version as reactVersion } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useBoundState } from "./bound"
 import { Avatar as AvatarPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
@@ -19,9 +19,8 @@ function MediaSizer() {
 import { bool, BuiltinIcon, num, str, useParts } from "./shared"
 import { useMediaSource, useMediaSrc } from "../media"
 
-/** `inert` on an inactive page: React 19 takes a boolean, React 18 (the
- *  peer range) passes attributes through as strings and drops `true`. */
-const INERT: Record<string, unknown> = Number(reactVersion.split(`.`)[0]) >= 19 ? { inert: true } : { inert: `` }
+/** `inert` on an inactive page (React 19, the peer range, takes a boolean). */
+const INERT: Record<string, unknown> = { inert: true }
 
 /** Image (contract §3): `loading` lazy|eager, `focalX/focalY` (0..1, the
  *  point kept when the picture is cropped → `object-position`), and the
@@ -80,7 +79,8 @@ export function VideoNative({ node, props, rootProps }: NativeProps) {
   const part = useParts(node, props)
   const src = str(props.src)
   const poster = str(props.poster)
-  const url = useMediaSrc(ctx.host, src)
+  // The video streams (no byte caps); its poster is an image (the limits hold).
+  const url = useMediaSrc(ctx.host, src, `stream`)
   const posterUrl = useMediaSrc(ctx.host, poster)
   // Round 2 §7: height = width / `aspectRatio` (default 16:9), never the
   // browser's 300×150.
@@ -98,7 +98,7 @@ export function AudioPlayerNative({ node, props, rootProps }: NativeProps) {
   const part = useParts(node, props)
   const src = str(props.src)
   const title = str(props.title)
-  const url = useMediaSrc(ctx.host, src)
+  const url = useMediaSrc(ctx.host, src, `stream`)
   return (
     <div {...(rootProps as Record<string, unknown>)} style={mergeStyle(rootProps, { flexDirection: `column`, gap: `var(--xui-spacing-xs)` })}>
       {title ? <span {...(part(`track`) as Record<string, string>)}>{title}</span> : null}
@@ -162,7 +162,7 @@ export function CarouselNative({ node, props, rootProps, emit, scope }: NativePr
     const next = Math.round(Math.abs(el.scrollLeft) / el.clientWidth)
     if (next !== page) {
       setPage(next)
-      void emit(`change`, { page: next })
+      void emit(`change`, { page: next }, { page: next })
     }
   }
   const go = (next: number) => {
@@ -170,7 +170,7 @@ export function CarouselNative({ node, props, rootProps, emit, scope }: NativePr
     if (n === 0) return
     const target = bool(props.loop) ? ((next % n) + n) % n : Math.max(0, Math.min(n - 1, next))
     setPage(target)
-    void emit(`change`, { page: target })
+    void emit(`change`, { page: target }, { page: target })
     scrollTo(target)
   }
   const many = pages.length > 1

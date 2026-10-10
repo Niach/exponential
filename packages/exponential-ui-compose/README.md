@@ -31,6 +31,7 @@ cd packages/exponential-ui-compose
 
 - **The binding.** `ui-compose` compiles `exponential-ui-ffi/bindings/kotlin` (package `at.exponential.ui.ffi`) as a second source dir and takes the `.so` files from `out/jniLibs`.
 - **R8.** The consumer rules keep JNA and the binding, so an app with R8 on needs nothing extra.
+- **Compose range.** Built against the Compose BOM 2024.12.01 (Compose UI 1.7.x) and runs on 1.7 or later. Input autofill uses the legacy `AutofillNode` / `LocalAutofillTree` API: the semantics `contentType` is internal in 1.7, so it is adopted once the pinned BOM moves to Compose UI 1.8.
 
 ### In a blank project
 
@@ -58,7 +59,7 @@ Column(Modifier.verticalScroll(rememberScrollState())) {
   - `icon(name, size)` maps the catalog's registry concepts to your composables, painted under `LocalContentColor`. `null` paints the placeholder circle.
   - `onAction` receives every A2UI action.
   - `onInput` receives host-owned text edits: `Change` is debounced 150 ms and carries a revision; `Commit` fires on blur or IME Done.
-  - The rest: `openUrl` (default: `ACTION_VIEW` through `ExponentialUi.appContext`), `resolveUrl`, `onUnknown`, `fontFamily`, `markdown`, `copy` (default: the clipboard), `pickFiles` (a FileUpload asks; answer `request.done(files)`).
+  - The rest: `urlPolicy` + `mediaOptions` (null = the contract defaults), `openUrl` (gets only hrefs the URL policy allowed; default: `ACTION_VIEW` through `ExponentialUi.appContext`), `resolveUrl` (a src rewrite BEFORE the media policy), `onPaintError` (a painter failed; once per component until its props change, or an `updateComponents` names it again), `onUnknown`, `fontFamily`, `markdown`, `copy` (default: the clipboard), `pickFiles` (a FileUpload asks; answer `request.done(files)`).
 - **Fonts.** `ExponentialUi.registerFont(family, FontFamily)` registers a family a theme names. Text without a family uses the theme's `sans`; a family that is not registered falls back to the platform default.
 - **Themes.** Load one with `ThemeHandle.builtin(id)` or `ThemeHandle.load(json, parents)`; switch with `model.setTheme` / `setMode`.
   - Painters never read recipes: the core hands them resolved visuals.
@@ -131,6 +132,7 @@ Every answer is the BORDER box: the recipe's padding (per side) and border aroun
 - the leaf's `FfiTextStyle`: size, weight, line height, family, `letterSpacing`, `textTransform` and italics, inherited like CSS (the leaves paint with the same style);
 - a number or boolean in a text prop shows as its display string (`412`);
 - Markdown measures with the same block layout it paints; platform controls have recipe-fixed boxes.
+- Markdown link and image destinations follow CommonMark (balanced parentheses, `\` escapes, no whitespace). A list item whose marker sits ≥ 2 columns right of the previous level's nests one `listIndent` deeper. A paragraph that is one `![alt](src)` is a block image `imageHeight` tall (loading or loaded, so measure = paint; the alt text in the box when it fails); a src the media policy DENIES is a paragraph of its alt text (none without one), in the measurer and the painter alike; an image inside running text stays its alt text.
 
 Nothing is measured through Compose intrinsics, so a pass runs headless (JVM tests).
 
@@ -269,8 +271,9 @@ HostSurface(host, "greenhouse", fallback = { Text("Waiting…") })
 - **Painter events.**
   - An `action` becomes the A2UI client message on the transport (the plugin's `onAction` still fires).
   - A `functionCall` goes through `callFunction`: `not_found` → `FUNCTION_NOT_FOUND`, `ask` → the `onFunctionCall` consent hook, `deny` → `FUNCTION_DENIED`, `allow` → the handler. A package surface's `functions` list narrows the decision.
-  - `openUrl` and `Link` go through the URL policy (relative urls resolve against the media `baseUrl`), then `policy.openUrl` (default: the system opener).
-  - Images, avatars and posters load through `host.mediaRequest`, so the media rules' headers reach the fetch (`HostPlugin.mediaRequest` without a host).
+  - EVERY href (`openUrl`, `Link`, markdown links) goes through the URL policy (relative urls resolve against the media `baseUrl`), then `policy.openUrl` (default: the system opener); a denied href paints as plain text.
+  - EVERY src (images, avatars, posters, markdown images) goes through `host.mediaRequest`: `resolveUrl`, then the media policy (`schemes`, `hosts`; the defaults without `media`), so the media rules' headers reach the fetch. A plain `HostPlugin` gets the same policy from its `mediaOptions`.
+  - `paintError` forwards a failed painter as an A2UI `RENDER_FAILED` error at `/components/<id>`, once per surface + component + message (cleared when the surface's components change).
 - **Transports.** All of them parse through the core's decoders.
   - `MemoryTransport` (`feed`, `feedJsonl`, `sent`).
   - `JsonlStreamTransport` and `SseTransport`: a streamed `HttpURLConnection` GET on `Dispatchers.IO`, client messages POSTed to `postUrl`, reconnecting after `reconnectMs` (0 = never).
@@ -281,7 +284,7 @@ HostSurface(host, "greenhouse", fallback = { Text("Waiting…") })
 
 Both modules publish as `at.exponential:ui-compose` and `at.exponential:ui-compose-primitives`.
 - Each artifact has the AAR, a full POM (Apache-2.0; developer `Exponential` <hello@exponential.at>; scm `github.com/Niach/exponential`), and sources and javadoc jars.
-- The version is the `uiVersion` Gradle property (default `0.1.0`).
+- The version is the `uiVersion` Gradle property (`-PuiVersion=…`; release-ui.yml passes the tag's version, the `0.1.0` default lives in each module's `build.gradle.kts`).
 - Signing is applied ONLY when `ORG_GRADLE_PROJECT_signingInMemoryKey` (+ `…Password`) is set. The root `build.gradle.kts` holds the shared POM, signing and repository setup.
 
 ```bash
@@ -350,7 +353,8 @@ The TalkBack walk (real TalkBack, swipes on the emulator's virtual touchscreen) 
 ## Known divergences from the React renderer
 
 - Line breaks follow Android's text layout; the `lines` clamp ellipsizes.
-- Images load through a small `BitmapFactory` loader: http(s), file, content and android.resource URIs, downsampled to 2048 px. `data:` URIs and SVG are not supported, and the host app needs the INTERNET permission. Video and AudioPlayer are static placeholders.
+- Images load through a small `BitmapFactory` loader, only for a POLICED request: http(s) (redirects re-policed per hop) and `data:` URIs, never a local file or content URI, within `media.limits` (bytes up front and streamed, the request timeout, width × height from the header before decoding), downsampled to 2048 px. SVG is not supported, and the host app needs the INTERNET permission. Video and AudioPlayer play their `src` with Media3 ExoPlayer, only through the media policy (a denied src keeps the poster and an inert play control): nothing loads before the press (or `autoplay`, which starts muted); Video opens a `PlayerView` with the platform controls, AudioPlayer = play / pause, a track that seeks on a tap, `elapsed / length`. An http(s) src streams with its headers (no byte cap, catalog/host.json): a probe GET first resolves the redirect chain by hand, each hop re-policed (headers rebuilt, https → http refused), and the player opens the final url pinned to its origin. A later redirect Media3 follows by itself cannot be re-policed, so one that changes the origin fails playback, and a same-origin one keeps the headers. A `data:` url plays from a refcounted file under the app cache (at most 8, the directory emptied on the first use per process). A press while the source opens waits for it (the control shows a spinner).
+- Compose has no error boundary: a throw inside a composable cannot be caught. An extension painter's `measure` throw is caught; its `Paint` reports props it cannot paint through `context.fail(message)`; built-in painters keep failure-prone preparation in `rememberPainted`. Each failure paints an empty box and calls `onPaintError`.
 - Native M3 controls (Switch, Slider, the Select menu, the DatePickerDialog) take M3 defaults apart from the primary tint; the DatePickerDialog takes the host's `MaterialTheme`. The M3 Slider keeps a 16 dp thumb (not M3's 44 dp bar) and a 48 dp touch height, both overflowing the 6 dp track frame vertically.
 - A pressable container clears its children's semantics (`clearAndSetSemantics`, the SwiftUI `.ignore`), so a nested pressable inside a pressable row is not separately reachable.
 - Markdown paints with the primitives' `MarkdownView`. It rounds the wrap width while the text measurer ceils it, so a paragraph exactly on a wrap boundary can paint one line off (the leaf clips to its frame).

@@ -1,8 +1,8 @@
 package at.exponential.ui.compose
 
-import android.content.Context
 import android.graphics.BitmapFactory
-import android.net.Uri
+import at.exponential.ui.ffi.FfiImageHeader
+import at.exponential.ui.ffi.mediaImageHeader
 import android.util.LruCache
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -22,9 +24,12 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -35,6 +40,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
@@ -44,6 +50,8 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.media3.ui.PlayerView
 import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_BRIDGE
 import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_COLUMN
 import at.exponential.ui.catalog.CatalogConstants.TREE_GUIDE_RADIUS
@@ -59,8 +67,11 @@ import at.exponential.ui.primitives.RingView
 import at.exponential.ui.primitives.Rgba
 import at.exponential.ui.theme.ResolvedTextStyle
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.InputStream
+import at.exponential.ui.host.MediaLimits
 import at.exponential.ui.host.MediaRequest
 import java.net.HttpURLConnection
 import java.net.URL
@@ -69,15 +80,29 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 /**
- * The media loader the leaves share (no image library): `http(s)`, `file`
- * and `content` URIs decoded with `BitmapFactory` on the IO dispatcher,
- * downsampled to ≤ 2048 px, cached per URL (an LRU of 48 pictures);
- * failures are remembered so a broken URL is not refetched per frame.
+ * The media loader the leaves share (no image library). It loads ONLY a
+ * policed [MediaRequest] (the host's media policy already allowed it):
+ * `http(s)` (its headers sent; redirects followed by hand, each hop passed
+ * through the policy again, an https → http hop refused) and `data:` URIs; never a local file or content
+ * URI. Every load enforces [MediaLimits] (catalog/host.json `media.limits`):
+ * Content-Length up front and the body as it streams, connect + read
+ * timeouts and a deadline over the whole request, width × height read from
+ * the header BEFORE decoding. Decoded with `BitmapFactory` on the IO
+ * dispatcher, downsampled to ≤ 2048 px, cached per URL (an LRU of 48
+ * pictures); failures are remembered so a broken URL is not refetched per
+ * frame.
  */
 object LeafImages {
     private const val MAX_SIDE = 2048
+    private const val MAX_REDIRECTS = 5
     private val cache = LruCache<String, ImageBitmap>(48)
     private val failed = HashSet<String>()
+
+    /** Why a load failed (each paints the fallback, like a 404). */
+    enum class Failure { Denied, Http, TooLarge, Timeout, TooManyPixels, Undecodable }
+
+    /** A failed load and its [reason]. */
+    class LoadFailure(val reason: Failure, message: String) : java.io.IOException(message)
 
     /** A cached picture (null = not loaded yet or failed). */
     fun cached(url: String): ImageBitmap? = cache.get(url)
@@ -91,15 +116,21 @@ object LeafImages {
         synchronized(failed) { failed.clear() }
     }
 
-    /** Load `url` (cache first); null when the scheme is unsupported or the load fails. */
-    suspend fun load(context: Context?, url: String): ImageBitmap? = load(context, MediaRequest(url))
-
-    /** Load a host's media request (its headers go with an http(s) fetch); cached per url. */
-    suspend fun load(context: Context?, request: MediaRequest): ImageBitmap? {
+    /**
+     * Load a policed request (cache first); null when it fails. [police]
+     * re-checks a redirect's target (null = denied).
+     */
+    suspend fun load(
+        request: MediaRequest,
+        limits: MediaLimits = MediaLimits.contract,
+        police: (String) -> MediaRequest? = { null },
+    ): ImageBitmap? {
         val url = request.url
         cache.get(url)?.let { return it }
         if (hasFailed(url)) return null
-        val bitmap = withContext(Dispatchers.IO) { runCatching { decode(context, url, request.headers) }.getOrNull() }
+        val bitmap = withContext(Dispatchers.IO) {
+            runCatching { decode(fetch(request, limits, police), limits) }.getOrNull()
+        }
         if (bitmap == null) {
             synchronized(failed) { failed.add(url) }
             return null
@@ -108,44 +139,193 @@ object LeafImages {
         return bitmap
     }
 
-    private fun open(context: Context?, url: String, headers: Map<String, String>): InputStream? {
-        val uri = Uri.parse(url)
-        return when (uri.scheme?.lowercase()) {
-            "http", "https" -> (URL(url).openConnection() as HttpURLConnection).run {
-                connectTimeout = 15_000
-                readTimeout = 30_000
-                instanceFollowRedirects = true
-                for ((k, v) in headers) setRequestProperty(k, v)
-                if (responseCode !in 200..299) null else inputStream
+    /** The bytes of a policed request within [limits] (blocking). Throws [LoadFailure]. */
+    fun fetch(request: MediaRequest, limits: MediaLimits = MediaLimits.contract, police: (String) -> MediaRequest? = { null }): ByteArray {
+        val deadline = System.nanoTime() + limits.timeoutMs * 1_000_000
+        var current = request
+        repeat(MAX_REDIRECTS + 1) {
+            if (schemeOf(current.url) == "data") return dataBytes(current.url, limits)
+            val conn = connect(current, deadline)
+            try {
+                val code = responseCode(conn)
+                if (code in 300..399) {
+                    current = redirectHop(current, conn.getHeaderField("Location"), police)
+                    return@repeat
+                }
+                if (code !in 200..299) throw LoadFailure(Failure.Http, "HTTP $code")
+                val length = conn.contentLengthLong
+                if (length > limits.maxBytes) throw LoadFailure(Failure.TooLarge, "Content-Length $length > ${limits.maxBytes}")
+                return conn.inputStream.use { readCapped(it, limits.maxBytes, deadline) }
+            } finally {
+                conn.disconnect()
             }
-            "file" -> uri.path?.let { java.io.File(it).inputStream() }
-            "content", "android.resource" -> context?.contentResolver?.openInputStream(uri)
-            else -> null
+        }
+        throw LoadFailure(Failure.Http, "too many redirects")
+    }
+
+    /**
+     * Where a policed http(s) stream ends up (blocking): a probe GET
+     * (`Range: bytes=0-0`, the body never read) follows the redirect chain
+     * by hand, each hop through [redirectHop], and returns the FINAL hop's
+     * request (its url + the headers the policy rebuilt for it). The byte
+     * cap does not apply (catalog/host.json: Video / Audio stream); the
+     * timeout does. Throws [LoadFailure].
+     */
+    fun resolveStream(request: MediaRequest, limits: MediaLimits = MediaLimits.contract, police: (String) -> MediaRequest? = { null }): MediaRequest {
+        val deadline = System.nanoTime() + limits.timeoutMs * 1_000_000
+        var current = request
+        repeat(MAX_REDIRECTS + 1) {
+            val conn = connect(current, deadline, mapOf("Range" to "bytes=0-0"))
+            try {
+                val code = responseCode(conn)
+                if (code in 300..399) {
+                    current = redirectHop(current, conn.getHeaderField("Location"), police)
+                    return@repeat
+                }
+                // 416: an empty item, still the final url.
+                if (code !in 200..299 && code != 416) throw LoadFailure(Failure.Http, "HTTP $code")
+                return current
+            } finally {
+                conn.disconnect()
+            }
+        }
+        throw LoadFailure(Failure.Http, "too many redirects")
+    }
+
+    /**
+     * One redirect hop from [current] to [location] (relative to it): the
+     * target goes through [police] again (null = denied; its headers are
+     * rebuilt, so a hop that leaves a rule's prefix loses the rule's
+     * headers), and an https → http downgrade is refused. Throws [LoadFailure].
+     */
+    fun redirectHop(current: MediaRequest, location: String?, police: (String) -> MediaRequest?): MediaRequest {
+        if (location == null) throw LoadFailure(Failure.Http, "redirect without Location")
+        val next = runCatching { URL(URL(current.url), location).toString() }.getOrElse { throw LoadFailure(Failure.Http, "bad Location $location") }
+        if (isDowngrade(current.url, next)) throw LoadFailure(Failure.Denied, "redirect downgrades to $next")
+        val policed = police(next) ?: throw LoadFailure(Failure.Denied, "redirect to $next")
+        if (isDowngrade(current.url, policed.url)) throw LoadFailure(Failure.Denied, "redirect downgrades to ${policed.url}")
+        return policed
+    }
+
+    /** `https:` → `http:`. */
+    fun isDowngrade(from: String, to: String): Boolean = schemeOf(from) == "https" && schemeOf(to) == "http"
+
+    internal fun schemeOf(url: String): String = url.substringBefore(':', "").lowercase()
+
+    /** An http(s) connection for [request] that never follows redirects itself. Throws [LoadFailure]. */
+    private fun connect(request: MediaRequest, deadline: Long, extra: Map<String, String> = emptyMap()): HttpURLConnection {
+        val scheme = schemeOf(request.url)
+        if (scheme != "http" && scheme != "https") throw LoadFailure(Failure.Denied, "scheme $scheme")
+        val remaining = ((deadline - System.nanoTime()) / 1_000_000).coerceAtLeast(1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val conn = URL(request.url).openConnection() as HttpURLConnection
+        conn.connectTimeout = remaining
+        conn.readTimeout = remaining
+        conn.instanceFollowRedirects = false
+        for ((k, v) in request.headers) conn.setRequestProperty(k, v)
+        for ((k, v) in extra) conn.setRequestProperty(k, v)
+        return conn
+    }
+
+    private fun responseCode(conn: HttpURLConnection): Int = try {
+        conn.responseCode
+    } catch (e: java.net.SocketTimeoutException) {
+        throw LoadFailure(Failure.Timeout, "timed out")
+    }
+
+    /** Read [input] to the end: more than [maxBytes] or past [deadline] (nanoTime) fails. */
+    fun readCapped(input: InputStream, maxBytes: Long, deadline: Long = Long.MAX_VALUE): ByteArray {
+        val out = java.io.ByteArrayOutputStream()
+        val buf = ByteArray(16 * 1024)
+        var total = 0L
+        while (true) {
+            val n = try {
+                input.read(buf)
+            } catch (e: java.net.SocketTimeoutException) {
+                throw LoadFailure(Failure.Timeout, "timed out")
+            }
+            if (n < 0) break
+            total += n
+            if (total > maxBytes) throw LoadFailure(Failure.TooLarge, "body over ${maxBytes} bytes")
+            if (System.nanoTime() > deadline) throw LoadFailure(Failure.Timeout, "timed out")
+            out.write(buf, 0, n)
+        }
+        return out.toByteArray()
+    }
+
+    /** A `data:[mime][;base64],payload` URI's bytes (within the byte cap). */
+    private fun dataBytes(url: String, limits: MediaLimits): ByteArray {
+        val comma = url.indexOf(',')
+        if (comma < 0) throw LoadFailure(Failure.Undecodable, "data uri without a comma")
+        val meta = url.substring(5, comma)
+        val payload = url.substring(comma + 1)
+        val bytes = if (meta.endsWith(";base64", ignoreCase = true)) {
+            if (payload.length / 4L * 3 > limits.maxBytes) throw LoadFailure(Failure.TooLarge, "data uri over ${limits.maxBytes} bytes")
+            runCatching { java.util.Base64.getMimeDecoder().decode(payload) }.getOrElse { throw LoadFailure(Failure.Undecodable, "bad base64") }
+        } else {
+            java.net.URLDecoder.decode(payload.replace("+", "%2B"), "UTF-8").toByteArray(Charsets.ISO_8859_1)
+        }
+        if (bytes.size > limits.maxBytes) throw LoadFailure(Failure.TooLarge, "data uri over ${limits.maxBytes} bytes")
+        return bytes
+    }
+
+    /** An image's size before any decode: width × height × frames count against `maxPixels`. */
+    data class PixelSize(val width: Long, val height: Long, val frames: Long)
+
+    /**
+     * Width × height × frames before any decode, the core's ONE rule
+     * (`mediaImageHeader`, as React, gpui and SwiftUI): PNG, JPEG, GIF,
+     * WebP, BMP and SVG read by the core (an unreadable one = null,
+     * refused; an animated GIF, APNG or WebP counts its frames); any other
+     * format from BitmapFactory `inJustDecodeBounds` (one frame).
+     */
+    fun pixelSize(bytes: ByteArray): PixelSize? = when (val header = mediaImageHeader(bytes)) {
+        is FfiImageHeader.Size -> PixelSize(header.width.toLong(), header.height.toLong(), max(header.frames.toLong(), 1L))
+        FfiImageHeader.Unreadable -> null
+        FfiImageHeader.Unknown -> {
+            val opts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+            if (opts.outWidth <= 0 || opts.outHeight <= 0) null else PixelSize(opts.outWidth.toLong(), opts.outHeight.toLong(), 1L)
         }
     }
 
-    private fun decode(context: Context?, url: String, headers: Map<String, String>): ImageBitmap? {
-        val bytes = open(context, url, headers)?.use { it.readBytes() } ?: return null
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
-        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+    /** Check width × height × frames against [limits] BEFORE any decode. Throws [LoadFailure]. */
+    fun checkPixels(size: PixelSize, limits: MediaLimits) {
+        if (size.width * size.height * size.frames > limits.maxPixels) {
+            val frames = if (size.frames > 1) " × ${size.frames} frames" else ""
+            throw LoadFailure(Failure.TooManyPixels, "${size.width}×${size.height}$frames over ${limits.maxPixels} pixels")
+        }
+    }
+
+    /** Decode within the limits: the size first (refused over `maxPixels`), then a downsampled decode. */
+    fun decode(bytes: ByteArray, limits: MediaLimits = MediaLimits.contract): ImageBitmap {
+        val size = pixelSize(bytes) ?: throw LoadFailure(Failure.Undecodable, "no image header")
+        checkPixels(size, limits)
+        val w = size.width.toInt()
+        val h = size.height.toInt()
         var sample = 1
-        while (max(bounds.outWidth, bounds.outHeight) / sample > MAX_SIDE) sample *= 2
+        while (max(w, h) / sample > MAX_SIDE) sample *= 2
         val opts = BitmapFactory.Options().apply { inSampleSize = sample }
-        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)?.asImageBitmap()
+        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: throw LoadFailure(Failure.Undecodable, "decode failed")
+        return bmp.asImageBitmap()
     }
 }
 
-/** The picture at `src` (the host's media request: url + headers), loading in the background; null while loading / without one. */
+/**
+ * The picture at `src`: the surface's policed media request (the host's
+ * `resolveUrl`, then its media policy; denied = null, the fallback paints),
+ * loading in the background; null while loading / without one.
+ */
 @Composable
-internal fun rememberLeafImage(cx: LeafContext, src: String): ImageBitmap? {
+internal fun rememberLeafImage(cx: LeafContext, src: String): ImageBitmap? = rememberPolicedImage(cx.model, src)
+
+/** [rememberLeafImage] for any surface painter (markdown images too). */
+@Composable
+internal fun rememberPolicedImage(model: at.exponential.ui.model.SurfaceModel, src: String): ImageBitmap? {
     if (src.isEmpty()) return null
-    val request = remember(src, cx.model.host) { cx.model.host.mediaRequest(src) } ?: return null
-    val url = request.url
-    val scheme = Uri.parse(url).scheme
-    if (scheme.isNullOrEmpty()) return null
-    val context = LocalContext.current.applicationContext
-    val image by produceState(LeafImages.cached(url), request) { value = LeafImages.load(context, request) }
+    val request = remember(src, model.host) { model.mediaRequest(src) } ?: return null
+    val image by produceState(LeafImages.cached(request.url), request) {
+        value = LeafImages.load(request, police = { model.mediaRequest(it) })
+    }
     return image
 }
 
@@ -186,7 +366,7 @@ internal fun AvatarLeaf(cx: LeafContext) {
     }
 }
 
-/** The tinted placeholder an `Image` paints without a loaded picture: the image glyph over the alt text. */
+/** The tinted placeholder an `Image` paints without a loaded picture: the image glyph over the alt text (glyph only without one). */
 @Composable
 internal fun ImagePlaceholder(cx: LeafContext, ink: Color, label: String) {
     Column(
@@ -195,7 +375,7 @@ internal fun ImagePlaceholder(cx: LeafContext, ink: Color, label: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         GlyphView(Glyph.Image, 20f, ink.copy(alpha = ink.alpha * 0.6f))
-        BasicText(
+        if (label.isNotEmpty()) BasicText(
             label,
             style = cx.composeTextStyle(ts = ResolvedTextStyle(12f, 400, 16f, cx.textStyle.fontFamily), color = ink.copy(alpha = ink.alpha * 0.6f)),
             maxLines = 1,
@@ -207,7 +387,7 @@ internal fun ImagePlaceholder(cx: LeafContext, ink: Color, label: String) {
 /** `Image`: the picture scaled by `fit` (cover default; contain / scaleDown fit; fill stretches), clipped; else the placeholder. */
 @Composable
 internal fun ImageLeaf(cx: LeafContext) {
-    val alt = cx.props.str("alt").ifEmpty { "image" }
+    val alt = cx.props.str("alt")
     val muted = cx.themeColor("mutedForeground") ?: cx.ink
     val picture = rememberLeafImage(cx, cx.props.str("src"))
     val scale = when (cx.props.str("fit")) {
@@ -225,16 +405,67 @@ internal fun ImageLeaf(cx: LeafContext) {
     }
 }
 
-/** `Video`: the poster (or a dark tint) with a play button and the duration badge (static; playback is the host's). */
+/**
+ * The leaf's [MediaPlayback] (released when the leaf leaves the
+ * composition) and the policed request for its `src` (null = no src or
+ * DENIED: nothing loads, the controls stay inert).
+ */
+@Composable
+private fun rememberPlayback(cx: LeafContext): Pair<MediaPlayback, MediaRequest?> {
+    val context = LocalContext.current
+    val playback = remember { MediaPlayback(context.applicationContext ?: context) }
+    DisposableEffect(playback) { onDispose { playback.stop() } }
+    val src = cx.props.str("src")
+    val model = cx.model
+    val request = remember(src, model.host) { if (src.isEmpty()) null else model.mediaRequest(src) }
+    return playback to request
+}
+
+/**
+ * `Video`: `src` plays through the policed media request (ExoPlayer in a
+ * `PlayerView` with the platform's controls; `autoplay` = muted on
+ * appear); before that the poster (or a dark tint), a play button (a
+ * spinner, inert, while the source opens) and the duration. A denied src stays that poster with an inert play glyph
+ * (React's sourceless `<video>`).
+ */
 @Composable
 internal fun VideoLeaf(cx: LeafContext) {
-    val poster = rememberLeafImage(cx, cx.props.str("poster"))
+    val (playback, request) = rememberPlayback(cx)
+    val model = cx.model
+    val autoplay = cx.props["autoplay"]?.bool == true
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(request, autoplay) {
+        if (autoplay && request != null) {
+            playback.play(request, muted = true, police = model::mediaRequest)
+        } else if (playback.opened != request) {
+            playback.stop()
+        }
+    }
+    val player = playback.player
     Box(Modifier.fillMaxSize().clipToBounds().background(Color.Black.copy(alpha = 0.85f))) {
+        if (player != null) {
+            AndroidView(
+                factory = { PlayerView(it).apply { useController = true } },
+                modifier = Modifier.fillMaxSize(),
+                update = { it.player = player },
+                onRelease = { it.player = null },
+            )
+            return@Box
+        }
+        val poster = rememberLeafImage(cx, cx.props.str("poster"))
         if (poster != null) Image(poster, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         Box(
-            Modifier.align(Alignment.Center).size(44.dp).background(Color.White.copy(alpha = 0.18f), CircleShape),
+            Modifier
+                .align(Alignment.Center)
+                .size(44.dp)
+                .background(Color.White.copy(alpha = 0.18f), CircleShape)
+                .clickable(enabled = request != null && !playback.loading, role = Role.Button) {
+                    scope.launch { playback.play(request, police = model::mediaRequest) }
+                },
             contentAlignment = Alignment.Center,
-        ) { GlyphView(Glyph.Play, 20f, Color.White) }
+        ) {
+            if (playback.loading) SpinnerView(20f, Color.White) else GlyphView(Glyph.Play, 20f, Color.White)
+        }
         cx.props.num("durationMs")?.let { ms ->
             BasicText(
                 DateModel.formatDuration(ms),
@@ -250,14 +481,35 @@ internal fun VideoLeaf(cx: LeafContext) {
     }
 }
 
-/** `AudioPlayer`: the title line over a static controls capsule (play, track, `0:00 / duration`). */
+/**
+ * `AudioPlayer`: the title line over a controls capsule. `src` plays
+ * through the policed media request: play / pause (a spinner, inert,
+ * while the source opens), the track fills with
+ * the position (a press seeks), `elapsed / length` (the item's, else
+ * `durationMs`). A denied src keeps the controls inert.
+ */
 @Composable
 internal fun AudioLeaf(cx: LeafContext) {
+    val (playback, request) = rememberPlayback(cx)
+    val model = cx.model
+    val scope = rememberCoroutineScope()
+    LaunchedEffect(request) { if (playback.opened != request) playback.stop() }
+    // The position while it plays (4 Hz, Swift's periodic observer).
+    LaunchedEffect(playback.player, playback.playing) {
+        while (playback.playing) {
+            playback.tick()
+            delay(250)
+        }
+        playback.tick()
+    }
     val title = cx.props.str("title")
     val muted = cx.themeColor("muted") ?: cx.ink.copy(alpha = 0.1f)
     val mutedFg = cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = 0.6f)
     val track = cx.part("AudioPlayer", "track")
-    val duration = cx.props.num("durationMs")?.let(DateModel::formatDuration) ?: "0:00"
+    val known = cx.props.num("durationMs")?.toLong()
+    val length = playback.durationMs ?: known
+    val progress = length?.takeIf { it > 0 }?.let { (playback.positionMs.toFloat() / it).coerceIn(0f, 1f) } ?: 0f
+    val elapsed = DateModel.formatDuration(playback.positionMs.toDouble())
     InnerBox(cx) {
         Column(verticalArrangement = Arrangement.spacedBy(cx.spacing("xs").dp)) {
             if (title.isNotEmpty()) LeafLine(cx, title, color = track.color ?: cx.ink)
@@ -266,12 +518,32 @@ internal fun AudioLeaf(cx: LeafContext) {
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Box(Modifier.size(28.dp).background(cx.ink, CircleShape), contentAlignment = Alignment.Center) {
-                    GlyphView(Glyph.Play, 14f, cx.themeColor("background") ?: Color.White)
+                Box(
+                    Modifier
+                        .size(28.dp)
+                        .background(cx.ink, CircleShape)
+                        .clickable(enabled = request != null && !playback.loading, role = Role.Button) {
+                            if (playback.playing) playback.pause() else scope.launch { playback.play(request, police = model::mediaRequest) }
+                        },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    val glyphInk = cx.themeColor("background") ?: Color.White
+                    if (playback.loading) SpinnerView(14f, glyphInk) else GlyphView(if (playback.playing) Glyph.Pause else Glyph.Play, 14f, glyphInk)
                 }
-                Box(Modifier.weight(1f).height(4.dp).background(mutedFg.copy(alpha = mutedFg.alpha * 0.35f), CircleShape))
+                Box(
+                    Modifier
+                        .weight(1f)
+                        .fillMaxHeight()
+                        .pointerInput(playback, known) {
+                            detectTapGestures { o -> playback.seek(if (size.width > 0) o.x / size.width else 0f, known) }
+                        },
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    Box(Modifier.fillMaxWidth().height(4.dp).background(mutedFg.copy(alpha = mutedFg.alpha * 0.35f), CircleShape))
+                    if (progress > 0f) Box(Modifier.fillMaxWidth(progress).height(4.dp).background(mutedFg, CircleShape))
+                }
                 BasicText(
-                    "0:00 / $duration",
+                    "$elapsed / ${length?.let { DateModel.formatDuration(it.toDouble()) } ?: "0:00"}",
                     style = cx.composeTextStyle(ts = ResolvedTextStyle(12f, 400, 16f, cx.textStyle.fontFamily), color = mutedFg),
                     maxLines = 1,
                 )

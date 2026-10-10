@@ -1,4 +1,5 @@
 {
+  "$schema": "https://ui.exponential.at/schemas/theme/v1.json",
   "$comment": "VAPP-91 sample: a third-party theme (extends neutral): a teal primary, round buttons, a softer card.",
   "id": "sample-brand",
   "name": "Sample brand",

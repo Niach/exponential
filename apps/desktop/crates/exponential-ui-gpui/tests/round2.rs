@@ -161,7 +161,7 @@ fn a_resizable_flips_its_drag_and_arrows_in_rtl(cx: &mut TestAppContext) {
 #[gpui::test]
 fn a_sticky_box_pins_inside_its_scroller(cx: &mut TestAppContext) {
     let rows: Vec<Value> = (0..30).map(|i| json!({"id": format!("r{i}"), "component": "Box", "style": {"height": 40, "flexShrink": 0}, "on": {"press": {"event": {"name": "row", "context": {"i": i}}}}})).collect();
-    let mut children = vec![json!({"id": "pin", "component": "Box", "style": {"position": "sticky", "top": 0, "height": 30, "flexShrink": 0, "backgroundColor": "#ffffff"}})];
+    let mut children = vec![json!({"id": "pin", "component": "Box", "style": {"position": "sticky", "top": 0, "height": 30, "flexShrink": 0, "backgroundColor": "$color.background"}})];
     children.extend(rows);
     let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [
         {"id": "pane", "component": "Box", "style": {"height": 200, "overflowY": "auto", "display": "flex", "flexDirection": "column"}, "children": children}
@@ -197,11 +197,11 @@ fn a_pinned_section_header_paints_at_the_lists_top_as_a_heading(cx: &mut TestApp
     let items: Vec<Value> = (0..120).map(|i| json!({"id": format!("i{i}"), "day": format!("d{}", i / 10)})).collect();
     let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column"}, "children": [
         {"id": "l", "component": "List", "props": {"sectionBy": "day", "stickyHeaders": true}, "style": {"height": 400}, "template": {"component": "row", "path": "/items", "key": "id"},
-         "slots": {"section": {"id": "hdr", "component": "Text", "props": {"text": {"path": "value"}}, "style": {"height": 24, "backgroundColor": "#ffffff"}}}},
+         "slots": {"section": {"id": "hdr", "component": "Text", "props": {"text": {"path": "value"}}, "style": {"height": 24, "backgroundColor": "$color.background"}}}},
         {"id": "row", "component": "Box", "style": {"height": 40, "flexShrink": 0}}
     ]});
     let (view, _log, cx) = surface(cx, tree);
-    view.update(cx, |v, cx| v.set_data("/items", Some(Value::Array(items)), cx));
+    view.update(cx, |v, cx| v.set_data("/items", Some(Value::Array(items)), cx)).unwrap();
     draw(cx);
     draw(cx);
     let info = view.read_with(cx, |v, _| v.accessible_info("l.section.0")).expect("a11y");
@@ -225,7 +225,7 @@ fn a_pinned_section_header_paints_at_the_lists_top_as_a_heading(cx: &mut TestApp
 #[gpui::test]
 fn animations_paint_their_frames_and_rest_under_reduced_motion(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "style": {"padding": 20}, "children": [
-        {"id": "slide", "component": "Box", "style": {"width": 50, "height": 20, "animation": "slide-in-up", "backgroundColor": "#000000"}}
+        {"id": "slide", "component": "Box", "style": {"width": 50, "height": 20, "animation": "slide-in-up", "backgroundColor": "$color.foreground"}}
     ]});
     let (view, _log, cx) = surface(cx, tree);
     let rest = frame(&view, cx, "slide");
@@ -242,7 +242,7 @@ fn animations_paint_their_frames_and_rest_under_reduced_motion(cx: &mut TestAppC
 #[gpui::test]
 fn reduced_motion_paints_the_rest_frame(cx: &mut TestAppContext) {
     let tree = json!({"id": "root", "component": "Box", "style": {"padding": 20}, "children": [
-        {"id": "slide", "component": "Box", "style": {"width": 50, "height": 20, "animation": "slide-in-up", "backgroundColor": "#000000"}}
+        {"id": "slide", "component": "Box", "style": {"width": 50, "height": 20, "animation": "slide-in-up", "backgroundColor": "$color.foreground"}}
     ]});
     let reduced = SurfaceSettings { reduced_motion: true, ..SurfaceSettings::default() };
     let (view, _log, cx) = surface_with(cx, tree, Some(reduced));
@@ -259,7 +259,7 @@ fn scroll_to_index_moves_the_own_scroller(cx: &mut TestAppContext) {
         {"id": "row", "component": "Box", "style": {"height": 40}, "children": [{"id": "row-label", "component": "Text", "props": {"text": {"path": "label"}}}]}
     ]});
     let (view, log, cx) = surface(cx, tree);
-    view.update(cx, |v, cx| v.set_data("/rows", Some(Value::Array(rows)), cx));
+    view.update(cx, |v, cx| v.set_data("/rows", Some(Value::Array(rows)), cx)).unwrap();
     draw(cx);
     draw(cx);
     let live = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext, id: &str| view.read_with(cx, |v, _| v.index_of(id).is_some_and(|i| v.surface().layout_node(i).is_some()));
@@ -285,7 +285,7 @@ fn scroll_to_index_asks_the_host_to_scroll_an_unbounded_list(cx: &mut TestAppCon
         {"id": "row", "component": "Box", "style": {"height": 40, "flexShrink": 0}, "children": [{"id": "row-label", "component": "Text", "props": {"text": {"path": "label"}}}]}
     ]});
     let (view, log, cx) = surface(cx, tree);
-    view.update(cx, |v, cx| v.set_data("/rows", Some(Value::Array(rows)), cx));
+    view.update(cx, |v, cx| v.set_data("/rows", Some(Value::Array(rows)), cx)).unwrap();
     draw(cx);
     draw(cx);
     let list = frame(&view, cx, "feed");
@@ -305,7 +305,7 @@ fn a_horizontal_list_windows_on_x(cx: &mut TestAppContext) {
         {"id": "cell", "component": "Box", "style": {"width": 50, "height": 30, "flexShrink": 0}}
     ]});
     let (view, _log, cx) = surface(cx, tree);
-    view.update(cx, |v, cx| v.set_data("/cells", Some(Value::Array(rows)), cx));
+    view.update(cx, |v, cx| v.set_data("/cells", Some(Value::Array(rows)), cx)).unwrap();
     draw(cx);
     draw(cx);
     let live = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext, id: &str| view.read_with(cx, |v, _| v.index_of(id).is_some_and(|i| v.surface().layout_node(i).is_some()));
@@ -331,7 +331,7 @@ fn a_horizontal_list_windows_from_the_inline_start_in_rtl(cx: &mut TestAppContex
         {"id": "cell", "component": "Box", "style": {"width": 50, "height": 30, "flexShrink": 0}}
     ]});
     let (view, _log, cx) = surface(cx, tree);
-    view.update(cx, |v, cx| v.set_data("/cells", Some(Value::Array(rows)), cx));
+    view.update(cx, |v, cx| v.set_data("/cells", Some(Value::Array(rows)), cx)).unwrap();
     draw(cx);
     draw(cx);
     let live = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext, id: &str| view.read_with(cx, |v, _| v.index_of(id).is_some_and(|i| v.surface().layout_node(i).is_some()));

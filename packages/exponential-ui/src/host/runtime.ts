@@ -4,12 +4,13 @@
 // renderer (React: `@exponential-at/ui-react` `<HostSurface>`) paints a
 // store and hands its interactions back through `dispatch`.
 
+import { writePointer } from "../dynamic"
 import { reduceSurface } from "../reducer"
 import { tryLoadTheme } from "../theme"
 import type { ResolvedTheme } from "../theme-types"
 import { BUILTIN_THEME_IDS, BUILTIN_THEMES, builtinTheme } from "../themes"
 import type { ExtensionDef, FlatComponent, ReduceIssue, UiNode } from "../types"
-import { actionMessage, errorMessage } from "./contract"
+import { RENDER_FAILED, actionMessage, errorMessage } from "./contract"
 import type { ClientMessage, HostOp } from "./contract"
 import { clientCapabilities } from "./package"
 import type { PackageIssue, VappPackage } from "./package"
@@ -116,7 +117,11 @@ export class SurfaceStore {
   catalogId: string
   packageId?: string
   sendDataModel = false
-  components: FlatComponent[] = []
+  /** The flat components, mutated in place while nothing holds them. */
+  private list: FlatComponent[] = []
+  /** `list` was handed out (`components`): the next update copies first. */
+  private shared = false
+  private positions = new Map<string, number>()
   data: Record<string, unknown> = {}
   /** The server's `createSurface.theme`, resolved (undefined = the
    *  renderer's own theme). */
@@ -128,6 +133,20 @@ export class SurfaceStore {
   constructor(surfaceId: string, catalogId: string, private extensions: () => readonly ExtensionDef[]) {
     this.surfaceId = surfaceId
     this.catalogId = catalogId
+  }
+
+  /** The flat components as a SNAPSHOT: an array handed out here is never
+   *  mutated afterwards (the next update copies first), so a renderer that
+   *  keeps it sees a stable value; a stream nobody reads stays linear. */
+  get components(): readonly FlatComponent[] {
+    this.shared = true
+    return this.list
+  }
+
+  /** The flat component with this id (undefined = none). */
+  component(id: string): FlatComponent | undefined {
+    const at = this.positions.get(id)
+    return at === undefined ? undefined : this.list[at]
   }
 
   get root(): UiNode | null {
@@ -145,14 +164,24 @@ export class SurfaceStore {
 
   private reduce() {
     if (!this.reduced)
-      this.reduced = this.components.length ? reduceSurface(this.components, { catalogId: this.catalogId, extensions: this.extensions() }) : { root: null, issues: [] }
+      this.reduced = this.list.length ? reduceSurface(this.list, { catalogId: this.catalogId, extensions: this.extensions() }) : { root: null, issues: [] }
     return this.reduced
   }
 
+  /** A2UI: a later update replaces components BY ID and keeps the rest
+   *  (an id → position map: a streamed surface costs linear, VAPP-103). */
   setComponents(components: readonly FlatComponent[]): void {
-    const byId = new Map(this.components.map((c) => [c.id, c]))
-    for (const c of components) byId.set(c.id, c)
-    this.components = [...byId.values()]
+    if (this.shared) {
+      this.list = this.list.slice()
+      this.shared = false
+    }
+    for (const c of components) {
+      const at = this.positions.get(c.id)
+      if (at === undefined) {
+        this.positions.set(c.id, this.list.length)
+        this.list.push(c)
+      } else this.list[at] = c
+    }
     this.reduced = null
     this.notify()
   }
@@ -163,9 +192,14 @@ export class SurfaceStore {
     this.notify()
   }
 
-  setData(pointer: string, value: unknown): void {
-    this.data = setPointerImmutable(this.data, pointer, value) as Record<string, unknown>
+  /** Write the data model at `pointer` (`undefined` removes); a refused
+   *  write (writePointer) changes nothing and returns the reason. */
+  setData(pointer: string, value: unknown): string | undefined {
+    const written = writePointer(this.data, pointer, value)
+    if (written.error) return written.error
+    this.data = written.data as Record<string, unknown>
     this.notify()
+    return undefined
   }
 
   subscribe(listener: Listener): () => void {
@@ -179,46 +213,13 @@ export class SurfaceStore {
   }
 }
 
-function tokensOf(pointer: string): string[] {
-  if (!pointer) return []
-  return pointer
-    .replace(/^\//, ``)
-    .split(`/`)
-    .map((t) => t.replace(/~1/g, `/`).replace(/~0/g, `~`))
-}
-
-/** The same pointer write every renderer's data model does (absent value =
- *  remove), returning a new object. */
-export function setPointerImmutable(data: unknown, pointer: string, value: unknown): unknown {
-  const tokens = tokensOf(pointer)
-  if (!tokens.length) return value === undefined ? {} : value
-  const put = (cur: unknown, i: number): unknown => {
-    const token = tokens[i]!
-    const last = i === tokens.length - 1
-    const base: unknown = cur !== null && typeof cur === `object` ? cur : /^\d+$/.test(token) ? [] : {}
-    if (Array.isArray(base)) {
-      const next = [...base]
-      const idx = token === `-` ? next.length : Number(token)
-      if (last) {
-        if (value === undefined) next.splice(idx, 1)
-        else next[idx] = value
-      } else next[idx] = put(next[idx], i + 1)
-      return next
-    }
-    const next = { ...(base as Record<string, unknown>) }
-    if (last) {
-      if (value === undefined) delete next[token]
-      else next[token] = value
-    } else next[token] = put(next[token], i + 1)
-    return next
-  }
-  return put(data, 0)
-}
-
 export class ExponentialHost {
   readonly router: HostRouter
   private stores = new Map<string, SurfaceStore>()
   private subscriptions = new Map<string, (() => void)[]>()
+  /** Per surface: the FLAT component owning a failed node → that
+   *  component as it was when it failed + the node ids already reported. */
+  private paintErrors = new Map<string, Map<string, { component: FlatComponent | undefined; ids: Set<string> }>>()
   private listeners = new Set<Listener>()
   private functions: Record<string, HostFunction>
   private sources: SourceResolvers
@@ -353,6 +354,7 @@ export class ExponentialHost {
     switch (op.op) {
       case `create`: {
         this.unbind(op.surfaceId)
+        this.forgetPaintErrors(op.surfaceId)
         const store = new SurfaceStore(op.surfaceId, op.catalogId, () => this.extensions)
         store.sendDataModel = op.sendDataModel === true
         store.packageId = this.router.surface(op.surfaceId)?.packageId
@@ -365,12 +367,19 @@ export class ExponentialHost {
         this.notify()
         return
       }
-      case `components`:
+      case `components`: {
+        // An updated component's failures are forgotten (its props
+        // changed: it may paint now, or fail anew); the rest stay reported.
+        const failed = this.paintErrors.get(op.surfaceId)
+        if (failed) for (const c of op.components) failed.delete(c.id)
         this.stores.get(op.surfaceId)?.setComponents(op.components)
         return
-      case `data`:
-        this.stores.get(op.surfaceId)?.setData(op.path, op.value)
+      }
+      case `data`: {
+        const error = this.stores.get(op.surfaceId)?.setData(op.path, op.value)
+        if (error) this.send(errorMessage(`VALIDATION_FAILED`, op.surfaceId, error, op.path || `/`))
         return
+      }
       case `bind`: {
         const store = this.stores.get(op.surfaceId)
         const source = parseSource(op.source)
@@ -386,6 +395,7 @@ export class ExponentialHost {
       }
       case `delete`:
         this.unbind(op.surfaceId)
+        this.forgetPaintErrors(op.surfaceId)
         this.stores.delete(op.surfaceId)
         this.notify()
         return
@@ -469,13 +479,49 @@ export class ExponentialHost {
     }
   }
 
+  /** The URL policy every href passes (relative urls against the urls' or
+   *  the media `baseUrl`). */
+  urlPolicy(): UrlPolicy {
+    return { baseUrl: this.options.policy?.media?.baseUrl, ...this.options.policy?.urls }
+  }
+
   /** openUrl / Link through the URL policy. True when it opened. */
   openUrl(url: string): boolean {
-    const d = decideUrl({ baseUrl: this.options.policy?.media?.baseUrl, ...this.options.policy?.urls }, url)
+    const d = decideUrl(this.urlPolicy(), url)
     if (!d.allowed || !d.url) return false
     const open = this.options.policy?.openUrl ?? ((u: string) => globalThis.window?.open(u, `_blank`, `noopener`))
     open(d.url)
     return true
+  }
+
+  /** A renderer's painter for `componentId` failed. Reported ONCE per
+   *  surface + component id (whatever the message) as an A2UI
+   *  `RENDER_FAILED` error (and so a host issue), and not again until that
+   *  component's props change (an `updateComponents` naming it, or the
+   *  surface re-created). A part or template-instance id counts under the
+   *  flat component it belongs to (`card.body` → `card`), so the record is
+   *  bounded by the surface's components. */
+  paintError(error: { surfaceId: string; componentId: string; message: string }): void {
+    const store = this.stores.get(error.surfaceId)
+    let owner = error.componentId
+    while (store && !store.component(owner) && owner.includes(`.`)) owner = owner.slice(0, owner.lastIndexOf(`.`))
+    const current = store?.component(owner)
+    let failed = this.paintErrors.get(error.surfaceId)
+    if (!failed) this.paintErrors.set(error.surfaceId, (failed = new Map()))
+    let entry = failed.get(owner)
+    if (!entry || entry.component !== current) failed.set(owner, (entry = { component: current, ids: new Set() }))
+    if (entry.ids.has(error.componentId)) return
+    entry.ids.add(error.componentId)
+    this.send(errorMessage(RENDER_FAILED, error.surfaceId, error.message, `/components/${error.componentId}`))
+  }
+
+  private forgetPaintErrors(surfaceId: string): void {
+    this.paintErrors.delete(surfaceId)
+  }
+
+  /** The media policy every src passes (`policy.media`). */
+  mediaOptions(): MediaOptions | undefined {
+    return this.options.policy?.media
   }
 
   /** The image loader's request (absolute url + auth headers). */

@@ -30,12 +30,15 @@ import {
   FORMATTER_METHODS,
   SURFACE_COMMANDS,
   SURFACE_SETTING_KEYS,
+  imageDimensions,
+  MEDIA_LIMITS,
 } from "."
 import type { ClientMessage, Decoded, FunctionDecision, FunctionPolicy, HostIssue, MediaOptions, TransportStatus, UrlPolicy, VappPackage } from "."
 import { neutralTheme } from "../themes"
 import { CORE_CATALOG_ID } from "../catalog"
 import { englishFormatter } from "../format"
 import { A11Y_COMMANDS } from "../a11y"
+import { LIMIT_ISSUES, MAX_MESSAGE_BYTES } from "../limits"
 
 function feed(dec: { push(c: string): Decoded; end(): Decoded }, chunks: string[]): Decoded {
   const out: Decoded = { messages: [], issues: [] }
@@ -69,7 +72,7 @@ describe(`host-policy.json`, () => {
       expect(clientCapabilities(c.extensionIds)).toEqual(c.expected.clientCapabilities)
     })
   // The basic catalog's 14 plus round 1's 15 core functions (`set` incl.).
-  test(`the 31 built-ins are the catalog's`, () => expect(BUILTIN_FUNCTIONS.length).toBe(31))
+  test(`the 32 built-ins are the catalog's`, () => expect(BUILTIN_FUNCTIONS.length).toBe(32))
 })
 
 describe(`host-router.json`, () => {
@@ -208,6 +211,41 @@ describe(`ExponentialHost`, () => {
   test(`media requests carry the auth rules`, () => {
     const host = new ExponentialHost({ policy: { media: { baseUrl: `https://app.exponential.at`, rules: [{ prefix: `https://app.exponential.at/api/attachments/`, headers: { authorization: `Bearer k` } }] } } })
     expect(host.mediaRequest(`/api/attachments/a`)).toEqual({ url: `https://app.exponential.at/api/attachments/a`, headers: { authorization: `Bearer k` } })
+  })
+
+  test(`VAPP-103: a src the media policy denies builds no request`, () => {
+    const host = new ExponentialHost({ policy: { media: { baseUrl: `file:///Users/me/` } } })
+    expect(host.mediaRequest(`/etc/passwd`)).toBeNull()
+    expect(host.mediaRequest(`javascript:alert(1)`)).toBeNull()
+    expect(imageDimensions(new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x10, 0, 0x20, 0]))).toEqual([16, 32])
+    expect(MEDIA_LIMITS).toEqual(hostContract.media.limits)
+  })
+
+  test(`VAPP-103: paintError → ONE RENDER_FAILED per surface + component id, again only once its props change`, () => {
+    const transport = new MemoryTransport()
+    const host = new ExponentialHost({ transport })
+    host.connect()
+    transport.feed({ version: `v0.9`, createSurface: { surfaceId: `s`, catalogId: CORE_CATALOG_ID } })
+    transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `root`, component: `Box`, children: [`c`, `d`] }, { id: `c`, component: `Markdown`, text: `x` }, { id: `d`, component: `Text`, text: `d` }] } })
+    const e = { surfaceId: `s`, componentId: `c`, message: `boom` }
+    host.paintError(e)
+    host.paintError(e)
+    // Another message for the same component is the same failure.
+    host.paintError({ ...e, message: `boom at 12:01` })
+    expect(transport.sent).toEqual([{ version: `v0.9`, error: { code: `RENDER_FAILED`, surfaceId: `s`, message: `boom`, path: `/components/c` } }])
+    // An update to ANOTHER component keeps c reported.
+    transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `d`, component: `Text`, text: `d2` }] } })
+    host.paintError(e)
+    expect(transport.sent).toHaveLength(1)
+    // c's props change: it may fail anew.
+    transport.feed({ version: `v0.9`, updateComponents: { surfaceId: `s`, components: [{ id: `c`, component: `Markdown`, text: `y` }] } })
+    host.paintError(e)
+    expect(transport.sent).toHaveLength(2)
+    // A part id counts under its component.
+    host.paintError({ ...e, componentId: `c.body` })
+    host.paintError({ ...e, componentId: `c.body` })
+    expect(transport.sent).toHaveLength(3)
+    expect(host.issues.at(-1)?.code).toBe(`RENDER_FAILED`)
   })
 })
 
@@ -359,5 +397,45 @@ describe(`stream transports`, () => {
     await tick(30) // one reconnect, from the new loop only
     t.close()
     expect(gets.length).toBe(3)
+  })
+})
+
+describe(`VAPP-103: the stream decoders cap a line or event at maxMessageBytes (the Rust core's rule)`, () => {
+  test(`a JSONL line past the limit is ONE issue, never buffered; the lines around it decode`, () => {
+    const d = new JsonlDecoder()
+    const out = d.push(`{"a":1}\n`)
+    const big = `x`.repeat(1 << 20)
+    const add = (o: { messages: unknown[]; issues: unknown[] }) => (out.messages.push(...o.messages), out.issues.push(...(o.issues as typeof out.issues)))
+    for (let i = 0; i < 5; i++) add(d.push(big))
+    add(d.push(`still the big line\n{"b":2}\n`))
+    add(d.end())
+    expect(out.messages).toEqual([{ a: 1 }, { b: 2 }])
+    expect(out.issues).toEqual([{ at: 2, message: `line 2: ${LIMIT_ISSUES.messageBytes}` }])
+    // One chunk, multi-byte: the limit counts UTF-8 bytes.
+    const wide = new JsonlDecoder()
+    const one = wide.push(`${`é`.repeat(MAX_MESSAGE_BYTES / 2 + 1)}\n{"c":3}\n`)
+    expect([one.messages.length, one.issues.length]).toEqual([1, 1])
+    expect(new JsonlDecoder().push(`"${`é`.repeat(MAX_MESSAGE_BYTES / 2 - 1)}"\n`).issues).toEqual([])
+  })
+
+  test(`a JSONL stream fed in tiny chunks decodes linearly`, () => {
+    const line = `{"text":"${`z`.repeat(200_000)}"}\n`
+    const d = new JsonlDecoder()
+    const t = performance.now()
+    let messages = 0
+    for (let i = 0; i < line.length; i += 7) messages += d.push(line.slice(i, i + 7)).messages.length
+    expect(messages).toBe(1)
+    expect(performance.now() - t).toBeLessThan(2000)
+  })
+
+  test(`an SSE event past the limit is ONE issue; its data is dropped`, () => {
+    const d = new SseDecoder()
+    const out = d.push(`data: {"a":1}\n\n`)
+    const chunk = `data: ${`x`.repeat(1 << 20)}\n`
+    for (let i = 0; i < 5; i++) d.push(chunk)
+    const rest = d.push(`\ndata: {"b":2}\n\n`)
+    const end = d.end()
+    expect([...out.messages, ...rest.messages, ...end.messages]).toEqual([{ a: 1 }, { b: 2 }])
+    expect([...out.issues, ...rest.issues, ...end.issues]).toEqual([{ at: 2, message: `event 2: ${LIMIT_ISSUES.messageBytes}` }])
   })
 })

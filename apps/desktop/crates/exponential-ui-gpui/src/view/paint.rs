@@ -17,6 +17,7 @@ use serde_json::{json, Value};
 use super::state::{a11y_description, a11y_label, is_text_field, role_of, NodeFlags};
 use super::SurfaceView;
 use crate::extension::PaintContext;
+use crate::host::PaintError;
 use crate::measure::{display_text, text_chrome, Shaper};
 use crate::paint::icons;
 use crate::paint::markdown::{self, MdPaint, MdStyles, TextSpec};
@@ -223,11 +224,19 @@ impl SurfaceView {
         }
         let ink = self.inks.get(i).copied().unwrap_or(gpui::white());
         if n.component == "Extension" {
+            if self.paint_blocked(n, cx) {
+                return Some(el.into_any_element());
+            }
             return Some(self.paint_extension(el, index, n, w, h, place, abs, window, cx));
         }
-        if leaf {
-            if let Some(content) = self.paint_leaf(index, n, &style, ink, w, h, radii, window, cx) {
-                el = el.child(content);
+        if leaf && !self.paint_blocked(n, cx) {
+            // A painter that panics (a prop it cannot paint) leaves an empty
+            // box and reaches the host (`onPaintError`); the surface stays.
+            let painted = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| self.paint_leaf(index, n, &style, ink, w, h, radii, window, cx)));
+            match painted {
+                Ok(Some(content)) => el = el.child(content),
+                Ok(None) => {}
+                Err(panic) => self.paint_failed(n, &panic_message(panic.as_ref()), cx),
             }
         }
         // Children: the content origin shifts by the scroll offset.
@@ -601,8 +610,46 @@ impl SurfaceView {
                 }
             }),
         };
-        let painted = painter.paint(ctx, window, cx);
-        el.child(painted).into_any_element()
+        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| painter.paint(ctx, window, cx))) {
+            Ok(painted) => el.child(painted).into_any_element(),
+            Err(panic) => {
+                self.paint_failed(n, &panic_message(panic.as_ref()), cx);
+                el.into_any_element()
+            }
+        }
+    }
+
+    /// A Video / AudioPlayer press: its policed `src` to the system player
+    /// (`media::play`); `None` when the media policy denies it (inert).
+    fn media_play(&self, n: &PlacedNode, fallback: &'static str) -> natives::MediaPlay {
+        let src = n.props.get("src").and_then(Value::as_str).unwrap_or("").to_string();
+        crate::media::handoff(self.host.as_ref(), &src)?;
+        let host = self.host.clone();
+        Some(Rc::new(move |cx: &mut gpui::App| crate::media::play(host.clone(), &src, fallback, cx)))
+    }
+
+    /// Did `n`'s painter fail on these very props? Then it stays an empty
+    /// box. Changed props forget the failure (here and the host's dedupe:
+    /// [`HostPlugin::on_paint_retry`]) and paint again.
+    pub(crate) fn paint_blocked(&self, n: &PlacedNode, cx: &mut gpui::App) -> bool {
+        let mut failed = self.failed_paints.borrow_mut();
+        let Some(&hash) = failed.get(&n.id) else { return false };
+        if hash == props_hash(n) {
+            return true;
+        }
+        failed.remove(&n.id);
+        let (host, surface_id, component_id) = (self.host.clone(), self.surface.id.clone(), n.id.clone());
+        cx.defer(move |cx| host.on_paint_retry(&surface_id, &component_id, cx));
+        false
+    }
+
+    /// `onPaintError` (`catalog/host.json` paint), deferred out of render;
+    /// the node is remembered with its props ([`Self::paint_blocked`]).
+    pub(crate) fn paint_failed(&self, n: &PlacedNode, why: &str, cx: &mut gpui::App) {
+        self.failed_paints.borrow_mut().insert(n.id.clone(), props_hash(n));
+        let host = self.host.clone();
+        let error = PaintError { surface_id: self.surface.id.clone(), component_id: n.id.clone(), message: format!("{} failed to paint: {why}", n.component) };
+        cx.defer(move |cx| host.on_paint_error(&error, cx));
     }
 
     /// The content of a measured leaf.
@@ -660,8 +707,8 @@ impl SurfaceView {
             ("Icon", _) => natives::icon(&lcx),
             ("Avatar", _) => natives::avatar(&lcx),
             ("Image", _) => natives::image(&lcx, window, cx),
-            ("Video", _) => natives::video(&lcx),
-            ("AudioPlayer", _) => natives::audio(&lcx),
+            ("Video", _) => natives::video(&lcx, self.media_play(n, "mp4")),
+            ("AudioPlayer", _) => natives::audio(&lcx, self.media_play(n, "m4a")),
             ("Spinner", _) => natives::spinner(&lcx),
             ("Ring", _) => natives::ring(&lcx),
             ("Skeleton", _) => natives::skeleton(&lcx),
@@ -864,7 +911,7 @@ impl SurfaceView {
             match cache.get(&index) {
                 Some((t, b)) if *t == text => b.clone(),
                 _ => {
-                    let b = Rc::new(markdown::parse(&text));
+                    let b = Rc::new(markdown::parse_for(self.host.as_ref(), &text));
                     cache.insert(index, (text.clone(), b.clone()));
                     b
                 }
@@ -887,7 +934,11 @@ impl SurfaceView {
             border,
             code_block_bg,
             rtl: lcx.rtl,
-            on_link: Rc::new(move |href, _window, cx| host.open_url(&host.resolve_url(href), cx)),
+            on_link: Rc::new({
+                let host = host.clone();
+                move |href, _window, cx| host.open_url(href, cx)
+            }),
+            image: Rc::new(move |src| crate::media::image_source(host.as_ref(), src)),
             node: index,
             units: (!self.ghosting.get()).then(|| self.md_pending.clone()),
             selection: self.md_selection,
@@ -1256,4 +1307,18 @@ mod tests {
         let (at, _) = thumb_geometry(100.0, 400.0, 300.0, 96.0).unwrap();
         assert_eq!(at, 72.0);
     }
+}
+
+/// A caught panic's message (`&str` / `String` payloads).
+pub(crate) fn panic_message(panic: &(dyn std::any::Any + Send)) -> String {
+    panic.downcast_ref::<&str>().map(|s| s.to_string()).or_else(|| panic.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panicked".into())
+}
+
+/// A node's component + props, hashed (what a failed paint is keyed on).
+fn props_hash(n: &PlacedNode) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    n.component.hash(&mut h);
+    serde_json::to_string(&n.props).unwrap_or_default().hash(&mut h);
+    h.finish()
 }

@@ -80,13 +80,15 @@ public final class ExponentialHost {
     public private(set) var mode: Mode
     public private(set) var settings: SurfaceSettings?
 
-    @ObservationIgnored private var options: HostOptions
+    @ObservationIgnored fileprivate var options: HostOptions
     @ObservationIgnored private var functions: [String: HostFunction]
     @ObservationIgnored private var sources: [String: SourceResolver]
     @ObservationIgnored private var extensions: [HostExtension]
     @ObservationIgnored private var packages: [String: JSONValue] = [:]
     @ObservationIgnored private var subscriptions: [String: [() -> Void]] = [:]
     @ObservationIgnored private var sendDataModel: Set<String> = []
+    /// `surfaceId\0componentId\0message` of the paint errors already sent.
+    @ObservationIgnored private var paintErrors: Set<String> = []
     @ObservationIgnored private lazy var bridge = HostBridge(host: self)
 
     public init(_ options: HostOptions = HostOptions()) {
@@ -203,7 +205,24 @@ public final class ExponentialHost {
         switch op["op"]?.string {
         case "create":
             unbind(surfaceId)
-            var o = SurfaceOptions(catalogId: op["catalogId"]?.string ?? coreCatalogId(), theme: theme, mode: mode, settings: settings)
+            forgetPaintErrors(surfaceId)
+            // Round 4: the server's `createSurface.theme` wins; an unusable
+            // one never fails the host: the surface paints with the host's
+            // theme and the server hears VALIDATION_FAILED (the TS / gpui rule).
+            var surfaceTheme = theme
+            if let t = op["theme"], t != .null {
+                var refused: [String] = []
+                if let named = t.string {
+                    if let builtin = ThemeHandle.builtin(named) { surfaceTheme = builtin } else { refused = ["unknown built-in theme \"\(named)\""] }
+                } else {
+                    let loaded = ThemeHandle.loadOrDefault(json: t.json) { issues in refused = issues.map { "\($0.path): \($0.message)" } }
+                    if refused.isEmpty { surfaceTheme = loaded }
+                }
+                if !refused.isEmpty {
+                    send(errorMessageJson(code: "VALIDATION_FAILED", surfaceId: surfaceId, message: "createSurface.theme is unusable: \(refused.joined(separator: "; "))", path: "/createSurface/theme"))
+                }
+            }
+            var o = SurfaceOptions(catalogId: op["catalogId"]?.string ?? coreCatalogId(), theme: surfaceTheme, mode: mode, settings: settings)
             o.rounding = false
             guard let model = try? SurfaceModel(id: surfaceId, options: o, host: bridge) else { return }
             for e in extensions { try? model.register(extension: e.json, painters: e.painters) }
@@ -211,6 +230,7 @@ public final class ExponentialHost {
             surfaces[surfaceId] = model
             if !surfaceIds.contains(surfaceId) { surfaceIds.append(surfaceId) }
         case "components":
+            forgetPaintErrors(surfaceId, components: (op["components"]?.array ?? []).compactMap { $0["id"]?.string })
             guard let model = surfaces[surfaceId] else { return }
             _ = try? model.setComponents(json: (op["components"] ?? .array([])).json)
         case "data":
@@ -228,6 +248,7 @@ public final class ExponentialHost {
             if let cancel { subscriptions[surfaceId, default: []].append(cancel) }
         case "delete":
             unbind(surfaceId)
+            forgetPaintErrors(surfaceId)
             surfaces[surfaceId] = nil
             surfaceIds.removeAll { $0 == surfaceId }
             sendDataModel.remove(surfaceId)
@@ -302,34 +323,52 @@ public final class ExponentialHost {
         }
     }
 
+    /// The URL policy every href passes (relative urls against the urls'
+    /// or the media `baseUrl`).
+    public var urlPolicy: UrlPolicy {
+        var policy = options.policy.urls ?? UrlPolicy()
+        if policy.baseUrl == nil { policy.baseUrl = options.policy.media?.baseUrl }
+        return policy
+    }
+
+    /// The absolute href a link may navigate to, or nil (paint it as text).
+    public func linkHref(_ url: String) -> String? {
+        safeHref(url, policy: urlPolicy)
+    }
+
     /// openUrl / Link through the URL policy. True when it opened.
     @discardableResult
     public func openURL(_ url: String) -> Bool {
-        var policy = options.policy.urls ?? UrlPolicy()
-        if policy.baseUrl == nil { policy.baseUrl = options.policy.media?.baseUrl }
-        guard let json = try? decideUrlJson(policyJson: PolicyJSON.encode(policy), url: url) else { return false }
-        let d = JSONValue.parse(json)
-        guard d["allowed"]?.bool == true, let abs = d["url"]?.string, let u = URL(string: abs) else { return false }
-        if let open = options.policy.openUrl {
-            open(u)
-        } else {
-            #if canImport(UIKit)
-            UIApplication.shared.open(u)
-            #elseif canImport(AppKit)
-            NSWorkspace.shared.open(u)
-            #endif
-        }
+        guard let abs = linkHref(url), let u = URL(string: abs) else { return false }
+        if let open = options.policy.openUrl { open(u) } else { systemOpen(u) }
         return true
     }
 
     /// The image loader's request: the absolute url + the media rules'
-    /// headers (nil when the url does not resolve).
+    /// headers; nil when the media policy (schemes, hosts) denies it.
     public func mediaRequest(_ src: String) -> URLRequest? {
-        let options = PolicyJSON.encode(self.options.policy.media ?? MediaOptions()) ?? "{}"
-        guard let json = try? mediaRequestJson(url: src, optionsJson: options), let r = JSONValue.parse(json).object, let u = r["url"]?.string.flatMap(URL.init(string:)) else { return nil }
-        var request = URLRequest(url: u)
-        for (k, v) in r["headers"]?.object ?? [:] { request.setValue(v.displayText, forHTTPHeaderField: k) }
-        return request
+        policyMediaRequest(src, options: options.policy.media)
+    }
+
+    /// `onPaintError` (`catalog/host.json` `paint`): a component's painter
+    /// failed. Sent ONCE per surface + component (whatever the message) as
+    /// an A2UI `RENDER_FAILED` error at `/components/<componentId>`, until
+    /// an `updateComponents` names that component again.
+    public func paintError(_ error: SurfacePaintError) {
+        let key = "\(error.surfaceId)\u{0}\(error.componentId)"
+        guard !paintErrors.contains(key) else { return }
+        paintErrors.insert(key)
+        send(errorMessageJson(code: PaintContract.errorCode, surfaceId: error.surfaceId, message: error.message, path: "/components/\(error.componentId)"))
+    }
+
+    /// Forget the surface's reported components (`components` = only those).
+    private func forgetPaintErrors(_ surfaceId: String, components: [String]? = nil) {
+        if let components {
+            for c in components { paintErrors.remove("\(surfaceId)\u{0}\(c)") }
+            return
+        }
+        let prefix = "\(surfaceId)\u{0}"
+        paintErrors = paintErrors.filter { !$0.hasPrefix(prefix) }
     }
 
     /// The plugin a surface model talks to (tests).
@@ -377,6 +416,15 @@ final class HostBridge: HostPlugin {
     }
 
     func openUrl(_ url: String) { host?.openURL(url) }
+
+    var urlPolicy: UrlPolicy? { host?.urlPolicy }
+
+    var mediaOptions: MediaOptions? { host?.options.policy.media }
+
+    func onPaintError(_ error: SurfacePaintError) {
+        host?.paintError(error)
+        base?.onPaintError(error)
+    }
 
     func resolveUrl(_ src: String) -> String { base?.resolveUrl(src) ?? src }
 

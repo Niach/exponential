@@ -1145,6 +1145,11 @@ RustBuffer uniffi_exponential_ui_ffi_fn_func_load_theme_json(RustBuffer theme_js
 RustBuffer uniffi_exponential_ui_ffi_fn_func_mcp_action_call_json(RustBuffer message_json, RustBuffer tool, RustCallStatus *_Nonnull out_status
 );
 #endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MEDIA_IMAGE_HEADER
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MEDIA_IMAGE_HEADER
+RustBuffer uniffi_exponential_ui_ffi_fn_func_media_image_header(RustBuffer bytes, RustCallStatus *_Nonnull out_status
+);
+#endif
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MEDIA_REQUEST_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_FN_FUNC_MEDIA_REQUEST_JSON
 RustBuffer uniffi_exponential_ui_ffi_fn_func_media_request_json(RustBuffer url, RustBuffer options_json, RustCallStatus *_Nonnull out_status
@@ -1714,6 +1719,12 @@ uint16_t uniffi_exponential_ui_ffi_checksum_func_load_theme_json(void
 #ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MCP_ACTION_CALL_JSON
 #define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MCP_ACTION_CALL_JSON
 uint16_t uniffi_exponential_ui_ffi_checksum_func_mcp_action_call_json(void
+    
+);
+#endif
+#ifndef UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MEDIA_IMAGE_HEADER
+#define UNIFFI_FFIDEF_UNIFFI_EXPONENTIAL_UI_FFI_CHECKSUM_FUNC_MEDIA_IMAGE_HEADER
+uint16_t uniffi_exponential_ui_ffi_checksum_func_media_image_header(void
     
 );
 #endif

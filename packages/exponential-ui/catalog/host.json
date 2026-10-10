@@ -13,20 +13,22 @@
   },
   "clientMessages": {
     "$comment": "Client → server, A2UI v0.9 client_to_server: `{version, action: {name, surfaceId, sourceComponentId, timestamp, context}}` (+ `payload` when the component adds one, e.g. a Select's value) or `{version, error: {code, surfaceId, message, path?}}`.",
-    "errorCodes": ["VALIDATION_FAILED", "INVALID_MESSAGE", "UNSUPPORTED_CATALOG", "SURFACE_NOT_FOUND", "TEMPLATE_NOT_FOUND", "FUNCTION_NOT_FOUND", "FUNCTION_DENIED"]
+    "errorCodes": ["VALIDATION_FAILED", "INVALID_MESSAGE", "UNSUPPORTED_CATALOG", "SURFACE_NOT_FOUND", "TEMPLATE_NOT_FOUND", "FUNCTION_NOT_FOUND", "FUNCTION_DENIED", "RENDER_FAILED"]
   },
   "functions": {
-    "$comment": "An `on.<event>` action `{functionCall: {call, args}}` (A2UI; the core also reads the legacy `function` key) runs on the client. The catalog's functions are built in (the basic 14 + the 15 core ones: value functions, `set`; `openUrl` is the one with an effect and goes through the URL policy). Any other name must be REGISTERED by the host (an action function: side effects, may be async) and passes the policy gate first: decide(policy, name) → allow | ask | deny. `ask` = the host's onFunctionCall hook decides (the Exponential app's consent card). Patterns: an exact name or a prefix ending in `*` (`harness.*`). Order: deny wins, then allow, then ask, then `default`.",
+    "$comment": "An `on.<event>` action `{functionCall: {call, args}}` (A2UI's key, the only one) runs on the client. The catalog's functions are built in (the basic 14 + the 15 core ones: value functions, `set`; `openUrl` is the one with an effect and goes through the URL policy). Any other name is a namespaced HOST function (`app.toast`; an un-namespaced unknown name is a validation issue) that must be REGISTERED by the host (an action function: side effects, may be async) and passes the policy gate first: decide(policy, name) → allow | ask | deny. `ask` = the host's onFunctionCall hook decides (the Exponential app's consent card). Patterns: an exact name or a prefix ending in `*` (`harness.*`). Order: deny wins, then allow, then ask, then `default`.",
     "decisions": ["allow", "ask", "deny", "not_found"],
     "defaultPolicy": { "allow": [], "ask": [], "deny": [], "default": "allow" }
   },
   "urls": {
-    "$comment": "openUrl / Link go through decideUrl(policy, url): the scheme (lower-cased) must be in `schemes` and, when `hosts` is set, an http(s) url's host must match one (exact or `*.example.com`). Relative urls resolve against `baseUrl` first; without one they are denied.",
+    "$comment": "EVERY href on every renderer goes through decideUrl(policy, url): openUrl, Link (external or not), markdown links, FileUpload file urls, a host's default opener. The scheme (lower-cased) must be in `schemes` and, when `hosts` is set, an http(s) url's host must match one (exact or `*.example.com`). Relative urls resolve against `baseUrl` first; without one they are denied. A denied href is never navigated: the link paints as plain text.",
     "defaultSchemes": ["https", "http", "mailto", "tel"]
   },
   "media": {
-    "$comment": "The image/media loader: mediaRequest(url, {baseUrl, rules}) → {url, headers}. A relative url resolves against baseUrl; every rule whose `prefix` the absolute url starts with adds its headers (later rules win per header). How the Exponential app sends auth headers for /api/attachments.",
-    "ruleKeys": ["prefix", "headers"]
+    "$comment": "EVERY src on every renderer (Image, Avatar, Video + poster, Audio, markdown images) goes through mediaRequest(url, {baseUrl, rules, schemes, hosts}) → {url, headers} | null. A relative url resolves against baseUrl; the absolute url must pass decideUrl with `schemes` (default `defaultSchemes`: no `file`, so no local file is ever read unless the host lists it) and `hosts`; null = denied, nothing loads. Every rule whose `prefix` the url starts with adds its headers (later rules win per header): how the Exponential app sends auth for /api/attachments. Every image loader enforces `limits`: `maxBytes` (Content-Length up front and the body as it streams), `timeoutMs` (the whole request), `maxPixels` (width × height read from the image header BEFORE decoding); a load over a limit fails like a 404 (the fallback paints). Video/Audio stream through the platform player: the policy applies, the byte limits do not (a poster is an image: they do); a web player cannot send headers, so a request WITH headers goes to the host's `mediaStreamUrl(request)` (a signed or cookie-authed url, re-checked by the policy) and without that hook is fetched whole into a blob url with only the response-header wait timed.",
+    "ruleKeys": ["prefix", "headers"],
+    "defaultSchemes": ["https", "http", "data"],
+    "limits": { "maxBytes": 20971520, "timeoutMs": 30000, "maxPixels": 33554432 }
   },
   "sources": {
     "$comment": "A binding source URI: `<scheme>:<name>[?k=v&…]`, scheme `[a-z][a-z0-9+.-]*` (lower-cased), name non-empty without `?`, params percent-decoded (`+` = space), the last value of a repeated key wins, keys sorted. The host registers one resolver per scheme (the Exponential app: `exp`); subscribe(source, emit) → cancel, every emit writes the value at the bound path.",
@@ -45,8 +47,13 @@
     "$comment": "A declarative vapp package (VAPP-82): data, never code. {id, name, version, catalogId, templates: {<id>: {components: [flat, one `root`], data?, bindings?: [{path, source}]}}, functions?: [allowed patterns], theme?: a theme id or theme JSON, icon?}. Installing one registers its templates with the router (applyTemplate) and turns `functions` into the policy for its surfaces: listed = allow, anything else = deny.",
     "required": ["id", "name", "version", "catalogId", "templates"]
   },
+  "paint": {
+    "$comment": "A component whose painter fails (React: a render error; native: a painter that throws or meets props it cannot paint) paints an empty box in its place, never takes the surface down, and calls the host's `onPaintError({surfaceId, componentId, message})` ONCE per surface + component + message. ExponentialHost.paintError forwards it to the agent as an A2UI error `{code: errorCode, surfaceId, message, path: /components/<componentId>}` and reports it as a host issue with the same code.",
+    "hook": "onPaintError",
+    "errorCode": "RENDER_FAILED"
+  },
   "surface": {
-    "$comment": "Round 2 (docs/round-2-contract.md §3, §5): what a host hands each surface besides messages. `settings` = the SurfaceSettings keys (src/types.ts): `timeZone` = the IANA zone instants show in (default the platform's). `formatter` = the methods of the host-supplied Formatter that formats every number, currency, percent, date and relative time (TS: intlFormatter(locale, timeZone); Rust: the Formatter trait, default the English fallback at the host's UTC offset per instant; FFI: a foreign Formatter, else the core's). `commands` = what a host may ask of a live surface (catalog/a11y.json `commands`; `scrollToIndex` takes the DATA index).",
+    "$comment": "Round 2 (docs/round-2-contract.md §3, §5): what a host hands each surface besides messages. `settings` = the SurfaceSettings keys (src/types.ts): `timeZone` = the IANA zone instants show in (default the platform's). `formatter` = the methods of the host-supplied Formatter that formats every number, currency, percent, date and relative time (TS: intlFormatter(locale, timeZone); Rust: the Formatter trait, default the English fallback at the host's UTC offset per instant; FFI: a foreign Formatter, else the core's). `commands` = what a host may ask of a live surface (catalog/a11y.json `commands`; `scrollToIndex` takes the DATA index). Round 4 (VAPP-103): an unusable theme (an unknown built-in id, a missing or other `$schema`, any theme issue) NEVER fails a host: it paints with the default theme and reports the issues (TS `themeOrDefault` + React `HostPlugin.onThemeIssues`, Rust `themes::theme_or_default`, Swift/Kotlin `ThemeHandle.loadOrDefault`); a server's unusable `createSurface.theme` answers VALIDATION_FAILED at `/createSurface/theme`.",
     "settings": ["locale", "timeZone", "strings", "mode", "density", "contrast", "theme"],
     "formatter": ["number", "currency", "percent", "date", "relativeTime", "plural"],
     "commands": ["focus", "announce", "scrollIntoView", "scrollToIndex"]

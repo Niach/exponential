@@ -155,8 +155,12 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     let kinds: [String: String]
     let generation: UInt64
     private(set) var calls = 0
+    /// Whether a markdown image's src passes the host's media policy (the
+    /// painter asks the same question).
+    let mediaAllowed: (String) -> Bool
 
-    init(theme: ThemeHandle?, mode: Mode, extensions: ExtensionRegistry, kinds: [String: String], generation: UInt64) {
+    init(theme: ThemeHandle?, mode: Mode, extensions: ExtensionRegistry, kinds: [String: String], generation: UInt64, mediaAllowed: @escaping (String) -> Bool = { _ in true }) {
+        self.mediaAllowed = mediaAllowed
         self.theme = theme
         self.mode = mode
         self.extensions = extensions
@@ -441,7 +445,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     }
 
     private func markdown(_ leaf: LeafRequest, wrap: CGFloat?) -> MeasuredContent {
-        let blocks = Markdown.parse(leaf.props.str("text"))
+        let blocks = Markdown.resolveImages(Markdown.parse(leaf.props.str("text")), allowed: mediaAllowed)
         let ts = leaf.textStyle
         let styles = MarkdownPainter.styles(theme: theme, mode: mode, body: ts, props: leaf.props)
         let shaper = MarkdownShaper(mono: theme?.monoFamily)

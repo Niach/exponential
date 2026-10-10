@@ -81,7 +81,7 @@ fn a_control_nested_in_a_template_row_writes_its_binding_and_fires() {
         {"id": "row", "component": "Box", "children": ["row-done"]},
         {"id": "row-done", "component": "Switch", "label": "Done", "name": "done", "checked": {"path": "done"}, "on": {"change": {"event": {"name": "toggled", "context": {"id": {"path": "id"}}}}}}
     ]));
-    s.set_data("/items", Some(json!([{"id": "a", "done": false}, {"id": "b", "done": true}])));
+    s.set_data("/items", Some(json!([{"id": "a", "done": false}, {"id": "b", "done": true}]))).unwrap();
     s.set_viewport(400.0, 0.0, None);
     let mut m = fixed();
     s.layout(&mut m);
@@ -115,7 +115,7 @@ fn a_form_inside_a_template_row_collects_its_own_instance_fields() {
         {"id": "card-title", "component": "Input", "label": "Title", "name": "title", "value": {"path": "title"}},
         {"id": "card-go", "component": "Button", "label": "Save", "submit": true}
     ]));
-    s.set_data("/items", Some(json!([{"id": "a", "title": "One"}, {"id": "b", "title": "Two"}])));
+    s.set_data("/items", Some(json!([{"id": "a", "title": "One"}, {"id": "b", "title": "Two"}]))).unwrap();
     s.set_viewport(400.0, 0.0, None);
     let mut m = fixed();
     s.layout(&mut m);
@@ -312,7 +312,7 @@ fn a_disabled_control_ignores_activation_from_any_host_path() {
         {"id": "sel", "component": "Select", "props": {"label": "S", "name": "s", "disabled": true, "value": {"path": "/s"}, "options": [{"label": "A", "value": "a"}]}},
         {"id": "b", "component": "Button", "props": {"label": "Go", "loading": true}, "on": {"press": {"event": {"name": "go"}}}}
     ]}));
-    s.set_data("/n", Some(json!(1)));
+    s.set_data("/n", Some(json!(1))).unwrap();
     s.set_viewport(400.0, 0.0, None);
     let mut m = fixed();
     s.layout(&mut m);
@@ -337,7 +337,7 @@ fn template_keys_never_collide() {
         {"id": "row", "component": "Text", "text": {"path": "name"}}
     ]));
     // A keyed item, an unkeyed one, a duplicate key and an index-like key.
-    s.set_data("/items", Some(json!([{"id": "1", "name": "one"}, {"name": "x"}, {"id": "1", "name": "dup"}, {"id": "#1", "name": "hash"}])));
+    s.set_data("/items", Some(json!([{"id": "1", "name": "one"}, {"name": "x"}, {"id": "1", "name": "dup"}, {"id": "#1", "name": "hash"}]))).unwrap();
     s.set_viewport(400.0, 0.0, None);
     let mut m = fixed();
     s.layout(&mut m);

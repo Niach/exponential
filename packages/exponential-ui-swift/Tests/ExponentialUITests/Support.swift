@@ -62,3 +62,29 @@ func eventually(timeout: Duration = .seconds(5), _ condition: @MainActor () -> B
         try await Task.sleep(for: .milliseconds(10))
     }
 }
+
+#if canImport(UIKit)
+import UIKit
+import SwiftUI
+
+/// Host `root` in a visible window at `size` and lay it out: a
+/// `UIHostingController` view outside a window never evaluates its SwiftUI
+/// bodies (the iOS Simulator run of the paint probes).
+@MainActor
+func renderInWindow<V: View>(_ root: V, size: CGSize) {
+    let controller = UIHostingController(rootView: root)
+    let window = UIWindow(frame: CGRect(origin: .zero, size: size))
+    if let scene = UIApplication.shared.connectedScenes.compactMap({ $0 as? UIWindowScene }).first {
+        window.windowScene = scene
+    }
+    window.rootViewController = controller
+    window.isHidden = false
+    controller.view.frame = window.bounds
+    controller.view.setNeedsLayout()
+    controller.view.layoutIfNeeded()
+    RunLoop.main.run(until: Date().addingTimeInterval(0.02))
+    controller.view.layoutIfNeeded()
+    window.isHidden = true
+    window.rootViewController = nil
+}
+#endif

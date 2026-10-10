@@ -202,7 +202,7 @@ fn messages_events_and_overlays_cross_the_facade_as_json() {
     assert_eq!(out.layers[0].position, "centered");
     assert_eq!(serde_json::from_str::<Value>(&surface.data_json()).unwrap()["open"], json!(true));
     surface.set_builtin_theme("playful".into()).unwrap();
-    assert!(surface.set_theme_json(json!({"id": "x", "name": "X", "extends": "neutral"}).to_string()).is_ok());
+    assert!(surface.set_theme_json(json!({"$schema": "https://ui.exponential.at/schemas/theme/v1.json", "id": "x", "name": "X", "extends": "neutral"}).to_string()).is_ok());
     assert!(matches!(surface.set_theme_json("{\"id\":\"bad\"}".into()), Err(UiError::Theme { .. })));
 }
 
@@ -351,6 +351,7 @@ fn the_round_1_fixtures_replay_through_the_free_functions() {
 /// A host measurer that throws (a Kotlin/Swift exception in a callback is a
 /// panic on the Rust side) must not leave the surface stuck in a pass: the
 /// next `layout` runs normally instead of answering `reentrant` forever.
+/// Every other non-throwing call shields its body the same way.
 #[test]
 fn a_panicking_measurer_does_not_freeze_the_surface() {
     struct Throwing(Mutex<u32>);
@@ -377,8 +378,14 @@ fn a_panicking_measurer_does_not_freeze_the_surface() {
     let m = Arc::new(Throwing(Mutex::new(0)));
     let s2 = surface.clone();
     let m2 = m.clone();
+    // VAPP-103 rfix: `layout` cannot throw, so a panic must not cross the
+    // FFI (Swift `try!` crashes): the last layout comes back `reentrant`
+    // and the panic is an issue of the surface.
     let caught = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || s2.layout(m2)));
-    assert!(caught.is_err(), "the measurer's panic propagates");
+    let out = caught.expect("the panic stays on the Rust side");
+    assert!(out.reentrant && out.frames.is_empty(), "nothing new to paint");
+    let issues: Value = serde_json::from_str(&surface.issues_json()).unwrap();
+    assert!(issues.as_array().unwrap().iter().any(|i| i["id"] == "ffi.layout" && i["message"].as_str().unwrap().contains("the host measurer threw")), "{issues}");
     for _ in 0..2 {
         let out = surface.layout(m.clone());
         assert!(!out.reentrant, "not mistaken for a re-entrant call");
@@ -402,7 +409,7 @@ fn a_hover_card_closes_through_the_hover_timer() {
     let timer = surface.take_events().into_iter().find(|e| e.kind == "hoverTimer").expect("a hover timer");
     let t: Value = serde_json::from_str(&timer.json).unwrap();
     assert_eq!(t["owner"], json!("hc"));
-    assert_eq!(t["delay_ms"], json!(150));
+    assert_eq!(t["delayMs"], json!(150));
     assert_eq!(surface.layout_fixed(None, true).unwrap().layers.len(), 1, "still open until the timer fires");
     assert!(surface.hover_timeout("hc".into()).iter().any(|e| e.kind == "relayout"));
     assert!(surface.layout_fixed(None, true).unwrap().layers.is_empty());
@@ -428,7 +435,7 @@ fn a_theme_object_resolves_parts_colors_and_tokens_for_painters() {
     assert_eq!(theme.font_family("sans".into()).as_deref(), Some("Inter"));
     assert!(theme.control("input".into()).is_some());
     assert_eq!(theme.control("nope".into()), None);
-    let loaded = Theme::load(r##"{"id":"t","name":"T","extends":"neutral","modes":{"light":{"color":{"primary":"#ff0000"}},"dark":{"color":{"primary":"#00ff00"}}}}"##.into(), None).unwrap();
+    let loaded = Theme::load(r##"{"$schema":"https://ui.exponential.at/schemas/theme/v1.json","id":"t","name":"T","extends":"neutral","modes":{"light":{"color":{"primary":"#ff0000"}},"dark":{"color":{"primary":"#00ff00"}}}}"##.into(), None).unwrap();
     assert_eq!(loaded.color("primary".into(), "light".into()).as_deref(), Some("#ff0000"));
     // A surface built on the object paints with it and hands it back.
     let s = Surface::with_theme("s".into(), core_catalog_id(), Some(theme.clone()), "dark".into()).unwrap();
@@ -918,7 +925,7 @@ fn frame_of(s: &Surface, out: &FfiLayout, id: &str) -> FfiFrame {
 #[test]
 fn text_styles_carry_letter_spacing_transform_and_font_style() {
     let theme = Theme::load(
-        r#"{"id":"caps","name":"Caps","extends":"neutral","recipes":{"Text":{"root":[{"when":{"variant":"caption"},"style":{"letterSpacing":0.5,"textTransform":"uppercase","fontStyle":"italic"}}]}}}"#.into(),
+        r#"{"$schema":"https://ui.exponential.at/schemas/theme/v1.json","id":"caps","name":"Caps","extends":"neutral","recipes":{"Text":{"root":[{"when":{"variant":"caption"},"style":{"letterSpacing":0.5,"textTransform":"uppercase","fontStyle":"italic"}}]}}}"#.into(),
         None,
     )
     .unwrap();
@@ -1051,4 +1058,19 @@ fn contract_heights_and_a_loaded_markdown_cross_the_facade() {
     assert_eq!(frame_of(&s, &s.layout(loaded.clone()), "md").h, md, "memoized until marked");
     assert!(s.mark_dirty(s.index_of("md".into()).unwrap()));
     assert_eq!(frame_of(&s, &s.layout(loaded), "md").h, md + 80.0);
+}
+
+/// VAPP-103: the facade refuses an oversized message BEFORE parsing it, and a
+/// refused data write is an error, never a silent gap.
+#[test]
+fn the_facade_refuses_oversized_messages_and_bad_writes() {
+    let router = HostRouter::new(vec![]);
+    let big = format!(r#"{{"version":"v0.9","updateComponents":{{"surfaceId":"s","components":[{{"id":"root","component":"Text","text":"{}"}}]}}}}"#, "x".repeat(4_194_304));
+    let ops: Value = serde_json::from_str(&router.route(big)).unwrap();
+    assert_eq!(ops[0]["message"]["error"]["code"], "INVALID_MESSAGE");
+    assert_eq!(ops[0]["message"]["error"]["message"], "message larger than 4194304 bytes");
+    let surface = Surface::new("s".into(), core_catalog_id(), None, "light".into()).unwrap();
+    surface.set_data("/a".into(), Some("[]".into())).unwrap();
+    assert!(surface.set_data("/a/4000000000".into(), Some("1".into())).is_err());
+    assert_eq!(surface.data_json(), r#"{"a":[]}"#);
 }

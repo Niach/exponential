@@ -18,13 +18,22 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.autofill.AutofillNode
+import androidx.compose.ui.autofill.AutofillType
+import androidx.compose.ui.composed
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalAutofill
+import androidx.compose.ui.platform.LocalAutofillTree
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -88,9 +97,11 @@ fun OwnedTextField(
     submitsOnReturn: Boolean,
     accessibilityLabel: String,
     modifier: Modifier = Modifier,
-    secure: Boolean = false,
-    keyboardType: KeyboardType = KeyboardType.Text,
+    /** The owner Input's `type` (catalog enum `inputType`): masking, autofill, autocorrection. */
+    inputType: String = "",
+    keyboardType: KeyboardType = keyboardTypeOf(inputType),
 ) {
+    val secure = inputType == "password"
     val state = model.field(index)
     val id = model.node(index)?.id ?: "#$index"
     var value by remember(id) {
@@ -156,6 +167,10 @@ fun OwnedTextField(
                     else -> false
                 }
             }
+            .inputAutofill(inputType) { filled ->
+                value = TextFieldValue(filled, TextRange(filled.length))
+                model.fieldEdited(index, filled)
+            }
             .semantics { contentDescription = accessibilityLabel },
         // `visibility: hidden` (an ancestor's too) takes no focus and no taps.
         enabled = !disabled && !LocalInvisible.current,
@@ -165,7 +180,7 @@ fun OwnedTextField(
         keyboardOptions = KeyboardOptions(
             keyboardType = if (secure) KeyboardType.Password else keyboardType,
             imeAction = imeAction,
-            autoCorrectEnabled = !secure,
+            autoCorrectEnabled = autoCorrectOf(inputType),
         ),
         keyboardActions = KeyboardActions(
             onDone = {
@@ -191,6 +206,42 @@ fun OwnedTextField(
             }
         },
     )
+}
+
+/** Autocorrection: off for addresses, numbers and secrets (iOS `InputTraits` too). */
+internal fun autoCorrectOf(type: String): Boolean = type !in setOf("email", "url", "tel", "password", "number")
+
+/**
+ * The autofill types an `Input` `type` offers the platform's autofill
+ * service (iOS: `textContentType`). `url` has no Android autofill type.
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+internal fun autofillTypesOf(type: String): List<AutofillType> = when (type) {
+    "email" -> listOf(AutofillType.EmailAddress)
+    "password" -> listOf(AutofillType.Password)
+    "tel" -> listOf(AutofillType.PhoneNumber)
+    else -> emptyList()
+}
+
+/**
+ * Registers the field with the platform autofill service while its `type`
+ * names an autofill kind: the node's window bounds, a request on focus,
+ * and a fill writes the text through [onFill].
+ */
+@OptIn(ExperimentalComposeUiApi::class)
+private fun Modifier.inputAutofill(type: String, onFill: (String) -> Unit): Modifier = composed {
+    val types = autofillTypesOf(type)
+    if (types.isEmpty()) return@composed this
+    val autofill = LocalAutofill.current
+    val tree = LocalAutofillTree.current
+    val node = remember(types) { AutofillNode(autofillTypes = types, onFill = onFill) }
+    DisposableEffect(node) {
+        tree += node
+        onDispose { tree.children.remove(node.id) }
+    }
+    this
+        .onGloballyPositioned { node.boundingBox = it.boundsInWindow() }
+        .onFocusChanged { if (it.isFocused) autofill?.requestAutofillForNode(node) else autofill?.cancelAutofillForNode(node) }
 }
 
 /** The keyboard an `Input` `type` asks for. */
@@ -226,8 +277,7 @@ internal fun TextFieldLeaf(cx: LeafContext, multiline: Boolean) {
             submitsOnReturn = false,
             accessibilityLabel = owner.str("label").ifEmpty { owner.str("placeholder") },
             modifier = Modifier.fillMaxSize(),
-            secure = type == "password",
-            keyboardType = keyboardTypeOf(type),
+            inputType = type,
         )
     }
 }

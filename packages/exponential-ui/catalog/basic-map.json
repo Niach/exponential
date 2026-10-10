@@ -33,7 +33,7 @@
     "buttonChild": "child Text → props.label = its text (the Text node is consumed); child Icon → props.icon = the mapped icon name (consumed); any other child → children[0]; action → on.press (an A2UI Action verbatim); size icon when icon and no label.",
     "textField": "name = id; variant longText → Textarea{label, value, checks}; number → Input{type: number}; obscured → Input{type: password}; shortText or absent → Input{type: text}; validationRegexp → one more check {condition: {call: regex, args: {value: {path: <the value binding's path, or the id>}, pattern}}, message: 'Invalid value'}.",
     "fieldName": "name = id.",
-    "choicePicker": "name = id; options keep label/value; value (a list) → the first entry for single choice, comma-joined for multiple; filterable → Select{searchable: true, multiple: variant == multipleSelection}; else displayStyle chips → ToggleGroup{type: single|multiple by variant, variant: outline, items: options}; else variant multipleSelection → Select{multiple: true}; else → Radio."
+    "choicePicker": "name = id; options keep label/value; value (a list) → the first entry for single choice, comma-joined for multiple; filterable → Select{searchable: true, multiple: variant == multipleSelection}; else displayStyle chips → Segmented{type: single|multiple by variant, variant: outline, items: options}; else variant multipleSelection → Select{multiple: true}; else → Radio."
   },
   "icons": {
     "accountCircle": "ui-assignee",

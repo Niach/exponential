@@ -15,9 +15,10 @@ import { useSurfaceContext } from "../context"
 import { FieldErrors, joinIds, useField } from "../form"
 import type { NativeProps } from "../node-view"
 import { useBoundState } from "./bound"
+import { linkHref } from "../urls"
 import { useListNavigation } from "./listbox"
 import { partClass } from "../theme-css"
-import { arr, bool, BuiltinIcon, formatFileSize, num, phrase, str, useParts, TextPart } from "./shared"
+import { arr, bool, BuiltinIcon, formatFileSize, num, phrase, str, useParts, TextPart, objects } from "./shared"
 
 export function ChipInputNative({ node, props, rootProps, emit, scope, domId }: NativeProps) {
   const part = useParts(node, props)
@@ -32,26 +33,27 @@ export function ChipInputNative({ node, props, rootProps, emit, scope, domId }: 
   const f = useField({ node, domId, props, value: values, focusRef: inputRef })
   const disabled = bool(props.disabled) || Boolean(f.form?.disabled)
   const max = props.max === undefined ? Infinity : num(props.max, Infinity)
-  const suggestions = arr<{ label: string; value: string; disabled?: boolean }>(props.suggestions)
+  const suggestions = objects<{ label: string; value: string; disabled?: boolean }>(props.suggestions)
   const shown = useMemo(() => (text ? suggestions.filter((s) => !values.includes(s.value) && str(s.label).toLowerCase().includes(text.toLowerCase())) : []), [suggestions, text, values])
   const update = (next: string[]) => {
     setValues(next)
     f.change(next)
-    void emit(`change`, { values: next })
+    void emit(`change`, { values: next }, { values: next })
+    return next
   }
   const add = (raw: string) => {
     const value = raw.trim()
     if (!value || values.includes(value) || values.length >= max) return false
-    update([...values, value])
-    void emit(`add`, { value })
+    const next = update([...values, value])
+    void emit(`add`, { value }, { values: next })
     setText(``)
     return true
   }
   const listRef = useRef<HTMLUListElement | null>(null)
   const chipAt = (i: number) => listRef.current?.querySelectorAll<HTMLElement>(`[data-chip]`)[i] ?? null
   const remove = (value: string, focusIndex?: number) => {
-    update(values.filter((v) => v !== value))
-    void emit(`remove`, { value })
+    const next = update(values.filter((v) => v !== value))
+    void emit(`remove`, { value }, { values: next })
     // Focus the previous chip (keyboard removal) or the field.
     setTimeout(() => {
       const target = focusIndex !== undefined && focusIndex >= 0 ? chipAt(focusIndex) : null
@@ -182,7 +184,7 @@ export function FileUploadNative({ node, props, rootProps, emit, scope, domId }:
   const part = useParts(node, props)
   const ctx = useSurfaceContext()
   const id = useId()
-  const external = arr<FileMeta>(props.files)
+  const external = objects<FileMeta>(props.files)
   const [files, setFiles] = useBoundState<FileMeta[]>(node, scope, `files`, external)
   const zoneRef = useRef<HTMLDivElement | null>(null)
   const inputRef = useRef<HTMLInputElement | null>(null)
@@ -212,7 +214,9 @@ export function FileUploadNative({ node, props, rootProps, emit, scope, domId }:
     const next = multiple ? [...files.filter((x) => !meta.some((m) => m.name === x.name)), ...meta] : meta
     setFiles(next)
     f.change(next)
-    void emit(`upload`, { files: meta })
+    // The payload = the whole list + the new batch (`added`); the own write
+    // = the whole list, as written.
+    void emit(`upload`, { files: next, added: meta }, { files: next })
     const r = ctx.host.onUpload?.(ok, { nodeId: domId, name })
     if (r && typeof (r as Promise<void>).then === `function`) {
       setBusy(true)
@@ -223,7 +227,7 @@ export function FileUploadNative({ node, props, rootProps, emit, scope, domId }:
     const next = files.filter((x) => x.name !== fileName)
     setFiles(next)
     f.change(next)
-    void emit(`remove`, { name: fileName })
+    void emit(`remove`, { name: fileName, files: next }, { files: next })
   }
   const onDrag = (e: DragEvent, over: boolean) => {
     e.preventDefault()
@@ -286,7 +290,7 @@ export function FileUploadNative({ node, props, rootProps, emit, scope, domId }:
               <span {...(part.at(`fileIcon`, i) as Record<string, string>)}>
                 <BuiltinIcon slot="FileUpload.file" />
               </span>
-              <span {...(part.at(`fileName`, i) as Record<string, string>)}>{file.url ? <a href={file.url} target="_blank" rel="noreferrer">{file.name}</a> : file.name}</span>
+              <span {...(part.at(`fileName`, i) as Record<string, string>)}>{linkHref(ctx.host, file.url) ? <a href={linkHref(ctx.host, file.url)} target="_blank" rel="noreferrer">{file.name}</a> : file.name}</span>
               {file.size !== undefined ? <span {...(part.at(`fileMeta`, i) as Record<string, string>)}>{size(file.size)}</span> : null}
               {disabled ? null : (
                 <button type="button" {...(part.at(`remove`, i) as Record<string, string>)} aria-label={phrase(ctx, `removeItem`, { name: file.name }, () => `${ctx.t(`remove`)} ${file.name}`)} onClick={() => remove(file.name)}>

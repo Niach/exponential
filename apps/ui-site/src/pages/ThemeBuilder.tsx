@@ -24,10 +24,6 @@ export default function ThemeBuilderPage(_: PageProps) {
     <div className="sdk-builder-page">
       <div className="shell sdk-builder-intro">
         <h1>Theme builder</h1>
-        <p>
-          Edit tokens and recipes over a live preview; export the smallest <code>extends</code> theme. Starts from a base, a shadcn <code>globals.css</code>, a tweakcn export or a theme
-          JSON. <a href="/guides/themes/">Theme guide</a>
-        </p>
       </div>
       <div ref={root} className="xb sdk-builder" data-mode="dark">
         <header className="bar">

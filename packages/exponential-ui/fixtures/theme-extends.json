@@ -4,6 +4,7 @@
     {
       "name": "extends neutral: primary + button radius only",
       "theme": {
+        "$schema": "https://ui.exponential.at/schemas/theme/v1.json",
         "id": "brand",
         "name": "Brand",
         "extends": "neutral",
@@ -337,6 +338,7 @@
     {
       "name": "extends exponential: a darker ground and a wider row",
       "theme": {
+        "$schema": "https://ui.exponential.at/schemas/theme/v1.json",
         "id": "midnight",
         "name": "Midnight",
         "extends": "exponential",
@@ -433,6 +435,7 @@
     {
       "name": "extends playful: the test theme itself extends neutral, so a grandchild sees the whole chain",
       "theme": {
+        "$schema": "https://ui.exponential.at/schemas/theme/v1.json",
         "id": "playful-mono",
         "name": "Playful mono",
         "extends": "playful",

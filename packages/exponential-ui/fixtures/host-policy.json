@@ -335,6 +335,38 @@
         "allowed": false,
         "reason": "invalid"
       }
+    },
+    {
+      "name": "a data url is not a link scheme",
+      "url": "data:text/html,<script>alert(1)</script>",
+      "expected": {
+        "allowed": false,
+        "url": "data:text/html,<script>alert(1)</script>",
+        "reason": "scheme"
+      }
+    },
+    {
+      "name": "a host allow-list holds for a relative href",
+      "policy": {
+        "baseUrl": "https://evil.example",
+        "hosts": [
+          "exponential.at"
+        ]
+      },
+      "url": "/x",
+      "expected": {
+        "allowed": false,
+        "url": "https://evil.example/x",
+        "reason": "host"
+      }
+    },
+    {
+      "name": "a url with balanced parentheses",
+      "url": "https://en.wikipedia.org/wiki/A_(b)",
+      "expected": {
+        "allowed": true,
+        "url": "https://en.wikipedia.org/wiki/A_(b)"
+      }
     }
   ],
   "media": [
@@ -411,6 +443,81 @@
       "options": {},
       "url": "x.png",
       "expected": null
+    },
+    {
+      "name": "javascript is never a media scheme",
+      "options": {},
+      "url": "javascript:alert(1)",
+      "expected": null
+    },
+    {
+      "name": "file is denied by default",
+      "options": {},
+      "url": "file:///etc/passwd",
+      "expected": null
+    },
+    {
+      "name": "a relative path against a file base stays denied",
+      "options": {
+        "baseUrl": "file:///Users/me/"
+      },
+      "url": "/etc/passwd",
+      "expected": null
+    },
+    {
+      "name": "file only when the host lists it",
+      "options": {
+        "schemes": [
+          "file"
+        ]
+      },
+      "url": "file:///tmp/a.png",
+      "expected": {
+        "url": "file:///tmp/a.png",
+        "headers": {}
+      }
+    },
+    {
+      "name": "a data image",
+      "options": {},
+      "url": "data:image/png;base64,iVBORw0KGgo=",
+      "expected": {
+        "url": "data:image/png;base64,iVBORw0KGgo=",
+        "headers": {}
+      }
+    },
+    {
+      "name": "the media host allow-list",
+      "options": {
+        "hosts": [
+          "*.exponential.at"
+        ]
+      },
+      "url": "https://cdn.example/x.png",
+      "expected": null
+    },
+    {
+      "name": "an allowed media host",
+      "options": {
+        "hosts": [
+          "*.exponential.at"
+        ],
+        "rules": [
+          {
+            "prefix": "https://app.exponential.at/",
+            "headers": {
+              "authorization": "Bearer t"
+            }
+          }
+        ]
+      },
+      "url": "https://app.exponential.at/a.png",
+      "expected": {
+        "url": "https://app.exponential.at/a.png",
+        "headers": {
+          "authorization": "Bearer t"
+        }
+      }
     }
   ],
   "sources": [

@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use exponential_ui::host::{FunctionDecision, FunctionPolicy, MediaOptions, MediaRule, UrlPolicy};
-use exponential_ui_gpui::host::FunctionCallEvent;
+use exponential_ui_gpui::host::{FunctionCallEvent, HostPlugin as _, PaintError};
 use exponential_ui_gpui::runtime::{sync_function, Emit, ExponentialHost, FunctionOutcome, HostIssue, HostOptions, HostPolicy, SourceResolver, MAX_ISSUES, PACKAGE_INVALID};
 use exponential_ui_gpui::transport::{MemoryTransport, TransportStatus};
 use exponential_ui_gpui::view::SurfaceView;
@@ -253,7 +253,7 @@ fn urls_pass_the_url_policy_and_media_gets_its_headers(cx: &mut TestAppContext) 
     let policy = HostPolicy {
         urls: Some(UrlPolicy { schemes: None, hosts: Some(vec!["*.example.com".into()]), base_url: None }),
         open_url: Some(Rc::new(move |url: &str, _: &mut App| o.borrow_mut().push(url.to_string()))),
-        media: Some(MediaOptions { base_url: Some("https://app.example.com/".into()), rules: Some(vec![MediaRule { prefix: "https://app.example.com/api/attachments/".into(), headers: [("authorization".to_string(), "Bearer t".to_string())].into() }]) }),
+        media: Some(MediaOptions { base_url: Some("https://app.example.com/".into()), rules: Some(vec![MediaRule { prefix: "https://app.example.com/api/attachments/".into(), headers: [("authorization".to_string(), "Bearer t".to_string())].into() }]), ..Default::default() }),
         ..Default::default()
     };
     let host = host_with(cx, HostOptions { policy, ..Default::default() });
@@ -272,6 +272,54 @@ fn urls_pass_the_url_policy_and_media_gets_its_headers(cx: &mut TestAppContext) 
     // The painter's plugin answers the same request.
     let plugin = host.read_with(cx, |h, _| h.plugin(Rc::new(exponential_ui_gpui::host::NoHost)));
     assert_eq!(plugin.media_request("/api/attachments/42"), Some(req));
+}
+
+#[gpui::test]
+fn paint_errors_become_one_render_failed_message(cx: &mut TestAppContext) {
+    // VAPP-103: `onPaintError` → an A2UI RENDER_FAILED error, once per
+    // surface + component (rfix: whatever the message), until the view says
+    // its props changed (`on_paint_retry`).
+    init(cx);
+    let t = MemoryTransport::new();
+    let host = host_with(cx, HostOptions { transport: Some(Box::new(t.clone())), ..Default::default() });
+    host.update(cx, |h, cx| h.connect(cx));
+    t.feed([create("s"), components("s", json!([{"id": "root", "component": "Text", "text": "x"}]))]);
+    cx.run_until_parked();
+    let plugin = host.read_with(cx, |h, _| h.plugin(Rc::new(exponential_ui_gpui::host::NoHost)));
+    let error = PaintError { surface_id: "s".into(), component_id: "root".into(), message: "Text failed to paint: boom".into() };
+    cx.update(|cx| {
+        plugin.on_paint_error(&error, cx);
+        plugin.on_paint_error(&error, cx);
+    });
+    let sent: Vec<Value> = t.sent().into_iter().filter_map(|m| m.get("error").cloned()).collect();
+    assert_eq!(sent, vec![json!({"code": "RENDER_FAILED", "surfaceId": "s", "message": "Text failed to paint: boom", "path": "/components/root"})]);
+    assert_eq!(host.read_with(cx, |h, _| h.issues().last().map(|i| i.code.clone())), Some("RENDER_FAILED".to_string()));
+    let other = PaintError { message: "Text failed to paint: boom at 0x7f00".into(), ..error.clone() };
+    t.feed([components("s", json!([{"id": "other", "component": "Text", "text": "y"}]))]);
+    cx.run_until_parked();
+    cx.update(|cx| plugin.on_paint_error(&other, cx));
+    assert_eq!(sent_errors(&t).len(), 1, "a varying message and an unrelated update never re-report");
+    cx.update(|cx| {
+        plugin.on_paint_retry("s", "root", cx);
+        plugin.on_paint_error(&other, cx);
+    });
+    assert_eq!(sent_errors(&t).len(), 2, "new props: it may fail again");
+}
+
+#[gpui::test]
+fn the_plugin_applies_the_url_and_media_policy(cx: &mut TestAppContext) {
+    // VAPP-103: the host-bound plugin's url policy holds the host's hosts;
+    // its media never reads a local file the host did not list.
+    init(cx);
+    let policy = HostPolicy { urls: Some(UrlPolicy { hosts: Some(vec!["exponential.at".into()]), ..Default::default() }), ..Default::default() };
+    let host = host_with(cx, HostOptions { policy, ..Default::default() });
+    let plugin = host.read_with(cx, |h, _| h.plugin(Rc::new(exponential_ui_gpui::host::NoHost)));
+    let urls = plugin.url_policy();
+    assert!(exponential_ui::host::safe_href(urls.as_ref(), "https://evil.example/").is_none());
+    assert!(exponential_ui::host::safe_href(urls.as_ref(), "https://exponential.at/x").is_some());
+    assert!(plugin.media_request("file:///etc/passwd").is_none());
+    assert!(plugin.media_request("/etc/passwd").is_none());
+    assert!(exponential_ui_gpui::host::NoHost.media_request("file:///etc/passwd").is_none());
 }
 
 struct Holder(Option<Entity<SurfaceView>>);
@@ -407,8 +455,9 @@ fn a_constructor_package_that_fails_validation_is_a_hard_error() {
 }
 
 #[gpui::test]
-#[should_panic(expected = "package acme.bad is unusable")]
-fn the_host_panics_on_a_constructor_package_that_fails_validation(cx: &mut TestAppContext) {
+fn the_host_reports_a_constructor_package_that_fails_validation_and_skips_it(cx: &mut TestAppContext) {
     init(cx);
-    host_with(cx, HostOptions { packages: vec![json!({"id": "acme.bad", "templates": "nope"})], ..Default::default() });
+    let host = host_with(cx, HostOptions { packages: vec![json!({"id": "acme.bad", "templates": "nope"})], ..Default::default() });
+    let issues = host.read_with(cx, |h, _| h.issues().to_vec());
+    assert!(!issues.is_empty() && issues.iter().all(|i| i.code == PACKAGE_INVALID && i.package_id.as_deref() == Some("acme.bad")), "{issues:?}");
 }

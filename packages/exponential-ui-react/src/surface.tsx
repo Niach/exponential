@@ -18,17 +18,17 @@ import {
   builtinTheme,
   formatString,
   intlFormatter,
-  loadTheme,
+  themeOrDefault,
   mediaMatches,
   parseMediaCondition,
   resolveMode,
   stringTable,
+  templateBudget,
   textDirection,
-  BUILTIN_THEMES,
   DEFAULT_LOCALE,
   DEFAULT_THEME_ID,
 } from "@exponential-at/ui"
-import type { ModeName, ResolvedTheme, ScrollAlign, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
+import type { ModeName, ResolvedTheme, ScrollAlign, ThemeIssue, ThemeSource, UiNode, SurfaceCommand } from "@exponential-at/ui"
 import { BASE_CSS } from "./base-css"
 import { compileNodeSheet, queryToken, surfaceClass } from "./box-css"
 import { SurfaceContext, type SurfaceContextValue } from "./context"
@@ -37,6 +37,7 @@ import { extensionCatalogs, extensionMacroNames, registeredExtensions, subscribe
 import type { HostPlugin } from "./host"
 import { NodeView } from "./node-view"
 import { useMediaQuery } from "./platform"
+import { openAllowed } from "./urls"
 import { compiledTheme } from "./theme-css"
 import type { SurfaceState } from "./use-surface"
 
@@ -109,18 +110,33 @@ export interface ExponentialSurfaceProps {
   children?: ReactNode
 }
 
-const resolvedCache = new Map<string, ResolvedTheme>()
+/** A theme prop, resolved: the theme to paint with and why the asked one
+ *  was refused (empty when it loaded). */
+export interface ThemeResolution {
+  theme: ResolvedTheme
+  issues: ThemeIssue[]
+}
+
+const resolvedCache = new Map<string, ThemeResolution>()
 
 /** A theme prop → the resolved theme (built-ins cached by id, theme files
- *  resolved against the built-ins and cached by content). */
-export function resolveThemeInput(input: ThemeInput | undefined): ResolvedTheme {
-  if (!input) return builtinTheme(DEFAULT_THEME_ID)
-  if (typeof input === `string`) return builtinTheme(input)
-  if (`chain` in input && Array.isArray((input as ResolvedTheme).chain)) return input as ResolvedTheme
-  const key = JSON.stringify(input)
+ *  resolved against the built-ins and cached by content). NEVER throws
+ *  (round 4, VAPP-103): an unknown built-in id or an invalid theme file
+ *  paints with the default theme and carries its issues, which the surface
+ *  reports through `HostPlugin.onThemeIssues`. */
+export function resolveThemeInput(input: ThemeInput | undefined): ThemeResolution {
+  if (!input) return { theme: builtinTheme(DEFAULT_THEME_ID), issues: [] }
+  if (typeof input === `string`) return themeOrDefault(input)
+  if (`chain` in input && Array.isArray((input as ResolvedTheme).chain)) return { theme: input as ResolvedTheme, issues: [] }
+  let key: string
+  try {
+    key = JSON.stringify(input)
+  } catch {
+    return { theme: builtinTheme(DEFAULT_THEME_ID), issues: [{ path: `theme`, message: `expected a theme object {id, name, modes, tokens, recipes}` }] }
+  }
   let hit = resolvedCache.get(key)
   if (!hit) {
-    hit = loadTheme(input, { themes: BUILTIN_THEMES })
+    hit = themeOrDefault(input)
     resolvedCache.set(key, hit)
   }
   return hit
@@ -185,10 +201,6 @@ export function surfaceLayout(box: SurfaceBox, inputs: LayoutInputs): { breakpoi
     .map(queryToken)
     .join(` `)
   return { breakpoint, xq }
-}
-
-function defaultOpenUrl(url: string) {
-  if (typeof window !== `undefined`) window.open(url, `_blank`, `noopener,noreferrer`)
 }
 
 const FOCUSABLE = `input:not([disabled]),textarea:not([disabled]),select:not([disabled]),button:not([disabled]),a[href],[tabindex]:not([tabindex="-1"]),[contenteditable="true"]`
@@ -303,7 +315,14 @@ export function ExponentialSurface({
   const reducedMotion = useMediaQuery(`(prefers-reduced-motion: reduce)`)
   const hover = useMediaQuery(`(hover: hover)`, true)
   const mode: ModeName = modeSetting === `system` ? resolveMode(`system`, prefersDark) : modeSetting
-  const baseTheme = useMemo(() => resolveThemeInput(themeProp), [themeProp])
+  const resolution = useMemo(() => resolveThemeInput(themeProp), [themeProp])
+  const baseTheme = resolution.theme
+  // An unusable theme never crashes the host: the surface paints with the
+  // default theme and hands the issues over once per resolution.
+  const onThemeIssues = host?.onThemeIssues
+  useEffect(() => {
+    if (resolution.issues.length > 0) onThemeIssues?.(resolution.issues)
+  }, [resolution, onThemeIssues])
   const theme = surfaceTheme(baseTheme, density, contrast === `high` || (contrast === `system` && prefersContrast))
   const global = useSyncExternalStore(subscribeExtensions, registeredExtensions, registeredExtensions)
   const extensions = useMemo(() => [...global, ...extensionsProp], [global, extensionsProp])
@@ -340,6 +359,12 @@ export function ExponentialSurface({
   const templates = (surface ? surface.templates : templatesProp) ?? NO_TEMPLATES
   const templateNode = useCallback((componentId: string) => templates[componentId], [templates])
   const templateRoots = useMemo(() => Object.values(templates), [templates])
+  // VAPP-103: past `maxTemplateItems` items or `maxComponents` nodes per
+  // surface the rest is not rendered (ONE issue, the Rust build's rule).
+  const budget = useMemo(() => (root ? templateBudget(root, data, templateNode) : undefined), [root, data, templateNode])
+  useEffect(() => {
+    if (budget?.issue) console.warn(`[exponential-ui] ${surfaceId}: ${budget.issue.id}: ${budget.issue.message}`)
+  }, [surfaceId, budget?.issue?.id, budget?.issue?.message])
   useEffect(() => {
     if (IS_DEV && root) warnMissingTemplates(surfaceId, root, templates)
   }, [surfaceId, root, templates])
@@ -410,8 +435,10 @@ export function ExponentialSurface({
       if (scrollers.current.get(id) === scroll) scrollers.current.delete(id)
     }
   }, [])
-  const openUrl = host?.openUrl ?? defaultOpenUrl
+  const paintFailures = useRef(new Map<string, string>()).current
   const hostValue = host ?? EMPTY_HOST
+  // Every open passes the URL policy (the host's opener or a new tab).
+  const openUrl = useCallback((url: string) => openAllowed(hostValue, url), [hostValue])
 
   const ctx: SurfaceContextValue = useMemo(
     () => ({
@@ -425,6 +452,7 @@ export function ExponentialSurface({
       data,
       setData,
       templateNode,
+      templateBudget: budget,
       states,
       measure,
       portal,
@@ -436,6 +464,7 @@ export function ExponentialSurface({
       formatter,
       now,
       registerScroller,
+      paintFailures,
       strings,
       t,
       breakpoint,
@@ -444,7 +473,7 @@ export function ExponentialSurface({
       hover,
       announce,
     }),
-    [surfaceId, compiled, theme, mode, hostValue, extensions, extensionDefs, data, setData, templateNode, states, measure, portal, toastLayer, direction, functions, openUrl, locale, formatter, now, registerScroller, strings, t, breakpoint, xq, reducedMotion, hover, announce]
+    [surfaceId, compiled, theme, mode, hostValue, extensions, extensionDefs, data, setData, templateNode, budget, states, measure, portal, toastLayer, direction, functions, openUrl, locale, formatter, now, registerScroller, paintFailures, strings, t, breakpoint, xq, reducedMotion, hover, announce]
   )
 
   const nodeEl = useCallback((id: string): HTMLElement | null => rootEl?.querySelector<HTMLElement>(`[data-xui-id="${typeof CSS !== `undefined` && CSS.escape ? CSS.escape(id) : id.replace(/"/g, `\\"`)}"]`) ?? null, [rootEl])

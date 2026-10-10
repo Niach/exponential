@@ -16,7 +16,7 @@ pub const MESSAGE_KINDS: &[&str] = &["createSurface", "updateComponents", "updat
 /// What the router turns a message into.
 pub const OP_KINDS: &[&str] = &["create", "components", "data", "bind", "delete", "send"];
 pub const HOST_ERROR_CODES: &[&str] =
-    &["VALIDATION_FAILED", "INVALID_MESSAGE", "UNSUPPORTED_CATALOG", "SURFACE_NOT_FOUND", "TEMPLATE_NOT_FOUND", "FUNCTION_NOT_FOUND", "FUNCTION_DENIED"];
+    &["VALIDATION_FAILED", "INVALID_MESSAGE", "UNSUPPORTED_CATALOG", "SURFACE_NOT_FOUND", "TEMPLATE_NOT_FOUND", "FUNCTION_NOT_FOUND", "FUNCTION_DENIED", "RENDER_FAILED"];
 pub const VALIDATION_FAILED: &str = "VALIDATION_FAILED";
 pub const INVALID_MESSAGE: &str = "INVALID_MESSAGE";
 pub const UNSUPPORTED_CATALOG: &str = "UNSUPPORTED_CATALOG";
@@ -24,11 +24,21 @@ pub const SURFACE_NOT_FOUND: &str = "SURFACE_NOT_FOUND";
 pub const TEMPLATE_NOT_FOUND: &str = "TEMPLATE_NOT_FOUND";
 pub const FUNCTION_NOT_FOUND: &str = "FUNCTION_NOT_FOUND";
 pub const FUNCTION_DENIED: &str = "FUNCTION_DENIED";
+/// A component's painter failed (`paint.errorCode`).
+pub const RENDER_FAILED: &str = "RENDER_FAILED";
 pub const FUNCTION_DECISIONS: &[&str] = &["allow", "ask", "deny", "not_found"];
 /// The default function policy's `default`.
 pub const DEFAULT_FUNCTION_DECISION: &str = "allow";
 pub const DEFAULT_URL_SCHEMES: &[&str] = &["https", "http", "mailto", "tel"];
 pub const MEDIA_RULE_KEYS: &[&str] = &["prefix", "headers"];
+/// The media loader's schemes when the host lists none (no `file`).
+pub const DEFAULT_MEDIA_SCHEMES: &[&str] = &["https", "http", "data"];
+/// `media.limits`: what every image loader enforces.
+pub const MEDIA_MAX_BYTES: u64 = 20_971_520;
+pub const MEDIA_TIMEOUT_MS: u64 = 30_000;
+pub const MEDIA_MAX_PIXELS: u64 = 33_554_432;
+/// The renderer → host hook a failed painter calls (`paint.hook`).
+pub const PAINT_ERROR_HOOK: &str = "onPaintError";
 /// A binding source URI (`<scheme>:<name>[?k=v&…]`).
 pub const SOURCE_PATTERN: &str = "^([a-zA-Z][a-zA-Z0-9+.-]*):([^?]+)(?:\\?(.*))?$";
 pub const MCP_MIME_TYPES: &[&str] = &["application/json+a2ui", "application/a2ui+json"];
@@ -51,11 +61,16 @@ pub fn host_contract() -> Value {
         "clientMessages": {"errorCodes": HOST_ERROR_CODES},
         "functions": {"decisions": FUNCTION_DECISIONS, "defaultPolicy": {"allow": [], "ask": [], "deny": [], "default": DEFAULT_FUNCTION_DECISION}},
         "urls": {"defaultSchemes": DEFAULT_URL_SCHEMES},
-        "media": {"ruleKeys": MEDIA_RULE_KEYS},
+        "media": {
+            "ruleKeys": MEDIA_RULE_KEYS,
+            "defaultSchemes": DEFAULT_MEDIA_SCHEMES,
+            "limits": {"maxBytes": MEDIA_MAX_BYTES, "timeoutMs": MEDIA_TIMEOUT_MS, "maxPixels": MEDIA_MAX_PIXELS},
+        },
         "sources": {"pattern": SOURCE_PATTERN},
         "transport": {"mcpMimeTypes": MCP_MIME_TYPES, "mcpActionTool": MCP_ACTION_TOOL, "sseEvents": SSE_EVENTS},
         "negotiation": {},
         "package": {"required": PACKAGE_REQUIRED},
+        "paint": {"hook": PAINT_ERROR_HOOK, "errorCode": RENDER_FAILED},
         "surface": {"settings": SURFACE_SETTINGS, "formatter": SURFACE_FORMATTER, "commands": SURFACE_COMMANDS},
     })
 }

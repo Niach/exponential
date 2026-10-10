@@ -23,14 +23,12 @@ export function ThemeGallery({ themes, node, backgrounds }: { themes: ThemesDoc[
             </button>
           ))}
         </div>
-        <span className="sdk-note">One surface, three theme files, no code change.</span>
       </div>
       <div ref={grid} className="sdk-gallery-grid">
         {themes.map((t) => (
           <figure key={t.id} className="sdk-gallery-card">
             <figcaption>
               <strong>{t.name}</strong>
-              <code>{t.chain.join(` → `)}</code>
             </figcaption>
             <div className={`sdk-stage is-${modeClass} is-gallery`} style={groundVars(backgrounds[t.id])}>
               {runtime ? <runtime.LiveSurface surfaceId="demo" domId={`theme-${t.id}`} messages={messages} theme={t.id} mode={mode} icons={runtime.icons} /> : <SurfacePlaceholder minHeight={520} />}

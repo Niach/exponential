@@ -7,9 +7,10 @@
 // it.
 
 import { absolutePath, readPointer } from "./dynamic"
-import type { ChildTemplate } from "./types"
+import type { ChildTemplate, ReduceIssue, UiNode } from "./types"
 
-import { WINDOW_OVERSCAN } from "./layout"
+import { WINDOW_OVERSCAN, WINDOW_THRESHOLD } from "./layout"
+import { LIMIT_ISSUES, MAX_COMPONENTS, MAX_TEMPLATE_ITEMS } from "./limits"
 export { WINDOW_THRESHOLD, WINDOW_OVERSCAN } from "./layout"
 
 /** The instance key of every item: the value at `keyPointer` (relative to
@@ -65,7 +66,98 @@ export function templateInstances(data: unknown, template: ChildTemplate, scope 
   const list = readPointer(data, path)
   if (!Array.isArray(list)) return []
   const keys = templateItemKeys(list, template.key)
-  return list.map((_, index) => ({ key: keys[index], path: `${path}/${index}`, index, instance: `${instance}.${instanceSegment(keys[index])}` }))
+  // VAPP-103: never more than `maxTemplateItems` (a renderer counts them
+  // per surface; past the limit the rest is not rendered).
+  return list.slice(0, MAX_TEMPLATE_ITEMS).map((_, index) => ({ key: keys[index], path: `${path}/${index}`, index, instance: `${instance}.${instanceSegment(keys[index])}` }))
+}
+
+/** A template site's key in a `TemplateBudget`: the node holding the
+ *  template + the data scope it sits in. */
+export const templateSiteKey = (nodeId: string, scope: string) => `${nodeId}\u0000${scope}`
+
+export interface TemplateBudget {
+  /** Items each visited template site builds (absent = a site the walk
+   *  never reached: it sits in an item that is not built). */
+  allowed: Map<string, number>
+  /** ONE issue per build: the template component whose next item did not
+   *  fit (`LIMIT_ISSUES.templateItems` or `LIMIT_ISSUES.components`); null =
+   *  everything fits. */
+  issue: ReduceIssue | null
+}
+
+/** Nodes one subtree builds by itself (children + slots; the items of a
+ *  template inside it count when they are instantiated). Iterative. */
+function staticSize(root: UiNode): number {
+  let n = 0
+  const stack: UiNode[] = [root]
+  while (stack.length) {
+    const node = stack.pop()!
+    n++
+    for (const slot of Object.values(node.slots ?? {})) stack.push(slot)
+    for (const child of node.children) stack.push(child)
+  }
+  return n
+}
+
+type BudgetEntry =
+  | { node: UiNode; scope: string }
+  | { site: string; component: string; tpl: UiNode; path: string; size: number; index: number; length: number }
+
+/** VAPP-103: the template items ONE surface builds, in the Rust layout
+ *  build's order (depth-first: a node's slots and static children, then its
+ *  template items, each item's own subtree, nested items included, before
+ *  the next item). The build holds `maxComponents` nodes: it starts at the
+ *  reduced root tree's own nodes (children + slots; template definitions
+ *  aside), and every item costs 1 against `maxTemplateItems` AND its
+ *  template subtree's nodes. The first item that does not fit either budget
+ *  and every later one is not built, with ONE issue on that template
+ *  component. A windowed List (more than `WINDOW_THRESHOLD` rows) mounts
+ *  its rows on demand: its items are not counted up front. Iterative. */
+export function templateBudget(root: UiNode, data: unknown, templateNode: (componentId: string) => UiNode | undefined): TemplateBudget {
+  const allowed = new Map<string, number>()
+  const sizes = new Map<UiNode, number>()
+  const sizeOf = (tpl: UiNode) => {
+    let n = sizes.get(tpl)
+    if (n === undefined) sizes.set(tpl, (n = staticSize(tpl)))
+    return n
+  }
+  let items = 0
+  let nodes = staticSize(root)
+  let issue: ReduceIssue | null = null
+  const stack: BudgetEntry[] = [{ node: root, scope: `` }]
+  while (stack.length) {
+    const entry = stack.pop()!
+    if (`site` in entry) {
+      if (issue || entry.index >= entry.length) continue
+      if (items >= MAX_TEMPLATE_ITEMS) issue = { id: entry.component, message: LIMIT_ISSUES.templateItems }
+      else if (nodes + entry.size > MAX_COMPONENTS) issue = { id: entry.component, message: LIMIT_ISSUES.components }
+      if (issue) continue
+      items++
+      nodes += entry.size
+      allowed.set(entry.site, entry.index + 1)
+      stack.push({ ...entry, index: entry.index + 1 })
+      stack.push({ node: entry.tpl, scope: `${entry.path}/${entry.index}` })
+      continue
+    }
+    const { node, scope } = entry
+    const next: BudgetEntry[] = []
+    for (const slot of Object.values(node.slots ?? {})) next.push({ node: slot, scope })
+    for (const child of node.children) next.push({ node: child, scope })
+    const template = node.template
+    const tpl = template ? templateNode(template.component) : undefined
+    if (template && tpl) {
+      const path = absolutePath(template.path, { base: scope })
+      const list = readPointer(data, path)
+      const windowed = Array.isArray(list) && node.component === `List` && node.children.length + list.length > WINDOW_THRESHOLD
+      if (Array.isArray(list) && !windowed) {
+        const site = templateSiteKey(node.id, scope)
+        allowed.set(site, 0)
+        next.push({ site, component: template.component, tpl, path, size: sizeOf(tpl), index: 0, length: list.length })
+      }
+    }
+    for (let i = next.length - 1; i >= 0; i--) stack.push(next[i]!)
+  }
+  return { allowed, issue }
 }
 
 // ---------------------------------------------------------------------------

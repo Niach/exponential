@@ -127,11 +127,20 @@ view.update(cx, |v, cx| {
 - **Host** (`HostPlugin`, every method defaulted):
   - `on_action` gets every A2UI `action` (with `surface_id`).
   - `on_input` gets host-owned text edits (below).
-  - `open_url` handles `openUrl` and `Link`; `resolve_url` maps image,
-    video and avatar sources.
+  - `open_url` handles `openUrl` and `Link`; the default opens only what
+    `url_policy()` allows (a denied `Link` or markdown link paints as
+    text). `resolve_url` rewrites a media src BEFORE the media policy.
   - `on_function_call` gets host functions (a `functionCall` to a
     non-built-in name; the runtime gates them).
-  - `media_request` maps a media source to a url plus headers.
+  - `media_request` maps a media source to a url plus headers (default:
+    `resolve_url` then `media_options()`: https/http/data, `file` only when
+    listed; `None` = denied). Whatever it returns is re-checked against
+    `media_options()`'s schemes and hosts.
+  - `open_media_file` opens a fetched (or host-allowed `file:`) Video /
+    AudioPlayer source in the system player (default
+    `cx.open_with_system`); see Playback.
+  - `on_paint_error` hears a painter that panicked (it paints an empty
+    box); the host runtime forwards it as an A2UI `RENDER_FAILED` error.
   - `announce(text, live)` speaks live regions, Form errors, `copied`. The
     painter also exposes the latest announcement as a `status` a11y node;
     gpui has no live-region API.
@@ -392,8 +401,10 @@ host.update(cx, |h, cx| h.connect(cx));
   - `on_function_call` (`OutEvent::FunctionCall`) runs `call_function`:
     `not_found` sends `FUNCTION_NOT_FOUND`, `ask` asks the consent hook,
     `deny` sends `FUNCTION_DENIED`, `allow` runs the handler;
-  - `open_url` goes through the URL policy;
-  - `media_request` applies the media rules.
+  - `open_url` goes through the URL policy (`url_policy()` = the host's);
+  - `media_request` applies the media policy + rules;
+  - `on_paint_error` → `ExponentialHost::paint_error` (once per surface +
+    component + message, reset by new components).
 
   Everything else comes from `base`. A plain `SurfaceView` (no host) gets
   `HostPlugin::on_function_call` (a default no-op).
@@ -415,12 +426,26 @@ host.update(cx, |h, cx| h.connect(cx));
   All decoding is the core's (`JsonlDecoder`, `SseDecoder`,
   `messages_from_mcp_result`). A stream's `close` stops delivery at once;
   its blocked read returns at the next chunk.
-- **Media** (`media`). `Image`, `Avatar` and `Video` posters load through
-  `HostPlugin::media_request`: the absolute url plus the media rules'
-  headers, fetched by `media::MediaLoader` (a gpui `Asset`, cached per url +
-  headers). gpui's own `img(url)` needs an app-installed `http_client` (the
-  IDE has none) and cannot carry headers. Without a `media_request` the
-  painter keeps `img(resolve_url(src))`.
+- **Media** (`media`). `Image`, `Avatar`, `Video` posters and markdown
+  block images load through `HostPlugin::media_request` (the media policy:
+  no local file unless the host lists `file`): the absolute url plus the
+  media rules' headers, fetched by `media::MediaLoader` (a gpui `Asset`,
+  cached per url + headers) under the contract's `media.limits`: the whole
+  request within `MEDIA_TIMEOUT_MS`, Content-Length and the body within
+  `MEDIA_MAX_BYTES`, the header's width × height within `MEDIA_MAX_PIXELS`
+  before any decode; every redirect hop passes the policy again. gpui's own
+  `img(url)` needs an app-installed `http_client` (the IDE has none) and
+  cannot carry headers.
+- **Playback** (`media::play`). gpui has no audio or video pipeline, so
+  `Video` and `AudioPlayer` do not play inline: the play press hands the
+  policed `src` to the SYSTEM player. An http(s) src without headers goes
+  through `HostPlugin::open_url` (the URL policy); a request with headers
+  or a `data:` url is fetched under `media.limits` into a temporary file
+  (named for its MIME type), which `HostPlugin::open_media_file` opens
+  (default: `cx.open_with_system`), as does a host-allowed `file:` src. A
+  denied src leaves the play control inert. `autoplay` opens nothing, and
+  the AudioPlayer bar stays `0:00 / durationMs` (the system player has the
+  controls).
 - **Tests.** `tests/host.rs` covers ops through the host, sources and
   cancel, the gate, consent and package narrowing, the URL policy, media
   headers, a MemoryTransport round trip, presses becoming client messages
@@ -458,9 +483,11 @@ an origin not listed in the test's `SURVIVORS` (each with a reason). The
 writer (`EXP_UI_WRITE_FIXTURES=1`) keeps `causes` and `rules` and rewrites
 `renderer`, `survivors`, `coverageGaps` and `cases`. A node only one side
 places fails unless the test's `COVERAGE_GAPS` lists it with a reason.
-Today: 48 cases, 0 size / position / wrap divergences, 0 origins, 0
-survivors; 9 coverage gaps (8 parts gpui paints inside a leaf, the
-Resizable grip the DOM does not tag).
+Today (every fixture × theme × mode × width × direction of the matrix):
+0 size / position / wrap divergences, 0 origins, 0 survivors; the coverage
+gaps are parts gpui paints inside a leaf, plus the Resizable grip the DOM
+does not tag. The ratchet records on Linux only (the `gpui` job of
+`.github/workflows/record-compose-fixtures.yml`).
 
 ## Public API
 

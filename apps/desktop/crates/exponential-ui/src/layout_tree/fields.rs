@@ -334,7 +334,8 @@ impl Builder<'_, '_> {
     /// search field, the (filtered) options and `empty`.
     pub(crate) fn select(&mut self, index: u32) {
         let owner = self.field_open(index);
-        let options = owner.props.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
+        // VAPP-103: only OBJECT options paint (`options: [null]` skips the entry).
+        let options: Vec<Value> = owner.props.get("options").and_then(Value::as_array).map(|a| a.iter().filter(|o| o.is_object()).cloned().collect()).unwrap_or_default();
         let multiple = bool_prop(&owner.props, "multiple");
         let value = owner.props.get("value").map(js).unwrap_or_default();
         let chosen: Vec<String> = if multiple { value.split(',').filter(|s| !s.is_empty()).map(str::to_string).collect() } else { vec![value.clone()].into_iter().filter(|v| !v.is_empty()).collect() };
@@ -716,7 +717,8 @@ impl Builder<'_, '_> {
         }
         let items = self.part(&owner, "items", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": if horizontal { "row" } else { "column" }, "gap": "$spacing.sm", "flexWrap": "wrap"}), json!({}));
         let value = owner.props.get("value").map(js);
-        let options = owner.props.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
+        // VAPP-103: only OBJECT options paint (`options: [null]` skips the entry).
+        let options: Vec<Value> = owner.props.get("options").and_then(Value::as_array).map(|a| a.iter().filter(|o| o.is_object()).cloned().collect()).unwrap_or_default();
         for (i, option) in options.iter().enumerate() {
             let v = option.get("value").map(js).unwrap_or_default();
             let checked = value.as_deref() == Some(v.as_str());

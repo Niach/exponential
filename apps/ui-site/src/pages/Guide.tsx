@@ -32,7 +32,7 @@ const GUIDE_SECTIONS: Record<string, Section[]> = {
         <>
           <p>
             Two packages: <code>@exponential-at/ui</code> (the catalog, themes, reducer and host runtime) and{` `}
-            <code>@exponential-at/ui-react</code> (the renderer). React 18 or 19; the renderer ships its own styles,
+            <code>@exponential-at/ui-react</code> (the renderer). React 19; the renderer ships its own styles,
             so there is no stylesheet or Tailwind setup.
           </p>
           <DocsCode>{`npm install @exponential-at/ui @exponential-at/ui-react`}</DocsCode>
@@ -421,7 +421,7 @@ cd packages/exponential-ui-compose
         <>
           <p>
             A surface calls a function with <code>{`{"functionCall": {"call": "cart.add", "args": {…}}}`}</code> on
-            an event. The catalog's {FUNCTION_COUNT} functions are built in; any other name must be registered, and passes the gate
+            an event. The catalog's {FUNCTION_COUNT} functions are built in; any other name is namespaced (<code>cart.add</code>), must be registered, and passes the gate
             first: <strong>deny</strong> wins, then <strong>allow</strong>, then <strong>ask</strong> (your{` `}
             <code>onFunctionCall</code> consent hook), then <code>default</code>. Patterns are exact names or prefixes
             ending in <code>*</code>. A function may be async; the button stays pending until it settles.
@@ -617,11 +617,7 @@ export default function GuidePage({ path }: PageProps) {
     <>
       <section className="docs-hero content-hero">
         <div className="shell docs-hero-content">
-          <div className="section-eyebrow">
-            Guide {index + 1} of {GUIDES.length}
-          </div>
           <h1>{guide.title}</h1>
-          <p>{guide.blurb}</p>
         </div>
       </section>
 
