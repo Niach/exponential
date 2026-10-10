@@ -46,6 +46,7 @@ struct RunChangesView: View {
                     groups: parseSessionResultGroups(session?.results),
                     files: model.loadedFiles,
                     diffStatus: diffStatus(model),
+                    teamId: session?.teamId,
                     section: $section,
                     focusPath: $focusPath,
                     showsMerge: canMerge

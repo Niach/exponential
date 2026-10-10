@@ -977,6 +977,8 @@ struct ImageResizeDrag {
 type ChangeCallback = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 type BlurCallback = Rc<dyn Fn(&mut Window, &mut App)>;
 type OpenIssueCallback = Rc<dyn Fn(&str, &mut Window, &mut App)>;
+/// EXP-1188: a clicked link's raw href (see [`MarkdownView::on_open_link`]).
+type OpenLinkCallback = Rc<dyn Fn(&str, &mut Window, &mut App)>;
 
 /// The editable markdown surface — see the module docs for the seam.
 pub struct MarkdownEditor {
@@ -2207,7 +2209,11 @@ pub struct MarkdownView {
     resolver: Option<RefResolver>,
     images: Option<Entity<ImageCache>>,
     on_open_issue: Option<OpenIssueCallback>,
+    /// EXP-1188: replaces the default link open ([`open_link_href`]).
+    on_open_link: Option<OpenLinkCallback>,
     on_source_edit: Option<SourceEditCallback>,
+    /// EXP-1188: link bare `http(s)://` URLs at render time (steer feed).
+    autolink: bool,
     /// EXP-521: join the window-level TextSelection layer (gpui-base #2730).
     /// Opt-in: the blurred editor preview keeps click-to-edit un-selectable.
     selectable: bool,
@@ -2229,7 +2235,9 @@ impl MarkdownView {
             resolver: None,
             images: None,
             on_open_issue: None,
+            on_open_link: None,
             on_source_edit: None,
+            autolink: false,
             selectable: false,
             chat: false,
         }
@@ -2252,6 +2260,26 @@ impl MarkdownView {
         on_open_issue: impl Fn(&str, &mut Window, &mut App) + 'static,
     ) -> Self {
         self.on_open_issue = Some(Rc::new(on_open_issue));
+        self
+    }
+
+    /// EXP-1188: route a clicked link's raw href through `on_open_link`
+    /// instead of the default (the OS browser for `http(s)`/`mailto`). The
+    /// steer feed and the Guide pass [`open_agent_link`] so links to this
+    /// instance open in the app.
+    pub fn on_open_link(
+        mut self,
+        on_open_link: impl Fn(&str, &mut Window, &mut App) + 'static,
+    ) -> Self {
+        self.on_open_link = Some(Rc::new(on_open_link));
+        self
+    }
+
+    /// EXP-1188: link bare `http(s)://` URLs in text (display-only — the
+    /// source is never rewritten; see `parse::scan_bare_urls`). Feed-only:
+    /// documents keep the web's bare-URL-stays-bare rendering.
+    pub fn autolink(mut self, autolink: bool) -> Self {
+        self.autolink = autolink;
         self
     }
 
@@ -2315,6 +2343,90 @@ pub(crate) fn open_link_href(url: &str) {
     if let Err(error) = api::opener::open_in_browser(url) {
         log::warn!("open link failed: {error}");
     }
+}
+
+/// EXP-1188: open a link from AGENT prose (narration, the thread, the Guide)
+/// per `domain::app_link`: a run or issue on THIS instance opens in the app,
+/// another instance page opens in the browser at its absolute URL, anything
+/// else external goes to the OS opener, an ignored href does nothing. An
+/// issue whose team or row has not synced falls back to the browser.
+pub(crate) fn open_agent_link(href: &str, window: &mut Window, cx: &mut App) {
+    use domain::app_link::{classify_app_link, AppLink};
+    let origin = crate::queries::instance_origin(cx);
+    let origin = origin.as_deref().unwrap_or("").trim_end_matches('/').to_string();
+    let link = classify_app_link(href, &origin);
+    // The absolute URL of an in-app link, for the browser fallback.
+    let instance_url = || {
+        let href = href.trim();
+        if href.starts_with('/') {
+            (!origin.is_empty()).then(|| format!("{origin}{href}"))
+        } else {
+            Some(href.to_string())
+        }
+    };
+    match link {
+        AppLink::Ignore => {
+            log::info!("agent link ignored: {href}");
+        }
+        AppLink::External { url } => open_link_href(&url),
+        AppLink::App { .. } => {
+            if let Some(url) = instance_url() {
+                open_link_href(&url);
+            }
+        }
+        AppLink::Session { session_id, .. } => {
+            crate::session_screen::open_session(&session_id, window, cx);
+        }
+        AppLink::Issue { team_slug, identifier, .. } => {
+            let team_id = sync::Store::global(cx)
+                .collections()
+                .teams
+                .read(cx)
+                .iter()
+                .find(|team| {
+                    team.slug
+                        .as_deref()
+                        .is_some_and(|slug| slug.eq_ignore_ascii_case(&team_slug))
+                })
+                .map(|team| team.id.clone());
+            let issue_id = team_id.as_deref().and_then(|team_id| {
+                crate::description_editor::issue_id_by_identifier(team_id, &identifier, cx)
+            });
+            match issue_id {
+                Some(issue_id) => crate::navigation::navigate(
+                    window,
+                    cx,
+                    crate::navigation::Screen::IssueDetail { issue_id },
+                ),
+                None => {
+                    if let Some(url) = instance_url() {
+                        open_link_href(&url);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// EXP-1188: `marks` plus a `Link` mark over every bare URL that no link or
+/// inline code already covers — the [`MarkdownView::autolink`] pass.
+fn with_autolinks(line: &str, mut marks: Vec<InlineMark>) -> Vec<InlineMark> {
+    for range in super::parse::scan_bare_urls(line) {
+        let covered = marks.iter().any(|mark| {
+            matches!(mark.kind, InlineKind::Link | InlineKind::InlineCode)
+                && mark.start < range.end
+                && range.start < mark.end
+        });
+        if !covered {
+            marks.push(InlineMark {
+                start: range.start,
+                end: range.end,
+                kind: InlineKind::Link,
+                href: Some(line[range].to_string()),
+            });
+        }
+    }
+    marks
 }
 
 /// EXP-233: last painted content width per (window, view id), feeding
@@ -2707,7 +2819,11 @@ fn render_view_table(
                 view,
                 &format!("t{block_index}-{row_index}-{column}"),
                 &cell.text,
-                cell.marks.clone(),
+                if view.autolink {
+                    with_autolinks(&cell.text, cell.marks.clone())
+                } else {
+                    cell.marks.clone()
+                },
                 cx,
             );
             let width = widths[column];
@@ -2877,6 +2993,7 @@ fn render_inline_text(
         let ranges: Vec<Range<usize>> = display.targets.iter().map(|(r, _)| r.clone()).collect();
         let targets: Rc<Vec<(Range<usize>, ClickTarget)>> = Rc::new(display.targets);
         let on_open_issue = view.on_open_issue.clone();
+        let on_open_link = view.on_open_link.clone();
         let hover_layout = text_layout.clone();
         InteractiveText::new(text_id, styled)
             // EXP-760: the hover PREVIEW. `on_hover` reports a character
@@ -2929,10 +3046,10 @@ fn render_inline_text(
                 // bubble into that.
                 cx.stop_propagation();
                 match target {
-                    ClickTarget::Url(url) => {
-                        open_link_href(url);
-                        let _ = window;
-                    }
+                    ClickTarget::Url(url) => match &on_open_link {
+                        Some(on_open_link) => on_open_link(url, window, cx),
+                        None => open_link_href(url),
+                    },
                     ClickTarget::Issue(identifier) => {
                         if let Some(on_open_issue) = &on_open_issue {
                             on_open_issue(identifier, window, cx);
@@ -2990,6 +3107,12 @@ fn render_view_line(
     marks: Vec<InlineMark>,
     cx: &mut App,
 ) -> gpui::AnyElement {
+    // EXP-1188: the feed links bare URLs — never inside a fenced block.
+    let marks = if view.autolink && attrs.kind != BlockKind::CodeBlock {
+        with_autolinks(line, marks)
+    } else {
+        marks
+    };
     let text_element = render_inline_text(
         view,
         &format!("{block_index}-{line_index}"),
@@ -3531,7 +3654,21 @@ fn build_display_line(
         .filter(|m| m.kind == InlineKind::InlineCode)
         .map(|m| m.start..m.end)
         .collect();
-    let in_code = |offset: usize| code_spans.iter().any(|r| r.contains(&offset));
+    // EXP-1188: a link whose text IS its href (an autolinked bare URL, or
+    // `[url](url)`) shows the URL — no chip may replace an `EXP-42` path
+    // segment inside it.
+    let url_spans: Vec<Range<usize>> = marks
+        .iter()
+        .filter(|m| {
+            m.kind == InlineKind::Link
+                && m.href.as_deref().is_some_and(|href| line.get(m.start..m.end) == Some(href))
+        })
+        .map(|m| m.start..m.end)
+        .collect();
+    let in_code = |offset: usize| {
+        code_spans.iter().any(|r| r.contains(&offset))
+            || url_spans.iter().any(|r| r.contains(&offset))
+    };
 
     let mut decorations: Vec<Decoration> = Vec::new();
     if let Some(resolver) = resolver {
@@ -4021,6 +4158,29 @@ mod tests {
 
     /// EXP-760: the steering feeds' BARE mode — the web
     /// `ISSUE_REF_BARE_SOURCE` alternation, mirrored byte for byte.
+    #[test]
+    fn autolinks_skip_links_and_inline_code() {
+        let line = "see https://a.io/x, `https://b.io` and [c](https://c.io) https://d.io";
+        let code_start = line.find('`').unwrap();
+        let code_end = line[code_start + 1..].find('`').unwrap() + code_start + 2;
+        let link_start = line.find("[c]").unwrap();
+        let marks = vec![
+            InlineMark::new(code_start, code_end, InlineKind::InlineCode),
+            InlineMark {
+                start: link_start,
+                end: link_start + "[c](https://c.io)".len(),
+                kind: InlineKind::Link,
+                href: Some("https://c.io".into()),
+            },
+        ];
+        let hrefs: Vec<String> = with_autolinks(line, marks)
+            .into_iter()
+            .skip(2)
+            .filter_map(|mark| mark.href)
+            .collect();
+        assert_eq!(hrefs, ["https://a.io/x", "https://d.io"]);
+    }
+
     #[test]
     fn bare_mode_scans_hash_and_bare_tokens() {
         let bare = |line: &str| scan_issue_refs_with(line, true);

@@ -229,6 +229,7 @@ private fun QuoteBlockView(
     val autolink = LocalMarkdownAutolink.current
     val inlineCode = LocalInlineCodeStyle.current
     val bare = LocalIssueRefBare.current
+    val appLinks = LocalAppLinks.current
     val body = LocalMarkdownBodyStyle.current
     Row(
         modifier = Modifier
@@ -247,7 +248,7 @@ private fun QuoteBlockView(
             texts.forEachIndexed { index, text ->
                 key(index) {
                     ChipText(
-                        line = annotateLine(text, marks[index], issueRefs, mentions, autolink, inlineCode, bare),
+                        line = annotateLine(text, marks[index], issueRefs, mentions, autolink, inlineCode, bare, appLinks),
                         style = body.copy(color = MdStyle.Blockquote),
                         modifier = Modifier.fillMaxWidth().padding(vertical = 1.dp),
                     )
@@ -285,10 +286,11 @@ private fun LineView(
     val autolink = LocalMarkdownAutolink.current
     val inlineCode = LocalInlineCodeStyle.current
     val bare = LocalIssueRefBare.current
+    val appLinks = LocalAppLinks.current
     val body = LocalMarkdownBodyStyle.current
     when (a.kind) {
         BlockKind.Heading -> ChipText(
-            line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare),
+            line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
             style = MdStyle.heading(a.headingLevel),
             modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
         )
@@ -310,7 +312,7 @@ private fun LineView(
                 Spacer(Modifier.padding(vertical = 2.dp))
             } else {
                 ChipText(
-                    line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare),
+                    line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
                     style = body,
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 )
@@ -330,6 +332,7 @@ private fun ListItemView(
     val autolink = LocalMarkdownAutolink.current
     val inlineCode = LocalInlineCodeStyle.current
     val bare = LocalIssueRefBare.current
+    val appLinks = LocalAppLinks.current
     val body = LocalMarkdownBodyStyle.current
     val indent = MdStyle.listIndentBase + MdStyle.listIndentPerDepth * a.listDepth
     Row(
@@ -356,7 +359,7 @@ private fun ListItemView(
             )
         }
         ChipText(
-            line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare),
+            line = annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks),
             style = body,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -428,8 +431,9 @@ internal fun annotate(
     autolink: Boolean = false,
     inlineCode: MdStyle.InlineCodeStyle = MdStyle.Default,
     bare: Boolean = false,
+    appLinks: AppLinkHandler? = null,
 ): AnnotatedString =
-    annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare).text
+    annotateLine(text, marks, issueRefs, mentions, autolink, inlineCode, bare, appLinks).text
 
 internal fun annotateLine(
     text: String,
@@ -441,6 +445,8 @@ internal fun annotateLine(
     inlineCode: MdStyle.InlineCodeStyle = MdStyle.Default,
     /** EXP-760: also chip BARE `EXP-758` tokens — steering feeds only. */
     bare: Boolean = false,
+    /** EXP-1188: agent surfaces open links on this instance in the app. */
+    appLinks: AppLinkHandler? = null,
 ): AnnotatedLine {
     if (text.isEmpty()) return AnnotatedLine(AnnotatedString(""))
     val refPills =
@@ -500,13 +506,14 @@ internal fun annotateLine(
                 )
                 InlineKind.Link -> {
                     val href = m.href ?: continue
-                    addLinkGuarded(
-                        LinkAnnotation.Url(
-                            url = href,
-                            styles = TextLinkStyles(style = SpanStyle(color = MdStyle.Link)),
-                        ),
-                        rawStart, rawEnd,
-                    )
+                    // EXP-1188: an ignored link (a placeholder host, another
+                    // scheme) stays plain text — nothing to open.
+                    val link = appLinkAnnotation(
+                        href,
+                        appLinks,
+                        TextLinkStyles(style = SpanStyle(color = MdStyle.Link)),
+                    ) ?: continue
+                    addLinkGuarded(link, rawStart, rawEnd)
                 }
             }
         }
@@ -577,13 +584,12 @@ internal fun annotateLine(
         // over the same characters always wins, and the guard drops the
         // autolink instead of stacking a second annotation on the range.
         for (range in bareUrls) {
-            addLinkGuarded(
-                LinkAnnotation.Url(
-                    url = range.url,
-                    styles = TextLinkStyles(style = SpanStyle(color = MdStyle.Link)),
-                ),
-                range.start, range.end,
-            )
+            val link = appLinkAnnotation(
+                range.url,
+                appLinks,
+                TextLinkStyles(style = SpanStyle(color = MdStyle.Link)),
+            ) ?: continue
+            addLinkGuarded(link, range.start, range.end)
         }
         // Resolved `@email` mentions render as the member's name pill
         // (REV2-42) — display-only, not tappable (there is nothing to open),

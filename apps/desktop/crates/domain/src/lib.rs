@@ -74,7 +74,10 @@
 //!   `fixtures/activity-fold.json`;
 //! * [`entity_preview`] — EXP-920's entity-chip rule over a settled
 //!   Exponential tool row's `preview.refs` (icon concept, noun, clamped
-//!   label, `list` grouping), byte-locked ×4 by `fixtures/entity-chip.json`.
+//!   label, `list` grouping), byte-locked ×4 by `fixtures/entity-chip.json`;
+//! * [`app_link`] — EXP-1188: what a clicked markdown link in agent prose
+//!   opens (issue | run in-app, another instance page, external, ignored),
+//!   byte-locked ×4 by `fixtures/app-link.json`.
 //!
 //! gpui-free — headless-testable.
 
@@ -83,6 +86,8 @@ pub mod contract {
 }
 
 pub mod activity_fold;
+// EXP-1188: what a clicked link in agent prose opens, fixture-locked ×4.
+pub mod app_link;
 pub mod batch_run;
 pub mod blocked_start;
 pub mod board;

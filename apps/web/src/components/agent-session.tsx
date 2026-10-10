@@ -17,6 +17,7 @@ import type { ReviewFilesState } from "@/hooks/use-review-files"
 import { editCard } from "@exp/domain-contract/edit-card"
 import { expToolGroupCaption } from "@exp/domain-contract/exp-tool-group"
 import { linkSegments } from "@/lib/linkify"
+import { useAppLinkClick } from "@/hooks/use-app-link-click"
 import { splitIssueRefs } from "@/lib/issue-refs"
 import { Check, X } from "lucide-react"
 import type { PastRunRow } from "@/hooks/use-agents-data"
@@ -2588,20 +2589,24 @@ function FeedMarkdown({
   /** Chat text is line-broken by hand — a single newline is a real break. */
   hardBreaks?: boolean
 }) {
+  const onLinkClick = useAppLinkClick()
   return (
-    <MarkdownEditor
-      markdown={text}
-      editable={false}
-      onChange={noop}
-      appearance="chat"
-      linkify
-      hardBreaks={hardBreaks}
-      ariaLabel={ariaLabel}
-      // EXP-760: agents narrate BARE identifiers ("landed EXP-758"), so the
-      // steering feed — and only it — chips those too. Descriptions and
-      // comments keep the `#IDENT` contract.
-      bareIssueRefs
-    />
+    // EXP-1188: links to this instance route in-app, sources open a tab.
+    <div onClickCapture={onLinkClick}>
+      <MarkdownEditor
+        markdown={text}
+        editable={false}
+        onChange={noop}
+        appearance="chat"
+        linkify
+        hardBreaks={hardBreaks}
+        ariaLabel={ariaLabel}
+        // EXP-760: agents narrate BARE identifiers ("landed EXP-758"), so the
+        // steering feed — and only it — chips those too. Descriptions and
+        // comments keep the `#IDENT` contract.
+        bareIssueRefs
+      />
+    </div>
   )
 }
 
@@ -2623,13 +2628,14 @@ function FeedText({
   ariaLabel: string
   hardBreaks?: boolean
 }) {
+  const onLinkClick = useAppLinkClick()
   if (looksLikeMarkdown(text)) {
     return (
       <FeedMarkdown text={text} ariaLabel={ariaLabel} hardBreaks={hardBreaks} />
     )
   }
   return (
-    <div className="whitespace-pre-wrap break-words">
+    <div className="whitespace-pre-wrap break-words" onClickCapture={onLinkClick}>
       <IssueRefText text={text} />
     </div>
   )

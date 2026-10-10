@@ -33,6 +33,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -95,7 +96,9 @@ import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.markdown.LocalAppLinks
 import com.exponential.app.ui.markdown.MarkdownView
+import com.exponential.app.ui.markdown.rememberAppLinkHandler
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 
@@ -335,11 +338,15 @@ private fun GuideGroupBody(
     onPreview: (SessionResultEntry) -> Unit,
 ) {
     // EXP-933: the topic's report text sits ABOVE its shots.
+    // EXP-1188: a link the agent wrote to an issue or run on this instance
+    // opens in the app.
     group.text?.let { text ->
-        MarkdownView(
-            markdown = text,
-            modifier = Modifier.fillMaxWidth().testTag("work-result-text"),
-        )
+        CompositionLocalProvider(LocalAppLinks provides rememberAppLinkHandler()) {
+            MarkdownView(
+                markdown = text,
+                modifier = Modifier.fillMaxWidth().testTag("work-result-text"),
+            )
+        }
     }
     // EXP-1251: ONE Changes row per section (none for a section whose paths
     // matched nothing, or while the diff is not loaded).

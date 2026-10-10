@@ -35,6 +35,9 @@ struct GuideFace<Merge: View>: View {
     var onOpenStackMember: ((String) -> Void)?
     /// A stack member's long-press "Merge through here".
     var onMergeThrough: ((String) -> Void)?
+    /// EXP-1188: the run's team, so the report chips issue identifiers like
+    /// the steer feed does; nil = no chips.
+    var teamId: String?
     /// The section page in view; nil = the Guide itself.
     @Binding var section: GuideSectionKey?
     /// The file the section page focuses (its sheet's pick).
@@ -53,6 +56,7 @@ struct GuideFace<Merge: View>: View {
         defaultBranch: String? = nil,
         onOpenStackMember: ((String) -> Void)? = nil,
         onMergeThrough: ((String) -> Void)? = nil,
+        teamId: String? = nil,
         section: Binding<GuideSectionKey?>,
         focusPath: Binding<String?>,
         showsMerge: Bool = false,
@@ -67,6 +71,7 @@ struct GuideFace<Merge: View>: View {
         self.defaultBranch = defaultBranch
         self.onOpenStackMember = onOpenStackMember
         self.onMergeThrough = onMergeThrough
+        self.teamId = teamId
         _section = section
         _focusPath = focusPath
         self.showsMerge = showsMerge
@@ -107,6 +112,7 @@ struct GuideFace<Merge: View>: View {
                 defaultBranch: defaultBranch,
                 onOpenStackMember: onOpenStackMember,
                 onMergeThrough: onMergeThrough,
+                teamId: teamId,
                 onOpen: { key in
                     focusPath = nil
                     section = key
@@ -155,6 +161,7 @@ private struct GuideBody: View {
     let defaultBranch: String?
     let onOpenStackMember: ((String) -> Void)?
     let onMergeThrough: ((String) -> Void)?
+    let teamId: String?
     let onOpen: (GuideSectionKey) -> Void
 
     @Environment(AppDependencies.self) private var deps
@@ -173,7 +180,18 @@ private struct GuideBody: View {
         AgentMarkdownContext(
             baseURL: deps.auth.instanceBaseURL(forAccountId: accountId),
             accountId: accountId,
-            httpClient: deps.httpClient
+            httpClient: deps.httpClient,
+            // EXP-1188: the report chips issue identifiers (`#EXP-1` and the
+            // bare `EXP-1` agents write) exactly like the steer feed.
+            issueRefs: teamId.map { teamId in
+                AgentIssueRefContext(
+                    teamId: teamId,
+                    db: deps.db,
+                    onOpen: { [deps, accountId] issueId in
+                        deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                    }
+                )
+            }
         )
     }
 
@@ -289,7 +307,8 @@ private struct GuideBody: View {
     ) -> some View {
         if let text = group.text {
             AgentMarkdownText(
-                text: text, context: markdownContext, overrides: AgentMarkdownText.guideReport
+                text: text, context: markdownContext, options: [.autolinkBareURLs],
+                overrides: AgentMarkdownText.guideReport
             )
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.top, 4)

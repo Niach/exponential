@@ -56,6 +56,9 @@ struct AgentMarkdownText: View {
     /// `init` that built it. The render cache keys on the RESOLVED metrics, so
     /// stepping back to a previous size is a cache hit.
     @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+    /// EXP-1188: optional so a render outside the app shell (previews) just
+    /// keeps UIKit's default link open.
+    @Environment(AppDependencies.self) private var deps: AppDependencies?
 
     /// The steer feed's inline-code palette, generated straight off the shared
     /// design tokens (web `--code-*`, desktop and Android mirror it) — plus
@@ -214,6 +217,7 @@ struct AgentMarkdownText: View {
             imageMaxHeight: imageMaxHeight,
             hugsContentWidth: hugsWidth
         )
+        .environment(\.markdownLinkHandler, linkHandler)
         .frame(maxWidth: hugsWidth ? nil : .infinity, alignment: .leading)
         // EXP-1238: a streamed fragment or a text-size change reloads the
         // row's model IN PLACE (block ids kept), so the text view SwiftUI
@@ -232,4 +236,57 @@ struct AgentMarkdownText: View {
             ))
         }
     }
+
+    // MARK: - Link taps (EXP-1188)
+
+    /// A tapped link classified against the account's instance
+    /// (`AppLink.classify`, fixture-locked ×4): a run or issue on this
+    /// instance opens in-app, a placeholder link does nothing, the rest keep
+    /// UIKit's own open.
+    private var linkHandler: MarkdownLinkHandler? {
+        guard let deps else { return nil }
+        let accountId = context?.accountId.nilIfEmpty ?? deps.auth.activeAccountId ?? ""
+        let base = context?.baseURL ?? deps.auth.instanceBaseURL(forAccountId: accountId)
+        let origin = base?.absoluteString ?? ""
+        return { url in Self.linkAction(url, origin: origin, accountId: accountId, deps: deps) }
+    }
+
+    private static func linkAction(
+        _ url: URL, origin: String, accountId: String, deps: AppDependencies
+    ) -> (() -> Void)? {
+        switch AppLink.classify(url.absoluteString, origin: origin) {
+        case .external:
+            return nil
+        case .ignore:
+            return {}
+        case let .session(_, sessionId):
+            let userId = deps.auth.accounts.first(where: { $0.id == accountId })?.userId
+            return { deps.deepLinkBus.navigateToSession(sessionId, userId: userId) }
+        case let .issue(teamSlug, _, identifier):
+            return {
+                if let issueId = IssueRefLookup.resolve(
+                    identifier: identifier, teamSlug: teamSlug, db: deps.db, accountId: accountId
+                ) {
+                    deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
+                } else {
+                    // Not synced / not visible: the in-app Safari sheet —
+                    // never UIApplication.open, the app is entitled for the
+                    // link and would re-open itself.
+                    deps.deepLinkBus.openExternal(url)
+                }
+            }
+        case .app:
+            // The one other page the app renders natively (EXP-825); every
+            // other instance page goes to the Safari sheet for the same
+            // entitlement reason as above.
+            if case let .agent(teamSlug) = WebLinks.parse(url) {
+                return { deps.deepLinkBus.navigateToAgent(teamSlug: teamSlug, accountId: accountId) }
+            }
+            return { deps.deepLinkBus.openExternal(url) }
+        }
+    }
+}
+
+private extension String {
+    var nilIfEmpty: String? { isEmpty ? nil : self }
 }

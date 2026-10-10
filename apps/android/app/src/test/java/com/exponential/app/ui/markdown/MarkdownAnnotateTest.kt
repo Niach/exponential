@@ -484,4 +484,29 @@ class MarkdownAnnotateTest {
         assertEquals(1, result.getLinkAnnotations(0, result.length).size)
         assertNoOverlappingLinks(result)
     }
+
+    // EXP-1188: under an app-link handler, links route by `app-link.json`.
+    @Test
+    fun appLinksRouteInstanceLinksInApp() {
+        val opened = ArrayList<Pair<com.exponential.app.domain.AppLink, String>>()
+        val handler = AppLinkHandler("https://app.exponential.at") { link, url -> opened.add(link to url) }
+        fun linkOf(href: String): LinkAnnotation? {
+            val text = "link"
+            val result = annotate(text, listOf(InlineMark(0, 4, InlineKind.Link, href = href)), null, appLinks = handler)
+            return result.getLinkAnnotations(0, result.length).singleOrNull()?.item
+        }
+        val run = linkOf("/t/acme/sessions/abc") as LinkAnnotation.Clickable
+        run.linkInteractionListener?.onClick(run)
+        assertEquals(
+            com.exponential.app.domain.AppLink.Session("acme", "abc") to "https://app.exponential.at/t/acme/sessions/abc",
+            opened.single(),
+        )
+        assertTrue(linkOf("https://app.exponential.at/t/acme/boards/web/issues/EXP-1") is LinkAnnotation.Clickable)
+        assertEquals("https://app.exponential.at/settings/account", (linkOf("/settings/account") as LinkAnnotation.Url).url)
+        assertEquals("https://example.com/a", (linkOf("https://example.com/a") as LinkAnnotation.Url).url)
+        assertNull(linkOf("https://…"))
+        // Without a handler every href opens as written, as before.
+        val plain = annotate("link", listOf(InlineMark(0, 4, InlineKind.Link, href = "/t/acme/sessions/abc")), null)
+        assertEquals("/t/acme/sessions/abc", (plain.getLinkAnnotations(0, plain.length).single().item as LinkAnnotation.Url).url)
+    }
 }
