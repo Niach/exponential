@@ -81,7 +81,7 @@ import kotlin.math.roundToInt
  * The media loader the leaves share (no image library). It loads ONLY a
  * policed [MediaRequest] (the host's media policy already allowed it):
  * `http(s)` (its headers sent; redirects followed by hand, each hop passed
- * through the policy again) and `data:` URIs; never a local file or content
+ * through the policy again, an https → http hop refused) and `data:` URIs; never a local file or content
  * URI. Every load enforces [MediaLimits] (catalog/host.json `media.limits`):
  * Content-Length up front and the body as it streams, connect + read
  * timeouts and a deadline over the whole request, width × height read from
@@ -142,28 +142,12 @@ object LeafImages {
         val deadline = System.nanoTime() + limits.timeoutMs * 1_000_000
         var current = request
         repeat(MAX_REDIRECTS + 1) {
-            val scheme = current.url.substringBefore(':', "").lowercase()
-            when (scheme) {
-                "data" -> return dataBytes(current.url, limits)
-                "http", "https" -> {}
-                else -> throw LoadFailure(Failure.Denied, "scheme $scheme")
-            }
-            val remaining = ((deadline - System.nanoTime()) / 1_000_000).coerceAtLeast(1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
-            val conn = URL(current.url).openConnection() as HttpURLConnection
+            if (schemeOf(current.url) == "data") return dataBytes(current.url, limits)
+            val conn = connect(current, deadline)
             try {
-                conn.connectTimeout = remaining
-                conn.readTimeout = remaining
-                conn.instanceFollowRedirects = false
-                for ((k, v) in current.headers) conn.setRequestProperty(k, v)
-                val code = try {
-                    conn.responseCode
-                } catch (e: java.net.SocketTimeoutException) {
-                    throw LoadFailure(Failure.Timeout, "timed out")
-                }
+                val code = responseCode(conn)
                 if (code in 300..399) {
-                    val location = conn.getHeaderField("Location") ?: throw LoadFailure(Failure.Http, "redirect without Location")
-                    val next = URL(URL(current.url), location).toString()
-                    current = police(next) ?: throw LoadFailure(Failure.Denied, "redirect to $next")
+                    current = redirectHop(current, conn.getHeaderField("Location"), police)
                     return@repeat
                 }
                 if (code !in 200..299) throw LoadFailure(Failure.Http, "HTTP $code")
@@ -175,6 +159,75 @@ object LeafImages {
             }
         }
         throw LoadFailure(Failure.Http, "too many redirects")
+    }
+
+    /**
+     * Where a policed http(s) stream ends up (blocking): a probe GET
+     * (`Range: bytes=0-0`, the body never read) follows the redirect chain
+     * by hand, each hop through [redirectHop], and returns the FINAL hop's
+     * request (its url + the headers the policy rebuilt for it). The byte
+     * cap does not apply (catalog/host.json: Video / Audio stream); the
+     * timeout does. Throws [LoadFailure].
+     */
+    fun resolveStream(request: MediaRequest, limits: MediaLimits = MediaLimits.contract, police: (String) -> MediaRequest? = { null }): MediaRequest {
+        val deadline = System.nanoTime() + limits.timeoutMs * 1_000_000
+        var current = request
+        repeat(MAX_REDIRECTS + 1) {
+            val conn = connect(current, deadline, mapOf("Range" to "bytes=0-0"))
+            try {
+                val code = responseCode(conn)
+                if (code in 300..399) {
+                    current = redirectHop(current, conn.getHeaderField("Location"), police)
+                    return@repeat
+                }
+                // 416: an empty item, still the final url.
+                if (code !in 200..299 && code != 416) throw LoadFailure(Failure.Http, "HTTP $code")
+                return current
+            } finally {
+                conn.disconnect()
+            }
+        }
+        throw LoadFailure(Failure.Http, "too many redirects")
+    }
+
+    /**
+     * One redirect hop from [current] to [location] (relative to it): the
+     * target goes through [police] again (null = denied; its headers are
+     * rebuilt, so a hop that leaves a rule's prefix loses the rule's
+     * headers), and an https → http downgrade is refused. Throws [LoadFailure].
+     */
+    fun redirectHop(current: MediaRequest, location: String?, police: (String) -> MediaRequest?): MediaRequest {
+        if (location == null) throw LoadFailure(Failure.Http, "redirect without Location")
+        val next = runCatching { URL(URL(current.url), location).toString() }.getOrElse { throw LoadFailure(Failure.Http, "bad Location $location") }
+        if (isDowngrade(current.url, next)) throw LoadFailure(Failure.Denied, "redirect downgrades to $next")
+        val policed = police(next) ?: throw LoadFailure(Failure.Denied, "redirect to $next")
+        if (isDowngrade(current.url, policed.url)) throw LoadFailure(Failure.Denied, "redirect downgrades to ${policed.url}")
+        return policed
+    }
+
+    /** `https:` → `http:`. */
+    fun isDowngrade(from: String, to: String): Boolean = schemeOf(from) == "https" && schemeOf(to) == "http"
+
+    internal fun schemeOf(url: String): String = url.substringBefore(':', "").lowercase()
+
+    /** An http(s) connection for [request] that never follows redirects itself. Throws [LoadFailure]. */
+    private fun connect(request: MediaRequest, deadline: Long, extra: Map<String, String> = emptyMap()): HttpURLConnection {
+        val scheme = schemeOf(request.url)
+        if (scheme != "http" && scheme != "https") throw LoadFailure(Failure.Denied, "scheme $scheme")
+        val remaining = ((deadline - System.nanoTime()) / 1_000_000).coerceAtLeast(1).coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+        val conn = URL(request.url).openConnection() as HttpURLConnection
+        conn.connectTimeout = remaining
+        conn.readTimeout = remaining
+        conn.instanceFollowRedirects = false
+        for ((k, v) in request.headers) conn.setRequestProperty(k, v)
+        for ((k, v) in extra) conn.setRequestProperty(k, v)
+        return conn
+    }
+
+    private fun responseCode(conn: HttpURLConnection): Int = try {
+        conn.responseCode
+    } catch (e: java.net.SocketTimeoutException) {
+        throw LoadFailure(Failure.Timeout, "timed out")
     }
 
     /** Read [input] to the end: more than [maxBytes] or past [deadline] (nanoTime) fails. */
@@ -298,7 +351,7 @@ internal fun AvatarLeaf(cx: LeafContext) {
     }
 }
 
-/** The tinted placeholder an `Image` paints without a loaded picture: the image glyph over the alt text. */
+/** The tinted placeholder an `Image` paints without a loaded picture: the image glyph over the alt text (glyph only without one). */
 @Composable
 internal fun ImagePlaceholder(cx: LeafContext, ink: Color, label: String) {
     Column(
@@ -307,7 +360,7 @@ internal fun ImagePlaceholder(cx: LeafContext, ink: Color, label: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         GlyphView(Glyph.Image, 20f, ink.copy(alpha = ink.alpha * 0.6f))
-        BasicText(
+        if (label.isNotEmpty()) BasicText(
             label,
             style = cx.composeTextStyle(ts = ResolvedTextStyle(12f, 400, 16f, cx.textStyle.fontFamily), color = ink.copy(alpha = ink.alpha * 0.6f)),
             maxLines = 1,
@@ -319,7 +372,7 @@ internal fun ImagePlaceholder(cx: LeafContext, ink: Color, label: String) {
 /** `Image`: the picture scaled by `fit` (cover default; contain / scaleDown fit; fill stretches), clipped; else the placeholder. */
 @Composable
 internal fun ImageLeaf(cx: LeafContext) {
-    val alt = cx.props.str("alt").ifEmpty { "image" }
+    val alt = cx.props.str("alt")
     val muted = cx.themeColor("mutedForeground") ?: cx.ink
     val picture = rememberLeafImage(cx, cx.props.str("src"))
     val scale = when (cx.props.str("fit")) {
@@ -356,8 +409,8 @@ private fun rememberPlayback(cx: LeafContext): Pair<MediaPlayback, MediaRequest?
 /**
  * `Video`: `src` plays through the policed media request (ExoPlayer in a
  * `PlayerView` with the platform's controls; `autoplay` = muted on
- * appear); before that the poster (or a dark tint), a play button and the
- * duration. A denied src stays that poster with an inert play glyph
+ * appear); before that the poster (or a dark tint), a play button (a
+ * spinner, inert, while the source opens) and the duration. A denied src stays that poster with an inert play glyph
  * (React's sourceless `<video>`).
  */
 @Composable
@@ -391,11 +444,13 @@ internal fun VideoLeaf(cx: LeafContext) {
                 .align(Alignment.Center)
                 .size(44.dp)
                 .background(Color.White.copy(alpha = 0.18f), CircleShape)
-                .clickable(enabled = request != null, role = Role.Button) {
+                .clickable(enabled = request != null && !playback.loading, role = Role.Button) {
                     scope.launch { playback.play(request, police = model::mediaRequest) }
                 },
             contentAlignment = Alignment.Center,
-        ) { GlyphView(Glyph.Play, 20f, Color.White) }
+        ) {
+            if (playback.loading) SpinnerView(20f, Color.White) else GlyphView(Glyph.Play, 20f, Color.White)
+        }
         cx.props.num("durationMs")?.let { ms ->
             BasicText(
                 DateModel.formatDuration(ms),
@@ -413,7 +468,8 @@ internal fun VideoLeaf(cx: LeafContext) {
 
 /**
  * `AudioPlayer`: the title line over a controls capsule. `src` plays
- * through the policed media request: play / pause, the track fills with
+ * through the policed media request: play / pause (a spinner, inert,
+ * while the source opens), the track fills with
  * the position (a press seeks), `elapsed / length` (the item's, else
  * `durationMs`). A denied src keeps the controls inert.
  */
@@ -451,12 +507,13 @@ internal fun AudioLeaf(cx: LeafContext) {
                     Modifier
                         .size(28.dp)
                         .background(cx.ink, CircleShape)
-                        .clickable(enabled = request != null, role = Role.Button) {
+                        .clickable(enabled = request != null && !playback.loading, role = Role.Button) {
                             if (playback.playing) playback.pause() else scope.launch { playback.play(request, police = model::mediaRequest) }
                         },
                     contentAlignment = Alignment.Center,
                 ) {
-                    GlyphView(if (playback.playing) Glyph.Pause else Glyph.Play, 14f, cx.themeColor("background") ?: Color.White)
+                    val glyphInk = cx.themeColor("background") ?: Color.White
+                    if (playback.loading) SpinnerView(14f, glyphInk) else GlyphView(if (playback.playing) Glyph.Pause else Glyph.Play, 14f, glyphInk)
                 }
                 Box(
                     Modifier
