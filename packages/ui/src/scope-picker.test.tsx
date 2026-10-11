@@ -50,7 +50,7 @@ describe(`ScopePicker`, () => {
     )
     expect(container.querySelectorAll(`[data-team]`)).toHaveLength(2)
     expect(getByText(`WEB`)).toBeTruthy()
-    expect(getByText(`No boards yet.`)).toBeTruthy()
+    expect(getByText(`No boards yet`)).toBeTruthy()
   })
 
   it(`ticking a team adds it; its boards read checked and disabled`, () => {
@@ -86,7 +86,7 @@ describe(`ScopePicker`, () => {
     const { getByText } = render(
       <ScopePicker tree={[]} value={scoped({})} onChange={vi.fn()} />
     )
-    expect(getByText(`You aren't a member of any team yet.`)).toBeTruthy()
+    expect(getByText(`No teams yet`)).toBeTruthy()
   })
 })
 

@@ -256,50 +256,19 @@ struct IssuesHomeView: View {
     @ViewBuilder
     private var emptyStateHint: some View {
         if hasNoTeam {
-            VStack(spacing: 12) {
-                AppIcon(AppIcons.settingsMembers, size: 22)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                Text("No team yet")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                Text("Create a team, or join one with an invite link from a teammate.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .multilineTextAlignment(.center)
-
-                GlassPill(
-                    "Create or join a team",
-                    icon: AppIcons.uiAdd,
-                    size: .md,
-                    mode: .action { showTeamSetup = true }
-                )
+            EmptyState(.noTeam, actionLabel: "Create or join a team") {
+                showTeamSetup = true
             }
-            .padding(.horizontal, 40)
         } else {
-            // EXP-698 r5: the shared empty-state shape (glyph in a 48pt washed
-            // circle, headline, one line, primary pill) with the
+            // EXP-1274 `boards`: the shared empty state with the
             // getting-started checklist under it — the same block the empty
             // BOARD renders, and the same one web and the IDE draw for a
             // board-less team.
             ScrollView {
                 VStack(spacing: 24) {
-                    VStack(spacing: 12) {
-                        AppIcon(AppIcons.navBoards, size: AppIcon.Size.large)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .frame(width: 48, height: 48)
-                            .background(GlassTokens.fillActive, in: Circle())
-
-                        Text("No boards yet")
-                            .font(.headline)
-                            .foregroundStyle(.white)
-
-                        Text("Create a board to start tracking work.")
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                            .multilineTextAlignment(.center)
-
+                    EmptyState(.boards, actions: {
                         GlassPill(
-                            "Create board",
+                            EmptyStateCopy.State.boards.action ?? "",
                             size: .md,
                             mode: .action { Task { await beginCreateBoard() } },
                             primary: true,
@@ -313,8 +282,7 @@ struct IssuesHomeView: View {
                                 AppIcon(AppIcons.uiAdd, size: GlassPillTokens.glyphMd)
                             }
                         }
-                    }
-                    .frame(maxWidth: .infinity)
+                    })
 
                     if let accountId = deps.auth.activeAccountId, let teamId = checklistTeamId {
                         GettingStartedCards(
@@ -326,7 +294,6 @@ struct IssuesHomeView: View {
                     }
                 }
                 .padding(.horizontal, 16)
-                .padding(.top, 48)
                 .padding(.bottom, 24)
             }
             .scrollBounceBehavior(.basedOnSize)

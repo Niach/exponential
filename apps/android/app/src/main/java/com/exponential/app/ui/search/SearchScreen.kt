@@ -102,12 +102,12 @@ fun SearchScreen(
             // Android (web `lib/issue-search.ts`; `issue-search-surfaces.test.ts` greps this file).
             when {
                 state.query.isEmpty() -> EmptyState(
-                    message = "Search issues across all your boards.",
-                    detail = "Matches identifiers, titles, and full text.",
+                    title = "Search issues across all your boards.",
+                    description = "Matches identifiers, titles, and full text.",
                     icon = ExpIcons.navSearch,
                 )
                 state.results.isEmpty() -> EmptyState(
-                    message = "No issues match",
+                    title = "No issues match",
                     icon = ExpIcons.navSearch,
                 )
                 else -> LazyColumn(

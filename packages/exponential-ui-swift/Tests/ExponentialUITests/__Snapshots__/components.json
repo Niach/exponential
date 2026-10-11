@@ -6128,7 +6128,7 @@
     ]
   },
   "EmptyState\/example" : {
-    "height" : 128,
+    "height" : 216,
     "nodes" : [
       {
         "component" : "Box",
@@ -6136,27 +6136,39 @@
           0,
           0,
           390,
-          128
+          216
         ],
         "id" : "empty-state"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          171,
+          48,
+          48,
+          48
+        ],
+        "id" : "empty-state.disc",
+        "radius" : 9999
       },
       {
         "component" : "Icon",
         "frame" : [
           183,
-          24,
+          60,
           24,
           24
         ],
-        "id" : "empty-state.icon"
+        "id" : "empty-state.disc.icon"
       },
       {
         "component" : "Text",
         "frame" : [
           131,
-          56,
+          108,
           128,
-          20
+          28
         ],
         "id" : "empty-state.title"
       },
@@ -6164,7 +6176,99 @@
         "component" : "Text",
         "frame" : [
           107,
-          84,
+          148,
+          176,
+          20
+        ],
+        "id" : "empty-state.description"
+      }
+    ]
+  },
+  "EmptyState\/size=list" : {
+    "height" : 92,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          92
+        ],
+        "id" : "empty-state"
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          185,
+          24,
+          20,
+          20
+        ],
+        "id" : "empty-state.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          131,
+          48,
+          128,
+          20
+        ],
+        "id" : "empty-state.title"
+      }
+    ]
+  },
+  "EmptyState\/size=page" : {
+    "height" : 216,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          216
+        ],
+        "id" : "empty-state"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          171,
+          48,
+          48,
+          48
+        ],
+        "id" : "empty-state.disc",
+        "radius" : 9999
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          183,
+          60,
+          24,
+          24
+        ],
+        "id" : "empty-state.disc.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          131,
+          108,
+          128,
+          28
+        ],
+        "id" : "empty-state.title"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          107,
+          148,
           176,
           20
         ],
@@ -11743,6 +11847,170 @@
           132,
           16,
           246,
+          0
+        ],
+        "id" : "section.header.spacer"
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          20
+        ],
+        "id" : "section.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          36,
+          390,
+          20
+        ],
+        "id" : "section-child"
+      }
+    ]
+  },
+  "Section\/loading=false" : {
+    "height" : 56,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          56
+        ],
+        "id" : "section"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "section.header",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          12,
+          8,
+          16,
+          16
+        ],
+        "id" : "section.header.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          36,
+          6,
+          88,
+          20
+        ],
+        "id" : "section.header.title"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          132,
+          16,
+          246,
+          0
+        ],
+        "id" : "section.header.spacer"
+      },
+      {
+        "component" : "List",
+        "frame" : [
+          0,
+          36,
+          390,
+          20
+        ],
+        "id" : "section.body"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          0,
+          36,
+          390,
+          20
+        ],
+        "id" : "section-child"
+      }
+    ]
+  },
+  "Section\/loading=true" : {
+    "height" : 56,
+    "nodes" : [
+      {
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          56
+        ],
+        "id" : "section"
+      },
+      {
+        "bg" : "#ffffff0a",
+        "component" : "Box",
+        "frame" : [
+          0,
+          0,
+          390,
+          32
+        ],
+        "id" : "section.header",
+        "radius" : 10
+      },
+      {
+        "component" : "Icon",
+        "frame" : [
+          12,
+          8,
+          16,
+          16
+        ],
+        "id" : "section.header.icon"
+      },
+      {
+        "component" : "Text",
+        "frame" : [
+          36,
+          6,
+          88,
+          20
+        ],
+        "id" : "section.header.title"
+      },
+      {
+        "component" : "Spinner",
+        "frame" : [
+          132,
+          8,
+          16,
+          16
+        ],
+        "id" : "section.header.loading"
+      },
+      {
+        "component" : "Box",
+        "frame" : [
+          156,
+          16,
+          222,
           0
         ],
         "id" : "section.header.spacer"

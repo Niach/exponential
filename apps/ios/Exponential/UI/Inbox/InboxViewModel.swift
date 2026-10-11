@@ -146,7 +146,7 @@ final class InboxViewModel {
     /// runs (EXP-980 — renderable with or WITHOUT a `sessionId`: the run may
     /// have been pruned, and the row still has to be readable and clearable).
     /// MainNavigator's tab-bar dot applies the same rule (REV-15) so the dot
-    /// can never stay lit over an inbox that shows "You're all caught up"
+    /// can never stay lit over an inbox that shows "All caught up"
     /// with no Mark-all-read escape.
     nonisolated static func isRenderable(_ notification: NotificationEntity, issueIds: Set<String>) -> Bool {
         guard let issueId = notification.issueId else {

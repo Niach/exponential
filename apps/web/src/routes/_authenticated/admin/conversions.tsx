@@ -11,6 +11,7 @@ import { getRuntimeConfig } from "@/lib/runtime-config"
 import {
   Pill,
   Button,
+  ListEmpty,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import {
@@ -214,7 +215,7 @@ function AdminConversions() {
         description="Users signed up in the window, grouped by claimed ref/UTM attribution. “(direct)” = no params survived to signup."
       >
         {overview.sources.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No signups yet.</p>
+          <ListEmpty>No signups yet</ListEmpty>
         ) : (
           <div className="rounded-md border">
             <div className="hidden md:grid grid-cols-[1fr_1fr_1fr_90px_70px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
@@ -252,9 +253,7 @@ function AdminConversions() {
         description="First activation per subscription, newest first (max 50)."
       >
         {overview.paidConversions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No paid conversions in this window.
-          </p>
+          <ListEmpty>No paid conversions in this window</ListEmpty>
         ) : (
           <div className="rounded-md border">
             <div className="hidden md:grid grid-cols-[150px_1fr_1fr_60px_1fr_90px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">
@@ -295,7 +294,7 @@ function AdminConversions() {
         description="Latest 50 conversion events in the window, across all names."
       >
         {overview.recentEvents.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No events yet.</p>
+          <ListEmpty>No events yet</ListEmpty>
         ) : (
           <div className="rounded-md border">
             {overview.recentEvents.map((event) => (
@@ -399,7 +398,7 @@ function SignupCohortCard({ cohort, days }: { cohort: Cohort; days: number }) {
       }
     >
       {total === 0 ? (
-        <p className="text-sm text-muted-foreground">No signups in this window.</p>
+        <ListEmpty>No signups in this window</ListEmpty>
       ) : (
         <div className="space-y-1.5" onPointerLeave={() => setHover(null)}>
           {STAGES.map((stage, i) => {
@@ -482,7 +481,7 @@ function RecentSignupsCard({
       }
     >
       {rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No signups yet.</p>
+        <ListEmpty>No signups yet</ListEmpty>
       ) : (
         <div className="rounded-md border overflow-x-auto">
           <div className="min-w-[980px]">

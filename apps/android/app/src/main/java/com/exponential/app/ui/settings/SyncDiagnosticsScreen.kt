@@ -1,5 +1,6 @@
 package com.exponential.app.ui.settings
 
+import com.exponential.app.ui.icons.ExpIcons
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -85,7 +86,7 @@ fun SyncDiagnosticsScreen(
     ) { padding ->
         if (shapes.isEmpty()) {
             Box(Modifier.padding(padding).fillMaxSize()) {
-                EmptyState(message = "No active sync.")
+                EmptyState(title = "No active sync", icon = ExpIcons.uiRefresh)
             }
             return@Scaffold
         }

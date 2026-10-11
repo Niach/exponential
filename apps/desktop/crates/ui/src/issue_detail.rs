@@ -2923,14 +2923,11 @@ impl Render for IssuePicker {
 
         let mut list = v_flex().w_full().max_h(px(320.)).gap_0p5();
         if items.is_empty() {
-            list = list.child(
-                div()
-                    .px_2()
-                    .py_3()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("No matching issues."),
-            );
+            list = list.child(crate::controls::empty_state_list(
+                gpui_component::Icon::new(crate::icons::registry::UI_EMPTY_SEARCH),
+                "No issues match",
+                cx,
+            ));
         }
         // EXP-892: ONE highlight — the selected row; hovering moves it there.
         let selected = self.selected.min(items.len().saturating_sub(1));

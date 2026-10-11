@@ -1,3 +1,4 @@
+import ExpCore
 import SwiftUI
 
 // EXP-1029 contract, EXP-1021 implementation — THE picker primitive on iOS.
@@ -583,11 +584,8 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
                    PickerEmptyLine.shows(
                        hasFooter: footer != nil, footerReplacesEmpty: footerReplacesEmpty
                    ) {
-                    Text(emptyText)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 24)
+                    // EXP-1274: the list empty state, text-only.
+                    EmptyState(title: emptyText, size: .list)
                 }
             } else {
                 ForEach(visible) { item in

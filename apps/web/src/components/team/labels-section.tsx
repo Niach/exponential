@@ -4,6 +4,7 @@ import { useLiveQuery, eq } from "@tanstack/react-db"
 import { Plus, Trash2 } from "lucide-react"
 import { labelCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { Empty } from "@/components/empty"
 import type { Label as LabelType } from "@/db/schema"
 import {
   Button,
@@ -243,9 +244,7 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
           />
         ))}
         {labelList.length === 0 && !creating && (
-          <p className="text-sm text-muted-foreground px-3 py-2">
-            No labels yet.
-          </p>
+          <Empty id="labels" />
         )}
         {creating && (
           <ListRow className="flex-col items-stretch gap-3 px-3 py-2">

@@ -74,15 +74,7 @@ struct AgentSessionsList: View {
     }
 
     private var noAgentsRow: some View {
-        HStack(spacing: 8) {
-            Text("No agents running right now.")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .flatRow()
+        EmptyState(.runningAgents)
     }
 
     @ViewBuilder

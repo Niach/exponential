@@ -359,7 +359,11 @@ fn board_card(board_id: &str, cx: &mut App) -> Option<AnyElement> {
         board.name.clone(),
     ));
     if total == 0 {
-        card = card.child(muted_line("No open issues", cx));
+        card = card.child(crate::controls::empty_state_list(
+            gpui_component::Icon::new(crate::icons::registry::NAV_ISSUES),
+            "No open issues",
+            cx,
+        ));
     }
     let mut rows = v_flex().w_full().gap_1();
     for issue in open.iter().take(BOARD_CARD_ISSUES) {

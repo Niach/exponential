@@ -1,6 +1,7 @@
 import type { ReactNode } from "react"
 
 import { cn } from "../cn"
+import { ListEmpty } from "../empty-state"
 import {
   SelectionCheck,
   pickedAttr,
@@ -28,7 +29,7 @@ interface PickerMenuRowsBase<T extends string> {
   items: readonly PickerItem<T>[]
   /** Replaces the row BODY; the selection language stays the primitive's. */
   renderItem?: (item: PickerItem<T>, state: { selected: boolean }) => ReactNode
-  /** A disabled row shown instead of an EMPTY list ("No labels yet"). */
+  /** The list-size empty line shown instead of an EMPTY list ("No labels yet"). */
   emptyText?: ReactNode
   /** Extra classes on every row. */
   className?: string
@@ -97,9 +98,7 @@ export function PickerMenuRows<T extends string = string>(
         </MenuRow>
       )}
       {items.length === 0 && emptyText !== undefined && emptyText !== null ? (
-        <MenuRow disabled className={className} data={{ "data-picker-empty": `true` }}>
-          {emptyText}
-        </MenuRow>
+        <ListEmpty data-picker-empty="true">{emptyText}</ListEmpty>
       ) : null}
       {items.map((item) => {
         const state = selection.stateOf(item)

@@ -4454,6 +4454,64 @@
                 }
               }
             ]
+          },
+          {
+            "id": "specimen-empty-state-case-1",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-empty-state-case-1-label",
+                "component": "Text",
+                "props": {
+                  "text": "size · page",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c1-empty-state",
+                "component": "EmptyState",
+                "props": {
+                  "icon": "nav-inbox",
+                  "title": "No notifications",
+                  "description": "You are all caught up.",
+                  "size": "page"
+                }
+              }
+            ]
+          },
+          {
+            "id": "specimen-empty-state-case-2",
+            "component": "Stack",
+            "props": {
+              "direction": "vertical",
+              "gap": "xs",
+              "align": "stretch"
+            },
+            "children": [
+              {
+                "id": "specimen-empty-state-case-2-label",
+                "component": "Text",
+                "props": {
+                  "text": "size · list",
+                  "variant": "caption"
+                }
+              },
+              {
+                "id": "c2-empty-state",
+                "component": "EmptyState",
+                "props": {
+                  "icon": "nav-inbox",
+                  "title": "No notifications",
+                  "description": "You are all caught up.",
+                  "size": "list"
+                }
+              }
+            ]
           }
         ]
       }

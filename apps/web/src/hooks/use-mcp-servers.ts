@@ -14,6 +14,10 @@ import type { McpServerList } from "@/lib/mcp-servers"
 export interface McpServersQuery {
   /** null until the first fetch answers. */
   servers: McpServerList | null
+  /** EXP-1274: a refetch is running over a list that already answered (after
+   * a write, or on return to the tab) — the section band spins its glyph;
+   * the rows stay. Never true before the first answer. */
+  reloading: boolean
   error: string | null
   refresh: () => Promise<void>
   /** FEED-73: share (or stop sharing) the caller's OWN connection to a server
@@ -27,25 +31,33 @@ export function useMcpServers(
   enabled = true
 ): McpServersQuery {
   const [servers, setServers] = useState<McpServerList | null>(null)
+  const [reloading, setReloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     if (!teamId || !enabled) return
+    setReloading(true)
     try {
       setServers(await trpc.mcpServers.list.query({ teamId }))
       setError(null)
     } catch (err) {
       setError(trpcErrorMessage(err, `Couldn't load the MCP servers.`))
+    } finally {
+      setReloading(false)
     }
   }, [teamId, enabled])
 
   useEffect(() => {
     if (!teamId || !enabled) {
       setServers(null)
+      setReloading(false)
       return
     }
     let active = true
+    let first = true
     const load = () => {
+      if (!first) setReloading(true)
+      first = false
       trpc.mcpServers.list
         .query({ teamId })
         .then((rows) => {
@@ -56,6 +68,9 @@ export function useMcpServers(
         .catch((err) => {
           if (!active) return
           setError(trpcErrorMessage(err, `Couldn't load the MCP servers.`))
+        })
+        .finally(() => {
+          if (active) setReloading(false)
         })
     }
     load()
@@ -89,5 +104,5 @@ export function useMcpServers(
     [refresh]
   )
 
-  return { servers, error, refresh, setShared }
+  return { servers, reloading, error, refresh, setShared }
 }

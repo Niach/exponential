@@ -70,7 +70,7 @@ export const GH_INSTALLATION_CAPTION = `Repositories come from these accounts. C
 export const ghSuspendedLine = (labels: readonly string[]) =>
   `GitHub suspended the Exponential app for ${joinLabels(labels)}. Unsuspend it on GitHub.`
 export const GH_MANAGE = `Manage`
-export const GH_NO_REPOSITORIES = `No repositories added yet.`
+export const GH_NO_REPOSITORIES = `No repositories yet`
 
 // ── C. Add-repository picker ───────────────────────────────────────────
 export const GH_PICKER_TITLE = `Add repository`

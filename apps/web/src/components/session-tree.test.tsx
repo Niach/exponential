@@ -146,8 +146,8 @@ describe(`SessionTree`, () => {
     expect(onOpen.mock.calls[0]![0].id).toBe(`c`)
   })
 
-  it(`renders the empty note when nothing is listed`, () => {
-    render(<SessionTree rows={[]} onOpen={() => {}} emptyNote="Nothing yet." />)
-    expect(screen.getByText(`Nothing yet.`)).toBeTruthy()
+  it(`renders the empty state when nothing is listed`, () => {
+    render(<SessionTree rows={[]} onOpen={() => {}} empty="recent-runs" />)
+    expect(screen.getByText(`No recent runs`)).toBeTruthy()
   })
 })

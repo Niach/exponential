@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import { useNavigate, useRouterState } from "@tanstack/react-router"
-import { conceptIcon, EmptyState } from "@exp/ui"
+import { Empty } from "@/components/empty"
 import type { Team } from "@/db/schema"
 import {
   originLabel,
@@ -21,7 +21,6 @@ import { SidebarBackRow } from "@/components/team/sidebar-back-row"
 // open) nothing is selected: the Inbox page draws `ListDetailEmpty`, the Agent
 // page its composer. Which list is up is the URL's (`sidebarOccupant`).
 
-const InboxIcon = conceptIcon(`nav-inbox`)
 
 /** Whether the location is the list screen itself, not a detail beside it. */
 function isListScreen(pathname: string, origin: DetailOrigin): boolean {
@@ -128,17 +127,15 @@ export function ListDetailEmpty({
       className="flex h-full items-center justify-center"
       data-testid="list-detail-empty"
     >
-      <EmptyState
-        icon={InboxIcon}
-        title={tab === `my-issues` ? `No issue selected` : `No notification selected`}
-        description={
+      <Empty
+        id={
           tab === `my-issues`
-            ? `Pick an issue to open it here.`
-            : `Pick a notification to open its issue here.`
+            ? `no-selection-issue`
+            : `no-selection-notification`
         }
       >
         {children}
-      </EmptyState>
+      </Empty>
     </div>
   )
 }

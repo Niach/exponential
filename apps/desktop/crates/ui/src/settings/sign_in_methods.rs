@@ -582,12 +582,11 @@ impl Render for SignInMethodsSection {
                     .children(self.render_copy_url(cx));
 
                 if methods.passkeys.is_empty() {
-                    passkeys_section = passkeys_section.child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("No passkeys yet. Add one from the web app."),
-                    );
+                    passkeys_section = passkeys_section.child(crate::controls::empty_state_list(
+                        gpui_component::Icon::new(crate::icons::registry::AUTH_PASSKEY),
+                        crate::empty_state_copy::PASSKEYS,
+                        cx,
+                    ));
                 } else {
                     let list = methods
                         .passkeys

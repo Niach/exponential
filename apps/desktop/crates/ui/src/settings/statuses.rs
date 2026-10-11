@@ -1001,24 +1001,23 @@ impl Render for StatusesPane {
         if statuses.is_empty() {
             // The loading/empty state has no category bands to name the
             // pane, so it keeps the header — the web branch does the same.
-            return v_flex().child(body.child(crate::surface::glass_section_header("Statuses", None, cx)).child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .py_2()
-                    .child(
-                        if Store::global(cx)
-                            .collections()
-                            .issue_statuses
-                            .read(cx)
-                            .is_ready()
-                        {
-                            "No statuses in this team."
-                        } else {
-                            "Loading…"
-                        },
-                    ),
-            ));
+            let ready = Store::global(cx).collections().issue_statuses.read(cx).is_ready();
+            let state = if ready {
+                crate::controls::empty_state_list(
+                    gpui_component::Icon::new(crate::icons::registry::SETTINGS_STATUSES),
+                    crate::empty_state_copy::STATUSES,
+                    cx,
+                )
+            } else {
+                v_flex()
+                    .gap_2()
+                    .child(crate::controls::skeleton().h_8().w_full())
+                    .child(crate::controls::skeleton().h_8().w_full())
+            };
+            return v_flex().child(
+                body.child(crate::surface::glass_section_header("Statuses", None, cx))
+                    .child(state),
+            );
         }
 
         for category in IssueStatusCategory::DISPLAY_ORDER {
@@ -1080,12 +1079,11 @@ impl Render for StatusesPane {
             // Todo, `unstarted` starts out with no rows at all. Say so
             // instead of leaving the band hanging over the "Add status".
             if rows.is_empty() {
-                group = group.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("No statuses yet."),
-                );
+                group = group.child(crate::controls::empty_state_list(
+                    gpui_component::Icon::new(crate::icons::registry::SETTINGS_STATUSES),
+                    crate::empty_state_copy::STATUSES,
+                    cx,
+                ));
             }
             // EXP-994: the category's rows are ONE table — a hairline
             // between them, no gap and no card around them.

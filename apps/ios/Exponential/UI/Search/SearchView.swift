@@ -79,36 +79,19 @@ struct SearchView: View {
     // MARK: - Empty-query state (search hint)
 
     private var searchHint: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            AppIcon(AppIcons.navSearch, size: 22)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("Search issues across all your boards.")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Text("Matches identifiers, titles, and full text.")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 32)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity)
+        EmptyState(
+            title: "Search issues across all your boards.",
+            description: "Matches identifiers, titles, and full text.",
+            icon: AppIcons.navSearch
+        )
+        .frame(maxHeight: .infinity)
     }
 
     // MARK: - Results
 
     private var noResults: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            AppIcon(AppIcons.uiEmptySearch, size: 22)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("No issues match")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Spacer()
-        }
-        .frame(maxWidth: .infinity)
+        EmptyState(title: "No issues match", icon: AppIcons.uiEmptySearch)
+            .frame(maxHeight: .infinity)
     }
 
     /// EXP-922: ONE flat relevance-ordered list — the web sheet's and the

@@ -3021,7 +3021,7 @@
       "id": "exponential-ui-empty-state",
       "group": "exponential-ui-catalog",
       "title": "Exponential UI · EmptyState",
-      "blurb": "A centred icon, title and explanation for an empty list, with an optional action. The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/empty-state/.",
+      "blurb": "What a screen or a list says when it has nothing, in two sizes: `page` (the icon disc, a title, a sentence teaching the next step, an action) and `list` (one muted line under a bare glyph). The core catalog specimen (its example and variants, captioned) of ui.exponential.at/components/empty-state/.",
       "order": 35,
       "web": {
         "route": "/exponential-ui-kitchen-sink?specimen=exponential-ui-empty-state",

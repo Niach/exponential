@@ -226,18 +226,8 @@ struct ActionDetailView: View {
     }
 
     private var unavailableState: some View {
-        VStack(spacing: 12) {
-            AppIcon(AppIcons.actionDefault, size: 22)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("This action isn't available")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Text("It may still be syncing, or it was deleted.")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .multilineTextAlignment(.center)
-        }
-        .padding(.horizontal, 40)
+        EmptyState(.actionUnavailable)
+            .frame(maxHeight: .infinity)
     }
 
     // MARK: - Triggers
@@ -263,7 +253,7 @@ struct ActionDetailView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if vm.triggers.isEmpty {
-                    emptyNote(TriggerCopy.empty)
+                    EmptyState(.actionTriggers)
                 } else {
                     ForEach(vm.triggers) { triggerRow($0, action: action, vm: vm) }
                 }
@@ -428,7 +418,7 @@ struct ActionDetailView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 0) {
                 if vm.runs.isEmpty {
-                    emptyNote("No runs yet.")
+                    EmptyState(.actionRuns)
                 } else {
                     runsTree(vm)
                 }
@@ -486,12 +476,4 @@ struct ActionDetailView: View {
         return SessionDevicePresentation(label: label, online: nil)
     }
 
-    private func emptyNote(_ text: String) -> some View {
-        Text(text)
-            .font(.caption)
-            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 4)
-            .padding(.vertical, 12)
-    }
 }

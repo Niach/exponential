@@ -254,9 +254,11 @@ impl Render for EmojiPicker {
                             .flex()
                             .items_center()
                             .justify_center()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("No emoji found."),
+                            .child(crate::controls::empty_state_list(
+                                gpui_component::Icon::new(crate::icons::registry::UI_EMPTY_SEARCH),
+                                "No emoji found",
+                                cx,
+                            )),
                     )
                 } else {
                     column.child(

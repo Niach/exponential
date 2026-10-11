@@ -11,7 +11,18 @@ struct DraftsListContent: View {
     let viewModel: DraftsViewModel
     @Environment(\.accountId) private var accountId
 
+    @ViewBuilder
     var body: some View {
+        if viewModel.rows.isEmpty, viewModel.error == nil {
+            // EXP-1274 `drafts`: the same page state Android and desktop draw.
+            EmptyState(.drafts)
+                .frame(maxHeight: .infinity)
+        } else {
+            list
+        }
+    }
+
+    private var list: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
                 GlassSectionBand("Drafts") {

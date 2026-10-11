@@ -7,7 +7,6 @@ import { AssigneePicker } from "@/components/issue-properties/assignee-picker"
 import { issueMenuProps } from "@/components/issue-context-menu/attr"
 import { useIssueMenuSelection } from "@/components/issue-context-menu/selection"
 import {
-  EmptyState,
   Button,
   Pill,
   Checkbox,
@@ -26,6 +25,8 @@ import type { IssueGroup } from "@/lib/board-view"
 import type { BlockCounts } from "@/lib/issue-graph"
 import { IssueBlocksBadge } from "@/components/issue-blocks-badge"
 import { railWidth } from "@/lib/issue-rail"
+import { Empty } from "@/components/empty"
+import { emptyStateCopy } from "@/lib/empty-states"
 import { IssueRailLayer } from "@/components/issue-rail"
 import type { TeamIssueGraph } from "@/hooks/use-team-issue-graph"
 import {
@@ -41,7 +42,6 @@ import {
 const AddIcon = conceptIcon(`ui-add`)
 const DueDateIcon = conceptIcon(`ui-due-date`)
 const ChevronRightIcon = conceptIcon(`ui-chevron-right`)
-const EmptyIssuesIcon = conceptIcon(`ui-checklist`)
 const AvatarPlaceholderIcon = conceptIcon(`ui-avatar-placeholder`)
 const CheckIcon = conceptIcon(`ui-check`)
 
@@ -757,18 +757,14 @@ export function IssueList({
 
     return (
       <div>
-        <EmptyState
-          icon={EmptyIssuesIcon}
-          title="No issues yet"
-          description="Create an issue to start tracking work."
-        >
+        <Empty id="issues">
           {canCreate && (
             <Button size="sm" onClick={() => onNewIssue()}>
               <AddIcon className="mr-1.5 size-4" />
-              New issue
+              {emptyStateCopy(`issues`).action}
             </Button>
           )}
-        </EmptyState>
+        </Empty>
         {emptyStateExtra}
       </div>
     )

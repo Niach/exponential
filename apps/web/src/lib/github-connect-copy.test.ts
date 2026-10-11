@@ -45,7 +45,7 @@ describe(`github-connect-copy (SLOP-7)`, () => {
     expect(copy.ghSuspendedLine([`acme`, `octocat`])).toBe(
       `GitHub suspended the Exponential app for acme, octocat. Unsuspend it on GitHub.`
     )
-    expect(copy.GH_NO_REPOSITORIES).toBe(`No repositories added yet.`)
+    expect(copy.GH_NO_REPOSITORIES).toBe(`No repositories yet`)
   })
 
   it(`locks the picker strings`, () => {

@@ -10,6 +10,7 @@ import {
   Switch,
   Prompt,
   UserAvatar,
+  ListEmpty,
 } from "@exp/ui"
 import {
   AdminCard,
@@ -170,7 +171,7 @@ function AdminUserDetail() {
         }
       >
         {detail.teams.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No memberships.</p>
+          <ListEmpty>No memberships</ListEmpty>
         ) : (
           <div className="rounded-md border">
             <div className="hidden md:grid grid-cols-[1fr_90px_110px_120px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
@@ -290,9 +291,7 @@ function AdminUserDetail() {
           description="Clients seen on authenticated requests, first use first."
         >
           {detail.platforms.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No client activity recorded yet.
-            </p>
+            <ListEmpty>No client activity recorded yet</ListEmpty>
           ) : (
             <div className="rounded-md border">
               <div className="grid grid-cols-[90px_1fr_1fr_80px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
@@ -326,7 +325,7 @@ function AdminUserDetail() {
         </AdminCard>
         <AdminCard title="Devices" description="Registered desktops and CLI daemons.">
           {detail.devices.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No devices.</p>
+            <ListEmpty>No devices</ListEmpty>
           ) : (
             <div className="rounded-md border">
               <div className="grid grid-cols-[1fr_70px_80px_70px_80px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
@@ -373,7 +372,7 @@ function AdminUserDetail() {
         }
       >
         {detail.sessions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No sessions.</p>
+          <ListEmpty>No sessions</ListEmpty>
         ) : (
           <div className="rounded-md border overflow-x-auto">
             <div className="min-w-[560px]">
@@ -415,7 +414,7 @@ function AdminUserDetail() {
         description={<>Latest {detail.emailDeliveries.length} outbound emails to this user</>}
       >
         {detail.emailDeliveries.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No emails sent.</p>
+          <ListEmpty>No emails sent</ListEmpty>
         ) : (
           <EmailDeliveriesTable rows={detail.emailDeliveries} showSubject />
         )}

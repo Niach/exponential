@@ -21,7 +21,8 @@ struct InboxListContent: View {
 
     var body: some View {
         if viewModel.entries.isEmpty {
-            emptyState("You're all caught up.")
+            EmptyState(.inbox)
+                .frame(maxHeight: .infinity)
         } else {
             ScrollView {
                 // EXP-818: the inbox is a TABLE — flat rows with no gap
@@ -310,14 +311,4 @@ struct InboxListContent: View {
         RelativeTime.compact(wire: s)
     }
 
-    private func emptyState(_ label: String) -> some View {
-        VStack {
-            Spacer()
-            Text(label)
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Spacer()
-        }
-        .frame(maxWidth: .infinity)
-    }
 }

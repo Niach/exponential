@@ -21,6 +21,7 @@ import {
 } from "@/components/board-form-fields"
 import { type PickerRepo } from "@/components/github-repo-picker"
 import { BoardRepoField } from "@/components/board-repo-field"
+import { Empty } from "@/components/empty"
 import type { Board, Team } from "@/db/schema"
 
 // EXP-862: the Boards settings section is no longer one list page with an
@@ -265,24 +266,22 @@ export function BoardSettingsPage({
 }
 
 // What the section shows while the team has no boards at all: the nav's
-// "New board" entry, spelled out on the page the index lands on.
+// "New board" entry as the band's trailing pill over the list-size empty
+// state (EXP-1274: a list empty state never carries the button).
 export function BoardsEmptyState({ team }: { team: Team }) {
   const [createOpen, setCreateOpen] = useState(false)
   return (
     <div>
-      <GlassSectionHeader label="Boards" />
-      {/* EXP-1076: an empty state is a SINGLE flat row of the same ladder. */}
-      <div className={SETTINGS_LIST_CLASS}>
-        <ListRow className="flex-col items-start gap-3 px-3 py-2">
-          <span className="text-sm text-muted-foreground">
-            No boards in this team yet.
-          </span>
+      <GlassSectionHeader
+        label="Boards"
+        trailing={
           <Pill mode="action" onClick={() => setCreateOpen(true)}>
             <Plus />
             New board
           </Pill>
-        </ListRow>
-      </div>
+        }
+      />
+      <Empty id="team-boards" />
       <CreateBoardDialog
         open={createOpen}
         onOpenChange={setCreateOpen}
@@ -318,8 +317,8 @@ export function BoardsTrashPage({ teamId }: { teamId: string }) {
   )
 }
 
-// Always renders (header, blurb, then the rows or a "No archived boards."
-// row): unlike the trash card, this page exists to be found empty too.
+// Always renders (header, blurb, then the rows or the "No archived boards"
+// empty state): unlike the trash card, this page exists to be found empty too.
 function ArchivedBoardsCard({ teamId }: { teamId: string }) {
   const [archived, setArchived] = useState<ArchivedBoard[] | null>(null)
   const [restoringId, setRestoringId] = useState<string | null>(null)
@@ -357,9 +356,7 @@ function ArchivedBoardsCard({ teamId }: { teamId: string }) {
       />
       <div className={SETTINGS_LIST_CLASS}>
         {!archived || archived.length === 0 ? (
-          <ListRow className="px-3 py-2 text-sm text-muted-foreground">
-            No archived boards.
-          </ListRow>
+          <Empty id="archived-boards" />
         ) : (
           archived.map((board) => (
             <ListRow key={board.id} className="px-3 py-2">

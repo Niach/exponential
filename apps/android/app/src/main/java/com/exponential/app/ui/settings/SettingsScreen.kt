@@ -1,5 +1,7 @@
 package com.exponential.app.ui.settings
 
+import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.domain.EmptyStateCopy
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -153,12 +155,7 @@ fun SettingsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SectionHeader("Teams")
                     if (serverGroups.isEmpty()) {
-                        Text(
-                            "No teams synced yet.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                            modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-                        )
+                        EmptyState(EmptyStateCopy.teams)
                     } else {
                         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                             serverGroups.forEach { group ->

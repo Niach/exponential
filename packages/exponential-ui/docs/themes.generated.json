@@ -2070,6 +2070,7 @@
         "icon",
         "title",
         "caption",
+        "loading",
         "count",
         "spacer",
         "body"
@@ -2494,12 +2495,15 @@
       "kind": "macro",
       "parts": [
         "root",
+        "disc",
         "icon",
         "title",
         "description",
         "action"
       ],
-      "props": []
+      "props": [
+        "size"
+      ]
     },
     {
       "name": "Progress",

@@ -26,6 +26,8 @@ import {
   Input,
   Pill,
   type PickerItem,
+  SearchField,
+  Skeleton,
   GlassGroup,
   GlassInputRow,
   GlassSectionHeader,
@@ -81,6 +83,7 @@ import {
 } from "@/lib/mcp-servers"
 import { builtinExpTools } from "@/lib/agent-feed"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
+import { Empty } from "@/components/empty"
 import { cn } from "@/lib/utils"
 
 const AddIcon = conceptIcon(`ui-add`)
@@ -121,7 +124,7 @@ export function TeamMcpServersSection({
   request?: McpSettingsRequest
   onRequestConsumed?: () => void
 }) {
-  const { servers, error, refresh, setShared } = useMcpServers(teamId)
+  const { servers, reloading, error, refresh, setShared } = useMcpServers(teamId)
   const [editor, setEditor] = useState<Editor | null>(null)
   const [removeTarget, setRemoveTarget] = useState<McpServerRow | null>(null)
   const [keyTarget, setKeyTarget] = useState<McpServerRow | null>(null)
@@ -357,8 +360,9 @@ export function TeamMcpServersSection({
     <div className="mb-6">
       <GlassSectionHeader
         label="MCP servers"
+        loading={reloading}
         trailing={
-          isOwner && servers !== null && servers.length > 0 ? (
+          isOwner ? (
             <Pill mode="action" onClick={openAdd}>
               <AddIcon className="size-3" />
               Add server
@@ -366,31 +370,31 @@ export function TeamMcpServersSection({
           ) : undefined
         }
       />
-      <p className="mb-3 px-1 text-xs text-muted-foreground">
-        Tools your agents can use in runs. Each member connects their own
-        account.
-      </p>
 
       {error && <p className="px-1 pb-2 text-xs text-destructive">{error}</p>}
       {servers === null ? (
-        <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
+        <div className="flex flex-col gap-2 px-1 py-2" aria-busy="true">
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-full" />
+          <Skeleton className="h-4 w-64" />
+        </div>
       ) : servers.length === 0 ? (
-        isOwner ? (
-          <InlineCatalog
-            teamId={teamId}
-            onPicked={(picked) => {
-              setDialogError(null)
-              setSeed(picked)
-              setEditor({ mode: `add` })
-            }}
-          />
-        ) : (
-          <div className={SETTINGS_LIST_CLASS}>
-            <ListRow className="px-3 py-2 text-sm text-muted-foreground">
-              No MCP servers yet. A team owner can add them.
-            </ListRow>
-          </div>
-        )
+        <>
+          <Empty id="mcp-servers" />
+          {/* EXP-1274: for an owner the catalog sits right under the empty
+              state — its search-or-paste field IS the next step. */}
+          {isOwner && (
+            <CatalogPicker
+              teamId={teamId}
+              existing={[]}
+              onPicked={(picked) => {
+                setDialogError(null)
+                setSeed(picked)
+                setEditor({ mode: `add` })
+              }}
+            />
+          )}
+        </>
       ) : (
         <div className={SETTINGS_LIST_CLASS}>
           {servers.map((server) => (
@@ -644,24 +648,6 @@ function CatalogPicker({
           Run a local command instead
         </Button>
       )}
-    </div>
-  )
-}
-
-/** The empty team, for an owner: the catalog right on the page. */
-function InlineCatalog({
-  teamId,
-  onPicked,
-}: {
-  teamId: string
-  onPicked: (seed: ProbeSeed) => void
-}) {
-  return (
-    <div className="rounded-md border border-glass-stroke bg-glass-row p-4">
-      <p className="mb-3 text-sm text-muted-foreground">
-        No MCP servers yet. Pick one to add it, or paste any server's URL.
-      </p>
-      <CatalogPicker teamId={teamId} existing={[]} onPicked={onPicked} />
     </div>
   )
 }
@@ -949,22 +935,36 @@ function SecretDialog({
 }
 
 /** EXP-862: what EVERY run already has, next to the servers a team adds —
- * the Exponential MCP tools themselves, collapsed. One row per contract tool
+ * the Exponential MCP tools themselves. One row per contract tool
  * (`expToolDisplay`): the Exponential mark, the tool's title and its blurb,
- * with the raw wire name only as a tooltip. */
+ * with the raw wire name only as a tooltip. EXP-1274: always expanded (a
+ * plain band, never a fold, no count: bands carry no numbers) with an
+ * inline filter field at its trailing edge over title, blurb and wire name. */
 function BuiltinToolsGroup() {
-  const [expanded, setExpanded] = useState(false)
   const tools = useMemo(() => builtinExpTools(), [])
+  const [query, setQuery] = useState(``)
+  const shown = useMemo(() => filterBuiltinTools(tools, query), [tools, query])
   return (
     <div className="mt-6">
       <GlassSectionHeader
         label="Built-in Exponential tools"
-        expanded={expanded}
-        onToggle={() => setExpanded((open) => !open)}
+        trailing={
+          <SearchField
+            size="sm"
+            value={query}
+            onValueChange={setQuery}
+            placeholder={BUILTIN_TOOLS_FILTER_PLACEHOLDER}
+            aria-label={BUILTIN_TOOLS_FILTER_PLACEHOLDER}
+            className="w-32 sm:w-48"
+            data-testid="mcp-builtin-tools-filter"
+          />
+        }
       />
-      {expanded && (
+      {shown.length === 0 ? (
+        <Empty id="builtin-tools-no-match" />
+      ) : (
         <div className={SETTINGS_LIST_CLASS}>
-          {tools.map((tool) => (
+          {shown.map((tool) => (
             <ListRow key={tool.name} className="gap-2 px-3 py-2" title={tool.name}>
               <ExponentialLogo
                 variant="light"
@@ -980,6 +980,24 @@ function BuiltinToolsGroup() {
         </div>
       )}
     </div>
+  )
+}
+
+export const BUILTIN_TOOLS_FILTER_PLACEHOLDER = `Filter tools`
+
+/** The band's filter: a case-insensitive substring over the title, the
+ * blurb and the wire name (`exponential_issues_create`), so "issues" and
+ * "create" both find Create issue. Blank = every tool. */
+export function filterBuiltinTools<
+  T extends { name: string; title: string; blurb: string },
+>(tools: readonly T[], query: string): T[] {
+  const needle = query.trim().toLowerCase()
+  if (!needle) return [...tools]
+  return tools.filter(
+    (tool) =>
+      tool.title.toLowerCase().includes(needle) ||
+      tool.blurb.toLowerCase().includes(needle) ||
+      tool.name.toLowerCase().includes(needle)
   )
 }
 

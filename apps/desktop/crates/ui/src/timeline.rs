@@ -1620,13 +1620,11 @@ impl Render for IssueTimeline {
         // With the creation row present this is unreachable; it stays for the
         // race where the issue itself hasn't synced yet.
         if rendered.is_empty() && !has_creation_row {
-            body = body.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .py_1()
-                    .child("No activity yet. Be the first to add a comment."),
-            );
+            body = body.child(crate::controls::empty_state_list(
+                gpui_component::Icon::new(crate::icons::registry::UI_CLOCK),
+                crate::empty_state_copy::ACTIVITY,
+                cx,
+            ));
         }
 
         let last_index = rendered.len().saturating_sub(1);

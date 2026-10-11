@@ -35,6 +35,7 @@ import {
   Label,
   LiveDot,
   Pill,
+  EmptyState,
 } from "@exp/ui"
 import { authClient } from "@/lib/auth/client"
 import {
@@ -385,10 +386,13 @@ export function OwnDevicesList({
       {devices === null ? (
         <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
       ) : devices.length === 0 ? (
-        <div className="flex items-center gap-2 px-1 py-3 text-xs text-muted-foreground">
-          <OfflineIcon className="size-3.5 shrink-0" />
-          {ONBOARDING_COPY.devices.none}
-        </div>
+        // The ×4 onboarding copy (it teaches the first step), drawn as the
+        // shared list-size empty state.
+        <EmptyState
+          size="list"
+          icon={OfflineIcon}
+          title={ONBOARDING_COPY.devices.none}
+        />
       ) : (
         <div className="flex flex-col gap-2">
           {devices.map((device) => {

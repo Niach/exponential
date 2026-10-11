@@ -7,6 +7,7 @@ import {
   teamCollection,
 } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { Empty } from "@/components/empty"
 import type { Issue } from "@/db/schema"
 import {
   ISSUE_STATUS_STARTED_MAX,
@@ -641,9 +642,7 @@ export function TeamStatusesSection({ teamId }: { teamId: string }) {
                     list under the band, never a stack of cards. */}
                 <div className={SETTINGS_LIST_CLASS}>
                   {rows.length === 0 && (
-                    <p className="px-3 py-1 text-xs text-muted-foreground">
-                      No statuses yet.
-                    </p>
+                    <Empty id="statuses" />
                   )}
                   {rows.map((option, index) => (
                     <StatusRow

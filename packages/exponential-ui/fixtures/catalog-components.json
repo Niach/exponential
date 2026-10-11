@@ -1743,6 +1743,48 @@
       }
     },
     {
+      "name": "Section/loading=true",
+      "node": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "loading": true
+        },
+        "children": [
+          {
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "Section/loading=false",
+      "node": {
+        "id": "section",
+        "component": "Section",
+        "props": {
+          "title": "In progress",
+          "icon": "nav-issues",
+          "loading": false
+        },
+        "children": [
+          {
+            "id": "section-child",
+            "component": "Text",
+            "props": {
+              "text": "Child"
+            }
+          }
+        ]
+      }
+    },
+    {
       "name": "Group/example",
       "node": {
         "id": "group",
@@ -4612,6 +4654,32 @@
           "icon": "nav-inbox",
           "title": "No notifications",
           "description": "You are all caught up."
+        }
+      }
+    },
+    {
+      "name": "EmptyState/size=page",
+      "node": {
+        "id": "empty-state",
+        "component": "EmptyState",
+        "props": {
+          "icon": "nav-inbox",
+          "title": "No notifications",
+          "description": "You are all caught up.",
+          "size": "page"
+        }
+      }
+    },
+    {
+      "name": "EmptyState/size=list",
+      "node": {
+        "id": "empty-state",
+        "component": "EmptyState",
+        "props": {
+          "icon": "nav-inbox",
+          "title": "No notifications",
+          "description": "You are all caught up.",
+          "size": "list"
         }
       }
     },

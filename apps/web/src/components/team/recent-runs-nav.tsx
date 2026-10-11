@@ -39,7 +39,7 @@ export function RecentRunsNav({
         onOpen={(session) =>
           openSession(session, { origin: { kind: `agent`, tab: `recent` } })
         }
-        emptyNote="Nothing has finished yet."
+        empty="recent-runs"
       />
     </div>
   )
@@ -90,7 +90,7 @@ export function RecentRunsList({
     <SessionTree
       rows={past}
       onOpen={open}
-      emptyNote="Nothing has finished yet."
+      empty="recent-runs"
     />
   )
 }

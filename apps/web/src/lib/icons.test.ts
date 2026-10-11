@@ -26,6 +26,7 @@ import {
 import { PICKABLE_ICON_SVG } from "@exp/icons/pickable-svg"
 import { megaphoneIconSvg } from "@exp/widget/theme"
 import { createElement } from "react"
+import { emptyStateCopy } from "./empty-states"
 import { renderToStaticMarkup } from "react-dom/server"
 import {
   BRAND_ICONS,
@@ -563,7 +564,6 @@ describe(`icon call sites`, () => {
     for (const file of [
       `packages/ui/src/issue-menu.ts`,
       `apps/web/src/components/issue-actions-menu.tsx`,
-      `apps/web/src/components/team/board-switcher-sheet.tsx`,
     ]) {
       const source = readFileSync(join(repoRoot, file), `utf8`)
       expect(source, `${file}: must name the nav-boards concept`).toContain(
@@ -576,6 +576,15 @@ describe(`icon call sites`, () => {
         /\bFolderKanban\b/
       )
     }
+    // EXP-1274: the board switcher's only boards glyph is its empty row,
+    // drawn through `<Empty id="board-switcher">` off the ×4 fixture.
+    const switcher = readFileSync(
+      join(repoRoot, `apps/web/src/components/team/board-switcher-sheet.tsx`),
+      `utf8`
+    )
+    expect(switcher).toContain(`<Empty id="board-switcher"`)
+    expect(switcher).not.toMatch(/\bFolder(Input|Kanban)\b/)
+    expect(emptyStateCopy(`board-switcher`).icon).toBe(`nav-boards`)
     expect(SEMANTIC_ICONS[`nav-boards`]).toBe(`folder-kanban`)
   })
 

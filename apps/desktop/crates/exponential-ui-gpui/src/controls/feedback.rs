@@ -10,12 +10,29 @@ use gpui_component::{v_flex, ActiveTheme as _, Icon};
 
 use crate::chrome::{ease, Chrome};
 
-/// Web `EmptyState` (`components/empty-state.tsx`): centered column, a 48px
-/// primary-tinted icon disc, semibold title, muted description.
+/// EXP-1274 — ONE empty state, two sizes (the web `EmptyState size`; the ×4
+/// copy contract is `packages/domain-contract/fixtures/empty-state.json`).
+///
+/// PAGE ([`empty_state`]): what a whole screen or pane says when it has
+/// nothing — a centred column of at most 448px with 48px of vertical
+/// padding: the 48px primary-tinted icon disc (24px glyph), a semibold
+/// title, an optional muted sentence, and an optional actions row
+/// ([`empty_state_actions`]) the caller appends.
+///
+/// LIST ([`empty_state_list`]): what a list inside a section, a sidebar or a
+/// picker says — a bare 20px muted glyph over ONE muted 14px line, 24px of
+/// vertical padding. It never carries a description or a button: the
+/// section band's trailing pill (or the picker's own field) IS the call to
+/// action.
+///
+/// Copy rules: a title is at most four words and never explains (`No <noun>
+/// yet` for a list that will grow, `No <noun>` for a filter result, `All
+/// caught up` for the inbox), no trailing period; a description exists only
+/// on a page, only when it teaches a next step that is not a visible button.
 pub fn empty_state(
     icon: Icon,
     title: impl Into<SharedString>,
-    description: impl Into<SharedString>,
+    description: Option<SharedString>,
     cx: &App,
 ) -> Div {
     let theme = cx.theme();
@@ -45,12 +62,42 @@ pub fn empty_state(
                 .text_color(theme.foreground)
                 .child(title.into()),
         )
-        .child(
+        .children(description.map(|description| {
             div()
                 .text_sm()
                 .text_color(theme.muted_foreground)
-                .child(description.into()),
-        )
+                .child(description)
+        }))
+}
+
+/// The row a PAGE [`empty_state`]'s buttons go into (web `mt-2 flex
+/// flex-wrap items-center justify-center gap-2`):
+/// `empty_state(..).child(empty_state_actions().child(button))`.
+pub fn empty_state_actions() -> Div {
+    div()
+        .mt_2()
+        .flex()
+        .flex_row()
+        .flex_wrap()
+        .items_center()
+        .justify_center()
+        .gap_2()
+}
+
+/// The LIST size of [`empty_state`]: a bare 20px glyph at
+/// `muted_foreground` / 60% over one muted `text_sm` line, centred, 24px of
+/// vertical padding. No description, no button.
+pub fn empty_state_list(icon: Icon, title: impl Into<SharedString>, cx: &App) -> Div {
+    let muted = cx.theme().muted_foreground;
+    v_flex()
+        .w_full()
+        .items_center()
+        .gap_1p5()
+        .px_3()
+        .py_6()
+        .text_center()
+        .child(icon.size(px(20.)).flex_shrink_0().text_color(muted.opacity(0.6)))
+        .child(div().text_sm().text_color(muted).child(title.into()))
 }
 
 /// The skeleton's pulse period — the web `animate-pulse` (2s). Not a motion

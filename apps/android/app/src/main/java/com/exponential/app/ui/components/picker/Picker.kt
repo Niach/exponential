@@ -1,5 +1,7 @@
 package com.exponential.app.ui.components.picker
 
+import com.exponential.app.ui.components.EmptyState
+import at.exponential.ui.primitives.EmptyStateSize
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -401,17 +403,9 @@ fun <T : Any> Picker(
             if (rows.isEmpty() && emptyText != null) {
                 // The same text stands in for "nothing to pick" and "nothing
                 // matched" — one empty state, like every other client.
-                item {
-                    Text(
-                        emptyText,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        modifier = Modifier.padding(
-                            horizontal = GlassSheetDefaults.HorizontalPadding,
-                            vertical = 16.dp,
-                        ),
-                    )
-                }
+                // EXP-1274: the list-size empty state, no glyph (the picker's
+                // own field is the call to action).
+                item { EmptyState(title = emptyText, size = EmptyStateSize.List) }
             }
             items(rows, key = { it.value }) { item ->
                 PickerRow(

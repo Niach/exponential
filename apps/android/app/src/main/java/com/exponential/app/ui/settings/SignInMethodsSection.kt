@@ -1,5 +1,7 @@
 package com.exponential.app.ui.settings
 
+import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.domain.EmptyStateCopy
 import android.net.Uri
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Arrangement
@@ -111,7 +113,7 @@ fun SignInMethodsSection(accountId: String, viewModel: ServerDetailViewModel) {
         Column(Modifier.fillMaxWidth()) {
             SectionHeader("Passkeys")
             if (ready.passkeys.isEmpty()) {
-                MethodsHint("No passkeys yet. Add one from the web app.")
+                EmptyState(EmptyStateCopy.passkeys)
             } else {
                 ready.passkeys.forEachIndexed { i, passkey ->
                     if (i > 0) GroupDivider()

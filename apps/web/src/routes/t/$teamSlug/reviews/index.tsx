@@ -3,13 +3,13 @@ import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
 import {
   BoardGlyph,
   conceptIcon,
-  EmptyState,
   GlassSectionHeader,
   PrList,
   StackRail,
   type PrListRow,
 } from "@exp/ui"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
+import { Empty } from "@/components/empty"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import {
   useReviewsData,
@@ -146,15 +146,7 @@ function ReviewsPage() {
           externalLoading ? (
             <div className="text-muted-foreground px-1 py-6 text-sm">Loading…</div>
           ) : (
-            <EmptyState
-              icon={PrOpenIcon}
-              title="No open pull requests"
-              description={
-                scope.teams.length > 1
-                  ? `Open pull requests in your teams' repositories land here for review.`
-                  : `Open pull requests in this team's repositories land here for review.`
-              }
-            />
+            <Empty id="reviews" />
           )
         ) : (
           <>

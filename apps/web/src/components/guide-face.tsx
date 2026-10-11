@@ -11,6 +11,7 @@ import {
   StackRail,
   type GuideChangesTarget,
   type SessionResultGroup,
+  ListEmpty,
 } from "@exp/ui"
 import type { Board, Issue } from "@/db/schema"
 import { boardCollection, issueCollection } from "@/lib/collections"
@@ -239,9 +240,7 @@ export function GuideBody({
         </div>
       )}
       {!showView && !waiting && !error && filesState?.kind !== `error` && (
-        <p className="px-7 py-6 text-sm text-muted-foreground md:px-5">
-          {GUIDE_NO_CHANGES}
-        </p>
+        <ListEmpty>{GUIDE_NO_CHANGES}</ListEmpty>
       )}
       {showView && (
         <SessionResultsView

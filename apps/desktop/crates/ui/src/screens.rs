@@ -3288,12 +3288,13 @@ impl ScreensPanel {
         tab: InboxTab,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let (title, hint) = match tab {
+        // EXP-1274: fixtures `no-selection-notification` / `no-selection-issue`.
+        let (icon, title) = match tab {
             InboxTab::Inbox => (
-                "No notification selected",
-                "Pick a notification to open its issue here.",
+                registry::NAV_INBOX,
+                crate::empty_state_copy::NO_SELECTION_NOTIFICATION,
             ),
-            InboxTab::MyIssues => ("No issue selected", "Pick an issue to open it here."),
+            InboxTab::MyIssues => (registry::UI_ISSUE, crate::empty_state_copy::NO_SELECTION_ISSUE),
         };
         v_flex()
             .size_full()
@@ -3301,12 +3302,7 @@ impl ScreensPanel {
             .px_4()
             .items_center()
             .justify_center()
-            .child(crate::controls::empty_state(
-                Icon::new(registry::NAV_INBOX),
-                title,
-                hint,
-                cx,
-            ))
+            .child(crate::controls::empty_state(Icon::new(icon), title, None, cx))
             .into_any_element()
     }
 
@@ -3479,48 +3475,39 @@ impl ScreensPanel {
         {
             let teams = Store::global(cx).collections().teams.read(cx);
             if teams.is_ready() && teams.is_empty() {
+                // EXP-1274: the PAGE empty state, fixture `no-team`.
                 return v_flex()
                     .size_full()
+                    .px_4()
                     .items_center()
                     .justify_center()
-                    .gap_2()
                     .child(
-                        Icon::new(registry::UI_TEAM)
-                            .size_6()
-                            .text_color(cx.theme().muted_foreground),
-                    )
-                    .child(
-                        div()
-                            .text_sm()
-                            .font_weight(FontWeight::MEDIUM)
-                            .child("No team yet"),
-                    )
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("Create a team to get started, or join one with an invite link."),
-                    )
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .child(
-                                Button::new("screens-create-team")
-                                    .primary()
-                                    .web_sm()
-                                    .label("Create team…")
-                                    .on_click(|_, window, cx| {
-                                        window.dispatch_action(Box::new(CreateTeam), cx);
-                                    }),
-                            )
-                            .child(
-                                Button::new("screens-join-team")
-                                    .web_sm()
-                                    .label("Join team…")
-                                    .on_click(|_, window, cx| {
-                                        window.dispatch_action(Box::new(JoinTeam), cx);
-                                    }),
-                            ),
+                        crate::controls::empty_state(
+                            Icon::new(registry::UI_TEAM),
+                            crate::empty_state_copy::NO_TEAM,
+                            Some(crate::empty_state_copy::NO_TEAM_DESCRIPTION.into()),
+                            cx,
+                        )
+                        .child(
+                            crate::controls::empty_state_actions()
+                                .child(
+                                    Button::new("screens-create-team")
+                                        .primary()
+                                        .web_sm()
+                                        .label("Create team…")
+                                        .on_click(|_, window, cx| {
+                                            window.dispatch_action(Box::new(CreateTeam), cx);
+                                        }),
+                                )
+                                .child(
+                                    Button::new("screens-join-team")
+                                        .web_sm()
+                                        .label("Join team…")
+                                        .on_click(|_, window, cx| {
+                                            window.dispatch_action(Box::new(JoinTeam), cx);
+                                        }),
+                                ),
+                        ),
                     )
                     .into_any_element();
             }
@@ -3573,27 +3560,33 @@ impl ScreensPanel {
             .min_h(gpui::relative(0.6))
             .items_center()
             .justify_center()
-            .gap_3()
-            .child(crate::controls::empty_state(
-                Icon::new(registry::NAV_BOARDS),
-                "No boards yet",
-                "Create a board to start tracking work.",
-                cx,
-            ));
-        // No team resolves (e.g. mid team-switch churn): the create
-        // action would silently no-op, so don't offer a dead button. (The
-        // fully-teamless account is handled by the zero-team branch above.)
+            .gap_3();
+        // EXP-1274: the PAGE empty state, fixture `boards`, its button in
+        // the actions row. No team resolves (e.g. mid team-switch churn):
+        // the create action would silently no-op, so don't offer a dead
+        // button. (The fully-teamless account is handled by the zero-team
+        // branch above.)
+        let mut state = crate::controls::empty_state(
+            Icon::new(registry::NAV_BOARDS),
+            crate::empty_state_copy::BOARDS,
+            Some(crate::empty_state_copy::BOARDS_DESCRIPTION.into()),
+            cx,
+        );
         if active_team.is_some() {
-            column = column.child(
-                Button::new("screens-new-board")
-                    .primary()
-                    .web_sm()
-                    .label("New board…")
-                    .on_click(|_, window, cx| {
-                        window.dispatch_action(Box::new(NewBoard), cx);
-                    }),
+            state = state.child(
+                crate::controls::empty_state_actions().child(
+                    Button::new("screens-new-board")
+                        .primary()
+                        .web_sm()
+                        .icon(registry::NAV_BOARDS)
+                        .label(crate::empty_state_copy::BOARDS_ACTION)
+                        .on_click(|_, window, cx| {
+                            window.dispatch_action(Box::new(NewBoard), cx);
+                        }),
+                ),
             );
         }
+        column = column.child(state);
         let cards = active_team
             .as_deref()
             .and_then(|team_id| crate::getting_started::inline_cards(team_id, cx));

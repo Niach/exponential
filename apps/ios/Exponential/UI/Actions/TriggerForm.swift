@@ -12,8 +12,6 @@ import SwiftUI
 /// The trigger copy shared by the action page's Triggers tab and the trigger
 /// form — one wording each, byte-equal to the other three clients.
 enum TriggerCopy {
-    /// The Triggers tab with no trigger on the action.
-    static let empty = "No triggers. This action runs when someone starts it."
     /// The action demands an input nobody can type on a triggered run, so the
     /// server refuses to ENABLE a trigger on it.
     static let requiredInputsHint = "This action has required inputs, and a triggered run has none to fill them with. Make the inputs optional to enable it."

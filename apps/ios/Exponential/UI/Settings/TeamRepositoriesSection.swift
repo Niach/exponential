@@ -35,6 +35,9 @@ struct TeamRepositoriesSection: View {
     @Environment(\.openURL) private var openURL
     @State private var repos: [TeamRepo] = []
     @State private var loading = true
+    // EXP-1274: a reload over an already-loaded list spins the band's
+    // loading glyph instead of blanking the rows.
+    @State private var refreshing = false
     // Mutation failures (remove/CONFLICT/disconnect). Kept SEPARATE from load
     // failures so a failed mutation survives its own post-mutation reload
     // (EXP-365).
@@ -65,7 +68,7 @@ struct TeamRepositoriesSection: View {
             // EXP-721/818: the ONE shared header band. "Add repository" is
             // always offered (FEED-42) — the picker itself handles the
             // not-configured and not-connected states.
-            GlassSectionBand(GithubCopy.sectionTitle) {
+            GlassSectionBand(GithubCopy.sectionTitle, loading: refreshing) {
                 GlassPill(GithubCopy.addRepository, icon: AppIcons.uiGithub, mode: .action {
                     showAddRepo = true
                 })
@@ -83,11 +86,7 @@ struct TeamRepositoriesSection: View {
             }
 
             if !loading && repos.isEmpty {
-                Text(GithubCopy.noRepositories)
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                EmptyState(title: GithubCopy.noRepositories, icon: AppIcons.settingsRepositories, size: .list)
             }
 
             ForEach(repos) { repo in
@@ -530,7 +529,11 @@ struct TeamRepositoriesSection: View {
     private func reload() async {
         guard let teamId = team?.id else { return }
         loading = repos.isEmpty
-        defer { loading = false }
+        refreshing = !repos.isEmpty
+        defer {
+            loading = false
+            refreshing = false
+        }
         do {
             repos = try await repositoriesApi.list(accountId: accountId, teamId: teamId)
             // Only the LOAD error clears here — a mutation failure must

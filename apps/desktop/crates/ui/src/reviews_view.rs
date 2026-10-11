@@ -292,11 +292,11 @@ impl Render for ReviewsView {
                 .child(crate::controls::skeleton().h_3p5().w_48())
                 .child(crate::controls::skeleton().h_3p5().w_32())
         } else if count == 0 {
-            // EXP-525: the web `EmptyState` (icon disc + title + description).
+            // EXP-525/1274: the PAGE empty state, fixture `reviews`.
             v_flex().min_w_0().child(crate::controls::empty_state(
-                Icon::from(ExpIcon::GitPullRequest),
-                "No open pull requests",
-                "Open pull requests in this team's repositories land here for review.",
+                Icon::new(registry::NAV_REVIEWS),
+                crate::empty_state_copy::REVIEWS,
+                None,
                 cx,
             ))
         } else {

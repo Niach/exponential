@@ -102,7 +102,10 @@ fun ThirdPartyLicensesScreen(
                     androidx.compose.foundation.layout.Box(
                         Modifier.padding(padding).fillMaxSize(),
                     ) {
-                        EmptyState(message = "The bundled notices file is missing from this build.")
+                        EmptyState(
+                            title = "Notices missing",
+                            description = "The bundled notices file is missing from this build.",
+                        )
                     }
                 is ThirdPartyLicensesViewModel.State.Ready ->
                     LazyColumn(

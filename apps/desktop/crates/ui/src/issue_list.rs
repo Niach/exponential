@@ -1538,12 +1538,31 @@ impl Render for IssueListView {
                                 .min_h(relative(0.6))
                                 .items_center()
                                 .justify_center()
-                                .child(crate::controls::empty_state(
-                                    Icon::from(ExpIcon::ListTodo),
-                                    "No issues yet",
-                                    "Create an issue to start tracking work.",
-                                    cx,
-                                )),
+                                .child(
+                                    crate::controls::empty_state(
+                                        Icon::new(registry::NAV_ISSUES),
+                                        crate::empty_state_copy::ISSUES,
+                                        Some(crate::empty_state_copy::ISSUES_DESCRIPTION.into()),
+                                        cx,
+                                    )
+                                    // EXP-1274: the page's primary button,
+                                    // web `issue-list.tsx` parity.
+                                    .child(
+                                        crate::controls::empty_state_actions().child(
+                                            Button::new("issue-list-empty-new-issue")
+                                                .primary()
+                                                .web_sm()
+                                                .icon(registry::UI_ADD)
+                                                .label(crate::empty_state_copy::ISSUES_ACTION)
+                                                .on_click(|_, window, cx| {
+                                                    window.dispatch_action(
+                                                        Box::new(crate::actions::NewIssue),
+                                                        cx,
+                                                    );
+                                                }),
+                                        ),
+                                    ),
+                                ),
                         )
                         .children(cards),
                 ))

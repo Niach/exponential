@@ -1069,14 +1069,11 @@ impl Render for LocalReposPane {
                 );
             }
             Scan::Ready(repos) if repos.is_empty() => {
-                body = body.child(
-                    surface::flat_row().px_3().py_2().child(
-                        div()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("No repositories cloned locally yet."),
-                    ),
-                );
+                body = body.child(crate::controls::empty_state_list(
+                    gpui_component::Icon::new(crate::icons::registry::SETTINGS_LOCAL_REPOS),
+                    "No local repositories yet",
+                    cx,
+                ));
             }
             Scan::Ready(repos) => {
                 // Snapshot (clone + in-use gates, repo AND per worktree) so
@@ -1129,10 +1126,11 @@ impl Render for LocalReposPane {
                     }
                 }
                 body = body.child(if worktree_rows.is_empty() {
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child("No worktrees on this machine.")
+                    crate::controls::empty_state_list(
+                        gpui_component::Icon::new(crate::icons::registry::UI_BRANCH),
+                        "No worktrees",
+                        cx,
+                    )
                 } else {
                     // EXP-1076: the gapless ladder under the band.
                     v_flex().w_full().min_w_0().children(

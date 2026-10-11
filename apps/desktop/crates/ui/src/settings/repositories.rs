@@ -619,12 +619,11 @@ impl RepositoriesPane {
 impl Render for RepositoriesPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return v_flex().child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("No team selected."),
-            );
+            return v_flex().child(crate::controls::empty_state_list(
+                gpui_component::Icon::new(crate::icons::registry::UI_TEAM),
+                crate::empty_state_copy::NO_TEAM_SELECTED,
+                cx,
+            ));
         };
         self.ensure_loaded(&team_id, cx);
 
@@ -691,14 +690,12 @@ impl Render for RepositoriesPane {
                         // EXP-1076: the empty line sits on the ladder's own
                         // row rhythm (`flat_row`, the web
                         // `SETTINGS_LIST_CLASS` twin), not in a bespoke box.
-                        body = body.child(
-                            crate::surface::flat_row()
-                                .px_3()
-                                .py_2()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child(copy::NO_REPOSITORIES),
-                        );
+                        // EXP-1274: the shared list empty state ×4.
+                        body = body.child(crate::controls::empty_state_list(
+                            gpui_component::Icon::new(registry::SETTINGS_REPOSITORIES),
+                            copy::NO_REPOSITORIES,
+                            cx,
+                        ));
                     }
                     Ok(repos) => {
                         // Sharer-or-owner row gating (EXP-557): everyone

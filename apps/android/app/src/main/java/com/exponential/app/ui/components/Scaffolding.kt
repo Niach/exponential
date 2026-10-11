@@ -26,7 +26,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.icons.ExpIcons
+import at.exponential.ui.primitives.EmptyStateSize
 import at.exponential.ui.primitives.EmptyStateView
+import com.exponential.app.domain.EmptyStateCopy
+import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.glassSectionBand
 
@@ -50,13 +53,16 @@ import com.exponential.app.ui.theme.glassSectionBand
  * the band itself (the 16dp it passes) so it lines up with `OptionGroup`'s edge.
  *
  * An optional [leading] glyph sits before the title (the board icon on
- * Reviews); [trailing] is pushed to the far edge.
+ * Reviews); [trailing] is pushed to the far edge. [loading] (EXP-1274, web
+ * `GlassSectionHeader loading`) spins the 12dp loading glyph before it while an
+ * already-loaded list refetches.
  */
 @Composable
 fun SectionHeader(
     title: String,
     modifier: Modifier = Modifier,
     leading: (@Composable () -> Unit)? = null,
+    loading: Boolean = false,
     trailing: (@Composable () -> Unit)? = null,
 ) {
     SectionBand(
@@ -81,8 +87,19 @@ fun SectionHeader(
             // parked trailing content mid-row, EXP-886.)
             modifier = Modifier.weight(1f),
         )
+        if (loading) SectionBandSpinner()
         trailing?.invoke()
     }
+}
+
+/** The band's 12dp loading glyph (EXP-1274, web `GlassSectionHeader loading`). */
+@Composable
+private fun SectionBandSpinner() {
+    CircularProgressIndicator(
+        modifier = Modifier.size(12.dp).testTag("section-band-loading"),
+        strokeWidth = 1.5.dp,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+    )
 }
 
 /**
@@ -90,12 +107,14 @@ fun SectionHeader(
  * ONE composable that paints a group band. [SectionHeader] is its titled form;
  * a band whose content is not a plain title (a diff file card's header, the
  * diff tree's summary, the empty "Add sub-issues" band) fills the slot.
- * [onClick] makes the whole strip the tap target.
+ * [onClick] makes the whole strip the tap target; [loading] spins the 12dp
+ * loading glyph at its trailing edge (EXP-1274).
  */
 @Composable
 fun SectionBand(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
+    loading: Boolean = false,
     contentPadding: PaddingValues = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
     horizontalArrangement: Arrangement.Horizontal = Arrangement.Start,
     content: @Composable RowScope.() -> Unit,
@@ -108,8 +127,13 @@ fun SectionBand(
             .padding(contentPadding),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = horizontalArrangement,
-        content = content,
-    )
+    ) {
+        content()
+        if (loading) {
+            Spacer(Modifier.weight(1f))
+            SectionBandSpinner()
+        }
+    }
 }
 
 /**
@@ -176,38 +200,84 @@ fun IssueGroupBand(
 private const val SectionBandTitleAlpha = 0.85f
 
 /**
- * Centered empty-state with optional icon + message + detail line (replaces 4
- * ad-hoc copies). Drawn by the SDK's `EmptyStateView` (SLOP-18 / VAPP-89):
- * a bare 28dp tertiary glyph (no disc), the body/secondary message, the
- * small/tertiary detail and an action slot, 12dp apart.
+ * THE empty state (EXP-1274, `empty-state.json` ×4), drawn by the SDK's
+ * `EmptyStateView`. [EmptyStateSize.Page] = a 48dp `RowFillActive` disc with a
+ * 24dp secondary glyph, a `titleMedium` title, a `bodySmall` tertiary
+ * description and the [action] slot (callers pass a primary `GlassPill(PillSize.Md)`
+ * named by the copy's `action`), filling its container. [EmptyStateSize.List]
+ * = a bare 20dp tertiary glyph over ONE `bodyMedium` secondary line, 24dp
+ * vertical padding, full width — never a description or a button.
  */
 @Composable
 fun EmptyState(
-    message: String,
+    copy: EmptyStateCopy.State,
     modifier: Modifier = Modifier,
+    size: EmptyStateSize? = null,
+    /** Overrides the copy's description (an error line in its place). */
+    description: String? = copy.description,
+    action: (@Composable () -> Unit)? = null,
+) {
+    EmptyState(
+        title = copy.title,
+        modifier = modifier,
+        description = description,
+        icon = copy.icon,
+        size = size ?: when (copy.size) {
+            EmptyStateCopy.Size.Page -> EmptyStateSize.Page
+            EmptyStateCopy.Size.List -> EmptyStateSize.List
+        },
+        action = action,
+    )
+}
+
+/** [EmptyState] for inline copy no other client draws. */
+@Composable
+fun EmptyState(
+    title: String,
+    modifier: Modifier = Modifier,
+    description: String? = null,
     icon: ImageVector? = null,
-    detail: String? = null,
+    size: EmptyStateSize = EmptyStateSize.Page,
     action: (@Composable () -> Unit)? = null,
 ) {
     val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-    EmptyStateView(
-        message = message,
-        modifier = modifier.fillMaxSize(),
-        detail = detail,
-        icon = icon?.let {
-            { Icon(it, contentDescription = null, tint = tertiary, modifier = Modifier.size(28.dp)) }
-        },
-        action = action,
-        iconDisc = null,
-        iconColor = tertiary,
-        messageStyle = MaterialTheme.typography.bodyMedium,
-        messageColor = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        detailStyle = MaterialTheme.typography.bodySmall,
-        detailColor = tertiary,
-        detailPadding = 16.dp,
-        spacing = 12.dp,
-        contentPadding = PaddingValues(24.dp),
-    )
+    val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
+    when (size) {
+        EmptyStateSize.Page -> EmptyStateView(
+            title = title,
+            modifier = modifier.fillMaxSize(),
+            size = EmptyStateSize.Page,
+            description = description,
+            icon = icon?.let {
+                { Icon(it, contentDescription = null, tint = secondary, modifier = Modifier.size(24.dp)) }
+            },
+            action = action,
+            iconDisc = GlassTokens.RowFillActive,
+            iconDiscSize = 48.dp,
+            iconColor = secondary,
+            titleStyle = MaterialTheme.typography.titleMedium,
+            titleColor = MaterialTheme.colorScheme.onSurface,
+            descriptionStyle = MaterialTheme.typography.bodySmall,
+            descriptionColor = tertiary,
+            descriptionPadding = 16.dp,
+            spacing = 12.dp,
+            contentPadding = PaddingValues(horizontal = 24.dp, vertical = 48.dp),
+        )
+        EmptyStateSize.List -> EmptyStateView(
+            title = title,
+            modifier = modifier.fillMaxWidth(),
+            size = EmptyStateSize.List,
+            icon = icon?.let {
+                { Icon(it, contentDescription = null, tint = tertiary, modifier = Modifier.size(20.dp)) }
+            },
+            iconDisc = null,
+            iconColor = tertiary,
+            titleStyle = MaterialTheme.typography.bodyMedium,
+            titleColor = secondary,
+            spacing = 6.dp,
+            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 24.dp),
+        )
+    }
 }
 
 /** Centered spinner loading state. */

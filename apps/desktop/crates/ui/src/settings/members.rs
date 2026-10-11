@@ -531,12 +531,11 @@ fn open_role_dialog(
 impl Render for MembersPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return v_flex().child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("No team selected."),
-            );
+            return v_flex().child(crate::controls::empty_state_list(
+                gpui_component::Icon::new(crate::icons::registry::UI_TEAM),
+                crate::empty_state_copy::NO_TEAM_SELECTED,
+                cx,
+            ));
         };
         let my_user_id = queries::active_account(cx)
             .map(|account| account.user_id)

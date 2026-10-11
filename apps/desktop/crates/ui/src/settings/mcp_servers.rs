@@ -42,11 +42,7 @@ use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 use crate::surface::{glass_pill, glass_pill_button, glass_pill_button_primary, PillMode, PillSize};
 
-use super::{error_notice, open_url, section, section_description};
-
-/// Web copy, verbatim (the section's own description).
-const MCP_DESCRIPTION: &str =
-    "Tools your agents can use in runs. Each member connects their own account.";
+use super::{error_notice, open_url, section};
 
 /// How often a Connect re-reads the list while the browser is out, and for
 /// how long before it gives up.
@@ -172,6 +168,26 @@ fn test_message(name: &str, result: &api::mcp_servers::McpTestResult) -> String 
     }
 }
 
+/// EXP-1274 — the built-in tools filter: a case-insensitive substring of
+/// the title, the blurb or the wire name. A blank query keeps every tool.
+fn filter_builtin_tools(
+    tools: Vec<steer::exp_tool::BuiltinExpTool>,
+    query: &str,
+) -> Vec<steer::exp_tool::BuiltinExpTool> {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return tools;
+    }
+    tools
+        .into_iter()
+        .filter(|tool| {
+            tool.title.to_lowercase().contains(&needle)
+                || tool.blurb.to_lowercase().contains(&needle)
+                || tool.name.to_lowercase().contains(&needle)
+        })
+        .collect()
+}
+
 enum Load {
     Idle,
     Loading,
@@ -198,9 +214,14 @@ pub struct McpServersPane {
     /// The "Set key" dialog's field. One input reused by every row: only
     /// one dialog is ever open.
     value_input: Entity<InputState>,
-    /// EXP-862: the built-in Exponential tools group is COLLAPSED until it is
-    /// asked for — 77 rows are a reference list, not the page.
-    builtins_expanded: bool,
+    /// EXP-1274: a refetch of a list that is already showing. The rows stay
+    /// and the band spins ([`crate::surface::glass_section_header_loading`]);
+    /// only the FIRST load draws the skeleton. `reload_requested` asks the
+    /// next render to start it, `reloading` is the fetch in flight.
+    reload_requested: bool,
+    reloading: bool,
+    /// EXP-1274: the built-in tools band's inline filter.
+    tool_filter: Entity<InputState>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -210,12 +231,17 @@ impl McpServersPane {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) -> Self {
-        let subscriptions = vec![cx.observe(&nav, |_, _, cx| cx.notify())];
         let value_input = cx.new(|cx| {
             InputState::new(window, cx)
                 .placeholder("Paste the key")
                 .masked(true)
         });
+        let tool_filter = cx.new(|cx| InputState::new(window, cx).placeholder("Filter tools"));
+        let subscriptions = vec![
+            cx.observe(&nav, |_, _, cx| cx.notify()),
+            // Typing in the built-in tools filter re-filters its rows.
+            cx.observe(&tool_filter, |_, _, cx| cx.notify()),
+        ];
         Self {
             nav,
             load: Load::Idle,
@@ -226,7 +252,9 @@ impl McpServersPane {
             connecting: None,
             connect_generation: 0,
             value_input,
-            builtins_expanded: false,
+            reload_requested: false,
+            reloading: false,
+            tool_filter,
             _subscriptions: subscriptions,
         }
     }
@@ -235,17 +263,20 @@ impl McpServersPane {
     /// so every entry into the section drops the cache: a connection made on
     /// the web or from the CLI has to be here when you come back.
     pub fn mark_stale(&mut self, cx: &mut gpui::Context<Self>) {
-        if matches!(self.load, Load::Ready(_)) {
-            self.load = Load::Idle;
-        }
-        cx.notify();
+        self.refetch(cx);
     }
 
-    /// Drop the cache so the next render refetches — the dialog calls this
-    /// after a create/edit lands (`mcpServers.list` is a server read with no
-    /// Electric echo).
+    /// Refetch on the next render — the dialog calls this after a
+    /// create/edit lands (`mcpServers.list` is a server read with no
+    /// Electric echo). EXP-1274: a list already on screen KEEPS its rows and
+    /// the band spins; anything else (an error, nothing yet) starts over at
+    /// the skeleton.
     pub(super) fn refetch(&mut self, cx: &mut gpui::Context<Self>) {
-        self.load = Load::Idle;
+        match self.load {
+            Load::Ready(Ok(_)) => self.reload_requested = true,
+            Load::Ready(Err(_)) => self.load = Load::Idle,
+            Load::Idle | Load::Loading => {}
+        }
         cx.notify();
     }
 
@@ -255,10 +286,14 @@ impl McpServersPane {
             self.load = Load::Idle;
             self.connecting = None;
             self.pending = None;
+            self.reload_requested = false;
+            self.reloading = false;
         }
-        if !matches!(self.load, Load::Idle) {
+        let reload = self.reload_requested && matches!(self.load, Load::Ready(Ok(_)));
+        if !matches!(self.load, Load::Idle) && !reload {
             return;
         }
+        self.reload_requested = false;
         let Some(trpc) = queries::trpc_client(cx) else {
             // Nothing to fetch and nothing to wait for — Idle renders the
             // loading line, so leaving it there would spin forever.
@@ -267,7 +302,11 @@ impl McpServersPane {
         };
         let team = team_id.to_string();
 
-        self.load = Load::Loading;
+        if reload {
+            self.reloading = true;
+        } else {
+            self.load = Load::Loading;
+        }
         self.generation += 1;
         let generation = self.generation;
 
@@ -283,6 +322,7 @@ impl McpServersPane {
                     return;
                 }
                 this.load = Load::Ready(result);
+                this.reloading = false;
                 cx.notify();
             });
         })
@@ -742,43 +782,43 @@ impl McpServersPane {
             .child(div().text_xs().child(SharedString::from(text)))
     }
 
-    /// EXP-862 — the COLLAPSED "Built-in Exponential tools" group: what the
-    /// agents can already do without a server in the registry above. One row
-    /// per contract tool, styled like the session feed's Exponential tool row
-    /// (`steer_viewer::exp_tool_call_row`): the app's own mark, the tool's
-    /// title, the blurb muted beside it. The raw wire name
-    /// (`exponential_issues_create`) is the row's TOOLTIP only — nobody reads
-    /// a reference list in snake_case.
-    fn render_builtin_tools(&self, cx: &mut gpui::Context<Self>) -> gpui::Div {
-        let tools = steer::exp_tool::builtin_tools();
+    /// EXP-862/1274 — the "Built-in Exponential tools" group: what the
+    /// agents can already do without a server in the registry above. A plain
+    /// band (never folded, no count: bands carry no numbers) with an inline
+    /// filter at its trailing edge ([`filter_builtin_tools`]: title, blurb or wire name);
+    /// a filter with no match is the shared LIST empty state (fixture
+    /// `builtin-tools-no-match`). One row per contract tool, styled like the
+    /// session feed's Exponential tool row (`steer_viewer::exp_tool_call_row`):
+    /// the app's own mark, the tool's title, the blurb muted beside it. The
+    /// raw wire name (`exponential_issues_create`) is the row's TOOLTIP only —
+    /// nobody reads a reference list in snake_case.
+    fn render_builtin_tools(&self, window: &Window, cx: &mut gpui::Context<Self>) -> gpui::Div {
+        let query = self.tool_filter.read(cx).value().to_string();
+        let tools = filter_builtin_tools(steer::exp_tool::builtin_tools(), &query);
         let muted = cx.theme().muted_foreground;
-        let collapsed = !self.builtins_expanded;
-        // The foldable band WITHOUT a count (list bands carry none): the
-        // leading chevron is the only fold affordance.
-        let chevron = Icon::new(if collapsed {
-            registry::UI_CHEVRON_RIGHT
-        } else {
-            registry::UI_CHEVRON_DOWN
-        })
-        .xsmall()
-        .flex_shrink_0()
-        .text_color(cx.theme().foreground.opacity(0.7))
-        .into_any_element();
-        let band = crate::surface::glass_section_band(
-            Some(chevron),
-            "Built-in Exponential tools",
-            None,
+        let filter = crate::controls::search_field(
+            &self.tool_filter,
+            crate::controls::SearchFieldSize::Sm,
+            window,
             cx,
-        )
-        .id("mcp-builtin-tools")
-        .cursor_pointer()
-        .on_click(cx.listener(|this, _, _, cx| {
-            this.builtins_expanded = !this.builtins_expanded;
-            cx.notify();
-        }));
+        );
+        let trailing = h_flex()
+            .gap_2()
+            .items_center()
+            .child(div().w(gpui::px(192.)).child(filter))
+            .into_any_element();
+        let band = crate::surface::glass_section_header(
+            "Built-in Exponential tools",
+            Some(trailing),
+            cx,
+        );
         let mut group = v_flex().w_full().min_w_0().child(band);
-        if collapsed {
-            return group;
+        if tools.is_empty() {
+            return group.child(crate::controls::empty_state_list(
+                Icon::new(registry::UI_EMPTY_SEARCH),
+                crate::empty_state_copy::BUILTIN_TOOLS_NO_MATCH,
+                cx,
+            ));
         }
         for (index, tool) in tools.into_iter().enumerate() {
             group = group.child(
@@ -1098,52 +1138,41 @@ impl McpServersPane {
 }
 
 impl Render for McpServersPane {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return v_flex().child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("No team selected."),
-            );
+            return v_flex().child(crate::controls::empty_state_list(
+                Icon::new(registry::UI_TEAM),
+                crate::empty_state_copy::NO_TEAM_SELECTED,
+                cx,
+            ));
         };
         self.ensure_loaded(&team_id, cx);
         let owner = super::is_owner(cx, &team_id);
 
-        let refresh = glass_pill_button("mcp-servers-refresh", PillSize::Sm, cx)
-            .label("Refresh")
-            .loading(matches!(self.load, Load::Loading))
-            .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)));
-        // EXP-810: authoring is owner-only, exactly like Remove.
+        // EXP-810: authoring is owner-only, exactly like Remove — and always
+        // offered to an owner, an empty list included (the band's pill IS
+        // the empty state's call to action, EXP-1274). No Refresh: the list
+        // refetches on entry and after every write.
         let add_team = team_id.clone();
-        let trailing = h_flex()
-            .gap_1()
-            .items_center()
-            .when(owner, |this| {
-                this.child(
-                    glass_pill_button("mcp-servers-add", PillSize::Sm, cx)
-                        .label("Add server")
-                        .disabled(self.busy)
-                        .on_click(cx.listener(move |this, _, window, cx| {
-                            let team = add_team.clone();
-                            this.open_editor(None, &team, window, cx);
-                        })),
-                )
-            })
-            .child(refresh)
-            .into_any_element();
+        let trailing = owner.then(|| {
+            glass_pill_button("mcp-servers-add", PillSize::Sm, cx)
+                .icon(registry::UI_ADD)
+                .label("Add server")
+                .disabled(self.busy)
+                .on_click(cx.listener(move |this, _, window, cx| {
+                    let team = add_team.clone();
+                    this.open_editor(None, &team, window, cx);
+                }))
+                .into_any_element()
+        });
 
-        let mut body = section(cx).child(
-            v_flex()
-                .child(crate::surface::glass_section_header(
-                    "MCP servers",
-                    Some(trailing),
-                    cx,
-                ))
-                .child(section_description(MCP_DESCRIPTION, cx)),
-        );
+        let mut body = section(cx).child(crate::surface::glass_section_header_loading(
+            "MCP servers",
+            self.reloading,
+            trailing,
+            cx,
+        ));
 
-        let muted = cx.theme().muted_foreground;
         match &self.load {
             Load::Idle | Load::Loading => {
                 body = body.child(
@@ -1158,11 +1187,11 @@ impl Render for McpServersPane {
                 body = body.child(error_notice(SharedString::from(message.clone()), cx));
             }
             Load::Ready(Ok(servers)) if servers.is_empty() => {
-                body = body.child(div().text_sm().text_color(muted).child(if owner {
-                    "No MCP servers yet. Add one to offer it in new runs."
-                } else {
-                    "No MCP servers yet. A team owner can add them."
-                }));
+                body = body.child(crate::controls::empty_state_list(
+                    Icon::new(registry::SETTINGS_MCP),
+                    crate::empty_state_copy::MCP_SERVERS,
+                    cx,
+                ));
             }
             Load::Ready(Ok(servers)) => {
                 // Cloned so the row builder can take `&mut Context` (the
@@ -1182,7 +1211,7 @@ impl Render for McpServersPane {
             }
         }
 
-        body = body.child(self.render_builtin_tools(cx));
+        body = body.child(self.render_builtin_tools(window, cx));
 
         // The web hand-off — the web page adds the catalog and the probe.
         let slug = super::active_team(cx, &self.nav).and_then(|team| team.slug);
@@ -1322,5 +1351,23 @@ mod tests {
             "Linear did not answer: 401 Unauthorized"
         );
         assert_eq!(test_message("Linear", &result(false, None, None)), "Linear did not answer");
+    }
+
+    /// EXP-1274: the built-in tools filter matches title, blurb or wire
+    /// name, case-insensitively; blank keeps all, nonsense keeps none.
+    #[test]
+    fn builtin_tools_filter_matches_title_blurb_or_name() {
+        let all = steer::exp_tool::builtin_tools();
+        let total = all.len();
+        assert!(total > 0);
+        assert_eq!(filter_builtin_tools(all.clone(), "  ").len(), total);
+        let first = all[0].clone();
+        let by_title = filter_builtin_tools(all.clone(), &first.title.to_uppercase());
+        assert!(by_title.iter().any(|tool| tool.name == first.name));
+        let by_name = filter_builtin_tools(all.clone(), &first.name);
+        assert!(by_name.iter().any(|tool| tool.name == first.name));
+        let by_blurb = filter_builtin_tools(all.clone(), first.blurb);
+        assert!(by_blurb.iter().any(|tool| tool.name == first.name));
+        assert!(filter_builtin_tools(all, "zzqx-no-such-tool").is_empty());
     }
 }

@@ -74,7 +74,7 @@ data class IssueWithLabels(
 )
 
 // Intermediate result of the heavy group/sort pipeline. Kept separate from
-// IssueListState so the transient UI flags (busy/error/refreshing) can be
+// IssueListState so the transient UI flags (busy/error) can be
 // overlaid without rebuilding the grouped list.
 private data class GroupedIssueState(
     val board: BoardEntity? = null,
@@ -97,7 +97,6 @@ data class IssueListState(
     // vocabulary. Falls back to the constructed builtins until the
     // issue_statuses shape has synced.
     val teamStatuses: List<ResolvedIssueStatus> = emptyList(),
-    val isRefreshing: Boolean = false,
     val error: String? = null,
     // EXP-1115: true once the issues shape has reached up-to-date at least
     // once for this account (a zero-row snapshot counts). Until then an
@@ -131,7 +130,6 @@ class IssueListViewModel @Inject constructor(
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
     private val _error = MutableStateFlow<String?>(null)
-    private val _refreshing = MutableStateFlow(false)
     private val _board = MutableStateFlow<BoardEntity?>(null)
 
     /** Swap the list to another board in place (Issues tab root). */
@@ -257,7 +255,7 @@ class IssueListViewModel @Inject constructor(
 
     // The heavy group/sort pipeline. Recomputes only when one of its
     // *meaningful* data inputs changes (board, issues, labels, joins or
-    // users). Transient UI flags (busy / error / refreshing) are
+    // users). Transient UI flags (busy / error) are
     // deliberately kept out so toggling them never rebuilds the grouped list.
     // (Issue-list search is gone — cross-board search lives in its own tab.)
     private val groupedState: Flow<GroupedIssueState> = combine(
@@ -366,10 +364,9 @@ class IssueListViewModel @Inject constructor(
 
     val state: StateFlow<IssueListState> = combine(
         groupedState,
-        _refreshing,
         _error,
         issuesSynced,
-    ) { grouped, refreshing, error, synced ->
+    ) { grouped, error, synced ->
         IssueListState(
             board = grouped.board,
             groups = grouped.groups,
@@ -377,7 +374,6 @@ class IssueListViewModel @Inject constructor(
             users = grouped.users,
             teamUsers = grouped.teamUsers,
             teamStatuses = grouped.teamStatuses,
-            isRefreshing = refreshing,
             error = error,
             issuesSynced = synced,
         )
@@ -544,25 +540,6 @@ class IssueListViewModel @Inject constructor(
             ) { all, pid ->
                 all.firstOrNull { it.id == pid }
             }.collect { _board.value = it }
-        }
-    }
-
-    /**
-     * Triggered by pull-to-refresh: kick every shape loop and hold the spinner
-     * until the core shapes have actually polled (or the timeout wins). The
-     * gesture used to be a 500ms placebo — on the one occasion it matters, a
-     * loop parked in backoff, that was exactly wrong.
-     */
-    fun refresh() {
-        if (_refreshing.value) return
-        viewModelScope.launch {
-            _refreshing.value = true
-            try {
-                val accountId = auth.activeAccountId.value ?: return@launch
-                syncManager.refresh(accountId, timeoutMs = 5_000)
-            } finally {
-                _refreshing.value = false
-            }
         }
     }
 

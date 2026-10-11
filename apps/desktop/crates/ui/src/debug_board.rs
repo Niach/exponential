@@ -119,12 +119,11 @@ impl DebugBoardPanel {
             );
         }
         if issues.is_empty() {
-            return groups.child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("No issues."),
-            );
+            return groups.child(crate::controls::empty_state_list(
+                gpui_component::Icon::new(crate::icons::registry::NAV_ISSUES),
+                "No issues",
+                cx,
+            ));
         }
 
         for status in domain::IssueStatus::DISPLAY_ORDER {

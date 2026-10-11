@@ -81,7 +81,7 @@ test(`manages custom statuses in settings and uses them on the board`, async ({
   // customs-only category: it is the ONE section a fresh team seeds empty,
   // rendering the muted empty line under its header and still offering Add.
   await expect(page.getByText(`Todo`, { exact: true })).toHaveCount(0)
-  await expect(page.getByText(`No statuses yet.`)).toHaveCount(1)
+  await expect(page.getByText(`No statuses yet`, { exact: true })).toHaveCount(1)
   await expect(
     page.getByRole(`button`, { name: `Add Unstarted status` })
   ).toBeEnabled()

@@ -1,7 +1,6 @@
 import { useState } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import {
-  EmptyState,
   GlassSectionHeader,
   ListRow,
   Menu,
@@ -17,9 +16,9 @@ import { compactRelativeTime } from "@/lib/relative-time"
 import { useDraftEntries } from "@/hooks/use-issue-drafts"
 import { issueDraftCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { Empty } from "@/components/empty"
 import { openDraftNavigation } from "@/lib/issue-draft-page"
 
-const NavDraftsIcon = conceptIcon(`nav-drafts`)
 const DeleteIcon = conceptIcon(`ui-delete`)
 const DRAFT_MENU_KIND = `draft`
 
@@ -64,11 +63,7 @@ export function DraftsList({
 
   if (entries.length === 0) {
     return (
-      <EmptyState
-        icon={NavDraftsIcon}
-        title="No drafts"
-        description="A new issue you leave with something in it is kept here until you file it."
-      />
+      <Empty id="drafts" />
     )
   }
 

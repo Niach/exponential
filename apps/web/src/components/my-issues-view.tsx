@@ -1,9 +1,8 @@
 import { useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 import { useNavigate } from "@tanstack/react-router"
-import { CircleUser } from "lucide-react"
 import { BulkActionBar } from "@/components/bulk-action-bar"
-import { EmptyState } from "@exp/ui"
+import { Empty } from "@/components/empty"
 import { IssueList } from "@/components/issue-list"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { useMyIssuesData } from "@/hooks/use-my-issues-data"
@@ -87,11 +86,7 @@ export function MyIssuesView({
         className={`flex-1 overflow-auto ${TAB_BAR_CLEARANCE}`}
       >
         {issuesReady && totalIssueCount === 0 ? (
-          <EmptyState
-            icon={CircleUser}
-            title="No issues assigned to you"
-            description="Issues assigned to you across all boards in this team will show up here."
-          />
+          <Empty id="my-issues" />
         ) : (
           <IssueList
             groups={visibleGroups}

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react"
 import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { Link } from "@tanstack/react-router"
-import { Check, Copy, LoaderCircle, Sparkles } from "lucide-react"
+import { Check, Copy, Sparkles } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { buildWidgetSnippet } from "@/lib/widget-snippet"
 import { useBillingPlan } from "@/hooks/use-billing"
@@ -17,6 +17,7 @@ import {
   GlassSectionHeader,
   ListRow,
   SETTINGS_LIST_CLASS,
+  Skeleton,
   Dialog,
   DialogBody,
   DialogContent,
@@ -29,6 +30,7 @@ import {
   Switch,
   conceptIcon,
 } from "@exp/ui"
+import { Empty } from "@/components/empty"
 import type { Team } from "@/db/schema"
 
 const WidgetIcon = conceptIcon(`settings-widget`)
@@ -48,6 +50,8 @@ export function TeamWidgetSection({ team }: { team: Team }) {
   const billingPlan = useBillingPlan(teamId)
   const [widgets, setWidgets] = useState<WidgetListItem[]>([])
   const [loading, setLoading] = useState(true)
+  // EXP-1274: a refetch over an already-shown list spins the band's glyph.
+  const [reloading, setReloading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
@@ -61,6 +65,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
   const [editTarget, setEditTarget] = useState<WidgetListItem | null>(null)
 
   const refresh = useCallback(async () => {
+    setReloading(true)
     try {
       setWidgets(await trpc.widgets.list.query({ teamId }))
       setError(null)
@@ -68,6 +73,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
       setError(`Couldn't load widgets. Are you an owner of this team?`)
     } finally {
       setLoading(false)
+      setReloading(false)
     }
   }, [teamId])
 
@@ -128,6 +134,7 @@ export function TeamWidgetSection({ team }: { team: Team }) {
         <GlassSectionHeader
           leading={<WidgetIcon className="size-3.5 text-foreground/50" />}
           label="Widget"
+          loading={!loading && reloading}
           trailing={
             <Pill mode="action" onClick={openCreate}>
               New widget
@@ -137,18 +144,16 @@ export function TeamWidgetSection({ team }: { team: Team }) {
         <div className="space-y-4">
           <div className={SETTINGS_LIST_CLASS}>
             {loading ? (
-              <ListRow className="gap-2 px-3 py-2 text-sm text-muted-foreground">
-                <LoaderCircle className="h-4 w-4 animate-spin" />
-                Loading widgets
-              </ListRow>
+              <div className="flex flex-col gap-2 px-3 py-2" aria-busy="true">
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-64" />
+              </div>
             ) : error ? (
               <div className="rounded-md border border-destructive/50 px-3 py-2 text-sm text-destructive">
                 {error}
               </div>
             ) : widgets.length === 0 ? (
-              <ListRow className="px-3 py-2 text-sm text-muted-foreground">
-                No widgets yet. Create one to get an embed snippet.
-              </ListRow>
+              <Empty id="widgets" />
             ) : (
               widgets.map((widget) => (
                 // The row opens the editor; the enable switch and ONE ⋯ Menu

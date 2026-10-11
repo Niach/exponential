@@ -481,12 +481,11 @@ impl StoragePane {
 impl Render for StoragePane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return v_flex().child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("No team selected."),
-            );
+            return v_flex().child(crate::controls::empty_state_list(
+                gpui_component::Icon::new(crate::icons::registry::UI_TEAM),
+                crate::empty_state_copy::NO_TEAM_SELECTED,
+                cx,
+            ));
         };
         self.ensure_loaded(&team_id, cx);
 
@@ -584,13 +583,11 @@ impl Render for StoragePane {
                 );
 
                 if rows.is_empty() {
-                    body = body.child(
-                        div()
-                            .py_2()
-                            .text_sm()
-                            .text_color(cx.theme().muted_foreground)
-                            .child("No attachments yet."),
-                    );
+                    body = body.child(crate::controls::empty_state_list(
+                        gpui_component::Icon::new(crate::icons::registry::UI_ATTACH),
+                        crate::empty_state_copy::ATTACHMENTS,
+                        cx,
+                    ));
                 } else {
                     let collections = Store::global(cx).collections().clone();
                     let joins: Vec<(Option<String>, Option<String>)> = {

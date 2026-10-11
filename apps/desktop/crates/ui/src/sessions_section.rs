@@ -33,10 +33,11 @@ use gpui::{
     ParentElement, Render, SharedString, Styled, Subscription,
     Task, Window,
 };
-use gpui_component::{scroll::ScrollableElement as _, v_flex, ActiveTheme as _};
+use gpui_component::{scroll::ScrollableElement as _, v_flex, Icon};
 
 use crate::coding_flow::{LocalSessionHost, LocalSessions};
 use crate::navigation::{active_team_id, nav_for_window, Navigation, Screen};
+use crate::icons::registry;
 use crate::queries;
 use crate::run_rows::{self, PastRunFacts, RunRowSize};
 use crate::surface::glass_section_header;
@@ -46,21 +47,20 @@ use crate::surface::glass_section_header;
 /// `last_seen_at`, neither of which produces a collection delta to observe.
 const TICK: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// The empty Running band's copy, byte-identical ×4. The DESKTOP has no empty
-/// state for it any more (EXP-923: the rail's Running section is hidden
-/// outright while nothing runs), but the string is a ×4 contract the phones
-/// still render, so it stays locked here rather than drifting on three
-/// clients at once.
+/// The empty Running band's copy, fixture `running-agents` (EXP-1274). The
+/// DESKTOP has no empty state for it any more (EXP-923: the rail's Running
+/// section is hidden outright while nothing runs); the phones still draw it.
 #[allow(dead_code)]
-const NO_RUNNING_COPY: &str = "No agents running right now.";
+const NO_RUNNING_COPY: &str = crate::empty_state_copy::RUNNING_AGENTS;
 
 /// EXP-923 — the number of Recent rows the history panel keeps. It is a
 /// backstop behind a composer, not an archive.
 const RECENT_CAP: usize = 20;
 
 /// EXP-1192 — the Recent band's empty line: the panel is a column of its own
-/// now, and a bare band over nothing read as still loading.
-const NO_RECENT_COPY: &str = "No recent runs.";
+/// now, and a bare band over nothing read as still loading. Fixture
+/// `recent-runs`, the shared LIST empty state (EXP-1274).
+const NO_RECENT_COPY: &str = crate::empty_state_copy::RECENT_RUNS;
 
 // ---------------------------------------------------------------------------
 // Running — the RAIL's section (EXP-923)
@@ -366,14 +366,11 @@ impl Render for PastSessionsSection {
             return v_flex()
                 .min_w_0()
                 .child(glass_section_header("Recent", None, cx))
-                .child(
-                    div()
-                        .px_3()
-                        .py_1()
-                        .text_xs()
-                        .text_color(cx.theme().muted_foreground)
-                        .child(NO_RECENT_COPY),
-                );
+                .child(crate::controls::empty_state_list(
+                    Icon::new(registry::CODING_ENDED),
+                    NO_RECENT_COPY,
+                    cx,
+                ));
         }
         let open_session = open_session_id(window, cx);
         // EXP-965: the connector, off the depth sequence.
@@ -528,7 +525,7 @@ mod tests {
     /// instead, but the ×4 string stays locked here).
     #[test]
     fn the_empty_running_band_copy_is_locked() {
-        assert_eq!(NO_RUNNING_COPY, "No agents running right now.");
-        assert_eq!(NO_RECENT_COPY, "No recent runs.");
+        assert_eq!(NO_RUNNING_COPY, "No agents running");
+        assert_eq!(NO_RECENT_COPY, "No recent runs");
     }
 }

@@ -562,7 +562,7 @@ class StyleguideScreenshotsTest {
                 "SLOP-2",
                 "sg_action-runs: no run rows — reseed with `bun run seed:screenshots`",
             )
-            flow.waitFor(hasText("No runs yet.", substring = true), NAV_TIMEOUT)
+            flow.waitFor(hasText("No runs yet", substring = true), NAV_TIMEOUT)
         }
         flow.settle()
         flow.screenshot("sg_action-runs")

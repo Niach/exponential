@@ -759,7 +759,8 @@ struct AgentSessionView: View {
             // EXP-550: the machine hosting this run is asleep. The session is
             // NOT over — it resumes when the machine comes back — so say that
             // instead of spinning on "waiting for the live stream" forever.
-            centeredState { hostOfflineState }
+            hostOfflineState
+                .frame(maxHeight: .infinity)
         } else if feedPlaceholder(model),
                   model.phase == .connecting || model.phase == .starting || model.phase == .idle {
             centeredState {
@@ -890,10 +891,7 @@ struct AgentSessionView: View {
                                 detail: focused.detail
                             )
                             if focused.items.isEmpty {
-                                Text("Nothing from this agent yet.")
-                                    .font(.caption)
-                                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                                    .padding(.vertical, 4)
+                                EmptyState(.transcript)
                             } else {
                                 // EXP-773: the run's prose and the turns
                                 // addressed to it interleave with its tool
@@ -1532,17 +1530,12 @@ struct AgentSessionView: View {
 
     /// EXP-550: the "your machine is asleep" empty state — the same glyph the
     /// machines list draws for an offline device (`ui-device-offline`).
-    @ViewBuilder
     private var hostOfflineState: some View {
-        AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.large)
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-        Text("\(hostLabel) is offline")
-            .font(.subheadline)
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-        Text("The agent is paused on that machine and continues when it comes back online.")
-            .font(.caption)
-            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            .multilineTextAlignment(.center)
+        EmptyState(
+            title: "\(hostLabel) is offline",
+            description: "The agent is paused on that machine and continues when it comes back online.",
+            icon: AppIcons.uiDeviceOffline
+        )
     }
 
     // MARK: - Compaction strip (EXP-724)

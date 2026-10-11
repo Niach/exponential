@@ -317,7 +317,7 @@ function AdminEmail() {
 
           {allRows.length === 0 ? (
             <ListEmpty className="rounded-md border px-4 py-8">
-              No emails match.
+              No emails match
             </ListEmpty>
           ) : (
             <>

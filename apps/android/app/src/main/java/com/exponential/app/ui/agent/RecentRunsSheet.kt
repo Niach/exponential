@@ -1,5 +1,7 @@
 package com.exponential.app.ui.agent
 
+import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.domain.EmptyStateCopy
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -47,12 +49,7 @@ fun RecentRunsSheet(
 ) {
     GlassSheet(title = "Recent", onDismiss = onDismiss) {
         if (pastRuns.isEmpty()) {
-            Text(
-                "No recent runs",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-            )
+            EmptyState(EmptyStateCopy.recentRuns)
             return@GlassSheet
         }
         // Capped BEFORE the tree (`PastRuns` cap), so a child whose parent fell

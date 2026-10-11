@@ -1338,14 +1338,11 @@ impl Render for MachinesSection {
                 )
             })
             .when(derived.is_some() && mine.is_empty(), |this| {
-                this.child(
-                    div()
-                        .px_1()
-                        .py_2()
-                        .text_xs()
-                        .text_color(muted)
-                        .child("No devices yet. Open the Exponential desktop app, or add a device."),
-                )
+                this.child(crate::controls::empty_state_list(
+                    gpui_component::Icon::new(crate::icons::registry::NAV_DEVICES),
+                    crate::empty_state_copy::DEVICES,
+                    cx,
+                ))
             })
             .child(gpui_component::v_flex().min_w_0().children(mine_rows))
             // EXP-432/642: teammates' shared devices get their OWN headed

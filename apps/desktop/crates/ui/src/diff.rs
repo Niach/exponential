@@ -1478,13 +1478,12 @@ impl Render for DiffView {
                     "Couldn't load changes: {message}"
                 )))
                 .into_any_element(),
-            Phase::Ready if self.rows.is_empty() => div()
-                .px(px(LIST_PAD))
-                .py_3()
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .child("No changed files.")
-                .into_any_element(),
+            Phase::Ready if self.rows.is_empty() => crate::controls::empty_state_list(
+                gpui_component::Icon::new(crate::icons::registry::CODING_DIFF),
+                crate::empty_state_copy::CHANGED_FILES,
+                cx,
+            )
+            .into_any_element(),
             Phase::Ready => {
                 let h_scroll = self.h_scroll.clone();
                 let wheel_scroll = self.h_scroll.clone();

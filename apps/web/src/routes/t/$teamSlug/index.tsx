@@ -6,7 +6,9 @@ import {
   useTeamBoardsWithReady,
 } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import { EmptyState, Button } from "@exp/ui"
+import { Button } from "@exp/ui"
+import { Empty } from "@/components/empty"
+import { emptyStateCopy } from "@/lib/empty-states"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
@@ -59,16 +61,12 @@ function TeamIndexPage() {
   return (
     <div className={`h-full overflow-y-auto ${TAB_BAR_CLEARANCE}`}>
       <div className="flex min-h-[60vh] flex-1 items-center justify-center">
-        <EmptyState
-          icon={FolderKanban}
-          title="No boards yet"
-          description="Create a board to start tracking work."
-        >
+        <Empty id="boards">
           <Button onClick={() => setCreateOpen(true)}>
             <FolderKanban className="mr-2 size-4" />
-            Create a board
+            {emptyStateCopy(`boards`).action}
           </Button>
-        </EmptyState>
+        </Empty>
       </div>
       {/* Members only — the guidance block is meaningless before the viewer's
           own member row has synced (board parity). */}

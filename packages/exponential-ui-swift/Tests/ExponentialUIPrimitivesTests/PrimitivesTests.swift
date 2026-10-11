@@ -111,3 +111,36 @@ final class MarkdownParseTests: XCTestCase {
         XCTAssertNil(RGBA(hex: "red"))
     }
 }
+
+/// EXP-1274: the two empty-state sizes match `empty-state.json` `sizes`.
+final class EmptyStateSizeTests: XCTestCase {
+    private func fixtureSizes() throws -> [String: [String: Double]] {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()  // Tests/ExponentialUIPrimitivesTests/
+            .deletingLastPathComponent()  // Tests/
+            .deletingLastPathComponent()  // packages/exponential-ui-swift/
+            .deletingLastPathComponent()  // packages/
+            .appendingPathComponent("domain-contract/fixtures/empty-state.json")
+        let json = try XCTUnwrap(try JSONSerialization.jsonObject(with: try Data(contentsOf: url)) as? [String: Any])
+        return try XCTUnwrap(json["sizes"] as? [String: [String: Double]])
+    }
+
+    func testPageSizeMatchesTheFixture() throws {
+        let page = try XCTUnwrap(try fixtureSizes()["page"])
+        XCTAssertEqual(EmptyStateSize.page.disc.map(Double.init), page["disc"])
+        XCTAssertEqual(Double(EmptyStateSize.page.glyph), page["glyph"])
+        XCTAssertEqual(Double(EmptyStateSize.page.paddingY), page["paddingY"])
+        XCTAssertEqual(EmptyStateSize.page.maxWidth.map(Double.init), page["maxWidth"])
+        XCTAssertEqual(Double(EmptyStateSize.page.gap), page["gap"])
+    }
+
+    func testListSizeMatchesTheFixture() throws {
+        let list = try XCTUnwrap(try fixtureSizes()["list"])
+        XCTAssertNil(EmptyStateSize.list.disc, "a list state draws the bare glyph")
+        XCTAssertNil(EmptyStateSize.list.maxWidth)
+        XCTAssertEqual(Double(EmptyStateSize.list.glyph), list["glyph"])
+        XCTAssertEqual(Double(EmptyStateSize.list.paddingY), list["paddingY"])
+        XCTAssertEqual(Double(EmptyStateSize.list.gap), list["gap"])
+        XCTAssertEqual(Set(EmptyStateSize.allCases.map(\.rawValue)), Set(try fixtureSizes().keys))
+    }
+}

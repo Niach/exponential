@@ -1,5 +1,6 @@
 package com.exponential.app.ui.reviews
 
+import com.exponential.app.domain.EmptyStateCopy
 import androidx.browser.customtabs.CustomTabsIntent
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -92,11 +93,7 @@ private fun ReviewsListContent(
 
     when {
         !state.loaded -> LoadingState(modifier = modifier)
-        state.isEmpty -> EmptyState(
-            message = "No open pull requests",
-            icon = ExpIcons.navReviews,
-            modifier = modifier,
-        )
+        state.isEmpty -> EmptyState(EmptyStateCopy.reviews, modifier = modifier)
         else -> LazyColumn(
             modifier = modifier.fillMaxSize().testTag("reviews-list"),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),

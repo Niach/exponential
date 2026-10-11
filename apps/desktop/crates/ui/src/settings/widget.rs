@@ -43,6 +43,11 @@ pub struct WidgetPane {
     team_id: Option<String>,
     /// Monotonic guard: a stale in-flight fetch must not clobber a newer one.
     generation: u64,
+    /// EXP-1274: a refetch of a list already on screen keeps its rows and
+    /// spins the band (`reload_requested` asks the next render to start it,
+    /// `reloading` is the fetch in flight); only the FIRST load is a skeleton.
+    reload_requested: bool,
+    reloading: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -54,6 +59,8 @@ impl WidgetPane {
             load: Load::Idle,
             team_id: None,
             generation: 0,
+            reload_requested: false,
+            reloading: false,
             _subscriptions: subscriptions,
         }
     }
@@ -62,19 +69,15 @@ impl WidgetPane {
     /// the first visit's snapshot would otherwise stand forever: a widget
     /// created on the web through "Manage on the web" stayed invisible until a
     /// team switch. Every entry into the section drops the cache; the next
-    /// render refetches.
+    /// render refetches (EXP-1274: a list already showing keeps its rows
+    /// and the band spins; a failed load starts over at the skeleton — the
+    /// way back from an error is re-entering the section, no Refresh pill).
     pub fn mark_stale(&mut self, cx: &mut gpui::Context<Self>) {
-        if matches!(self.load, Load::Ready(_)) {
-            self.load = Load::Idle;
+        match self.load {
+            Load::Ready(Ok(_)) => self.reload_requested = true,
+            Load::Ready(Err(_)) => self.load = Load::Idle,
+            Load::Idle | Load::Loading => {}
         }
-        cx.notify();
-    }
-
-    /// Refetch (the Refresh button): drop the cached list; the next render
-    /// re-fetches. EXP-781 — without it a failed load had no way back except
-    /// switching sections or teams.
-    fn refetch(&mut self, cx: &mut gpui::Context<Self>) {
-        self.load = Load::Idle;
         cx.notify();
     }
 
@@ -82,10 +85,14 @@ impl WidgetPane {
         if self.team_id.as_deref() != Some(team_id) {
             self.team_id = Some(team_id.to_string());
             self.load = Load::Idle;
+            self.reload_requested = false;
+            self.reloading = false;
         }
-        if !matches!(self.load, Load::Idle) {
+        let reload = self.reload_requested && matches!(self.load, Load::Ready(Ok(_)));
+        if !matches!(self.load, Load::Idle) && !reload {
             return;
         }
+        self.reload_requested = false;
         let Some(trpc) = queries::trpc_client(cx) else {
             // Nothing to fetch and nothing to wait for — Idle renders the
             // loading line, so leaving it here would spin forever.
@@ -96,7 +103,11 @@ impl WidgetPane {
         };
         let team = team_id.to_string();
 
-        self.load = Load::Loading;
+        if reload {
+            self.reloading = true;
+        } else {
+            self.load = Load::Loading;
+        }
         self.generation += 1;
         let generation = self.generation;
 
@@ -112,6 +123,7 @@ impl WidgetPane {
                     return;
                 }
                 this.load = Load::Ready(result);
+                this.reloading = false;
                 cx.notify();
             });
         })
@@ -183,52 +195,42 @@ impl WidgetPane {
 impl Render for WidgetPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return v_flex().child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("No team selected."),
-            );
+            return v_flex().child(crate::controls::empty_state_list(
+                gpui_component::Icon::new(crate::icons::registry::UI_TEAM),
+                crate::empty_state_copy::NO_TEAM_SELECTED,
+                cx,
+            ));
         };
         self.ensure_loaded(&team_id, cx);
 
-        let refresh = crate::surface::glass_pill_button(
-            "widget-refresh",
-            crate::surface::PillSize::Sm,
-            cx,
-        )
-        .label("Refresh")
-        .loading(matches!(self.load, Load::Loading))
-        .on_click(cx.listener(|this, _, _, cx| this.refetch(cx)))
-        .into_any_element();
-
-        // No explanatory paragraph under the band (web parity).
-        let mut body = section(cx).child(crate::surface::glass_section_header(
+        // No explanatory paragraph under the band (web parity), no Refresh:
+        // the list refetches on entry (EXP-1274).
+        let mut body = section(cx).child(crate::surface::glass_section_header_loading(
             "Exponential widget",
-            Some(refresh),
+            self.reloading,
+            None,
             cx,
         ));
 
-        let muted = cx.theme().muted_foreground;
         match &self.load {
             Load::Idle | Load::Loading => {
                 body = body.child(
-                    div()
-                        .text_sm()
-                        .text_color(muted)
-                        .child("Loading widgets"),
+                    v_flex()
+                        .gap_2()
+                        .child(crate::controls::skeleton().h_4().w_full())
+                        .child(crate::controls::skeleton().h_4().w_full())
+                        .child(crate::controls::skeleton().h_4().w_64()),
                 );
             }
             Load::Ready(Err(message)) => {
                 body = body.child(error_notice(SharedString::from(message.clone()), cx));
             }
             Load::Ready(Ok(widgets)) if widgets.is_empty() => {
-                body = body.child(
-                    div()
-                        .text_sm()
-                        .text_color(muted)
-                        .child("No widgets yet. Create one to get an embed snippet."),
-                );
+                body = body.child(crate::controls::empty_state_list(
+                    gpui_component::Icon::new(registry::SETTINGS_WIDGET),
+                    crate::empty_state_copy::WIDGETS,
+                    cx,
+                ));
             }
             Load::Ready(Ok(widgets)) => {
                 // EXP-994: a hairline between rows, nothing around them.

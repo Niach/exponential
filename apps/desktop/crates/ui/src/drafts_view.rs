@@ -222,8 +222,8 @@ impl Render for DraftsView {
         } else if drafts.is_empty() {
             v_flex().min_w_0().child(crate::controls::empty_state(
                 Icon::from(registry::NAV_DRAFTS),
-                "No drafts",
-                "Start a new issue and leave it unfinished, and it waits for you here.",
+                crate::empty_state_copy::DRAFTS,
+                None,
                 cx,
             ))
         } else {

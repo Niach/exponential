@@ -1,3 +1,4 @@
+import ExpCore
 import ExpUI
 import SwiftUI
 
@@ -74,11 +75,7 @@ struct EmojiPickerSheet: View {
         let results = index.search(trimmedQuery, limit: EmojiCatalog.pickerLimit)
         return ScrollView {
             if results.isEmpty {
-                Text("No emoji found")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .frame(maxWidth: .infinity)
-                    .padding(.top, 32)
+                EmptyState(title: "No emoji found", size: .list)
             } else {
                 LazyVGrid(columns: columns, spacing: 4) {
                     ForEach(results) { cell($0) }
