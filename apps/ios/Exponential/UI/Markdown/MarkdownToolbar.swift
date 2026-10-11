@@ -18,10 +18,11 @@ private let log = Logger(subsystem: "com.exponential", category: "MarkdownToolba
 /// Every mode keeps the SAME height: `UIInputView` self-sizing fights a
 /// changing accessory height, and the keyboard jumps if it wins.
 ///
-/// EXP-1276: `dismissOnly` builds the SAME pill with nothing but the pinned
-/// keyboard-down chevron — the one-message composers (the Agent page) offer
-/// no formatting, but a phone has no other on-screen way to put the keyboard
-/// away. No rail, no modes: every mode/state hook is a no-op.
+/// EXP-1276: `dismissOnly` is a small glass circle floating at the trailing
+/// edge with nothing but the keyboard-down chevron — the one-message
+/// composers (the Agent page) offer no formatting, but a phone has no other
+/// on-screen way to put the keyboard away. The rest of the strip is clear and
+/// lets touches through. No rail, no modes: every mode/state hook is a no-op.
 final class MarkdownToolbar: UIInputView {
     enum RailMode { case main, text, link }
 
@@ -101,13 +102,22 @@ final class MarkdownToolbar: UIInputView {
     init(dismissOnly: Bool = false) {
         isDismissOnly = dismissOnly
         super.init(frame: CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 48),
-                   inputViewStyle: .keyboard)
+                   inputViewStyle: dismissOnly ? .default : .keyboard)
         allowsSelfSizing = true
         setupBar()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    /// EXP-1276: the chevron-only strip claims touches only on its circle —
+    /// the clear rest of it must not eat taps meant for the page under it.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard isDismissOnly else { return super.point(inside: point, with: event) }
+        return dismissButton.convert(dismissButton.bounds, to: self)
+            .insetBy(dx: -4, dy: -4)
+            .contains(point)
+    }
 
     // MARK: - Construction
 
@@ -129,16 +139,17 @@ final class MarkdownToolbar: UIInputView {
         dismissWidthConstraint = dismissButton.constraints.first { $0.firstAttribute == .width }
 
         if isDismissOnly {
-            // The same glass pill at the same height, the chevron in the same
-            // trailing slot — only the rail is missing.
+            // One 40pt glass circle on the trailing edge, the chevron centred
+            // in it; the strip itself stays clear.
+            backgroundColor = .clear
+            blur.layer.cornerRadius = 20
             pill.addSubview(dismissButton)
             NSLayoutConstraint.activate([
-                blur.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-                blur.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-                blur.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-                blur.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+                blur.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+                blur.centerYAnchor.constraint(equalTo: centerYAnchor),
+                blur.widthAnchor.constraint(equalToConstant: 40),
                 blur.heightAnchor.constraint(equalToConstant: 40),
-                dismissButton.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -2),
+                dismissButton.centerXAnchor.constraint(equalTo: pill.centerXAnchor),
                 dismissButton.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
             ])
             return

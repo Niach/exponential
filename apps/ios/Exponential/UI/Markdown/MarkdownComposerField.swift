@@ -37,8 +37,8 @@ struct MarkdownComposerField: View {
     /// field scrolls inside itself.
     var minHeight: CGFloat = 44
     var maxHeight: CGFloat = 140
-    /// EXP-1276: ride the keyboard with the chevron-only accessory (the
-    /// formatting rail's pill with nothing but its "Hide keyboard" button).
+    /// EXP-1276: ride the keyboard with the chevron-only accessory (a small
+    /// glass circle on the trailing edge holding the "Hide keyboard" button).
     /// The Agent page composer turns it on: a phone has no other on-screen
     /// way to put the keyboard away, and a swipe is not an affordance.
     var showsDismissAccessory = false
