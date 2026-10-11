@@ -64,6 +64,7 @@ mod debug_board;
 mod dev_ready;
 mod description_editor;
 mod emoji;
+mod empty_state_copy;
 mod entity_chip;
 mod entity_preview;
 // VAPP-90: the Exponential UI kitchen-sink dev screen.

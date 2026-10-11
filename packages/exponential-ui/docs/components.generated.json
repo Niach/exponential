@@ -721,6 +721,15 @@
           "description": "The rows form a tree: each `Row.depth` indents and draws its guides."
         },
         {
+          "name": "loading",
+          "type": "boolean",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": false,
+          "description": "A refetch is running: a small spinner before the count. The first load is a Skeleton instead."
+        },
+        {
           "name": "style",
           "type": "style",
           "required": false,
@@ -2779,7 +2788,7 @@
       "group": "feedback",
       "lite": true,
       "specimenId": "exponential-ui-empty-state",
-      "description": "A centred icon, title and explanation for an empty list, with an optional action.",
+      "description": "What a screen or a list says when it has nothing: a title of at most four words (`No <noun> yet`, `No <noun>`, `All caught up`) that never explains. `page` adds the icon disc, a sentence teaching the next step and an action; `list` is one muted line.",
       "children": "none",
       "slots": [],
       "events": [
@@ -2793,7 +2802,7 @@
           "required": true,
           "bindable": false,
           "responsive": false,
-          "description": "The large glyph."
+          "description": "The glyph: in the disc on `page`, bare on `list`."
         },
         {
           "name": "title",
@@ -2809,7 +2818,7 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "Why, or what to do next."
+          "description": "The next step, `page` only."
         },
         {
           "name": "actionLabel",
@@ -2817,7 +2826,16 @@
           "required": false,
           "bindable": false,
           "responsive": false,
-          "description": "A button label; pressing it fires `press`."
+          "description": "A button label, `page` only; pressing it fires `press`."
+        },
+        {
+          "name": "size",
+          "type": "page | list",
+          "required": false,
+          "bindable": false,
+          "responsive": false,
+          "default": "page",
+          "description": "page = a whole screen's empty state with the disc, the sentence and the action; list = one muted line under a bare glyph inside a list, no description, no action."
         }
       ],
       "accessibility": {

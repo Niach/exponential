@@ -360,6 +360,7 @@
         "open": { "type": "boolean", "default": true, "bindable": true, "description": "Whether the rows show; bind it." },
         "tint": { "type": "enum", "enum": "tone", "default": "neutral", "description": "The band's colour tone." },
         "tree": { "type": "boolean", "default": false, "description": "The rows form a tree: each `Row.depth` indents and draws its guides." },
+        "loading": { "type": "boolean", "default": false, "description": "A refetch is running: a small spinner before the count. The first load is a Skeleton instead." },
         "style": { "type": "style", "description": "Extra Box styles for the frame." }
       },
       "events": ["change"],
@@ -717,12 +718,13 @@
     },
     "EmptyState": {
       "kind": "macro", "group": "feedback", "lite": true, "children": "none",
-      "description": "A centred icon, title and explanation for an empty list, with an optional action.",
+      "description": "What a screen or a list says when it has nothing: a title of at most four words (`No <noun> yet`, `No <noun>`, `All caught up`) that never explains. `page` adds the icon disc, a sentence teaching the next step and an action; `list` is one muted line.",
       "props": {
-        "icon": { "type": "icon", "required": true, "description": "The large glyph." },
+        "icon": { "type": "icon", "required": true, "description": "The glyph: in the disc on `page`, bare on `list`." },
         "title": { "type": "string", "required": true, "description": "What is empty." },
-        "description": { "type": "string", "description": "Why, or what to do next." },
-        "actionLabel": { "type": "string", "description": "A button label; pressing it fires `press`." }
+        "description": { "type": "string", "description": "The next step, `page` only." },
+        "actionLabel": { "type": "string", "description": "A button label, `page` only; pressing it fires `press`." },
+        "size": { "type": "enum", "values": ["page", "list"], "default": "page", "description": "page = a whole screen's empty state with the disc, the sentence and the action; list = one muted line under a bare glyph inside a list, no description, no action." }
       },
       "events": ["press"],
       "example": { "icon": "nav-inbox", "title": "No notifications", "description": "You are all caught up." }

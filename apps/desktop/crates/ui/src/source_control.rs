@@ -1852,23 +1852,23 @@ impl Render for HistoryList {
 
         // Empty states need no scroller at all.
         if no_clone || (self.history.is_empty() && !uncommitted) {
-            let muted = cx.theme().muted_foreground;
             return div()
                 .flex_1()
                 .min_h_0()
                 .py_1()
-                .child(
-                    div()
-                        .px_3()
-                        .py_2()
-                        .text_xs()
-                        .text_color(muted)
-                        .child(if no_clone {
-                            "No repository resolved yet."
-                        } else {
-                            "No commits yet."
-                        }),
-                )
+                .child(if no_clone {
+                    crate::controls::empty_state_list(
+                        gpui_component::Icon::new(crate::icons::registry::UI_REPOSITORY),
+                        "No repository resolved yet",
+                        cx,
+                    )
+                } else {
+                    crate::controls::empty_state_list(
+                        gpui_component::Icon::new(crate::icons::registry::NAV_SOURCE_CONTROL),
+                        "No commits yet",
+                        cx,
+                    )
+                })
                 .into_any_element();
         }
 

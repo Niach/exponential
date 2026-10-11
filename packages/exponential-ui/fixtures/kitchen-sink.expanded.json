@@ -4216,18 +4216,43 @@
                 "props": {},
                 "children": [
                   {
-                    "id": "empty.icon",
-                    "component": "Icon",
-                    "props": {
-                      "name": "nav-inbox",
-                      "size": "lg",
-                      "tone": "neutral"
+                    "id": "empty.disc",
+                    "component": "Box",
+                    "props": {},
+                    "children": [
+                      {
+                        "id": "empty.disc.icon",
+                        "component": "Icon",
+                        "props": {
+                          "name": "nav-inbox",
+                          "size": "lg",
+                          "tone": "neutral"
+                        },
+                        "children": [],
+                        "recipe": {
+                          "macro": "EmptyState",
+                          "part": "icon",
+                          "props": {
+                            "size": "page"
+                          }
+                        }
+                      }
+                    ],
+                    "style": {
+                      "display": "flex",
+                      "alignItems": "center",
+                      "justifyContent": "center",
+                      "width": 48,
+                      "height": 48,
+                      "borderRadius": "$radius.full",
+                      "flexShrink": 0
                     },
-                    "children": [],
                     "recipe": {
                       "macro": "EmptyState",
-                      "part": "icon",
-                      "props": {}
+                      "part": "disc",
+                      "props": {
+                        "size": "page"
+                      }
                     }
                   },
                   {
@@ -4235,14 +4260,16 @@
                     "component": "Text",
                     "props": {
                       "text": "No notifications",
-                      "variant": "label",
+                      "variant": "title",
                       "align": "center"
                     },
                     "children": [],
                     "recipe": {
                       "macro": "EmptyState",
                       "part": "title",
-                      "props": {}
+                      "props": {
+                        "size": "page"
+                      }
                     }
                   },
                   {
@@ -4257,7 +4284,9 @@
                     "recipe": {
                       "macro": "EmptyState",
                       "part": "description",
-                      "props": {}
+                      "props": {
+                        "size": "page"
+                      }
                     }
                   },
                   {
@@ -4271,7 +4300,9 @@
                     "recipe": {
                       "macro": "EmptyState",
                       "part": "action",
-                      "props": {}
+                      "props": {
+                        "size": "page"
+                      }
                     },
                     "on": {
                       "press": {
@@ -4286,13 +4317,75 @@
                   "display": "flex",
                   "flexDirection": "column",
                   "alignItems": "center",
-                  "gap": "$spacing.sm",
-                  "padding": "$spacing.xl"
+                  "gap": "$spacing.md",
+                  "paddingVertical": "$spacing.xl3",
+                  "paddingHorizontal": "$spacing.xl"
                 },
                 "recipe": {
                   "macro": "EmptyState",
                   "part": "root",
-                  "props": {}
+                  "props": {
+                    "size": "page"
+                  }
+                },
+                "accessibility": {
+                  "role": "status"
+                }
+              },
+              {
+                "id": "empty-list",
+                "component": "Box",
+                "props": {},
+                "children": [
+                  {
+                    "id": "empty-list.icon",
+                    "component": "Icon",
+                    "props": {
+                      "name": "nav-issues",
+                      "size": "default",
+                      "tone": "neutral"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "EmptyState",
+                      "part": "icon",
+                      "props": {
+                        "size": "list"
+                      }
+                    }
+                  },
+                  {
+                    "id": "empty-list.title",
+                    "component": "Text",
+                    "props": {
+                      "text": "No issues yet",
+                      "variant": "muted",
+                      "align": "center"
+                    },
+                    "children": [],
+                    "recipe": {
+                      "macro": "EmptyState",
+                      "part": "title",
+                      "props": {
+                        "size": "list"
+                      }
+                    }
+                  }
+                ],
+                "style": {
+                  "display": "flex",
+                  "flexDirection": "column",
+                  "alignItems": "center",
+                  "gap": "$spacing.xs",
+                  "paddingVertical": "$spacing.xl",
+                  "paddingHorizontal": "$spacing.md"
+                },
+                "recipe": {
+                  "macro": "EmptyState",
+                  "part": "root",
+                  "props": {
+                    "size": "list"
+                  }
                 },
                 "accessibility": {
                   "role": "status"

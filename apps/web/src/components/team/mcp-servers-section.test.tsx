@@ -1,7 +1,12 @@
 import { cleanup, fireEvent, render as rtlRender, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TooltipProvider } from "@exp/ui"
-import { TeamMcpServersSection } from "@/components/team/mcp-servers-section"
+import {
+  BUILTIN_TOOLS_FILTER_PLACEHOLDER,
+  filterBuiltinTools,
+  TeamMcpServersSection,
+} from "@/components/team/mcp-servers-section"
+import { contract } from "@exp/domain-contract"
 
 class ResizeObserverStub {
   observe() {}
@@ -94,6 +99,44 @@ beforeEach(() => {
 })
 
 describe(`TeamMcpServersSection`, () => {
+  // EXP-1274: the unslopped pane — no subtitle, no Refresh, the shared
+  // list empty state, Add server for an owner even on an empty team, and the
+  // built-in tools always expanded behind an inline filter.
+  it(`draws the empty team as ONE list empty state with Add server and the catalog`, async () => {
+    mockState.list.mockResolvedValue([])
+    const { container } = render(<TeamMcpServersSection teamId="t1" isOwner />)
+    await screen.findByText(`No MCP servers yet`)
+    const empty = container.querySelector(`[data-slot="empty-state"][data-size="list"]`)!
+    expect(empty.textContent).toBe(`No MCP servers yet`)
+    expect(screen.getByText(`Add server`)).toBeTruthy()
+    expect(screen.getByPlaceholderText(`Search or paste a server URL`)).toBeTruthy()
+    expect(container.textContent).not.toContain(`Tools your agents can use`)
+    expect(container.textContent).not.toContain(`Add one to offer it`)
+    expect(screen.queryByRole(`button`, { name: `Refresh` })).toBeNull()
+  })
+
+  it(`lists every built-in tool expanded, with the count and an inline filter`, async () => {
+    mockState.list.mockResolvedValue([])
+    const { container } = render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
+    await screen.findByText(`No MCP servers yet`)
+    const total = contract.expToolDisplay.tools.length
+    const band = screen.getByText(`Built-in Exponential tools`).closest(`[data-slot="glass-section-header"]`)!
+    expect(band.tagName).toBe(`DIV`)
+    expect(band.getAttribute(`aria-expanded`)).toBeNull()
+    expect(band.querySelector(`[data-part="count"]`)!.textContent).toBe(String(total))
+    expect(screen.getAllByTitle(/^exponential_/).length).toBe(total)
+
+    const filter = screen.getByPlaceholderText(BUILTIN_TOOLS_FILTER_PLACEHOLDER)
+    fireEvent.change(filter, { target: { value: `issues_create` } })
+    expect(screen.getAllByTitle(/^exponential_/).length).toBe(1)
+    expect(screen.getByTitle(`exponential_issues_create`)).toBeTruthy()
+
+    fireEvent.change(filter, { target: { value: `zzz-nothing` } })
+    expect(screen.queryAllByTitle(/^exponential_/).length).toBe(0)
+    expect(container.querySelectorAll(`[data-slot="empty-state"][data-size="list"]`).length).toBe(2)
+    expect(screen.getByText(`No tools match`)).toBeTruthy()
+  })
+
   it(`gives each row the viewer's one action and hides owner controls from members`, async () => {
     mockState.list.mockResolvedValue([
       server(`linear`, `oauth`, `connected`),
@@ -395,5 +438,20 @@ describe(`TeamMcpServersSection`, () => {
       )
     )
     expect(mockState.toastSuccess).toHaveBeenCalledWith(`Stopped sharing local`)
+  })
+})
+
+describe(`filterBuiltinTools`, () => {
+  const tools = [
+    { name: `exponential_issues_create`, title: `Create issue`, blurb: `Adds an issue to a board.` },
+    { name: `exponential_boards_list`, title: `List boards`, blurb: `Lists the boards you can see.` },
+  ]
+  it(`matches the title, the blurb and the wire name, case-insensitively`, () => {
+    expect(filterBuiltinTools(tools, ``).length).toBe(2)
+    expect(filterBuiltinTools(tools, `  `).length).toBe(2)
+    expect(filterBuiltinTools(tools, `CREATE`).map((tool) => tool.name)).toEqual([`exponential_issues_create`])
+    expect(filterBuiltinTools(tools, `you can see`).map((tool) => tool.name)).toEqual([`exponential_boards_list`])
+    expect(filterBuiltinTools(tools, `boards_list`).map((tool) => tool.name)).toEqual([`exponential_boards_list`])
+    expect(filterBuiltinTools(tools, `nope`)).toEqual([])
   })
 })

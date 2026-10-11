@@ -51,17 +51,7 @@ struct BoardSwitcherSheet: View {
     }
 
     private var emptyHint: some View {
-        VStack(spacing: 10) {
-            AppIcon(AppIcons.navBoards, size: AppIcon.Size.large)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("Create your first board on the web or desktop app.")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.horizontal, 40)
-        .padding(.vertical, 32)
+        EmptyState(.boardSwitcher)
     }
 
     @ViewBuilder

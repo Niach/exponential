@@ -47,14 +47,13 @@ final class IssueListViewModel {
     private let boardsApi: BoardsApi
     private let labelsApi: LabelsApi
     private let auth: AuthRepository
-    private let syncManager: SyncManager
     // Each observation loop is stored and cancelled individually — a single
     // wrapper task would NOT propagate cancellation into unstructured inner
     // `Task {}` loops, and the view re-arms on every appear, so leaked loops
     // would accumulate per push/pop.
     private var observationTasks: [Task<Void, Never>] = []
 
-    init(accountId: String, boardId: String, db: DatabaseManager, issuesApi: IssuesApi, boardsApi: BoardsApi, labelsApi: LabelsApi, auth: AuthRepository, syncManager: SyncManager) {
+    init(accountId: String, boardId: String, db: DatabaseManager, issuesApi: IssuesApi, boardsApi: BoardsApi, labelsApi: LabelsApi, auth: AuthRepository) {
         self.accountId = accountId
         self.boardId = boardId
         self.db = db
@@ -62,7 +61,6 @@ final class IssueListViewModel {
         self.boardsApi = boardsApi
         self.labelsApi = labelsApi
         self.auth = auth
-        self.syncManager = syncManager
     }
 
     func startObserving() {
@@ -519,19 +517,6 @@ final class IssueListViewModel {
             }
             start = end
         }
-    }
-
-    /// Pull-to-refresh. Electric keeps the data live in the normal case, but
-    /// the gesture exists precisely for the case where it doesn't — so cancel
-    /// and relaunch this account's pipeline, which makes every parked
-    /// long-poll re-request immediately instead of waiting out its backoff (up
-    /// to 30s). The list repaints itself through ValueObservation as rows
-    /// land; the short sleep just keeps the spinner from snapping back before
-    /// the first batch arrives. `restartPipeline`'s resyncing guard turns an
-    /// overlapping pull into a no-op.
-    func refresh() async {
-        await syncManager.restartPipeline(accountId: accountId, reason: "pull-to-refresh")
-        try? await Task.sleep(for: .milliseconds(800))
     }
 
     // MARK: - Permissions

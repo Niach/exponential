@@ -1,5 +1,7 @@
 package com.exponential.app.ui.agent
 
+import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.domain.EmptyStateCopy
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -57,15 +59,7 @@ internal fun LazyListScope.agentSessionsList(
     }
     if (rows.isEmpty()) {
         item(key = "__no_running__") {
-            Text(
-                "No agents running right now.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .flatRow()
-                    .padding(horizontal = 12.dp, vertical = 12.dp),
-            )
+            EmptyState(EmptyStateCopy.runningAgents)
         }
     } else bands.forEach { band ->
         band.team?.let { team ->

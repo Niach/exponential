@@ -14,6 +14,7 @@ import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
+  ListEmpty,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import {
@@ -687,9 +688,7 @@ function ElectricSection({ metrics }: { metrics: RuntimeData[`metrics`] }) {
           }
         >
           {perTable.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No shape traffic yet.
-            </p>
+            <ListEmpty>No shape traffic yet</ListEmpty>
           ) : (
             <div className="rounded-md border overflow-x-auto">
               <div className="min-w-[400px]">
@@ -1118,9 +1117,7 @@ function NotificationsEmailSection({
         <div className="grid gap-3 md:grid-cols-3">
           <AdminCard title="Notifications by type">
             {typeRows.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                None in this window.
-              </p>
+              <ListEmpty>None in this window</ListEmpty>
             ) : (
               <div className="space-y-1">
                 {typeRows.map(([type, count]) => (
@@ -1135,9 +1132,7 @@ function NotificationsEmailSection({
           </AdminCard>
           <AdminCard title="Email by status">
             {data.emailByStatus.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                None in this window.
-              </p>
+              <ListEmpty>None in this window</ListEmpty>
             ) : (
               <div className="space-y-1.5">
                 {data.emailByStatus.map((row) => (
@@ -1164,9 +1159,7 @@ function NotificationsEmailSection({
           </AdminCard>
           <AdminCard title="Email by kind">
             {data.emailByKind.length === 0 ? (
-              <p className="text-sm text-muted-foreground">
-                None in this window.
-              </p>
+              <ListEmpty>None in this window</ListEmpty>
             ) : (
               <div className="space-y-1">
                 {data.emailByKind.map((row) => (

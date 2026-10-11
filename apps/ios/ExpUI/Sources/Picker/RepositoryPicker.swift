@@ -1,3 +1,4 @@
+import ExpCore
 import SwiftUI
 
 // The UI cleanup batch — THE repository picker on iOS (web
@@ -209,11 +210,7 @@ public struct RepositoryPickerList: View {
         VStack(spacing: GlassPickerTokens.rowSpacing) {
             if rows.isEmpty {
                 if let emptyText {
-                    Text(emptyText)
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
+                    EmptyState(title: emptyText, size: .list)
                 }
             } else {
                 ForEach(rows) { row in

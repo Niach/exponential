@@ -87,6 +87,9 @@ data class TeamSettingsState(
     // SLOP-26: a connect hop being minted (the ticket round-trip before the
     // Custom Tab opens) — the Connect/Reconnect pill is held meanwhile.
     val githubConnecting: Boolean = false,
+    // EXP-1274: an already-loaded registry re-probing (Retry, resume, a
+    // reconnect) — the section band spins its 12dp loading glyph.
+    val reposRefreshing: Boolean = false,
     // FEED-42: registry/GitHub failures (list load, remove, unlink, a failed
     // connect hop) render INLINE above the list, never as a snackbar.
     val repositoriesError: String? = null,
@@ -160,6 +163,7 @@ class TeamSettingsViewModel @Inject constructor(
     private val _githubStatus = MutableStateFlow<GithubStatusResult?>(null)
     private val _githubFailed = MutableStateFlow(false)
     private val _githubConnecting = MutableStateFlow(false)
+    private val _reposRefreshing = MutableStateFlow(false)
     private val _repositoriesError = MutableStateFlow<String?>(null)
     val transient: StateFlow<String?> = _transient.asStateFlow()
 
@@ -255,9 +259,14 @@ class TeamSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             val teamId = selection.selectedId.value ?: return@launch
-            runCatching { repositoriesApi.list(accountId, teamId) }
-                .onSuccess { _repos.value = it }
-            loadGithubStatus(accountId, teamId)
+            _reposRefreshing.value = _reposLoaded.value
+            try {
+                runCatching { repositoriesApi.list(accountId, teamId) }
+                    .onSuccess { _repos.value = it }
+                loadGithubStatus(accountId, teamId)
+            } finally {
+                _reposRefreshing.value = false
+            }
         }
     }
 
@@ -323,6 +332,7 @@ class TeamSettingsViewModel @Inject constructor(
             _githubFailed,
             _repositoriesError,
             _githubConnecting,
+            _reposRefreshing,
         )
     ) { values ->
         @Suppress("UNCHECKED_CAST")
@@ -350,6 +360,7 @@ class TeamSettingsViewModel @Inject constructor(
         val githubFailed = values[15] as Boolean
         val repositoriesError = values[16] as String?
         val githubConnecting = values[17] as Boolean
+        val reposRefreshing = values[18] as Boolean
         val placeholders = placeholderStatuses(invites)
         TeamSettingsState(
             team = team,
@@ -373,6 +384,7 @@ class TeamSettingsViewModel @Inject constructor(
             githubStatus = githubStatus,
             githubFailed = githubFailed,
             githubConnecting = githubConnecting,
+            reposRefreshing = reposRefreshing,
             repositoriesError = repositoriesError,
             currentUserId = currentUserId,
             transient = transient,

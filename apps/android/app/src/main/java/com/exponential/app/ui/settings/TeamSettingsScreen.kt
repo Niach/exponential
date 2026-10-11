@@ -1,5 +1,7 @@
 package com.exponential.app.ui.settings
 
+import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.ui.components.SectionBand
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.withStyle
@@ -255,12 +257,7 @@ private fun BoardsSection(
             }
         }
         if (state.boards.isEmpty()) {
-            Text(
-                "No boards yet.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
-            )
+            EmptyState(EmptyStateCopy.teamBoards)
         }
         // Slim per-row glass cards (iOS parity, EXP-331) instead of one tall
         // grouped section.
@@ -442,7 +439,7 @@ private fun RepositoriesSection(
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         // Always shown (member-level since EXP-557): the picker itself handles
         // the not-configured / not-connected states.
-        SectionHeader(GithubCopy.SECTION_TITLE) {
+        SectionHeader(GithubCopy.SECTION_TITLE, loading = state.reposRefreshing) {
             GlassPill(
                 GithubCopy.ADD_REPOSITORY,
                 icon = ExpIcons.uiGithub,
@@ -915,12 +912,7 @@ private fun LabelsSection(
             )
         }
         if (state.labels.isEmpty()) {
-            Text(
-                "No labels yet.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
-            )
+            EmptyState(EmptyStateCopy.labels)
         }
         // Slim per-row glass cards (iOS parity, EXP-331).
         state.labels.forEach { label ->

@@ -500,22 +500,10 @@ struct AgentsView: View {
         return relative.isEmpty ? "Offline" : "Last seen \(relative)"
     }
 
+    /// EXP-1274 `devices`: the band's "Add device" pill is the add
+    /// (EXP-1169), the same device setup block every client opens.
     private var deviceHintRow: some View {
-        HStack(spacing: 8) {
-            // EXP-317: the same glyph the web draws on its empty devices row
-            // (`ui-device-offline`); `ui-offline` stays the network indicator.
-            AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.small)
-            // The web string, word for word: the band's "Add device" pill is
-            // the add (EXP-1169), the same device setup block every client
-            // opens.
-            Text("No devices yet. Open the Exponential desktop app, or add a device.")
-                .font(.caption)
-            Spacer(minLength: 0)
-        }
-        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-        .padding(.horizontal, 12)
-        .padding(.vertical, 12)
-        .flatRow()
+        EmptyState(.devices)
     }
 
     private var deviceLoadingRow: some View {

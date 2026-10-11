@@ -6,6 +6,7 @@ import { Eraser, LoaderCircle, Trash2 } from "lucide-react"
 import type { Issue, Team } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { Empty } from "@/components/empty"
 import { useBillingPlan, invalidateBillingCache } from "@/hooks/use-billing"
 import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
 import {
@@ -215,7 +216,7 @@ export function TeamStorageSection({
             Loading attachments...
           </p>
         ) : rows.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No attachments yet.</p>
+          <Empty id="attachments" />
         ) : (
           // IDE-parity rows (EXP-316) — the old fixed table overflowed the
           // settings column and clipped the status + delete controls.

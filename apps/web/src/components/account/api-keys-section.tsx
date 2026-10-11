@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react"
 import { Check, Copy, LoaderCircle } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { Empty } from "@/components/empty"
 import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import {
   Button,
   Pill,
   GlassSectionHeader,
+  ListEmpty,
   ListRow,
   Dialog,
   DialogBody,
@@ -208,9 +210,7 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
       <div>
         <GlassSectionHeader label="Login sessions" />
         {sessions.length === 0 ? (
-          <p className="text-sm text-muted-foreground">
-            No signed-in devices.
-          </p>
+          <Empty id="signed-in-devices" />
         ) : (
           // EXP-862: flat rows under the band, never one card per row.
           <div className="flex flex-col">
@@ -250,7 +250,7 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
           }
         />
         {apiKeys.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No API keys.</p>
+          <ListEmpty>No API keys</ListEmpty>
         ) : (
           <div className="flex flex-col">
             {apiKeys.map((row) => (

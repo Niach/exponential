@@ -521,13 +521,11 @@ impl Render for LabelsPane {
             ));
         }
         if labels.is_empty() && !self.creating {
-            list = list.child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .py_2()
-                    .child("No labels yet."),
-            );
+            list = list.child(crate::controls::empty_state_list(
+                gpui_component::Icon::new(crate::icons::registry::SETTINGS_LABELS),
+                crate::empty_state_copy::LABELS,
+                cx,
+            ));
         }
         body = body.child(list);
 

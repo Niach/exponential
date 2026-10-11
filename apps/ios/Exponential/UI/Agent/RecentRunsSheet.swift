@@ -91,12 +91,7 @@ struct RecentRunsSheet: View {
     }
 
     private var emptyNote: some View {
-        Text("No recent runs")
-            .font(.caption)
-            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 16)
+        EmptyState(.recentRuns)
             .accessibilityIdentifier("recent-runs-empty")
     }
 }

@@ -1,6 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
-import { Meter } from "@exp/ui"
+import { ListEmpty, Meter } from "@exp/ui"
 import {
   AdminCard,
   DayBars,
@@ -126,9 +126,7 @@ function AdminOverview() {
           }
         >
           {platforms.byPlatform.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No client activity recorded yet.
-            </p>
+            <ListEmpty>No client activity recorded yet</ListEmpty>
           ) : (
             <div className="space-y-2">
               {platforms.byPlatform.map((row) => (
@@ -154,7 +152,7 @@ function AdminOverview() {
           description="The client each user was first seen on. Accounts older than the ledger (Sep 2026) are the migration backfill’s best guess from sessions, devices and push tokens."
         >
           {platforms.firstPlatform.length === 0 ? (
-            <p className="text-sm text-muted-foreground">Nothing yet.</p>
+            <ListEmpty>Nothing yet</ListEmpty>
           ) : (
             <div className="space-y-1">
               {platforms.firstPlatform.map((row) => (

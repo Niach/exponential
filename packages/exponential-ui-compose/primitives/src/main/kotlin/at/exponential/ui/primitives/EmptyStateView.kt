@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -29,41 +30,71 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
 /**
- * The empty state every client draws, centred: an [icon] (on an
- * [iconDisc] circle of [iconDiscSize] unless the disc is null), a
- * [message], a [detail] line and one action: the [action] slot, or a
- * capsule button from [actionLabel] + [onAction]. Text styles and colours
+ * The two empty-state sizes (EXP-1274, `packages/domain-contract/fixtures/
+ * empty-state.json` `sizes`): [Page] = what a whole screen or pane says when
+ * it has nothing (icon disc, title, optional description and action);
+ * [List] = what a list inside a section, a sidebar or a picker says (a bare
+ * glyph over ONE muted line, never a description or a button).
+ */
+enum class EmptyStateSize { Page, List }
+
+/**
+ * The empty state every client draws, centred. [EmptyStateSize.Page]: an
+ * [icon] on an [iconDisc] circle of [iconDiscSize] (no disc when null), a
+ * [title], a [description] line and one action: the [action] slot, or a
+ * capsule button from [actionLabel] + [onAction], on a column of at most
+ * 448dp with 48dp vertical padding. [EmptyStateSize.List]: the bare glyph
+ * at 60% muted over ONE 14sp muted [title] line, 24dp vertical padding;
+ * [description] and every action are ignored. Text styles and colours
  * default from the tokens.
  */
 @Composable
 fun EmptyStateView(
-    message: String,
+    title: String,
     modifier: Modifier = Modifier,
-    detail: String? = null,
+    size: EmptyStateSize = EmptyStateSize.Page,
+    description: String? = null,
     icon: (@Composable () -> Unit)? = null,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null,
     action: (@Composable () -> Unit)? = null,
     iconDisc: Color? = LocalPrimitiveTokens.current.muted,
-    iconDiscSize: Dp = 40.dp,
-    iconColor: Color = LocalPrimitiveTokens.current.mutedForeground,
-    messageStyle: TextStyle = TextStyle(fontSize = 14.sp, fontWeight = FontWeight.Medium),
-    messageColor: Color = LocalPrimitiveTokens.current.foreground,
-    detailStyle: TextStyle = TextStyle(fontSize = 13.sp),
-    detailColor: Color = LocalPrimitiveTokens.current.mutedForeground,
-    detailPadding: Dp = 0.dp,
-    spacing: Dp = 8.dp,
-    contentPadding: PaddingValues = PaddingValues(24.dp),
+    iconDiscSize: Dp = 48.dp,
+    iconColor: Color = when (size) {
+        EmptyStateSize.Page -> LocalPrimitiveTokens.current.mutedForeground
+        EmptyStateSize.List -> LocalPrimitiveTokens.current.mutedForeground.copy(alpha = 0.6f)
+    },
+    titleStyle: TextStyle = when (size) {
+        EmptyStateSize.Page -> TextStyle(fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+        EmptyStateSize.List -> TextStyle(fontSize = 14.sp)
+    },
+    titleColor: Color = when (size) {
+        EmptyStateSize.Page -> LocalPrimitiveTokens.current.foreground
+        EmptyStateSize.List -> LocalPrimitiveTokens.current.mutedForeground
+    },
+    descriptionStyle: TextStyle = TextStyle(fontSize = 13.sp),
+    descriptionColor: Color = LocalPrimitiveTokens.current.mutedForeground,
+    descriptionPadding: Dp = 0.dp,
+    spacing: Dp = when (size) {
+        EmptyStateSize.Page -> 12.dp
+        EmptyStateSize.List -> 6.dp
+    },
+    contentPadding: PaddingValues = when (size) {
+        EmptyStateSize.Page -> PaddingValues(horizontal = 24.dp, vertical = 48.dp)
+        EmptyStateSize.List -> PaddingValues(horizontal = 16.dp, vertical = 24.dp)
+    },
 ) {
     val tokens = LocalPrimitiveTokens.current
+    val page = size == EmptyStateSize.Page
     Box(modifier = modifier.padding(contentPadding), contentAlignment = Alignment.Center) {
         Column(
+            modifier = if (page) Modifier.widthIn(max = 448.dp) else Modifier,
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(spacing),
         ) {
             if (icon != null) {
                 CompositionLocalProvider(LocalContentColor provides iconColor) {
-                    if (iconDisc != null) {
+                    if (page && iconDisc != null) {
                         Box(
                             Modifier.size(iconDiscSize).background(iconDisc, CircleShape),
                             contentAlignment = Alignment.Center,
@@ -74,14 +105,15 @@ fun EmptyStateView(
                 }
             }
             BasicText(
-                message,
-                style = messageStyle.merge(TextStyle(color = messageColor, textAlign = TextAlign.Center)),
+                title,
+                style = titleStyle.merge(TextStyle(color = titleColor, textAlign = TextAlign.Center)),
             )
-            if (detail != null) {
+            if (!page) return@Column
+            if (description != null) {
                 BasicText(
-                    detail,
-                    style = detailStyle.merge(TextStyle(color = detailColor, textAlign = TextAlign.Center)),
-                    modifier = Modifier.padding(horizontal = detailPadding),
+                    description,
+                    style = descriptionStyle.merge(TextStyle(color = descriptionColor, textAlign = TextAlign.Center)),
+                    modifier = Modifier.padding(horizontal = descriptionPadding),
                 )
             }
             when {
@@ -109,4 +141,3 @@ fun EmptyStateView(
         }
     }
 }
-

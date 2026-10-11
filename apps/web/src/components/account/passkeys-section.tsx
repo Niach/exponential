@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { authClient } from "@/lib/auth/client"
 import { trpc } from "@/lib/trpc-client"
+import { Empty } from "@/components/empty"
 import { promptActions, removePasskeyPrompt } from "@/lib/prompts"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import {
@@ -185,7 +186,7 @@ export function PasskeysSection({
       ) : loadError ? (
         <p className="text-sm text-destructive">{loadError}</p>
       ) : rows.length === 0 ? (
-        <p className="text-sm text-muted-foreground">No passkeys yet.</p>
+        <Empty id="passkeys" />
       ) : (
         // EXP-862: flat rows under the band, never one card per passkey.
         <div className="flex flex-col">

@@ -50,6 +50,7 @@ import {
 } from "@/components/device-setup"
 import { DeviceSettingsDialog } from "@/components/device-settings-dialog"
 import { DeviceLogins } from "@/components/device-logins"
+import { Empty } from "@/components/empty"
 import { useAgentUsageRefresh } from "@/hooks/use-agent-usage-refresh"
 import {
   deviceLoginRows,
@@ -60,7 +61,6 @@ import {
 
 // This is a MULTI-CLIENT surface (iOS/Android/desktop render the same list)
 // — concepts, never raw lucide glyphs (CLAUDE.md icon rule).
-const OfflineIcon = conceptIcon(`ui-device-offline`)
 const DefaultIcon = conceptIcon(`ui-device-default`)
 const AddIcon = conceptIcon(`ui-add`)
 // EXP-909 follow-up: the row's ONE control is the settings gear, ×4.
@@ -178,10 +178,7 @@ export function MyMachines({
       {mine === null ? (
         <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
       ) : mine.length === 0 ? (
-        <div className="flex items-center gap-2 px-1 py-3 text-xs text-muted-foreground">
-          <OfflineIcon className="size-3.5 shrink-0" />
-          No devices yet. Open the Exponential desktop app, or add a device.
-        </div>
+        <Empty id="devices" />
       ) : (
         <div className="flex flex-col gap-0">
           {mine.map((device) => {

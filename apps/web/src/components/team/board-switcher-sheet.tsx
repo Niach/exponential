@@ -22,6 +22,7 @@ import { useOpenComposer } from "@/hooks/use-open-composer"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { usePinnedEntries } from "@/hooks/use-pins"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
+import { Empty } from "@/components/empty"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { TeamLiveDot } from "@/components/team/sidebar-rail"
 import { useTeamLiveRuns } from "@/hooks/use-team-live-runs"
@@ -40,8 +41,8 @@ const NavIssuesIcon = conceptIcon(`nav-issues`)
 const CodingAssistantIcon = conceptIcon(`coding-assistant`)
 const PinIcon = conceptIcon(`ui-pin`)
 // EXP-687: one glyph for "boards" across every web surface that moves an
-// issue or a reader between them (icons.test.ts gates it).
-const NavBoardsIcon = conceptIcon(`nav-boards`)
+// issue or a reader between them; here the empty row draws it through
+// `<Empty id="board-switcher">` (icons.test.ts gates the fixture's icon).
 
 // The plain, muted "add" rows: no card, no stroke — they are the sheet's
 // footers, not entries in the list.
@@ -142,10 +143,7 @@ export function BoardSwitcherSheet({
                       )}
                     </div>
                     {teamBoards.length === 0 && (
-                      <div className="flex h-11 items-center gap-3 px-3 text-sm text-muted-foreground">
-                        <NavBoardsIcon className="size-4 shrink-0" />
-                        No boards yet
-                      </div>
+                      <Empty id="board-switcher" />
                     )}
                     {teamBoards.map((board) => {
                       const isActive =

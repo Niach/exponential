@@ -1,6 +1,7 @@
 import * as React from "react"
 
 import { cn } from "./cn"
+import { ListEmpty } from "./empty-state"
 import {
   Command,
   CommandEmpty,
@@ -227,7 +228,11 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
         ) : null}
         {!loading && !error ? (
           <>
-            <CommandEmpty>{emptyText}</CommandEmpty>
+            {/* cmdk decides WHEN (no row survives the filter); the shared
+                list-size line decides how it reads (EXP-1274). */}
+            <CommandEmpty className="">
+              <ListEmpty>{emptyText}</ListEmpty>
+            </CommandEmpty>
             <CommandGroup>
               {noneLabel !== undefined && (
                 // No `value`: cmdk derives it from the row's own text, so the

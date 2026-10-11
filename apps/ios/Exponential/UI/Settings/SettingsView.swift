@@ -144,10 +144,7 @@ struct SettingsView: View {
         sectionStack(title: "Teams") {
             let groups = teamLoader?.groups ?? []
             if groups.isEmpty {
-                Text("No teams synced yet.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .padding(.horizontal, 12)
+                EmptyState(.teams)
             } else {
                 VStack(alignment: .leading, spacing: 12) {
                     ForEach(groups) { group in

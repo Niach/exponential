@@ -19,6 +19,7 @@ import { actionCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { deviceIsOnline, type SteerDevice } from "@/lib/steer-devices"
 import type { TeamAction } from "@/components/action-prompt-form"
+import { Empty } from "@/components/empty"
 import {
   REQUIRED_INPUTS_HINT,
   TriggerDialog,
@@ -369,9 +370,7 @@ export function ActionTriggersSection({
           addButton && <div className="flex justify-end pb-2">{addButton}</div>
         )}
         {triggers.length === 0 ? (
-          <div className="px-1 py-3 text-sm text-muted-foreground">
-            No triggers. This action runs when someone starts it.
-          </div>
+          <Empty id="action-triggers" />
         ) : (
           <div className="flex flex-col gap-0">
             {triggers.map((trigger) => (

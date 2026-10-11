@@ -47,10 +47,8 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
 import okhttp3.ConnectionPool
 import kotlinx.serialization.KSerializer
 import kotlinx.serialization.json.Json
@@ -293,29 +291,6 @@ class SyncManager @Inject constructor(
         _lastKickAt.value = now
         val clients = synchronized(lock) { pipelines.values.flatMap { it.clients } }
         clients.forEach { it.kick() }
-    }
-
-    /**
-     * Kick, then wait until every core shape of [accountId] has completed a
-     * poll (or [timeoutMs] elapses). Returns true when the account is known
-     * caught up — the pull-to-refresh spinner runs exactly this long.
-     *
-     * Shapes whose kick was suppressed as redundant already polled within
-     * [KICK_FRESHNESS_MS] of t0, which is why the comparison allows that much
-     * slack: on a healthy app this resolves immediately instead of hanging for
-     * the full timeout.
-     */
-    suspend fun refresh(accountId: String, timeoutMs: Long = 5_000): Boolean {
-        val t0 = SystemClock.elapsedRealtime()
-        kick("refresh", force = true)
-        return withTimeoutOrNull(timeoutMs) {
-            stats.state.first { all ->
-                val shapes = all[accountId]
-                CORE_SHAPES.all { name ->
-                    (shapes?.get(name)?.lastSuccessAtMs ?: 0L) >= t0 - KICK_FRESHNESS_MS
-                }
-            }
-        } != null
     }
 
     /// Sign out a specific account: cancel its pipeline. The Room cache

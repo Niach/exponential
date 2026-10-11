@@ -1,5 +1,6 @@
 package com.exponential.app.ui.actions
 
+import com.exponential.app.domain.EmptyStateCopy
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -198,11 +199,7 @@ fun ActionDetailScreen(
         when {
             action == null && state.loading -> LoadingState(modifier = Modifier.padding(padding))
             // Deleted meanwhile, or a ref to an action this account can't see.
-            action == null -> EmptyState(
-                message = "This action is no longer available.",
-                icon = ExpIcons.actionDefault,
-                modifier = Modifier.padding(padding),
-            )
+            action == null -> EmptyState(EmptyStateCopy.actionUnavailable, modifier = Modifier.padding(padding))
             else -> TabPager(
                 pages = ACTION_TABS,
                 selected = tab,
@@ -318,12 +315,7 @@ private fun TriggersTab(
         }
         if (triggers.isEmpty()) {
             item(key = "__no_triggers__") {
-                Text(
-                    "No triggers. This action runs when someone starts it.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 12.dp),
-                )
+                EmptyState(EmptyStateCopy.actionTriggers)
             }
         } else {
             items(triggers, key = { it.id }) { trigger ->
@@ -534,12 +526,7 @@ private fun RunsTab(
             modifier = Modifier.fillMaxSize().testTag("action-runs-tab"),
             contentAlignment = Alignment.TopStart,
         ) {
-            Text(
-                "No runs yet.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 20.dp),
-            )
+            EmptyState(EmptyStateCopy.actionRuns)
         }
         return
     }

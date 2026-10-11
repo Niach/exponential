@@ -38952,8 +38952,55 @@
     },
     {
       "component": "EmptyState",
+      "part": "disc",
+      "props": {
+        "size": "page"
+      },
+      "visuals": {
+        "neutral": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#262626"
+            }
+          }
+        },
+        "exponential": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f5f5f5"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#ffffff0a"
+            }
+          }
+        },
+        "playful": {
+          "light": {
+            "default": {
+              "backgroundColor": "#f3e8ff"
+            }
+          },
+          "dark": {
+            "default": {
+              "backgroundColor": "#3b2a63"
+            }
+          }
+        }
+      }
+    },
+    {
+      "component": "EmptyState",
       "part": "icon",
-      "props": {},
+      "props": {
+        "size": "page"
+      },
       "visuals": {
         "neutral": {
           "light": {

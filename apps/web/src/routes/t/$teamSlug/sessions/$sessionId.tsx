@@ -29,6 +29,8 @@ import {
   useIssueStack,
 } from "@/components/guide-face"
 import { GuideSectionDiff } from "@/components/guide-section-diff"
+import { Empty } from "@/components/empty"
+import { emptyStateCopy } from "@/lib/empty-states"
 import { useMergeThrough } from "@/components/session-merge-button"
 import { MobileDetailHeader } from "@/components/team/mobile-detail-header"
 import {
@@ -162,13 +164,14 @@ function SessionPage() {
     return (
       <div className="flex h-full min-h-0 flex-col">
         <SessionStubHeader onBack={goBack} title="Session" />
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-          <p className="text-sm text-muted-foreground">Session not found.</p>
-          <Button asChild variant="outline" size="sm">
-            <Link to="/t/$teamSlug/agent" params={{ teamSlug }}>
-              Go to Agent
-            </Link>
-          </Button>
+        <div className="flex flex-1 flex-col items-center justify-center">
+          <Empty id="run-not-found">
+            <Button asChild variant="outline" size="sm">
+              <Link to="/t/$teamSlug/agent" params={{ teamSlug }}>
+                {emptyStateCopy(`run-not-found`).action}
+              </Link>
+            </Button>
+          </Empty>
         </div>
       </div>
     )
@@ -604,10 +607,8 @@ export function TeammateRunGuide({
         menu={session.prUrl ? <PrGithubButton prUrl={session.prUrl} /> : undefined}
       />
       {empty ? (
-        <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
-          <p className="text-sm text-muted-foreground">
-            This run has no report yet.
-          </p>
+        <div className="flex flex-1 flex-col items-center justify-center">
+          <Empty id="guide" />
         </div>
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-card/40">

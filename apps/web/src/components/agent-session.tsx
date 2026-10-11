@@ -83,7 +83,9 @@ import {
   AttachmentFileLink,
   AttachmentThumb,
   DisclosureHeader,
+  EmptyState,
 } from "@exp/ui"
+import { Empty } from "@/components/empty"
 import {
   availableFaces,
   guideSectionPage,
@@ -1771,13 +1773,11 @@ export function AgentSessionView({
             >
               {feedPlaceholder && paused ? (
                 <CenteredState>
-                  <UiDeviceOfflineIcon className="size-5 text-muted-foreground" />
-                  <span className="text-sm text-muted-foreground">
-                    {pausedTitle}
-                  </span>
-                  <span className="max-w-xs text-xs text-muted-foreground/70">
-                    {pausedBody}
-                  </span>
+                  <EmptyState
+                    icon={UiDeviceOfflineIcon}
+                    title={pausedTitle}
+                    description={pausedBody}
+                  />
                 </CenteredState>
               ) : feedPlaceholder &&
                 (phase.kind === `connecting` ||
@@ -1797,14 +1797,10 @@ export function AgentSessionView({
                 </CenteredState>
               ) : feedPlaceholder && live && !latestDiff ? (
                 <CenteredState>
-                  <span className="text-sm text-muted-foreground">
-                    Waiting for activity…
-                  </span>
-                  <span className="text-xs text-muted-foreground/70">
-                    This session isn&apos;t publishing an activity feed. It may
-                    be marked private on the desktop, or the desktop app needs
-                    an update.
-                  </span>
+                  <EmptyState
+                    title="Waiting for activity"
+                    description="This session isn't publishing an activity feed. It may be marked private on the desktop, or the desktop app needs an update."
+                  />
                 </CenteredState>
               ) : !showWork ? (
                 /* EXP-1175: the THREAD — the run's published results in
@@ -2264,6 +2260,8 @@ function SessionUsageSections({
 
 // ── Pieces ───────────────────────────────────────────────────────────────────
 
+// Vertically centres the feed's placeholder (an `EmptyState`, or the
+// connecting spinner, which is not an empty state) in the scroller.
 function CenteredState({ children }: { children: React.ReactNode }) {
   return (
     <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center">
@@ -3966,9 +3964,7 @@ function AgentConversation({
         </div>
       )}
       {stream.length === 0 ? (
-        <div className="py-1 pl-0.5 text-xs text-muted-foreground">
-          Nothing from this agent yet.
-        </div>
+        <Empty id="transcript" />
       ) : (
         /* EXP-787: a subagent's conversation is a transcript too — same rows,
            same gap ladder. */

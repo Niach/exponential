@@ -1,7 +1,13 @@
 import { useMemo } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useLiveQuery, inArray } from "@tanstack/react-db"
-import { Button, useIsMobile, conceptIcon, BoardGlyph } from "@exp/ui"
+import {
+  Button,
+  useIsMobile,
+  conceptIcon,
+  BoardGlyph,
+  EmptyState,
+} from "@exp/ui"
 import { issueCollection } from "@/lib/collections"
 import { IssuePickerHost } from "@/components/issue-picker-host"
 import {
@@ -26,6 +32,7 @@ const UiBackIcon = conceptIcon(`ui-back`)
 // and the desktop dialog read as the same list.
 const FLAT_ROWS = `**:data-[slot=command-group]:p-0 **:data-[slot=command-item]:rounded-none **:data-[slot=command-item]:border-b **:data-[slot=command-item]:border-border/30 **:data-[slot=command-item]:px-4 **:data-[slot=command-item]:py-3`
 const SearchGlyph = conceptIcon(`nav-search`)
+const NoMatchGlyph = conceptIcon(`ui-empty-search`)
 
 interface IssueSearchSheetProps {
   open: boolean
@@ -114,15 +121,13 @@ export function IssueSearchSheet({
   // set in `lib/issue-search.ts`, drift-gated by issue-search-surfaces.test.ts.
   const emptyState = (query: string) =>
     query.trim() === `` ? (
-      <div className="flex flex-col items-center justify-center p-12 text-center text-muted-foreground">
-        <SearchGlyph className="size-8 mb-3 opacity-50" />
-        <p className="text-sm">{ISSUE_SEARCH_EMPTY_HINT}</p>
-        <p className="text-xs mt-1 opacity-70">{ISSUE_SEARCH_EMPTY_DETAIL}</p>
-      </div>
+      <EmptyState
+        icon={SearchGlyph}
+        title={ISSUE_SEARCH_EMPTY_HINT}
+        description={ISSUE_SEARCH_EMPTY_DETAIL}
+      />
     ) : (
-      <div className="flex flex-col items-center justify-center p-12 text-muted-foreground">
-        <p className="text-sm">{ISSUE_SEARCH_NO_RESULTS}</p>
-      </div>
+      <EmptyState icon={NoMatchGlyph} title={ISSUE_SEARCH_NO_RESULTS} />
     )
 
   const renderRow = (issue: SearchResult) => {

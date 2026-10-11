@@ -161,8 +161,7 @@ struct IssueListView: View {
                     issuesApi: deps.issuesApi,
                     boardsApi: deps.boardsApi,
                     labelsApi: deps.labelsApi,
-                    auth: deps.auth,
-                    syncManager: deps.syncManager
+                    auth: deps.auth
                 )
                 viewModel = vm
             }
@@ -234,7 +233,6 @@ struct IssueListView: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 48)
                     .padding(.bottom, 24)
                 }
                 .scrollBounceBehavior(.basedOnSize)
@@ -300,9 +298,8 @@ struct IssueListView: View {
                 .listSectionSpacing(0)
                 .scrollContentBackground(.hidden)
                 .background(Color.clear)
-                .refreshable {
-                    await vm.refresh()
-                }
+                // EXP-1274: no pull-to-refresh — the list is Electric-synced
+                // and live.
                 // Clearance for the floating tab bar (EXP-36) — the bar is an
                 // ancestor overlay, so the List must reserve the space itself.
                 .tabBarBottomInset(showsTabBarClearance)
@@ -310,41 +307,17 @@ struct IssueListView: View {
         }
     }
 
-    /// The shared empty-state shape (EXP-698 r5): a glyph in a 48pt washed
-    /// circle, a headline, one line of guidance and the primary action pill —
-    /// the same block web, the IDE and Android draw for an empty board.
+    /// The shared empty state (EXP-1274 `issues`): the same block web, the
+    /// IDE and Android draw for an empty board.
     private var emptyBoardState: some View {
-        VStack(spacing: 12) {
-            AppIcon(AppIcons.uiChecklist, size: AppIcon.Size.large)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .frame(width: 48, height: 48)
-                .background(GlassTokens.fillActive, in: Circle())
-
-            Text("No issues yet")
-                .font(.headline)
-                .foregroundStyle(.white)
-
-            Text("Create an issue to start tracking work.")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .multilineTextAlignment(.center)
-
-            GlassPill(
-                "New issue",
-                icon: AppIcons.uiAdd,
-                size: .md,
-                mode: .action {
-                    // EXP-1170: the draft id is minted at tap time.
-                    pushRoute(.issueDraft(
-                        accountId: accountId,
-                        draftId: UUID().uuidString.lowercased(),
-                        boardId: boardId
-                    ))
-                },
-                primary: true
-            )
+        EmptyState(.issues) {
+            // EXP-1170: the draft id is minted at tap time.
+            pushRoute(.issueDraft(
+                accountId: accountId,
+                draftId: UUID().uuidString.lowercased(),
+                boardId: boardId
+            ))
         }
-        .frame(maxWidth: .infinity)
     }
 
     // Shown while team membership is still syncing, so a signed-in viewer

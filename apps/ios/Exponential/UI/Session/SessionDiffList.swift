@@ -47,7 +47,7 @@ struct DiffFileList<Header: View>: View {
     /// SIZE rule (`DiffPresentation.diffOpensByDefault`) folds one away.
     var defaultCollapsed = false
     /// What an EMPTY file set says.
-    var emptyLabel: String?
+    var emptyLabel: EmptyStateCopy.State?
     /// The file the reader picked in the sheet: expand it and scroll to it. A
     /// CHANGE jumps; re-picking the file in view is a no-op.
     var focusPath: String?
@@ -69,10 +69,7 @@ struct DiffFileList<Header: View>: View {
                 LazyVStack(alignment: .leading, spacing: 10) {
                     header()
                     if files.isEmpty, let emptyLabel {
-                        Text(emptyLabel)
-                            .font(.caption)
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .padding(.vertical, 12)
+                        EmptyState(emptyLabel)
                     }
                     ForEach(files) { file in
                         DiffFileCard(
@@ -131,7 +128,7 @@ extension DiffFileList where Header == EmptyView {
         files: [Diff.File],
         truncatedLines: Int? = nil,
         defaultCollapsed: Bool = false,
-        emptyLabel: String? = nil,
+        emptyLabel: EmptyStateCopy.State? = nil,
         focusPath: String? = nil,
         accessibilityId: String = "session-diff-list"
     ) {
@@ -160,7 +157,7 @@ struct SessionDiffList: View {
         DiffFileList(
             files: files,
             truncatedLines: truncatedLines,
-            emptyLabel: "No changed files.",
+            emptyLabel: .changedFiles,
             focusPath: focusPath,
             headerFade: false,
             header: {

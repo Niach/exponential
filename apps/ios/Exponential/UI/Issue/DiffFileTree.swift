@@ -31,11 +31,11 @@ struct DiffFileTree: View {
         let rows = flatten(memo.tree(files, query: query))
         VStack(alignment: .leading, spacing: 0) {
             if rows.isEmpty {
-                Text(files.isEmpty ? "No changed files." : "No matching files.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .padding(.horizontal, GlassSheetTokens.headerHPadding)
-                    .padding(.vertical, 12)
+                if files.isEmpty {
+                    EmptyState(.changedFiles)
+                } else {
+                    EmptyState(title: "No matching files", icon: AppIcons.uiEmptySearch, size: .list)
+                }
             }
             ForEach(Array(rows.enumerated()), id: \.element.node.id) { index, row in
                 if index > 0 { GlassDivider() }

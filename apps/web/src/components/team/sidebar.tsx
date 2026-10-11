@@ -46,6 +46,7 @@ import { useTeamMemberships } from "@/hooks/use-team-data"
 import { useSidebarOccupant } from "@/hooks/use-sidebar-occupant"
 import { useRecentRunsPanelRouteGuard } from "@/lib/recent-runs-panel"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
+import { Empty } from "@/components/empty"
 import { CreateTeamDialog } from "@/components/create-team-dialog"
 import { JoinTeamDialog } from "@/components/join-team-dialog"
 import { SettingsSidebar } from "@/components/team/settings-sidebar"
@@ -102,7 +103,6 @@ import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
 // EXP-317: the cross-client nav glyphs come from the shared registry
 // (packages/icons/icons.json) so web, desktop, iOS and Android agree.
 const NavAgentIcon = conceptIcon(`action-chat`)
-const NavBoardsIcon = conceptIcon(`nav-boards`)
 const NavCreateIssueIcon = conceptIcon(`nav-create-issue`)
 const NavDevicesIcon = conceptIcon(`nav-devices`)
 const NavInboxIcon = conceptIcon(`nav-inbox`)
@@ -481,12 +481,7 @@ export function TeamSidebar({
                         <SidebarMenu>
                           {!boards || boards.length === 0 ? (
                             <SidebarMenuItem>
-                              <SidebarMenuButton disabled density="compact">
-                                <NavBoardsIcon className="h-4 w-4" />
-                                <span className="text-muted-foreground">
-                                  No boards yet
-                                </span>
-                              </SidebarMenuButton>
+                              <Empty id="board-switcher" />
                             </SidebarMenuItem>
                           ) : (
                             boards.map((board) => {

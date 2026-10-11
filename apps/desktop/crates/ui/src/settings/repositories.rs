@@ -619,12 +619,11 @@ impl RepositoriesPane {
 impl Render for RepositoriesPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return v_flex().child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("No team selected."),
-            );
+            return v_flex().child(crate::controls::empty_state_list(
+                gpui_component::Icon::new(crate::icons::registry::UI_TEAM),
+                crate::empty_state_copy::NO_TEAM_SELECTED,
+                cx,
+            ));
         };
         self.ensure_loaded(&team_id, cx);
 

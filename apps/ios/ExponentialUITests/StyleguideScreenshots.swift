@@ -638,7 +638,7 @@ final class StyleguideScreenshots: XCTestCase {
         if !triggerRow.waitForExistence(timeout: Wait.sync) {
             print("SLOP-2 sg_action-triggers: no trigger rows — reseed with `bun run seed:screenshots`")
             expect(
-                app.staticTexts["No triggers. This action runs when someone starts it."],
+                app.staticTexts["No triggers yet"],
                 within: Wait.nav,
                 "The Triggers tab rendered neither rows nor its empty note"
             )
@@ -679,7 +679,7 @@ final class StyleguideScreenshots: XCTestCase {
         if !actionRunRow.waitForExistence(timeout: Wait.sync) {
             print("SLOP-2 sg_action-runs: no run rows — reseed with `bun run seed:screenshots`")
             expect(
-                app.staticTexts["No runs yet."],
+                app.staticTexts["No runs yet"],
                 within: Wait.nav,
                 "The Runs tab rendered neither rows nor its empty note"
             )

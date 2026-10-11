@@ -1,5 +1,6 @@
 package com.exponential.app.ui.inbox
 
+import com.exponential.app.domain.EmptyStateCopy
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -71,11 +72,7 @@ fun InboxListContent(
     val state by viewModel.state.collectAsStateWithLifecycle()
 
     if (state.entries.isEmpty()) {
-        EmptyState(
-            message = "You're all caught up.",
-            icon = ExpIcons.navInbox,
-            modifier = modifier,
-        )
+        EmptyState(EmptyStateCopy.inbox, modifier = modifier)
     } else {
         LazyColumn(
             modifier = modifier.fillMaxSize(),

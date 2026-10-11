@@ -716,12 +716,11 @@ impl GeneralPane {
 impl Render for GeneralPane {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team) = active_team(cx, &self.nav) else {
-            return v_flex().child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("No team selected."),
-            );
+            return v_flex().child(crate::controls::empty_state_list(
+                gpui_component::Icon::new(crate::icons::registry::UI_TEAM),
+                crate::empty_state_copy::NO_TEAM_SELECTED,
+                cx,
+            ));
         };
         // Team visibility is deliberately not configurable (v6) — the pane
         // is just the name card, billing summary and Danger Zone.

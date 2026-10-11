@@ -109,7 +109,7 @@ describe(`a teammate's run`, () => {
     mocks.search.current = { view: `guide` }
     mocks.session.current = { ...mocks.session.current!, results: null }
     render(<Page />)
-    expect(screen.getByText(`This run has no report yet.`)).toBeTruthy()
+    expect(screen.getByText(`No report yet`)).toBeTruthy()
     expect(screen.queryByTestId(`agent-session-view`)).toBeNull()
   })
 

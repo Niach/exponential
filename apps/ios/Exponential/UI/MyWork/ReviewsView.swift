@@ -74,16 +74,8 @@ struct ReviewsListContent: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            AppIcon(AppIcons.prOpen, size: 22)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("No open pull requests")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Spacer()
-        }
-        .frame(maxWidth: .infinity)
+        EmptyState(.reviews)
+            .frame(maxHeight: .infinity)
     }
 
     private func reviewList(_ snapshot: ReviewsSnapshot) -> some View {

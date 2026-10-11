@@ -7,6 +7,7 @@ import {
   FileDiffTree,
   guideFileCountLabel,
 } from "@exp/ui"
+import { emptyStateCopy } from "@/lib/empty-states"
 import { GUIDE_FACE_LABEL, type GuideSectionPage } from "@/lib/work-faces"
 import { cn } from "@/lib/utils"
 
@@ -91,7 +92,7 @@ export function GuideSectionDiff({
           nav="none"
           focusPath={selected}
           onSelect={onSelect}
-          emptyLabel="No changes in this section."
+          emptyLabel={emptyStateCopy(`changed-files`).title}
           className="min-w-0 flex-1 md:px-0"
         />
       </div>

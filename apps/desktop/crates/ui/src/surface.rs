@@ -30,7 +30,8 @@ pub(crate) use exponential_ui_gpui::controls::{
     bare_code_markdown_style, count_badge, custom_variant_fill, glass_bar,
     glass_input_row, glass_picker_row, glass_picker_select, glass_pill, glass_pill_button,
     glass_pill_button_primary, glass_row_input, glass_row_shell, glass_section_band,
-    glass_section_band_fold, glass_section_header, glass_tab_item, glass_tabs_row,
+    glass_section_band_fold, glass_section_band_fold_loading, glass_section_band_loading,
+    glass_section_header, glass_section_header_loading, glass_tab_item, glass_tabs_row,
     glass_toggle_row, live_dot, picker_row_chevron, picker_value_label, pill_dot, property_row, BadgeTone,
     PillMode, PillSize, COUNT_BADGE_MAX, FLAT_ROW_COMPACT_H, LIVE_DOT_PX, ROW_DESCRIPTION_MAX_W,
 };

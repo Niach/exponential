@@ -1,5 +1,6 @@
 package com.exponential.app.ui.drafts
 
+import com.exponential.app.domain.EmptyStateCopy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
@@ -34,11 +35,7 @@ fun DraftsListContent(
     val drafts by viewModel.drafts.collectAsStateWithLifecycle()
 
     if (drafts.isEmpty()) {
-        EmptyState(
-            message = "No drafts",
-            icon = ExpIcons.navDrafts,
-            modifier = modifier,
-        )
+        EmptyState(EmptyStateCopy.drafts, modifier = modifier)
         return
     }
 

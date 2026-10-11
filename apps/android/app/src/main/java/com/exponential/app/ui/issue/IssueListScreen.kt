@@ -1,5 +1,6 @@
 package com.exponential.app.ui.issue
 
+import com.exponential.app.domain.EmptyStateCopy
 import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -36,7 +37,6 @@ import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -383,10 +383,8 @@ fun IssueListScreen(
                         // owns both paths and its own error lines. Byte-equal
                         // copy to iOS `IssuesHomeView.emptyStateHint`.
                         EmptyState(
-                            message = "No team yet",
-                            icon = ExpIcons.settingsMembers,
-                            detail = homeError
-                                ?: "Create a team, or join one with an invite link from a teammate.",
+                            EmptyStateCopy.noTeam,
+                            description = homeError ?: EmptyStateCopy.noTeam.description,
                             action = {
                                 GlassPill(
                                     "Create or join a team",
@@ -399,7 +397,7 @@ fun IssueListScreen(
                         )
                     } else if (stillSyncing || homeError != null) {
                         EmptyState(
-                            message = homeError ?: "Syncing…",
+                            title = homeError ?: "Syncing…",
                             icon = ExpIcons.navBoards,
                         )
                     } else {
@@ -415,14 +413,12 @@ fun IssueListScreen(
                                 .padding(bottom = BottomBarInset),
                         ) {
                             EmptyState(
-                                message = "No boards yet",
-                                icon = ExpIcons.navBoards,
-                                detail = "Create a board to start tracking work.",
-                                modifier = Modifier.padding(top = 32.dp),
+                                EmptyStateCopy.boards,
                                 action = {
                                     GlassPill(
-                                        "Create board",
+                                        EmptyStateCopy.boards.action!!,
                                         icon = ExpIcons.uiAdd,
+                                        size = PillSize.Md,
                                         primary = true,
                                         onClick = {
                                             createBoardTeamId = null
@@ -720,184 +716,151 @@ private fun IssueListContent(
         return
     }
 
-    PullToRefreshBox(
-        isRefreshing = state.isRefreshing,
-        onRefresh = viewModel::refresh,
-        modifier = Modifier.fillMaxSize(),
+    LazyColumn(
+        // EXP-642: the capture suites scroll to a named row
+        // (`performScrollToNode`) — a lazy list's off-screen rows are not
+        // composed, so the list itself needs a handle.
+        modifier = Modifier.fillMaxSize().testTag("issue-list"),
+        // EXP-614: no horizontal contentPadding — the gutter rides the
+        // individual items instead, so the sticky status header's tinted
+        // band spans the full width (web/iOS parity) while the rows keep
+        // their 16dp inset.
+        contentPadding = PaddingValues(top = 4.dp, bottom = BottomBarInset),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        LazyColumn(
-            // EXP-642: the capture suites scroll to a named row
-            // (`performScrollToNode`) — a lazy list's off-screen rows are not
-            // composed, so the list itself needs a handle.
-            modifier = Modifier.fillMaxSize().testTag("issue-list"),
-            // EXP-614: no horizontal contentPadding — the gutter rides the
-            // individual items instead, so the sticky status header's tinted
-            // band spans the full width (web/iOS parity) while the rows keep
-            // their 16dp inset.
-            contentPadding = PaddingValues(top = 4.dp, bottom = BottomBarInset),
-            verticalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            if (state.groups.isEmpty()) {
-                // EXP-698 r5: the shared empty-board shape on every client —
-                // a circled glyph, a title, one line of guidance and the one
-                // primary action (the compose FAB is behind this state).
-                item(key = "empty") {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = ListGutter)
-                            .padding(top = 48.dp, bottom = 8.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(48.dp)
-                                .clip(CircleShape)
-                                .background(GlassTokens.RowFillActive),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                ExpIcons.uiChecklist,
-                                contentDescription = null,
-                                modifier = Modifier.size(22.dp),
-                                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                            )
-                        }
-                        Text(
-                            "No issues yet",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = MaterialTheme.colorScheme.onSurface,
-                        )
-                        Text(
-                            "Create an issue to start tracking work.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                        )
+        if (state.groups.isEmpty()) {
+            // EXP-698 r5: the shared empty-board shape on every client —
+            // a circled glyph, a title, one line of guidance and the one
+            // primary action (the compose FAB is behind this state).
+            item(key = "empty") {
+                EmptyState(
+                    EmptyStateCopy.issues,
+                    modifier = Modifier.padding(horizontal = ListGutter),
+                    action = {
                         GlassPill(
-                            "New issue",
+                            EmptyStateCopy.issues.action!!,
                             icon = ExpIcons.uiAdd,
                             size = PillSize.Md,
                             primary = true,
                             onClick = onNewIssue,
                         )
-                    }
+                    },
+                )
+            }
+            if (gettingStarted != null) {
+                item(key = "getting-started") {
+                    GettingStartedCards(
+                        state = gettingStarted,
+                        onAction = onGettingStartedAction,
+                        modifier = Modifier
+                            .padding(horizontal = ListGutter)
+                            .padding(top = 20.dp),
+                    )
                 }
-                if (gettingStarted != null) {
-                    item(key = "getting-started") {
-                        GettingStartedCards(
-                            state = gettingStarted,
-                            onAction = onGettingStartedAction,
-                            modifier = Modifier
-                                .padding(horizontal = ListGutter)
-                                .padding(top = 20.dp),
+            }
+        } else {
+            state.groups.forEach { group ->
+                val isCollapsed = group.status.id in collapsed
+                // EXP-620: a plain scrolling item, not a stickyHeader.
+                // Pinning (EXP-578) is what forced a background onto the
+                // header in the first place — an opaque fill to hide the
+                // rows passing underneath, since Compose has no cheap
+                // backdrop blur — and EXP-593 then washed the status colour
+                // over it. Scrolling with its rows, the header needs
+                // neither. P35: it is THE filled group band ×3 phones.
+                item(key = "header-${group.status.id}") {
+                    // EXP-523: headers ride the same reflow as their rows.
+                    Box(
+                        Modifier
+                            .animateItem()
+                            .fillMaxWidth(),
+                    ) {
+                        // EXP-1248: the ONE issue group band (the only
+                        // list band that keeps its count).
+                        IssueGroupBand(
+                            glyph = { StatusIcon(group.status, size = 14.dp) },
+                            name = group.status.name,
+                            count = group.issues.size,
+                            collapsed = isCollapsed,
+                            onToggle = { onToggleCollapsed(group.status.id, isCollapsed) },
+                            // The list carries no horizontal contentPadding
+                            // (EXP-614): the band carries the gutter.
+                            gutter = ListGutter,
                         )
                     }
                 }
-            } else {
-                state.groups.forEach { group ->
-                    val isCollapsed = group.status.id in collapsed
-                    // EXP-620: a plain scrolling item, not a stickyHeader.
-                    // Pinning (EXP-578) is what forced a background onto the
-                    // header in the first place — an opaque fill to hide the
-                    // rows passing underneath, since Compose has no cheap
-                    // backdrop blur — and EXP-593 then washed the status colour
-                    // over it. Scrolling with its rows, the header needs
-                    // neither. P35: it is THE filled group band ×3 phones.
-                    item(key = "header-${group.status.id}") {
-                        // EXP-523: headers ride the same reflow as their rows.
-                        Box(
-                            Modifier
+                if (!isCollapsed) {
+                    // EXP-980/965: sub-issues hang off their parent with
+                    // the shared elbow connector — the SAME rule and
+                    // painter the run lists draw.
+                    val guides = TreeGuides.compute(group.issues.map { it.depth })
+                    itemsIndexed(group.issues, key = { _, it -> it.issue.id }) { index, entry ->
+                        // Long-press enters multi-select (EXP-239 — it
+                        // replaced this list's per-row action sheet; Mark
+                        // done / Move to backlog live in the selection bar
+                        // now, and MyIssues keeps LongPressIssueRow).
+                        val selectionActive = selectedIds.isNotEmpty()
+                        // Inline status/priority edit is offered only out of
+                        // selection mode and when the viewer may mutate the
+                        // issue (same gate as entering selection).
+                        val canMutate = permissions.canMutateIssue(entry.issue.creatorId)
+                        val inlineEditable = canMutate && !selectionActive
+                        TreeGuidesRow(
+                            depth = entry.depth,
+                            guide = guides.getOrNull(index),
+                            // The list spaces its rows; the branch bridges
+                            // that gap instead of breaking at every row.
+                            gap = RowGap,
+                            // EXP-523: a status change moves an issue to
+                            // another group. Without this the row
+                            // teleports; with it it slides to where it
+                            // landed.
+                            modifier = Modifier
                                 .animateItem()
-                                .fillMaxWidth(),
+                                .padding(horizontal = ListGutter),
                         ) {
-                            // EXP-1248: the ONE issue group band (the only
-                            // list band that keeps its count).
-                            IssueGroupBand(
-                                glyph = { StatusIcon(group.status, size = 14.dp) },
-                                name = group.status.name,
-                                count = group.issues.size,
-                                collapsed = isCollapsed,
-                                onToggle = { onToggleCollapsed(group.status.id, isCollapsed) },
-                                // The list carries no horizontal contentPadding
-                                // (EXP-614): the band carries the gutter.
-                                gutter = ListGutter,
-                            )
-                        }
-                    }
-                    if (!isCollapsed) {
-                        // EXP-980/965: sub-issues hang off their parent with
-                        // the shared elbow connector — the SAME rule and
-                        // painter the run lists draw.
-                        val guides = TreeGuides.compute(group.issues.map { it.depth })
-                        itemsIndexed(group.issues, key = { _, it -> it.issue.id }) { index, entry ->
-                            // Long-press enters multi-select (EXP-239 — it
-                            // replaced this list's per-row action sheet; Mark
-                            // done / Move to backlog live in the selection bar
-                            // now, and MyIssues keeps LongPressIssueRow).
-                            val selectionActive = selectedIds.isNotEmpty()
-                            // Inline status/priority edit is offered only out of
-                            // selection mode and when the viewer may mutate the
-                            // issue (same gate as entering selection).
-                            val canMutate = permissions.canMutateIssue(entry.issue.creatorId)
-                            val inlineEditable = canMutate && !selectionActive
-                            TreeGuidesRow(
-                                depth = entry.depth,
-                                guide = guides.getOrNull(index),
-                                // The list spaces its rows; the branch bridges
-                                // that gap instead of breaking at every row.
-                                gap = RowGap,
-                                // EXP-523: a status change moves an issue to
-                                // another group. Without this the row
-                                // teleports; with it it slides to where it
-                                // landed.
-                                modifier = Modifier
-                                    .animateItem()
-                                    .padding(horizontal = ListGutter),
-                            ) {
-                                IssueRow(
-                                    issue = entry.issue,
-                                    labels = entry.labels,
-                                    // The row's OWN resolved status: nesting
-                                    // can park it in another group's band.
-                                    resolvedStatus = entry.status ?: group.status,
-                                    // Solo teams hide the assignee avatar (one member).
-                                    assignee = if (soloMemberId != null) null else usersById[entry.issue.assigneeId],
-                                    selected = if (selectionActive) entry.issue.id in selectedIds else null,
-                                    // EXP-980: what blocks this row, and what
-                                    // it blocks — the pill opens the graph.
-                                    blocks = entry.blocks,
-                                    onBlocksClick = { onOpenGraph(entry.issue.id) },
-                                    onClick = {
+                            IssueRow(
+                                issue = entry.issue,
+                                labels = entry.labels,
+                                // The row's OWN resolved status: nesting
+                                // can park it in another group's band.
+                                resolvedStatus = entry.status ?: group.status,
+                                // Solo teams hide the assignee avatar (one member).
+                                assignee = if (soloMemberId != null) null else usersById[entry.issue.assigneeId],
+                                selected = if (selectionActive) entry.issue.id in selectedIds else null,
+                                // EXP-980: what blocks this row, and what
+                                // it blocks — the pill opens the graph.
+                                blocks = entry.blocks,
+                                onBlocksClick = { onOpenGraph(entry.issue.id) },
+                                onClick = {
+                                    if (selectionActive) {
+                                        onToggleSelect(entry.issue.id)
+                                    } else {
+                                        onOpenIssue(entry.issue.id)
+                                    }
+                                },
+                                onLongClick = if (canMutate) {
+                                    {
                                         if (selectionActive) {
                                             onToggleSelect(entry.issue.id)
                                         } else {
-                                            onOpenIssue(entry.issue.id)
+                                            onEnterSelection(entry.issue.id)
                                         }
-                                    },
-                                    onLongClick = if (canMutate) {
-                                        {
-                                            if (selectionActive) {
-                                                onToggleSelect(entry.issue.id)
-                                            } else {
-                                                onEnterSelection(entry.issue.id)
-                                            }
-                                        }
-                                    } else {
-                                        null
-                                    },
-                                    onStatusClick = if (inlineEditable) {
-                                        { onInlineStatus(entry.issue.id) }
-                                    } else {
-                                        null
-                                    },
-                                    onPriorityClick = if (inlineEditable) {
-                                        { onInlinePriority(entry.issue.id) }
-                                    } else {
-                                        null
-                                    },
-                                )
-                            }
+                                    }
+                                } else {
+                                    null
+                                },
+                                onStatusClick = if (inlineEditable) {
+                                    { onInlineStatus(entry.issue.id) }
+                                } else {
+                                    null
+                                },
+                                onPriorityClick = if (inlineEditable) {
+                                    { onInlinePriority(entry.issue.id) }
+                                } else {
+                                    null
+                                },
+                            )
                         }
                     }
                 }
@@ -1387,7 +1350,7 @@ private fun BulkLabelSheet(
         },
         query = query,
         onQueryChange = { query = it },
-        emptyText = if (query.isBlank()) "No labels yet." else "No matching labels",
+        emptyText = if (query.isBlank()) "No labels yet" else "No matching labels",
         open = true,
         onOpenChange = { open -> if (!open) onDismiss() },
     )

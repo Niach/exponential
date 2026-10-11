@@ -26,6 +26,8 @@ import {
 } from "@/lib/sessions/session-tree"
 import { rowPrState, type SessionMergeTarget } from "@/hooks/use-agents-data"
 import { useNow } from "@/hooks/use-now"
+import { Empty } from "@/components/empty"
+import type { EmptyStateId } from "@/lib/empty-states"
 
 // EXP-996: the session list as a TREE, not a flat roll of strangers. The list
 // draws the `sessionTree` selector (`lib/sessions/session-tree.ts`, the x4
@@ -148,7 +150,7 @@ export function SessionTree({
   rows,
   activeSessionId = null,
   onOpen,
-  emptyNote,
+  empty,
   titleOf,
   ringClassName,
   size = `big`,
@@ -157,8 +159,9 @@ export function SessionTree({
   rows: readonly TreeListRow[]
   activeSessionId?: string | null
   onOpen: (session: CodingSession) => void
-  /** Shown instead of the rows when there are none. Absent = render nothing. */
-  emptyNote?: string
+  /** The ×4 empty state (a `list` id) shown instead of the rows when there
+   *  are none. Absent = render nothing. */
+  empty?: EmptyStateId
   /** A row's title when the caller knows better than the identity. */
   titleOf?: (row: TreeListRow) => string
   /** EXP-1208: the run mark badge's ring = the ground the list sits on
@@ -171,9 +174,7 @@ export function SessionTree({
   const now = useNow(30_000)
 
   if (tree.length === 0) {
-    return emptyNote ? (
-      <div className="px-3 py-2 text-xs text-muted-foreground">{emptyNote}</div>
-    ) : null
+    return empty ? <Empty id={empty} /> : null
   }
 
   return (

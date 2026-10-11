@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router"
 import type { IssueGroup } from "@/lib/board-view"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 import { IssueGroupHeader } from "@/components/issue-group-header"
+import { Empty } from "@/components/empty"
 import { issueMenuProps } from "@/components/issue-context-menu/attr"
 import {
   Checkbox,
@@ -230,9 +231,7 @@ export function BoardIssueListPane({
       data-testid="board-issue-pane"
     >
       {visible.length === 0 && (
-        <div className="px-3 py-2 text-xs text-muted-foreground">
-          No issues in this board.
-        </div>
+        <Empty id="board-issues" />
       )}
       {visible.map((group) => {
         const open = !collapsed.has(group.status.id)

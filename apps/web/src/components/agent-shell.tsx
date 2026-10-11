@@ -96,7 +96,7 @@ export function SessionsList({
               rows={running}
               activeSessionId={activeSessionId}
               onOpen={open}
-              emptyNote="No agents running right now."
+              empty="running-agents"
             />
           )}
         </>

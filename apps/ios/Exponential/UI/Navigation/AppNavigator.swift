@@ -964,7 +964,7 @@ struct MainNavigator: View {
         // notification rows outlive membership, so after leaving a team its
         // unread rows keep syncing while their issues drop out of the local
         // store — a raw count would light the dot forever over an inbox that
-        // shows "You're all caught up".
+        // shows "All caught up".
         let notifObs = ValueObservation.tracking { db -> ([NotificationEntity], Set<String>) in
             let notifications = try NotificationEntity.fetchAll(db)
             let issueIds = try Set(String.fetchAll(db, sql: "SELECT \"id\" FROM \"issues\""))

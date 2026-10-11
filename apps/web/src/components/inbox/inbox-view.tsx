@@ -1,8 +1,9 @@
 import { useMemo, useState } from "react"
 import { Link, useNavigate } from "@tanstack/react-router"
 import { inArray, useLiveQuery } from "@tanstack/react-db"
-import { Bell, CircleCheck } from "lucide-react"
-import { Button, conceptIcon, EmptyState, ListRow, LiveDot } from "@exp/ui"
+import { Bell } from "lucide-react"
+import { Button, conceptIcon, ListRow, LiveDot } from "@exp/ui"
+import { Empty } from "@/components/empty"
 import type { NotificationType } from "@exp/db-schema/domain"
 import { notificationTypeValues } from "@exp/db-schema/domain"
 import type { Issue, Notification, Board, Team } from "@/db/schema"
@@ -257,18 +258,8 @@ export function InboxView({
         )}
       >
         {groups.length === 0 ? (
-          compact ? (
-            // EXP-851: the sidebar slot has no room for the illustration.
-            <div className="px-3 py-2 text-xs text-muted-foreground">
-              All caught up.
-            </div>
-          ) : (
-            <EmptyState
-              icon={CircleCheck}
-              title="All caught up"
-              description="Assignments, comments and mentions on issues you follow will show up here."
-            />
-          )
+          // EXP-851: the sidebar slot has no room for the disc — the list size.
+          <Empty id="inbox" size={compact ? `list` : undefined} />
         ) : (
           visibleGroups.map((g) => {
             const latest = g.items[0]

@@ -62,10 +62,7 @@ struct SyncDebugView: View {
 
             let sorted = debug.shapes.sorted { $0.key < $1.key }
             if sorted.isEmpty {
-                Text("No shape activity yet.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .padding(.horizontal, 4)
+                EmptyState(title: "No shape activity yet", size: .list)
             } else {
                 VStack(spacing: 4) {
                     ForEach(sorted, id: \.key) { name, status in
@@ -174,10 +171,7 @@ struct SyncDebugView: View {
                 .padding(.horizontal, 4)
 
             if debug.lastMessages.isEmpty {
-                Text("No log entries yet.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .padding(.horizontal, 4)
+                EmptyState(title: "No log entries yet", size: .list)
             } else {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(debug.lastMessages.enumerated()), id: \.offset) { _, message in

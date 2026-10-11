@@ -525,7 +525,7 @@ struct GuideSectionDiffView<Merge: View>: View {
         DiffFileList(
             files: page.files,
             truncatedLines: truncatedLines,
-            emptyLabel: "No changed files.",
+            emptyLabel: .changedFiles,
             focusPath: focusPath,
             accessibilityId: "guide-section-cards",
             headerFade: false,

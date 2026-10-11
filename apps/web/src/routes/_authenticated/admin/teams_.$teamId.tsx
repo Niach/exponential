@@ -13,6 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
   UserAvatar,
+  ListEmpty,
 } from "@exp/ui"
 import {
   issueEventActorFallback,
@@ -319,7 +320,7 @@ function AdminTeamDetail() {
         }
       >
         {detail.boards.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No boards.</p>
+          <ListEmpty>No boards</ListEmpty>
         ) : (
           <div className="rounded-md border">
             <div className="hidden md:grid grid-cols-[1fr_80px_120px] items-center gap-3 border-b px-3 py-2 text-xs font-medium text-muted-foreground">
@@ -361,7 +362,7 @@ function AdminTeamDetail() {
         description={<>Latest {detail.events.length} issue events</>}
       >
         {detail.events.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No activity yet.</p>
+          <ListEmpty>No activity yet</ListEmpty>
         ) : (
           <div className="space-y-1">
             {detail.events.map((e) => (
@@ -412,7 +413,7 @@ function AdminTeamDetail() {
         }
       >
         {detail.emailDeliveries.length === 0 ? (
-          <p className="text-sm text-muted-foreground">No emails sent.</p>
+          <ListEmpty>No emails sent</ListEmpty>
         ) : (
           <EmailDeliveriesTable rows={detail.emailDeliveries} showSubject />
         )}

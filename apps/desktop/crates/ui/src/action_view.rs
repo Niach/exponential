@@ -734,7 +734,6 @@ impl ActionView {
         is_owner: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let muted = cx.theme().muted_foreground;
         let danger = cx.theme().danger;
         let now_ms = chrono::Utc::now().timestamp_millis();
         let blocked_by_inputs = action.inputs.iter().any(|input| input.required);
@@ -753,14 +752,11 @@ impl ActionView {
             .min_w_0()
             .child(glass_section_header("Triggers", add, cx));
         if self.derived.triggers.is_empty() {
-            section = section.child(
-                div()
-                    .px_3()
-                    .py_2()
-                    .text_sm()
-                    .text_color(muted)
-                    .child("No triggers. This action runs when someone starts it."),
-            );
+            section = section.child(crate::controls::empty_state_list(
+                gpui_component::Icon::new(crate::icons::registry::TRIGGER_EVENT),
+                crate::empty_state_copy::ACTION_TRIGGERS,
+                cx,
+            ));
         } else {
             let rows: Vec<gpui::AnyElement> = self
                 .derived
@@ -783,20 +779,16 @@ impl ActionView {
     /// The Runs section: every run of this action, newest first, as the
     /// session tree, each titled by what started it.
     fn render_runs(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
-        let muted = cx.theme().muted_foreground;
         let mut section = gpui_component::v_flex()
             .min_w_0()
             .child(glass_section_header("Runs", None, cx));
         if self.derived.runs.is_empty() {
             return section
-                .child(
-                    div()
-                        .px_3()
-                        .py_2()
-                        .text_sm()
-                        .text_color(muted)
-                        .child("No runs yet."),
-                )
+                .child(crate::controls::empty_state_list(
+                    gpui_component::Icon::new(crate::icons::registry::ACTION_RUN),
+                    crate::empty_state_copy::ACTION_RUNS,
+                    cx,
+                ))
                 .into_any_element();
         }
         // EXP-965/1248: children always show; the connector every nested

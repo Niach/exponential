@@ -118,7 +118,7 @@ internal fun AgentIssuePickerSheet(
         // The caller ranks (EXP-892), so the rows render verbatim.
         filter = false,
         // One wording per state across the clients (iOS AgentIssuePickerSheet).
-        emptyText = if (issues.isEmpty()) "No eligible issues to code." else "No matching issues.",
+        emptyText = if (issues.isEmpty()) "No eligible issues to code" else "No matching issues",
         title = "Issues",
         sheetModifier = Modifier.testTag("agent-composer-issues-picker"),
         // A multi picker never closes on a pick: the footer is how a phone

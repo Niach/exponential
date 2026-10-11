@@ -45,7 +45,7 @@ internal fun AgentActionPickerSheet(
         emptyText = when {
             actions == null && error != null -> error
             actions == null -> "Loading actions…"
-            else -> "No matching actions."
+            else -> "No matching actions"
         },
         sheetModifier = Modifier.testTag("agent-composer-actions-picker"),
         open = true,

@@ -1,5 +1,7 @@
 import { Checkbox } from "./checkbox"
 import { cn } from "./cn"
+import { EmptyState } from "./empty-state"
+import { conceptIcon } from "./icons.generated"
 import { Label } from "./label"
 import { Switch } from "./switch"
 
@@ -11,6 +13,9 @@ import { Switch } from "./switch"
 // `effectiveScopeSelection` — boards a selected team already covers drop out,
 // "Everything" clears both lists — applied at submit so unticking a team
 // restores the boards the user had ticked under it.
+
+const NavBoardsIcon = conceptIcon(`nav-boards`)
+const TeamIcon = conceptIcon(`ui-team`)
 
 export interface ScopePickerBoard {
   id: string
@@ -120,9 +125,7 @@ export function ScopePicker({
       {!value.allTeams && (
         <div className="max-h-72 space-y-3 overflow-y-auto rounded-md border p-3">
           {tree.length === 0 && (
-            <p className="text-sm text-muted-foreground">
-              You aren&apos;t a member of any team yet.
-            </p>
+            <EmptyState size="list" icon={TeamIcon} title="No teams yet" />
           )}
           {tree.map((team) => {
             const wholeTeam = selectedTeams.has(team.id)
@@ -170,7 +173,11 @@ export function ScopePicker({
                     </div>
                   ))}
                   {team.boards.length === 0 && (
-                    <p className="text-xs text-muted-foreground">No boards yet.</p>
+                    <EmptyState
+                      size="list"
+                      icon={NavBoardsIcon}
+                      title="No boards yet"
+                    />
                   )}
                 </div>
               </div>

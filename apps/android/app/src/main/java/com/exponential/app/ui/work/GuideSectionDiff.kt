@@ -1,5 +1,7 @@
 package com.exponential.app.ui.work
 
+import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.domain.EmptyStateCopy
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -241,10 +243,5 @@ internal fun ChangesFailureRow(message: String) {
 
 @Composable
 internal fun ChangesEmptyRow() {
-    Text(
-        "No changed files.",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        modifier = Modifier.padding(vertical = 12.dp),
-    )
+    EmptyState(EmptyStateCopy.changedFiles)
 }

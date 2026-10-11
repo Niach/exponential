@@ -65,16 +65,8 @@ struct MyIssuesListContent: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            Spacer()
-            AppIcon(AppIcons.navAccount, size: 22)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("No issues assigned to you")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Spacer()
-        }
-        .frame(maxWidth: .infinity)
+        EmptyState(.myIssues)
+            .frame(maxHeight: .infinity)
     }
 
     @ViewBuilder

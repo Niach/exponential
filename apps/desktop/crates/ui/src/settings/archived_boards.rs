@@ -20,7 +20,6 @@ use gpui::{
     Styled, Subscription, Window,
 };
 use gpui_component::{
-    h_flex,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use crate::toast::Toast;
@@ -240,12 +239,11 @@ fn archived_on(archived_at: Option<&str>) -> SharedString {
 impl Render for ArchivedBoardsPane {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
         let Some(team_id) = active_team_id(&self.nav, cx) else {
-            return v_flex().child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("No team selected."),
-            );
+            return v_flex().child(crate::controls::empty_state_list(
+                gpui_component::Icon::new(crate::icons::registry::UI_TEAM),
+                crate::empty_state_copy::NO_TEAM_SELECTED,
+                cx,
+            ));
         };
         self.ensure_loaded(&team_id, cx);
 
@@ -276,24 +274,11 @@ impl Render for ArchivedBoardsPane {
                 body = body.child(error_notice(SharedString::from(message.clone()), cx));
             }
             Load::Ready(Ok(rows)) if rows.is_empty() => {
-                body = body.child(
-                    h_flex()
-                        .w_full()
-                        .items_center()
-                        .gap_2()
-                        .py_2()
-                        .child(
-                            Icon::from(registry::UI_ARCHIVE)
-                                .xsmall()
-                                .text_color(cx.theme().muted_foreground),
-                        )
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(cx.theme().muted_foreground)
-                                .child("No archived boards."),
-                        ),
-                );
+                body = body.child(crate::controls::empty_state_list(
+                    gpui_component::Icon::new(crate::icons::registry::UI_ARCHIVE),
+                    crate::empty_state_copy::ARCHIVED_BOARDS,
+                    cx,
+                ));
             }
             Load::Ready(Ok(rows)) => {
                 let rows = rows.clone();

@@ -11,6 +11,7 @@ import {
   DialogTitle,
   DialogTrigger,
   useIsMobile,
+  ListEmpty,
 } from "@exp/ui"
 import type { Board, CodingSession, Issue } from "@/db/schema"
 import {
@@ -394,9 +395,7 @@ export function PrGraphOverlay({
         )
       })}
       {sections.length === 0 && (
-        <div className="text-sm text-muted-foreground">
-          {PR_GRAPH_OVERLAY_COPY.empty}
-        </div>
+        <ListEmpty>{PR_GRAPH_OVERLAY_COPY.empty}</ListEmpty>
       )}
     </div>
   )

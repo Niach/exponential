@@ -163,10 +163,15 @@ public struct GlassDivider: View {
 /// they are a shared cross-client convention, not this app's section language.
 public struct GlassSectionHeader<Trailing: View>: View {
     let title: String
+    /// EXP-1274: the list under it is refetching — the mini spinner at the
+    /// trailing edge (web `GlassSectionHeader loading` ×4), never a Refresh
+    /// control over rows that are already there.
+    let loading: Bool
     let trailing: Trailing
 
-    public init(_ title: String, @ViewBuilder trailing: () -> Trailing) {
+    public init(_ title: String, loading: Bool = false, @ViewBuilder trailing: () -> Trailing) {
         self.title = title
+        self.loading = loading
         self.trailing = trailing()
     }
 
@@ -176,6 +181,7 @@ public struct GlassSectionHeader<Trailing: View>: View {
                 .font(.subheadline.weight(.medium))
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
             Spacer(minLength: 0)
+            if loading { SectionLoadingGlyph() }
             trailing
         }
         .textCase(nil)
@@ -186,8 +192,19 @@ public struct GlassSectionHeader<Trailing: View>: View {
 }
 
 extension GlassSectionHeader where Trailing == EmptyView {
-    public init(_ title: String) {
-        self.init(title) { EmptyView() }
+    public init(_ title: String, loading: Bool = false) {
+        self.init(title, loading: loading) { EmptyView() }
+    }
+}
+
+/// The band's refetch spinner (EXP-1274): `ProgressView` at `.mini`, muted.
+struct SectionLoadingGlyph: View {
+    var body: some View {
+        ProgressView()
+            .controlSize(.mini)
+            .tint(.white.opacity(TextOpacity.tertiary))
+            .accessibilityLabel("Loading")
+            .accessibilityIdentifier("section-band-loading")
     }
 }
 
@@ -213,6 +230,9 @@ public struct GlassSectionBand<Leading: View, Trailing: View>: View {
     let count: Int?
     /// The Danger zone band ×4: the same fill, the label in the app's red.
     let danger: Bool
+    /// EXP-1274: the list under the band is refetching — the mini spinner at
+    /// the trailing edge (web `GlassSectionHeader loading` ×4).
+    let loading: Bool
     let leading: Leading
     let trailing: Trailing
 
@@ -220,12 +240,14 @@ public struct GlassSectionBand<Leading: View, Trailing: View>: View {
         _ title: String,
         count: Int? = nil,
         danger: Bool = false,
+        loading: Bool = false,
         @ViewBuilder leading: () -> Leading,
         @ViewBuilder trailing: () -> Trailing
     ) {
         self.title = title
         self.count = count
         self.danger = danger
+        self.loading = loading
         self.leading = leading()
         self.trailing = trailing()
     }
@@ -248,6 +270,7 @@ public struct GlassSectionBand<Leading: View, Trailing: View>: View {
                     .accessibilityIdentifier("section-band-count")
             }
             Spacer(minLength: 0)
+            if loading { SectionLoadingGlyph() }
             trailing
         }
         .textCase(nil)
@@ -261,17 +284,17 @@ public struct GlassSectionBand<Leading: View, Trailing: View>: View {
 }
 
 extension GlassSectionBand where Leading == EmptyView, Trailing == EmptyView {
-    public init(_ title: String, count: Int? = nil, danger: Bool = false) {
-        self.init(title, count: count, danger: danger) { EmptyView() } trailing: { EmptyView() }
+    public init(_ title: String, count: Int? = nil, danger: Bool = false, loading: Bool = false) {
+        self.init(title, count: count, danger: danger, loading: loading) { EmptyView() } trailing: { EmptyView() }
     }
 }
 
 extension GlassSectionBand where Leading == EmptyView {
-    public init(_ title: String, @ViewBuilder trailing: () -> Trailing) {
+    public init(_ title: String, loading: Bool = false, @ViewBuilder trailing: () -> Trailing) {
         // The labelled trailing closure has to be a LITERAL — forwarding the
         // parameter by name is a syntax error on current Swift (it parsed as
         // two statements), which broke every ExpUI build.
-        self.init(title) { EmptyView() } trailing: { trailing() }
+        self.init(title, loading: loading) { EmptyView() } trailing: { trailing() }
     }
 }
 

@@ -14,6 +14,7 @@ use gpui::{
 use gpui_component::input::Input;
 use gpui_component::searchable_list::{SearchableListDelegate, SearchableListItem};
 use gpui_component::select::Select;
+use gpui_component::spinner::Spinner;
 use gpui_component::{h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use super::sizing::CTL_LG_H;
@@ -37,6 +38,20 @@ pub fn glass_section_header(
     glass_section_band(None, label, trailing, cx)
 }
 
+/// EXP-1274 — [`glass_section_header`] with the RELOAD spinner: while
+/// `loading`, the 12px loading glyph ([`band_loading_glyph`]) spins at the
+/// trailing edge, BEFORE `trailing` (the web `GlassSectionHeader loading`).
+/// A list's FIRST load is a skeleton; a later refetch keeps its rows and
+/// spins this instead.
+pub fn glass_section_header_loading(
+    label: impl Into<SharedString>,
+    loading: bool,
+    trailing: Option<AnyElement>,
+    cx: &App,
+) -> Div {
+    glass_section_band_loading(None, label, loading, trailing, cx)
+}
+
 /// EXP-818: the GROUP BAND — the Linear group header. A full-width strip
 /// filled `fill_section` with the group's name in it (an optional leading
 /// glyph, an optional trailing control), sitting directly over its flat rows
@@ -50,6 +65,31 @@ pub fn glass_section_band(
     trailing: Option<AnyElement>,
     cx: &App,
 ) -> Div {
+    glass_section_band_loading(leading, label, false, trailing, cx)
+}
+
+/// EXP-1274 — the reload spinner a band shows while its list refetches: the
+/// chrome's `icons.refresh` glyph at 12px in `muted_foreground`, spinning.
+pub fn band_loading_glyph(cx: &App) -> AnyElement {
+    let icon = Icon::empty().path(Chrome::global(cx).icons.refresh.clone());
+    Spinner::new()
+        .icon(icon)
+        .with_size(px(12.))
+        .color(cx.theme().muted_foreground)
+        .into_any_element()
+}
+
+/// EXP-1274 — [`glass_section_band`] with the reload spinner: while
+/// `loading`, [`band_loading_glyph`] sits in the trailing group BEFORE
+/// `trailing` (the count, the band's pill).
+pub fn glass_section_band_loading(
+    leading: Option<AnyElement>,
+    label: impl Into<SharedString>,
+    loading: bool,
+    trailing: Option<AnyElement>,
+    cx: &App,
+) -> Div {
+    let spinner = loading.then(|| band_loading_glyph(cx));
     let chrome = Chrome::global(cx);
     let foreground = cx.theme().foreground;
     h_flex()
@@ -73,6 +113,7 @@ pub fn glass_section_band(
                 .child(label.into()),
         )
         .child(div().flex_1())
+        .children(spinner)
         .children(trailing)
 }
 
@@ -87,6 +128,19 @@ pub fn glass_section_band_fold(
     label: impl Into<SharedString>,
     count: usize,
     collapsed: bool,
+    cx: &App,
+) -> Stateful<Div> {
+    glass_section_band_fold_loading(id, label, count, collapsed, false, cx)
+}
+
+/// EXP-1274 — [`glass_section_band_fold`] with the reload spinner before
+/// the count while `loading`.
+pub fn glass_section_band_fold_loading(
+    id: impl Into<ElementId>,
+    label: impl Into<SharedString>,
+    count: usize,
+    collapsed: bool,
+    loading: bool,
     cx: &App,
 ) -> Stateful<Div> {
     let icons = &Chrome::global(cx).icons;
@@ -107,7 +161,7 @@ pub fn glass_section_band_fold(
         .text_color(foreground.opacity(0.5))
         .child(SharedString::from(count.to_string()))
         .into_any_element();
-    glass_section_band(Some(chevron), label, Some(count), cx)
+    glass_section_band_loading(Some(chevron), label, loading, Some(count), cx)
         .id(id)
         .cursor_pointer()
 }

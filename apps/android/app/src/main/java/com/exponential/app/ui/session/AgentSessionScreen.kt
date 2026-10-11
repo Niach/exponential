@@ -1,5 +1,7 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.domain.EmptyStateCopy
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -2272,14 +2274,7 @@ private fun ActivityFeed(
                 }
                 if (focused.items.isEmpty()) {
                     item(key = "agent-empty") {
-                        Text(
-                            "Nothing from this agent yet.",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(
-                                alpha = TextEmphasis.Tertiary,
-                            ),
-                            modifier = Modifier.padding(vertical = 4.dp),
-                        )
+                        EmptyState(EmptyStateCopy.transcript)
                     }
                 } else {
                     // EXP-916: the lane's own projection — its consecutive

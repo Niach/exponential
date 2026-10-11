@@ -1,5 +1,7 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.domain.EmptyStateCopy
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -178,7 +180,12 @@ fun AgentsScreen(
             )
             // No relay → nothing here can take a start: the full empty state.
             if (state.steerEnabled == false) {
-                AgentsEmptyState()
+                // No relay → nothing here can take a start.
+                EmptyState(
+                    title = "Remote start unavailable",
+                    description = "Start runs from the desktop app. Live runs show up on the Agent page.",
+                    icon = ExpIcons.navDevices,
+                )
             } else if (steerOn) {
                 LazyColumn(
                     state = listState,
@@ -199,7 +206,7 @@ fun AgentsScreen(
                         // null = still loading; render nothing under the header.
                         ownDevices == null -> Unit
                         ownDevices.isEmpty() -> item(key = "__no_machine__") {
-                            HintRow("No devices yet. Open the Exponential desktop app, or add a device.")
+                            EmptyState(EmptyStateCopy.devices)
                         }
                         else -> items(ownDevices, key = { "dev_${it.deviceId}" }) { device ->
                             MachineRow(
@@ -980,43 +987,3 @@ private fun AccountChipMenuItems(
     }
 }
 
-@Composable
-private fun HintRow(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        modifier = Modifier.padding(vertical = 4.dp),
-    )
-}
-
-@Composable
-private fun AgentsEmptyState() {
-    // Mirrors iOS AgentsView.emptyState: tertiary icon, secondary subheadline
-    // title, tertiary caption body. EXP-825: the relay-off wording — the
-    // sessions themselves list on the Agent page now.
-    Box(Modifier.fillMaxSize().padding(horizontal = 40.dp), contentAlignment = Alignment.Center) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(
-                ExpIcons.navDevices,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.size(28.dp),
-            )
-            Text(
-                "Remote start isn't available on this server",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            )
-            Text(
-                "Start runs from the desktop app. Live runs show up on the Agent page.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                textAlign = TextAlign.Center,
-            )
-        }
-    }
-}

@@ -1,5 +1,6 @@
 package com.exponential.app.ui.myissues
 
+import com.exponential.app.domain.EmptyStateCopy
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
@@ -70,11 +71,7 @@ fun MyIssuesListContent(
 
     when {
         !state.loaded -> LoadingState(modifier = modifier)
-        state.groups.isEmpty() -> EmptyState(
-            message = "Nothing assigned to you",
-            icon = ExpIcons.uiAssignee,
-            modifier = modifier,
-        )
+        state.groups.isEmpty() -> EmptyState(EmptyStateCopy.myIssues, modifier = modifier)
         else -> LazyColumn(
             modifier = modifier.fillMaxSize(),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),

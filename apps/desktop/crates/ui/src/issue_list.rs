@@ -1539,9 +1539,9 @@ impl Render for IssueListView {
                                 .items_center()
                                 .justify_center()
                                 .child(crate::controls::empty_state(
-                                    Icon::from(ExpIcon::ListTodo),
-                                    "No issues yet",
-                                    "Create an issue to start tracking work.",
+                                    Icon::new(registry::NAV_ISSUES),
+                                    crate::empty_state_copy::ISSUES,
+                                    Some(crate::empty_state_copy::ISSUES_DESCRIPTION.into()),
                                     cx,
                                 )),
                         )

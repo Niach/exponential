@@ -703,31 +703,34 @@ impl ListDelegate for SearchDelegate {
         _window: &mut Window,
         cx: &mut gpui::Context<ListState<Self>>,
     ) -> impl IntoElement {
-        // EXP-716: fixed height — see `EMPTY_HEIGHT`.
+        // EXP-716: fixed height — see `EMPTY_HEIGHT`. EXP-1274: both lines
+        // are the shared LIST empty state; the hint's detail sentence (locked
+        // by EXP-922 with the rest of this copy) rides under it.
         let empty = v_flex()
             .h(px(EMPTY_HEIGHT))
             .items_center()
             .justify_center()
-            .px_12()
-            .gap_3()
-            .text_color(cx.theme().muted_foreground);
+            .px_12();
         if self.query.is_empty() {
-            empty
-                .gap_1()
-                .child(
-                    Icon::new(registry::NAV_SEARCH)
-                        .size(px(32.))
-                        .text_color(cx.theme().muted_foreground.opacity(0.5)),
+            empty.child(
+                crate::controls::empty_state_list(
+                    Icon::new(registry::NAV_SEARCH),
+                    SEARCH_EMPTY_HINT,
+                    cx,
                 )
-                .child(div().text_sm().child(SEARCH_EMPTY_HINT))
                 .child(
                     div()
                         .text_xs()
                         .text_color(cx.theme().muted_foreground.opacity(0.7))
                         .child(SEARCH_EMPTY_DETAIL),
-                )
+                ),
+            )
         } else {
-            empty.child(div().text_sm().child(SEARCH_NO_RESULTS))
+            empty.child(crate::controls::empty_state_list(
+                Icon::new(registry::UI_EMPTY_SEARCH),
+                SEARCH_NO_RESULTS,
+                cx,
+            ))
         }
     }
 }

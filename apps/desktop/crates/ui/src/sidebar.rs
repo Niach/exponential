@@ -2672,17 +2672,14 @@ impl ListPanel {
             .into_any_element()
     }
 
+    /// EXP-1274: a side list's empty body = the shared LIST empty state.
     fn list_note(
         &self,
+        icon: Icon,
         message: impl Into<SharedString>,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        div()
-            .p_3()
-            .text_xs()
-            .text_color(cx.theme().muted_foreground)
-            .child(message.into())
-            .into_any_element()
+        crate::controls::empty_state_list(icon, message, cx).into_any_element()
     }
 
     /// EXP-862: the origin THIS panel's rows pin ([`row_origin_for`]). In
@@ -2790,7 +2787,7 @@ impl ListPanel {
         let body: gpui::AnyElement = if !data.is_ready {
             self.list_skeleton(cx)
         } else if data.groups.is_empty() {
-            self.list_note("All caught up.", cx)
+            self.list_note(Icon::new(registry::NAV_INBOX), crate::empty_state_copy::INBOX, cx)
         } else {
             let rows: Vec<gpui::AnyElement> = data
                 .groups
@@ -3097,7 +3094,11 @@ impl ListPanel {
         let (Some(team_id), Some(account)) =
             (active_team_id(&self.nav, cx), queries::active_account(cx))
         else {
-            return self.list_note("Nothing assigned.", cx);
+            return self.list_note(
+                Icon::new(registry::NAV_MY_ISSUES),
+                crate::empty_state_copy::MY_ISSUES,
+                cx,
+            );
         };
         self.render_nav_issue_list(
             IssueQuery::MyIssues {
@@ -3105,7 +3106,7 @@ impl ListPanel {
                 user_id: account.user_id,
             },
             ("list-nav-mine-scroll", "list-nav-mine-rows"),
-            "Nothing assigned to you.",
+            (registry::NAV_MY_ISSUES, crate::empty_state_copy::MY_ISSUES),
             cx,
         )
     }
@@ -3120,7 +3121,7 @@ impl ListPanel {
         &mut self,
         query: IssueQuery,
         (scroll_id, rows_id): (&'static str, &'static str),
-        empty_copy: &'static str,
+        (empty_icon, empty_copy): (ExpIcon, &'static str),
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
         let data = {
@@ -3137,7 +3138,7 @@ impl ListPanel {
         }
         self.nav_prepare_rows(&data, cx);
         if self.nav_rows.is_empty() {
-            return self.list_note(empty_copy, cx);
+            return self.list_note(Icon::new(empty_icon), empty_copy, cx);
         }
         let sizes: Rc<Vec<Size<Pixels>>> = Rc::new(
             self.nav_rows

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import type { DiffFile } from "@exp/domain-contract/diff"
 
 import { cn } from "./cn"
+import { ListEmpty } from "./empty-state"
 import { diffOpensByDefault, FileDiffCard, type DiffDensity } from "./file-diff-card"
 import { FileDiffTree } from "./file-diff-tree"
 import { useIsMobile } from "./use-mobile"
@@ -111,7 +112,7 @@ export function FileDiffList({
       )}
       <div className="min-w-0 flex-1 space-y-2">
         {files.length === 0 && emptyLabel ? (
-          <p className="px-1 py-2 text-xs text-muted-foreground">{emptyLabel}</p>
+          <ListEmpty>{emptyLabel}</ListEmpty>
         ) : null}
         {files.map((file) => (
           <div

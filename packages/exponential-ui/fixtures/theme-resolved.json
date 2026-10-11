@@ -3440,6 +3440,13 @@
           ]
         },
         "EmptyState": {
+          "disc": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
           "icon": [
             {
               "style": {
@@ -8658,6 +8665,13 @@
           ]
         },
         "EmptyState": {
+          "disc": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
           "icon": [
             {
               "style": {
@@ -14238,6 +14252,13 @@
           ]
         },
         "EmptyState": {
+          "disc": [
+            {
+              "style": {
+                "backgroundColor": "$color.muted"
+              }
+            }
+          ],
           "icon": [
             {
               "style": {

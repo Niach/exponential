@@ -62,6 +62,7 @@ import {
   ListRow,
   SETTINGS_LIST_CLASS,
   GlassSectionHeader,
+  EmptyState,
   Dialog,
   DialogContent,
   DialogHeader,
@@ -82,6 +83,7 @@ import {
 } from "@/components/github-repo-picker"
 
 const UiChevronDownIcon = conceptIcon(`ui-chevron-down`)
+const RepositoriesIcon = conceptIcon(`settings-repositories`)
 
 type RepoList = Awaited<ReturnType<typeof trpc.repositories.list.query>>
 type RepoRowData = RepoList[number]
@@ -146,11 +148,17 @@ export function TeamRepositoriesSection({
   // upgrade nudge links there instead of scrolling within this page.
   const { teamSlug } = useParams({ strict: false })
 
+  // EXP-1274: a refetch over an already-shown list (after a write, on window
+  // focus) spins the band's glyph; the rows stay.
+  const [reloading, setReloading] = useState(false)
   const refresh = useCallback(async () => {
+    setReloading(true)
     try {
       setRepos(await trpc.repositories.list.query({ teamId }))
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setReloading(false)
     }
   }, [teamId])
 
@@ -296,6 +304,7 @@ export function TeamRepositoriesSection({
       <div>
         <GlassSectionHeader
           label={GH_SECTION_TITLE}
+          loading={repos !== null && reloading}
           trailing={
             <Pill mode="action" onClick={() => setConnectOpen(true)}>
               <Github />
@@ -342,9 +351,13 @@ export function TeamRepositoriesSection({
               gapless flat rows with a hairline between each pair. */}
           <div className={SETTINGS_LIST_CLASS}>
             {count === 0 ? (
-              <ListRow className="px-3 py-2 text-sm text-muted-foreground">
-                {GH_NO_REPOSITORIES}
-              </ListRow>
+              // EXP-1274: the shared list empty state; the copy stays the
+              // GitHub contract's (`GithubCopy` ×4).
+              <EmptyState
+                size="list"
+                icon={RepositoriesIcon}
+                title={GH_NO_REPOSITORIES}
+              />
             ) : (
               repos!.map((repo) => (
                 <RepoRow

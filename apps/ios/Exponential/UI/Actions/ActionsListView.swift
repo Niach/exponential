@@ -284,18 +284,7 @@ struct ActionsListView: View {
     }
 
     private var emptyState: some View {
-        VStack(spacing: 12) {
-            AppIcon(AppIcons.actionDefault, size: 22)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text("No actions yet")
-                .font(.subheadline)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            Text("Actions are reusable prompts your team runs on a desktop. Team owners create them on the web or desktop app.")
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .multilineTextAlignment(.center)
-        }
-        .padding(.horizontal, 40)
+        EmptyState(.actions)
     }
 
     private func errorState(_ message: String) -> some View {

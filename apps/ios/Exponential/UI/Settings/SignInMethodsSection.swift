@@ -111,13 +111,7 @@ struct SignInMethodsSection: View {
             GlassSectionBand("Passkeys")
 
             if methods.passkeys.isEmpty {
-                Text("No passkeys yet.")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 10)
-                    .flatRow()
+                EmptyState(.passkeys)
             } else {
                 ForEach(Array(methods.passkeys.enumerated()), id: \.element.id) { index, passkey in
                     if index > 0 { GlassDivider() }

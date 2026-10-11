@@ -32,11 +32,7 @@ struct TeamBoardsSection: View {
             }
 
             if boards.isEmpty {
-                Text("No boards in this team yet.")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
+                EmptyState(.teamBoards)
             } else {
                 ForEach(boards, id: \.id) { board in
                     HStack(spacing: 10) {

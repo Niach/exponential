@@ -31,7 +31,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "section-header",
     "title": "Group band",
-    "blurb": "EXP-818: the Linear group header — a full-width strip on the section fill, radius 10, padding 6/12, 14/20 at 85% foreground, a trailing slot, 4px over its flat rows. Counts are optional and off by default (the catalog `Section.count`). Never uppercase and never a divider. A band heads a LIST; the bare fold INSIDE a row is the disclosure header below, which draws no strip at all.",
+    "blurb": "EXP-818: the Linear group header — a full-width strip on the section fill, radius 10, padding 6/12, 14/20 at 85% foreground, a trailing slot, 4px over its flat rows. Counts are optional and off by default (the catalog `Section.count`). Never uppercase and never a divider. A band heads a LIST; the bare fold INSIDE a row is the disclosure header below, which draws no strip at all. EXP-1274: `loading` spins a 12px glyph at the band's trailing edge while a list REFETCHES (the first load is a skeleton or a spinner, never this); it replaces a Refresh button, which only a list over an external source (GitHub, the local disk or git) keeps.",
     "components": [
       "Section"
     ],
@@ -40,25 +40,25 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "GlassSectionHeader",
         "file": "packages/ui/src/glass-rows.tsx",
-        "note": "Emoji picker category headers stay uppercase on purpose (shared exception)."
+        "note": "`loading` = the trailing spinner. Emoji picker category headers stay uppercase on purpose (shared exception)."
       },
       "desktop": {
         "status": "ok",
         "symbol": "controls::rows::glass_section_header",
         "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/rows.rs",
-        "note": "Emoji picker category headers stay uppercase on purpose (shared exception)."
+        "note": "a loading flag = the trailing spinner. Emoji picker category headers stay uppercase on purpose (shared exception)."
       },
       "ios": {
         "status": "ok",
         "symbol": "GlassSectionBand",
         "file": "apps/ios/ExpUI/Sources/GlassTheme.swift",
-        "note": "Emoji picker category headers stay uppercase on purpose (shared exception)."
+        "note": "GlassSectionBand(loading:) = the trailing spinner. Emoji picker category headers stay uppercase on purpose (shared exception)."
       },
       "android": {
         "status": "ok",
         "symbol": "Modifier.glassSectionBand()",
         "file": "apps/android/app/src/main/java/com/exponential/app/ui/theme/Glass.kt",
-        "note": "SectionHeader (Scaffolding.kt) wraps it. Emoji picker category headers stay uppercase on purpose (shared exception)."
+        "note": "SectionHeader(loading=) (Scaffolding.kt) wraps it. Emoji picker category headers stay uppercase on purpose (shared exception)."
       }
     }
   },
@@ -1088,7 +1088,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "empty-state",
     "title": "Empty state",
-    "blurb": "What a PAGE says when it has nothing: the 48px icon disc, one semibold title, one muted sentence that TEACHES the next step rather than restating the emptiness, and an optional actions slot under it — all on a centred column of at most 28rem. Never a bare \"No results\". Its in-list sibling is `ListEmpty` (same file, its own entry below): one muted line inside a list that filtered down to nothing, where a teaching block would be wrong. The third of them is `EmptyCta` (EXP-962, next entry): the dashed box that STARTS the list, where the empty state itself is the button.",
+    "blurb": "EXP-1274: ONE empty state, two sizes (copy ×4 = `empty-state.json`). `page` = a whole screen with nothing: the 48px icon disc, a semibold title, an optional muted sentence that teaches the next step and an optional actions row, centred on at most 28rem, 48px vertical padding. `list` = inside a section, a sidebar or a picker: a bare 20px muted glyph over ONE muted line, 24px vertical padding, never a description or a button (the band's trailing pill is the call to action). A title is at most four words (`No <noun> yet`, `No <noun>`, `All caught up`) and never explains. A first load is a skeleton or a spinner, a refetch the band's `loading` glyph, and no list over synced or server data carries a Refresh button. `EmptyCta` (next entry) is the dashed box that STARTS a list.",
     "components": [
       "EmptyState"
     ],
@@ -1101,19 +1101,20 @@ export const APP_PARITY: readonly AppParity[] = [
       "desktop": {
         "status": "ok",
         "symbol": "controls::feedback::empty_state",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/feedback.rs"
+        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/feedback.rs",
+        "note": "empty_state_list = the list size"
       },
       "ios": {
-        "status": "leftover",
-        "symbol": "InboxView.emptyState",
-        "file": "apps/ios/Exponential/UI/Inbox/InboxView.swift",
-        "note": "every screen rolls its own private empty state (inbox, reviews, actions, my issues); there is no shared symbol"
+        "status": "ok",
+        "symbol": "EmptyState",
+        "file": "apps/ios/ExpUI/Sources/EmptyState.swift",
+        "note": "built on the SDK EmptyStateView; size .page / .list from EmptyStateCopy"
       },
       "android": {
-        "status": "leftover",
+        "status": "ok",
         "symbol": "EmptyState",
         "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/Scaffolding.kt",
-        "note": "a bare 28dp tinted glyph instead of the 48 disc, and its parameters are message/detail rather than title/description"
+        "note": "title/description + the 48dp disc; size = EmptyStateSize.Page / List"
       }
     }
   },
@@ -1434,7 +1435,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "list-empty",
     "title": "In-list empty line",
-    "blurb": "The compact sibling of the empty state: one muted centred line INSIDE a list that filtered down to nothing, exactly the line `CommandEmpty` draws, for the lists that have no Command around them. It is deliberately not the teaching block — a search that matched nothing needs a different QUERY, not a next step, and a 48px icon disc under a search field reads as a page having gone wrong.",
+    "blurb": "EXP-1274: this IS `EmptyState size=\"list\"` without a glyph — one muted centred line inside a list that filtered down to nothing, the line `CommandEmpty` draws. A search that matched nothing needs a different query, not a next step, so it never teaches.",
     "components": [
       "EmptyState"
     ],
@@ -1443,25 +1444,25 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "ListEmpty",
         "file": "packages/ui/src/empty-state.tsx",
-        "note": "EmptyState in the same file is the page-sized one"
+        "note": "EmptyState size=\"list\" with no icon, same file"
       },
       "desktop": {
         "status": "ok",
-        "symbol": "pickers::empty_picker_row",
-        "file": "apps/desktop/crates/ui/src/pickers.rs",
-        "note": "the CommandEmpty row every picker shares; controls::empty_state is the page-sized counterpart"
+        "symbol": "controls::feedback::empty_state_list",
+        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/feedback.rs",
+        "note": "with no icon; pickers::empty_picker_row is the picker's CommandEmpty row"
       },
       "ios": {
-        "status": "leftover",
-        "symbol": "Text(\"No emoji found\")",
-        "file": "apps/ios/Exponential/UI/Markdown/EmojiPickerSheet.swift",
-        "note": "every list inlines its own Text: there is no shared line, and DeviceLogins.emptyLine is a private third copy"
+        "status": "ok",
+        "symbol": "EmptyState",
+        "file": "apps/ios/ExpUI/Sources/EmptyState.swift",
+        "note": "EmptyState(title:icon:size:) with size .list and no icon"
       },
       "android": {
-        "status": "leftover",
-        "symbol": "ChangesEmptyRow",
-        "file": "apps/android/app/src/main/java/com/exponential/app/ui/work/GuideSectionDiff.kt",
-        "note": "private to the Guide section page; the emoji sheet writes its own line, and EmptyState (Scaffolding.kt) is page-sized"
+        "status": "ok",
+        "symbol": "EmptyState",
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/Scaffolding.kt",
+        "note": "EmptyStateSize.List with no icon"
       }
     }
   },

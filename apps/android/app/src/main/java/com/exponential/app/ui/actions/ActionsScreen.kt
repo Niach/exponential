@@ -1,5 +1,7 @@
 package com.exponential.app.ui.actions
 
+import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.ui.components.GroupDivider
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.clickable
@@ -190,7 +192,7 @@ fun ActionsScreen(
                                 CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
                             state.actions.isEmpty() && state.error != null ->
                                 CenteredCaption(state.error ?: "")
-                            state.actions.isEmpty() -> ActionsEmptyState()
+                            state.actions.isEmpty() -> EmptyState(EmptyStateCopy.actions)
                             else -> LazyColumn(
                                 modifier = Modifier.fillMaxSize(),
                                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
@@ -432,31 +434,3 @@ private fun CenteredCaption(text: String) {
     }
 }
 
-@Composable
-private fun ActionsEmptyState() {
-    Box(Modifier.fillMaxSize().padding(horizontal = 40.dp), contentAlignment = Alignment.Center) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Icon(
-                ExpIcons.actionDefault,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.size(28.dp),
-            )
-            Text(
-                "No actions yet",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            )
-            Text(
-                "Actions are reusable prompts your team runs on a desktop. " +
-                    "Team owners create them on the web or desktop app.",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                textAlign = TextAlign.Center,
-            )
-        }
-    }
-}
