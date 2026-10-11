@@ -115,7 +115,7 @@ describe(`TeamMcpServersSection`, () => {
     expect(screen.queryByRole(`button`, { name: `Refresh` })).toBeNull()
   })
 
-  it(`lists every built-in tool expanded, with the count and an inline filter`, async () => {
+  it(`lists every built-in tool expanded, with an inline filter and no count`, async () => {
     mockState.list.mockResolvedValue([])
     const { container } = render(<TeamMcpServersSection teamId="t1" isOwner={false} />)
     await screen.findByText(`No MCP servers yet`)
@@ -123,7 +123,7 @@ describe(`TeamMcpServersSection`, () => {
     const band = screen.getByText(`Built-in Exponential tools`).closest(`[data-slot="glass-section-header"]`)!
     expect(band.tagName).toBe(`DIV`)
     expect(band.getAttribute(`aria-expanded`)).toBeNull()
-    expect(band.querySelector(`[data-part="count"]`)!.textContent).toBe(String(total))
+    expect(band.querySelector(`[data-part="count"]`)).toBeNull()
     expect(screen.getAllByTitle(/^exponential_/).length).toBe(total)
 
     const filter = screen.getByPlaceholderText(BUILTIN_TOOLS_FILTER_PLACEHOLDER)

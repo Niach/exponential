@@ -938,8 +938,8 @@ function SecretDialog({
  * the Exponential MCP tools themselves. One row per contract tool
  * (`expToolDisplay`): the Exponential mark, the tool's title and its blurb,
  * with the raw wire name only as a tooltip. EXP-1274: always expanded (a
- * band with the count, never a fold) and an inline filter field at the
- * band's trailing edge over title, blurb and wire name. */
+ * plain band, never a fold, no count: bands carry no numbers) with an
+ * inline filter field at its trailing edge over title, blurb and wire name. */
 function BuiltinToolsGroup() {
   const tools = useMemo(() => builtinExpTools(), [])
   const [query, setQuery] = useState(``)
@@ -948,7 +948,6 @@ function BuiltinToolsGroup() {
     <div className="mt-6">
       <GlassSectionHeader
         label="Built-in Exponential tools"
-        count={tools.length}
         trailing={
           <SearchField
             size="sm"

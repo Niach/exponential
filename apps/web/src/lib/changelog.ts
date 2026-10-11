@@ -31,7 +31,7 @@ export const CHANGELOG: ChangelogEntry[] = [
     summary: `Every empty list on web, desktop, iOS and Android says the same short thing under the same glyph, refresh buttons are gone from lists that reload on their own, and the MCP settings show the built-in Exponential tools expanded with a filter box.`,
     body: `- **One empty state**: every list, page and picker with nothing in it draws the same block on every client: a glyph, a short title and, on a page, one sentence and a button. The copy is shared across web, desktop, iOS and Android.
 - **No refresh buttons**: lists that load from the server reload when you open them, when you come back to the tab and after every change; a small spinner in the list band shows a reload. Refresh stays only where the source is outside Exponential, like GitHub or the local disk. Pull to refresh on the phone issue lists is gone too: they are live.
-- **MCP servers**: the built-in Exponential tools are always listed with their count and a filter box, the explanatory line under the band is gone, and Add server is always there for owners.`,
+- **MCP servers**: the built-in Exponential tools are always listed with a filter box, the explanatory line under the band is gone, and Add server is always there for owners.`,
   },
   {
     id: `2026-10-11-compat-cleanup`,

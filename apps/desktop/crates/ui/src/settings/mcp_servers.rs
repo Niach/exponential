@@ -784,8 +784,8 @@ impl McpServersPane {
 
     /// EXP-862/1274 — the "Built-in Exponential tools" group: what the
     /// agents can already do without a server in the registry above. A plain
-    /// band (never folded) with the tool COUNT and an inline filter at its
-    /// trailing edge ([`filter_builtin_tools`]: title, blurb or wire name);
+    /// band (never folded, no count: bands carry no numbers) with an inline
+    /// filter at its trailing edge ([`filter_builtin_tools`]: title, blurb or wire name);
     /// a filter with no match is the shared LIST empty state (fixture
     /// `builtin-tools-no-match`). One row per contract tool, styled like the
     /// session feed's Exponential tool row (`steer_viewer::exp_tool_call_row`):
@@ -796,11 +796,6 @@ impl McpServersPane {
         let query = self.tool_filter.read(cx).value().to_string();
         let tools = filter_builtin_tools(steer::exp_tool::builtin_tools(), &query);
         let muted = cx.theme().muted_foreground;
-        let count = div()
-            .flex_shrink_0()
-            .text_xs()
-            .text_color(cx.theme().foreground.opacity(0.5))
-            .child(SharedString::from(tools.len().to_string()));
         let filter = crate::controls::search_field(
             &self.tool_filter,
             crate::controls::SearchFieldSize::Sm,
@@ -810,7 +805,6 @@ impl McpServersPane {
         let trailing = h_flex()
             .gap_2()
             .items_center()
-            .child(count)
             .child(div().w(gpui::px(192.)).child(filter))
             .into_any_element();
         let band = crate::surface::glass_section_header(
