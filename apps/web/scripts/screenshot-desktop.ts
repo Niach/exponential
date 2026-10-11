@@ -74,6 +74,7 @@ const CAPS = [
   `action-inputs`,
   `fix-conflicts`,
   `chat`,
+  `triggers`,
   `automations`,
   `resume-run`,
   `agent-login`,

@@ -165,9 +165,10 @@ pub const AGENT_IMPORT_CAP: &str = "agent-import";
 
 /// The action-run capabilities — advertised only while at least one agent is
 /// RUNNABLE (EXP-409: a machine whose only agents are signed out cannot run
-/// actions either). EXP-530's `automations` (this host evaluates the triggers
-/// bound to its device id), EXP-615's `chat` (the hidden `builtin:chat`
-/// action) and EXP-637's `resume-run` (resume an ended run out of the local
+/// actions either). EXP-530's trigger caps (this host evaluates the triggers
+/// bound to its device id; SLOP-17: the contract's `triggers` plus the
+/// legacy `automations` name, which clients at the current floor still
+/// check), EXP-615's `chat` (the hidden `builtin:chat` action) and EXP-637's `resume-run` (resume an ended run out of the local
 /// run registry) ride with them. EXP-825's `start-prompt` says this build
 /// reads the `prompt` field of a `start_session` frame (the composer's free
 /// text): the server REFUSES a Chat or Create-action start to a device
@@ -180,11 +181,12 @@ pub const AGENT_IMPORT_CAP: &str = "agent-import";
 /// (`[name](/api/attachments/<id>)` lines) in start prompts and steer
 /// messages: the server refuses a start with such a file to a device
 /// without it (images still pass), and composers offer images only there.
-pub const ACTION_CAPS: [&str; 9] = [
+pub const ACTION_CAPS: [&str; 10] = [
     "actions",
     "action-inputs",
     "fix-conflicts",
-    "automations",
+    domain::contract::TRIGGER_DEVICE_CAP,
+    domain::contract::TRIGGER_LEGACY_DEVICE_CAP,
     "chat",
     RESUME_RUN_CAP,
     START_PROMPT_CAP,
@@ -1778,15 +1780,24 @@ mod tests {
         }
     }
 
-    /// The automation host must advertise itself or the web pickers hide it.
+    /// The trigger host must advertise itself or the web pickers hide it.
     /// (Moved here from `cli::commands::daemon` with the caps themselves.)
     #[test]
-    fn action_caps_advertise_automations() {
-        assert!(ACTION_CAPS.contains(&"automations"));
+    fn action_caps_advertise_triggers() {
+        // SLOP-17: the new `triggers` cap AND the legacy `automations` name
+        // (clients at the current floor still check the old one).
+        let both = [
+            domain::contract::TRIGGER_DEVICE_CAP,
+            domain::contract::TRIGGER_LEGACY_DEVICE_CAP,
+        ];
+        assert_eq!(both, ["triggers", "automations"]);
         let caps = device_caps(&advert(&["claude"]));
-        assert!(caps.contains(&"automations".to_string()));
-        // Nothing runnable = nothing to run an automation with.
-        assert!(!device_caps(&advert(&[])).contains(&"automations".to_string()));
+        for cap in both {
+            assert!(ACTION_CAPS.contains(&cap));
+            assert!(caps.contains(&cap.to_string()));
+            // Nothing runnable = nothing to run a trigger with.
+            assert!(!device_caps(&advert(&[])).contains(&cap.to_string()));
+        }
         // EXP-615: the same for chat — remote Chat starts gate on this cap,
         // so an agent-less machine must never advertise it.
         assert!(ACTION_CAPS.contains(&"chat"));
@@ -2500,7 +2511,7 @@ mod tests {
         assert!(report.unauthed_agents().is_empty());
         let advertised = report.agent_advertisement(&settings);
         assert_eq!(advertised.agents, vec!["claude", "codex"]);
-        assert!(device_caps(&advertised).contains(&"automations".to_string()));
+        assert!(device_caps(&advertised).contains(&"triggers".to_string()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -2532,7 +2543,7 @@ mod tests {
         assert!(report.installed_agents().is_empty());
         assert_eq!(report.unauthed_agents(), CodingAgent::ALL.to_vec());
         assert!(!device_caps(&report.agent_advertisement(&settings))
-            .contains(&"automations".to_string()));
+            .contains(&"triggers".to_string()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 

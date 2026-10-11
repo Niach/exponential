@@ -15,7 +15,7 @@
 //! seeds (`ACTION_SUGGESTIONS` there); [`suggestions_mirror_the_web_seeds`]
 //! locks the shape, the ids and the curated-icon rule.
 
-use coding::automations::{EventKind, ScheduleInterval};
+use coding::triggers::{EventKind, ScheduleInterval};
 use serde_json::{json, Value};
 
 /// A seed's suggested trigger, in the const-friendly shape a static table can
@@ -226,11 +226,11 @@ mod tests {
             // glyph and the appended block both read it.
             if let Some(suggested) = entry.trigger {
                 let trigger = suggested.to_trigger();
-                let parsed = coding::automations::parse_trigger(&trigger)
+                let parsed = coding::triggers::parse_trigger(&trigger)
                     .unwrap_or_else(|| panic!("{} trigger must parse", entry.id));
                 assert_ne!(
                     parsed.kind,
-                    coding::automations::TriggerKind::Unsupported,
+                    coding::triggers::TriggerKind::Unsupported,
                     "{} trigger must be representable",
                     entry.id
                 );

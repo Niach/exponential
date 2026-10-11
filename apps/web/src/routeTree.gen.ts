@@ -84,14 +84,12 @@ import { Route as AuthenticatedAdminTeamsRouteImport } from './routes/_authentic
 import { Route as AuthenticatedAdminPerformanceRouteImport } from './routes/_authenticated/admin/performance'
 import { Route as AuthenticatedAdminEmailRouteImport } from './routes/_authenticated/admin/email'
 import { Route as AuthenticatedAdminConversionsRouteImport } from './routes/_authenticated/admin/conversions'
-import { Route as AuthenticatedAccountNotificationsRouteImport } from './routes/_authenticated/account/notifications'
 import { Route as TTeamSlugSettingsRouteRouteImport } from './routes/t/$teamSlug/settings/route'
 import { Route as TTeamSlugSettingsIndexRouteImport } from './routes/t/$teamSlug/settings/index'
 import { Route as TTeamSlugReviewsIndexRouteImport } from './routes/t/$teamSlug/reviews/index'
 import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
 import { Route as TTeamSlugDraftsIndexRouteImport } from './routes/t/$teamSlug/drafts/index'
 import { Route as TTeamSlugActionsIndexRouteImport } from './routes/t/$teamSlug/actions/index'
-import { Route as TTeamSlugWorkflowsSplatRouteImport } from './routes/t/$teamSlug/workflows/$'
 import { Route as TTeamSlugSettingsWidgetRouteImport } from './routes/t/$teamSlug/settings/widget'
 import { Route as TTeamSlugSettingsStorageRouteImport } from './routes/t/$teamSlug/settings/storage'
 import { Route as TTeamSlugSettingsStatusesRouteImport } from './routes/t/$teamSlug/settings/statuses'
@@ -105,7 +103,6 @@ import { Route as TTeamSlugSettingsIssuesRouteImport } from './routes/t/$teamSlu
 import { Route as TTeamSlugSettingsImportRouteImport } from './routes/t/$teamSlug/settings/import'
 import { Route as TTeamSlugSettingsGeneralRouteImport } from './routes/t/$teamSlug/settings/general'
 import { Route as TTeamSlugSettingsBillingRouteImport } from './routes/t/$teamSlug/settings/billing'
-import { Route as TTeamSlugSettingsApiKeysRouteImport } from './routes/t/$teamSlug/settings/api-keys'
 import { Route as TTeamSlugSettingsAccountRouteImport } from './routes/t/$teamSlug/settings/account'
 import { Route as TTeamSlugSessionsSessionIdRouteImport } from './routes/t/$teamSlug/sessions/$sessionId'
 import { Route as TTeamSlugDraftsDraftIdRouteImport } from './routes/t/$teamSlug/drafts/$draftId'
@@ -510,12 +507,6 @@ const AuthenticatedAdminConversionsRoute =
     path: '/conversions',
     getParentRoute: () => AuthenticatedAdminRouteRoute,
   } as any)
-const AuthenticatedAccountNotificationsRoute =
-  AuthenticatedAccountNotificationsRouteImport.update({
-    id: '/account/notifications',
-    path: '/account/notifications',
-    getParentRoute: () => AuthenticatedRoute,
-  } as any)
 const TTeamSlugSettingsRouteRoute = TTeamSlugSettingsRouteRouteImport.update({
   id: '/settings',
   path: '/settings',
@@ -544,11 +535,6 @@ const TTeamSlugDraftsIndexRoute = TTeamSlugDraftsIndexRouteImport.update({
 const TTeamSlugActionsIndexRoute = TTeamSlugActionsIndexRouteImport.update({
   id: '/actions/',
   path: '/actions/',
-  getParentRoute: () => TTeamSlugRouteRoute,
-} as any)
-const TTeamSlugWorkflowsSplatRoute = TTeamSlugWorkflowsSplatRouteImport.update({
-  id: '/workflows/$',
-  path: '/workflows/$',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
 const TTeamSlugSettingsWidgetRoute = TTeamSlugSettingsWidgetRouteImport.update({
@@ -623,12 +609,6 @@ const TTeamSlugSettingsBillingRoute =
   TTeamSlugSettingsBillingRouteImport.update({
     id: '/billing',
     path: '/billing',
-    getParentRoute: () => TTeamSlugSettingsRouteRoute,
-  } as any)
-const TTeamSlugSettingsApiKeysRoute =
-  TTeamSlugSettingsApiKeysRouteImport.update({
-    id: '/api-keys',
-    path: '/api-keys',
     getParentRoute: () => TTeamSlugSettingsRouteRoute,
   } as any)
 const TTeamSlugSettingsAccountRoute =
@@ -757,7 +737,6 @@ export interface FileRoutesByFullPath {
   '/invite/$token': typeof InviteTokenRoute
   '/support/$token': typeof SupportTokenRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
-  '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/admin/conversions': typeof AuthenticatedAdminConversionsRoute
   '/admin/email': typeof AuthenticatedAdminEmailRoute
   '/admin/performance': typeof AuthenticatedAdminPerformanceRoute
@@ -814,7 +793,6 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
-  '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
@@ -828,7 +806,6 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
-  '/t/$teamSlug/workflows/$': typeof TTeamSlugWorkflowsSplatRoute
   '/t/$teamSlug/actions/': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts/': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
@@ -868,7 +845,6 @@ export interface FileRoutesByTo {
   '/integrations/github': typeof IntegrationsGithubRoute
   '/invite/$token': typeof InviteTokenRoute
   '/support/$token': typeof SupportTokenRoute
-  '/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/admin/conversions': typeof AuthenticatedAdminConversionsRoute
   '/admin/email': typeof AuthenticatedAdminEmailRoute
   '/admin/performance': typeof AuthenticatedAdminPerformanceRoute
@@ -925,7 +901,6 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
-  '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
@@ -939,7 +914,6 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
-  '/t/$teamSlug/workflows/$': typeof TTeamSlugWorkflowsSplatRoute
   '/t/$teamSlug/actions': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox': typeof TTeamSlugInboxIndexRoute
@@ -984,7 +958,6 @@ export interface FileRoutesById {
   '/invite/$token': typeof InviteTokenRoute
   '/support/$token': typeof SupportTokenRoute
   '/t/$teamSlug/settings': typeof TTeamSlugSettingsRouteRouteWithChildren
-  '/_authenticated/account/notifications': typeof AuthenticatedAccountNotificationsRoute
   '/_authenticated/admin/conversions': typeof AuthenticatedAdminConversionsRoute
   '/_authenticated/admin/email': typeof AuthenticatedAdminEmailRoute
   '/_authenticated/admin/performance': typeof AuthenticatedAdminPerformanceRoute
@@ -1041,7 +1014,6 @@ export interface FileRoutesById {
   '/t/$teamSlug/drafts/$draftId': typeof TTeamSlugDraftsDraftIdRoute
   '/t/$teamSlug/sessions/$sessionId': typeof TTeamSlugSessionsSessionIdRoute
   '/t/$teamSlug/settings/account': typeof TTeamSlugSettingsAccountRoute
-  '/t/$teamSlug/settings/api-keys': typeof TTeamSlugSettingsApiKeysRoute
   '/t/$teamSlug/settings/billing': typeof TTeamSlugSettingsBillingRoute
   '/t/$teamSlug/settings/general': typeof TTeamSlugSettingsGeneralRoute
   '/t/$teamSlug/settings/import': typeof TTeamSlugSettingsImportRoute
@@ -1055,7 +1027,6 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
-  '/t/$teamSlug/workflows/$': typeof TTeamSlugWorkflowsSplatRoute
   '/t/$teamSlug/actions/': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts/': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
@@ -1100,7 +1071,6 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/support/$token'
     | '/t/$teamSlug/settings'
-    | '/account/notifications'
     | '/admin/conversions'
     | '/admin/email'
     | '/admin/performance'
@@ -1157,7 +1127,6 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
-    | '/t/$teamSlug/settings/api-keys'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/import'
@@ -1171,7 +1140,6 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
-    | '/t/$teamSlug/workflows/$'
     | '/t/$teamSlug/actions/'
     | '/t/$teamSlug/drafts/'
     | '/t/$teamSlug/inbox/'
@@ -1211,7 +1179,6 @@ export interface FileRouteTypes {
     | '/integrations/github'
     | '/invite/$token'
     | '/support/$token'
-    | '/account/notifications'
     | '/admin/conversions'
     | '/admin/email'
     | '/admin/performance'
@@ -1268,7 +1235,6 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
-    | '/t/$teamSlug/settings/api-keys'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/import'
@@ -1282,7 +1248,6 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
-    | '/t/$teamSlug/workflows/$'
     | '/t/$teamSlug/actions'
     | '/t/$teamSlug/drafts'
     | '/t/$teamSlug/inbox'
@@ -1326,7 +1291,6 @@ export interface FileRouteTypes {
     | '/invite/$token'
     | '/support/$token'
     | '/t/$teamSlug/settings'
-    | '/_authenticated/account/notifications'
     | '/_authenticated/admin/conversions'
     | '/_authenticated/admin/email'
     | '/_authenticated/admin/performance'
@@ -1383,7 +1347,6 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/drafts/$draftId'
     | '/t/$teamSlug/sessions/$sessionId'
     | '/t/$teamSlug/settings/account'
-    | '/t/$teamSlug/settings/api-keys'
     | '/t/$teamSlug/settings/billing'
     | '/t/$teamSlug/settings/general'
     | '/t/$teamSlug/settings/import'
@@ -1397,7 +1360,6 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
-    | '/t/$teamSlug/workflows/$'
     | '/t/$teamSlug/actions/'
     | '/t/$teamSlug/drafts/'
     | '/t/$teamSlug/inbox/'
@@ -2007,13 +1969,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuthenticatedAdminConversionsRouteImport
       parentRoute: typeof AuthenticatedAdminRouteRoute
     }
-    '/_authenticated/account/notifications': {
-      id: '/_authenticated/account/notifications'
-      path: '/account/notifications'
-      fullPath: '/account/notifications'
-      preLoaderRoute: typeof AuthenticatedAccountNotificationsRouteImport
-      parentRoute: typeof AuthenticatedRoute
-    }
     '/t/$teamSlug/settings': {
       id: '/t/$teamSlug/settings'
       path: '/settings'
@@ -2054,13 +2009,6 @@ declare module '@tanstack/react-router' {
       path: '/actions'
       fullPath: '/t/$teamSlug/actions/'
       preLoaderRoute: typeof TTeamSlugActionsIndexRouteImport
-      parentRoute: typeof TTeamSlugRouteRoute
-    }
-    '/t/$teamSlug/workflows/$': {
-      id: '/t/$teamSlug/workflows/$'
-      path: '/workflows/$'
-      fullPath: '/t/$teamSlug/workflows/$'
-      preLoaderRoute: typeof TTeamSlugWorkflowsSplatRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/settings/widget': {
@@ -2152,13 +2100,6 @@ declare module '@tanstack/react-router' {
       path: '/billing'
       fullPath: '/t/$teamSlug/settings/billing'
       preLoaderRoute: typeof TTeamSlugSettingsBillingRouteImport
-      parentRoute: typeof TTeamSlugSettingsRouteRoute
-    }
-    '/t/$teamSlug/settings/api-keys': {
-      id: '/t/$teamSlug/settings/api-keys'
-      path: '/api-keys'
-      fullPath: '/t/$teamSlug/settings/api-keys'
-      preLoaderRoute: typeof TTeamSlugSettingsApiKeysRouteImport
       parentRoute: typeof TTeamSlugSettingsRouteRoute
     }
     '/t/$teamSlug/settings/account': {
@@ -2309,7 +2250,6 @@ interface AuthenticatedRouteChildren {
   AuthenticatedExponentialUiDevicesRoute: typeof AuthenticatedExponentialUiDevicesRoute
   AuthenticatedExponentialUiKitchenSinkRoute: typeof AuthenticatedExponentialUiKitchenSinkRoute
   AuthenticatedOnboardingRoute: typeof AuthenticatedOnboardingRoute
-  AuthenticatedAccountNotificationsRoute: typeof AuthenticatedAccountNotificationsRoute
 }
 
 const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
@@ -2319,8 +2259,6 @@ const AuthenticatedRouteChildren: AuthenticatedRouteChildren = {
   AuthenticatedExponentialUiKitchenSinkRoute:
     AuthenticatedExponentialUiKitchenSinkRoute,
   AuthenticatedOnboardingRoute: AuthenticatedOnboardingRoute,
-  AuthenticatedAccountNotificationsRoute:
-    AuthenticatedAccountNotificationsRoute,
 }
 
 const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
@@ -2329,7 +2267,6 @@ const AuthenticatedRouteWithChildren = AuthenticatedRoute._addFileChildren(
 
 interface TTeamSlugSettingsRouteRouteChildren {
   TTeamSlugSettingsAccountRoute: typeof TTeamSlugSettingsAccountRoute
-  TTeamSlugSettingsApiKeysRoute: typeof TTeamSlugSettingsApiKeysRoute
   TTeamSlugSettingsBillingRoute: typeof TTeamSlugSettingsBillingRoute
   TTeamSlugSettingsGeneralRoute: typeof TTeamSlugSettingsGeneralRoute
   TTeamSlugSettingsImportRoute: typeof TTeamSlugSettingsImportRoute
@@ -2352,7 +2289,6 @@ interface TTeamSlugSettingsRouteRouteChildren {
 const TTeamSlugSettingsRouteRouteChildren: TTeamSlugSettingsRouteRouteChildren =
   {
     TTeamSlugSettingsAccountRoute: TTeamSlugSettingsAccountRoute,
-    TTeamSlugSettingsApiKeysRoute: TTeamSlugSettingsApiKeysRoute,
     TTeamSlugSettingsBillingRoute: TTeamSlugSettingsBillingRoute,
     TTeamSlugSettingsGeneralRoute: TTeamSlugSettingsGeneralRoute,
     TTeamSlugSettingsImportRoute: TTeamSlugSettingsImportRoute,
@@ -2385,7 +2321,6 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugActionsActionIdRoute: typeof TTeamSlugActionsActionIdRoute
   TTeamSlugDraftsDraftIdRoute: typeof TTeamSlugDraftsDraftIdRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
-  TTeamSlugWorkflowsSplatRoute: typeof TTeamSlugWorkflowsSplatRoute
   TTeamSlugActionsIndexRoute: typeof TTeamSlugActionsIndexRoute
   TTeamSlugDraftsIndexRoute: typeof TTeamSlugDraftsIndexRoute
   TTeamSlugInboxIndexRoute: typeof TTeamSlugInboxIndexRoute
@@ -2402,7 +2337,6 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugActionsActionIdRoute: TTeamSlugActionsActionIdRoute,
   TTeamSlugDraftsDraftIdRoute: TTeamSlugDraftsDraftIdRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
-  TTeamSlugWorkflowsSplatRoute: TTeamSlugWorkflowsSplatRoute,
   TTeamSlugActionsIndexRoute: TTeamSlugActionsIndexRoute,
   TTeamSlugDraftsIndexRoute: TTeamSlugDraftsIndexRoute,
   TTeamSlugInboxIndexRoute: TTeamSlugInboxIndexRoute,

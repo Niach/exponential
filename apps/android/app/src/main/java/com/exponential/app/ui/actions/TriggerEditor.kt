@@ -26,8 +26,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.domain.AccountOptions
-import com.exponential.app.domain.AutomationTrigger
-import com.exponential.app.domain.AutomationTriggerFilters
+import com.exponential.app.domain.TriggerWhen
+import com.exponential.app.domain.TriggerFilters
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.IssuePriority
 import com.exponential.app.domain.triggerEventLabel
@@ -123,11 +123,11 @@ internal fun triggerMinuteToTime(minuteOfDay: Int): String =
  * null seeds the plain schedule default. [deviceId] pre-picks the machine.
  */
 internal fun triggerDraftFor(
-    trigger: AutomationTrigger?,
+    trigger: TriggerWhen?,
     deviceId: String? = null,
 ): TriggerDraft = when (trigger) {
     null -> TriggerDraft(deviceId = deviceId)
-    is AutomationTrigger.Schedule -> TriggerDraft(
+    is TriggerWhen.Schedule -> TriggerDraft(
         kind = TRIGGER_KIND_SCHEDULE,
         deviceId = deviceId,
         interval = trigger.interval,
@@ -135,7 +135,7 @@ internal fun triggerDraftFor(
         weekday = trigger.weekday ?: 1,
         dayOfMonth = trigger.dayOfMonth ?: 1,
     )
-    is AutomationTrigger.Event -> TriggerDraft(
+    is TriggerWhen.Event -> TriggerDraft(
         kind = TRIGGER_KIND_EVENT,
         deviceId = deviceId,
         event = trigger.event,
@@ -151,17 +151,17 @@ internal fun triggerDraftFor(
  * irrelevant to the picked event are dropped, matching the server's strict
  * write schema.
  */
-internal fun triggerDraftToWhen(draft: TriggerDraft): AutomationTrigger? =
+internal fun triggerDraftToWhen(draft: TriggerDraft): TriggerWhen? =
     when (draft.kind) {
-        TRIGGER_KIND_SCHEDULE -> AutomationTrigger.Schedule(
+        TRIGGER_KIND_SCHEDULE -> TriggerWhen.Schedule(
             interval = draft.interval,
             minuteOfDay = triggerTimeToMinute(draft.time),
             weekday = draft.weekday.takeIf { draft.interval == "weekly" },
             dayOfMonth = draft.dayOfMonth.takeIf { draft.interval == "monthly" },
         )
-        TRIGGER_KIND_EVENT -> AutomationTrigger.Event(
+        TRIGGER_KIND_EVENT -> TriggerWhen.Event(
             event = draft.event,
-            filters = AutomationTriggerFilters(
+            filters = TriggerFilters(
                 boardIds = listOfNotNull(draft.boardId.takeIf { it.isNotEmpty() }),
                 labelIds = listOfNotNull(
                     draft.labelId.takeIf { it.isNotEmpty() && draft.event == "label_added" },

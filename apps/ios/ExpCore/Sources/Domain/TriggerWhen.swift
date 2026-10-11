@@ -11,7 +11,7 @@ import Foundation
 
 /// The event-trigger filter lists. Empty/absent lists mean "no filter on that
 /// axis"; `priorities` carries wire priority values, the id lists uuids.
-public struct AutomationTriggerFilters: Sendable, Equatable {
+public struct TriggerFilters: Sendable, Equatable {
     public let boardIds: [String]
     public let labelIds: [String]
     public let priorities: [String]
@@ -38,7 +38,7 @@ public struct AutomationTriggerFilters: Sendable, Equatable {
 }
 
 /// `kind: "schedule"` — fires on the bound device's LOCAL clock.
-public struct AutomationScheduleTrigger: Sendable, Equatable {
+public struct ScheduleTrigger: Sendable, Equatable {
     /// Contract `actionScheduleIntervalValues`: daily | weekly | monthly.
     public let interval: String
     /// Minutes past local midnight, 0..<1440.
@@ -62,23 +62,23 @@ public struct AutomationScheduleTrigger: Sendable, Equatable {
 }
 
 /// `kind: "event"` — fires when a matching issue event syncs to the device.
-public struct AutomationEventTrigger: Sendable, Equatable {
+public struct EventTrigger: Sendable, Equatable {
     /// Contract `actionTriggerEventValues` (created, status_changed, …).
     public let event: String
-    public let filters: AutomationTriggerFilters
+    public let filters: TriggerFilters
 
     public init(
         event: String,
-        filters: AutomationTriggerFilters = AutomationTriggerFilters()
+        filters: TriggerFilters = TriggerFilters()
     ) {
         self.event = event
         self.filters = filters
     }
 }
 
-public enum AutomationTrigger: Sendable, Equatable {
-    case schedule(AutomationScheduleTrigger)
-    case event(AutomationEventTrigger)
+public enum TriggerWhen: Sendable, Equatable {
+    case schedule(ScheduleTrigger)
+    case event(EventTrigger)
 
     // MARK: - Tolerant parse
 
@@ -86,7 +86,7 @@ public enum AutomationTrigger: Sendable, Equatable {
     /// unknown event/interval, missing schedule fields, non-object JSON —
     /// reads as nil ("no trigger"): a future server shape must never crash or
     /// half-render on this build.
-    public static func parse(_ raw: String?) -> AutomationTrigger? {
+    public static func parse(_ raw: String?) -> TriggerWhen? {
         guard let raw, !raw.isEmpty,
               let data = raw.data(using: .utf8),
               let json = try? JSONSerialization.jsonObject(with: data),
@@ -95,7 +95,7 @@ public enum AutomationTrigger: Sendable, Equatable {
         return parse(object: object)
     }
 
-    static func parse(object: [String: Any]) -> AutomationTrigger? {
+    static func parse(object: [String: Any]) -> TriggerWhen? {
         guard let kind = object["kind"] as? String else { return nil }
 
         switch kind {
@@ -113,7 +113,7 @@ public enum AutomationTrigger: Sendable, Equatable {
             if interval == "monthly" {
                 guard let dayOfMonth, (1...28).contains(dayOfMonth) else { return nil }
             }
-            return .schedule(AutomationScheduleTrigger(
+            return .schedule(ScheduleTrigger(
                 interval: interval,
                 minuteOfDay: minuteOfDay,
                 weekday: interval == "weekly" ? weekday : nil,
@@ -130,13 +130,13 @@ public enum AutomationTrigger: Sendable, Equatable {
                   DomainContract.actionTriggerEventValues.contains(event)
             else { return nil }
             let rawFilters = object["filters"] as? [String: Any] ?? [:]
-            let filters = AutomationTriggerFilters(
+            let filters = TriggerFilters(
                 boardIds: idList(rawFilters["boardIds"]),
                 labelIds: idList(rawFilters["labelIds"]),
                 priorities: priorityList(rawFilters["priorities"]),
                 toStatusIds: idList(rawFilters["toStatusIds"])
             )
-            return .event(AutomationEventTrigger(event: event, filters: filters))
+            return .event(EventTrigger(event: event, filters: filters))
         default:
             return nil
         }
@@ -258,7 +258,7 @@ public enum AutomationTrigger: Sendable, Equatable {
 
 // Encodable so an `actions.update { triggers }` element (`ActionTriggerInput`)
 // embeds the when-part's keys beside its runner's.
-extension AutomationTrigger: Encodable {
+extension TriggerWhen: Encodable {
     private enum WireKeys: String, CodingKey {
         case kind, interval, minuteOfDay, weekday, dayOfMonth
         case event, filters
@@ -297,7 +297,7 @@ extension AutomationTrigger: Encodable {
 
 // MARK: - Display
 
-public enum AutomationTriggerDisplay {
+public enum TriggerDisplay {
     /// 1 = Monday … 7 = Sunday (the wire convention, NOT Calendar's Sun-first).
     public static let weekdayNames = [
         "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday",
@@ -311,7 +311,7 @@ public enum AutomationTriggerDisplay {
     /// The one-line trigger sentence, byte-matching the web's
     /// `triggerSummary`: `Daily at 07:00` / `Weekly on Monday at 09:00` /
     /// `Monthly on day 5 at 09:00`; `When status changes` (+ ` · N filters`).
-    public static func summary(_ trigger: AutomationTrigger) -> String {
+    public static func summary(_ trigger: TriggerWhen) -> String {
         switch trigger {
         case let .schedule(s):
             let time = clock(s.minuteOfDay)
@@ -344,7 +344,7 @@ public enum AutomationTriggerDisplay {
     /// The sentence as a Triggers row prints it. A schedule fires on the
     /// BOUND MACHINE's wall clock, so the recurrence carries the caveat the
     /// row used to hang off an absolute next-run date (EXP-812).
-    public static func rowSentence(_ trigger: AutomationTrigger) -> String {
+    public static func rowSentence(_ trigger: TriggerWhen) -> String {
         trigger.isSchedule ? "\(summary(trigger)) (device time)" : summary(trigger)
     }
 
@@ -372,7 +372,7 @@ public enum AutomationTriggerDisplay {
     /// "(device time)" instead. Nil for event triggers has no meaning here;
     /// pass a schedule.
     public static func nextScheduleRun(
-        _ schedule: AutomationScheduleTrigger,
+        _ schedule: ScheduleTrigger,
         after: Date,
         calendar: Calendar = .current
     ) -> Date? {

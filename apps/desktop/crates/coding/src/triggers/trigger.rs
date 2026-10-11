@@ -13,7 +13,7 @@
 
 use serde_json::Value;
 
-/// One automation's parsed trigger — the WHEN-part, nothing else.
+/// One trigger's parsed trigger — the WHEN-part, nothing else.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ParsedTrigger {
     pub kind: TriggerKind,
@@ -190,7 +190,7 @@ pub struct LaunchPins {
 /// plus its runner.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ActionTrigger {
-    /// Stable uuid — the device state's key AND the `automationId` a start
+    /// Stable uuid — the device state's key AND the `triggerId` a start
     /// stamps on the run it fires.
     pub id: String,
     /// Only an explicit `false` pauses: a missing flag is an enabled trigger.
@@ -270,7 +270,7 @@ const WHEN_KEYS: [&str; 7] = [
 /// The when-part of a stored trigger element, as the old `automations.trigger`
 /// jsonb spelled it: the runner fields (`id`, `enabled`, `deviceId`, the pins)
 /// and the event `source` are dropped. [`trigger_fingerprint`] of this equals
-/// the fingerprint the migrated automation row produced, so the persisted
+/// the fingerprint the migrated trigger row produced, so the persisted
 /// device state (keyed by the same id) carries over without a reseed.
 pub fn when_part(element: &Value) -> Value {
     let mut when = serde_json::Map::new();
@@ -290,10 +290,10 @@ pub fn when_part(element: &Value) -> Value {
 /// canonical form key-sorts explicitly.
 ///
 /// The digest is SHA-256 truncated to 8 bytes, NOT std's `DefaultHasher`
-/// (EXP-562): a changed fingerprint re-seeds the automation state, and
+/// (EXP-562): a changed fingerprint re-seeds the trigger state, and
 /// `DefaultHasher`'s output is documented as unstable across Rust releases
 /// AND across builds — a toolchain bump would silently reseed every
-/// automation on every device. The persisted fingerprint must depend on the
+/// trigger on every device. The persisted fingerprint must depend on the
 /// trigger JSON alone, so it has to survive a recompile.
 pub fn trigger_fingerprint(value: &Value) -> String {
     use sha2::{Digest, Sha256};
@@ -611,7 +611,7 @@ mod tests {
     /// EXP-562 pin: the fingerprint is a pure function of the trigger JSON,
     /// build- and toolchain-independent (hence SHA-256, not std's
     /// `DefaultHasher`). Changing this literal means the algorithm moved,
-    /// which RESEEDS every automation on every device once — only ever do
+    /// which RESEEDS every trigger on every device once — only ever do
     /// that deliberately.
     #[test]
     fn fingerprint_is_pinned_across_builds() {

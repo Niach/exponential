@@ -64,7 +64,7 @@ describe(`isRoutedAppPath`, () => {
     expect(isRoutedAppPath(`/T/acme`)).toBe(true)
     expect(isRoutedAppPath(`/%74/acme`)).toBe(true)
     expect(isRoutedAppPath(`/settings/account`)).toBe(false)
-    expect(isRoutedAppPath(`/account/notifications#top`)).toBe(true)
+    expect(isRoutedAppPath(`/onboarding#top`)).toBe(true)
   })
 
   it(`names only route-tree dirs`, () => {

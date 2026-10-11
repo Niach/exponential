@@ -768,11 +768,11 @@ pub struct CodingSession {
     /// `open` / `merged` / `closed` — raw wire value (contract `pr_state`).
     #[serde(default)]
     pub pr_state: Option<String>,
-    /// EXP-583/SLOP-2: the id of the action TRIGGER that fired this run (the
-    /// wire keeps the `automation` name); `None` on manual runs.
+    /// EXP-583/SLOP-2: the id of the action TRIGGER that fired this run
+    /// (SLOP-17: `trigger_id`, ex `automation_id`); `None` on manual runs.
     #[serde(default)]
-    pub automation_id: Option<String>,
-    /// `schedule` / `event` on automation-started runs (EXP-530) — raw wire
+    pub trigger_id: Option<String>,
+    /// `schedule` / `event` on trigger-started runs (EXP-530) — raw wire
     /// value; `None` = a person started it.
     #[serde(default)]
     pub started_reason: Option<String>,
@@ -845,7 +845,7 @@ pub struct ActionRow {
     pub prompt_placeholder: Option<String>,
     /// jsonb `ActionTrigger[]` (SLOP-2) — TEXT-stored like `inputs`. Each
     /// element = a when-part (schedule or event) plus its runner; the
-    /// `coding::automations` engine owns the tolerant parse. Absent on rows
+    /// `coding::triggers` engine owns the tolerant parse. Absent on rows
     /// from a pre-SLOP-2 server (= no triggers).
     #[serde(default, deserialize_with = "tolerant_opt_json")]
     pub triggers: Option<serde_json::Value>,
@@ -1389,16 +1389,16 @@ mod tests {
         assert_eq!(session.action_id.as_deref(), Some("act-1"));
         assert_eq!(session.action_name.as_deref(), Some("Daily standup digest"));
         assert_eq!(session.started_reason.as_deref(), Some("schedule"));
-        // EXP-583: the firing automation rides along too.
+        // EXP-583: the firing trigger rides along too.
         let automated: CodingSession = serde_json::from_value(json!({
             "id": "cs-3",
             "status": "running",
             "action_id": "act-1",
-            "automation_id": "auto-1",
+            "trigger_id": "auto-1",
             "started_reason": "event",
         }))
         .unwrap();
-        assert_eq!(automated.automation_id.as_deref(), Some("auto-1"));
+        assert_eq!(automated.trigger_id.as_deref(), Some("auto-1"));
 
         let manual: CodingSession = serde_json::from_value(json!({
             "id": "cs-2",
@@ -1408,7 +1408,7 @@ mod tests {
         assert_eq!(manual.action_id, None);
         assert_eq!(manual.action_name, None);
         assert_eq!(manual.started_reason, None);
-        assert_eq!(manual.automation_id, None);
+        assert_eq!(manual.trigger_id, None);
     }
 
     #[test]
@@ -1713,9 +1713,9 @@ mod tests {
             "id": "w-1",
             "name": "Acme",
             "pr_opened_status_id": "s-1",
-            "pr_opened_automation": "t",
+            "pr_opened_trigger": "t",
             "pr_merged_status_id": null,
-            "pr_merged_automation": "f",
+            "pr_merged_trigger": "f",
             "end_sessions_on_merge": "f"
         }))
         .unwrap();

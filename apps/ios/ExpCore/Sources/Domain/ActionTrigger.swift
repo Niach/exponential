@@ -3,7 +3,7 @@ import Foundation
 // SLOP-2: an action carries its triggers. `actions.triggers` is a jsonb array
 // on the synced actions shape; each element is a RUNNER (a stable id, the
 // enabled flag, the bound device and the optional agent/account/model/effort
-// pins) flattened beside its WHEN-part (`AutomationTrigger`: schedule or
+// pins) flattened beside its WHEN-part (`TriggerWhen`: schedule or
 // event). The bound device fires it locally — nothing on a phone ever does.
 //
 // Reads are TOLERANT (web `parseActionTrigger(s)` parity): an element without
@@ -13,8 +13,8 @@ import Foundation
 
 /// One stored trigger of an action.
 public struct ActionTrigger: Identifiable, Sendable, Equatable {
-    /// Stable; also what a triggered start carries as `automationId`
-    /// (`coding_sessions.automation_id`).
+    /// Stable; also what a triggered start carries as `triggerId`
+    /// (`coding_sessions.trigger_id`).
     public let id: String
     /// A paused trigger keeps its config.
     public let enabled: Bool
@@ -27,7 +27,7 @@ public struct ActionTrigger: Identifiable, Sendable, Equatable {
     public let account: String?
     public let model: String?
     public let effort: String?
-    public let when: AutomationTrigger
+    public let when: TriggerWhen
 
     public init(
         id: String,
@@ -37,7 +37,7 @@ public struct ActionTrigger: Identifiable, Sendable, Equatable {
         account: String? = nil,
         model: String? = nil,
         effort: String? = nil,
-        when: AutomationTrigger
+        when: TriggerWhen
     ) {
         self.id = id
         self.enabled = enabled
@@ -71,7 +71,7 @@ public struct ActionTrigger: Identifiable, Sendable, Equatable {
     /// ONE stored trigger: its when-part plus the runner. nil without a
     /// string id or device, or with an unreadable when-part.
     static func parse(object: [String: Any]) -> ActionTrigger? {
-        guard let when = AutomationTrigger.parse(object: object),
+        guard let when = TriggerWhen.parse(object: object),
               let id = optionalString(object["id"]),
               let deviceId = optionalString(object["deviceId"])
         else { return nil }
@@ -132,7 +132,7 @@ public struct TriggerBadges: Sendable, Equatable {
     public var isEmpty: Bool { schedule == nil && event == nil }
 
     public static func of(_ triggers: [ActionTrigger]) -> TriggerBadges {
-        func badge(_ isKind: (AutomationTrigger) -> Bool) -> TriggerBadge? {
+        func badge(_ isKind: (TriggerWhen) -> Bool) -> TriggerBadge? {
             let ofKind = triggers.filter { isKind($0.when) }
             guard !ofKind.isEmpty else { return nil }
             return TriggerBadge(active: ofKind.contains(where: \.enabled))
@@ -145,7 +145,7 @@ public struct TriggerBadges: Sendable, Equatable {
 
     /// A suggestion seed's glyph: its one (not yet created) trigger, drawn
     /// active.
-    public static func of(suggested trigger: AutomationTrigger?) -> TriggerBadges {
+    public static func of(suggested trigger: TriggerWhen?) -> TriggerBadges {
         guard let trigger else { return TriggerBadges() }
         return trigger.isSchedule
             ? TriggerBadges(schedule: TriggerBadge(active: true))
@@ -153,7 +153,7 @@ public struct TriggerBadges: Sendable, Equatable {
     }
 }
 
-public extension AutomationTrigger {
+public extension TriggerWhen {
     /// `kind: "schedule"` (else an event trigger).
     var isSchedule: Bool {
         if case .schedule = self { return true }
@@ -195,7 +195,7 @@ public struct ActionTriggerInput: Sendable, Equatable {
     public var account: String?
     public var model: String?
     public var effort: String?
-    public var when: AutomationTrigger
+    public var when: TriggerWhen
 
     public init(
         id: String? = nil,
@@ -205,7 +205,7 @@ public struct ActionTriggerInput: Sendable, Equatable {
         account: String? = nil,
         model: String? = nil,
         effort: String? = nil,
-        when: AutomationTrigger
+        when: TriggerWhen
     ) {
         self.id = id
         self.enabled = enabled
@@ -312,14 +312,14 @@ public enum TriggerWriteBase {
 /// What a suggestion with a trigger asks the creator agent to set up on the
 /// action it creates — the iOS twin of the web's `TriggerSpec`.
 public struct TriggerSpec: Sendable, Equatable {
-    public let trigger: AutomationTrigger
+    public let trigger: TriggerWhen
     public let deviceId: String
     public let agent: String?
     public let model: String?
     public let effort: String?
 
     public init(
-        trigger: AutomationTrigger,
+        trigger: TriggerWhen,
         deviceId: String,
         agent: String? = nil,
         model: String? = nil,
@@ -343,15 +343,15 @@ public enum TriggerNote {
     /// compact JSON, no spaces.
     public static func format(_ spec: TriggerSpec) -> String {
         var parts = spec.trigger.wireJSONParts
-        parts.append("\"deviceId\":\(AutomationTrigger.jsonQuoted(spec.deviceId))")
+        parts.append("\"deviceId\":\(TriggerWhen.jsonQuoted(spec.deviceId))")
         if let agent = spec.agent, !agent.isEmpty {
-            parts.append("\"agent\":\(AutomationTrigger.jsonQuoted(agent))")
+            parts.append("\"agent\":\(TriggerWhen.jsonQuoted(agent))")
         }
         if let model = spec.model, !model.isEmpty {
-            parts.append("\"model\":\(AutomationTrigger.jsonQuoted(model))")
+            parts.append("\"model\":\(TriggerWhen.jsonQuoted(model))")
         }
         if let effort = spec.effort, !effort.isEmpty {
-            parts.append("\"effort\":\(AutomationTrigger.jsonQuoted(effort))")
+            parts.append("\"effort\":\(TriggerWhen.jsonQuoted(effort))")
         }
         let payload = "{" + parts.joined(separator: ",") + "}"
         return "\n\nTrigger — after creating the action, call exponential_actions_update with its id and `triggers` set to exactly this array: `[\(payload)]`. A triggered run fills no inputs, so declare none as required."

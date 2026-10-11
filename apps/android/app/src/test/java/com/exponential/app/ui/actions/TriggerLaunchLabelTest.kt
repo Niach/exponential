@@ -1,7 +1,7 @@
 package com.exponential.app.ui.actions
 
 import com.exponential.app.domain.ActionTrigger
-import com.exponential.app.domain.AutomationTrigger
+import com.exponential.app.domain.TriggerWhen
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
@@ -15,7 +15,7 @@ class TriggerLaunchLabelTest {
         agent = agent,
         model = model,
         effort = effort,
-        whenPart = AutomationTrigger.Schedule(interval = "daily", minuteOfDay = 540),
+        whenPart = TriggerWhen.Schedule(interval = "daily", minuteOfDay = 540),
     )
 
     @Test

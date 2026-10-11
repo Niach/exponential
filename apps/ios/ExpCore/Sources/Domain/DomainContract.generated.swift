@@ -112,8 +112,10 @@ public enum DomainContract {
     public static let startPromptMaxImages: Int = 4
     public static let actionTriggerMaxFilterIds: Int = 20
     public static let actionTriggerMaxPerAction: Int = 10
-    public static let automationCooldownMs: Int = 60000
-    public static let automationEventCatchupMs: Int = 86400000
+    public static let triggerCooldownMs: Int = 60000
+    public static let triggerEventCatchupMs: Int = 86400000
+    public static let triggerDeviceCap: String = "triggers"
+    public static let triggerLegacyDeviceCap: String = "automations"
     public static let steerFeedByteCap: Int = 16777216
     public static let steerFeedItemCap: Int = 200000
     public static let steerFeedTrimTargetPercent: Int = 90

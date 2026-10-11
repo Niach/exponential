@@ -473,7 +473,7 @@ public final class ActionsApi: Sendable {
     /// row echoes the metadata back, so success needs no local write. With
     /// `triggers` the server refuses, by message, an enabled trigger on an
     /// action with required inputs, a device that is not yours/team-shared
-    /// or lacks the `automations` cap, an agent the device doesn't advertise,
+    /// or lacks the `triggers` cap, an agent the device doesn't advertise,
     /// and an account pinned without one.
     @discardableResult
     public func update(

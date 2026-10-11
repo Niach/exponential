@@ -23,7 +23,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.domain.ActionTrigger
 import com.exponential.app.domain.AccountOptions
-import com.exponential.app.domain.AutomationTrigger
+import com.exponential.app.domain.TriggerWhen
 import com.exponential.app.ui.agent.AgentLaunchDataViewModel
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.SheetHeight
@@ -35,7 +35,7 @@ import com.exponential.app.ui.components.SheetPrimaryAction
  * default; [account] is set only beside its [agent] (EXP-995).
  */
 data class TriggerFormResult(
-    val whenPart: AutomationTrigger,
+    val whenPart: TriggerWhen,
     val deviceId: String,
     val agent: String?,
     val account: String?,

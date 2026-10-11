@@ -279,12 +279,15 @@ export interface DomainContract {
     eventSourceValues: readonly string[]
     maxFilterIds: number
     maxPerAction: number
+    /** EXP-530 trigger-host tuning: cooldown after any triggered start, and
+     *  how far back an offline device replays issue_events on reconnect. */
+    cooldownSeconds: number
+    eventCatchupHours: number
+    /** SLOP-17: the device cap of a build that fires triggers; devices also
+     *  advertise `legacyDeviceCap` until every client reads the new name. */
+    deviceCap: string
+    legacyDeviceCap: string
   }
-  /**
-   * EXP-530 automation-host tuning: cooldown after any triggered start, and
-   * how far back an offline device replays issue_events on reconnect.
-   */
-  automation: { cooldownSeconds: number; eventCatchupHours: number }
   /**
    * EXP-724: the curated slash commands a steering client may offer in its
    * composer (`/` typeahead) and the desktop executes on the agent TUI.

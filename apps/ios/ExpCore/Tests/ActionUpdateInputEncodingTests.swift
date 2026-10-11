@@ -102,8 +102,8 @@ final class ActionUpdateInputEncodingTests: XCTestCase {
         let untouched = try json(ActionUpdateInput(id: "a-1", patch: ActionPatch(name: "Ship")))
         XCTAssertNil(untouched.index(forKey: "triggers"))
 
-        let daily = AutomationTrigger.schedule(
-            AutomationScheduleTrigger(interval: "daily", minuteOfDay: 540)
+        let daily = TriggerWhen.schedule(
+            ScheduleTrigger(interval: "daily", minuteOfDay: 540)
         )
         let set = try json(ActionUpdateInput(
             id: "a-1",

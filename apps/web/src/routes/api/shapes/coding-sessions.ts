@@ -10,8 +10,8 @@ import { createShapeRouteHandler } from "@/lib/shape-route"
 // server-only (the where clause filters on them).
 // `action_id`/`action_name` were appended for EXP-253, `branch` for EXP-545
 // (the batch↔PR linkage: stamped by the MCP pr_open batch flip so clients tie
-// a batch row's Merge shortcut to its OWN PR), `started_reason` for EXP-530, `automation_id` for EXP-583
-// (the Automations run history + per-row last run), `device_id` for
+// a batch row's Merge shortcut to its OWN PR), `started_reason` for EXP-530, `trigger_id` for EXP-583
+// (the action run history + per-trigger last run), `device_id` for
 // EXP-549/550 (the hosting machine's steer deviceId — clients join the synced
 // devices row for the renamed label and its online-ness), and
 // `ended_by`/`resumed_from_id` for EXP-637 (who ended the run, and the
@@ -61,7 +61,7 @@ export const CODING_SESSION_COLUMNS = [
   `action_id`,
   `action_name`,
   `started_reason`,
-  `automation_id`,
+  `trigger_id`,
   `user_id`,
   `device_label`,
   `device_id`,

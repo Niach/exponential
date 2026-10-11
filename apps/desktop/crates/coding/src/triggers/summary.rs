@@ -74,7 +74,7 @@ pub fn trigger_summary(trigger: &ParsedTrigger) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::automations::trigger::{EventKind, EventSpec};
+    use crate::triggers::trigger::{EventKind, EventSpec};
 
     fn trigger(kind: TriggerKind) -> ParsedTrigger {
         ParsedTrigger { kind }

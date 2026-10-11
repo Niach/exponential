@@ -30,7 +30,7 @@ mod action_run;
 mod action_suggestions;
 mod actions;
 mod actions_view;
-mod automation_host;
+mod trigger_host;
 mod app_title_bar;
 mod attachment_markdown_preview;
 mod attachments_row;

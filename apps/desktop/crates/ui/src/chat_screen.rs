@@ -1894,9 +1894,9 @@ impl ChatScreenView {
                         target: Some(navigation::deferred_open_window(window, cx)),
                         activate_app: false,
                         reservation: None,
-                        // A person pressed Run — never an automation firing.
+                        // A person pressed Run — never a trigger firing.
                         trigger: None,
-                        automation_id: None,
+                        trigger_id: None,
                         prompt,
                         on_settled: None,
                         report: crate::steer_wiring::StartReport::none(),

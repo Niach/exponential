@@ -242,11 +242,20 @@ export function deviceReadyForRuns(device: SteerDevice): boolean {
   )
 }
 
+/** SLOP-17: the trigger cap, new name or legacy (0.14.66 advertises both). */
+export function capsRunTriggers(caps: readonly string[] | null | undefined): boolean {
+  const list = caps ?? []
+  return (
+    list.includes(contract.actionTrigger.deviceCap) ||
+    list.includes(contract.actionTrigger.legacyDeviceCap)
+  )
+}
+
 /** EXP-530: only devices advertising this capability evaluate action
  * triggers locally — older builds would accept the binding and never fire.
  * Offline-but-capable devices stay pickable (they catch up on reconnect). */
-export function deviceCanRunAutomations(device: SteerDevice): boolean {
-  return (device.caps ?? []).includes(`automations`)
+export function deviceCanRunTriggers(device: SteerDevice): boolean {
+  return capsRunTriggers(device.caps)
 }
 
 /** EXP-637: resuming an ENDED run (its worktree, its agent transcript) is a

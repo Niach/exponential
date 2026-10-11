@@ -35,7 +35,7 @@ use serde::{Deserialize, Serialize};
 use crate::agent::CodingAgent;
 
 /// Serializes every load-modify-save, exactly like the session registry:
-/// the automation host records on its own threads while the cleanup path
+/// the trigger host records on its own threads while the cleanup path
 /// removes concurrently.
 static LOCK: Mutex<()> = Mutex::new(());
 
@@ -251,7 +251,7 @@ pub struct RunRecord {
     pub ultracode: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fix: Option<RunFix>,
-    /// `schedule`/`event` when an automation started the run.
+    /// `schedule`/`event` when a trigger started the run.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub started_reason: Option<String>,
     /// The ended session THIS run resumed (a resume of a resume chains).
@@ -1869,7 +1869,7 @@ mod tests {
     }
 
     /// EXP-766: concurrent recorders never drop each other's runs. Threads
-    /// first (the automation host records while a cleanup removes) …
+    /// first (the trigger host records while a cleanup removes) …
     #[test]
     fn concurrent_threads_lose_no_record() {
         let dir = temp_dir("concurrent-threads");

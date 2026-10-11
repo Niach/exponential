@@ -388,8 +388,13 @@ import androidx.room.TypeConverters
     // v83 (EXP-1247): attachments.as_file — a file-path upload that never
     //      inlines. Explicit [MIGRATION_82_83] adds the column (existing rows
     //      false) and refetches only the attachments shape.
+    // v84 (SLOP-17): automations are triggers. coding_sessions.automation_id
+    //      is renamed trigger_id (the shape serves only that) and any orphaned
+    //      `automations` table + offset drops. Explicit [MIGRATION_83_84]
+    //      rebuilds coding_sessions keeping every row and refetches only the
+    //      coding_sessions shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 83,
+    version = 84,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)

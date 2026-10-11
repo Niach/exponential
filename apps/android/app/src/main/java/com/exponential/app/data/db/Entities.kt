@@ -428,11 +428,11 @@ data class CodingSessionEntity(
     // action page's Runs and keeps triggered rows out of the post-send start
     // watch (StartedRunMatch).
     @ColumnInfo(name = "started_reason") @SerialName("started_reason") @JsonNames("startedReason") val startedReason: String? = null,
-    // EXP-583 / SLOP-2: the id of the TRIGGER that fired this run (an element
-    // of its action's `triggers`; the column keeps its old name), NULL on
-    // every user-started session. An action can carry several triggers, so
-    // the action_id link alone does not identify which one ran.
-    @ColumnInfo(name = "automation_id") @SerialName("automation_id") @JsonNames("automationId") val automationId: String? = null,
+    // EXP-583 / SLOP-2 / SLOP-17: the id of the TRIGGER that fired this run
+    // (an element of its action's `triggers`), NULL on every user-started
+    // session. An action can carry several triggers, so the action_id link
+    // alone does not identify which one ran.
+    @ColumnInfo(name = "trigger_id") @SerialName("trigger_id") val triggerId: String? = null,
     // EXP-734/SLOP-3: the run's OWN pull request — every run that opened a PR
     // carries it here. An issue run still merges through its issue; an
     // issue-less run (batch, chat, action) merges this PR through

@@ -7,7 +7,7 @@
 //!   Effort selects and the capability-gated toggles (ultracode, plan
 //!   mode). This is [`LaunchOptionsSection`], which OWNS that
 //!   state and hands out a [`LaunchOptions`] snapshot.
-//! - Automation: [`crate::trigger_editor`]'s launch PINS:
+//! - Trigger: [`crate::trigger_editor`]'s launch PINS:
 //!   the exact same strip (seeded to the bound device's default agent — no
 //!   "Device default" pill since EXP-615), the same choice lists behind the
 //!   launch "CLI default" sentinel, and NO toggles (an unattended run never
@@ -291,7 +291,7 @@ fn agent_segments<V: Render>(
 /// EXP-694 — the same strip as the FIRST ROW of a
 /// [`crate::surface::glass_group`]: no capsule of its own, 8px padding, the
 /// hairline below drawn by the group. This is what every grouped agent picker
-/// (launch, automation pins, device defaults) leads with.
+/// (launch, trigger pins, device defaults) leads with.
 pub(crate) fn agent_tabs_row<V: Render>(
     id: &'static str,
     pills: Vec<AgentPill>,
@@ -315,7 +315,7 @@ fn pin_label(choices: &'static [(&'static str, &'static str)], picked: Option<&s
         .unwrap_or_else(|| CLI_DEFAULT_LABEL.to_string())
 }
 
-/// One automation choice pin as a GROUPED picker row (EXP-694,
+/// One trigger choice pin as a GROUPED picker row (EXP-694,
 /// S2): the label leading, the pinned value trailing at 70% behind a caret,
 /// no field chrome, and the "CLI default" sentinel while nothing is pinned.
 /// Writes through the `pick` accessor on the host's state `S`.

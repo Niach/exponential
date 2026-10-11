@@ -124,7 +124,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
-             "v63_issue_draft_id", "v64_attachment_as_file"]
+             "v63_issue_draft_id", "v64_attachment_as_file",
+             "v65_trigger_id"]
         )
     }
 
@@ -175,7 +176,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
-             "v63_issue_draft_id", "v64_attachment_as_file"]
+             "v63_issue_draft_id", "v64_attachment_as_file",
+             "v65_trigger_id"]
         )
     }
 
@@ -340,6 +342,70 @@ final class DatabaseMigrationTests: XCTestCase {
         }
         XCTAssertEqual(retired, 0)
         // Idempotent: a second pass is a no-op, never a duplicate column.
+        XCTAssertNoThrow(try migrator.migrate(pool))
+    }
+
+    // v65 (SLOP-17): a store migrated through v64 carries
+    // `coding_sessions.automation_id`. The migration renames it to
+    // `trigger_id` in place (the synced value survives), sweeps a stray
+    // `automations` table + cursor, and resets the coding-sessions offset so
+    // rows re-arrive under the renamed column.
+    func testTriggerIdRenamesAutomationIdOnExistingStore() throws {
+        let pool = try makePool("trigger-id")
+        let migrator = DatabaseManager.makeMigrator()
+        try migrator.migrate(pool, upTo: "v64_attachment_as_file")
+        try pool.write { db in
+            let cols = Set(try db.columns(in: "coding_sessions").map(\.name))
+            XCTAssertTrue(cols.contains("automation_id"))
+            XCTAssertFalse(cols.contains("trigger_id"))
+            try db.execute(sql: """
+                INSERT INTO "coding_sessions" ("id", "issue_id", "team_id", "user_id",
+                    "device_label", "status", "automation_id", "started_at",
+                    "created_at", "updated_at")
+                VALUES ('cs-1', 'i-1', 't-1', 'u-1', 'macbook', 'ended', 'trg-1',
+                    '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z', '2026-10-01T00:00:00Z')
+                """)
+            // A stray legacy table + cursor (v59 should have swept them).
+            try db.execute(sql: "CREATE TABLE \"automations\" (\"id\" TEXT PRIMARY KEY)")
+            try db.execute(sql: """
+                INSERT INTO "electric_offsets"
+                    ("shape", "handle", "offset", "needs_refetch", "is_live")
+                VALUES ('coding-sessions', 'h', '0_0', 0, 1),
+                       ('automations', 'h', '0_0', 0, 1)
+                """)
+        }
+
+        XCTAssertNoThrow(try migrator.migrate(pool))
+        let sessionCols = try columnNames(pool, "coding_sessions")
+        XCTAssertTrue(sessionCols.contains("trigger_id"))
+        XCTAssertFalse(sessionCols.contains("automation_id"))
+        let kept = try pool.read { db in
+            try String.fetchOne(
+                db, sql: "SELECT \"trigger_id\" FROM \"coding_sessions\" WHERE \"id\" = 'cs-1'"
+            )
+        }
+        XCTAssertEqual(kept, "trg-1")
+        XCTAssertFalse(try pool.read { db in try db.tableExists("automations") })
+        let offset = try pool.read { db in
+            try Row.fetchOne(
+                db,
+                sql: """
+                    SELECT "handle", "offset", "needs_refetch", "is_live"
+                    FROM "electric_offsets" WHERE "shape" = 'coding-sessions'
+                    """
+            )
+        }
+        XCTAssertEqual(offset?["handle"] as String?, "")
+        XCTAssertEqual(offset?["offset"] as String?, "-1")
+        XCTAssertEqual(offset?["needs_refetch"] as Int?, 1)
+        XCTAssertEqual(offset?["is_live"] as Int?, 0)
+        let retired = try pool.read { db in
+            try Int.fetchOne(
+                db,
+                sql: "SELECT COUNT(*) FROM \"electric_offsets\" WHERE \"shape\" = 'automations'"
+            )
+        }
+        XCTAssertEqual(retired, 0)
         XCTAssertNoThrow(try migrator.migrate(pool))
     }
 
@@ -633,7 +699,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
-             "v63_issue_draft_id", "v64_attachment_as_file"]
+             "v63_issue_draft_id", "v64_attachment_as_file",
+             "v65_trigger_id"]
         )
         let teamIdColumn = try pool.read { db in
             try db.columns(in: "notifications").first { $0.name == "team_id" }
@@ -732,7 +799,8 @@ final class DatabaseMigrationTests: XCTestCase {
              "v57_team_yolo_mode", "v58_workflows_gate_dropped",
              "v59_action_triggers", "v60_drop_workflows_and_stacks",
              "v61_one_path", "v62_device_doctor",
-             "v63_issue_draft_id", "v64_attachment_as_file"]
+             "v63_issue_draft_id", "v64_attachment_as_file",
+             "v65_trigger_id"]
         )
         let emailColumn = try pool.read { db in
             try db.columns(in: "team_invites").first { $0.name == "email" }
@@ -1542,8 +1610,9 @@ final class DatabaseMigrationTests: XCTestCase {
         XCTAssertTrue(sessionCols.contains("action_name"))
         // EXP-549/550: the host machine's steer deviceId ride-along.
         XCTAssertTrue(sessionCols.contains("device_id"))
-        // EXP-583: which automation fired the run.
-        XCTAssertTrue(sessionCols.contains("automation_id"))
+        // EXP-583 (SLOP-17 renamed it): which trigger fired the run.
+        XCTAssertTrue(sessionCols.contains("trigger_id"))
+        XCTAssertFalse(sessionCols.contains("automation_id"))
 
         // The synced actions table (EXP-268, 15th shape) deliberately has NO
         // body column — the shape's allowlist excludes the ≤64KB prompt; tRPC
@@ -2649,7 +2718,8 @@ final class DatabaseMigrationTests: XCTestCase {
             }
         }
 
-        XCTAssertNoThrow(try migrator.migrate(pool))
+        // Only UP TO v60: v65 (SLOP-17) resets the coding-sessions cursor.
+        XCTAssertNoThrow(try migrator.migrate(pool, upTo: "v60_drop_workflows_and_stacks"))
         for table in ["workflows", "workflow_nodes", "workflow_events"] {
             XCTAssertFalse(try pool.read { db in try db.tableExists(table) }, table)
         }

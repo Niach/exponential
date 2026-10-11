@@ -1156,6 +1156,13 @@
       "when": 1791734186088,
       "tag": "0164_drop_automations_mirror_and_github_claims",
       "breakpoints": true
+    },
+    {
+      "idx": 165,
+      "version": "7",
+      "when": 1791734187088,
+      "tag": "0165_rename_automation_id_to_trigger_id",
+      "breakpoints": true
     }
   ]
 }

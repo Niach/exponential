@@ -1183,7 +1183,7 @@ pub(crate) fn live_sig(session: &domain::rows::CodingSession, now_epoch: i64) ->
 }
 
 /// EXP-870: the runs that own a top tab in `team_id` — ALL of the caller's
-/// live runs (person-started, automations, other machines alike), oldest
+/// live runs (person-started, triggers, other machines alike), oldest
 /// start first so a new run's tab lands after the ones already up.
 pub(crate) fn live_tab_runs(cx: &App, team_id: &str) -> Vec<LiveTabRun> {
     let Some(me) = active_account(cx).map(|account| account.user_id) else {
@@ -1873,7 +1873,7 @@ pub(crate) fn is_live_run_status(session: &domain::rows::CodingSession) -> bool 
 /// (the end, else the heartbeat). Backs the work header's `Run`/`Runs` face
 /// label and the session screen's run switcher.
 ///
-/// Unlike [`own_ended_runs`] this keeps automation runs (the issue is the
+/// Unlike [`own_ended_runs`] this keeps trigger runs (the issue is the
 /// subject either way) and needs no team filter — the issue id already pins
 /// it. Batch runs (`issue_id` NULL) never match. Pure.
 pub(crate) fn issue_runs<'a>(
@@ -3758,7 +3758,7 @@ mod tests {
     }
 
     /// Recent lists ENDED, PERSON-started runs of the caller's own — a live
-    /// row, an automation run and a teammate's run all stay out.
+    /// row, a trigger run and a teammate's run all stay out.
     #[test]
     fn only_own_person_started_ended_rows() {
         let mut live = past_row("live", "me", Some("t-1"), None, Some("2026-07-17T11:00:00Z"));
@@ -3824,7 +3824,7 @@ mod tests {
 
     /// EXP-886: an issue's runs are only the caller's OWN runs of THAT issue
     /// — a teammate's, another issue's and a batch run stay out, while a live
-    /// run (any live status) and an automation run of the issue are kept,
+    /// run (any live status) and a trigger run of the issue are kept,
     /// the live ones first.
     #[test]
     fn issue_runs_list_only_the_callers_own_runs_of_that_issue() {
@@ -3978,7 +3978,7 @@ mod tests {
     /// EXP-676: a triggered run lives in its action page's Runs section and
     /// nowhere else.
     #[test]
-    fn an_automation_run_never_appears() {
+    fn a_trigger_run_never_appears() {
         let mut scheduled = past_row(
             "auto",
             "me",

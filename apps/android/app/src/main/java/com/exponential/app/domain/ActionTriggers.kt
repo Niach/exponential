@@ -14,7 +14,7 @@ import kotlinx.serialization.json.putJsonObject
 
 // Action triggers (EXP-530; SLOP-2: an action CARRIES its triggers). One
 // stored trigger ([ActionTrigger]) = its runner (id, enabled flag, bound
-// device, optional agent pins) plus the WHEN-part ([AutomationTrigger]: a
+// device, optional agent pins) plus the WHEN-part ([TriggerWhen]: a
 // schedule — "daily at 07:00" — or an event — "when status changes"). They
 // ride the synced `actions.triggers` jsonb array; the bound device watches
 // for the when-part and fires locally — there is no server scheduler, and a
@@ -28,7 +28,7 @@ import kotlinx.serialization.json.putJsonObject
  * The event-trigger filter lists. Empty lists mean "no filter on that axis";
  * [priorities] carries wire priority values, the id lists uuids.
  */
-data class AutomationTriggerFilters(
+data class TriggerFilters(
     val boardIds: List<String> = emptyList(),
     val labelIds: List<String> = emptyList(),
     val priorities: List<String> = emptyList(),
@@ -41,7 +41,7 @@ data class AutomationTriggerFilters(
     val isEmpty: Boolean get() = totalCount == 0
 }
 
-sealed interface AutomationTrigger {
+sealed interface TriggerWhen {
 
     /** `kind: "schedule"` — fires on the bound device's LOCAL clock. */
     data class Schedule(
@@ -53,14 +53,14 @@ sealed interface AutomationTrigger {
         val weekday: Int? = null,
         /** 1…28; present iff monthly. */
         val dayOfMonth: Int? = null,
-    ) : AutomationTrigger
+    ) : TriggerWhen
 
     /** `kind: "event"` — fires when a matching issue event syncs to the device. */
     data class Event(
         /** Contract `actionTriggerEventValues` (created, status_changed, …). */
         val event: String,
-        val filters: AutomationTriggerFilters = AutomationTriggerFilters(),
-    ) : AutomationTrigger
+        val filters: TriggerFilters = TriggerFilters(),
+    ) : TriggerWhen
 
     /**
      * The wire JSON object with the server's field names, keys in the
@@ -113,7 +113,7 @@ sealed interface AutomationTrigger {
          * trigger"): a future server shape must never crash or half-render on
          * this build.
          */
-        fun parse(raw: String?): AutomationTrigger? {
+        fun parse(raw: String?): TriggerWhen? {
             if (raw.isNullOrBlank()) return null
             val obj = runCatching { json.parseToJsonElement(raw) }.getOrNull() as? JsonObject
                 ?: return null
@@ -123,7 +123,7 @@ sealed interface AutomationTrigger {
         /** The same tolerant read off an already-decoded object — the runner
          * fields beside the when-part (a stored trigger's id, device, pins)
          * are simply ignored. */
-        fun parse(obj: JsonObject): AutomationTrigger? {
+        fun parse(obj: JsonObject): TriggerWhen? {
             return when (obj.stringValue("kind")) {
                 "schedule" -> {
                     val interval = obj.stringValue("interval")
@@ -158,7 +158,7 @@ sealed interface AutomationTrigger {
                     val rawFilters = obj["filters"] as? JsonObject
                     Event(
                         event = event,
-                        filters = AutomationTriggerFilters(
+                        filters = TriggerFilters(
                             boardIds = rawFilters.stringList("boardIds"),
                             labelIds = rawFilters.stringList("labelIds"),
                             priorities = rawFilters.stringList("priorities")
@@ -221,12 +221,12 @@ fun triggerEventLabel(event: String): String = when (event) {
 
 /**
  * The one-line trigger sentence, byte-matching the web's `triggerSummary` /
- * iOS `AutomationTriggerDisplay.summary`: `Daily at 07:00` / `Weekly on Monday
+ * the iOS trigger summary: `Daily at 07:00` / `Weekly on Monday
  * at 09:00` / `Monthly on day 5 at 09:00`; `When status changes` (+ ` · N
  * filters` when any filter ids are present).
  */
-fun triggerSummary(trigger: AutomationTrigger): String = when (trigger) {
-    is AutomationTrigger.Schedule -> {
+fun triggerSummary(trigger: TriggerWhen): String = when (trigger) {
+    is TriggerWhen.Schedule -> {
         val at = triggerClock(trigger.minuteOfDay)
         when (trigger.interval) {
             "weekly" -> "Weekly on ${triggerWeekdayName(trigger.weekday ?: 1)} at $at"
@@ -234,7 +234,7 @@ fun triggerSummary(trigger: AutomationTrigger): String = when (trigger) {
             else -> "Daily at $at"
         }
     }
-    is AutomationTrigger.Event -> {
+    is TriggerWhen.Event -> {
         val label = triggerEventLabel(trigger.event)
         val sentence = "When ${label.replaceFirstChar { it.lowercaseChar() }}"
         val count = trigger.filters.totalCount
@@ -253,7 +253,7 @@ fun triggerSummary(trigger: AutomationTrigger): String = when (trigger) {
  * which the tolerant parse already rejects.
  */
 fun nextScheduleRun(
-    schedule: AutomationTrigger.Schedule,
+    schedule: TriggerWhen.Schedule,
     nowMs: Long = System.currentTimeMillis(),
     zone: TimeZone = TimeZone.getDefault(),
 ): Long? {
@@ -312,8 +312,8 @@ const val TRIGGER_SOURCE_EXPONENTIAL = "exponential"
 
 /**
  * ONE stored trigger of an action: the runner plus its [whenPart]. [id] is
- * stable — it is also what a triggered start passes as `automationId`, so a
- * run's `coding_sessions.automation_id` names the trigger that fired it. Null
+ * stable — it is also what a triggered start passes as `triggerId`, so a
+ * run's `coding_sessions.trigger_id` names the trigger that fired it. Null
  * [agent]/[account]/[model]/[effort] mean the bound device's own launch
  * defaults.
  */
@@ -327,7 +327,7 @@ data class ActionTrigger(
     val account: String? = null,
     val model: String? = null,
     val effort: String? = null,
-    val whenPart: AutomationTrigger,
+    val whenPart: TriggerWhen,
 ) {
     /** This trigger as an `actions.update` array element (its id kept). */
     fun toWireJson(): JsonObject = actionTriggerWireJson(
@@ -344,7 +344,7 @@ data class ActionTrigger(
 
 /**
  * One element of the `triggers` array `actions.update` REPLACES WHOLE: the
- * runner, then the when-part's keys ([AutomationTrigger.toWireJson]) with an
+ * runner, then the when-part's keys ([TriggerWhen.toWireJson]) with an
  * event's `source` beside its kind. A null [id] is a NEW trigger (the server
  * mints the id); an unset (null/blank) pin is ABSENT, and [account] rides only
  * beside its agent. The server's schema is strict — no other key travels.
@@ -357,7 +357,7 @@ fun actionTriggerWireJson(
     account: String?,
     model: String?,
     effort: String?,
-    whenPart: AutomationTrigger,
+    whenPart: TriggerWhen,
 ): JsonObject = buildJsonObject {
     id?.let { put("id", it) }
     put("enabled", enabled)
@@ -369,7 +369,7 @@ fun actionTriggerWireJson(
     effort?.takeIf { it.isNotEmpty() }?.let { put("effort", it) }
     whenPart.toWireJson().forEach { (key, value) ->
         put(key, value)
-        if (key == "kind" && whenPart is AutomationTrigger.Event) {
+        if (key == "kind" && whenPart is TriggerWhen.Event) {
             put("source", TRIGGER_SOURCE_EXPONENTIAL)
         }
     }
@@ -384,7 +384,7 @@ private val triggersJson = Json { ignoreUnknownKeys = true }
  */
 fun parseActionTrigger(value: JsonElement?): ActionTrigger? {
     val obj = value as? JsonObject ?: return null
-    val whenPart = AutomationTrigger.parse(obj) ?: return null
+    val whenPart = TriggerWhen.parse(obj) ?: return null
     fun string(key: String): String? =
         (obj[key] as? JsonPrimitive)?.takeIf { it.isString }?.content?.takeIf { it.isNotEmpty() }
     val id = string("id") ?: return null
@@ -439,15 +439,15 @@ fun triggerBadges(triggers: List<ActionTrigger>): TriggerBadges {
     fun badge(ofKind: List<ActionTrigger>): TriggerBadge? =
         if (ofKind.isEmpty()) null else TriggerBadge(active = ofKind.any { it.enabled })
     return TriggerBadges(
-        schedule = badge(triggers.filter { it.whenPart is AutomationTrigger.Schedule }),
-        event = badge(triggers.filter { it.whenPart is AutomationTrigger.Event }),
+        schedule = badge(triggers.filter { it.whenPart is TriggerWhen.Schedule }),
+        event = badge(triggers.filter { it.whenPart is TriggerWhen.Event }),
     )
 }
 
 /** A suggestion's glyph: the seed's own when-part, always drawn active. */
-fun triggerBadges(whenPart: AutomationTrigger?): TriggerBadges = when (whenPart) {
-    is AutomationTrigger.Schedule -> TriggerBadges(schedule = TriggerBadge(active = true))
-    is AutomationTrigger.Event -> TriggerBadges(event = TriggerBadge(active = true))
+fun triggerBadges(whenPart: TriggerWhen?): TriggerBadges = when (whenPart) {
+    is TriggerWhen.Schedule -> TriggerBadges(schedule = TriggerBadge(active = true))
+    is TriggerWhen.Event -> TriggerBadges(event = TriggerBadge(active = true))
     null -> TriggerBadges()
 }
 
@@ -456,8 +456,8 @@ fun triggerBadges(whenPart: AutomationTrigger?): TriggerBadges = when (whenPart)
  * BOUND MACHINE's wall clock, so the recurrence carries the caveat the row
  * used to hang off an absolute next-run date (EXP-812).
  */
-fun triggerCaption(whenPart: AutomationTrigger): String =
-    if (whenPart is AutomationTrigger.Schedule) {
+fun triggerCaption(whenPart: TriggerWhen): String =
+    if (whenPart is TriggerWhen.Schedule) {
         "${triggerSummary(whenPart)} (device time)"
     } else {
         triggerSummary(whenPart)
@@ -485,7 +485,7 @@ fun actionRunTitle(startedReason: String?): String = when {
  * then `deviceId`, then the set pins, compact JSON.
  */
 fun formatTriggerBlock(
-    trigger: AutomationTrigger,
+    trigger: TriggerWhen,
     deviceId: String,
     agent: String? = null,
     model: String? = null,

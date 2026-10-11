@@ -120,6 +120,35 @@ val MIGRATION_82_83: Migration = object : Migration(82, 83) {
     }
 }
 
+/**
+ * v84 (SLOP-17): automations are triggers everywhere. The synced
+ * `coding_sessions.automation_id` is served as `trigger_id` now (the id of the
+ * action trigger that fired the run), so the column is renamed. minSdk 26
+ * predates SQLite's RENAME COLUMN, so `coding_sessions` is REBUILT like v79
+ * did, copying `automation_id` into `trigger_id`; every row survives and the
+ * coding-sessions shape refetches (its served column list changed). Any
+ * orphaned pre-SLOP-2 `automations` table and its Electric offset (plus a
+ * shape-repair marker naming it) drop too, idempotently.
+ */
+val MIGRATION_83_84: Migration = object : Migration(83, 84) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("DROP TABLE IF EXISTS `automations`")
+        db.execSQL(
+            "DELETE FROM `electric_offsets` WHERE `shape` = 'automations' OR " +
+                "(substr(`shape`, 1, 8) = '_repair:' AND substr(`shape`, -12) = ':automations')",
+        )
+        rebuild(
+            db, "coding_sessions", CODING_SESSIONS_V84, CODING_SESSION_COLUMNS_V84,
+            CODING_SESSION_INDICES_V79,
+            selectOverrides = mapOf("trigger_id" to "`automation_id`"),
+        )
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'coding_sessions'",
+        )
+    }
+}
+
 private fun rebuild(
     db: SupportSQLiteDatabase,
     table: String,
@@ -162,6 +191,13 @@ private val CODING_SESSION_COLUMNS_V79 = listOf(
     "results", "batch_issue_ids", "action_id", "action_name", "started_reason", "automation_id",
     "pr_url", "pr_number", "pr_state", "started_at", "ended_at", "created_at", "updated_at",
 )
+
+// ── v84 schema: v79's `coding_sessions` with `automation_id` → `trigger_id` ──
+
+private val CODING_SESSIONS_V84 = CODING_SESSIONS_V79.replace("`automation_id`", "`trigger_id`")
+
+private val CODING_SESSION_COLUMNS_V84 =
+    CODING_SESSION_COLUMNS_V79.map { if (it == "automation_id") "trigger_id" else it }
 
 private val CODING_SESSION_INDICES_V79 = listOf(
     "CREATE INDEX IF NOT EXISTS `index_coding_sessions_issue_id` ON `coding_sessions` (`issue_id`)",

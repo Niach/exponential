@@ -227,7 +227,7 @@ internal fun eventPhrase(
 }
 
 // EXP-530: whether a synced event renders a timeline row at all. `created`
-// rows exist as the automation-trigger substrate — the issue header already
+// rows exist as the action-trigger substrate — the issue header already
 // shows creation, so every client suppresses them (web returns null there).
 // The filter lives here (not in the composable) so the rule is lock-testable.
 internal fun eventRowVisible(type: String): Boolean = type != "created"

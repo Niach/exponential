@@ -132,8 +132,11 @@ interface Contract {
     eventSourceValues: string[]
     maxFilterIds: number
     maxPerAction: number
+    cooldownSeconds: number
+    eventCatchupHours: number
+    deviceCap: string
+    legacyDeviceCap: string
   }
-  automation: { cooldownSeconds: number; eventCatchupHours: number }
   steerCommands: {
     commands: {
       name: string
@@ -206,12 +209,12 @@ const codingSessionStaleMs = contract.codingSession.staleHours * 60 * 60 * 1000
 // (devices heartbeat ~30s; 90s = three missed beats). Pre-multiplied to ms.
 const deviceOnlineWindowMs = contract.device.onlineWindowSeconds * 1000
 
-// EXP-530 automation-host tuning, pre-multiplied to ms like the windows above:
+// EXP-530 trigger-host tuning, pre-multiplied to ms like the windows above:
 // cooldown after any triggered action start, and how far back an offline
 // device replays issue_events when it reconnects.
-const automationCooldownMs = contract.automation.cooldownSeconds * 1000
-const automationEventCatchupMs =
-  contract.automation.eventCatchupHours * 60 * 60 * 1000
+const triggerCooldownMs = contract.actionTrigger.cooldownSeconds * 1000
+const triggerEventCatchupMs =
+  contract.actionTrigger.eventCatchupHours * 60 * 60 * 1000
 
 // EXP-783: the steering transcript's budgets, window and page size — the
 // same numbers on every client, so the byte-budget trim and the rendered
@@ -560,8 +563,10 @@ ${swiftStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys)
     public static let startPromptMaxImages: Int = ${contract.startPrompt.maxImages}
     public static let actionTriggerMaxFilterIds: Int = ${contract.actionTrigger.maxFilterIds}
     public static let actionTriggerMaxPerAction: Int = ${contract.actionTrigger.maxPerAction}
-    public static let automationCooldownMs: Int = ${automationCooldownMs}
-    public static let automationEventCatchupMs: Int = ${automationEventCatchupMs}
+    public static let triggerCooldownMs: Int = ${triggerCooldownMs}
+    public static let triggerEventCatchupMs: Int = ${triggerEventCatchupMs}
+    public static let triggerDeviceCap: String = "${contract.actionTrigger.deviceCap}"
+    public static let triggerLegacyDeviceCap: String = "${contract.actionTrigger.legacyDeviceCap}"
     public static let steerFeedByteCap: Int = ${steerFeed.byteCap}
     public static let steerFeedItemCap: Int = ${steerFeed.itemCap}
     public static let steerFeedTrimTargetPercent: Int = ${steerFeed.trimTargetPercent}
@@ -706,8 +711,10 @@ ${kotlinStringArray("codingSessionLaunchKeys", contract.codingSession.launchKeys
     const val startPromptMaxImages: Int = ${contract.startPrompt.maxImages}
     const val actionTriggerMaxFilterIds: Int = ${contract.actionTrigger.maxFilterIds}
     const val actionTriggerMaxPerAction: Int = ${contract.actionTrigger.maxPerAction}
-    const val automationCooldownMs: Long = ${automationCooldownMs}L
-    const val automationEventCatchupMs: Long = ${automationEventCatchupMs}L
+    const val triggerCooldownMs: Long = ${triggerCooldownMs}L
+    const val triggerEventCatchupMs: Long = ${triggerEventCatchupMs}L
+    const val triggerDeviceCap: String = "${contract.actionTrigger.deviceCap}"
+    const val triggerLegacyDeviceCap: String = "${contract.actionTrigger.legacyDeviceCap}"
     const val steerFeedByteCap: Long = ${steerFeed.byteCap}L
     const val steerFeedItemCap: Int = ${steerFeed.itemCap}
     const val steerFeedTrimTargetPercent: Int = ${steerFeed.trimTargetPercent}
@@ -857,8 +864,10 @@ pub const START_PROMPT_MAX_LENGTH: usize = ${contract.startPrompt.maxLength};
 pub const START_PROMPT_MAX_IMAGES: usize = ${contract.startPrompt.maxImages};
 pub const ACTION_TRIGGER_MAX_FILTER_IDS: usize = ${contract.actionTrigger.maxFilterIds};
 pub const ACTION_TRIGGER_MAX_PER_ACTION: usize = ${contract.actionTrigger.maxPerAction};
-pub const AUTOMATION_COOLDOWN_MS: i64 = ${automationCooldownMs};
-pub const AUTOMATION_EVENT_CATCHUP_MS: i64 = ${automationEventCatchupMs};
+pub const TRIGGER_COOLDOWN_MS: i64 = ${triggerCooldownMs};
+pub const TRIGGER_EVENT_CATCHUP_MS: i64 = ${triggerEventCatchupMs};
+pub const TRIGGER_DEVICE_CAP: &str = "${contract.actionTrigger.deviceCap}";
+pub const TRIGGER_LEGACY_DEVICE_CAP: &str = "${contract.actionTrigger.legacyDeviceCap}";
 pub const STEER_FEED_BYTE_CAP: usize = ${steerFeed.byteCap};
 pub const STEER_FEED_ITEM_CAP: usize = ${steerFeed.itemCap};
 pub const STEER_FEED_TRIM_TARGET_PERCENT: usize = ${steerFeed.trimTargetPercent};

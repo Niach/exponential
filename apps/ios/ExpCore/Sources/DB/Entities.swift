@@ -462,10 +462,10 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
     // of its action's triggers rather than a person; NULL on user starts.
     public let startedReason: String?
     // EXP-583: the id of the TRIGGER that fired this run (SLOP-2: an element
-    // of its action's `triggers`; the column keeps its old name). A deleted
+    // of its action's `triggers`; SLOP-17 renamed the column from `automation_id`). A deleted
     // trigger leaves the history intact. NULL on user starts and on
     // pre-EXP-583 triggered rows, which carry only `startedReason`.
-    public let automationId: String?
+    public let triggerId: String?
     // EXP-637: WHO ended the run (`agent`/`user`/`client`/`merge`/`system`).
     // (EXP-864 dropped the `summary` beside it: the agent's close-out is
     // reported to the run that started it, never stored.)
@@ -521,7 +521,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         actionId: String? = nil,
         actionName: String? = nil,
         startedReason: String? = nil,
-        automationId: String? = nil,
+        triggerId: String? = nil,
         endedBy: String? = nil,
         resumedFromId: String? = nil,
         parentSessionId: String? = nil,
@@ -555,7 +555,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         self.actionId = actionId
         self.actionName = actionName
         self.startedReason = startedReason
-        self.automationId = automationId
+        self.triggerId = triggerId
         self.endedBy = endedBy
         self.resumedFromId = resumedFromId
         self.parentSessionId = parentSessionId
@@ -588,7 +588,7 @@ public struct CodingSessionEntity: FetchableRecord, PersistableRecord, Identifia
         case actionId = "action_id"
         case actionName = "action_name"
         case startedReason = "started_reason"
-        case automationId = "automation_id"
+        case triggerId = "trigger_id"
         case endedBy = "ended_by"
         case resumedFromId = "resumed_from_id"
         case parentSessionId = "parent_session_id"
@@ -645,7 +645,7 @@ extension CodingSessionEntity: Codable {
         actionName = try c.decodeIfPresent(String.self, forKey: .actionName)
         startedReason = try c.decodeIfPresent(String.self, forKey: .startedReason)
         // Pre-EXP-583 snapshots omit the key — decode permissively.
-        automationId = try c.decodeIfPresent(String.self, forKey: .automationId)
+        triggerId = try c.decodeIfPresent(String.self, forKey: .triggerId)
         // Pre-EXP-637 snapshots omit these two — decode permissively. (A
         // pre-EXP-686 row's stray `outcome`, like a pre-EXP-864 `summary`,
         // simply has no key to land in.)

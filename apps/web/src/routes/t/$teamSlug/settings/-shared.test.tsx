@@ -112,8 +112,7 @@ describe(`SETTINGS_NAV Personal group`, () => {
   const team: SettingsNavContext = { isCloud: false }
   const personal = SETTINGS_NAV.find((group) => group.group === `Personal`)!
 
-  // EXP-862: "API keys" became "Security" (keys + passkeys); /api-keys is a
-  // redirect now, not a nav entry.
+  // EXP-862: "API keys" became "Security" (keys + passkeys).
   it(`follows every team group with Account, Notifications, and Security`, () => {
     expect(SETTINGS_NAV[SETTINGS_NAV.length - 2]).toBe(personal)
     expect(

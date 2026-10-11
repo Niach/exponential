@@ -12,7 +12,7 @@
 //! EXP-686 split the old three-tab page apart: machines moved to
 //! [`crate::devices_view`] and the suggestion seeds to the Getting-started
 //! page's second tab (the header's lightbulb goes there). SLOP-2 folded the
-//! automations into their action: a row wears its triggers' glyphs, and the
+//! triggers into their action: a row wears its triggers' glyphs, and the
 //! triggers and the runs they fire live on the action's page.
 //!
 //! EXP-431 carries over: the create builtin is not a row — creation lives
@@ -177,7 +177,7 @@ impl ActionsDerived {
             .iter()
             .filter(|action| !action.triggers.is_empty())
             .map(|action| {
-                let triggers = coding::automations::parse_action_triggers(Some(
+                let triggers = coding::triggers::parse_action_triggers(Some(
                     &serde_json::Value::Array(action.triggers.clone()),
                 ));
                 (action.id.clone(), TriggerBadges::of(&triggers))

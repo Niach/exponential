@@ -38,7 +38,7 @@ One branch `exp/<IDENT>` and one PR per issue; a PR may link several issues (a b
 
 ## Guide
 
-While you work, `exponential_sessions_show` a screenshot when a picture helps, then run its `curl` now. Your Guide goes to `exponential_sessions_guide` (older servers: `exponential_sessions_results`), not chat, before the PR: it IS the PR body, so name related issues as `#IDENT`. Per `topic` (`Summary` first, then one per change or screen): 2 or 3 sentences of `text`, the `files` it touched, `label`ed pictures (`web`, `ios`) via the returned `curl` line. Sections cover every changed file; the answer names files missing from the diff. A second PR's topics carry its `prUrl`. Name any screen you could not run. `exponential_attachments_upload` does the same for an issue file; `exponential_attachments_list` lists them.
+While you work, `exponential_sessions_show` a screenshot when a picture helps, then run its `curl` now. Your Guide goes to `exponential_sessions_guide`, not chat, before the PR: it IS the PR body, so name related issues as `#IDENT`. Per `topic` (`Summary` first, then one per change or screen): 2 or 3 sentences of `text`, the `files` it touched, `label`ed pictures (`web`, `ios`) via the returned `curl` line. Sections cover every changed file; the answer names files missing from the diff. A second PR's topics carry its `prUrl`. Name any screen you could not run. `exponential_attachments_upload` does the same for an issue file; `exponential_attachments_list` lists them.
 
 Ping a person with `exponential_notifications_send` when a long task finished or a decision waits (`recipients` default: you).
 

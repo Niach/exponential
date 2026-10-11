@@ -129,6 +129,7 @@ impl ShapeStore {
             "PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON; PRAGMA busy_timeout=5000;",
         )?;
         writer.execute_batch(OFFSETS_DDL)?;
+        migrate_legacy_schema(&writer)?;
         for spec in &SHAPES {
             writer.execute_batch(&spec.ddl())?;
             // Additive schema healing: `CREATE TABLE IF NOT EXISTS` is a no-op
@@ -285,7 +286,7 @@ impl ShapeStore {
     }
 
     /// Rows whose TEXT `column` sorts at or after `bound` — the cheap
-    /// pre-filter for time-windowed scans (EXP-562: the automation hosts want
+    /// pre-filter for time-windowed scans (EXP-562: the trigger hosts want
     /// the last ~25h of `issue_events`, not the whole table, on every 30s
     /// beat).
     ///
@@ -370,6 +371,35 @@ fn row_to_map(row: &Row<'_>, names: &[String]) -> Result<Map<String, Value>> {
 // ---------------------------------------------------------------------------
 // Generic apply internals (Zig-style, table-agnostic)
 // ---------------------------------------------------------------------------
+
+/// Hand-written local migrations that run BEFORE the additive heal, all
+/// idempotent (SLOP-17, "automations" → "triggers"):
+///
+/// * the orphaned pre-SLOP-2 `automations` table (its shape is gone, nothing
+///   reads it) is dropped together with its `electric_offsets` cursor row;
+/// * `coding_sessions.automation_id` is RENAMED to `trigger_id` so the
+///   synced values survive. Renaming before the heal means the heal finds
+///   nothing missing and stamps no re-snapshot. When both columns exist
+///   (a heal raced ahead on an older build) the old one is left behind like
+///   any removed column.
+fn migrate_legacy_schema(conn: &Connection) -> Result<()> {
+    conn.execute_batch(r#"DROP TABLE IF EXISTS "automations""#)?;
+    conn.execute(r#"DELETE FROM electric_offsets WHERE shape = 'automations'"#, [])?;
+    let columns: Vec<String> = {
+        let mut stmt = conn.prepare(r#"PRAGMA table_info("coding_sessions")"#)?;
+        let names = stmt
+            .query_map([], |row| row.get::<_, String>(1))?
+            .collect::<std::result::Result<Vec<String>, _>>()?;
+        names
+    };
+    let has = |name: &str| columns.iter().any(|col| col == name);
+    if has("automation_id") && !has("trigger_id") {
+        conn.execute_batch(
+            r#"ALTER TABLE "coding_sessions" RENAME COLUMN "automation_id" TO "trigger_id""#,
+        )?;
+    }
+    Ok(())
+}
 
 /// Bring an existing table up to the current [`ShapeSpec::columns`] set by
 /// adding any missing columns as `TEXT` (see the §5.4 wedge note at the call

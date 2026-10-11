@@ -374,11 +374,8 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
   )
   expect(playbook.length).toBeLessThan(6 * 1024)
   const registered = new Set(serializeToolDefs().map((def) => def.name))
-  // "(older servers: `x`)" names a tool an OLDER self-hosted server still
-  // registers under its old name; this server need not.
-  const current = playbook.replace(/\(older servers: [^)]*\)/g, ``)
   const mentioned = new Set(
-    [...current.matchAll(/exponential_[a-z_]+/g)].map((m) => m[0])
+    [...playbook.matchAll(/exponential_[a-z_]+/g)].map((m) => m[0])
   )
   for (const name of mentioned) {
     expect(registered.has(name), `playbook names unregistered ${name}`).toBe(true)

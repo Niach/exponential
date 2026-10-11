@@ -42,7 +42,7 @@ struct TriggerDraft: Equatable {
     init() {}
 
     /// Seed the pickers from an existing/suggested trigger.
-    init(trigger: AutomationTrigger?) {
+    init(trigger: TriggerWhen?) {
         switch trigger {
         case let .schedule(s)?:
             kind = "schedule"
@@ -70,20 +70,20 @@ struct TriggerDraft: Equatable {
     /// The configured trigger in wire form. Contextual filters travel only for
     /// the event they apply to — a stale pick from a previously chosen event
     /// never rides along.
-    var trigger: AutomationTrigger {
+    var trigger: TriggerWhen {
         if kind == "schedule" {
             let comps = Calendar.current.dateComponents([.hour, .minute], from: schedTime)
             let minuteOfDay = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
-            return .schedule(AutomationScheduleTrigger(
+            return .schedule(ScheduleTrigger(
                 interval: schedInterval,
                 minuteOfDay: minuteOfDay,
                 weekday: schedInterval == "weekly" ? schedWeekday : nil,
                 dayOfMonth: schedInterval == "monthly" ? schedDayOfMonth : nil
             ))
         }
-        return .event(AutomationEventTrigger(
+        return .event(EventTrigger(
             event: eventType,
-            filters: AutomationTriggerFilters(
+            filters: TriggerFilters(
                 boardIds: filterBoardId.isEmpty ? [] : [filterBoardId],
                 labelIds: eventType == "label_added" && !filterLabelId.isEmpty
                     ? [filterLabelId] : [],
@@ -183,7 +183,7 @@ struct TriggerForm: View {
                 "Weekday",
                 selection: $draft.schedWeekday,
                 options: Array(1...7),
-                label: { AutomationTriggerDisplay.weekdayNames[$0 - 1] }
+                label: { TriggerDisplay.weekdayNames[$0 - 1] }
             )
         }
         if draft.schedInterval == "monthly" {
@@ -206,7 +206,7 @@ struct TriggerForm: View {
             "When",
             selection: $draft.eventType,
             options: DomainContract.actionTriggerEventValues,
-            label: { AutomationTriggerDisplay.eventLabel($0) }
+            label: { TriggerDisplay.eventLabel($0) }
         )
         filterRow(
             "Board",

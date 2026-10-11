@@ -140,7 +140,7 @@ pub(crate) fn preselect_repo(repos: &[ActionRepoRow]) -> Option<ActionRepoRow> {
 /// every path that ends without a running agent (a refused resolve, a failed
 /// fetch, no shell window, a disabled launcher, a failed prepare/spawn) and
 /// `started = true` the moment the agent is spawned. Runs on the FOREGROUND —
-/// an `&mut App` is exactly what the automation host's callback needs to hand
+/// an `&mut App` is exactly what the trigger host's callback needs to hand
 /// its settings write to the background executor. `FnOnce` because a start
 /// settles exactly once.
 ///
@@ -172,27 +172,27 @@ pub(crate) struct StartActionArgs {
     /// fails, so a retried relay frame can't run the same action twice while
     /// this one is still preparing. `None` on local dialog starts.
     pub reservation: Option<crate::steer_wiring::ReservationGuard>,
-    /// EXP-530: `Some` when an AUTOMATION started this run — renders the
+    /// EXP-530: `Some` when a TRIGGER started this run — renders the
     /// prompt's `## Trigger` section and stamps the session row's
     /// `startedReason`. `None` for every user start.
     pub trigger: Option<coding::TriggerNote>,
-    /// EXP-583: the `automations` row that fired it, stamped beside the
-    /// reason so the run points back at its automation. `None` for user
+    /// EXP-583: the action trigger that fired it, stamped beside the
+    /// reason so the run points back at its trigger. `None` for user
     /// starts (the server refuses one without the other).
-    pub automation_id: Option<String>,
+    pub trigger_id: Option<String>,
     /// EXP-530/EXP-739: the settled hook (see [`ActionSettledHook`]) — the
-    /// automation host backs off on `started = false`. `None` for dialog
+    /// trigger host backs off on `started = false`. `None` for dialog
     /// starts, where a person watching a failed run retries themselves.
     /// EXP-703: the terminal dock's promptless chat launch passes one too, to
     /// end its EXP-372 progress line whichever way the start settles.
     pub on_settled: Option<ActionSettledHook>,
     /// EXP-825: the composer's free text — the chat prompt / creator request
     /// for the two builtins, the additional-instructions section for every
-    /// other action. `None` on automation and dock starts.
+    /// other action. `None` on trigger and dock starts.
     pub prompt: Option<String>,
     /// FEED-67: a relay start's report handle; every refusal and failure
     /// below reports its reason through it (`StartReport::none()` for local
-    /// and automation starts).
+    /// and trigger starts).
     pub report: crate::steer_wiring::StartReport,
 }
 
@@ -210,13 +210,13 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
         activate_app,
         reservation,
         trigger,
-        automation_id,
+        trigger_id,
         on_settled,
         prompt,
         report,
     } = args;
     // EXP-530: every early return below has to release the hook, or an
-    // automation whose watermark already advanced would sit without a backoff.
+    // trigger whose watermark already advanced would sit without a backoff.
     let mut on_settled = on_settled;
     let Some(trpc) = queries::trpc_client(cx) else {
         log::warn!("actions: run ignored — not signed in");
@@ -497,7 +497,7 @@ team settings → Repositories.";
                 inputs,
                 kind,
                 trigger,
-                automation_id,
+                trigger_id,
                 device_label: coding::default_device_label(),
                 origin,
                 options,
@@ -814,7 +814,7 @@ fn launch_action(
 
 /// Run the settled hook exactly once (the `Option` is the "already fired"
 /// latch — a start settles on ONE path, and a double backoff would double the
-/// automation's cooldown).
+/// trigger's cooldown).
 fn fire_settled(on_settled: &mut Option<ActionSettledHook>, started: bool, cx: &mut App) {
     if let Some(hook) = on_settled.take() {
         hook(cx, started);

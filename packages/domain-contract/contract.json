@@ -430,11 +430,11 @@
     "scheduleIntervalValues": ["daily", "weekly", "monthly"],
     "eventSourceValues": ["exponential"],
     "maxFilterIds": 20,
-    "maxPerAction": 10
-  },
-  "automation": {
+    "maxPerAction": 10,
     "cooldownSeconds": 60,
-    "eventCatchupHours": 24
+    "eventCatchupHours": 24,
+    "deviceCap": "triggers",
+    "legacyDeviceCap": "automations"
   },
   "builtinAction": {
     "createActionId": "builtin:create-action",

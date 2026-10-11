@@ -47,7 +47,7 @@ pub mod agent_update;
 pub mod agent_usage;
 pub mod atomic_config;
 pub mod argv;
-pub mod automations;
+pub mod triggers;
 pub mod batch_launcher;
 pub mod batch_prompt;
 pub mod claude_oauth;

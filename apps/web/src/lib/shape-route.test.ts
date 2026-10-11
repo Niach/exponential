@@ -532,7 +532,7 @@ describe(`shape column + trash contracts`, () => {
       `action_id`,
       `action_name`,
       `started_reason`,
-      `automation_id`,
+      `trigger_id`,
       `user_id`,
       `device_label`,
       `device_id`,

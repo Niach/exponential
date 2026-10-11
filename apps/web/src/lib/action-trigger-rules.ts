@@ -6,9 +6,10 @@ import {
   triggerWhenPart,
   type ActionTrigger,
   type ActionTriggerInput,
-  type AutomationTrigger,
+  type TriggerWhen,
 } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
+import { capsRunTriggers } from "@/lib/steer-devices"
 import type { db as Database } from "@/db/connection"
 import {
   actions,
@@ -23,7 +24,7 @@ import {
 // their action): the write rules `actions.update({triggers})` applies to each
 // trigger. There is NO server scheduler — the bound device selects its
 // enabled triggers off the `actions` shape and self-starts the run
-// (codingSessions.start with startedReason + automationId = the trigger id).
+// (codingSessions.start with startedReason + triggerId = the trigger id).
 
 const codingAgentValues: readonly string[] = contract.codingAgent.values
 const agentModelValues: Record<string, readonly string[]> = {
@@ -148,7 +149,7 @@ export function assertTriggerGrowth(nextCount: number, storedCount: number): voi
 // — the same shared-row gate `visibleDeviceRows` (EXP-639) and steer's
 // `resolveTargetDevice` apply, so a teammate's desktop can never be bound to
 // a trigger it would never surface in a picker. The device must advertise
-// the `automations` cap — an ACTION cap (EXP-409), so its absence really means
+// the trigger cap (`triggers`, legacy `automations`) — an ACTION cap (EXP-409), so its absence really means
 // no agent is signed in on that machine, which is what the refusal says — and,
 // when an agent is pinned, advertise that agent.
 export async function assertDeviceUsable(
@@ -194,7 +195,7 @@ export async function assertDeviceUsable(
   if (usableRows.length === 0) {
     throw bad(`Trigger device must be yours or shared with this team`)
   }
-  if (!usableRows.some((row) => (row.caps ?? []).includes(`automations`))) {
+  if (!usableRows.some((row) => capsRunTriggers(row.caps))) {
     throw bad(
       `No agent is signed in on that machine — sign in on the device first`
     )
@@ -206,7 +207,7 @@ export async function assertDeviceUsable(
 
 // Event filters must name THIS team's resources — reject, never clamp.
 async function assertFiltersInTeam(
-  trigger: AutomationTrigger,
+  trigger: TriggerWhen,
   teamId: string
 ): Promise<void> {
   if (trigger.kind !== `event`) return
@@ -244,7 +245,7 @@ export function storedTriggers(value: unknown): ActionTrigger[] {
 /**
  * Turns a written triggers array into the stored one. A trigger keeps its id
  * only when the action already holds it (ids key the run history's
- * `automation_id`, so a foreign or made-up id is re-minted); unset pins are
+ * `trigger_id`, so a foreign or made-up id is re-minted); unset pins are
  * omitted. A binding that did not change is accepted as-is: co-owners can
  * toggle a trigger bound to a teammate's private device they could never
  * re-bind, and a filter whose label was since deleted does not block a pause.

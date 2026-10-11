@@ -65,7 +65,7 @@ class ActionsViewModel @Inject constructor(
 
     /**
      * The machines a suggestion's trigger can be bound to: every synced device
-     * that advertises the `automations` cap, ONLINE OR NOT (a trigger outlives
+     * that advertises the `triggers` cap, ONLINE OR NOT (a trigger outlives
      * a machine's uptime — it fires whenever that machine is next up).
      */
     val triggerDevices: StateFlow<List<SteerDevice>> = combine(
@@ -75,7 +75,7 @@ class ActionsViewModel @Inject constructor(
     ) { rows, nowMs, userId ->
         rows.sortedWith(stableDeviceOrder(nowMs))
             .map { it.toSteerDevice(nowMs, userId) }
-            .filter { it.canRunAutomations }
+            .filter { it.canRunTriggers }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     // Live from the synced actions shape (EXP-268): the DAO orders by

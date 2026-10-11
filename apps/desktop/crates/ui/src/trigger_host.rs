@@ -2,7 +2,7 @@
 //! worker's twin, per signed-in account and shaped exactly like
 //! [`crate::device_sync`].
 //!
-//! The engine ([`coding::automations`]) is PURE: this host snapshots its
+//! The engine ([`coding::triggers`]) is PURE: this host snapshots its
 //! inputs on the foreground (the parsed triggers bound to THIS device, the
 //! candidate `issue_events` rows with `board_id` joined from the synced
 //! issues, the actions with a live local run, the clock) and runs
@@ -20,12 +20,12 @@
 //! `issue_events` collection at all, and one that does reuses its last
 //! [`EventCache`] until the collection's revision moves.
 //!
-//! Firing protocol (the module doc of [`coding::automations`] is the
+//! Firing protocol (the module doc of [`coding::triggers`] is the
 //! authority, both hosts obey it): claim the `action:{id}` reservation →
 //! persist the new state FIRST → launch. A failed claim skips WITHOUT a
 //! state write (the run that holds it is the one that advances the
 //! watermark); a failed prepare extends `cooldown_until` by
-//! [`coding::automations::PREPARE_FAILURE_BACKOFF_MS`] through the
+//! [`coding::triggers::PREPARE_FAILURE_BACKOFF_MS`] through the
 //! `on_settled` hook, so a poison-pill trigger backs off instead of
 //! re-firing every beat.
 
@@ -38,9 +38,9 @@ use std::time::Duration;
 use chrono::{DateTime, Local};
 use gpui::{App, AppContext as _, Global};
 
-use coding::automations::{
-    self, AutomationState, Decision, EvalInput, EventRow, Firing, LaunchPins, TriggerKind,
-    TriggeredAutomation,
+use coding::triggers::{
+    self, TriggerState, Decision, EvalInput, EventRow, Firing, LaunchPins, TriggerKind,
+    ArmedTrigger,
 };
 use coding::{LaunchOptions, LaunchOrigin, TriggerNote, TriggerNoteKind};
 use domain::rows::ActionRow;
@@ -58,7 +58,7 @@ const BEAT: Duration = Duration::from_secs(30);
 const TICK: Duration = Duration::from_secs(1);
 
 #[derive(Default)]
-struct AutomationHostState {
+struct TriggerHostState {
     /// Stop flag per account (sign-out flips it; the loop retires itself).
     by_account: HashMap<String, Arc<AtomicBool>>,
     /// The issue_events + actions shape watches per account.
@@ -67,31 +67,31 @@ struct AutomationHostState {
     eval_soon: Arc<AtomicBool>,
 }
 
-struct AutomationHostGlobal(gpui::Entity<AutomationHostState>);
-impl Global for AutomationHostGlobal {}
+struct TriggerHostGlobal(gpui::Entity<TriggerHostState>);
+impl Global for TriggerHostGlobal {}
 
-fn state(cx: &mut App) -> gpui::Entity<AutomationHostState> {
-    if let Some(global) = cx.try_global::<AutomationHostGlobal>() {
+fn state(cx: &mut App) -> gpui::Entity<TriggerHostState> {
+    if let Some(global) = cx.try_global::<TriggerHostGlobal>() {
         return global.0.clone();
     }
-    let entity = cx.new(|_| AutomationHostState::default());
-    cx.set_global(AutomationHostGlobal(entity.clone()));
+    let entity = cx.new(|_| TriggerHostState::default());
+    cx.set_global(TriggerHostGlobal(entity.clone()));
     entity
 }
 
 /// Start the host for `account` (from `session::connect_account`, beside
 /// [`crate::device_sync::start_device_sync`]). Restarting for the same
 /// account replaces the old loop.
-pub fn start_automation_host(account: &api::Account, cx: &mut App) {
+pub fn start_trigger_host(account: &api::Account, cx: &mut App) {
     // EXP-1102: the state's one move out of settings.json — a no-op once done.
     {
         let auth = crate::session::AuthContext::global(cx);
         let device_id = steer::persistent_device_id(&auth.data_dir);
         let settings_path = coding::Settings::default_path(&auth.data_dir);
-        if automations::AutomationStore::open(&auth.data_dir, &device_id)
+        if triggers::TriggerStore::open(&auth.data_dir, &device_id)
             .migrate_legacy(&settings_path)
         {
-            log::info!("[automations] moved the automation state out of settings.json");
+            log::info!("[triggers] moved the trigger state out of settings.json");
         }
     }
     let state_entity = state(cx);
@@ -141,7 +141,7 @@ pub fn start_automation_host(account: &api::Account, cx: &mut App) {
                 // Account switched away — retire; connect_account restarts.
                 return;
             };
-            if snapshot.automations.is_empty() {
+            if snapshot.armed.is_empty() {
                 continue;
             }
             let settings_path = snapshot.settings_path.clone();
@@ -169,8 +169,8 @@ pub fn start_automation_host(account: &api::Account, cx: &mut App) {
                         Some(guard) => Some((fire, guard)),
                         None => {
                             log::info!(
-                                "[automations] {} skipped — a start holding {} is already in flight",
-                                fire.automation_id,
+                                "[triggers] {} skipped — a start holding {} is already in flight",
+                                fire.trigger_id,
                                 fire.action_id
                             );
                             None
@@ -188,17 +188,17 @@ pub fn start_automation_host(account: &api::Account, cx: &mut App) {
             // without a durable watermark the same occurrence would re-fire
             // every beat for as long as settings.json stays unwritable.
             let mut states = outcome.states;
-            let advanced: Vec<(String, AutomationState)> = claimed
+            let advanced: Vec<(String, TriggerState)> = claimed
                 .iter()
-                .map(|(fire, _)| (fire.automation_id.clone(), fire.new_state.clone()))
+                .map(|(fire, _)| (fire.trigger_id.clone(), fire.new_state.clone()))
                 .collect();
             let persisted = {
                 let settings_path = settings_path.clone();
                 let device_id = device_id.clone();
                 cx.background_executor()
                     .spawn(async move {
-                        for (automation_id, new_state) in advanced {
-                            states.insert(automation_id, new_state);
+                        for (trigger_id, new_state) in advanced {
+                            states.insert(trigger_id, new_state);
                         }
                         write_states(&settings_path, &device_id, &states)
                     })
@@ -226,7 +226,7 @@ pub fn start_automation_host(account: &api::Account, cx: &mut App) {
 
 /// Stop `account_id`'s host (from the sign-out paths, beside
 /// [`crate::device_sync::stop_device_sync`]).
-pub fn stop_automation_host(account_id: &str, cx: &mut App) {
+pub fn stop_trigger_host(account_id: &str, cx: &mut App) {
     let state = state(cx);
     state.update(cx, |state, _| {
         if let Some(stop) = state.by_account.remove(account_id) {
@@ -315,7 +315,7 @@ struct EvalSnapshot {
     device_id: String,
     /// This device's enabled, readable triggers, each carrying its team
     /// (the event fence AND the runner's up-front team).
-    automations: Vec<TriggeredAutomation>,
+    armed: Vec<ArmedTrigger>,
     /// Per-trigger launch pins (`trigger id → (agent, account, model,
     /// effort)`) — every `None` falls back to this machine's launch defaults.
     pins: HashMap<String, LaunchPins>,
@@ -345,9 +345,9 @@ fn snapshot_for(account_id: &str, cache: &mut EventCache, cx: &mut App) -> Optio
 
     let settings = hub.read(cx).settings.clone();
     let live_action_ids = sessions.read(cx).live_action_ids();
-    let (automations_bound, pins) =
-        triggered_automations(collections.actions.read(cx).iter(), &device_id);
-    if automations_bound.is_empty() || !automations::needs_events(&automations_bound) {
+    let (triggers_bound, pins) =
+        armed_triggers(collections.actions.read(cx).iter(), &device_id);
+    if triggers_bound.is_empty() || !triggers::needs_events(&triggers_bound) {
         // Nothing bound to this device, or nothing that READS events (a
         // schedule-only device never scans) — skip the potentially large
         // event collection entirely, and let the cache go with it.
@@ -355,7 +355,7 @@ fn snapshot_for(account_id: &str, cache: &mut EventCache, cx: &mut App) -> Optio
         return Some(EvalSnapshot {
             settings_path,
             device_id,
-            automations: automations_bound,
+            armed: triggers_bound,
             pins,
             events: Arc::default(),
             live_action_ids,
@@ -367,7 +367,7 @@ fn snapshot_for(account_id: &str, cache: &mut EventCache, cx: &mut App) -> Optio
     }
 
     let now_local = Local::now();
-    let cutoff = now_local.timestamp_millis() - domain::contract::AUTOMATION_EVENT_CATCHUP_MS;
+    let cutoff = now_local.timestamp_millis() - domain::contract::TRIGGER_EVENT_CATCHUP_MS;
     let issues = collections.issues.read(cx);
     let synced_events = collections.issue_events.read(cx);
     let revision = synced_events.revision();
@@ -449,7 +449,7 @@ fn snapshot_for(account_id: &str, cache: &mut EventCache, cx: &mut App) -> Optio
     Some(EvalSnapshot {
         settings_path,
         device_id,
-        automations: automations_bound,
+        armed: triggers_bound,
         pins,
         events,
         live_action_ids,
@@ -487,17 +487,17 @@ fn patch_missing_boards(
 }
 
 /// The triggers this device evaluates, over every synced action
-/// ([`automations::bound_triggers`] — the ONE resolution both hosts share, so
+/// ([`triggers::bound_triggers`] — the ONE resolution both hosts share, so
 /// a GUI/CLI hand-off never re-seeds the shared state). Returns the engine
 /// input plus the per-trigger launch pins the fire needs.
-fn triggered_automations<'a>(
+fn armed_triggers<'a>(
     rows: impl Iterator<Item = &'a ActionRow>,
     device_id: &str,
-) -> (Vec<TriggeredAutomation>, HashMap<String, LaunchPins>) {
+) -> (Vec<ArmedTrigger>, HashMap<String, LaunchPins>) {
     let mut bound = Vec::new();
     let mut pins = HashMap::new();
-    for trigger in automations::bound_triggers(rows, device_id) {
-        pins.insert(trigger.triggered.automation_id.clone(), trigger.pins);
+    for trigger in triggers::bound_triggers(rows, device_id) {
+        pins.insert(trigger.triggered.trigger_id.clone(), trigger.pins);
         bound.push(trigger.triggered);
     }
     (bound, pins)
@@ -510,28 +510,28 @@ fn triggered_automations<'a>(
 /// One action the engine decided to fire, with its prompt note pre-rendered
 /// (the display lookups live in the snapshot, not the launcher).
 struct FireOrder {
-    automation_id: String,
+    trigger_id: String,
     action_id: String,
     team_id: String,
     note: TriggerNote,
-    /// Resolved on the background pass: the automation's pins layered over
+    /// Resolved on the background pass: the trigger's pins layered over
     /// this machine's launch defaults.
     options: LaunchOptions,
-    new_state: AutomationState,
+    new_state: TriggerState,
 }
 
 struct PassOutcome {
     /// The device's whole state map INCLUDING the applied reseeds — the fire
     /// writes replace it wholesale, so it must stay complete.
-    states: HashMap<String, AutomationState>,
+    states: HashMap<String, TriggerState>,
     fires: Vec<FireOrder>,
 }
 
 fn evaluate_pass(snapshot: EvalSnapshot) -> PassOutcome {
     let now_ms = snapshot.now_local.timestamp_millis();
-    let mut states = automations::read_states(&store(&snapshot.settings_path, &snapshot.device_id));
-    let decisions = automations::evaluate(&EvalInput {
-        automations: &snapshot.automations,
+    let mut states = triggers::read_states(&store(&snapshot.settings_path, &snapshot.device_id));
+    let decisions = triggers::evaluate(&EvalInput {
+        armed: &snapshot.armed,
         states: &states,
         events: &snapshot.events[..],
         live_action_ids: &snapshot.live_action_ids,
@@ -545,41 +545,41 @@ fn evaluate_pass(snapshot: EvalSnapshot) -> PassOutcome {
             // Cooling down or already running — nothing to persist.
             Decision::Defer { .. } => {}
             Decision::Reseed {
-                automation_id,
+                trigger_id,
                 new_state,
             } => {
-                states.insert(automation_id, new_state);
+                states.insert(trigger_id, new_state);
                 reseeded = true;
             }
             Decision::Fire {
-                automation_id,
+                trigger_id,
                 firing,
                 new_state,
             } => {
-                let Some(automation) = snapshot
-                    .automations
+                let Some(armed) = snapshot
+                    .armed
                     .iter()
-                    .find(|candidate| candidate.automation_id == automation_id)
+                    .find(|candidate| candidate.trigger_id == trigger_id)
                 else {
                     continue;
                 };
-                let pins = snapshot.pins.get(&automation_id).cloned().unwrap_or_default();
+                let pins = snapshot.pins.get(&trigger_id).cloned().unwrap_or_default();
                 fires.push(FireOrder {
-                    action_id: automation.action_id.clone(),
-                    team_id: automation.team_id.clone(),
-                    note: trigger_note(automation, &firing, &snapshot),
+                    action_id: armed.action_id.clone(),
+                    team_id: armed.team_id.clone(),
+                    note: trigger_note(armed, &firing, &snapshot),
                     // EXP-583: the trigger's own pins win; everything it
                     // leaves unset follows this machine's defaults, and plan
                     // mode is forced off (an unattended run must never park
                     // at the plan-approval card).
-                    options: automations::launch_options(
+                    options: triggers::launch_options(
                         &snapshot.settings,
                         pins.agent.as_deref(),
                         pins.model.as_deref(),
                         pins.effort.as_deref(),
                         pins.account.as_deref(),
                     ),
-                    automation_id,
+                    trigger_id,
                     new_state,
                 });
             }
@@ -591,22 +591,22 @@ fn evaluate_pass(snapshot: EvalSnapshot) -> PassOutcome {
     PassOutcome { states, fires }
 }
 
-/// EXP-1102: the automation state's own store, `{data_dir}/automations/
+/// EXP-1102: the trigger state's own store, `{data_dir}/triggers/
 /// <device_id>.json` — `settings_path` only names the data dir now.
-fn store(settings_path: &Path, device_id: &str) -> automations::AutomationStore {
+fn store(settings_path: &Path, device_id: &str) -> triggers::TriggerStore {
     let data_dir = settings_path.parent().unwrap_or_else(|| Path::new("."));
-    automations::AutomationStore::open(data_dir, device_id)
+    triggers::TriggerStore::open(data_dir, device_id)
 }
 
 fn write_states(
     settings_path: &Path,
     device_id: &str,
-    states: &HashMap<String, AutomationState>,
+    states: &HashMap<String, TriggerState>,
 ) -> bool {
-    match automations::write_states(&store(settings_path, device_id), states) {
+    match triggers::write_states(&store(settings_path, device_id), states) {
         Ok(()) => true,
         Err(err) => {
-            log::warn!("[automations] state write failed: {err}");
+            log::warn!("[triggers] state write failed: {err}");
             false
         }
     }
@@ -616,14 +616,14 @@ fn write_states(
 /// event the per-issue lines (capped — the overflow becomes the note's
 /// `omitted` count).
 fn trigger_note(
-    automation: &TriggeredAutomation,
+    armed: &ArmedTrigger,
     firing: &Firing,
     snapshot: &EvalSnapshot,
 ) -> TriggerNote {
     match firing {
         Firing::Schedule { .. } => {
-            let phrase = match &automation.trigger.kind {
-                TriggerKind::Schedule(schedule) => automations::schedule_phrase(schedule),
+            let phrase = match &armed.trigger.kind {
+                TriggerKind::Schedule(schedule) => triggers::schedule_phrase(schedule),
                 // Unreachable — the engine only schedules a Schedule trigger.
                 _ => String::new(),
             };
@@ -634,7 +634,7 @@ fn trigger_note(
         Firing::Event { matches } => {
             let lines = matches
                 .iter()
-                .take(automations::TRIGGER_PROMPT_MAX_LINES)
+                .take(triggers::TRIGGER_PROMPT_MAX_LINES)
                 .map(|row| event_line(row, &snapshot.issue_display, &snapshot.label_names))
                 .collect();
             TriggerNote {
@@ -642,7 +642,7 @@ fn trigger_note(
                     lines,
                     omitted: matches
                         .len()
-                        .saturating_sub(automations::TRIGGER_PROMPT_MAX_LINES),
+                        .saturating_sub(triggers::TRIGGER_PROMPT_MAX_LINES),
                 },
             }
         }
@@ -745,7 +745,7 @@ fn launch(
     cx: &mut App,
 ) {
     let FireOrder {
-        automation_id,
+        trigger_id,
         action_id,
         team_id,
         note,
@@ -753,13 +753,13 @@ fn launch(
         ..
     } = fire;
     log::info!(
-        "[automations] {automation_id} starting {action_id} ({})",
+        "[triggers] {trigger_id} starting {action_id} ({})",
         note.started_reason()
     );
     // The poison-pill hook: a run that never reaches the agent (disabled
     // launcher, prepare failure, no window) has already advanced its
-    // watermark — without a backoff its automation would re-fire every beat.
-    let failed_automation = automation_id.clone();
+    // watermark — without a backoff its trigger would re-fire every beat.
+    let failed_trigger = trigger_id.clone();
     // EXP-739: the hook settles either way now — back off ONLY when the start
     // never reached the agent.
     let on_settled: action_run::ActionSettledHook = Box::new(move |cx: &mut App, started: bool| {
@@ -768,7 +768,7 @@ fn launch(
         }
         cx.background_executor()
             .spawn(async move {
-                back_off(&settings_path, &device_id, &failed_automation);
+                back_off(&settings_path, &device_id, &failed_trigger);
             })
             .detach();
     });
@@ -776,7 +776,7 @@ fn launch(
         StartActionArgs {
             action_id,
             team_id,
-            automation_id: Some(automation_id),
+            trigger_id: Some(trigger_id),
             // Local start: the action's own `repository_id` resolves through
             // `repositories.list` exactly like a dialog run.
             repo: ActionRepo::Resolve,
@@ -803,15 +803,15 @@ fn launch(
 /// Extend the action's cooldown by the prepare-failure backoff. Read-modify-
 /// write on the CURRENT map so a concurrent pass's reseeds survive; a state
 /// that vanished meanwhile (trigger deleted) is left alone.
-fn back_off(settings_path: &Path, device_id: &str, automation_id: &str) {
-    let mut states = automations::read_states(&store(settings_path, device_id));
-    let Some(state) = states.get_mut(automation_id) else {
+fn back_off(settings_path: &Path, device_id: &str, trigger_id: &str) {
+    let mut states = triggers::read_states(&store(settings_path, device_id));
+    let Some(state) = states.get_mut(trigger_id) else {
         return;
     };
     let now_ms = Local::now().timestamp_millis();
     let base = state.cooldown_until.unwrap_or(now_ms).max(now_ms);
-    state.cooldown_until = Some(base + automations::PREPARE_FAILURE_BACKOFF_MS);
-    log::info!("[automations] {automation_id} backed off after a failed start");
+    state.cooldown_until = Some(base + triggers::PREPARE_FAILURE_BACKOFF_MS);
+    log::info!("[triggers] {trigger_id} backed off after a failed start");
     write_states(settings_path, device_id, &states);
 }
 
@@ -868,7 +868,7 @@ mod tests {
     /// Only THIS device's ENABLED, readable triggers on a team's action are
     /// evaluated — every other one belongs to another host (or to none).
     #[test]
-    fn triggered_automations_keep_only_this_devices_triggers() {
+    fn armed_triggers_keep_only_this_devices_triggers() {
         let rows = vec![
             action_row(
                 "act-1",
@@ -888,11 +888,11 @@ mod tests {
             // No triggers at all: nothing to evaluate.
             action_row("act-4", Some("team-1"), json!([])),
         ];
-        let (bound, pins) = triggered_automations(rows.iter(), "dev-gui");
+        let (bound, pins) = armed_triggers(rows.iter(), "dev-gui");
         assert_eq!(
             bound
                 .iter()
-                .map(|automation| automation.automation_id.as_str())
+                .map(|armed| armed.trigger_id.as_str())
                 .collect::<Vec<_>>(),
             vec!["mine", "second"],
             "other devices', disabled, unreadable and team-less triggers are skipped"
@@ -910,7 +910,7 @@ mod tests {
         // GUI↔CLI hand-off never re-seeds.
         assert_eq!(
             bound[0].fingerprint,
-            automations::trigger_fingerprint(&schedule_trigger()),
+            triggers::trigger_fingerprint(&schedule_trigger()),
         );
     }
 
@@ -925,9 +925,9 @@ mod tests {
         pinned["agent"] = json!("codex");
         pinned["model"] = json!("gpt-5.1-codex");
         let row = action_row("act-1", Some("team-1"), json!([pinned]));
-        let (_, pins) = triggered_automations([row].iter(), "dev-gui");
+        let (_, pins) = armed_triggers([row].iter(), "dev-gui");
         let pin = &pins["pinned"];
-        let options = automations::launch_options(
+        let options = triggers::launch_options(
             &settings,
             pin.agent.as_deref(),
             pin.model.as_deref(),
@@ -940,7 +940,7 @@ mod tests {
 
         // Unpinned: this machine's own defaults, exactly like a dialog start
         // with untouched options.
-        let bare = automations::launch_options(&settings, None, None, None, None);
+        let bare = triggers::launch_options(&settings, None, None, None, None);
         let dialog = LaunchOptions::defaults(&settings);
         assert_eq!(bare.agent, dialog.agent);
         assert_eq!(bare.model, dialog.model);
@@ -1067,7 +1067,7 @@ mod tests {
         let snapshot = EvalSnapshot {
             settings_path: PathBuf::new(),
             device_id: "dev-gui".to_string(),
-            automations: Vec::new(),
+            armed: Vec::new(),
             pins: HashMap::new(),
             events: Arc::default(),
             live_action_ids: HashSet::new(),
@@ -1076,24 +1076,24 @@ mod tests {
             now_local: Local::now(),
             settings: coding::Settings::default(),
         };
-        let action = TriggeredAutomation {
-            automation_id: "auto".to_string(),
+        let action = ArmedTrigger {
+            trigger_id: "auto".to_string(),
             action_id: "act".to_string(),
             team_id: "team-1".to_string(),
-            trigger: automations::parse_trigger(&json!({
+            trigger: triggers::parse_trigger(&json!({
                 "kind": "event",
                 "event": "created",
             }))
             .expect("parses"),
             fingerprint: "fp".to_string(),
         };
-        let overflow = automations::TRIGGER_PROMPT_MAX_LINES + 7;
+        let overflow = triggers::TRIGGER_PROMPT_MAX_LINES + 7;
         let matches: Vec<EventRow> = (0..overflow)
             .map(|index| event_row(&format!("e{index}"), "created", None))
             .collect();
         match trigger_note(&action, &Firing::Event { matches }, &snapshot).kind {
             TriggerNoteKind::Event { lines, omitted } => {
-                assert_eq!(lines.len(), automations::TRIGGER_PROMPT_MAX_LINES);
+                assert_eq!(lines.len(), triggers::TRIGGER_PROMPT_MAX_LINES);
                 assert_eq!(omitted, 7, "the overflow is counted, never dropped silently");
             }
             other => panic!("expected an event note, got {other:?}"),
@@ -1101,11 +1101,11 @@ mod tests {
 
         // A schedule firing renders the SHARED phrase (identical copy on the
         // CLI host and in the UI's summary rows).
-        let scheduled = TriggeredAutomation {
-            automation_id: "auto".to_string(),
+        let scheduled = ArmedTrigger {
+            trigger_id: "auto".to_string(),
             action_id: "act".to_string(),
             team_id: "team-1".to_string(),
-            trigger: automations::parse_trigger(&schedule_trigger()).expect("parses"),
+            trigger: triggers::parse_trigger(&schedule_trigger()).expect("parses"),
             fingerprint: "fp".to_string(),
         };
         match trigger_note(

@@ -17,7 +17,7 @@ import SwiftUI
 // trigger variant.
 struct TriggerFormSheet: View {
     let teamId: String
-    /// Trigger-capable machines (cap `automations`), OFFLINE INCLUDED: a
+    /// Trigger-capable machines (cap `triggers`, or the legacy `automations`), OFFLINE INCLUDED: a
     /// sleeping machine still owns the trigger and fires the missed schedule
     /// when it comes back.
     let devices: [SteerDevice]

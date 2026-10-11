@@ -2,7 +2,7 @@
 //! trigger's filters. Pure — hosts pre-fetch the candidate rows (≤ the
 //! contract catch-up window) and pre-join `board_id` from issues (the
 //! issue_events shape carries none). Filter posture is CONSERVATIVE: a
-//! non-empty filter with a missing datum FAILS — an automation must never
+//! non-empty filter with a missing datum FAILS — a trigger must never
 //! fire on a row it could not check.
 
 use std::collections::HashSet;
@@ -81,7 +81,7 @@ pub fn matching_events<'a>(
     cursor: EventCursor<'_>,
     now_ms: i64,
 ) -> Vec<&'a EventRow> {
-    let cutoff = now_ms - domain::contract::AUTOMATION_EVENT_CATCHUP_MS;
+    let cutoff = now_ms - domain::contract::TRIGGER_EVENT_CATCHUP_MS;
     // Built once per call — the seen set is O(cap) and the row scan O(n).
     let seen: HashSet<&str> = match cursor {
         EventCursor::Seen { seen_ids, .. } => seen_ids.iter().map(String::as_str).collect(),
@@ -154,7 +154,7 @@ fn payload_str<'a>(row: &'a EventRow, key: &str) -> Option<&'a str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::automations::trigger::EventKind;
+    use crate::triggers::trigger::EventKind;
     use serde_json::json;
 
     fn spec(event: EventKind) -> EventSpec {
@@ -352,7 +352,7 @@ mod tests {
 
     #[test]
     fn catchup_cutoff_drops_stale_rows() {
-        let now = domain::contract::AUTOMATION_EVENT_CATCHUP_MS + 500;
+        let now = domain::contract::TRIGGER_EVENT_CATCHUP_MS + 500;
         let rows = vec![
             row("old", "created", 499),  // just outside the window
             row("edge", "created", 500), // exactly at the cutoff — kept

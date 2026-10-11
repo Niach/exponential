@@ -380,7 +380,7 @@ describe(`actions.update — triggers (SLOP-2)`, () => {
     userId: `actor`,
     sharedTeamIds: [],
     kind: `desktop`,
-    caps: [`automations`],
+    caps: [`triggers`],
     agents: [`claude`],
   }
   const action = (triggers: unknown[]) => ({

@@ -1,5 +1,5 @@
-//! Automation state persistence (EXP-530): per-(device, action) firing
-//! bookkeeping. EXP-1102: in a store of its OWN, `{data_dir}/automations/
+//! Trigger state persistence (EXP-530): per-(device, action) firing
+//! bookkeeping. EXP-1102: in a store of its OWN, `{data_dir}/triggers/
 //! <deviceId>.json` (one document per device id — the desktop app and the
 //! CLI daemon share a data dir and have two ids), replaced by rename
 //! ([`api::device_store::JsonStore`]); until then ONE foreign top-level key
@@ -19,8 +19,9 @@
 //! All stamps are ms epochs. [`write_states`] replaces the device's WHOLE
 //! map, so deleted actions' entries prune themselves on the next write. A
 //! pre-EXP-1102 install still carries its map under settings.json's
-//! `actionAutomations.<deviceId>`: [`AutomationStore::migrate_legacy`] moves
-//! it once and clears that device's sub-map.
+//! `actionAutomations.<deviceId>`: [`TriggerStore::migrate_legacy`] moves
+//! it once and clears that device's sub-map. SLOP-17: the store dir was
+//! `{data_dir}/automations/` before; [`TriggerStore::open`] renames it once.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -28,21 +29,48 @@ use std::path::{Path, PathBuf};
 use serde_json::Value;
 
 /// The legacy settings.json top-level key (read for migration only).
-pub const AUTOMATIONS_KEY: &str = "actionAutomations";
+pub const LEGACY_AUTOMATIONS_KEY: &str = "actionAutomations";
 
 /// The store's directory under the data dir.
-pub const AUTOMATIONS_STORE_DIR: &str = "automations";
+pub const TRIGGERS_STORE_DIR: &str = "triggers";
 
-/// The store: `{data_dir}/automations/`, one document per device id.
+/// SLOP-17: the store's pre-rename directory, moved onto
+/// [`TRIGGERS_STORE_DIR`] by [`migrate_legacy_dir`].
+pub const LEGACY_AUTOMATIONS_STORE_DIR: &str = "automations";
+
+/// SLOP-17: rename `{data_dir}/automations/` to `{data_dir}/triggers/` when
+/// only the old one exists. Best-effort (a failure is logged and the store
+/// starts empty, which re-seeds rather than fires) and idempotent. `true`
+/// when a rename happened.
+pub fn migrate_legacy_dir(data_dir: &Path) -> bool {
+    let legacy = data_dir.join(LEGACY_AUTOMATIONS_STORE_DIR);
+    let current = data_dir.join(TRIGGERS_STORE_DIR);
+    if !legacy.is_dir() || current.exists() {
+        return false;
+    }
+    match std::fs::rename(&legacy, &current) {
+        Ok(()) => {
+            log::info!("[triggers] moved the state dir {legacy:?} to {current:?}");
+            true
+        }
+        Err(err) => {
+            log::warn!("[triggers] moving the legacy state dir {legacy:?} failed: {err}");
+            false
+        }
+    }
+}
+
+/// The store: `{data_dir}/triggers/`, one document per device id.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct AutomationStore {
+pub struct TriggerStore {
     inner: api::device_store::JsonStore,
     device_id: String,
 }
 
-impl AutomationStore {
+impl TriggerStore {
     pub fn open(data_dir: &Path, device_id: &str) -> Self {
-        Self::at(data_dir.join(AUTOMATIONS_STORE_DIR), device_id)
+        migrate_legacy_dir(data_dir);
+        Self::at(data_dir.join(TRIGGERS_STORE_DIR), device_id)
     }
 
     pub fn at(dir: impl Into<PathBuf>, device_id: &str) -> Self {
@@ -69,7 +97,7 @@ impl AutomationStore {
             return false;
         };
         let Some(entries) = root
-            .get(AUTOMATIONS_KEY)
+            .get(LEGACY_AUTOMATIONS_KEY)
             .and_then(|devices| devices.get(&self.device_id))
             .and_then(Value::as_object)
             .cloned()
@@ -82,30 +110,30 @@ impl AutomationStore {
             match write_states(self, &states) {
                 Ok(()) => written = true,
                 Err(err) => {
-                    log::warn!("[automations] migrating state failed: {err}");
+                    log::warn!("[triggers] migrating state failed: {err}");
                     return false;
                 }
             }
         }
-        if let Some(devices) = root.get_mut(AUTOMATIONS_KEY).and_then(Value::as_object_mut) {
+        if let Some(devices) = root.get_mut(LEGACY_AUTOMATIONS_KEY).and_then(Value::as_object_mut) {
             devices.remove(&self.device_id);
             if devices.is_empty() {
-                root.as_object_mut().map(|object| object.remove(AUTOMATIONS_KEY));
+                root.as_object_mut().map(|object| object.remove(LEGACY_AUTOMATIONS_KEY));
             }
         }
         let mut rendered = serde_json::to_string_pretty(&root).unwrap_or_else(|_| "{}".to_string());
         rendered.push('\n');
         if let Err(err) = api::atomic_file::write_atomic(settings_path, &rendered) {
-            log::warn!("[automations] clearing the legacy state key failed: {err}");
+            log::warn!("[triggers] clearing the legacy state key failed: {err}");
         }
         written
     }
 }
 
-/// One action's automation bookkeeping on one device.
+/// One action's trigger bookkeeping on one device.
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct AutomationState {
-    /// [`crate::automations::trigger_fingerprint`] of the trigger this
+pub struct TriggerState {
+    /// [`crate::triggers::trigger_fingerprint`] of the trigger this
     /// state was seeded/advanced against — a mismatch re-seeds.
     pub fingerprint: String,
     /// Schedule anchor / reseed stamp (ms epoch).
@@ -121,18 +149,18 @@ pub struct AutomationState {
     /// eligible to fire. A bare watermark loses a row that COMMITS earlier
     /// but SYNCS later than its neighbour (overlapping transactions), so
     /// the cursor trails the snapshot max by
-    /// [`crate::automations::EVENT_GRACE_MS`] and dedupes by id instead.
+    /// [`crate::triggers::EVENT_GRACE_MS`] and dedupes by id instead.
     /// `None` = a legacy state, still read strictly off the watermark; it
     /// migrates on the next fire.
     pub seen_floor: Option<i64>,
     /// The matching row ids at or above `seen_floor` that were already
-    /// fired on — capped at [`crate::automations::SEEN_IDS_CAP`].
+    /// fired on — capped at [`crate::triggers::SEEN_IDS_CAP`].
     pub seen_ids: Vec<String>,
 }
 
 /// Read the device's whole state map. Missing/corrupt document → empty —
 /// the engine then re-seeds every trigger (never fires blind).
-pub fn read_states(store: &AutomationStore) -> HashMap<String, AutomationState> {
+pub fn read_states(store: &TriggerStore) -> HashMap<String, TriggerState> {
     store
         .inner
         .read(&store.device_id)
@@ -140,7 +168,7 @@ pub fn read_states(store: &AutomationStore) -> HashMap<String, AutomationState> 
         .unwrap_or_default()
 }
 
-fn decode_map(value: &Value) -> HashMap<String, AutomationState> {
+fn decode_map(value: &Value) -> HashMap<String, TriggerState> {
     let Some(entries) = value.as_object() else {
         return HashMap::new();
     };
@@ -149,7 +177,7 @@ fn decode_map(value: &Value) -> HashMap<String, AutomationState> {
         .map(|(action_id, entry)| {
             (
                 action_id.clone(),
-                AutomationState {
+                TriggerState {
                     fingerprint: entry
                         .get("fingerprint")
                         .and_then(Value::as_str)
@@ -180,8 +208,8 @@ fn decode_map(value: &Value) -> HashMap<String, AutomationState> {
 /// Write the device's state map, replacing the document WHOLESALE —
 /// entries for actions the caller no longer tracks are pruned.
 pub fn write_states(
-    store: &AutomationStore,
-    states: &HashMap<String, AutomationState>,
+    store: &TriggerStore,
+    states: &HashMap<String, TriggerState>,
 ) -> std::io::Result<()> {
     let mut entries = serde_json::Map::new();
     for (action_id, state) in states {
@@ -226,13 +254,13 @@ mod tests {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        path.push(format!("exp-automations-{tag}-{}-{nanos}", std::process::id()));
+        path.push(format!("exp-triggers-{tag}-{}-{nanos}", std::process::id()));
         std::fs::create_dir_all(&path).unwrap();
         TempDir(path)
     }
 
-    fn state(fingerprint: &str, fired: i64) -> AutomationState {
-        AutomationState {
+    fn state(fingerprint: &str, fired: i64) -> TriggerState {
+        TriggerState {
             fingerprint: fingerprint.to_string(),
             last_fired_at: Some(fired),
             watermark_created_at: Some(fired),
@@ -249,35 +277,35 @@ mod tests {
     #[test]
     fn states_round_trip_per_device_and_prune_wholesale() {
         let dir = temp_dir("roundtrip");
-        let cli = AutomationStore::open(&dir.0, "cli-dev");
-        let desk = AutomationStore::open(&dir.0, "desk-dev");
-        let mine: HashMap<String, AutomationState> =
+        let cli = TriggerStore::open(&dir.0, "cli-dev");
+        let desk = TriggerStore::open(&dir.0, "desk-dev");
+        let mine: HashMap<String, TriggerState> =
             [("act-1".to_string(), state("fp-1", 100))].into();
         write_states(&cli, &mine).unwrap();
-        let sibling: HashMap<String, AutomationState> =
+        let sibling: HashMap<String, TriggerState> =
             [("act-2".to_string(), state("fp-2", 200))].into();
         write_states(&desk, &sibling).unwrap();
         assert_eq!(read_states(&cli), mine);
         assert_eq!(read_states(&desk), sibling);
-        assert!(read_states(&AutomationStore::open(&dir.0, "unknown")).is_empty());
-        let replaced: HashMap<String, AutomationState> =
+        assert!(read_states(&TriggerStore::open(&dir.0, "unknown")).is_empty());
+        let replaced: HashMap<String, TriggerState> =
             [("act-3".to_string(), state("fp-3", 300))].into();
         write_states(&cli, &replaced).unwrap();
         assert_eq!(read_states(&cli), replaced);
         assert_eq!(read_states(&desk), sibling);
-        assert!(dir.0.join("automations").join("cli-dev.json").exists());
+        assert!(dir.0.join("triggers").join("cli-dev.json").exists());
         assert!(!dir.0.join("settings.json").exists());
     }
 
     #[test]
     fn missing_or_corrupt_document_reads_as_empty() {
         let dir = temp_dir("corrupt");
-        let store = AutomationStore::open(&dir.0, "d");
+        let store = TriggerStore::open(&dir.0, "d");
         assert!(read_states(&store).is_empty());
-        std::fs::create_dir_all(dir.0.join("automations")).unwrap();
-        std::fs::write(dir.0.join("automations").join("d.json"), "{not json").unwrap();
+        std::fs::create_dir_all(dir.0.join("triggers")).unwrap();
+        std::fs::write(dir.0.join("triggers").join("d.json"), "{not json").unwrap();
         assert!(read_states(&store).is_empty());
-        let states: HashMap<String, AutomationState> =
+        let states: HashMap<String, TriggerState> =
             [("act-1".to_string(), state("fp", 1))].into();
         write_states(&store, &states).unwrap();
         assert_eq!(read_states(&store), states);
@@ -286,10 +314,10 @@ mod tests {
     #[test]
     fn optional_stamps_survive_as_null() {
         let dir = temp_dir("nulls");
-        let store = AutomationStore::open(&dir.0, "d");
-        let bare: HashMap<String, AutomationState> = [(
+        let store = TriggerStore::open(&dir.0, "d");
+        let bare: HashMap<String, TriggerState> = [(
             "act-1".to_string(),
-            AutomationState {
+            TriggerState {
                 fingerprint: "fp".to_string(),
                 ..Default::default()
             },
@@ -297,6 +325,29 @@ mod tests {
         .into();
         write_states(&store, &bare).unwrap();
         assert_eq!(read_states(&store), bare);
+    }
+
+    /// SLOP-17: a pre-rename `automations/` store dir moves to `triggers/`
+    /// on open, keeping its documents; a second open (or an existing
+    /// `triggers/`) leaves everything alone.
+    #[test]
+    fn legacy_store_dir_is_renamed_once() {
+        let dir = temp_dir("legacy-dir");
+        let legacy = dir.0.join("automations");
+        std::fs::create_dir_all(&legacy).unwrap();
+        let states: HashMap<String, TriggerState> =
+            [("act-1".to_string(), state("fp-1", 100))].into();
+        write_states(&TriggerStore::at(&legacy, "d"), &states).unwrap();
+        let store = TriggerStore::open(&dir.0, "d");
+        assert!(!legacy.exists(), "the old dir is gone");
+        assert!(dir.0.join("triggers").join("d.json").exists());
+        assert_eq!(read_states(&store), states);
+        assert!(!migrate_legacy_dir(&dir.0), "idempotent");
+        // Both present: the new dir wins, the old one is left untouched.
+        std::fs::create_dir_all(&legacy).unwrap();
+        assert!(!migrate_legacy_dir(&dir.0));
+        assert!(legacy.exists());
+        assert_eq!(read_states(&TriggerStore::open(&dir.0, "d")), states);
     }
 
     /// EXP-1102: the legacy settings.json map moves into the store once —
@@ -313,7 +364,7 @@ mod tests {
             }
         });
         std::fs::write(&path, raw.to_string()).unwrap();
-        let store = AutomationStore::open(&dir.0, "desk-1");
+        let store = TriggerStore::open(&dir.0, "desk-1");
         assert!(store.migrate_legacy(&path));
         let states = read_states(&store);
         assert_eq!(states["act-1"].fingerprint, "fp-1");
@@ -325,7 +376,7 @@ mod tests {
         assert_eq!(root["actionAutomations"]["cli-1"]["act-9"]["fingerprint"], "fp-9");
         assert!(!store.migrate_legacy(&path), "nothing left");
         // The sibling's turn clears the key entirely.
-        assert!(AutomationStore::open(&dir.0, "cli-1").migrate_legacy(&path));
+        assert!(TriggerStore::open(&dir.0, "cli-1").migrate_legacy(&path));
         let root: Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
         assert!(root.get("actionAutomations").is_none());
     }

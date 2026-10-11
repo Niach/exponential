@@ -384,7 +384,7 @@ pub(crate) enum AccountTrigger {
 /// EXP-1030: the SURFACE is THE picker primitive's
 /// ([`crate::picker::account_picker`]) — this function is the trigger and the
 /// row body, nothing else. Every launch surface (the composer's account pin,
-/// the automation editor's) reaches the primitive through here, so none of
+/// the trigger editor's) reaches the primitive through here, so none of
 /// them holds a menu of its own any more.
 pub(crate) fn account_picker(
     id: impl Into<gpui::ElementId>,

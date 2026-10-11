@@ -22,7 +22,7 @@ pub struct BatchPromptArgs<'a> {
     /// The batch working branch (`exp/batch-<id8>`), already checked out.
     pub branch: &'a str,
     pub issues: &'a [BatchIssueSpec],
-    /// EXP-679 / EXP-1222: an UNATTENDED run (an automation's, or one another
+    /// EXP-679 / EXP-1222: an UNATTENDED run (a trigger's, or one another
     /// coding session started) is the only one told to close out with
     /// `exponential_sessions_end` LAST; an attended one (the server registers
     /// the tool for it too) calls it only when the person asks.

@@ -597,7 +597,7 @@ const sessionColumns = {
   actionId: codingSessions.actionId,
   actionName: codingSessions.actionName,
   startedReason: codingSessions.startedReason,
-  automationId: codingSessions.automationId,
+  triggerId: codingSessions.triggerId,
   userId: codingSessions.userId,
   deviceLabel: codingSessions.deviceLabel,
   deviceId: codingSessions.deviceId,

@@ -1,6 +1,6 @@
 //! EXP-1005 / EXP-1067 — the ACCOUNT ROTATION decision, pure and headless.
 //!
-//! Every run on this device (person-started, automation, agent-started)
+//! Every run on this device (person-started, trigger, agent-started)
 //! spends ONE signed-in account profile of its agent. Two moments
 //! decide which:
 //!
@@ -11,7 +11,7 @@
 //!   cache ([`crate::agent_usage::profile_usage_snapshot`], no probe: the
 //!   cache is fresh enough to avoid an obviously walled login). EXP-1107: a
 //!   launch that NAMES its account (the composer's pick, the last used login,
-//!   an automation's account) keeps it unless that
+//!   a trigger's account) keeps it unless that
 //!   login is WALLED; only an unpinned launch goes to the most headroom.
 //! * **At a wall** ([`pick_rotation_target`], driven by a host's
 //!   [`RotationTracker`] beat): a run whose `blocked.kind = rate_limit` is
@@ -405,7 +405,7 @@ impl StartPick {
 /// eligible profile has more headroom, or the launch's account IS the pick.
 ///
 /// EXP-1107 (owner decision): a PINNED launch — `account` names a profile:
-/// the composer's pick, the last used login or an automation's account
+/// the composer's pick, the last used login or a trigger's account
 /// — keeps it unless that login is WALLED (spent on a
 /// window the run would draw on); "less headroom" never overrides a person's
 /// choice. Only an unpinned launch (`None`, or [`start_pick_from`] told so)
@@ -477,7 +477,7 @@ pub fn start_pick_from(
 /// Apply [`start_pick`] to a launch: rewrite `account` in place and hand
 /// back what changed. The ONE call `coding::prepare` makes for every fresh
 /// issue, batch and action launch on the device. An account the launch
-/// named explicitly (a composer, device-default or automation pick) is kept unless it is walled (EXP-1107, see [`start_pick`]);
+/// named explicitly (a composer, device-default or trigger pick) is kept unless it is walled (EXP-1107, see [`start_pick`]);
 /// `named = false` leaves it unpinned.
 pub fn apply_start_pick(
     account: &mut Option<String>,

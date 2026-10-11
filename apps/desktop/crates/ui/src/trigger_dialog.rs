@@ -21,7 +21,7 @@ use gpui_component::{
 use std::cell::Cell;
 use std::rc::Rc;
 
-use coding::automations::ActionTrigger;
+use coding::triggers::ActionTrigger;
 
 use crate::controls::WebControl as _;
 use crate::native_dialog::{self, DialogContent, DialogSpec};

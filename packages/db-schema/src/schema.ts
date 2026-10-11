@@ -841,17 +841,17 @@ export const codingSessions = pgTable(
     // EXP-530: why the session started — 'schedule' | 'event' | 'agent'
     // (documented varchar, startedReasonValues in domain.ts; NULL = a person
     // started it). Set only by codingSessions.start: schedule/event when a
-    // device's automation host fires an action trigger, and 'agent'
+    // device's trigger host fires an action trigger, and 'agent'
     // (EXP-679) when another coding session started this one through
     // `exponential_sessions_start` — equally unattended, so its close-out
-    // ends it. Powers the "Automated" badge + Automations run history on
+    // ends it. Powers the "Automated" badge + the action's run history on
     // every client (synced via the shape).
     startedReason: varchar(`started_reason`, { length: 16 }),
     // EXP-583/SLOP-2: the id of the action TRIGGER (`actions.triggers[].id`)
     // that fired this run; NULL for every human start. No FK: triggers live
     // in a jsonb array, so the id outlives a removed trigger as plain history.
     // Powers per-trigger "last run" on every client (synced via the shape).
-    automationId: uuid(`automation_id`),
+    triggerId: uuid(`trigger_id`),
     // EXP-679: the run that started this one via `exponential_sessions_start`
     // (stamped by the MCP tool from its session header). Synced since EXP-818
     // (the session tree nests on it ×4); history only, so SET NULL keeps the

@@ -84,11 +84,11 @@ class StartedRunMatchTest {
         assertFalse(matches(session(issueId = "issue-1", startedAt = "2026-07-17T11:00:00Z"), key))
     }
 
-    /** EXP-530: automation-started rows are the device's own doing — a user's
+    /** EXP-530: trigger-started rows are the device's own doing — a user's
      * pending start watch must never grab one, even when the action name and
      * timing line up. */
     @Test
-    fun automationStartedRowsNeverMatch() {
+    fun triggerStartedRowsNeverMatch() {
         val key = StartedRunKey.Action("Fix merge conflicts")
         assertFalse(
             matches(
@@ -133,7 +133,7 @@ class StartedRunMatchTest {
     }
 
     @Test
-    fun resumedRunKeepsTheOwnershipTimingAndAutomationCuts() {
+    fun resumedRunKeepsTheOwnershipTimingAndTriggerCuts() {
         val key = StartedRunKey.Resumed("sess-old")
         assertFalse(matches(session(resumedFromId = "sess-old", userId = "user-2"), key))
         assertFalse(
@@ -142,7 +142,7 @@ class StartedRunMatchTest {
                 key,
             ),
         )
-        // An automation that happened to resume something is the device's own
+        // A trigger run that happened to resume something is the device's own
         // doing — the reason cut runs before the key.
         assertFalse(
             matches(

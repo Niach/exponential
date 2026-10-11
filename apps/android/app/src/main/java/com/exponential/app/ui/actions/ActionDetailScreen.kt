@@ -47,7 +47,7 @@ import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.CodingSessionEntity
 import com.exponential.app.domain.ActionTrigger
 import com.exponential.app.domain.AgentComposerSeed
-import com.exponential.app.domain.AutomationTrigger
+import com.exponential.app.domain.TriggerWhen
 import com.exponential.app.domain.SessionDevicePresentation
 import com.exponential.app.domain.actionRunTitle
 import com.exponential.app.domain.SessionTreeNode
@@ -81,7 +81,7 @@ import com.exponential.app.domain.Prompts
 
 // The action page (SLOP-2): ONE action — what it says, when it fires on its
 // own, and what it ran. An action row (and an `action` entity ref) opens it; it
-// replaces the edit sheet and the Automations segment. The header carries
+// replaces the edit sheet and the old separate triggers segment. The header carries
 // back, the action's glyph + name and Run (the Agent page composer with the
 // action preselected, EXP-825). On a phone the three parts are TABS on a
 // pager — `Prompt | Triggers | Runs`, the Work screen's face strip (wide
@@ -347,9 +347,9 @@ private fun TriggersTab(
 }
 
 /** The glyph of a trigger kind — the Triggers rows. */
-internal fun triggerGlyph(whenPart: AutomationTrigger): ImageVector = when (whenPart) {
-    is AutomationTrigger.Schedule -> ExpIcons.triggerSchedule
-    is AutomationTrigger.Event -> ExpIcons.triggerEvent
+internal fun triggerGlyph(whenPart: TriggerWhen): ImageVector = when (whenPart) {
+    is TriggerWhen.Schedule -> ExpIcons.triggerSchedule
+    is TriggerWhen.Event -> ExpIcons.triggerEvent
 }
 
 // One trigger: its kind's glyph, the trigger sentence (a schedule carries

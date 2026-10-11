@@ -732,11 +732,16 @@ public struct SteerDevice: Decodable, Sendable, Identifiable {
     public var canImportAgent: Bool { caps?.contains(AgentAccountsRows.importCap) == true }
 
     /// EXP-530: whether this machine runs action triggers locally (watches
-    /// its own sync and fires the schedule/event ones bound to it; the cap
-    /// string keeps its old name). Trigger device pickers
+    /// its own sync and fires the schedule/event ones bound to it). SLOP-17:
+    /// the cap is `triggers`; older daemons still advertise only the legacy
+    /// `automations`, so either counts. Trigger device pickers
     /// offer only these — an offline-but-capable machine stays pickable (its
     /// missed schedule fires once when it comes back).
-    public var canRunTriggers: Bool { caps?.contains("automations") == true }
+    public var canRunTriggers: Bool {
+        guard let caps else { return false }
+        return caps.contains(DomainContract.triggerDeviceCap)
+            || caps.contains(DomainContract.triggerLegacyDeviceCap)
+    }
 
     /// EXP-420: whether this device's reported version compares below the
     /// given latest. Unknown or unparsable on either side = false — the

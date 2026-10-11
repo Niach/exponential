@@ -111,8 +111,10 @@ object DomainContract {
     const val startPromptMaxImages: Int = 4
     const val actionTriggerMaxFilterIds: Int = 20
     const val actionTriggerMaxPerAction: Int = 10
-    const val automationCooldownMs: Long = 60000L
-    const val automationEventCatchupMs: Long = 86400000L
+    const val triggerCooldownMs: Long = 60000L
+    const val triggerEventCatchupMs: Long = 86400000L
+    const val triggerDeviceCap: String = "triggers"
+    const val triggerLegacyDeviceCap: String = "automations"
     const val steerFeedByteCap: Long = 16777216L
     const val steerFeedItemCap: Int = 200000
     const val steerFeedTrimTargetPercent: Int = 90

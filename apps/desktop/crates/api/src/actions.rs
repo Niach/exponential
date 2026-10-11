@@ -164,7 +164,7 @@ pub struct Action {
     pub prompt_placeholder: Option<String>,
     /// SLOP-2: the action's triggers, each a when-part (schedule or event)
     /// plus its runner. Kept as loose JSON so a newer server's trigger kind
-    /// never fails decoding — `coding::automations::parse_action_triggers`
+    /// never fails decoding — `coding::triggers::parse_action_triggers`
     /// owns the tolerant read. Always empty on a builtin.
     #[serde(default, deserialize_with = "tolerant_triggers")]
     pub triggers: Vec<serde_json::Value>,

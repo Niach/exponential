@@ -103,9 +103,9 @@ pub const SHAPES: [ShapeSpec; 21] = [
             "slug",
             "icon_url",
             "pr_opened_status_id",
-            "pr_opened_automation",
+            "pr_opened_trigger",
             "pr_merged_status_id",
-            "pr_merged_automation",
+            "pr_merged_trigger",
             // EXP-711: the merge-ends-sessions toggle.
             "end_sessions_on_merge",
             // EXP-1105: yolo mode (hides Reviews/Files/Source Control).
@@ -458,7 +458,7 @@ pub const SHAPES: [ShapeSpec; 21] = [
             "pr_url",
             "pr_number",
             "pr_state",
-            // EXP-530 automation attribution: `action_id`/`action_name` scope
+            // EXP-530 trigger attribution: `action_id`/`action_name` scope
             // a run to its action (name snapshotted — outlives a deleted
             // row), `started_reason` (`schedule`/`event`, NULL = manual)
             // marks self-started runs. `heal_missing_columns` ALTERs them
@@ -466,9 +466,10 @@ pub const SHAPES: [ShapeSpec; 21] = [
             // real values, not NULLs.
             "action_id",
             "action_name",
-            // EXP-583/SLOP-2: the TRIGGER that fired the run (NULL on
-            // manual starts) — heals onto existing store tables like the rest.
-            "automation_id",
+            // EXP-583/SLOP-2/SLOP-17: the TRIGGER that fired the run (NULL
+            // on manual starts). `ShapeStore::open` renames a pre-SLOP-17
+            // local `automation_id` column onto it.
+            "trigger_id",
             "started_reason",
             // EXP-637 close-out: the agent's own `summary`, who ended the
             // run (`ended_by`) and the ended run a resume came from. The
@@ -512,8 +513,8 @@ pub const SHAPES: [ShapeSpec; 21] = [
             // SLOP-2: the action's triggers (jsonb array, TEXT-stored like
             // `inputs`) — the old `automations` shape folded in, and what
             // the bound device fires off. `heal_missing_columns` ALTERs it
-            // onto an existing local table. The pre-SLOP-2 `automations`
-            // table stays behind as an orphan nothing reads.
+            // onto an existing local table. `ShapeStore::open` drops the
+            // orphaned pre-SLOP-2 `automations` table (SLOP-17).
             "triggers",
             "sort_order",
             "created_at",
@@ -975,7 +976,7 @@ mod tests {
 
     #[test]
     fn coding_sessions_sync_the_run_close_out() {
-        // EXP-637: the ended strip, the automation run rows and Resume all
+        // EXP-637: the ended strip, the trigger run rows and Resume all
         // read these — dropping any silently turns every finished run back
         // into a bare "Ended" with no summary and no resume target.
         // `merged_own_pr` is SERVER-ONLY and must never appear here; EXP-686
@@ -1000,7 +1001,8 @@ mod tests {
         assert!(shape_by_name("automations").is_none());
         // And the run rows point back at the trigger that fired them.
         let sessions = shape_by_name("coding_sessions").unwrap();
-        assert!(sessions.columns.contains(&"automation_id"));
+        assert!(sessions.columns.contains(&"trigger_id"));
+        assert!(!sessions.columns.contains(&"automation_id"));
     }
 
     #[test]
@@ -1009,9 +1011,9 @@ mod tests {
         // dropping any silently shows every team as builtin-default.
         let spec = shape_by_name("teams").unwrap();
         assert!(spec.columns.contains(&"pr_opened_status_id"));
-        assert!(spec.columns.contains(&"pr_opened_automation"));
+        assert!(spec.columns.contains(&"pr_opened_trigger"));
         assert!(spec.columns.contains(&"pr_merged_status_id"));
-        assert!(spec.columns.contains(&"pr_merged_automation"));
+        assert!(spec.columns.contains(&"pr_merged_trigger"));
         // EXP-711: the same card's merge-ends-sessions switch, and the
         // batch self-close predicate in coding_flow.
         assert!(spec.columns.contains(&"end_sessions_on_merge"));
