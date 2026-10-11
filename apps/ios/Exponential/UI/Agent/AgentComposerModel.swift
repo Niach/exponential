@@ -503,9 +503,6 @@ final class AgentComposerModel {
 
     func selectDevice(_ id: String) {
         let switched = id != launch.lastSeededDeviceId
-        // EXP-1278: the login the pill shows on the machine being left — the
-        // new machine keeps it when it has the same one.
-        let previous = launch.selectedAccount(in: launch.accountOptions(on: device))
         touched = true
         deviceId = id
         // EXP-836: a human pick retires the seed's REQUEST (web's two slots:
@@ -515,7 +512,7 @@ final class AgentComposerModel {
         // The newly selected desktop may not run the chosen agent; a
         // DIFFERENT machine brings its own coding defaults (EXP-437).
         launch.clampAgent(to: device)
-        if switched { launch.seed(from: device, carrying: previous) }
+        if switched { launch.seed(from: device) }
     }
 
     /// After anything that can implicitly re-resolve `device` (a heartbeat
