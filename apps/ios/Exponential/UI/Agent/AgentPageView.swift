@@ -282,6 +282,11 @@ struct AgentPageView: View {
             sessions: sessions,
             seed: seed
         )
+        // EXP-1277: seed the options off the machine the pool has ALREADY
+        // resolved. The `onChange(of: deviceId)` below only fires when that
+        // id changes — a composer rebuilt for the same machine (the team
+        // resolving after onAppear) would otherwise never seed.
+        model.reconcileDevice()
         Task { await model.load() }
         return model
     }
