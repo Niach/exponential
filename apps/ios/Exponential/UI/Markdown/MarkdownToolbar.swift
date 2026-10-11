@@ -17,8 +17,17 @@ private let log = Logger(subsystem: "com.exponential", category: "MarkdownToolba
 ///
 /// Every mode keeps the SAME height: `UIInputView` self-sizing fights a
 /// changing accessory height, and the keyboard jumps if it wins.
+///
+/// EXP-1276: `dismissOnly` is a small glass circle floating at the trailing
+/// edge with nothing but the keyboard-down chevron — the one-message
+/// composers (the Agent page) offer no formatting, but a phone has no other
+/// on-screen way to put the keyboard away. The rest of the strip is clear and
+/// lets touches through. No rail, no modes: every mode/state hook is a no-op.
 final class MarkdownToolbar: UIInputView {
     enum RailMode { case main, text, link }
+
+    /// EXP-1276: the chevron-only accessory.
+    let isDismissOnly: Bool
 
     weak var textView: UITextView? {
         didSet {
@@ -90,15 +99,25 @@ final class MarkdownToolbar: UIInputView {
     private let iconPointSize: CGFloat = 18
     private let inactiveTint = UIColor.white.withAlphaComponent(0.65)
 
-    init() {
+    init(dismissOnly: Bool = false) {
+        isDismissOnly = dismissOnly
         super.init(frame: CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 48),
-                   inputViewStyle: .keyboard)
+                   inputViewStyle: dismissOnly ? .default : .keyboard)
         allowsSelfSizing = true
         setupBar()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
+
+    /// EXP-1276: the chevron-only strip claims touches only on its circle —
+    /// the clear rest of it must not eat taps meant for the page under it.
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard isDismissOnly else { return super.point(inside: point, with: event) }
+        return dismissButton.convert(dismissButton.bounds, to: self)
+            .insetBy(dx: -4, dy: -4)
+            .contains(point)
+    }
 
     // MARK: - Construction
 
@@ -118,6 +137,23 @@ final class MarkdownToolbar: UIInputView {
         // Kept as a stored constraint so the button can collapse out of the way
         // in the text/link rails instead of leaving 36pt of dead space.
         dismissWidthConstraint = dismissButton.constraints.first { $0.firstAttribute == .width }
+
+        if isDismissOnly {
+            // One 40pt glass circle on the trailing edge, the chevron centred
+            // in it; the strip itself stays clear.
+            backgroundColor = .clear
+            blur.layer.cornerRadius = 20
+            pill.addSubview(dismissButton)
+            NSLayoutConstraint.activate([
+                blur.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+                blur.centerYAnchor.constraint(equalTo: centerYAnchor),
+                blur.widthAnchor.constraint(equalToConstant: 40),
+                blur.heightAnchor.constraint(equalToConstant: 40),
+                dismissButton.centerXAnchor.constraint(equalTo: pill.centerXAnchor),
+                dismissButton.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+            ])
+            return
+        }
 
         scroll = UIScrollView()
         scroll.showsHorizontalScrollIndicator = false
@@ -303,7 +339,7 @@ final class MarkdownToolbar: UIInputView {
     // MARK: - Modes
 
     private func setMode(_ newMode: RailMode, animated: Bool = true) {
-        guard mode != newMode else { return }
+        guard !isDismissOnly, mode != newMode else { return }
         mode = newMode
         let apply = { [weak self] in
             self?.applyModeVisibility()
@@ -359,7 +395,7 @@ final class MarkdownToolbar: UIInputView {
     /// time; runs at most once per runloop and only touches tints when the
     /// derived state actually changes.
     func updateState() {
-        guard !updateScheduled else { return }
+        guard !isDismissOnly, !updateScheduled else { return }
         updateScheduled = true
         DispatchQueue.main.async { [weak self] in
             self?.updateScheduled = false

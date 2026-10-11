@@ -1,4 +1,3 @@
-import ExpCore
 import Foundation
 
 /// EXP-825: the launch options a run carries — agent, model, effort, the two
@@ -20,34 +19,44 @@ import Foundation
 /// Lifted into its own object because the Agent page composer holds it
 /// alongside a subject that changes underneath it; the sheet could keep it
 /// as `@State` because it was rebuilt on every open.
+///
+/// EXP-1277: a FRESH state is already a sendable claude launch — the model
+/// starts on the contract default, exactly like the web dialog seeds a static
+/// default on open. A composer rebuilt for the same machine (the team
+/// resolving after onAppear) never sees a device-id change and therefore
+/// never seeds; a blank model there rendered an empty chip and the server
+/// refused the start ("Unknown claude model"). Lives in ExpCore so the seed
+/// rules are unit-tested.
 @MainActor @Observable
-final class LaunchOptionsState {
-    var agent = "claude"
-    var model = ""
+public final class LaunchOptionsState {
+    public var agent = "claude"
+    public var model = LaunchVocabulary.defaultModel(for: "claude")
     /// EXP-981: claude only — the model its subagents run on.
     /// `LaunchVocabulary.cliDefault` = the CLI's own default, which a start
     /// sends as NO field at all.
-    var subagentModel = LaunchVocabulary.cliDefault
-    var effort = LaunchVocabulary.cliDefault
-    var ultracode = false
-    var planMode = false
+    public var subagentModel = LaunchVocabulary.cliDefault
+    public var effort = LaunchVocabulary.cliDefault
+    public var ultracode = false
+    public var planMode = false
     /// EXP-481: the resume offer's latch — defaults ON, only the user flips
     /// it; eligibility (`resumeCandidate`) is the composer's to compute.
-    var resume = true
+    public var resume = true
     /// EXP-825: the picked login profile id, sent verbatim (`system` = the
     /// ambient login); `""` = unnamed, the machine's last used login (sent as
     /// no account). Reset on every agent change and on a device change, unless
     /// the new machine has the same login (EXP-1278) — profiles are per
     /// machine and per agent.
-    var account = ""
+    public var account = ""
 
     /// The machine the options currently reflect (EXP-437).
-    private(set) var lastSeededDeviceId: String?
+    public private(set) var lastSeededDeviceId: String?
 
     /// EXP-1278: the login the pick resolved to on that machine — what the
     /// next device change (a person's pick OR an implicit re-resolve) carries
     /// over when the new machine has it too. Nil after an agent switch.
     private var pickedLogin: AccountOption?
+
+    public init() {}
 
     // MARK: - Agents
 
@@ -56,7 +65,7 @@ final class LaunchOptionsState {
     /// one means the machine can run nothing (EXP-409) — such devices never
     /// reach the candidate pool, so the claude fallback only covers the
     /// no-device case.
-    func availableAgents(for device: SteerDevice?) -> [String] {
+    public func availableAgents(for device: SteerDevice?) -> [String] {
         let supported = device?.agentIds ?? ["claude"]
         let ordered = DomainContract.codingAgentValues.filter { supported.contains($0) }
         return ordered.isEmpty ? ["claude"] : ordered
@@ -65,7 +74,7 @@ final class LaunchOptionsState {
     /// Switch agent: model/effort/toggles reseed from the machine's defaults
     /// for the NEW agent (EXP-437 — they are per-agent), falling back to the
     /// agent's static defaults, then clamp to what it supports.
-    func selectAgent(_ value: String, device: SteerDevice?) {
+    public func selectAgent(_ value: String, device: SteerDevice?) {
         guard value != agent else { return }
         agent = value
         applyAgentDefaults(for: value, device: device)
@@ -73,7 +82,7 @@ final class LaunchOptionsState {
     }
 
     /// The newly resolved machine may not run the chosen agent.
-    func clampAgent(to device: SteerDevice?) {
+    public func clampAgent(to device: SteerDevice?) {
         let available = availableAgents(for: device)
         if !available.contains(agent) {
             selectAgent(available.first ?? "claude", device: device)
@@ -83,7 +92,7 @@ final class LaunchOptionsState {
     /// After anything that can re-resolve the machine: clamp the agent, and
     /// when the pool settled on a DIFFERENT machine, reseed from its
     /// defaults exactly like an explicit pick would (EXP-437).
-    func reconcile(device: SteerDevice?) {
+    public func reconcile(device: SteerDevice?) {
         clampAgent(to: device)
         if device?.deviceId != lastSeededDeviceId { seed(from: device) }
     }
@@ -95,12 +104,15 @@ final class LaunchOptionsState {
     /// EXP-1278: the previous machine's login (`pickedLogin`) keeps the
     /// whole pick when the new machine has that login too (same agent +
     /// email) — model, effort and the toggles stay as the person left them.
-    func seed(from device: SteerDevice?) {
+    /// EXP-1277: the carried model is still clamped to the agent's list, so a
+    /// blank from an unseeded state never rides a device switch.
+    public func seed(from device: SteerDevice?) {
         if let carried = AccountOptions.carried(accountOptions(on: device), previous: pickedLogin),
            carried.agent == agent,
            availableAgents(for: device).contains(carried.agent) {
             account = carried.id
             pickedLogin = carried
+            model = Self.seedModel(model, for: agent)
             lastSeededDeviceId = device?.deviceId
             return
         }
@@ -159,7 +171,7 @@ final class LaunchOptionsState {
     /// An advertised model, validated against the agent's contract list.
     /// Blank is the desktop's "CLI default", which for codex IS the static
     /// default and for claude (explicit-always) means its first model.
-    static func seedModel(_ value: String?, for agent: String) -> String {
+    public static func seedModel(_ value: String?, for agent: String) -> String {
         guard let value, !value.isEmpty,
               LaunchVocabulary.modelValues(for: agent).contains(value)
         else {
@@ -171,7 +183,7 @@ final class LaunchOptionsState {
     /// An advertised SUBAGENT model (EXP-981), validated against claude's
     /// contract list. Blank, unknown, or any non-claude agent = the "Default"
     /// row: the CLI picks its own.
-    static func seedSubagentModel(_ value: String?, for agent: String) -> String {
+    public static func seedSubagentModel(_ value: String?, for agent: String) -> String {
         guard LaunchVocabulary.supportsSubagentModel(agent),
               let value, !value.isEmpty,
               DomainContract.codingModelValues.contains(value)
@@ -183,7 +195,7 @@ final class LaunchOptionsState {
 
     /// An advertised effort/reasoning/thinking value; blank or unknown = the
     /// "CLI default" row (omit the flag).
-    static func seedEffort(_ value: String?, for agent: String) -> String {
+    public static func seedEffort(_ value: String?, for agent: String) -> String {
         guard let value, LaunchVocabulary.effortValues(for: agent).contains(value) else {
             return LaunchVocabulary.cliDefault
         }
@@ -201,7 +213,7 @@ final class LaunchOptionsState {
     /// named by the agent itself — there is nothing better to say, and a
     /// composer with no picker at all would hide which agent starts. Its id is
     /// blank: the start names no account.
-    func accountOptions(on device: SteerDevice?) -> [AccountOption] {
+    public func accountOptions(on device: SteerDevice?) -> [AccountOption] {
         let options = AccountOptions.flatten(
             accounts: device?.agentAccounts,
             usage: device?.agentUsage,
@@ -224,7 +236,7 @@ final class LaunchOptionsState {
     /// first login (its last used one — what an unnamed start runs on, after
     /// an agent clamp reset the account), else the first row — the picker
     /// never renders blank.
-    func selectedAccount(in options: [AccountOption]) -> AccountOption? {
+    public func selectedAccount(in options: [AccountOption]) -> AccountOption? {
         options.first { $0.agent == agent && $0.id == account }
             ?? options.first { $0.agent == agent }
             ?? options.first
@@ -233,7 +245,7 @@ final class LaunchOptionsState {
     /// EXP-872: take BOTH halves of a picked option — the agent reseeds the
     /// per-agent options (`selectAgent` clears the account), then the login
     /// lands on top, VERBATIM (EXP-1158); a blank id = the last used login.
-    func selectAccount(_ option: AccountOption, device: SteerDevice?) {
+    public func selectAccount(_ option: AccountOption, device: SteerDevice?) {
         selectAgent(option.agent, device: device)
         account = option.id
         pickedLogin = option
@@ -243,11 +255,14 @@ final class LaunchOptionsState {
 
     /// The chosen options in wire form — shared by every launch subject.
     /// `resume` is the composer's call: single-issue starts only.
-    func buildOptions(resume: Bool? = nil) -> SteerStartOptions {
+    public func buildOptions(resume: Bool? = nil) -> SteerStartOptions {
         let isClaude = agent == "claude"
         return SteerStartOptions(
             agent: agent,
-            model: model == LaunchVocabulary.cliDefault ? "" : model,
+            // EXP-1277: clamped once more on the way out — the server takes
+            // contract values only, and claude has no blank (`seedModel`
+            // turns one into the default); codex's blank IS "CLI default".
+            model: wireModel,
             // EXP-981: claude only, and "Default" means the field is ABSENT —
             // the server validates it against the contract model list, which
             // has no blank, so an empty string would be refused.
@@ -275,11 +290,18 @@ final class LaunchOptionsState {
         )
     }
 
+    /// The model as the wire carries it: a contract value for the agent, or
+    /// `""` where that agent's CLI picks its own (codex only).
+    public var wireModel: String {
+        let clamped = Self.seedModel(model, for: agent)
+        return clamped == LaunchVocabulary.cliDefault ? "" : clamped
+    }
+
     // MARK: - EXP-1249: the composer "+" menu's per-run picks
 
     /// The team MCP servers this run gets (`McpServers.preselect` seeds it).
-    var mcpServerIds: [String] = []
+    public var mcpServerIds: [String] = []
     /// Per-run computer use: the person's explicit flip; nil = untouched =
     /// the device's own default (and the key stays off the wire).
-    var computerUse: Bool?
+    public var computerUse: Bool?
 }

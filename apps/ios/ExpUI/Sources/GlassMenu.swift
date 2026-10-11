@@ -213,9 +213,9 @@ public struct GlassMenuItem: View {
 /// never on the trigger: a row of pills that each spell out their agent buries
 /// the option that matters.
 ///
-/// Marks and labels are resolved by the CALLER (`AgentBrandMark` and
-/// `LaunchVocabulary` live in the app target, not here), so an id with no
-/// asset falls back exactly as it does everywhere else.
+/// Marks and labels are resolved by the CALLER (`AgentBrandMark` lives in the
+/// app target, `LaunchVocabulary` in ExpCore), so an id with no asset falls
+/// back exactly as it does everywhere else.
 public struct AgentPickerMenu: View {
     let agents: [String]
     let selection: String

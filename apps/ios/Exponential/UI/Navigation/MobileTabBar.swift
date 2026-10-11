@@ -301,14 +301,16 @@ extension View {
     /// this ONE modifier directly. Detail screens (showsTabBar == false) must
     /// NOT reserve it — pass `false` when the same scrollable is reused on a
     /// bar-less surface.
-    @ViewBuilder
+    ///
+    /// ONE view type whichever way `enabled` goes (EXP-1276): an `if/else`
+    /// here gave the modified scroller a NEW identity every time the flag
+    /// flipped, and the Agent root flips it with the keyboard — the rebuilt
+    /// composer text view re-took first responder, so a dismissed keyboard
+    /// came straight back. Off = a zero inset with zero spacing, which lays
+    /// out exactly like no inset at all.
     func tabBarBottomInset(_ enabled: Bool = true) -> some View {
-        if enabled {
-            safeAreaInset(edge: .bottom) {
-                Color.clear.frame(height: tabBarBottomClearance)
-            }
-        } else {
-            self
+        safeAreaInset(edge: .bottom, spacing: enabled ? nil : 0) {
+            Color.clear.frame(height: enabled ? tabBarBottomClearance : 0)
         }
     }
 }

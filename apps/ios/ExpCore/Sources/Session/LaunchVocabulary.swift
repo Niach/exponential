@@ -1,4 +1,3 @@
-import ExpCore
 import Foundation
 
 // EXP-615: the ONE launch vocabulary. Agent / model / effort labels, the
@@ -8,24 +7,24 @@ import Foundation
 // of shims in the trigger form sheet. Every launch-shaped surface (the Agent
 // page composer, the trigger form, device launch defaults) now reads
 // them from here, so a contract change lands once.
-enum LaunchVocabulary {
+public enum LaunchVocabulary {
     /// Sentinel for the blank "CLI default" choice (omit --effort; for codex
     /// also the omit-model default — claude is explicit-always).
-    static let cliDefault = "cli-default"
+    public static let cliDefault = "cli-default"
 
     // MARK: - Option lists
 
     /// Claude's model is explicit-always; codex offers a "CLI default" blank.
     /// Parameterized because a seed validates an advertised value against the
     /// agent it belongs to, which isn't always the selected one yet (EXP-437).
-    static func modelValues(for agent: String) -> [String] {
+    public static func modelValues(for agent: String) -> [String] {
         switch agent {
         case "codex": [cliDefault] + DomainContract.codexModelValues
         default: DomainContract.codingModelValues
         }
     }
 
-    static func effortValues(for agent: String) -> [String] {
+    public static func effortValues(for agent: String) -> [String] {
         switch agent {
         case "codex": DomainContract.codexEffortValues
         default: DomainContract.codingEffortValues
@@ -36,11 +35,11 @@ enum LaunchVocabulary {
     /// EVERY agent (a blank pin is what stores NULL on the row and lets the
     /// machine decide), and the caller prepends it — so drop the copy
     /// `modelValues` already inserts for codex.
-    static func triggerModelValues(for agent: String) -> [String] {
+    public static func triggerModelValues(for agent: String) -> [String] {
         modelValues(for: agent).filter { $0 != cliDefault }
     }
 
-    static func defaultModel(for agent: String) -> String {
+    public static func defaultModel(for agent: String) -> String {
         agent == "claude" ? (DomainContract.codingModelValues.first ?? "") : cliDefault
     }
 
@@ -49,38 +48,38 @@ enum LaunchVocabulary {
     /// means. The blank is a real choice in a machine's launch defaults; on a
     /// start it means the field is omitted (the server takes contract values
     /// only).
-    static func subagentModelValues() -> [String] {
+    public static func subagentModelValues() -> [String] {
         [cliDefault] + DomainContract.codingModelValues
     }
 
     /// The subagent model's blank row reads "Default", not "CLI default": it
     /// is the agent's own subagent choice, not a flag we omit.
-    static func subagentModelLabel(_ value: String) -> String {
+    public static func subagentModelLabel(_ value: String) -> String {
         value == cliDefault ? "Default" : modelLabel(value)
     }
 
     /// Subagents are claude's (EXP-981) — codex has no such option, so the
     /// picker hides exactly like Ultracode does.
-    static func supportsSubagentModel(_ agent: String) -> Bool {
+    public static func supportsSubagentModel(_ agent: String) -> Bool {
         agent == "claude"
     }
 
     /// EXP-1236: the Computer use model list — the aliases the run's
     /// screen-driving subagents may run on, contract order, the default
     /// (Haiku) first. A device-level pick, not an agent's: no blank row.
-    static func computerUseModelValues() -> [String] {
+    public static func computerUseModelValues() -> [String] {
         DomainContract.computerUseModelValues
     }
 
     /// The Model picker's own alias labels (Haiku, Sonnet, Opus, Fable).
-    static func computerUseModelLabel(_ value: String) -> String {
+    public static func computerUseModelLabel(_ value: String) -> String {
         modelLabel(value)
     }
 
     /// The stored `launchDefaults.computerUseModel` as the picker's draft: a
     /// contract alias as itself, anything else (absent, an older row, a future
     /// model this build cannot name) the contract default.
-    static func seedComputerUseModel(_ advertised: String?) -> String {
+    public static func seedComputerUseModel(_ advertised: String?) -> String {
         if let advertised, DomainContract.computerUseModelValues.contains(advertised) {
             return advertised
         }
@@ -89,12 +88,12 @@ enum LaunchVocabulary {
 
     /// Plan mode is claude's own (EXP-441); codex has no launch-into-plan
     /// mode. EXP-849 dropped the second agent that had one.
-    static func supportsPlanMode(_ agent: String) -> Bool {
+    public static func supportsPlanMode(_ agent: String) -> Bool {
         agent == "claude"
     }
 
     /// The agents [device] can actually RUN, in contract order.
-    static func agents(of device: SteerDevice?) -> [String] {
+    public static func agents(of device: SteerDevice?) -> [String] {
         let supported = device?.agentIds ?? []
         return DomainContract.codingAgentValues.filter { supported.contains($0) }
     }
@@ -103,7 +102,7 @@ enum LaunchVocabulary {
     /// (EXP-1158), clamped to what it advertises, else the first agent it
     /// runs. EXP-615 retired the trigger editors' "Device default" segment,
     /// so a binding seeds its strip with this and stores a CONCRETE agent.
-    static func lastUsedAgent(of device: SteerDevice?) -> String {
+    public static func lastUsedAgent(of device: SteerDevice?) -> String {
         let available = agents(of: device)
         if let advertised = device?.defaultLaunchAgent, available.contains(advertised) {
             return advertised
@@ -115,7 +114,7 @@ enum LaunchVocabulary {
 
     /// EXP-849: an id outside the contract (a historical row, a future agent)
     /// falls through as itself rather than rendering blank.
-    static func agentLabel(_ value: String) -> String {
+    public static func agentLabel(_ value: String) -> String {
         switch value {
         case "claude": "Claude Code"
         case "codex": "Codex"
@@ -123,7 +122,7 @@ enum LaunchVocabulary {
         }
     }
 
-    static func modelLabel(_ value: String) -> String {
+    public static func modelLabel(_ value: String) -> String {
         switch value {
         case cliDefault: "CLI default"
         case "gpt-5.6-sol": "GPT-5.6 Sol"
@@ -134,12 +133,12 @@ enum LaunchVocabulary {
         }
     }
 
-    static func effortLabel(_ value: String) -> String {
+    public static func effortLabel(_ value: String) -> String {
         value == "xhigh" ? "XHigh" : value.prefix(1).uppercased() + value.dropFirst()
     }
 
     /// The effort picker's TITLE follows the agent's own vocabulary.
-    static func effortTitle(for agent: String) -> String {
+    public static func effortTitle(for agent: String) -> String {
         switch agent {
         case "codex": "Reasoning"
         default: "Effort"
@@ -152,7 +151,7 @@ enum LaunchVocabulary {
     /// EXP-615: no "(offline)" suffix anywhere — the trigger form offers
     /// every trigger-capable machine plainly (a sleeping box still owns the
     /// binding), and the run pickers only ever list online ones.
-    static func deviceCaption(_ device: SteerDevice) -> String {
+    public static func deviceCaption(_ device: SteerDevice) -> String {
         let name = device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
         guard let owner = device.owner else { return name }
         return "\(name) — \(owner.name)"
@@ -160,7 +159,7 @@ enum LaunchVocabulary {
 
     /// The machine's plain name, no owner attribution — what a sentence about
     /// it reads best with.
-    static func deviceName(_ device: SteerDevice) -> String {
+    public static func deviceName(_ device: SteerDevice) -> String {
         device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
     }
 
@@ -169,7 +168,7 @@ enum LaunchVocabulary {
     /// there at all, so the caller also disables the start button. Nil when
     /// the machine never reported its ACP agents (unknown = assume all) or
     /// drives this one. Never a filter: the agent stays pickable.
-    static func notReadyNote(device: SteerDevice?, agent: String) -> String? {
+    public static func notReadyNote(device: SteerDevice?, agent: String) -> String? {
         guard let device, !agent.isEmpty, device.agentNotReady(agent) else { return nil }
         return "Not ready on \(deviceName(device)). Run the doctor there."
     }

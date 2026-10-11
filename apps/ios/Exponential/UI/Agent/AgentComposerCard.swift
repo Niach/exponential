@@ -58,7 +58,9 @@ struct AgentComposerCard: View {
                 onPasteImage: { image in ingestPastedImage(image) },
                 onIssueRefTap: onIssueRefTap,
                 minHeight: 44,
-                maxHeight: 160
+                maxHeight: 160,
+                // EXP-1276: the keyboard-down chevron above the keyboard.
+                showsDismissAccessory: true
             )
             // The text view carries a 6pt inset of its own (`singleLine`), so
             // the card's 12/12 band is spelled 6/6 here.
