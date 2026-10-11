@@ -45,7 +45,7 @@ data class AuthConfig(
  */
 object AuthWebUrls {
     fun register(instanceUrl: String): String =
-        "${instanceUrl.trimEnd('/')}/auth/register?ref=android-app"
+        "${instanceUrl.trimEnd('/')}/auth/login?ref=android-app"
 
     fun forgotPassword(instanceUrl: String): String =
         "${instanceUrl.trimEnd('/')}/auth/forgot-password"

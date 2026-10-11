@@ -24,7 +24,7 @@
 //!   code" / "Use a different email") when the instance mails codes, or the
 //!   email/password form (the password `Input` keeps the web `PasswordInput`
 //!   show/hide **eye toggle**) with the web footer **"Don't have an account?
-//!   Register"** link (opens the instance's `/auth/register` in the browser).
+//!   Register"** link (opens the instance's `/auth/login` in the browser).
 //!   With both enabled the code flow is primary and "Use a password instead"
 //!   switches over.
 //! - "Login with passkey" has no native ceremony on the desktop: it opens the
@@ -463,7 +463,7 @@ impl LoginView {
     }
 
     /// Web footer "Register" link — the desktop opens the instance's
-    /// `/auth/register` in the system browser (registration is a web flow).
+    /// `/auth/login` (sign-up lives there) in the system browser (registration is a web flow).
     /// EXP-759: `ref=desktop-app` rides along so the web signup records this
     /// app as the signup source (`users.signup_ref`).
     fn open_register(&mut self, cx: &mut gpui::Context<Self>) {
@@ -473,7 +473,7 @@ impl LoginView {
             return;
         };
         let url = format!(
-            "{}/auth/register?ref=desktop-app",
+            "{}/auth/login?ref=desktop-app",
             instance.trim_end_matches('/')
         );
         cx.background_executor()
