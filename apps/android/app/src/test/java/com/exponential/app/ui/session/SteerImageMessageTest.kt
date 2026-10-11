@@ -236,4 +236,23 @@ class SteerImageMessageTest {
         assertEquals(listOf(idA), parsed.attachmentIds)
         assertEquals(emptyList<SteerFile>(), parsed.files)
     }
+
+    @Test
+    fun `a unicode space inside an attachment id is not an embed, like web`() {
+        val parsed = parseSteerMessage("hi\n\n![image](/api/attachments/a\u00A0b)")
+        assertEquals(emptyList<String>(), parsed.attachmentIds)
+    }
+
+    // ICU (the Android regex engine) rejects the `(?U)` flag the JVM accepts, so
+    // a JVM-green regex crashed the app on first use (2026-10-11).
+    @Test
+    fun `no main source uses the (?U) regex flag`() {
+        val root = java.io.File("src/main")
+        val offenders = root.walkTopDown()
+            .filter { it.isFile && it.extension == "kt" && it.readText().contains("(?U)") }
+            .map { it.name }
+            .toList()
+        assert(root.isDirectory)
+        assertEquals(emptyList<String>(), offenders)
+    }
 }

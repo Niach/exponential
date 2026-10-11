@@ -95,14 +95,21 @@ fun imageMarker(index: Int): String = imageMarker(index.toLong())
  */
 private fun markerNumber(match: MatchResult): Long? = match.groupValues[1].toLongOrNull()
 
+/**
+ * JS `\s` spelled out, so the JVM (ASCII `\s`) and Android's ICU engine
+ * (Unicode `\s`) agree with web. Never the UNICODE_CHARACTER_CLASS inline flag: ICU rejects it with a
+ * PatternSyntaxException, which crashed every screen touching these regexes.
+ */
+private const val JS_SPACE = """\t\n\u000B\f\r \u00A0\u1680\u2000-\u200A\u2028\u2029\u202F\u205F\u3000\uFEFF"""
+
 /** One embed line, exactly as [buildSteerImageMessage] writes it. */
-private val EMBED_LINE = Regex("""(?U)^!\[image]\(/api/attachments/([^)\s]+)\)$""")
+private val EMBED_LINE = Regex("""^!\[image]\(/api/attachments/([^)$JS_SPACE]+)\)$""")
 
 /**
  * One file line, exactly as [buildSteerMessage] writes it: a plain link (no
  * `!`), its text the filename with `]` and `\` backslash-escaped.
  */
-private val FILE_LINE = Regex("""(?U)^\[((?:[^\]\\]|\\.)*)]\(/api/attachments/([^)\s]+)\)$""")
+private val FILE_LINE = Regex("""^\[((?:[^\]\\]|\\.)*)]\(/api/attachments/([^)$JS_SPACE]+)\)$""")
 
 /** Runs of spaces/tabs a removed marker leaves behind. */
 private val SPACE_RUN = Regex("""[ \t]{2,}""")
