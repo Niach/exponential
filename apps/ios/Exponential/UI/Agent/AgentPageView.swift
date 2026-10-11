@@ -122,6 +122,16 @@ struct AgentPageView: View {
                             : nil,
                         alignment: centred ? .center : .top
                     )
+                    // EXP-1276: tap-outside keyboard dismissal, the catcher
+                    // IssueFaceView mounts (EXP-246) — BEHIND the content, so
+                    // only dead space (gaps, padding, the empty page) takes
+                    // the tap; the field, the pills and the rows keep winning
+                    // hit-testing.
+                    .background {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { UIApplication.endEditing() }
+                    }
                 }
                 .scrollDismissesKeyboard(.interactively)
                 // On the SCROLLER itself (EXP-36), so the composer and the

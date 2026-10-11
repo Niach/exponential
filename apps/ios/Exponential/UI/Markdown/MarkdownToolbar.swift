@@ -17,8 +17,16 @@ private let log = Logger(subsystem: "com.exponential", category: "MarkdownToolba
 ///
 /// Every mode keeps the SAME height: `UIInputView` self-sizing fights a
 /// changing accessory height, and the keyboard jumps if it wins.
+///
+/// EXP-1276: `dismissOnly` builds the SAME pill with nothing but the pinned
+/// keyboard-down chevron — the one-message composers (the Agent page) offer
+/// no formatting, but a phone has no other on-screen way to put the keyboard
+/// away. No rail, no modes: every mode/state hook is a no-op.
 final class MarkdownToolbar: UIInputView {
     enum RailMode { case main, text, link }
+
+    /// EXP-1276: the chevron-only accessory.
+    let isDismissOnly: Bool
 
     weak var textView: UITextView? {
         didSet {
@@ -90,7 +98,8 @@ final class MarkdownToolbar: UIInputView {
     private let iconPointSize: CGFloat = 18
     private let inactiveTint = UIColor.white.withAlphaComponent(0.65)
 
-    init() {
+    init(dismissOnly: Bool = false) {
+        isDismissOnly = dismissOnly
         super.init(frame: CGRect(x: 0, y: 0, width: UIScreen.main.bounds.width, height: 48),
                    inputViewStyle: .keyboard)
         allowsSelfSizing = true
@@ -118,6 +127,22 @@ final class MarkdownToolbar: UIInputView {
         // Kept as a stored constraint so the button can collapse out of the way
         // in the text/link rails instead of leaving 36pt of dead space.
         dismissWidthConstraint = dismissButton.constraints.first { $0.firstAttribute == .width }
+
+        if isDismissOnly {
+            // The same glass pill at the same height, the chevron in the same
+            // trailing slot — only the rail is missing.
+            pill.addSubview(dismissButton)
+            NSLayoutConstraint.activate([
+                blur.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
+                blur.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
+                blur.topAnchor.constraint(equalTo: topAnchor, constant: 4),
+                blur.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -4),
+                blur.heightAnchor.constraint(equalToConstant: 40),
+                dismissButton.trailingAnchor.constraint(equalTo: pill.trailingAnchor, constant: -2),
+                dismissButton.centerYAnchor.constraint(equalTo: pill.centerYAnchor),
+            ])
+            return
+        }
 
         scroll = UIScrollView()
         scroll.showsHorizontalScrollIndicator = false
@@ -303,7 +328,7 @@ final class MarkdownToolbar: UIInputView {
     // MARK: - Modes
 
     private func setMode(_ newMode: RailMode, animated: Bool = true) {
-        guard mode != newMode else { return }
+        guard !isDismissOnly, mode != newMode else { return }
         mode = newMode
         let apply = { [weak self] in
             self?.applyModeVisibility()
@@ -359,7 +384,7 @@ final class MarkdownToolbar: UIInputView {
     /// time; runs at most once per runloop and only touches tints when the
     /// derived state actually changes.
     func updateState() {
-        guard !updateScheduled else { return }
+        guard !isDismissOnly, !updateScheduled else { return }
         updateScheduled = true
         DispatchQueue.main.async { [weak self] in
             self?.updateScheduled = false

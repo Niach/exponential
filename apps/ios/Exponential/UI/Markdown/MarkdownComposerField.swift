@@ -37,6 +37,14 @@ struct MarkdownComposerField: View {
     /// field scrolls inside itself.
     var minHeight: CGFloat = 44
     var maxHeight: CGFloat = 140
+    /// EXP-1276: ride the keyboard with the chevron-only accessory (the
+    /// formatting rail's pill with nothing but its "Hide keyboard" button).
+    /// The Agent page composer turns it on: a phone has no other on-screen
+    /// way to put the keyboard away, and a swipe is not an affordance.
+    var showsDismissAccessory = false
+    /// Built on first appearance, the way `MarkdownEditor` builds its rail —
+    /// a UIKit view is not a value to recreate on every body pass.
+    @State private var dismissRail: MarkdownToolbar?
 
     /// The block this field edits. `IssueEditorModel` starts with exactly one
     /// empty text block and `singleLine` stops a second one ever appearing, so
@@ -58,8 +66,9 @@ struct MarkdownComposerField: View {
                 isFocused: model.focusedBlockId == block.id,
                 placeholder: placeholder,
                 // No formatting accessory: the same call the comment composer
-                // makes (EXP-246). A chat field offers bold and quote nothing.
-                toolbar: nil,
+                // makes (EXP-246). A chat field offers bold and quote nothing
+                // — at most the keyboard-down chevron (EXP-1276).
+                toolbar: showsDismissAccessory ? dismissRail : nil,
                 singleLine: true,
                 returnKeyType: .send,
                 flattensPastedNewlines: false,
@@ -68,6 +77,11 @@ struct MarkdownComposerField: View {
                 onIssueRefTap: onIssueRefTap
             )
             .boundedEditorHeight(minHeight: minHeight, maxHeight: maxHeight)
+            .onAppear {
+                if showsDismissAccessory, dismissRail == nil {
+                    dismissRail = MarkdownToolbar(dismissOnly: true)
+                }
+            }
         }
     }
 }
