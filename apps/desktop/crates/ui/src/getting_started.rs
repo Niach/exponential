@@ -1273,7 +1273,7 @@ fn render_suggestion_row(
     // glyph beside the title (the old "Automation"/"Action" pill is gone).
     let badges = trigger
         .as_ref()
-        .and_then(coding::automations::parse_trigger)
+        .and_then(coding::triggers::parse_trigger)
         .map(|when| crate::trigger_editor::TriggerBadges::of_when(&when))
         .unwrap_or_default();
     let no_agent = crate::coding_flow::no_agent_reason(cx);

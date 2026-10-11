@@ -25,7 +25,6 @@ import {
   type ActionInputDef,
   actionInputsSchema,
   type ActionTrigger,
-  type AutomationTrigger,
   type CodingSessionBlocked,
   type CodingSessionPendingQuestion,
   type CodingSessionResult,
@@ -842,18 +841,17 @@ export const codingSessions = pgTable(
     // EXP-530: why the session started — 'schedule' | 'event' | 'agent'
     // (documented varchar, startedReasonValues in domain.ts; NULL = a person
     // started it). Set only by codingSessions.start: schedule/event when a
-    // device's automation host fires an action trigger, and 'agent'
+    // device's trigger host fires an action trigger, and 'agent'
     // (EXP-679) when another coding session started this one through
     // `exponential_sessions_start` — equally unattended, so its close-out
-    // ends it. Powers the "Automated" badge + Automations run history on
+    // ends it. Powers the "Automated" badge + the action's run history on
     // every client (synced via the shape).
     startedReason: varchar(`started_reason`, { length: 16 }),
-    // EXP-583: the automation that fired this run (SET NULL — history outlives
-    // a deleted automation; NULL for every human start). Powers per-automation
-    // "last run" on every client (synced via the shape).
-    automationId: uuid(`automation_id`).references(() => automations.id, {
-      onDelete: `set null`,
-    }),
+    // EXP-583/SLOP-2: the id of the action TRIGGER (`actions.triggers[].id`)
+    // that fired this run; NULL for every human start. No FK: triggers live
+    // in a jsonb array, so the id outlives a removed trigger as plain history.
+    // Powers per-trigger "last run" on every client (synced via the shape).
+    triggerId: uuid(`trigger_id`),
     // EXP-679: the run that started this one via `exponential_sessions_start`
     // (stamped by the MCP tool from its session header). Synced since EXP-818
     // (the session tree nests on it ×4); history only, so SET NULL keeps the
@@ -1785,183 +1783,6 @@ export const cliInstallTokens = pgTable(
   (table) => [index(`idx_cli_install_tokens_user`).on(table.userId)]
 )
 
-// GitHub App installations (server-only, not synced). Mirrored from the
-// installation webhooks for bookkeeping (the admin console, the suspension
-// mark); token resolution itself is storage-free (the App JWT looks up a
-// repo's installation on demand). SLOP-7: discovery lists a member's
-// installations LIVE off their GitHub token — nothing reads this for access.
-export const githubInstallations = pgTable(`github_installations`, {
-  id: uuidPk(),
-  installationId: bigint(`installation_id`, { mode: `number` })
-    .notNull()
-    .unique(),
-  accountLogin: text(`account_login`),
-  accountType: varchar(`account_type`, { length: 20 }),
-  // GitHub-side SUSPENSION marker (REV2-29). Suspension is REVERSIBLE — GitHub
-  // keeps the installation, just refuses to mint tokens for it — so the
-  // `suspend` webhook marks this column instead of deleting the row. Deleting
-  // it CASCADE-dropped every team's claim link, and `unsuspend` re-inserted a
-  // row with a FRESH uuid PK, so the links (which reference that uuid) were
-  // unrecoverable by construction: a suspend→unsuspend cycle silently cost
-  // every claiming team its coding/PR/token features until an owner re-ran the
-  // connect flow by hand. Row deletion is now reserved for the terminal
-  // `deleted` action. A marked installation is inert but recoverable —
-  // discovery/connect refuse it, `unsuspend` (or the probe heal in
-  // lib/trpc/integrations.ts) clears the mark and everything resumes.
-  suspendedAt: timestamp(`suspended_at`, { withTimezone: true }),
-  ...timestamps,
-})
-
-// RETIRED (SLOP-7): the per-team claim model. Nothing reads or writes these
-// three tables anymore — a member's GitHub connection is their Better Auth
-// `github` account row and discovery is live. The tables stay ONE release
-// behind the new flow (additive only, never dropped in SLOP-7's PR) and go
-// with the "compat cleanup: drop the GitHub claim tables" follow-up.
-//
-// Team ↔ GitHub App installation claims (SERVER-ONLY, never synced).
-// A link means "this team may browse/connect this installation's repos".
-// Created by the OAuth claim flow (or the install-page round-trip fallback) —
-// both prove control of the GitHub account before linking. Many-to-many: one
-// org install can serve several teams, one team can link several
-// GitHub accounts. CASCADE on the installation FK: when the UNINSTALL webhook
-// (`installation.deleted` — the only terminal action) deletes the
-// github_installations row, its links vanish with it. A mere `suspend` must
-// never take this path (REV2-29): it marks `suspended_at` instead, so an
-// `unsuspend` restores every claim without a manual reconnect.
-export const githubInstallationLinks = pgTable(
-  `github_installation_links`,
-  {
-    id: uuidPk(),
-    teamId: uuid(`team_id`)
-      .notNull()
-      .references(() => teams.id, { onDelete: `cascade` }),
-    githubInstallationId: uuid(`github_installation_id`)
-      .notNull()
-      .references(() => githubInstallations.id, { onDelete: `cascade` }),
-    // Who completed the claim. Never used for AUTHORIZATION — but the OAuth
-    // callback's self-heal (EXP-365) uses it as a cleanup SCOPE: a re-auth may
-    // reap only stale zero-dependency links this same user created, never a
-    // teammate's connection.
-    createdByUserId: text(`created_by_user_id`).references(() => users.id, {
-      onDelete: `set null`,
-    }),
-    ...timestamps,
-  },
-  (table) => [
-    unique().on(table.teamId, table.githubInstallationId),
-    index(`idx_github_installation_links_installation`).on(
-      table.githubInstallationId
-    ),
-    // EXP-835: the admin console's per-user correlated subqueries filter on
-    // the claiming user alone — without this they seq-scan every link.
-    index(`idx_github_installation_links_created_by`).on(table.createdByUserId),
-  ]
-)
-
-// User-scoped repo entitlements under a team ↔ installation claim
-// (SERVER-ONLY, never synced). A link alone is INSTALLATION-granular, but
-// GitHub attributes an installation to a user who can access even ONE of its
-// repos — so a lone collaborator must not get to browse/connect the WHOLE
-// installation. These rows capture what the connecting user could actually
-// access, recorded at OAuth-callback time via
-// `GET /user/installations/{id}/repositories` (the only moment a user-scoped
-// token exists — it is transient, never persisted). A row means "team W
-// may see/connect repo `fullName` under installation I because user U proved
-// user-scoped GitHub access". Since EXP-557 the entitlement is ACTOR-SCOPED,
-// not a union across members: effective entitlement for user U = EXISTS(grant
-// for (W, I, fullName, U)) — a teammate's grant never entitles U (see
-// `assertRepoGrant` in lib/trpc/integrations.ts). The per-user unique key
-// makes each re-auth a clean per-user REPLACE. Keyed on GitHub's NUMERIC id
-// (like repositories.installation_id) so capture never depends on link-row
-// creation timing. Gates DISCOVERY (integrations.repos) and CONNECT
-// (assertRepoInstallationAccess) only — never token minting.
-export const githubInstallationRepoGrants = pgTable(
-  `github_installation_repo_grants`,
-  {
-    id: uuidPk(),
-    teamId: uuid(`team_id`)
-      .notNull()
-      .references(() => teams.id, { onDelete: `cascade` }),
-    installationId: bigint(`installation_id`, { mode: `number` }).notNull(),
-    // `owner/name` as GitHub reports it.
-    fullName: text(`full_name`).notNull(),
-    private: boolean().notNull().default(false),
-    defaultBranch: text(`default_branch`),
-    // Cascade, never set-null: a grant row means "THIS user proved access".
-    // A set-null here would leave an ownerless row that entitles nobody yet
-    // still counts as a grant on the link — masking the stale/Disconnect
-    // state forever — while being unreachable by the per-user re-auth
-    // REPLACE and every other cleanup path.
-    grantedByUserId: text(`granted_by_user_id`).references(() => users.id, {
-      onDelete: `cascade`,
-    }),
-    ...timestamps,
-  },
-  (table) => [
-    // Named explicitly: drizzle's default composite name here exceeds
-    // Postgres's 63-byte identifier limit (silent truncation).
-    unique(`github_installation_repo_grants_scope_unique`).on(
-      table.teamId,
-      table.installationId,
-      table.fullName,
-      table.grantedByUserId
-    ),
-    index(`idx_github_installation_repo_grants_ws_inst`).on(
-      table.teamId,
-      table.installationId
-    ),
-    // EXP-835: the admin console's per-user correlated subqueries filter on
-    // the granting user alone — the unique key above leads with team_id, so
-    // it cannot serve them and they seq-scan every grant.
-    index(`idx_github_installation_repo_grants_granted_by`).on(
-      table.grantedByUserId
-    ),
-  ]
-)
-
-// GitHub account ↔ app user (SERVER-ONLY, never synced). EXP-617: the ONLY
-// way to know that the human who opened or merged a pull request ON GITHUB is
-// someone with an account here — a webhook's `sender`/`merged_by` carries a
-// GitHub identity and nothing else, so without this the PR fan-out is
-// anonymous and cannot keep the author out of their own notification.
-//
-// Written in exactly one place: the connect OAuth callback, where the code
-// exchange proves control of the account. That means a user is only mapped
-// once they have connected GitHub here; until then behaviour is the pre-617
-// one. There is deliberately NO backfill from `github_installations
-// .account_login` — resolving a historical login through `GET /users/{login}`
-// returns whoever holds that login TODAY, i.e. the squatter after a rename,
-// and would silently suppress the wrong person's notifications.
-export const githubUserIdentities = pgTable(
-  `github_user_identities`,
-  {
-    id: uuidPk(),
-    userId: text(`user_id`)
-      .notNull()
-      .references(() => users.id, { onDelete: `cascade` }),
-    // GitHub's NUMERIC account id — the only rename-stable key (same reasoning
-    // as repositories.installation_id). Matching is done on THIS, never on the
-    // login, whenever the payload carries one.
-    githubUserId: bigint(`github_user_id`, { mode: `number` }).notNull(),
-    // Display/debug CACHE of the login at verification time. It goes stale the
-    // moment the user renames on GitHub and is never healed; do not "helpfully"
-    // add a login fallback to the resolver when an id is present.
-    githubLogin: text(`github_login`).notNull(),
-    verifiedAt: timestamp(`verified_at`, { withTimezone: true })
-      .notNull()
-      .defaultNow(),
-    ...timestamps,
-  },
-  (table) => [
-    // Unique on the GITHUB id, not on user_id: one GitHub account must resolve
-    // to at most one app user (that is what makes exclusion safe), but one
-    // human legitimately has work and personal accounts and both should
-    // suppress their own notifications.
-    unique(`uniq_github_user_identities_github_user_id`).on(table.githubUserId),
-    index(`idx_github_user_identities_user`).on(table.userId),
-  ]
-)
-
 export const notifications = pgTable(
   `notifications`,
   {
@@ -2513,37 +2334,6 @@ export const actions = pgTable(
   (table) => [
     unique().on(table.teamId, table.name),
     index(`idx_actions_team`).on(table.teamId),
-  ]
-)
-
-// SLOP-2: a LEGACY MIRROR of `actions.triggers`, one row per trigger with the
-// trigger's id. Nothing edits it directly: `lib/action-triggers-mirror.ts`
-// rewrites an action's rows inside every triggers write, so clients and
-// daemons from before the merge (which still sync this shape) keep firing the
-// current triggers, and `coding_sessions.automation_id` keeps its FK. Dropped,
-// with its shape, once those clients are gone. `trigger` = the when-part only;
-// `action_id` = TEXT with NO FK (it once named the tidy-up builtin).
-export const automations = pgTable(
-  `automations`,
-  {
-    id: uuidPk(),
-    teamId: uuid(`team_id`)
-      .notNull()
-      .references(() => teams.id, { onDelete: `cascade` }),
-    actionId: text(`action_id`).notNull(),
-    deviceId: varchar(`device_id`, { length: 128 }).notNull(),
-    enabled: boolean().notNull().default(true),
-    trigger: jsonb().$type<AutomationTrigger>().notNull(),
-    agent: varchar({ length: 16 }),
-    account: varchar({ length: 64 }),
-    model: varchar({ length: 64 }),
-    effort: varchar({ length: 32 }),
-    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
-    ...timestamps,
-  },
-  (table) => [
-    index(`idx_automations_team`).on(table.teamId),
-    index(`idx_automations_action`).on(table.actionId),
   ]
 )
 
@@ -3150,7 +2940,6 @@ export type McpOauthClient = InferSelectModel<typeof mcpOauthClients>
 export type McpOauthFlow = InferSelectModel<typeof mcpOauthFlows>
 export type DeviceAgentProfile = z.infer<typeof deviceAgentProfileSchema>
 export type Action = InferSelectModel<typeof actions>
-export type Automation = InferSelectModel<typeof automations>
 export type SyncedAction = Omit<Action, `body`>
 export type UserNotificationPrefs = InferSelectModel<
   typeof userNotificationPrefs

@@ -1,6 +1,6 @@
 package com.exponential.app.ui.actions
 
-import com.exponential.app.domain.AutomationTrigger
+import com.exponential.app.domain.TriggerWhen
 
 // EXP-530 Suggestions tab: 9 seed action ideas, mirrored per client from
 // apps/web/src/lib/action-suggestions.ts — id/title/description/icon must
@@ -21,7 +21,7 @@ data class ActionSuggestion(
     /** Curated registry icon name (the `boardIconValues` set). */
     val icon: String,
     /** The suggested when-part trigger; null = a plain action suggestion. */
-    val trigger: AutomationTrigger? = null,
+    val trigger: TriggerWhen? = null,
 )
 
 val ACTION_SUGGESTIONS: List<ActionSuggestion> = listOf(
@@ -33,7 +33,7 @@ val ACTION_SUGGESTIONS: List<ActionSuggestion> = listOf(
             "as a comment on a dedicated standup issue, grouped by board with issue " +
             "identifiers linked.",
         icon = "calendar",
-        trigger = AutomationTrigger.Schedule(interval = "daily", minuteOfDay = 540),
+        trigger = TriggerWhen.Schedule(interval = "daily", minuteOfDay = 540),
     ),
     ActionSuggestion(
         id = "label-new-issues",
@@ -42,7 +42,7 @@ val ACTION_SUGGESTIONS: List<ActionSuggestion> = listOf(
             "best-fitting existing labels. Never create new labels, never change other " +
             "fields, and leave no comment unless no label fits at all.",
         icon = "target",
-        trigger = AutomationTrigger.Event(event = "created"),
+        trigger = TriggerWhen.Event(event = "created"),
     ),
     ActionSuggestion(
         id = "backlog-grooming-sweep",
@@ -59,7 +59,7 @@ val ACTION_SUGGESTIONS: List<ActionSuggestion> = listOf(
             "each one asking the assignee for a status update, mentioning them by email, and " +
             "include how long the issue has been quiet.",
         icon = "clock",
-        trigger = AutomationTrigger.Schedule(
+        trigger = TriggerWhen.Schedule(
             interval = "weekly",
             minuteOfDay = 540,
             weekday = 1,
@@ -88,7 +88,7 @@ val ACTION_SUGGESTIONS: List<ActionSuggestion> = listOf(
             "specific, set a priority based on severity, add reproduction steps when they " +
             "can be inferred from the report, and label likely duplicates.",
         icon = "bug",
-        trigger = AutomationTrigger.Event(event = "created"),
+        trigger = TriggerWhen.Event(event = "created"),
     ),
     ActionSuggestion(
         id = "weekly-metrics-comment",
@@ -97,7 +97,7 @@ val ACTION_SUGGESTIONS: List<ActionSuggestion> = listOf(
             "time to done, and open pull request count. Post the numbers with a " +
             "week-over-week comparison as a comment on a dedicated metrics issue.",
         icon = "chart-line",
-        trigger = AutomationTrigger.Schedule(
+        trigger = TriggerWhen.Schedule(
             interval = "weekly",
             minuteOfDay = 480,
             weekday = 5,

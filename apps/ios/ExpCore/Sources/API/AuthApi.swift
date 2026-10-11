@@ -601,7 +601,7 @@ public final class AuthApi: Sendable {
 
     public static func registerUrl(instanceUrl: String?) -> URL? {
         guard let base = WebLinks.normalizedBase(instanceUrl) else { return nil }
-        return URL(string: "\(base)/auth/register?ref=ios-app")
+        return URL(string: "\(base)/auth/login?ref=ios-app")
     }
 
     public static func forgotPasswordUrl(instanceUrl: String?) -> URL? {

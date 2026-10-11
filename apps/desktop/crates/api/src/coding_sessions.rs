@@ -43,10 +43,10 @@ pub struct CodingSession {
     pub action_id: Option<String>,
     #[serde(default)]
     pub action_name: Option<String>,
-    /// EXP-583: the `automations` row that fired this run; NULL on every
+    /// EXP-583: the action trigger that fired this run; NULL on every
     /// manual start.
-    #[serde(default)]
-    pub automation_id: Option<String>,
+    #[serde(default, alias = "automationId")]
+    pub trigger_id: Option<String>,
     /// EXP-445: the hosting account on shared-device runs (EXP-432) — the
     /// device owner whose daemon executes a teammate's session. Reaches us
     /// only via tRPC `get`/mutations (server-only column, never in the
@@ -198,15 +198,15 @@ struct StartActionInput<'a> {
     /// to resolve a team from); forbidden otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     team_id: Option<&'a str>,
-    /// EXP-530: `schedule`/`event` when an automation (not a person)
+    /// EXP-530: `schedule`/`event` when a trigger (not a person)
     /// started the run; absent for user starts — old servers never see the
     /// field.
     #[serde(skip_serializing_if = "Option::is_none")]
     started_reason: Option<&'a str>,
-    /// EXP-583: the `automations` row that fired it. The server refuses it
+    /// EXP-583: the action trigger that fired it. The server refuses it
     /// without a `started_reason`, and pairs it against the action.
     #[serde(skip_serializing_if = "Option::is_none")]
-    automation_id: Option<&'a str>,
+    trigger_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     device_label: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -265,15 +265,15 @@ pub struct HeartbeatScope {
     /// `None` for local/own-device sessions.
     pub started_by_id: Option<String>,
     pub device_id: Option<String>,
-    /// EXP-530: the automation reason (`schedule`/`event`) echoed so a swept
-    /// row resurrects inside the Automations run history instead of looking
+    /// EXP-530: the trigger reason (`schedule`/`event`) echoed so a swept
+    /// row resurrects inside the Triggers run history instead of looking
     /// hand-started. `None` for every user-started run. EXP-679: an issue or
     /// batch scope can carry one too — `agent`, a run another coding session
     /// started.
     pub started_reason: Option<String>,
-    /// EXP-583: the firing `automations` row, echoed for the same reason —
-    /// a resurrected row keeps pointing at the automation that started it.
-    pub automation_id: Option<String>,
+    /// EXP-583: the firing trigger, echoed for the same reason —
+    /// a resurrected row keeps pointing at the trigger that started it.
+    pub trigger_id: Option<String>,
     /// EXP-637: the run branch, echoed so a resurrected row keeps pointing
     /// at the worktree the agent is actually working in. `None` on issue
     /// scopes (the server refuses it there) and on repo-less runs.
@@ -313,7 +313,7 @@ struct HeartbeatInput<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     started_reason: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    automation_id: Option<&'a str>,
+    trigger_id: Option<&'a str>,
     #[serde(skip_serializing_if = "Option::is_none")]
     branch: Option<&'a str>,
     /// EXP-876 — the covered issues, echoed so a resurrected BATCH row keeps
@@ -476,8 +476,8 @@ pub fn start_batch(
 /// (the server inserts that row with `action_id` NULL + the constant name);
 /// real actions must NOT send one. Same 412 semantics as [`start`].
 /// EXP-530: `started_reason` (`schedule`/`event`) marks an
-/// automation-started run — `None` for every user start; EXP-583 pairs it
-/// with the firing `automation_id` (the server refuses one without the
+/// trigger-started run — `None` for every user start; EXP-583 pairs it
+/// with the firing `trigger_id` (the server refuses one without the
 /// other).
 /// EXP-637: the argument bag for [`start_action`] — the positional list
 /// outgrew readability once the run branch and the resume link joined it.
@@ -486,7 +486,7 @@ pub struct ActionStart<'a> {
     pub action_id: &'a str,
     pub team_id: Option<&'a str>,
     pub started_reason: Option<&'a str>,
-    pub automation_id: Option<&'a str>,
+    pub trigger_id: Option<&'a str>,
     pub device_label: Option<&'a str>,
     /// The run's dedicated branch (EXP-637 worktree-per-run); `None` on
     /// repo-less scratch runs.
@@ -515,7 +515,7 @@ pub fn start_action(
             action_id: start.action_id,
             team_id: start.team_id,
             started_reason: start.started_reason,
-            automation_id: start.automation_id,
+            trigger_id: start.trigger_id,
             device_label: start.device_label,
             started_by_id: start.attribution.started_by_id,
             device_id: start.attribution.device_id,
@@ -812,7 +812,7 @@ pub fn heartbeat(
             started_by_id: scope.and_then(|scope| scope.started_by_id.as_deref()),
             device_id: scope.and_then(|scope| scope.device_id.as_deref()),
             started_reason: scope.and_then(|scope| scope.started_reason.as_deref()),
-            automation_id: scope.and_then(|scope| scope.automation_id.as_deref()),
+            trigger_id: scope.and_then(|scope| scope.trigger_id.as_deref()),
             branch: scope.and_then(|scope| scope.branch.as_deref()),
             batch_issue_ids: scope
                 .map(|scope| scope.batch_issue_ids.as_slice())
@@ -932,7 +932,7 @@ mod tests {
             started_by_id: None,
             device_id: None,
             started_reason: None,
-            automation_id: None,
+            trigger_id: None,
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: Some("claude".to_string()),
@@ -1047,7 +1047,7 @@ mod tests {
             started_by_id: Some("user-2".to_string()),
             device_id: Some("dev-1".to_string()),
             started_reason: None,
-            automation_id: None,
+            trigger_id: None,
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: None,
@@ -1100,7 +1100,7 @@ mod tests {
             started_by_id: None,
             device_id: None,
             started_reason: None,
-            automation_id: None,
+            trigger_id: None,
             branch: None,
             batch_issue_ids: vec!["i-1".to_string()],
             agent: None,
@@ -1147,7 +1147,7 @@ mod tests {
             started_by_id: None,
             device_id: None,
             started_reason: None,
-            automation_id: None,
+            trigger_id: None,
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: None,
@@ -1171,7 +1171,7 @@ mod tests {
             started_by_id: None,
             device_id: None,
             started_reason: None,
-            automation_id: None,
+            trigger_id: None,
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: None,
@@ -1296,8 +1296,8 @@ mod tests {
     }
 
     #[test]
-    fn start_action_posts_started_reason_for_automation_runs() {
-        // EXP-530: an automation-started run stamps startedReason; user
+    fn start_action_posts_started_reason_for_trigger_runs() {
+        // EXP-530: a trigger-started run stamps startedReason; user
         // starts omit the field entirely (old-server compat rides on the
         // skip_serializing_if — locked by the two tests above).
         let (base, captured) = one_shot_server(
@@ -1312,17 +1312,17 @@ mod tests {
             ActionStart {
                 action_id: "act-1",
                 started_reason: Some("schedule"),
-                automation_id: Some("auto-1"),
+                trigger_id: Some("auto-1"),
                 device_label: Some("testbox"),
                 ..ActionStart::default()
             },
         )
         .unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
-        // EXP-583: the firing automation rides beside the reason — the
-        // server refuses an automationId without one.
+        // EXP-583: the firing trigger rides beside the reason — the
+        // server refuses a triggerId without one.
         assert!(request.ends_with(
-            r#"{"actionId":"act-1","startedReason":"schedule","automationId":"auto-1","deviceLabel":"testbox"}"#
+            r#"{"actionId":"act-1","startedReason":"schedule","triggerId":"auto-1","deviceLabel":"testbox"}"#
         ));
     }
 
@@ -1339,7 +1339,7 @@ mod tests {
             started_by_id: None,
             device_id: None,
             started_reason: None,
-            automation_id: None,
+            trigger_id: None,
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: None,
@@ -1353,7 +1353,7 @@ mod tests {
     }
 
     #[test]
-    fn heartbeat_posts_the_automation_reason() {
+    fn heartbeat_posts_the_trigger_reason() {
         // EXP-530: an automated run echoes its reason on every ping, so a
         // row the staleness sweep reaped resurrects with its "Automated"
         // badge instead of looking hand-started. User runs omit the field
@@ -1367,7 +1367,7 @@ mod tests {
             started_by_id: None,
             device_id: None,
             started_reason: Some("schedule".to_string()),
-            automation_id: Some("auto-1".to_string()),
+            trigger_id: Some("auto-1".to_string()),
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: None,
@@ -1376,7 +1376,7 @@ mod tests {
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
-            r#"{"id":"sess-a","teamId":"ws-1","actionId":"act-1","actionName":"Code review","startedReason":"schedule","automationId":"auto-1"}"#
+            r#"{"id":"sess-a","teamId":"ws-1","actionId":"act-1","actionName":"Code review","startedReason":"schedule","triggerId":"auto-1"}"#
         ));
     }
 
@@ -1422,7 +1422,7 @@ mod tests {
             started_by_id: None,
             device_id: None,
             started_reason: None,
-            automation_id: None,
+            trigger_id: None,
             branch: Some("exp/chat-1a2b3c4d".to_string()),
             batch_issue_ids: Vec::new(),
             agent: None,
@@ -1573,7 +1573,7 @@ mod tests {
             started_by_id: None,
             device_id: None,
             started_reason: None,
-            automation_id: None,
+            trigger_id: None,
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: Some("codex".to_string()),

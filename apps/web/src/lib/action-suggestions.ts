@@ -1,4 +1,4 @@
-import type { AutomationTrigger } from "@exp/db-schema/domain"
+import type { TriggerWhen } from "@exp/db-schema/domain"
 
 // Curated action-suggestion seeds (EXP-530) — the Suggestions tab renders
 // them as rows and "Use" opens the Agent page composer with the
@@ -18,7 +18,7 @@ export interface ActionSuggestion {
   title: string
   description: string
   icon: string
-  trigger?: AutomationTrigger
+  trigger?: TriggerWhen
 }
 
 export const ACTION_SUGGESTIONS: ActionSuggestion[] = [

@@ -763,16 +763,17 @@ describe(`mcpServers.resolveForLaunch`, () => {
     expect(h.assertTeamMember).toHaveBeenCalledWith(`actor`, TEAM)
   })
 
-  it(`refuses ids the run did not pick`, async () => {
+  it(`resolves the row's pick whatever serverIds says`, async () => {
     seed({ coding_sessions: [run({ mcpServerIds: [SERVER_B] })] })
     // SERVER is connected for the caller, but this run never picked it.
-    const result = await inRun().resolveForLaunch({ serverIds: [SERVER, SERVER_B] })
-    expect(result.servers).toEqual([])
-    expect(result.skipped).toEqual([
-      { id: SERVER_B, name: `Grafana`, reason: `not connected` },
-      { id: SERVER, name: SERVER, reason: `not picked for this run` },
-    ])
-    expect(JSON.stringify(result)).not.toContain(`tok`)
+    for (const input of [{ serverIds: [SERVER, SERVER_B] }, { serverIds: [SERVER] }, {}]) {
+      const result = await inRun().resolveForLaunch(input)
+      expect(result.servers).toEqual([])
+      expect(result.skipped).toEqual([
+        { id: SERVER_B, name: `Grafana`, reason: `not connected` },
+      ])
+      expect(JSON.stringify(result)).not.toContain(`tok`)
+    }
   })
 
   it(`refuses without the session header`, async () => {
@@ -986,7 +987,6 @@ describe(`mcpServers.resolveForLaunch — action runs spend shared connections (
 
   it(`returns own entries plus other members' shared http ones, with actors and a roster`, async () => {
     seed({})
-    // serverIds omitted = the row's whole pick.
     const result = await inRun().resolveForLaunch({})
     expect(result.servers.map((entry) => [entry.id, entry.name, entry.actor])).toEqual([
       [SERVER, `Linear`, { userId: `actor`, name: `Actor`, shared: false }],
@@ -1012,11 +1012,11 @@ describe(`mcpServers.resolveForLaunch — action runs spend shared connections (
     ])
   })
 
-  it(`an explicit serverIds list narrows the pick and still skips unpicked ids`, async () => {
+  it(`resolves the row's pick whatever serverIds says`, async () => {
     seed({ mcpServerIds: [SERVER] })
-    const result = await inRun().resolveForLaunch({ serverIds: [SERVER, SERVER_B] })
+    const result = await inRun().resolveForLaunch({ serverIds: [SERVER_B] })
     expect(result.servers.map((entry) => entry.name)).toEqual([`Linear`, `Linear-as-chris`])
-    expect(result.skipped).toEqual([{ id: SERVER_B, name: SERVER_B, reason: `not picked for this run` }])
+    expect(result.skipped).toEqual([])
     expect(result.members.every((member) => member.serverId === SERVER)).toBe(true)
   })
 

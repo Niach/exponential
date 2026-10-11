@@ -1,8 +1,8 @@
 package com.exponential.app.data.api
 
 import com.exponential.app.domain.ActionTrigger
-import com.exponential.app.domain.AutomationTrigger
-import com.exponential.app.domain.AutomationTriggerFilters
+import com.exponential.app.domain.TriggerWhen
+import com.exponential.app.domain.TriggerFilters
 import com.exponential.app.domain.actionTriggerWireJson
 import com.exponential.app.domain.parseActionTriggers
 import kotlinx.serialization.json.Json
@@ -30,7 +30,7 @@ class ActionTriggersWireFormatTest {
     private fun encode(input: JsonObject): String =
         json.encodeToString(JsonObject.serializer(), input)
 
-    private val daily = AutomationTrigger.Schedule(interval = "daily", minuteOfDay = 540)
+    private val daily = TriggerWhen.Schedule(interval = "daily", minuteOfDay = 540)
 
     private val stored = ActionTrigger(
         id = "t-1",
@@ -63,7 +63,7 @@ class ActionTriggersWireFormatTest {
             account = null,
             model = "",
             effort = null,
-            whenPart = AutomationTrigger.Schedule(interval = "weekly", minuteOfDay = 480, weekday = 5),
+            whenPart = TriggerWhen.Schedule(interval = "weekly", minuteOfDay = 480, weekday = 5),
         )
         assertEquals(
             """{"enabled":true,"deviceId":"dev-2",""" +
@@ -86,9 +86,9 @@ class ActionTriggersWireFormatTest {
                     id = "t-2",
                     enabled = false,
                     deviceId = "dev-1",
-                    whenPart = AutomationTrigger.Event(
+                    whenPart = TriggerWhen.Event(
                         event = "status_changed",
-                        filters = AutomationTriggerFilters(
+                        filters = TriggerFilters(
                             boardIds = listOf("b1"),
                             toStatusIds = listOf("s1"),
                         ),
@@ -127,7 +127,7 @@ class ActionTriggersWireFormatTest {
             id = "t-4",
             enabled = false,
             account = null,
-            whenPart = AutomationTrigger.Event(event = "created"),
+            whenPart = TriggerWhen.Event(event = "created"),
         )
         val array = encode(
             updateActionTriggersInput(id = "act-1", triggers = listOf(stored.toWireJson(), event.toWireJson())),

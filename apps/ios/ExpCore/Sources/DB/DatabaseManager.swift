@@ -2298,6 +2298,45 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v65 (SLOP-17 automations → triggers): the server renamed
+        // `coding_sessions.automation_id` to `trigger_id` and the
+        // coding-sessions shape serves only the new name. Renamed in place
+        // (SQLite >= 3.25) so synced rows keep the trigger that fired them,
+        // added when a store somehow lacks both; the coding-sessions offset
+        // resets so every row re-arrives under the new column (the shape's
+        // columns changed, so its handle rotates server-side anyway). The
+        // `automations` table and its cursor, retired by v59, are swept again
+        // (guarded, a no-op on any store v59 already cleaned).
+        migrator.registerMigration("v65_trigger_id") { db in
+            if try db.tableExists("coding_sessions") {
+                let existing = Set(try db.columns(in: "coding_sessions").map(\.name))
+                if !existing.contains("trigger_id") {
+                    try db.alter(table: "coding_sessions") { t in
+                        if existing.contains("automation_id") {
+                            t.rename(column: "automation_id", to: "trigger_id")
+                        } else {
+                            t.add(column: "trigger_id", .text)
+                        }
+                    }
+                } else if existing.contains("automation_id") {
+                    try db.alter(table: "coding_sessions") { t in
+                        t.drop(column: "automation_id")
+                    }
+                }
+            }
+            try db.execute(sql: "DROP TABLE IF EXISTS \"automations\"")
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    DELETE FROM "electric_offsets" WHERE "shape" = 'automations'
+                    """)
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'coding-sessions'
+                    """)
+            }
+        }
+
         return migrator
     }
 

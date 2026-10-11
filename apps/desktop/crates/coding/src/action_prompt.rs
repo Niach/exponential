@@ -22,11 +22,11 @@ pub struct ActionInputValue {
     pub display: Option<String>,
 }
 
-/// Why an automation-started run fired (EXP-530), rendered as the prompt's
+/// Why a trigger-started run fired (EXP-530), rendered as the prompt's
 /// `## Trigger` section. Hosts build it from the engine's decision: a
-/// schedule carries the [`crate::automations::schedule_phrase`] sentence, an
+/// schedule carries the [`crate::triggers::schedule_phrase`] sentence, an
 /// event the pre-rendered per-issue lines (capped at
-/// [`crate::automations::TRIGGER_PROMPT_MAX_LINES`], overflow in `omitted`).
+/// [`crate::triggers::TRIGGER_PROMPT_MAX_LINES`], overflow in `omitted`).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TriggerNote {
     pub kind: TriggerNoteKind,
@@ -76,7 +76,7 @@ pub fn render_action_prompt(name: &str, body: &str, inputs: &[ActionInputValue])
 }
 
 /// [`render_action_prompt`] plus the optional `## Trigger` section an
-/// automation-started run carries between the inputs block and the divider
+/// trigger-started run carries between the inputs block and the divider
 /// (EXP-530). `None` renders byte-identically to the trigger-less prompt.
 pub fn render_action_prompt_with_trigger(
     name: &str,
@@ -94,7 +94,7 @@ pub fn render_action_prompt_with_trigger(
 /// worktree + branch). `workspace: None` renders byte-identically to the
 /// pre-EXP-637 prompt, which the two wrappers above rely on.
 /// EXP-679: `unattended` picks the close-out — a trigger implies it (an
-/// automation's run is unattended by definition), and the launcher passes it
+/// trigger's run is unattended by definition), and the launcher passes it
 /// for the other unattended reason (`agent`: another coding session started
 /// this one).
 /// EXP-764: what a repo-less run (chat or team action without a repo) is
@@ -430,7 +430,7 @@ Per board: candidates, duplicates linked, combined issues created, labels applie
 
 /// FEED-50: the "Tidy up" run's seed prompt — [`TIDY_UP_PROGRAM`] behind the
 /// generic action preamble, so the optional `board`/`repo` picks render as
-/// `## Inputs`, an automation's `## Trigger` narrows the scope (the ONLY
+/// `## Inputs`, a trigger's `## Trigger` narrows the scope (the ONLY
 /// builtin that honours one — the only automatable builtin), the workspace
 /// section says worktree vs scratch dir, and `extra` (the composer's free
 /// text) lands as `## Additional instructions`. The team id heads the body
@@ -674,7 +674,7 @@ board, label, and comment operations. {}\n\n## Workspace\n\n{SCRATCH_CWD_NOTE}\n
     }
 
     /// EXP-679: the close-out is the only thing `unattended` moves — and an
-    /// automation's trigger implies it without the flag.
+    /// trigger's trigger implies it without the flag.
     #[test]
     fn only_an_unattended_action_run_is_told_to_call_the_close_out_tool() {
         let attended = render_action_prompt_full("Code review", "# Review", &[], None, None, false, None);
@@ -686,7 +686,7 @@ board, label, and comment operations. {}\n\n## Workspace\n\n{SCRATCH_CWD_NOTE}\n
         assert!(unattended.contains("`exponential_sessions_end`"));
         assert!(unattended.contains("nobody is watching it"));
 
-        // A trigger IS the unattended marker (EXP-530 automation runs).
+        // A trigger IS the unattended marker (EXP-530 trigger runs).
         let note = TriggerNote {
             kind: TriggerNoteKind::Schedule {
                 phrase: "daily at 07:00".to_string(),
@@ -1233,7 +1233,7 @@ why you stopped)."
     }
 
     /// FEED-50: the only automatable builtin honours the `## Trigger`
-    /// section, and an automation's run closes out through
+    /// section, and a trigger's run closes out through
     /// `exponential_sessions_end`.
     #[test]
     fn tidy_up_prompt_carries_the_trigger_and_the_unattended_close_out() {

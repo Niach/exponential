@@ -80,7 +80,6 @@ export function classifyAppLink(rawHref: string, origin: string): AppLink {
 /** The first path segments the web router serves as screens. */
 export const ROUTED_APP_PREFIXES: readonly string[] = [
   `about`,
-  `account`,
   `admin`,
   `auth`,
   `exponential-ui-devices`,

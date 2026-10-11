@@ -70,7 +70,6 @@ import {
   CLI_DEFAULT_EFFORT,
   modelLabel,
 } from "@/components/launch-dialog/launch-options-pane"
-import { agentLabel } from "@exp/ui"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { queueAgentImport } from "@/components/device-readiness-notice"
 
@@ -619,9 +618,6 @@ export function DeviceSettingsDialog({
     }
   }, [open, tracked, online])
 
-  const pendingKey = (key: string) =>
-    tracked.some((command) => command.key === key)
-
   // ── Update + Remove (EXP-909 follow-up) ──────────────────────────────────
   // The controls the device row used to carry, predicates and confirm copy
   // unchanged. `device` re-resolves from the live list on every render, so
@@ -649,11 +645,8 @@ export function DeviceSettingsDialog({
     const account = row?.agentAccounts?.[agent]
     return account ? [{ agent, version: account.version ?? null }] : []
   })
-  // EXP-1196: with a doctor report the agent CLIs update from the readiness
-  // block's Update pill; the per-agent rows remain for older builds only.
-  const legacyAgentUpdateRows = row?.doctor ? [] : agentUpdateRows
-  const showUpdateSection =
-    kind === `server` || legacyAgentUpdateRows.length > 0
+  // EXP-1196: the agent CLIs update from the readiness block's Update pill.
+  const showUpdateSection = kind === `server`
 
   const toggleComputerUse = (checked: boolean) => {
     setComputerUse(checked)
@@ -914,23 +907,22 @@ export function DeviceSettingsDialog({
                 />
               </GlassGroup>
             )}
-            {row?.doctor &&
-              agentUpdateRows.map(({ agent }) => {
-                const key = agentUpdateKey(agent)
-                const text = sectionErrors[key] || sectionNotes[key]
-                return text ? (
-                  <p
-                    key={key}
-                    className={
-                      sectionErrors[key]
-                        ? `px-1 text-xs text-destructive`
-                        : `px-1 text-xs text-muted-foreground`
-                    }
-                  >
-                    {text}
-                  </p>
-                ) : null
-              })}
+            {agentUpdateRows.map(({ agent }) => {
+              const key = agentUpdateKey(agent)
+              const text = sectionErrors[key] || sectionNotes[key]
+              return text ? (
+                <p
+                  key={key}
+                  className={
+                    sectionErrors[key]
+                      ? `px-1 text-xs text-destructive`
+                      : `px-1 text-xs text-muted-foreground`
+                  }
+                >
+                  {text}
+                </p>
+              ) : null
+            })}
             <AgentOptionsFields
               idPrefix="device-settings"
               agent={agentTab}
@@ -1032,68 +1024,6 @@ export function DeviceSettingsDialog({
                       </div>
                     </div>
                   )}
-                  {legacyAgentUpdateRows.map(({ agent, version: agentVersion }) => {
-                    const key = agentUpdateKey(agent)
-                    const updating = pendingKey(key)
-                    return (
-                      <div
-                        key={agent}
-                        className="flex flex-col gap-0.5 px-4 py-3"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div className="min-w-0 flex-1 truncate text-sm text-foreground">
-                            {agentLabel(agent)}
-                            {agentVersion && (
-                              <>
-                                {` `}
-                                <span className="text-muted-foreground">
-                                  {`v${agentVersion}`}
-                                </span>
-                              </>
-                            )}
-                          </div>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="shrink-0 text-muted-foreground"
-                          disabled={updating}
-                          title={
-                            online
-                              ? `Run \`${agent} update\` on this device.`
-                              : `Run \`${agent} update\` on this device (queued until it comes online).`
-                          }
-                          onClick={() =>
-                            void queueCommand(key, {
-                              kind: `agent_update`,
-                              agent,
-                            })
-                          }
-                        >
-                          {updating ? (
-                            <>
-                              <LoaderCircle className="animate-spin" />
-                              Updating…
-                            </>
-                          ) : (
-                            <>
-                              <UpdateIcon />
-                              Update
-                            </>
-                          )}
-                        </Button>
-                        </div>
-                        {sectionErrors[key] ? (
-                          <p className="text-xs text-destructive">
-                            {sectionErrors[key]}
-                          </p>
-                        ) : sectionNotes[key] ? (
-                          <p className="text-xs text-muted-foreground">
-                            {sectionNotes[key]}
-                          </p>
-                        ) : null}
-                      </div>
-                    )
-                  })}
                 </GlassGroup>
                 {updateQueued && (
                   <p className="px-1 text-xs text-amber-500">

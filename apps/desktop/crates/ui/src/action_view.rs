@@ -6,10 +6,10 @@
 //!
 //! It replaced two things: the "Edit action" dialog (its fields are the
 //! Prompt section, [`crate::action_prompt_form`]) and the Automations screen
-//! (an automation IS a trigger of its action now, and "Recent automated runs"
+//! (a trigger IS a trigger of its action now, and "Recent automated runs"
 //! is this action's Runs). Triggers are LOCAL-ONLY: there is no server
 //! scheduler — the bound device selects its enabled triggers off the synced
-//! `actions` rows and self-starts ([`crate::automation_host`]). This page is
+//! `actions` rows and self-starts ([`crate::trigger_host`]). This page is
 //! the owner's editing surface plus the answer to "did they fire?".
 //!
 //! Every trigger write is ONE `actions.update({id, triggers})`, a whole-array
@@ -33,7 +33,7 @@ use gpui_component::{
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
-use coding::automations::ActionTrigger;
+use coding::triggers::ActionTrigger;
 
 use crate::action_prompt_form::ActionPromptForm;
 use crate::actions_view::page_scaffold;
@@ -122,7 +122,7 @@ impl ActionDerived {
             return Self { ready, ..Self::default() };
         };
         let devices = collections.devices.read(cx);
-        let triggers = coding::automations::parse_action_triggers(row.triggers.as_ref())
+        let triggers = coding::triggers::parse_action_triggers(row.triggers.as_ref())
             .into_iter()
             .map(|trigger| {
                 let device = devices
@@ -905,7 +905,7 @@ mod tests {
     use serde_json::json;
 
     fn trigger(element: serde_json::Value) -> ActionTrigger {
-        coding::automations::parse_action_trigger(&element).expect("a readable trigger")
+        coding::triggers::parse_action_trigger(&element).expect("a readable trigger")
     }
 
     /// Line 2 of a Triggers row names the pinned agent and model, `agent ·

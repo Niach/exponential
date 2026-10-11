@@ -1303,7 +1303,7 @@ impl IssueTimeline {
             })
             .collect();
 
-        // EXP-530: `created` rows exist for automations but the synthesized
+        // EXP-530: `created` rows exist for triggers but the synthesized
         // creation line already covers them — drop them here so they don't
         // inflate the "Activity (N)" count.
         let is_shown = |event: &IssueEvent| event.kind.as_deref() != Some("created");
@@ -2037,7 +2037,7 @@ fn event_phrase(
             };
             Some((EventGlyph::Plain(glyph), phrase, None))
         }
-        // EXP-530: `created` rows exist as the automation-trigger substrate —
+        // EXP-530: `created` rows exist as the event-trigger substrate —
         // the issue header already shows creation, so every client suppresses
         // them here (web `EventRow` returns null on the same arm).
         "created" => None,

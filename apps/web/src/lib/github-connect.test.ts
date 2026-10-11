@@ -5,7 +5,6 @@ vi.mock(`@/lib/auth/client`, () => ({ authClient: { linkSocial: vi.fn() } }))
 import {
   githubConnectPagePath,
   isSameOriginPath,
-  isSignedOutConnectStart,
 } from "@/lib/github-connect"
 
 describe(`isSameOriginPath`, () => {
@@ -50,16 +49,5 @@ describe(`githubConnectPagePath`, () => {
     expect(githubConnectPagePath({ from: `https://evil.example/` })).toBe(
       `/integrations/github`
     )
-  })
-})
-
-describe(`isSignedOutConnectStart (compat shim)`, () => {
-  it(`is a native start only before GitHub's install redirect`, () => {
-    expect(isSignedOutConnectStart(`app`, `?return=app&team=t1`)).toBe(true)
-    expect(
-      isSignedOutConnectStart(`app`, `?return=app&installation_id=1&setup_action=install`)
-    ).toBe(false)
-    expect(isSignedOutConnectStart(undefined, `?installation_id=1`)).toBe(false)
-    expect(isSignedOutConnectStart(`popup`, `?return=popup`)).toBe(false)
   })
 })

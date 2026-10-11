@@ -353,7 +353,7 @@ pub struct LocalCodingSession {
     /// scratch run — nothing to compare to).
     pub worktree: PathBuf,
     pub base_ref: Option<String>,
-    /// EXP-637: `schedule`/`event` when an AUTOMATION started this run —
+    /// EXP-637: `schedule`/`event` when a TRIGGER started this run —
     /// nobody is watching its tab, so an agent-declared end closes it
     /// instead of leaving an ended strip. `None` = a person started it.
     pub started_reason: Option<String>,
@@ -455,7 +455,7 @@ impl LocalSessions {
     }
 
     /// The live local session with this `coding_sessions` ROW id — the
-    /// reverse of [`Self::session_for_tab`]. EXP-686: the automations run log
+    /// reverse of [`Self::session_for_tab`]. EXP-686: the triggers run log
     /// resolves a synced live row back to the tab this process is hosting it
     /// in, so clicking the row can reveal that session.
     pub fn session_by_id(&self, session_id: &str) -> Option<&LocalCodingSession> {
@@ -479,7 +479,7 @@ impl LocalSessions {
             .collect()
     }
 
-    /// The ACTIONS with a live local run (EXP-530) — the automation host's
+    /// The ACTIONS with a live local run (EXP-530) — the trigger host's
     /// defer set: a trigger never launches a second run of an action this
     /// process is already running. Keyed by action id (not session id), and
     /// deliberately over ALL subjects: an issue/batch session carries no
@@ -1478,7 +1478,7 @@ pub fn spawn_into_window(
 /// navigate: the person
 /// may be mid-edit elsewhere, and the run already appears in the sidebar via
 /// its synced row, nested under its parent. Everything a person asked for
-/// (the composer, a phone/web relay start, a chat, an automation) still
+/// (the composer, a phone/web relay start, a chat, a trigger) still
 /// opens.
 ///
 /// A person's LOCAL Resume never trips this even on an agent-started run:
@@ -2397,7 +2397,7 @@ mod tests {
     use super::*;
 
     /// EXP-1088: agent-started runs never steal the window;
-    /// person-started ones (incl. automations and a local resume, whose
+    /// person-started ones (incl. triggers and a local resume, whose
     /// reason is `None`) still open.
     #[test]
     fn only_person_started_runs_navigate() {

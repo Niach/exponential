@@ -147,7 +147,7 @@ fun CommentThread(
     }
     // EXP-530: `created` events are suppressed entirely (eventRowVisible) —
     // the synthesized Created header already shows creation, and the rows
-    // exist only as the automation-trigger substrate. The filter runs AFTER
+    // exist only as the action-trigger substrate. The filter runs AFTER
     // the fold, never before it.
     val visibleEvents = remember(foldedEvents) {
         foldedEvents.filter { eventRowVisible(it.type) }

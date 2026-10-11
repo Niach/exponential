@@ -309,20 +309,13 @@ struct AgentComposerCard: View {
     }
 
     /// Wave D: Files-app picks, ANY type — an image queues as an image, the
-    /// rest as file tiles; over a cap = the one rejection copy. F6: a device
-    /// without `steer-files` takes images only; a file pick says why
-    /// (`SteerFiles.needsNewerDeviceNotice`) and is dropped.
+    /// rest as file tiles; over a cap = the one rejection copy.
     private func ingestFiles(_ urls: [URL]) async {
         model.imageError = nil
-        let caps = model.device?.caps
         for url in urls {
             let outcome = await AttachmentPicks.readPickedSteerFile(at: url)
             guard let picked = outcome.attachment else {
                 model.imageError = outcome.failure
-                continue
-            }
-            guard SteerFiles.accepts(contentType: picked.contentType, caps: caps) else {
-                model.imageError = SteerFiles.needsNewerDeviceNotice
                 continue
             }
             model.queuePicked(picked)

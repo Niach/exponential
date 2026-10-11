@@ -389,9 +389,9 @@ export const codingSessionStatusValues = [
 
 // Why a coding session was started (coding_sessions.started_reason,
 // documented varchar — NULL = a person started it). Written only by the
-// server (`codingSessions.start`), set by the desktop/CLI automation hosts
+// server (`codingSessions.start`), set by the desktop/CLI trigger hosts
 // when an action's trigger fires (EXP-530); powers the "Automated" badge and
-// the Automations tab run history on every client.
+// the action's run history on every client.
 // `agent` (EXP-679) = started by another coding session through
 // `exponential_sessions_start` — unattended like an automation, so its
 // close-out (`exponential_sessions_end`) ENDS it; unlike schedule/event it
@@ -809,8 +809,8 @@ export const actionInputsSchema = z
 // become one later without a migration. Writes are STRICT (these schemas);
 // readers everywhere stay tolerant and treat an unparseable/unknown trigger as
 // "never fires". The event vocabulary is APPEND-ONLY.
-// `Automation*` = the WHEN-part alone: the shape the legacy `automations`
-// mirror rows keep in their `trigger` column until that table is dropped.
+// `*TriggerWhen` = the WHEN-part alone (schedule or event, no runner fields),
+// what the trigger editors and filter checks work on.
 
 export const actionTriggerEventValues = [
   `created`,
@@ -837,7 +837,7 @@ export type ActionTriggerSource = (typeof actionTriggerSourceValues)[number]
 export const MAX_TRIGGER_FILTER_IDS = 20
 export const MAX_ACTION_TRIGGERS = 10
 
-export interface AutomationScheduleTrigger {
+export interface ScheduleTriggerWhen {
   kind: `schedule`
   interval: ActionScheduleInterval
   /** 0–1439, DEVICE-LOCAL wall clock (no tz field by design). */
@@ -848,7 +848,7 @@ export interface AutomationScheduleTrigger {
   dayOfMonth?: number
 }
 
-export interface AutomationEventTriggerFilters {
+export interface EventTriggerFilters {
   /** Applies to every event kind; absent = every board. */
   boardIds?: string[]
   /** label_added only: the added label. */
@@ -859,18 +859,18 @@ export interface AutomationEventTriggerFilters {
   toStatusIds?: string[]
 }
 
-export interface AutomationEventTrigger {
+export interface EventTriggerWhen {
   kind: `event`
   event: ActionTriggerEvent
-  filters?: AutomationEventTriggerFilters
+  filters?: EventTriggerFilters
 }
 
-export type AutomationTrigger = AutomationScheduleTrigger | AutomationEventTrigger
+export type TriggerWhen = ScheduleTriggerWhen | EventTriggerWhen
 
 /** The runner half every stored trigger carries. Unset pins are OMITTED
  * (= the device's launch defaults / its last used login). */
 export interface ActionTriggerRunner {
-  /** Stable uuid: run attribution (`coding_sessions.automation_id`) and the
+  /** Stable uuid: run attribution (`coding_sessions.trigger_id`) and the
    * device's firing state key on it. */
   id: string
   enabled: boolean
@@ -882,9 +882,9 @@ export interface ActionTriggerRunner {
   effort?: string
 }
 
-export type ActionScheduleTrigger = ActionTriggerRunner & AutomationScheduleTrigger
+export type ActionScheduleTrigger = ActionTriggerRunner & ScheduleTriggerWhen
 export type ActionEventTrigger = ActionTriggerRunner &
-  AutomationEventTrigger & { source: ActionTriggerSource }
+  EventTriggerWhen & { source: ActionTriggerSource }
 export type ActionTrigger = ActionScheduleTrigger | ActionEventTrigger
 
 // Filter arrays reject empty ([] would silently match nothing) and cap at 20.
@@ -894,14 +894,14 @@ const triggerIdArraySchema = z
   .max(MAX_TRIGGER_FILTER_IDS)
 
 /** devices.device_id cap — a trigger's runner binding. */
-export const automationDeviceIdSchema = z.string().min(1).max(128)
+export const triggerDeviceIdSchema = z.string().min(1).max(128)
 
 // The runner fields as WRITTEN: `id` may be omitted (the server mints it) and
 // a pin may be null/empty (= unset; the server stores it omitted).
 const triggerRunnerShape = {
   id: z.string().uuid().optional(),
   enabled: z.boolean().default(true),
-  deviceId: automationDeviceIdSchema,
+  deviceId: triggerDeviceIdSchema,
   agent: z.string().max(16).nullable().optional(),
   account: z.string().max(64).nullable().optional(),
   model: z.string().max(64).nullable().optional(),
@@ -952,7 +952,7 @@ function refineSchedule(
 }
 
 function refineEvent(
-  t: { event: ActionTriggerEvent; filters?: AutomationEventTriggerFilters },
+  t: { event: ActionTriggerEvent; filters?: EventTriggerFilters },
   ctx: z.RefinementCtx
 ): void {
   const issue = (message: string) =>
@@ -1001,29 +1001,8 @@ export const actionTriggersSchema = z
     }
   })
 
-/**
- * SLOP-2 compat shim: the WHEN-part alone, as clients from before the merge
- * still write it through the `automations.*` adapter router
- * (apps/web/src/lib/trpc/automations.ts). Strip mode on purpose (an unknown
- * key from an old build is dropped, never refused). Delete with that router,
- * once CLIENT_MIN_VERSION_IOS > 0.14.49 and _ANDROID > 0.14.50 and
- * _DESKTOP/_CLI > 0.14.58.
- */
-export const legacyAutomationTriggerSchema = z.discriminatedUnion(`kind`, [
-  z.object(scheduleTriggerShape).superRefine(refineSchedule),
-  z
-    .object({
-      ...eventTriggerShape,
-      filters: z.object(eventFilterShape).optional(),
-    })
-    .superRefine(refineEvent),
-])
-export type LegacyAutomationTriggerInput = z.infer<
-  typeof legacyAutomationTriggerSchema
->
-
-/** The when-part of a stored trigger: what the legacy mirror row keeps. */
-export function triggerWhenPart(trigger: ActionTrigger): AutomationTrigger {
+/** The when-part of a stored trigger (schedule or event, no runner fields). */
+export function triggerWhenPart(trigger: ActionTrigger): TriggerWhen {
   if (trigger.kind === `schedule`) {
     return {
       kind: `schedule`,

@@ -2,13 +2,9 @@
 //! action, in the synced `actions.triggers` array): local-only schedules +
 //! event triggers. PURE — hosts (the desktop GUI's trigger host, the CLI
 //! daemon's worker) snapshot their inputs (the triggers bound to THIS device,
-//! persisted [`AutomationState`]s, pre-fetched event rows, live-run ids, the
+//! persisted [`TriggerState`]s, pre-fetched event rows, live-run ids, the
 //! clock) and [`evaluate`] returns [`Decision`]s; every side effect (settings
 //! IO, the launch) is the host's.
-//!
-//! The module, its types and the state dir keep the `automation` name on
-//! purpose (the wire still says `automationId`, and the persisted state is
-//! keyed by the same id) — an "automation" here IS one trigger of an action.
 //!
 //! The device binding and the on/off flag ride each trigger element, so
 //! [`bound_triggers`] filters (`deviceId == mine && enabled`) BEFORE the
@@ -51,7 +47,7 @@ pub use events::{
     SEEN_IDS_CAP,
 };
 pub use schedule::{latest_occurrence, next_occurrence};
-pub use state::{read_states, write_states, AutomationState, AutomationStore, AUTOMATIONS_KEY};
+pub use state::{read_states, write_states, TriggerState, TriggerStore, LEGACY_AUTOMATIONS_KEY};
 pub use summary::{schedule_phrase, trigger_summary};
 pub use trigger::{
     parse_action_trigger, parse_action_triggers, parse_trigger, parse_trigger_str,
@@ -109,13 +105,13 @@ pub const TRIGGER_PROMPT_MAX_LINES: usize = 50;
 /// has already dropped every trigger that targets another device or is
 /// switched off.
 #[derive(Clone, Debug)]
-pub struct TriggeredAutomation {
-    /// The trigger's id — the state map's key AND the `automationId` stamped
+pub struct ArmedTrigger {
+    /// The trigger's id — the state map's key AND the `triggerId` stamped
     /// on the run it fires.
-    pub automation_id: String,
+    pub trigger_id: String,
     /// The action this fires (the reservation key and the launch target).
     pub action_id: String,
-    /// The automation's team — it fences event matching against the shared
+    /// The trigger's team — it fences event matching against the shared
     /// events snapshot (hosts sync every member team's rows into one place).
     pub team_id: String,
     pub trigger: ParsedTrigger,
@@ -127,7 +123,7 @@ pub struct TriggeredAutomation {
 /// needs beyond it.
 #[derive(Clone, Debug)]
 pub struct BoundTrigger {
-    pub triggered: TriggeredAutomation,
+    pub triggered: ArmedTrigger,
     /// The target action's display name (a log handle; may be empty).
     pub action_name: String,
     pub pins: LaunchPins,
@@ -153,9 +149,9 @@ pub fn bound_triggers<'a>(
                 continue; // switched off, or another machine's (or host's)
             }
             bound.push(BoundTrigger {
-                triggered: TriggeredAutomation {
+                triggered: ArmedTrigger {
                     fingerprint: trigger.fingerprint(),
-                    automation_id: trigger.id,
+                    trigger_id: trigger.id,
                     action_id: action.id.clone(),
                     team_id: team_id.to_string(),
                     trigger: trigger.when,
@@ -170,14 +166,14 @@ pub fn bound_triggers<'a>(
 
 /// One evaluation pass's snapshot.
 pub struct EvalInput<'a, Tz: chrono::TimeZone> {
-    pub automations: &'a [TriggeredAutomation],
+    pub armed: &'a [ArmedTrigger],
     /// This device's persisted states ([`read_states`]).
-    pub states: &'a HashMap<String, AutomationState>,
+    pub states: &'a HashMap<String, TriggerState>,
     /// Candidate event rows (host-fetched, ≤ the catch-up window is fine —
     /// the engine re-applies the cutoff).
     pub events: &'a [EventRow],
     /// Actions with a LIVE local run — deferred, never double-launched.
-    /// Keyed by ACTION id: two automations on one action must not both
+    /// Keyed by ACTION id: two triggers on one action must not both
     /// launch it while a run is up.
     pub live_action_ids: &'a HashSet<String>,
     pub now_ms: i64,
@@ -197,31 +193,31 @@ pub enum Decision {
     /// Launch the action and persist `new_state` FIRST (see the firing
     /// protocol above).
     Fire {
-        automation_id: String,
+        trigger_id: String,
         firing: Firing,
-        new_state: AutomationState,
+        new_state: TriggerState,
     },
     /// First observation of this trigger (or an edited one): persist the
-    /// seeded state, fire NOTHING — an automation never fires
+    /// seeded state, fire NOTHING — a trigger never fires
     /// retroactively on creation or edit.
     Reseed {
-        automation_id: String,
-        new_state: AutomationState,
+        trigger_id: String,
+        new_state: TriggerState,
     },
     /// Cooling down or already running — re-evaluate next beat.
-    Defer { automation_id: String },
+    Defer { trigger_id: String },
 }
 
 /// Whether this pass needs an events snapshot at all: only an event trigger
 /// reads it (the host already dropped the disabled rows; schedules never
 /// look). Hosts skip the issue_events scan when this is false.
-pub fn needs_events(automations: &[TriggeredAutomation]) -> bool {
-    automations
+pub fn needs_events(armed: &[ArmedTrigger]) -> bool {
+    armed
         .iter()
-        .any(|automation| matches!(automation.trigger.kind, TriggerKind::Event(_)))
+        .any(|armed| matches!(armed.trigger.kind, TriggerKind::Event(_)))
 }
 
-/// The per-automation decision cascade: (1) unsupported → inert;
+/// The per-trigger decision cascade: (1) unsupported → inert;
 /// (2) unseen or edited trigger → [`Decision::Reseed`]; (3) cooldown →
 /// defer; (4) live run → defer; (5) schedule fires on a new latest
 /// occurrence (offline catch-up = exactly one run, anchored at the
@@ -237,19 +233,19 @@ pub fn evaluate<Tz: chrono::TimeZone>(input: &EvalInput<Tz>) -> Vec<Decision> {
         .max()
         .unwrap_or((input.now_ms, ""));
     let mut decisions = Vec::new();
-    for automation in input.automations {
-        if automation.trigger.kind == TriggerKind::Unsupported {
+    for armed in input.armed {
+        if armed.trigger.kind == TriggerKind::Unsupported {
             continue;
         }
-        let state = input.states.get(&automation.automation_id);
+        let state = input.states.get(&armed.trigger_id);
         // (2) Reseed: no state, an edited trigger, or a state missing the
         // stamps this kind needs (a schedule↔event edit keeps the
         // fingerprint moving, but an older writer could leave holes —
         // self-heal conservatively instead of firing blind).
         let needs_reseed = match state {
             None => true,
-            Some(existing) if existing.fingerprint != automation.fingerprint => true,
-            Some(existing) => match &automation.trigger.kind {
+            Some(existing) if existing.fingerprint != armed.fingerprint => true,
+            Some(existing) => match &armed.trigger.kind {
                 TriggerKind::Schedule(_) => existing.last_fired_at.is_none(),
                 TriggerKind::Event(_) => {
                     existing.watermark_created_at.is_none() || existing.watermark_id.is_none()
@@ -262,22 +258,22 @@ pub fn evaluate<Tz: chrono::TimeZone>(input: &EvalInput<Tz>) -> Vec<Decision> {
             // floor starts AT the snapshot max (raised monotonically over
             // any surviving floor), which leaves nothing in the snapshot
             // eligible to fire.
-            let (seen_floor, seen_ids) = match &automation.trigger.kind {
+            let (seen_floor, seen_ids) = match &armed.trigger.kind {
                 TriggerKind::Event(spec) => {
                     let base = state
                         .and_then(|existing| existing.seen_floor)
                         .unwrap_or(i64::MIN)
                         .max(snapshot_watermark.0);
                     let (floor, ids) =
-                        seen_window(spec, &automation.team_id, input.events, base);
+                        seen_window(spec, &armed.team_id, input.events, base);
                     (Some(floor), ids)
                 }
                 TriggerKind::Schedule(_) | TriggerKind::Unsupported => (None, Vec::new()),
             };
             decisions.push(Decision::Reseed {
-                automation_id: automation.automation_id.clone(),
-                new_state: AutomationState {
-                    fingerprint: automation.fingerprint.clone(),
+                trigger_id: armed.trigger_id.clone(),
+                new_state: TriggerState {
+                    fingerprint: armed.fingerprint.clone(),
                     last_fired_at: Some(input.now_ms),
                     watermark_created_at: Some(snapshot_watermark.0),
                     watermark_id: Some(snapshot_watermark.1.to_string()),
@@ -293,13 +289,13 @@ pub fn evaluate<Tz: chrono::TimeZone>(input: &EvalInput<Tz>) -> Vec<Decision> {
         let cooling = state
             .cooldown_until
             .is_some_and(|until| input.now_ms < until);
-        if cooling || input.live_action_ids.contains(&automation.action_id) {
+        if cooling || input.live_action_ids.contains(&armed.action_id) {
             decisions.push(Decision::Defer {
-                automation_id: automation.automation_id.clone(),
+                trigger_id: armed.trigger_id.clone(),
             });
             continue;
         }
-        match &automation.trigger.kind {
+        match &armed.trigger.kind {
             TriggerKind::Schedule(shape) => {
                 let Some(occurrence) = latest_occurrence(shape, input.now_local.clone()) else {
                     continue;
@@ -307,9 +303,9 @@ pub fn evaluate<Tz: chrono::TimeZone>(input: &EvalInput<Tz>) -> Vec<Decision> {
                 let occurrence_ms = occurrence.timestamp_millis();
                 if occurrence_ms > state.last_fired_at.unwrap_or(input.now_ms) {
                     decisions.push(Decision::Fire {
-                        automation_id: automation.automation_id.clone(),
+                        trigger_id: armed.trigger_id.clone(),
                         firing: Firing::Schedule { occurrence_ms },
-                        new_state: AutomationState {
+                        new_state: TriggerState {
                             fingerprint: state.fingerprint.clone(),
                             // Anchor AT the occurrence, not now — firing at
                             // 07:03 must not drift tomorrow's compare.
@@ -317,7 +313,7 @@ pub fn evaluate<Tz: chrono::TimeZone>(input: &EvalInput<Tz>) -> Vec<Decision> {
                             watermark_created_at: state.watermark_created_at,
                             watermark_id: state.watermark_id.clone(),
                             cooldown_until: Some(
-                                input.now_ms + domain::contract::AUTOMATION_COOLDOWN_MS,
+                                input.now_ms + domain::contract::TRIGGER_COOLDOWN_MS,
                             ),
                             // Carried through untouched, like the watermark
                             // — a schedule never consumes events.
@@ -340,7 +336,7 @@ pub fn evaluate<Tz: chrono::TimeZone>(input: &EvalInput<Tz>) -> Vec<Decision> {
                     },
                 };
                 let matches =
-                    matching_events(spec, &automation.team_id, input.events, cursor, input.now_ms);
+                    matching_events(spec, &armed.team_id, input.events, cursor, input.now_ms);
                 if matches.is_empty() {
                     continue;
                 }
@@ -352,13 +348,13 @@ pub fn evaluate<Tz: chrono::TimeZone>(input: &EvalInput<Tz>) -> Vec<Decision> {
                     .unwrap_or(i64::MIN)
                     .max(snapshot_watermark.0 - EVENT_GRACE_MS);
                 let (seen_floor, seen_ids) =
-                    seen_window(spec, &automation.team_id, input.events, base);
+                    seen_window(spec, &armed.team_id, input.events, base);
                 decisions.push(Decision::Fire {
-                    automation_id: automation.automation_id.clone(),
+                    trigger_id: armed.trigger_id.clone(),
                     firing: Firing::Event {
                         matches: matches.into_iter().cloned().collect(),
                     },
-                    new_state: AutomationState {
+                    new_state: TriggerState {
                         fingerprint: state.fingerprint.clone(),
                         last_fired_at: Some(input.now_ms),
                         // Still advanced over the WHOLE snapshot for older
@@ -367,7 +363,7 @@ pub fn evaluate<Tz: chrono::TimeZone>(input: &EvalInput<Tz>) -> Vec<Decision> {
                         watermark_created_at: Some(snapshot_watermark.0),
                         watermark_id: Some(snapshot_watermark.1.to_string()),
                         cooldown_until: Some(
-                            input.now_ms + domain::contract::AUTOMATION_COOLDOWN_MS,
+                            input.now_ms + domain::contract::TRIGGER_COOLDOWN_MS,
                         ),
                         seen_floor: Some(seen_floor),
                         seen_ids,
@@ -394,11 +390,11 @@ mod tests {
     }
 
     /// The ids are deliberately the same here: the state map keys on the
-    /// AUTOMATION and the live-run set keys on the ACTION, and one id makes
+    /// TRIGGER and the live-run set keys on the ACTION, and one id makes
     /// both readable in the asserts below.
-    fn daily_action(id: &str, minute: u32) -> TriggeredAutomation {
-        TriggeredAutomation {
-            automation_id: id.to_string(),
+    fn daily_action(id: &str, minute: u32) -> ArmedTrigger {
+        ArmedTrigger {
+            trigger_id: id.to_string(),
             action_id: id.to_string(),
             team_id: "team-1".to_string(),
             trigger: ParsedTrigger {
@@ -413,9 +409,9 @@ mod tests {
         }
     }
 
-    fn event_action(id: &str) -> TriggeredAutomation {
-        TriggeredAutomation {
-            automation_id: id.to_string(),
+    fn event_action(id: &str) -> ArmedTrigger {
+        ArmedTrigger {
+            trigger_id: id.to_string(),
             action_id: id.to_string(),
             team_id: "team-1".to_string(),
             trigger: ParsedTrigger {
@@ -444,8 +440,8 @@ mod tests {
     }
 
     /// A LEGACY (pre-EXP-562) state: watermark only, no grace cursor.
-    fn seeded(fingerprint: &str, fired_ms: i64, watermark: (i64, &str)) -> AutomationState {
-        AutomationState {
+    fn seeded(fingerprint: &str, fired_ms: i64, watermark: (i64, &str)) -> TriggerState {
+        TriggerState {
             fingerprint: fingerprint.to_string(),
             last_fired_at: Some(fired_ms),
             watermark_created_at: Some(watermark.0),
@@ -464,8 +460,8 @@ mod tests {
         watermark: (i64, &str),
         floor: i64,
         seen_ids: &[&str],
-    ) -> AutomationState {
-        AutomationState {
+    ) -> TriggerState {
+        TriggerState {
             seen_floor: Some(floor),
             seen_ids: seen_ids.iter().map(|id| id.to_string()).collect(),
             ..seeded(fingerprint, fired_ms, watermark)
@@ -473,8 +469,8 @@ mod tests {
     }
 
     struct Snapshot {
-        automations: Vec<TriggeredAutomation>,
-        states: HashMap<String, AutomationState>,
+        armed: Vec<ArmedTrigger>,
+        states: HashMap<String, TriggerState>,
         events: Vec<EventRow>,
         live: HashSet<String>,
         now_local: DateTime<FixedOffset>,
@@ -483,7 +479,7 @@ mod tests {
     impl Snapshot {
         fn new(now_local: DateTime<FixedOffset>) -> Self {
             Self {
-                automations: Vec::new(),
+                armed: Vec::new(),
                 states: HashMap::new(),
                 events: Vec::new(),
                 live: HashSet::new(),
@@ -493,7 +489,7 @@ mod tests {
 
         fn evaluate(&self) -> Vec<Decision> {
             evaluate(&EvalInput {
-                automations: &self.automations,
+                armed: &self.armed,
                 states: &self.states,
                 events: &self.events,
                 live_action_ids: &self.live,
@@ -503,7 +499,7 @@ mod tests {
         }
     }
 
-    /// An automation's pins win over the device defaults; everything it
+    /// A trigger's pins win over the device defaults; everything it
     /// leaves NULL follows the machine, and plan mode is always off.
     #[test]
     fn launch_options_layer_pins_over_the_device_defaults() {
@@ -582,7 +578,7 @@ mod tests {
         // Reseed never fires: a NEW event trigger with matching past
         // events seeds lastFiredAt=now + watermark=max event — no Fire.
         let mut fresh = Snapshot::new(now.clone());
-        fresh.automations = vec![event_action("act-e")];
+        fresh.armed = vec![event_action("act-e")];
         fresh.events = vec![
             event_row("evt-1", "created", now_ms - 5_000),
             event_row("evt-2", "created", now_ms - 1_000),
@@ -590,7 +586,7 @@ mod tests {
         assert_eq!(
             fresh.evaluate(),
             vec![Decision::Reseed {
-                automation_id: "act-e".to_string(),
+                trigger_id: "act-e".to_string(),
                 // No grace on a reseed: the floor sits AT the snapshot max
                 // and evt-2 (the only row there) is already marked seen.
                 new_state: seeded_seen(
@@ -606,13 +602,13 @@ mod tests {
 
         // An edited trigger reseeds (fingerprint moved), even mid-steady-state.
         let mut edited = Snapshot::new(now.clone());
-        edited.automations = vec![daily_action("act-s", 420)];
+        edited.armed = vec![daily_action("act-s", 420)];
         edited
             .states
             .insert("act-s".to_string(), seeded("fp-STALE", yesterday_0700_ms, (0, "")));
         match &edited.evaluate()[..] {
-            [Decision::Reseed { automation_id, new_state }] => {
-                assert_eq!(automation_id, "act-s", "edited trigger reseeds instead of firing");
+            [Decision::Reseed { trigger_id, new_state }] => {
+                assert_eq!(trigger_id, "act-s", "edited trigger reseeds instead of firing");
                 assert_eq!(new_state.fingerprint, "fp-act-s");
                 assert_eq!(new_state.last_fired_at, Some(now_ms));
             }
@@ -622,14 +618,14 @@ mod tests {
         // Schedule offline catch-up: 3 missed days collapse into EXACTLY
         // one fire — the latest occurrence.
         let mut catchup = Snapshot::new(now.clone());
-        catchup.automations = vec![daily_action("act-s", 420)];
+        catchup.armed = vec![daily_action("act-s", 420)];
         let three_days_ago = at(2026, 8, 15, 7, 0).timestamp_millis();
         catchup
             .states
             .insert("act-s".to_string(), seeded("fp-act-s", three_days_ago, (0, "")));
         match &catchup.evaluate()[..] {
-            [Decision::Fire { automation_id, firing, new_state }] => {
-                assert_eq!(automation_id, "act-s");
+            [Decision::Fire { trigger_id, firing, new_state }] => {
+                assert_eq!(trigger_id, "act-s");
                 assert_eq!(
                     firing,
                     &Firing::Schedule { occurrence_ms: today_0700_ms },
@@ -640,7 +636,7 @@ mod tests {
                 assert_eq!(new_state.last_fired_at, Some(today_0700_ms));
                 assert_eq!(
                     new_state.cooldown_until,
-                    Some(now_ms + domain::contract::AUTOMATION_COOLDOWN_MS)
+                    Some(now_ms + domain::contract::TRIGGER_COOLDOWN_MS)
                 );
                 assert_eq!(new_state.watermark_created_at, Some(0), "schedule keeps the watermark");
             }
@@ -649,7 +645,7 @@ mod tests {
 
         // Already anchored at today's occurrence → nothing (no Defer spam).
         let mut steady = Snapshot::new(now.clone());
-        steady.automations = vec![daily_action("act-s", 420)];
+        steady.armed = vec![daily_action("act-s", 420)];
         steady
             .states
             .insert("act-s".to_string(), seeded("fp-act-s", today_0700_ms, (0, "")));
@@ -658,7 +654,7 @@ mod tests {
         // Event coalescing: 3 matches → ONE Fire carrying all of them; the
         // watermark advances over a NEWER NON-MATCHING row too.
         let mut coalesce = Snapshot::new(now.clone());
-        coalesce.automations = vec![event_action("act-e")];
+        coalesce.armed = vec![event_action("act-e")];
         coalesce
             .states
             .insert("act-e".to_string(), seeded("fp-act-e", 0, (now_ms - 10_000, "evt-0")));
@@ -699,7 +695,7 @@ mod tests {
         // the watermark (max over the WHOLE snapshot) still advances past
         // them on the next real fire, so no Fire and no Reseed here.
         let mut cross_team = Snapshot::new(now.clone());
-        cross_team.automations = vec![event_action("act-e")];
+        cross_team.armed = vec![event_action("act-e")];
         cross_team
             .states
             .insert("act-e".to_string(), seeded("fp-act-e", 0, (0, "")));
@@ -714,36 +710,36 @@ mod tests {
 
         // Cooldown defers.
         let mut cooling = Snapshot::new(now.clone());
-        cooling.automations = vec![event_action("act-e")];
+        cooling.armed = vec![event_action("act-e")];
         let mut cooled = seeded("fp-act-e", 0, (0, ""));
         cooled.cooldown_until = Some(now_ms + 30_000);
         cooling.states.insert("act-e".to_string(), cooled);
         cooling.events = vec![event_row("evt-1", "created", now_ms - 1_000)];
         assert_eq!(
             cooling.evaluate(),
-            vec![Decision::Defer { automation_id: "act-e".to_string() }],
+            vec![Decision::Defer { trigger_id: "act-e".to_string() }],
             "a cooling trigger defers, keeping the pending events for the next beat"
         );
 
         // A live run for the action defers.
         let mut running = Snapshot::new(now.clone());
-        running.automations = vec![daily_action("act-s", 420)];
+        running.armed = vec![daily_action("act-s", 420)];
         running
             .states
             .insert("act-s".to_string(), seeded("fp-act-s", yesterday_0700_ms, (0, "")));
         running.live.insert("act-s".to_string());
         assert_eq!(
             running.evaluate(),
-            vec![Decision::Defer { automation_id: "act-s".to_string() }],
+            vec![Decision::Defer { trigger_id: "act-s".to_string() }],
             "a live run blocks a second launch of the same action"
         );
 
         // An Unsupported trigger is inert — not even a Reseed. (A DISABLED
-        // automation never reaches the engine at all: the host filters
+        // trigger never reaches the engine at all: the host filters
         // `enabled` off the row before snapshotting.)
         let mut inert = Snapshot::new(now.clone());
-        inert.automations = vec![TriggeredAutomation {
-            automation_id: "act-u".to_string(),
+        inert.armed = vec![ArmedTrigger {
+            trigger_id: "act-u".to_string(),
             action_id: "act-u".to_string(),
             team_id: "team-1".to_string(),
             trigger: ParsedTrigger {
@@ -762,10 +758,10 @@ mod tests {
         let now = at(2026, 8, 18, 7, 3);
         let now_ms = now.timestamp_millis();
         let mut holes = Snapshot::new(now);
-        holes.automations = vec![event_action("act-e")];
+        holes.armed = vec![event_action("act-e")];
         holes.states.insert(
             "act-e".to_string(),
-            AutomationState {
+            TriggerState {
                 fingerprint: "fp-act-e".to_string(),
                 last_fired_at: Some(0),
                 watermark_created_at: None,
@@ -829,7 +825,7 @@ mod tests {
         assert_eq!(
             bound
                 .iter()
-                .map(|entry| entry.triggered.automation_id.as_str())
+                .map(|entry| entry.triggered.trigger_id.as_str())
                 .collect::<Vec<_>>(),
             vec!["mine", "pinned", "text"]
         );
@@ -840,7 +836,7 @@ mod tests {
         assert_eq!(bound[0].pins, LaunchPins::default(), "unpinned = the device's defaults");
         assert_eq!(bound[1].pins.agent.as_deref(), Some("codex"));
         assert_eq!(bound[1].pins.model.as_deref(), Some("gpt-5.1-codex"));
-        // The fingerprint is the WHEN-part's — what the old automations row
+        // The fingerprint is the WHEN-part's — what the old automation row
         // hashed, whatever the runner half says.
         assert_eq!(
             bound[0].triggered.fingerprint,
@@ -852,13 +848,13 @@ mod tests {
 
     #[test]
     fn needs_events_only_for_event_triggers() {
-        assert!(!needs_events(&[]), "no automations, no scan");
+        assert!(!needs_events(&[]), "no triggers, no scan");
         assert!(
             !needs_events(&[daily_action("act-s", 420)]),
             "a schedule never reads the events snapshot"
         );
-        let unsupported = TriggeredAutomation {
-            automation_id: "act-u".to_string(),
+        let unsupported = ArmedTrigger {
+            trigger_id: "act-u".to_string(),
             action_id: "act-u".to_string(),
             team_id: "team-1".to_string(),
             trigger: ParsedTrigger {
@@ -877,9 +873,9 @@ mod tests {
     fn late_row_inside_grace_fires_once() {
         let now = at(2026, 8, 18, 7, 3);
         let now_ms = now.timestamp_millis();
-        let cooldown = chrono::Duration::milliseconds(domain::contract::AUTOMATION_COOLDOWN_MS + 1);
+        let cooldown = chrono::Duration::milliseconds(domain::contract::TRIGGER_COOLDOWN_MS + 1);
         let mut first = Snapshot::new(now.clone());
-        first.automations = vec![event_action("act-e")];
+        first.armed = vec![event_action("act-e")];
         first.states.insert(
             "act-e".to_string(),
             seeded_seen("fp-act-e", 0, (now_ms - 10_000, "evt-0"), now_ms - 20_000, &["evt-0"]),
@@ -897,7 +893,7 @@ mod tests {
         // the grace. A bare high-water mark would have lost it forever.
         let later = now + cooldown;
         let mut second = Snapshot::new(later.clone());
-        second.automations = vec![event_action("act-e")];
+        second.armed = vec![event_action("act-e")];
         second.states.insert("act-e".to_string(), fired_state);
         second.events = vec![
             event_row("evt-1", "created", now_ms - 6_000),
@@ -917,7 +913,7 @@ mod tests {
 
         // Third pass over the SAME snapshot: nothing left to fire.
         let mut third = Snapshot::new(later + cooldown);
-        third.automations = vec![event_action("act-e")];
+        third.armed = vec![event_action("act-e")];
         third.states.insert("act-e".to_string(), second_state);
         third.events = second.events.clone();
         assert_eq!(third.evaluate(), vec![], "a fired row is never re-litigated");
@@ -931,7 +927,7 @@ mod tests {
         let now_ms = now.timestamp_millis();
         let floor = now_ms - 10_000;
         let mut snapshot = Snapshot::new(now);
-        snapshot.automations = vec![event_action("act-e")];
+        snapshot.armed = vec![event_action("act-e")];
         snapshot.states.insert(
             "act-e".to_string(),
             seeded_seen("fp-act-e", 0, (now_ms - 5_000, "evt-2"), floor, &["evt-2"]),
@@ -950,7 +946,7 @@ mod tests {
         let now = at(2026, 8, 18, 7, 3);
         let now_ms = now.timestamp_millis();
         let mut quiet = Snapshot::new(now);
-        quiet.automations = vec![event_action("act-e")];
+        quiet.armed = vec![event_action("act-e")];
         quiet
             .states
             .insert("act-e".to_string(), seeded("fp-act-e", 0, (now_ms - 5_000, "evt-b")));
@@ -981,7 +977,7 @@ mod tests {
         let now = at(2026, 8, 18, 7, 3);
         let now_ms = now.timestamp_millis();
         let mut burst = Snapshot::new(now.clone());
-        burst.automations = vec![event_action("act-e")];
+        burst.armed = vec![event_action("act-e")];
         burst
             .states
             .insert("act-e".to_string(), seeded_seen("fp-act-e", 0, (0, ""), now_ms - 30_000, &[]));
@@ -1001,9 +997,9 @@ mod tests {
             other => panic!("expected one Fire, got {other:?}"),
         };
 
-        let cooldown = chrono::Duration::milliseconds(domain::contract::AUTOMATION_COOLDOWN_MS + 1);
+        let cooldown = chrono::Duration::milliseconds(domain::contract::TRIGGER_COOLDOWN_MS + 1);
         let mut again = Snapshot::new(now + cooldown);
-        again.automations = vec![event_action("act-e")];
+        again.armed = vec![event_action("act-e")];
         again.states.insert("act-e".to_string(), fired_state);
         again.events = burst.events.clone();
         assert_eq!(again.evaluate(), vec![], "the truncated rows fell BELOW the raised floor");
@@ -1014,7 +1010,7 @@ mod tests {
         let now = at(2026, 8, 18, 7, 3);
         let now_ms = now.timestamp_millis();
         let mut empty = Snapshot::new(now);
-        empty.automations = vec![event_action("act-e")];
+        empty.armed = vec![event_action("act-e")];
         match &empty.evaluate()[..] {
             [Decision::Reseed { new_state, .. }] => {
                 assert_eq!(
@@ -1037,7 +1033,7 @@ mod tests {
         let now_ms = now.timestamp_millis();
         let floor = now_ms - 10_000;
         let mut shrunk = Snapshot::new(now);
-        shrunk.automations = vec![event_action("act-e")];
+        shrunk.armed = vec![event_action("act-e")];
         shrunk.states.insert(
             "act-e".to_string(),
             seeded_seen("fp-act-e", 0, (now_ms, "evt-gone"), floor, &[]),

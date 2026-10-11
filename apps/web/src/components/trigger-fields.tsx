@@ -3,10 +3,10 @@ import { eq, useLiveQuery } from "@tanstack/react-db"
 import {
   MAX_TRIGGER_FILTER_IDS,
   actionTriggerEventValues,
-  type AutomationEventTriggerFilters,
+  type EventTriggerFilters,
   type ActionScheduleInterval,
-  type AutomationScheduleTrigger,
-  type AutomationTrigger,
+  type ScheduleTriggerWhen,
+  type TriggerWhen,
   type ActionTriggerEvent,
   type IssuePriority,
 } from "@exp/db-schema/domain"
@@ -21,7 +21,7 @@ import {
   type AccountOption,
 } from "@/lib/accounts/account-option"
 import { healthBadgeLabel } from "@/lib/agent-usage"
-import { deviceCanRunAutomations, type SteerDevice } from "@/lib/steer-devices"
+import { deviceCanRunTriggers, type SteerDevice } from "@/lib/steer-devices"
 import { contract } from "@exp/domain-contract"
 import {
   boardCollection,
@@ -54,7 +54,7 @@ import { cn } from "@/lib/utils"
 // its action): the when-part panes + event filters, the "Runs on" device
 // picker, and the account/model/effort picker. The trigger dialog composes
 // all three. Everything is CONTROLLED — the parent holds a `TriggerDraft`
-// (the when-part only, exactly what an `AutomationTrigger` carries) and seeds
+// (the when-part only, exactly what an `TriggerWhen` carries) and seeds
 // it in its open-reset effect, the same pattern as every other dialog field
 // here.
 
@@ -101,7 +101,7 @@ function timeToMinute(time: string): number {
 }
 
 export function draftFromTrigger(
-  trigger: AutomationTrigger | null
+  trigger: TriggerWhen | null
 ): TriggerDraft {
   const draft = emptyTriggerDraft()
   if (!trigger) return draft
@@ -121,11 +121,11 @@ export function draftFromTrigger(
   return draft
 }
 
-/** The draft as a strict `AutomationTrigger`. Filters irrelevant to the
+/** The draft as a strict `TriggerWhen`. Filters irrelevant to the
  * picked event are dropped, matching the server's write schema. */
-export function draftToTrigger(draft: TriggerDraft): AutomationTrigger {
+export function draftToTrigger(draft: TriggerDraft): TriggerWhen {
   if (draft.kind === `schedule`) {
-    const trigger: AutomationScheduleTrigger = {
+    const trigger: ScheduleTriggerWhen = {
       kind: `schedule`,
       interval: draft.interval,
       minuteOfDay: timeToMinute(draft.time),
@@ -135,7 +135,7 @@ export function draftToTrigger(draft: TriggerDraft): AutomationTrigger {
     return trigger
   }
   const clamp = <T,>(list: T[]) => list.slice(0, MAX_TRIGGER_FILTER_IDS)
-  const filters: AutomationEventTriggerFilters = {}
+  const filters: EventTriggerFilters = {}
   if (draft.boardIds.length > 0) filters.boardIds = clamp(draft.boardIds)
   if (draft.event === `label_added` && draft.labelIds.length > 0) {
     filters.labelIds = clamp(draft.labelIds)
@@ -335,7 +335,7 @@ function TriggerTimeRow({
 /** Trigger-capable machines only (offline-but-capable stays pickable —
  * a schedule catches up when the machine comes back). */
 export function triggerDevices(devices: SteerDevice[]): SteerDevice[] {
-  return devices.filter(deviceCanRunAutomations)
+  return devices.filter(deviceCanRunTriggers)
 }
 
 export function TriggerDevicePicker({

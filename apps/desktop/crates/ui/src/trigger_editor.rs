@@ -43,7 +43,7 @@ use gpui_component::{
 };
 use serde_json::{json, Value};
 
-use coding::automations::{
+use coding::triggers::{
     parse_action_triggers, parse_trigger, ActionTrigger, EventKind, ParsedTrigger,
     ScheduleInterval, TriggerKind,
 };
@@ -387,7 +387,7 @@ fn write_base(
         written
             .triggers
             .iter()
-            .filter_map(coding::automations::parse_action_trigger)
+            .filter_map(coding::triggers::parse_action_trigger)
             .collect(),
     )
 }
@@ -481,7 +481,7 @@ impl TriggerBadges {
 /// next-run date moved under every screenshot, and the recurrence says the
 /// same thing).
 pub(crate) fn trigger_sentence(when: &ParsedTrigger) -> String {
-    let sentence = coding::automations::trigger_summary(when);
+    let sentence = coding::triggers::trigger_summary(when);
     if matches!(when.kind, TriggerKind::Schedule(_)) {
         format!("{sentence} (device time)")
     } else {
@@ -1528,10 +1528,16 @@ fn settle_device_account(
         .and_then(|option| option.wire_account())
 }
 
-/// The synced devices that advertise the `automations` cap (the wire name
-/// SLOP-2 deliberately kept) — own rows plus
+/// The synced devices that advertise a trigger cap (SLOP-17: the
+/// contract's `triggers`, or the legacy `automations` an older build still
+/// advertises alone) — own rows plus
 /// team-shared ones (the shape's scope). Offline rows are INCLUDED: a missed
 /// schedule fires once when the machine comes back.
+/// SLOP-17: either name of the trigger cap counts.
+fn is_trigger_cap(cap: &str) -> bool {
+    cap == domain::contract::TRIGGER_DEVICE_CAP || cap == domain::contract::TRIGGER_LEGACY_DEVICE_CAP
+}
+
 pub(crate) fn trigger_devices(cx: &App) -> Vec<DeviceOption> {
     let Some(store) = sync::Store::try_global(cx) else {
         return Vec::new();
@@ -1542,7 +1548,7 @@ pub(crate) fn trigger_devices(cx: &App) -> Vec<DeviceOption> {
     let mut devices: Vec<DeviceOption> = collection
         .read(cx)
         .iter()
-        .filter(|row| row.cap_ids().iter().any(|cap| cap == "automations"))
+        .filter(|row| row.cap_ids().iter().any(|cap| is_trigger_cap(cap)))
         .filter_map(|row| {
             let device_id = row.device_id.clone().filter(|id| !id.is_empty())?;
             let agents = row.agent_ids();
@@ -1600,6 +1606,15 @@ pub(crate) fn trigger_devices(cx: &App) -> Vec<DeviceOption> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// SLOP-17: a device that advertises either trigger cap name can be
+    /// bound (an older build only says `automations`).
+    #[test]
+    fn either_trigger_cap_name_counts() {
+        assert!(is_trigger_cap("triggers"));
+        assert!(is_trigger_cap("automations"));
+        assert!(!is_trigger_cap("actions"));
+    }
 
     /// SLOP-2: a second whole-array write before the Electric echo must
     /// start from what the FIRST write returned — else switching A off and
@@ -1721,7 +1736,7 @@ mod tests {
     /// back. EXP-583: the WHEN-part only — no `deviceId`, no `enabled`.
     #[test]
     fn wire_shapes_round_trip_through_the_parser() {
-        use coding::automations::{EventSpec, Schedule, ScheduleInterval};
+        use coding::triggers::{EventSpec, Schedule, ScheduleInterval};
 
         // Weekly schedule.
         let weekly = json!({
@@ -1738,7 +1753,7 @@ mod tests {
             })
         );
         assert_eq!(
-            coding::automations::trigger_summary(&parsed),
+            coding::triggers::trigger_summary(&parsed),
             "Weekly on Wednesday at 09:00"
         );
 
@@ -1912,7 +1927,7 @@ mod tests {
         assert_eq!(toggled[0]["enabled"], json!(false));
         assert_eq!(toggled[1], existing[1].raw);
         assert_eq!(
-            coding::automations::parse_action_trigger(&toggled[0]).unwrap().fingerprint(),
+            coding::triggers::parse_action_trigger(&toggled[0]).unwrap().fingerprint(),
             existing[0].fingerprint()
         );
 

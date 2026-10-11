@@ -3,7 +3,9 @@ import { sanitizeRedirectPath } from "@/lib/auth/safe-redirect"
 
 // EXP-188: signup and login are ONE merged /auth/login page (with a
 // create-account toggle when sign-up is open). This route survives only as
-// an unconditional redirect so old links and bookmarks keep working. The
+// an unconditional redirect: apps up to iOS 0.14.57 / Android 0.14.59 /
+// desktop 0.14.66 open it from Register. Delete once every floor passes the
+// release that links /auth/login directly. The
 // full search is forwarded — an in-flight OAuth authorize query (client_id,
 // redirect_uri, ...) must survive the hop to login.
 export const Route = createFileRoute(`/auth/register`)({

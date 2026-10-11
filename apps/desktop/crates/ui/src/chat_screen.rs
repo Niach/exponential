@@ -259,12 +259,6 @@ fn device_reads_computer_use(row_id: &str, cx: &App) -> bool {
     device_has_cap(row_id, coding::doctor::COMPUTER_USE_RUN_CAP, cx)
 }
 
-/// Whether the synced row advertises `steer-files` — the machine localizes
-/// non-image file attachments, so the pick may take files for it.
-fn device_takes_files(row_id: &str, cx: &App) -> bool {
-    device_has_cap(row_id, coding::STEER_FILES_CAP, cx)
-}
-
 /// EXP-862 — a machine's glyph for the device picker: EXP-924 made it the
 /// owner's PICK when the row carries one, and otherwise the kind default the
 /// Devices list and Getting started wear (the headless CLI daemon is a SERVER,
@@ -1397,7 +1391,6 @@ impl ChatScreenView {
                     accounts,
                     usage,
                     computer_use_run: device_reads_computer_use(&device.row_id, cx),
-                    steer_files: device_takes_files(&device.row_id, cx),
                 }
             });
         let has_subject = !matches!(self.subject, Subject::None);
@@ -1640,11 +1633,6 @@ impl ChatScreenView {
                     }
                 }
             }
-        }
-        // A file staged before the machine was switched to one without
-        // `steer-files`: the server would refuse with the same sentence.
-        if self.images.has_files() && !launch.files_offered() {
-            return Some(composer_images::FILES_NEED_NEWER_DEVICE.into());
         }
         let text = self.input.read(cx).value().to_string();
         let kind = self.subject_kind();
@@ -1906,9 +1894,9 @@ impl ChatScreenView {
                         target: Some(navigation::deferred_open_window(window, cx)),
                         activate_app: false,
                         reservation: None,
-                        // A person pressed Run — never an automation firing.
+                        // A person pressed Run — never a trigger firing.
                         trigger: None,
-                        automation_id: None,
+                        trigger_id: None,
                         prompt,
                         on_settled: None,
                         report: crate::steer_wiring::StartReport::none(),
@@ -2239,14 +2227,7 @@ impl ChatScreenView {
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
-        // The target gate: a remote machine without `steer-files` takes
-        // images only, and the pinned sentence says why a file was dropped.
-        let files_allowed = self.launch.as_ref().is_none_or(|launch| launch.files_offered());
-        let (images, dropped) = composer_images::gate_files_for_target(images, files_allowed);
         self.notice = self.images.stage(images, &self.input, window, cx);
-        if dropped {
-            self.notice = Some(composer_images::FILES_NEED_NEWER_DEVICE.into());
-        }
         cx.notify();
     }
 

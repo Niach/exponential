@@ -79,7 +79,7 @@ import com.exponential.app.ui.theme.glassRow
 //
 // Two segments (the PersonalScreen GlassSegmentedControl pattern): Actions
 // (the list) and Suggestions (EXP-530: seed cards whose tap opens the composer
-// prefilled). SLOP-2: an action CARRIES its triggers — the Automations segment
+// prefilled). SLOP-2: an action CARRIES its triggers — the old separate triggers segment
 // is gone, a row wears a glyph per trigger kind beside its name, and tapping
 // it opens the action page ([ActionDetailScreen]: Prompt | Triggers | Runs).
 

@@ -636,7 +636,7 @@ impl Drop for ReservationGuard {
     }
 }
 
-/// The process-wide claim set. EXP-530: the automation host claims through
+/// The process-wide claim set. EXP-530: the trigger host claims through
 /// the SAME set as the relay path — a scheduled firing and a remote start of
 /// one action must never both launch.
 pub(crate) fn action_start_reservations() -> &'static StartReservations {
@@ -731,10 +731,10 @@ fn remote_action_start(
             target: None,
             activate_app: true,
             reservation: Some(reservation),
-            // A relay start is a PERSON's start — the automation host is the
+            // A relay start is a PERSON's start — the trigger host is the
             // only caller that fires these (EXP-530).
             trigger: None,
-            automation_id: None,
+            trigger_id: None,
             on_settled: None,
             prompt: start.prompt.clone(),
             report,

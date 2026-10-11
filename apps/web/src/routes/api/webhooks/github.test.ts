@@ -11,9 +11,7 @@ import { createHmac } from "node:crypto"
 const h = vi.hoisted(() => {
   const selectQueue: unknown[][] = []
   // Writes are recorded with the drizzle table object they targeted so the
-  // installation-lifecycle tests can assert WHICH table was written (and, for
-  // `suspend`, that github_installations was never DELETEd — that delete is
-  // what used to cascade every team's claim link away).
+  // installation-lifecycle tests can assert WHICH table was written.
   const inserts: Array<{
     table: unknown
     values?: unknown
@@ -97,7 +95,7 @@ vi.mock(`@/lib/integrations/github-identity`, () => ({
 
 import * as prSync from "@/lib/integrations/pr-sync"
 import { resolveAppUserForGithubActor } from "@/lib/integrations/github-identity"
-import { githubInstallations, repositories } from "@/db/schema"
+import { repositories } from "@/db/schema"
 // Deliberately the REAL module (in-memory, no I/O): these tests exercise the
 // claim → webhook handoff end to end.
 import {
@@ -517,11 +515,10 @@ describe(`github webhook — batch PR fan-out (multi-issue pr_url resolution)`, 
   })
 })
 
-// REV2-29: GitHub suspension is REVERSIBLE, so `suspend` must never take the
-// terminal path. It used to delete the github_installations row, which
-// CASCADE-dropped every team's claim link — and `unsuspend` re-inserted a row
-// with a fresh uuid PK, so those links were unrecoverable by construction. The
-// marker column keeps the row (and the claims) and `unsuspend` clears it.
+// SLOP-24: installations are never stored (discovery lists them LIVE off the
+// member's token). The lifecycle events only flag bound repos: `suspend`
+// (reversible, REV2-29) and `deleted` (terminal) both stop token minting;
+// `created`/`unsuspend` write nothing (a verified access proof clears flags).
 describe(`github webhook — installation lifecycle (suspend/unsuspend/deleted)`, () => {
   const INSTALLATION_ID = 424242
 
@@ -535,64 +532,34 @@ describe(`github webhook — installation lifecycle (suspend/unsuspend/deleted)`
     }
   }
 
-  const installationUpdates = () =>
-    h.updates.filter((u) => u.table === githubInstallations)
   const repositoryUpdates = () =>
     h.updates.filter((u) => u.table === repositories)
 
-  it(`suspend MARKS the installation and never deletes it (claim links survive)`, async () => {
+  it.each([`suspend`, `deleted`])(
+    `%s flags the bound repos as inaccessible and stores nothing`,
+    async (action) => {
+      const res = await postHandler({
+        request: webhookRequest(`installation`, installationPayload(action)),
+      })
+
+      expect(res.status).toBe(200)
+      expect(h.updates).toHaveLength(1)
+      expect(repositoryUpdates()).toHaveLength(1)
+      expect(repositoryUpdates()[0].set.inaccessibleAt).toBeInstanceOf(Date)
+      expect(h.inserts).toHaveLength(0)
+      expect(h.deletes).toHaveLength(0)
+    }
+  )
+
+  it.each([`created`, `unsuspend`])(`%s writes nothing`, async (action) => {
     const res = await postHandler({
-      request: webhookRequest(`installation`, installationPayload(`suspend`)),
+      request: webhookRequest(`installation`, installationPayload(action)),
     })
 
     expect(res.status).toBe(200)
-    // The row (and, through it, every team's claim link) stays put.
-    expect(h.deletes).toHaveLength(0)
-    expect(installationUpdates()).toHaveLength(1)
-    expect(installationUpdates()[0].set.suspendedAt).toBeInstanceOf(Date)
-    // Repos under it are flagged so the settings UI stops showing them healthy.
-    expect(repositoryUpdates()).toHaveLength(1)
-    expect(repositoryUpdates()[0].set.inaccessibleAt).toBeInstanceOf(Date)
-  })
-
-  it(`unsuspend CLEARS the marker on the surviving row (self-heal)`, async () => {
-    const res = await postHandler({
-      request: webhookRequest(`installation`, installationPayload(`unsuspend`)),
-    })
-
-    expect(res.status).toBe(200)
-    expect(h.deletes).toHaveLength(0)
-    expect(h.inserts).toHaveLength(1)
-    expect(h.inserts[0].table).toBe(githubInstallations)
-    expect(h.inserts[0].values).toMatchObject({
-      installationId: INSTALLATION_ID,
-      suspendedAt: null,
-    })
-    // …and on the conflict path too — the row always already exists here.
-    expect(h.inserts[0].conflictSet).toMatchObject({ suspendedAt: null })
-  })
-
-  it(`created upserts with no suspension marker`, async () => {
-    const res = await postHandler({
-      request: webhookRequest(`installation`, installationPayload(`created`)),
-    })
-
-    expect(res.status).toBe(200)
-    expect(h.inserts[0].values).toMatchObject({ suspendedAt: null })
+    expect(h.inserts).toHaveLength(0)
     expect(h.updates).toHaveLength(0)
     expect(h.deletes).toHaveLength(0)
-  })
-
-  it(`deleted stays terminal: flags repos, then drops the row (links cascade)`, async () => {
-    const res = await postHandler({
-      request: webhookRequest(`installation`, installationPayload(`deleted`)),
-    })
-
-    expect(res.status).toBe(200)
-    expect(repositoryUpdates()).toHaveLength(1)
-    expect(repositoryUpdates()[0].set.inaccessibleAt).toBeInstanceOf(Date)
-    expect(installationUpdates()).toHaveLength(0)
-    expect(h.deletes).toEqual([{ table: githubInstallations }])
   })
 
   it(`ignores an installation event with no installation id`, async () => {

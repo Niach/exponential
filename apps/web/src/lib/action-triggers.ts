@@ -3,15 +3,15 @@ import {
   actionTriggerEventValues,
   issuePriorityValues,
   type ActionTrigger,
-  type AutomationEventTriggerFilters,
-  type AutomationScheduleTrigger,
-  type AutomationTrigger,
+  type EventTriggerFilters,
+  type ScheduleTriggerWhen,
+  type TriggerWhen,
   type ActionTriggerEvent,
   type IssuePriority,
 } from "@exp/db-schema/domain"
 
 // Client-side trigger helpers (EXP-530; SLOP-2: an action carries its
-// triggers, each = a WHEN-part (`AutomationTrigger`: schedule or event) plus
+// triggers, each = a WHEN-part (`TriggerWhen`: schedule or event) plus
 // its runner). Deliberately DB-free (the lib/action-inputs.ts precedent) so
 // dialogs and tests import it without pulling server code. Reads are
 // TOLERANT — the strict write schema lives in domain.ts; here anything
@@ -52,13 +52,13 @@ function priorityList(value: unknown): IssuePriority[] | undefined {
 
 /** Tolerant read of a trigger's WHEN-part (the runner fields beside it are
  * ignored). Never throws. */
-export function parseAutomationTrigger(value: unknown): AutomationTrigger | null {
+export function parseTriggerWhen(value: unknown): TriggerWhen | null {
   if (!isRecord(value)) return null
 
   if (value.kind === `schedule`) {
     if (!includesValue(actionScheduleIntervalValues, value.interval)) return null
     if (!isIntInRange(value.minuteOfDay, 0, 1439)) return null
-    const trigger: AutomationScheduleTrigger = {
+    const trigger: ScheduleTriggerWhen = {
       kind: `schedule`,
       interval: value.interval,
       minuteOfDay: value.minuteOfDay,
@@ -79,7 +79,7 @@ export function parseAutomationTrigger(value: unknown): AutomationTrigger | null
     // An absent source is Exponential's (rows from before sources existed).
     if (value.source !== undefined && value.source !== `exponential`) return null
     if (!includesValue(actionTriggerEventValues, value.event)) return null
-    const filters: AutomationEventTriggerFilters = {}
+    const filters: EventTriggerFilters = {}
     if (isRecord(value.filters)) {
       const boardIds = idList(value.filters.boardIds)
       const labelIds = idList(value.filters.labelIds)
@@ -109,7 +109,7 @@ function optionalString(value: unknown): string | undefined {
  * `null`. Never throws. */
 export function parseActionTrigger(value: unknown): ActionTrigger | null {
   if (!isRecord(value)) return null
-  const when = parseAutomationTrigger(value)
+  const when = parseTriggerWhen(value)
   const id = optionalString(value.id)
   const deviceId = optionalString(value.deviceId)
   if (!when || !id || !deviceId) return null
@@ -202,7 +202,7 @@ export const TRIGGER_EVENT_LABELS: Record<ActionTriggerEvent, string> = {
   pr_merged: `A pull request is merged`,
 }
 
-function eventFilterCount(filters: AutomationEventTriggerFilters | undefined): number {
+function eventFilterCount(filters: EventTriggerFilters | undefined): number {
   if (!filters) return 0
   return (
     (filters.boardIds?.length ?? 0) +
@@ -213,7 +213,7 @@ function eventFilterCount(filters: AutomationEventTriggerFilters | undefined): n
 }
 
 /** The shared one-line trigger sentence (an action's Triggers rows). */
-export function triggerSummary(trigger: AutomationTrigger): string {
+export function triggerSummary(trigger: TriggerWhen): string {
   if (trigger.kind === `schedule`) {
     const at = formatMinuteOfDay(trigger.minuteOfDay)
     if (trigger.interval === `weekly`) {
@@ -239,7 +239,7 @@ export function triggerSummary(trigger: AutomationTrigger): string {
  * "(device time)" instead.
  */
 export function nextScheduleRun(
-  trigger: AutomationScheduleTrigger,
+  trigger: ScheduleTriggerWhen,
   now: Date
 ): Date | null {
   const hours = Math.floor(trigger.minuteOfDay / 60)
@@ -298,7 +298,7 @@ export function nextScheduleRun(
 /** What a suggestion with a trigger asks the creator agent to set up on the
  * action it creates. */
 export interface TriggerSpec {
-  trigger: AutomationTrigger
+  trigger: TriggerWhen
   deviceId: string
   agent?: string
   model?: string

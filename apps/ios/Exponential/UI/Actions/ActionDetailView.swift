@@ -328,7 +328,7 @@ struct ActionDetailView: View {
                 set: { vm.setEnabled(trigger, enabled: $0) }
             ))
             .disabled(!isOwner || busy || locked)
-            .accessibilityLabel("Enabled: \(AutomationTriggerDisplay.rowSentence(trigger.when))")
+            .accessibilityLabel("Enabled: \(TriggerDisplay.rowSentence(trigger.when))")
             .accessibilityIdentifier("trigger-enabled")
 
             if isOwner {
@@ -365,7 +365,7 @@ struct ActionDetailView: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(AutomationTriggerDisplay.rowSentence(trigger.when))
+                Text(TriggerDisplay.rowSentence(trigger.when))
                     .font(.subheadline.weight(.medium))
                     .foregroundStyle(.white)
                     .multilineTextAlignment(.leading)

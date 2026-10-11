@@ -61,7 +61,6 @@ import {
 } from "@/db/schema"
 import type { ActionTrigger } from "@exp/db-schema/domain"
 import { auth } from "@/lib/auth"
-import { syncAutomationMirror } from "@/lib/action-triggers-mirror"
 import {
   buildAttachmentStorageKey,
   buildAttachmentUrl,
@@ -1253,8 +1252,8 @@ async function main() {
   // runner binding, which is the MACHINE's steer deviceId, not a row uuid.
   // minuteOfDay is device-local wall clock by design (no tz field). One
   // paused trigger so the toggle has an off state to render. Written the way
-  // the router writes them: the array on the action, mirrored into the legacy
-  // `automations` rows the run history's `automation_id` references.
+  // the router writes them: the array on the action; the run history's
+  // `trigger_id` names a trigger id.
   const seededTriggers: { action: string; triggers: ActionTrigger[] }[] = [
     {
       action: `Nightly test triage`,
@@ -1303,14 +1302,13 @@ async function main() {
     for (const { action: name, triggers } of seededTriggers) {
       const row = action[name]
       await tx.update(actions).set({ triggers }).where(eq(actions.id, row.id))
-      await syncAutomationMirror(tx, { id: row.id, teamId: ws.id, triggers })
     }
   })
 
   // Two finished triggered runs so an action's Runs says something other
   // than "No runs yet." Action-scoped sessions carry the action id plus a
   // display-name snapshot, `started_reason` (which trigger kind fired) and
-  // `automation_id` (the trigger's id). Ended, so they never join the live
+  // `trigger_id` (the trigger's id). Ended, so they never join the live
   // agents list.
   //
   // EXP-663: both rows are a full EXP-637 close-out (`ended_by: 'agent'`).
@@ -1323,7 +1321,7 @@ async function main() {
       userId: demoId,
       actionId: action[`Nightly test triage`].id,
       actionName: `Nightly test triage`,
-      automationId: DEMO_TRIGGER_IDS.nightlyTriage,
+      triggerId: DEMO_TRIGGER_IDS.nightlyTriage,
       startedReason: `schedule`,
       deviceId: DEMO_DEVICE_ID,
       deviceLabel: DEMO_DEVICE_LABEL,
@@ -1341,7 +1339,7 @@ async function main() {
       userId: demoId,
       actionId: action[`Update dependencies`].id,
       actionName: `Update dependencies`,
-      automationId: DEMO_TRIGGER_IDS.updateDeps,
+      triggerId: DEMO_TRIGGER_IDS.updateDeps,
       startedReason: `schedule`,
       deviceId: DEMO_DEVICE_ID,
       deviceLabel: DEMO_DEVICE_LABEL,
@@ -1370,7 +1368,7 @@ async function main() {
     platform: `linux`,
     version: DEMO_SERVER_VERSION,
     agents: [`claude`, `codex`],
-    caps: [`actions`, `action-inputs`, `fix-conflicts`, `chat`, `automations`],
+    caps: [`actions`, `action-inputs`, `fix-conflicts`, `chat`, `triggers`, `automations`],
     sharedTeamIds: [ws.id],
     lastSeenAt: hoursAgo(5),
     createdAt: daysAgo(45),

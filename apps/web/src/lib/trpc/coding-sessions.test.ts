@@ -666,46 +666,6 @@ describe(`codingSessions.start — batch path`, () => {
 })
 
 // EXP-484: the run records which agent CLI drives it.
-// The device that starts a run with a non-image attachment must advertise
-// `steer-files` (it localizes the file lines for the agent); images never
-// look the device up, and a device with the cap passes everything.
-describe(`codingSessions.start — steer-files gate`, () => {
-  const FILE = `bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb`
-  const IMG = `aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa`
-
-  it(`refuses a non-image attachment from a device without the cap`, async () => {
-    // The gate's content-type read, then its device read.
-    selectResults.push([{ contentType: `application/pdf` }])
-    selectResults.push([{ caps: [`start-prompt`] }])
-    const error = await rejectionOf(
-      caller.start({ teamId: TEAM_ID, deviceId: `dev-1`, attachmentIds: [FILE] })
-    )
-    expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
-    expect((error as TRPCError).message).toBe(
-      `Attaching files needs the device on 0.14.66 or newer; images still work`
-    )
-    expect(inserts).toHaveLength(0)
-  })
-
-  it(`passes a non-image attachment from a device with the cap`, async () => {
-    selectResults.push([{ contentType: `application/pdf` }])
-    selectResults.push([{ caps: [`start-prompt`, `steer-files`] }])
-    // resolveSessionDevice's own registry read.
-    selectResults.push([{ deviceId: `dev-1`, label: `Mac` }])
-    await caller.start({ teamId: TEAM_ID, deviceId: `dev-1`, attachmentIds: [FILE] })
-    expect(inserts).toHaveLength(1)
-    expect(updates.some((u) => u.table === sessionAttachments)).toBe(true)
-  })
-
-  it(`never reads the device for images only`, async () => {
-    selectResults.push([{ contentType: `image/png` }])
-    selectResults.push([{ deviceId: `dev-1`, label: `Mac` }])
-    await caller.start({ teamId: TEAM_ID, deviceId: `dev-1`, attachmentIds: [IMG] })
-    expect(inserts).toHaveLength(1)
-    expect(selectResults).toHaveLength(0)
-  })
-})
-
 describe(`codingSessions.start — agent (EXP-484)`, () => {
   it(`stores the named agent on an issue run`, async () => {
     await caller.start({ issueId: ISSUE_ID, agent: `codex` })
@@ -784,7 +744,7 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
       startedReason: null,
       // EXP-906: nor a parent — this start resumes nothing.
       parentSessionId: null,
-      automationId: null,
+      triggerId: null,
       userId: `actor`,
       hostUserId: null,
       deviceId: null,
@@ -822,31 +782,44 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
     expect(inserts[0]!.values.startedReason).toBe(`schedule`)
   })
 
-  it(`links the firing automation when it targets the action (EXP-583)`, async () => {
-    const AUTOMATION_ID = `44444444-4444-4444-8444-444444444444`
+  it(`links the firing trigger when the action holds it (EXP-583/SLOP-2)`, async () => {
+    const TRIGGER_ID = `44444444-4444-4444-8444-444444444444`
     selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Code review` }])
-    selectResults.push([{ id: AUTOMATION_ID }]) // automations probe hit
+    // The action's stored triggers name it.
+    selectResults.push([{ triggers: [{ id: `other` }, { id: TRIGGER_ID }] }])
     await caller.start({
       actionId: ACTION_ID,
       startedReason: `event`,
-      automationId: AUTOMATION_ID,
+      triggerId: TRIGGER_ID,
     })
-    expect(inserts[0]!.values.automationId).toBe(AUTOMATION_ID)
+    expect(inserts[0]!.values.triggerId).toBe(TRIGGER_ID)
 
-    // A stale/foreign automation id degrades to NULL instead of refusing.
+    // A stale/foreign trigger id degrades to NULL instead of refusing.
     selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Code review` }])
-    selectResults.push([])
+    selectResults.push([{ triggers: [{ id: `other` }] }])
     await caller.start({
       actionId: ACTION_ID,
       startedReason: `event`,
-      automationId: AUTOMATION_ID,
+      triggerId: TRIGGER_ID,
     })
-    expect(inserts[1]!.values.automationId).toBeNull()
+    expect(inserts[1]!.values.triggerId).toBeNull()
 
-    // automationId without a reason is a zod-level reject.
+    // triggerId without a reason is a zod-level reject.
     await expect(
-      caller.start({ actionId: ACTION_ID, automationId: AUTOMATION_ID })
+      caller.start({ actionId: ACTION_ID, triggerId: TRIGGER_ID })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+
+  it(`reads a 0.14.66 daemon's legacy automationId as the trigger id (SLOP-17)`, async () => {
+    const TRIGGER_ID = `44444444-4444-4444-8444-444444444444`
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Code review` }])
+    selectResults.push([{ triggers: [{ id: TRIGGER_ID }] }])
+    await caller.start({
+      actionId: ACTION_ID,
+      startedReason: `schedule`,
+      automationId: TRIGGER_ID,
+    } as never)
+    expect(inserts[0]!.values.triggerId).toBe(TRIGGER_ID)
   })
 
   it(`rejects startedReason without a real actionId (EXP-530)`, async () => {
@@ -861,7 +834,7 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
         startedReason: `event`,
       })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
-    // `schedule` is the same story — only automations automate starts.
+    // `schedule` is the same story — only triggers start runs on their own.
     await expect(
       caller.start({ issueId: ISSUE_ID, startedReason: `schedule` })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
@@ -888,15 +861,15 @@ describe(`codingSessions.start — action path (EXP-253)`, () => {
     selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Code review` }])
     await caller.start({ actionId: ACTION_ID, startedReason: `agent` })
     expect(inserts[3]!.values.startedReason).toBe(`agent`)
-    expect(inserts[3]!.values.automationId).toBeNull()
+    expect(inserts[3]!.values.triggerId).toBeNull()
   })
 
-  it(`rejects automationId riding an agent start (EXP-679)`, async () => {
+  it(`rejects triggerId riding an agent start (EXP-679)`, async () => {
     await expect(
       caller.start({
         actionId: ACTION_ID,
         startedReason: `agent`,
-        automationId: `44444444-4444-4444-8444-444444444444`,
+        triggerId: `44444444-4444-4444-8444-444444444444`,
       })
     ).rejects.toMatchObject({ code: `BAD_REQUEST` })
     expect(inserts).toHaveLength(0)
@@ -1391,53 +1364,28 @@ describe(`codingSessions — builtin create-action (EXP-257)`, () => {
   })
 })
 
-// FEED-50: Tidy up is the ONE automatable builtin — its schedule/event
-// starts carry their automation (action_id stays NULL: a uuid FK), and the
-// automation probe is TEAM-scoped because the builtin id repeats per team.
+// FEED-50: Tidy up is the ONE builtin whose start may carry schedule/event.
+// Builtins carry no triggers (SLOP-2), so a trigger id never links: it
+// degrades to NULL without a probe, never a refusal.
 describe(`codingSessions — builtin tidy-up (FEED-50)`, () => {
   const TIDY_UP = `builtin:tidy-up`
-  const AUTOMATION_ID = `55555555-5555-4555-8555-555555555555`
+  const TRIGGER_ID = `55555555-5555-4555-8555-555555555555`
 
-  it(`a schedule start stamps the reason + the team's automation`, async () => {
-    selectResults.push([{ id: AUTOMATION_ID }]) // automations probe hit
+  it(`a schedule start stamps the reason, never a trigger id`, async () => {
     await caller.start({
       actionId: TIDY_UP,
       teamId: TEAM_ID,
       startedReason: `schedule`,
-      automationId: AUTOMATION_ID,
+      triggerId: TRIGGER_ID,
     })
     expect(inserts[0]!.values).toMatchObject({
       teamId: TEAM_ID,
       actionId: null,
       actionName: `Tidy up`,
       startedReason: `schedule`,
-      automationId: AUTOMATION_ID,
+      triggerId: null,
     })
-    const shape = whereShape(selectWheres.at(-1))
-    expect(shape).toEqual(
-      expect.arrayContaining([
-        `col:id`,
-        AUTOMATION_ID,
-        `col:action_id`,
-        TIDY_UP,
-        `col:team_id`,
-        TEAM_ID,
-      ])
-    )
-  })
-
-  it(`another team's automation degrades to NULL, never a refusal`, async () => {
-    selectResults.push([]) // the team-scoped probe misses
-    await caller.start({
-      actionId: TIDY_UP,
-      teamId: TEAM_ID,
-      startedReason: `event`,
-      automationId: AUTOMATION_ID,
-    })
-    expect(inserts[0]!.values).toMatchObject({
-      startedReason: `event`,
-      automationId: null,
-    })
+    expect(selectWheres).toHaveLength(0)
   })
 
   it(`other builtins still refuse schedule/event`, async () => {
@@ -1451,24 +1399,22 @@ describe(`codingSessions — builtin tidy-up (FEED-50)`, () => {
     expect(inserts).toHaveLength(0)
   })
 
-  it(`heartbeat resurrects a tidy-up run keeping its reason + automation`, async () => {
+  it(`heartbeat resurrects a tidy-up run keeping its reason`, async () => {
     selectResults.push([]) // row swept
-    selectResults.push([{ id: AUTOMATION_ID }]) // automations probe hit
     await caller.heartbeat({
       id: SESSION_ID,
       teamId: TEAM_ID,
       actionId: TIDY_UP,
       startedReason: `schedule`,
-      automationId: AUTOMATION_ID,
+      triggerId: TRIGGER_ID,
     })
     expect(inserts[0]!.values).toMatchObject({
       id: SESSION_ID,
       actionId: null,
       actionName: `Tidy up`,
       startedReason: `schedule`,
-      automationId: AUTOMATION_ID,
+      triggerId: null,
     })
-    expect(whereShape(selectWheres.at(-1))).toContain(TEAM_ID)
   })
 })
 

@@ -85,7 +85,7 @@ internal fun deviceOptionLabel(device: SteerDevice): String {
 
 /**
  * The shared options block. [devices] are the candidates already filtered by
- * the host (per-tab caps for a launch, the `automations` cap for a binding);
+ * the host (per-tab caps for a launch, the `triggers` cap for a binding);
  * [noDeviceNote] renders instead of the picker when none qualifies. The Device
  * variant renders no machine row at all — the sheet already names it.
  *

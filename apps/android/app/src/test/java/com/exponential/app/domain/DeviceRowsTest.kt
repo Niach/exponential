@@ -23,7 +23,7 @@ class DeviceRowsTest {
             label = "buildbox",
             kind = "server",
             agents = """["claude","codex"]""",
-            caps = """["resume-run","automations","worktrees","launch-defaults"]""",
+            caps = """["resume-run","triggers","worktrees","launch-defaults"]""",
             unauthedAgents = """["codex"]""",
             launchDefaults = """{"defaultAgent":"codex","agents":{"codex":{"model":""}}}""",
             activeSessions = 1,
@@ -244,6 +244,22 @@ class DeviceRowsTest {
 
         assertFalse(entity().toSteerDevice(nowMs, "me").canAgentLogin)
         assertFalse(entity { copy(caps = null) }.toSteerDevice(nowMs, "me").canAgentLogin)
+    }
+
+    @Test
+    fun `the triggers cap or its legacy automations name both run triggers`() {
+        // SLOP-17: devices advertise `triggers`; older builds still say
+        // `automations`, and either one makes the machine a trigger runner.
+        assertTrue(entity().toSteerDevice(nowMs, "me").canRunTriggers)
+        assertTrue(
+            entity { copy(caps = """["resume-run","automations"]""") }
+                .toSteerDevice(nowMs, "me").canRunTriggers,
+        )
+        assertFalse(
+            entity { copy(caps = """["resume-run"]""") }
+                .toSteerDevice(nowMs, "me").canRunTriggers,
+        )
+        assertFalse(entity { copy(caps = null) }.toSteerDevice(nowMs, "me").canRunTriggers)
     }
 
     @Test

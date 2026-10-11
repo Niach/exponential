@@ -613,10 +613,8 @@ export const mcpServersRouter = router({
   //     device's daemon calls as the device OWNER while the row belongs to
   //     the requester — the run then spends the owner's credentials, like
   //     its `expu_` key and GitHub token);
-  //   - only the row's persisted pick (`mcp_server_ids`) resolves; anything
-  //     else comes back `skipped` (never a blocker: a resume's recorded list
-  //     may name a server removed since); `serverIds` omitted = the whole
-  //     pick;
+  //   - exactly the row's persisted pick (`mcp_server_ids`) resolves; a
+  //     picked server removed since is skipped, never a blocker;
   //   - the agent's OWN key (`kind: agent`, lib/auth/api-key-kind.ts) is
   //     refused outright, so a prompt-injected agent cannot mint itself a
   //     row with a wider pick and read it back.
@@ -627,8 +625,9 @@ export const mcpServersRouter = router({
   // them as `actor`, plus `members`: the roster of who is in, who is not.
   // Any other run: no extras, `members: []`.
   resolveForLaunch: authedProcedure
+    // `serverIds`: accepted and ignored since the 0.14.66 floor.
     .input(z.object({ serverIds: z.array(z.string().uuid()).max(16).optional() }))
-    .mutation(async ({ ctx, input }) => {
+    .mutation(async ({ ctx }) => {
       const userId = ctx.session.user.id
       if (await isAgentApiKeySession(ctx.db, ctx.session)) {
         throw new TRPCError({
@@ -667,9 +666,7 @@ export const mcpServersRouter = router({
         })
       }
       await assertTeamMember(userId, run.teamId)
-      const picked = new Set(run.mcpServerIds ?? [])
-      const requested = input.serverIds ?? [...picked]
-      const serverIds = requested.filter((id) => picked.has(id))
+      const serverIds = [...new Set(run.mcpServerIds ?? [])]
       const now = new Date()
       const resolved = await resolveForLaunch(
         ctx.db,
@@ -681,11 +678,6 @@ export const mcpServersRouter = router({
         },
         now
       )
-      for (const id of new Set(requested)) {
-        if (!picked.has(id)) {
-          resolved.skipped.push({ id, name: id, reason: `not picked for this run` })
-        }
-      }
       if (run.actionId) {
         const shares = await resolveSharedForLaunch(ctx.db, {
           teamId: run.teamId,

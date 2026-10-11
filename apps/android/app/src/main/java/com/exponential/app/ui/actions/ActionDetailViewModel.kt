@@ -107,10 +107,10 @@ class ActionDetailViewModel @Inject constructor(
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** The machines a trigger can be bound to: every synced device that
-     * advertises the `automations` cap, ONLINE OR NOT (a trigger outlives a
+     * advertises the `triggers` cap, ONLINE OR NOT (a trigger outlives a
      * machine's uptime — it fires whenever that machine is next up). */
     val triggerDevices: StateFlow<List<SteerDevice>> = syncedDevices
-        .map { devices -> devices.filter { it.canRunAutomations } }
+        .map { devices -> devices.filter { it.canRunTriggers } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     /** Every run of this action, newest first — person-started and triggered

@@ -146,7 +146,7 @@ fn attribution<'a>(
     }
 }
 
-/// EXP-679 — the run's `coding_sessions.started_reason`: an automation's trigger reason
+/// EXP-679 — the run's `coding_sessions.started_reason`: a trigger's trigger reason
 /// (`schedule`/`event`) when one fired it, else the reason the relay frame
 /// carried (`agent` — another coding session started this run). `None` = a
 /// person started it, and the run is ATTENDED: it stays open after the agent
@@ -399,7 +399,7 @@ pub enum ActionRunKind {
     /// one, the run gets its own `exp/tidy-up-<id8>` worktree (the generic
     /// action slug branch); without one it runs in the scratch dir. The
     /// prompt is the shipped `TIDY_UP_PROGRAM` behind the action preamble,
-    /// so `## Inputs` (board/repo) and an automation's `## Trigger` render —
+    /// so `## Inputs` (board/repo) and a trigger's `## Trigger` render —
     /// the only builtin that honours a trigger (the only automatable one).
     TidyUp,
 }
@@ -451,16 +451,16 @@ pub struct ActionLaunchRequest {
     pub inputs: Vec<ActionInputValue>,
     /// Which program this run executes (team action or a virtual builtin).
     pub kind: ActionRunKind,
-    /// `Some` when an AUTOMATION started this run (EXP-530): renders the
+    /// `Some` when a TRIGGER started this run (EXP-530): renders the
     /// prompt's `## Trigger` section and stamps `startedReason` on the
     /// session row. Always `None` for user starts. Of the builtins only Tidy
     /// up (FEED-50, the one automatable builtin) renders it; the others'
     /// generated prompts ignore it.
     pub trigger: Option<TriggerNote>,
-    /// EXP-583: the `automations` row that fired it, stamped on the session
+    /// EXP-583: the action trigger that fired it, stamped on the session
     /// row beside `startedReason`. `None` on every user start — the server
     /// refuses one without the other.
-    pub automation_id: Option<String>,
+    pub trigger_id: Option<String>,
     pub device_label: String,
     pub origin: LaunchOrigin,
     /// The FULL option set (EXP-257 — same per-agent vocabulary as issue
@@ -1454,7 +1454,7 @@ fn map_token_error(err: ApiError, full_name: &str) -> Result<Prepared, CodingErr
 /// before `launch_account`/the start-time rotation rewrite its account.
 /// Last used = per agent, the login a PERSON last started or switched a run
 /// on, on that device (`agent_accounts[agent].profiles[].active`); the last
-/// used agent = `launch_defaults.defaultAgent`. Automations,
+/// used agent = `launch_defaults.defaultAgent`. Triggers,
 /// agent-started runs and auto-rotation never move it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct LastUsedStamp {
@@ -1482,7 +1482,7 @@ fn last_used_stamp(req: &PrepareRequest) -> Option<LastUsedStamp> {
             .is_none()
             .then(|| fresh(&batch_req.options)),
         PrepareRequest::Action(action_req) => {
-            let person = action_req.automation_id.is_none()
+            let person = action_req.trigger_id.is_none()
                 && started_reason(&action_req.origin, action_req.trigger.as_ref()).is_none();
             person.then(|| fresh(&action_req.options))
         }
@@ -2019,7 +2019,7 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
             effort: options.effort.clone(),
             ultracode: options.ultracode,
             fix: None,
-            // EXP-530/EXP-679: automations only fire action runs, but an
+            // EXP-530/EXP-679: triggers only fire action runs, but an
             // `agent`-started issue/batch run is unattended too.
             started_reason: run_reason.map(str::to_string),
             resumed_from_id: None,
@@ -2077,7 +2077,7 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
                 // reason rides an issue start too, so the scope echoes
                 // whatever the start stamped.
                 started_reason: run_reason.map(str::to_string),
-                automation_id: None,
+                trigger_id: None,
                 // The server refuses a branch beside an issueId.
                 branch: None,
                 // EXP-876: an issue run names itself off its issue.
@@ -2097,7 +2097,7 @@ fn prepare_launch(req: &PrepareRequest, deps: &CodingDeps) -> Result<Prepared, C
                 device_id: attribution.device_id.map(str::to_string),
                 // EXP-679: echoed like the issue scope above.
                 started_reason: run_reason.map(str::to_string),
-                automation_id: None,
+                trigger_id: None,
                 // The batch branch is minted client-side and already
                 // recorded by `start_batch`; nothing to re-assert.
                 branch: None,
@@ -2243,7 +2243,7 @@ fn prepare_action(
         ActionRunKind::FixConflicts { board_id, .. } => board_id.clone(),
         _ => None,
     };
-    // EXP-679: an automation's trigger or a relay `agent` reason makes this
+    // EXP-679: a trigger's trigger or a relay `agent` reason makes this
     // run unattended — the only shape whose prompt closes out with
     // `exponential_sessions_end` LAST (EXP-1222: every run has the tool, an
     // attended one calls it only when asked). Computed up front because the
@@ -2567,7 +2567,7 @@ fn prepare_action(
             req.prompt.as_deref(),
         )),
         // FEED-50: the shipped tidy-up program, with the board/repo inputs,
-        // an automation's trigger and the composer's text.
+        // a trigger's trigger and the composer's text.
         ActionRunKind::TidyUp => Some(tidy_up_prompt(
             &req.team_id,
             &req.inputs,
@@ -2602,7 +2602,7 @@ fn prepare_action(
             action_id: &req.action_id,
             team_id: req.kind.is_builtin().then_some(req.team_id.as_str()),
             started_reason: run_reason,
-            automation_id: req.automation_id.as_deref(),
+            trigger_id: req.trigger_id.as_deref(),
             device_label: Some(&req.device_label),
             branch: run_branch.as_deref(),
             resumed_from_id: None,
@@ -2848,11 +2848,11 @@ fn prepare_action(
             device_id: attribution(&req.origin, deps).device_id.map(str::to_string),
             // EXP-530: the SAME reason the start stamped, echoed on every
             // ping so a swept row resurrects still badged Automated (both
-            // hosts arrive here — the GUI automation host and the CLI
+            // hosts arrive here — the GUI trigger host and the CLI
             // daemon's worker both set `req.trigger`). EXP-679 adds the
             // relay's `agent` reason to that set.
             started_reason: run_reason.map(str::to_string),
-            automation_id: req.automation_id.clone(),
+            trigger_id: req.trigger_id.clone(),
             // EXP-637: the run branch, so a resurrected row still points at
             // the worktree the agent is working in.
             branch: run_branch.clone(),
@@ -3424,10 +3424,10 @@ fn prepare_resume_run(
             coding_sessions::ActionStart {
                 action_id: &record.action_id,
                 team_id: (record.kind != RunKind::Team).then_some(record.team_id.as_str()),
-                // A resume is never an AUTOMATION's doing — but EXP-679's
+                // A resume is never a TRIGGER's doing — but EXP-679's
                 // `agent` reason (another coding session resumed it) is.
                 started_reason: run_reason,
-                automation_id: None,
+                trigger_id: None,
                 device_label: Some(&req.device_label),
                 branch: record.branch.as_deref(),
                 resumed_from_id: Some(&record.session_id),
@@ -3580,7 +3580,7 @@ fn prepare_resume_run(
             started_by_id: scope_attribution.started_by_id.map(str::to_string),
             device_id: scope_attribution.device_id.map(str::to_string),
             started_reason: run_reason.map(str::to_string),
-            automation_id: None,
+            trigger_id: None,
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
@@ -3594,7 +3594,7 @@ fn prepare_resume_run(
             started_by_id: scope_attribution.started_by_id.map(str::to_string),
             device_id: scope_attribution.device_id.map(str::to_string),
             started_reason: run_reason.map(str::to_string),
-            automation_id: None,
+            trigger_id: None,
             branch: None,
             // EXP-876: the resumed batch covers what the record says it did.
             batch_issue_ids: record
@@ -3613,7 +3613,7 @@ fn prepare_resume_run(
             started_by_id: scope_attribution.started_by_id.map(str::to_string),
             device_id: scope_attribution.device_id.map(str::to_string),
             started_reason: run_reason.map(str::to_string),
-            automation_id: None,
+            trigger_id: None,
             branch: record.branch.clone(),
             batch_issue_ids: Vec::new(),
             agent: agent.wire_id().map(str::to_string),
@@ -4948,7 +4948,7 @@ mod tests {
             inputs: Vec::new(),
             kind: ActionRunKind::Team,
             trigger: None,
-            automation_id: None,
+            trigger_id: None,
             device_label: "box".to_string(),
             origin: LaunchOrigin::Local,
             options: LaunchOptions {
@@ -5085,7 +5085,7 @@ mod tests {
         }
     }
 
-    /// EXP-530: an automation-started run stamps startedReason on the start
+    /// EXP-530: a trigger-started run stamps startedReason on the start
     /// mutation and renders the `## Trigger` prompt section — one flag, two
     /// seams, locked together.
     #[test]
@@ -5112,7 +5112,7 @@ mod tests {
                 phrase: "daily at 07:00".to_string(),
             },
         });
-        req.automation_id = Some("auto-1".to_string());
+        req.trigger_id = Some("auto-1".to_string());
         let prepared = match prepare(&PrepareRequest::Action(req), &deps).unwrap() {
             Prepared::Ready(prepared) => prepared,
             Prepared::Disabled(reason) => panic!("unexpectedly disabled: {reason:?}"),
@@ -5129,16 +5129,16 @@ mod tests {
             prepared.heartbeat_scope.started_reason.as_deref(),
             Some("schedule")
         );
-        // EXP-583: and which automation fired it.
+        // EXP-583: and which trigger fired it.
         assert_eq!(
-            prepared.heartbeat_scope.automation_id.as_deref(),
+            prepared.heartbeat_scope.trigger_id.as_deref(),
             Some("auto-1")
         );
 
         let requests = captured.lock().unwrap();
         assert_eq!(requests.len(), 2, "{requests:?}");
         assert!(requests[0].contains(r#""startedReason":"schedule""#));
-        assert!(requests[0].contains(r#""automationId":"auto-1""#));
+        assert!(requests[0].contains(r#""triggerId":"auto-1""#));
         assert!(requests[1].contains("POST /api/trpc/mcpServers.resolveForLaunch"));
         assert!(!requests[1].contains("serverIds"), "{}", requests[1]);
         assert!(requests[1].ends_with("\r\n\r\n{}"), "{}", requests[1]);
@@ -6020,10 +6020,10 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         child.origin = relay(Some("agent"));
         assert_eq!(last_used_stamp(&PrepareRequest::Issue(child)), None);
 
-        // An action a person started stamps; an automation's never does.
+        // An action a person started stamps; a trigger's never does.
         assert!(last_used_stamp(&PrepareRequest::Action(action_request())).is_some());
         let mut automated = action_request();
-        automated.automation_id = Some("auto-1".to_string());
+        automated.trigger_id = Some("auto-1".to_string());
         automated.trigger = Some(TriggerNote {
             kind: crate::action_prompt::TriggerNoteKind::Schedule { phrase: "daily".to_string() },
         });
@@ -6124,7 +6124,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert_eq!(prepared.session_id, "sess-new");
         assert_eq!(prepared.action_id, Some("act-1".to_string()));
         // The NEW row points back at the run it continues, and a resume is
-        // never an automation.
+        // never a trigger.
         let requests = captured.lock().unwrap();
         assert!(
             requests
@@ -6854,7 +6854,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     /// frame's `startedReason: "agent"`) is UNATTENDED — the reason rides the
     /// start mutation and the heartbeat scope, and the prompt gets the
     /// close-out that names `exponential_sessions_end`. One flag, three
-    /// seams, locked together (the automation twin of
+    /// seams, locked together (the trigger twin of
     /// `prepare_action_trigger_rides_the_start_and_the_prompt`).
     #[test]
     fn prepare_issue_relay_started_reason_rides_the_start_and_the_prompt() {
@@ -8144,7 +8144,7 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
     }
 
     /// THIS launch names no account (a server-accepted frame with no
-    /// account, an MCP `sessions_start`, an automation with a null account)
+    /// account, an MCP `sessions_start`, a trigger with a null account)
     /// and lands on the signed-in profile — never the ambient login. The
     /// retired `system` reads the same.
     #[cfg(unix)]

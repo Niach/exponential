@@ -34,7 +34,7 @@ struct TriggerGlyphs: View {
 
 /// One trigger's own glyph, by kind (a Triggers row's leading mark).
 enum TriggerGlyph {
-    static func icon(for trigger: AutomationTrigger) -> String {
+    static func icon(for trigger: TriggerWhen) -> String {
         trigger.isSchedule ? AppIcons.triggerSchedule : AppIcons.triggerEvent
     }
 }

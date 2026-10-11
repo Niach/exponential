@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { contract } from "@exp/domain-contract"
 
 import {
+  capsRunTriggers,
   deviceAcpAgentIds,
   deviceCanToggleComputerUse,
   deviceComputerUseDefault,
@@ -37,6 +38,15 @@ function server(overrides: Partial<SteerDevice> = {}): SteerDevice {
     ...overrides,
   }
 }
+
+describe(`capsRunTriggers (SLOP-17)`, () => {
+  it(`accepts the new cap and the legacy one`, () => {
+    expect(capsRunTriggers([`triggers`])).toBe(true)
+    expect(capsRunTriggers([`automations`])).toBe(true)
+    expect(capsRunTriggers([`actions`])).toBe(false)
+    expect(capsRunTriggers(null)).toBe(false)
+  })
+})
 
 describe(`deviceUpdateAvailable`, () => {
   it(`compares numerically, not lexicographically`, () => {

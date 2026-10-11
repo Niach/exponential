@@ -682,7 +682,7 @@ impl SessionBar {
                 activate_app: false,
                 reservation: None,
                 trigger: None,
-                automation_id: None,
+                trigger_id: None,
                 on_settled: None,
                 prompt,
                 report: crate::steer_wiring::StartReport::none(),

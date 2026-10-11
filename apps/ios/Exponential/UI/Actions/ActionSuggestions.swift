@@ -20,14 +20,14 @@ struct ActionSuggestion: Identifiable, Sendable {
     /// Curated registry icon name (the `AppIcons.pickable` set).
     let icon: String
     /// EXP-583: the suggested trigger, or nil for a plain action seed.
-    let trigger: AutomationTrigger?
+    let trigger: TriggerWhen?
 
     init(
         id: String,
         title: String,
         description: String,
         icon: String,
-        trigger: AutomationTrigger? = nil
+        trigger: TriggerWhen? = nil
     ) {
         self.id = id
         self.title = title
@@ -42,14 +42,14 @@ struct ActionSuggestion: Identifiable, Sendable {
             title: "Daily standup digest",
             description: "Summarize what changed across the team's boards in the last 24 hours: issues created, completed, and moved, plus open pull requests. Post the digest as a comment on a dedicated standup issue, grouped by board with issue identifiers linked.",
             icon: "calendar",
-            trigger: .schedule(AutomationScheduleTrigger(interval: "daily", minuteOfDay: 540))
+            trigger: .schedule(ScheduleTrigger(interval: "daily", minuteOfDay: 540))
         ),
         ActionSuggestion(
             id: "label-new-issues",
             title: "Label new issues",
             description: "When an issue is created, read its title and description and apply the best-fitting existing labels. Never create new labels, never change other fields, and leave no comment unless no label fits at all.",
             icon: "target",
-            trigger: .event(AutomationEventTrigger(event: "created"))
+            trigger: .event(EventTrigger(event: "created"))
         ),
         ActionSuggestion(
             id: "backlog-grooming-sweep",
@@ -62,7 +62,7 @@ struct ActionSuggestion: Identifiable, Sendable {
             title: "Stale-issue nudge",
             description: "Find in-progress issues with no updates for 14 days or more. Comment on each one asking the assignee for a status update, mentioning them by email, and include how long the issue has been quiet.",
             icon: "clock",
-            trigger: .schedule(AutomationScheduleTrigger(
+            trigger: .schedule(ScheduleTrigger(
                 interval: "weekly", minuteOfDay: 540, weekday: 1
             ))
         ),
@@ -83,14 +83,14 @@ struct ActionSuggestion: Identifiable, Sendable {
             title: "Bug triage on new widget feedback",
             description: "Triage newly created widget-reported issues: rewrite vague titles to be specific, set a priority based on severity, add reproduction steps when they can be inferred from the report, and label likely duplicates.",
             icon: "bug",
-            trigger: .event(AutomationEventTrigger(event: "created"))
+            trigger: .event(EventTrigger(event: "created"))
         ),
         ActionSuggestion(
             id: "weekly-metrics-comment",
             title: "Weekly metrics comment",
             description: "Compute weekly team metrics: issues created versus completed, average time to done, and open pull request count. Post the numbers with a week-over-week comparison as a comment on a dedicated metrics issue.",
             icon: "chart-line",
-            trigger: .schedule(AutomationScheduleTrigger(
+            trigger: .schedule(ScheduleTrigger(
                 interval: "weekly", minuteOfDay: 480, weekday: 5
             ))
         ),

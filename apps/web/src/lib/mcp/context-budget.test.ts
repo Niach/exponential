@@ -204,13 +204,9 @@ it(`registers exponential_sessions_guide only behind its gate`, () => {
   expect(
     attended.some((def) => def.name === `exponential_sessions_guide`)
   ).toBe(true)
-  // EXP-1251: the old name rides the same gate as a DEFERRED alias (never
-  // always-loaded: the first test pins the flagged set).
+  // EXP-1251: the old name is gone.
   expect(
     attended.some((def) => def.name === `exponential_sessions_results`)
-  ).toBe(true)
-  expect(
-    headerless.some((def) => def.name === `exponential_sessions_results`)
   ).toBe(false)
 })
 

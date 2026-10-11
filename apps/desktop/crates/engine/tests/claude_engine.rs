@@ -159,7 +159,7 @@ fn prepared(session_id: &str, worktree: &Path, seed: Option<String>) -> coding::
             started_by_id: None,
             device_id: None,
             started_reason: None,
-            automation_id: None,
+            trigger_id: None,
             branch: None,
             batch_issue_ids: Vec::new(),
             agent: None,

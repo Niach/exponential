@@ -3,7 +3,7 @@
 //! Web parity: `components/team/mcp-servers-section.tsx`. The team's MCP
 //! server registry lives in Exponential, and so do the credentials: each
 //! member connects ONCE (an OAuth sign-in the instance runs, or a typed API
-//! key it stores encrypted) and every device, remote start and automation
+//! key it stores encrypted) and every device, remote start and trigger
 //! uses it. This machine holds none and runs no OAuth; the launcher asks the
 //! server for a run's values at spawn (`coding::mcp_servers`).
 //!

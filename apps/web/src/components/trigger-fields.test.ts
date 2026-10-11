@@ -21,7 +21,7 @@ const device: SteerDevice = {
   deviceId: `dev-1`,
   deviceLabel: `Build box`,
   agents: [`claude`, `codex`],
-  caps: [`automations`],
+  caps: [`triggers`],
   launchDefaults: ACCOUNT_FIXTURE.launchDefaults ?? undefined,
   agentAccounts: ACCOUNT_FIXTURE.agentAccounts ?? undefined,
 }

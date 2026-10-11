@@ -40,11 +40,6 @@ import {
 // the repo-scoped tokens every later clone/PR uses. The team's `repositories`
 // row is the only thing persisted, and it is the whole authorization for
 // token mints: a row exists because a member with push access put it there.
-//
-// Every output keeps the field names older native builds decode
-// (`installed`, `installUrl`, `connectUrl`, `installations[].needsReauth/
-// stale/suspended/manageUrl`, `repos[]`); the new fields (`linked`, `login`,
-// `needsReconnect`) ride alongside.
 
 // --- The guided page -------------------------------------------------------
 // `/integrations/github` is the ONE web step every surface opens: Connect
@@ -153,11 +148,6 @@ function installationSummary(inst: UserInstallation, hasMore = false) {
       accountType: inst.accountType || null,
     }),
     suspended: inst.suspended,
-    // Pre-SLOP-7 fields older clients still read: nothing is ever stale or
-    // in need of a re-auth now — a dead token is reported on the whole
-    // connection (`needsReconnect`), never per installation.
-    needsReauth: false,
-    stale: false,
     hasMore,
   }
 }
@@ -425,22 +415,6 @@ export const integrationsRouter = router({
           defaultBranch: resolved.defaultBranch,
           installationId: resolved.installationId,
         }
-      }),
-
-    // Disconnect the caller's GitHub account. `installationId` is accepted
-    // and ignored (the pre-SLOP-7 clients send one): there is no per-team
-    // link to sever anymore, only the person's own connection.
-    unlink: authedProcedure
-      .input(
-        z.object({
-          teamId: z.string().uuid(),
-          installationId: z.number().int().positive().optional(),
-        })
-      )
-      .mutation(async ({ ctx, input }) => {
-        await assertTeamMember(ctx.session.user.id, input.teamId)
-        await unlinkGithubAccount(ctx)
-        return { ok: true as const }
       }),
 
     disconnect: authedProcedure.mutation(async ({ ctx }) => {

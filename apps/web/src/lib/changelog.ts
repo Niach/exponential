@@ -25,6 +25,15 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-11-compat-cleanup`,
+    date: `2026-10-11`,
+    title: `Older apps must update: the compatibility paths for pre-October builds are gone`,
+    summary: `The server now requires iOS 0.14.57, Android 0.14.59 and desktop or CLI 0.14.66, and the code that kept older builds working is removed.`,
+    body: `- **Older clients must update**: the server now requires iOS 0.14.57, Android 0.14.59 and desktop or CLI 0.14.66. An older app shows the update screen until it is updated.
+- **Files for runs**: attaching a non-image file to a run works on every device; the "needs the device on 0.14.66 or newer" refusal is gone from web, desktop, iOS and Android.
+- **Cleanup**: the automations table and shape that mirrored action triggers for pre-October apps, the empty workflow shapes, the retired GitHub claim tables and the old \`exponential_sessions_results\` tool name are removed. Nothing changes for apps on the required versions.`,
+  },
+  {
     id: `2026-10-10-accounts-by-email`,
     date: `2026-10-10`,
     title: `Accounts by email, Import your terminal login, and no duplicate logins`,

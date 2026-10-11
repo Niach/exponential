@@ -389,12 +389,17 @@ data class SteerDevice(
         get() = caps?.contains(com.exponential.app.domain.DomainContract.codingSessionComputerUseCap) == true
 
     /**
-     * Whether this machine runs action triggers locally (EXP-530; the cap
-     * string keeps its old name) — the
-     * trigger device picker offers only these (offline-but-capable stays
-     * pickable: the machine fires on its own clock once it's back).
+     * Whether this machine runs action triggers locally (EXP-530; SLOP-17:
+     * contract `triggerDeviceCap`, older builds advertise the legacy
+     * `triggerLegacyDeviceCap`, either counts) — the trigger device picker
+     * offers only these (offline-but-capable stays pickable: the machine
+     * fires on its own clock once it's back).
      */
-    val canRunAutomations: Boolean get() = caps?.contains("automations") == true
+    val canRunTriggers: Boolean
+        get() = caps?.let {
+            it.contains(com.exponential.app.domain.DomainContract.triggerDeviceCap) ||
+                it.contains(com.exponential.app.domain.DomainContract.triggerLegacyDeviceCap)
+        } == true
 
     /**
      * EXP-484: whether this machine can run an agent sign-in on request — the

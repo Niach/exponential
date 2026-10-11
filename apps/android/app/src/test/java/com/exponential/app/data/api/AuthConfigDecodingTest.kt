@@ -84,7 +84,7 @@ class AuthConfigDecodingTest {
     @Test
     fun webHandoffUrlsTrimTrailingSlash() {
         assertEquals(
-            "https://app.exponential.at/auth/register?ref=android-app",
+            "https://app.exponential.at/auth/login?ref=android-app",
             AuthWebUrls.register("https://app.exponential.at/"),
         )
         assertEquals(

@@ -52,11 +52,7 @@ final class ExpToolDisplayTests: XCTestCase {
         XCTAssertEqual(list?.result, .list)
 
         XCTAssertEqual(ExpToolDisplay.resolve(toolName: "exponential_pr_open")?.result, .pr)
-        // EXP-933: the run's report offers `Open Results`.
-        XCTAssertEqual(
-            ExpToolDisplay.resolve(toolName: "exponential_sessions_results")?.result, .results
-        )
-        // The Guide tool answers the same kind; `sessions_results` stays its alias.
+        // EXP-933: the run's report (the Guide tool) offers `Open Results`.
         let guide = ExpToolDisplay.resolve(toolName: "mcp__exponential__exponential_sessions_guide")
         XCTAssertEqual(guide?.result, .results)
         XCTAssertEqual(guide?.subjectKey, "topic")

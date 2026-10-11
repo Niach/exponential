@@ -78,7 +78,7 @@ pub fn run(args: &[String]) -> CommandResult {
         inputs,
         options,
         coding::LaunchOrigin::Local,
-        // A hand-typed `run` is never automation-started.
+        // A hand-typed `run` is never trigger-started.
         None,
         None,
         prompt,

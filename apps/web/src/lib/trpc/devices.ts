@@ -25,7 +25,7 @@ import {
   sql,
 } from "drizzle-orm"
 import { contract } from "@exp/domain-contract"
-import { pauseDeviceTriggers } from "@/lib/action-triggers-mirror"
+import { pauseDeviceTriggers } from "@/lib/action-trigger-rules"
 import { deviceIconSchema } from "@exp/db-schema/domain"
 import {
   router,
@@ -102,9 +102,8 @@ const COMMANDS_PER_HEARTBEAT = 32
 // write; UI clients pre-clamp via agentSeed anyway. Unknown agents, invalid
 // models/efforts, and capability-masked toggles are dropped. A save REPLACES
 // the whole object: an absent key is a clear, like an explicit null (every
-// client at the floors sends every key it knows, compat round 26) — except
-// `defaultAgent`, `computerUse` and `computerUseModel`, which
-// `setLaunchDefaults` carries forward (EXP-1158, EXP-1196, EXP-1236).
+// client at the floors sends every key it knows) — except `defaultAgent`,
+// which `setLaunchDefaults` carries forward (EXP-1158).
 function clampLaunchDefaults(
   input: z.infer<typeof deviceLaunchDefaultsSchema>
 ): DeviceLaunchDefaults {
@@ -384,10 +383,6 @@ export function nudgeDevice(ownerId: string, deviceId: string): void {
  * instead of failing the mutation with "That command is already queued". */
 const IDEMPOTENT_COMMAND_KINDS: ReadonlySet<string> = new Set([
   `agent_usage_refresh`,
-  // EXP-1158 compat shim (see `createCommand`): delete once
-  // CLIENT_MIN_VERSION_IOS > 0.14.49 and _ANDROID > 0.14.50 and
-  // _DESKTOP/_CLI > 0.14.58.
-  `agent_profile_use`,
   `agent_profile_remove`,
   // EXP-1137: signing a login out twice is one wish.
   `agent_profile_sign_out`,
@@ -593,9 +588,9 @@ export const devicesRouter = router({
         // good answer on one flaky pass.
         agentAccounts: deviceAgentAccountsSchema.optional(),
         version: z.string().min(1).max(32).optional(),
-        // EXP-1196: the device's readiness report (devices.doctor). Present
-        // = overwrite; absent keeps the stored one (an older build).
-        doctor: deviceDoctorSchema.nullish(),
+        // EXP-1196: the device's readiness report (devices.doctor), sent on
+        // every register; it overwrites the stored one.
+        doctor: deviceDoctorSchema,
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -620,7 +615,7 @@ export const devicesRouter = router({
             ? clampAgentAccounts(input.agentAccounts)
             : null,
           version: input.version ?? null,
-          doctor: input.doctor ? clampDoctor(input.doctor) : null,
+          doctor: clampDoctor(input.doctor),
           lastSeenAt: now,
         })
         .onConflictDoUpdate({
@@ -645,7 +640,7 @@ export const devicesRouter = router({
             ...(input.agentAccounts
               ? { agentAccounts: clampAgentAccounts(input.agentAccounts) }
               : {}),
-            ...(input.doctor ? { doctor: clampDoctor(input.doctor) } : {}),
+            doctor: clampDoctor(input.doctor),
             version: input.version ?? null,
             // Registering CONSUMES a pending Update click: the daemon
             // re-registers after acting on the request (whether or not a
@@ -881,28 +876,6 @@ export const devicesRouter = router({
       ) {
         clamped.defaultAgent = storedAgent
       }
-      // EXP-1196: older clients never send `computerUse`, so a save that
-      // OMITS the key keeps the stored switch; an explicit true/false/null
-      // from a client that knows it wins.
-      const storedComputerUse = row.launchDefaults?.computerUse
-      if (
-        input.launchDefaults.computerUse === undefined &&
-        typeof storedComputerUse === `boolean`
-      ) {
-        clamped.computerUse = storedComputerUse
-      }
-      // EXP-1236: same contract for the computer-use model: a client that
-      // predates the key must not reset the stored pick.
-      const storedComputerUseModel = row.launchDefaults?.computerUseModel
-      if (
-        input.launchDefaults.computerUseModel === undefined &&
-        typeof storedComputerUseModel === `string` &&
-        (contract.computerUseModel.values as readonly string[]).includes(
-          storedComputerUseModel
-        )
-      ) {
-        clamped.computerUseModel = storedComputerUseModel
-      }
       const now = new Date()
       const txid = await ctx.db.transaction(async (tx) => {
         const id = await generateTxId(tx)
@@ -1063,16 +1036,6 @@ export const devicesRouter = router({
           `agent_login`,
           `agent_login_code`,
           `agent_usage_refresh`,
-          // EXP-849: make an already-signed-in profile the agent's ACTIVE
-          // login on that machine. NON-DESTRUCTIVE: no logout, no login, no
-          // credential is touched.
-          // EXP-1158 compat shim: "Set as default" is gone (a launch
-          // lands on the LAST USED login), but iOS <= 0.14.49, Android <= 0.14.50 and
-          // desktop <= 0.14.58 still send this kind, and devices <= 0.14.58 still
-          // execute it; a device from this release completes the queued row as
-          // unsupported. Delete once CLIENT_MIN_VERSION_IOS > 0.14.49 and
-          // _ANDROID > 0.14.50 and _DESKTOP/_CLI > 0.14.58.
-          `agent_profile_use`,
           // EXP-862: delete THIS machine's copy of an agent login (its
           // profile dir and its index row). The ACCOUNT is untouched: the
           // device never runs `codex logout` (that revokes the account
@@ -1186,34 +1149,6 @@ export const devicesRouter = router({
           })
         }
         payload = { agent: input.agent, code: input.code }
-      }
-
-      // EXP-849: "Use this account here" — same payload shape as
-      // `agent_usage_refresh` (agent + profile). Two caps, because the
-      // command needs both halves: `agent-login` to drive the agent's own
-      // login state at all, and `account-switch` for the profile machinery
-      // itself. A build missing either would leave the row pending forever.
-      // EXP-1158 compat shim: "Set as default" is gone (a launch
-      // lands on the LAST USED login), but iOS <= 0.14.49, Android <= 0.14.50 and
-      // desktop <= 0.14.58 still send this kind, and devices <= 0.14.58 still
-      // execute it; a device from this release completes the queued row as
-      // unsupported. Delete once CLIENT_MIN_VERSION_IOS > 0.14.49 and
-      // _ANDROID > 0.14.50 and _DESKTOP/_CLI > 0.14.58.
-      if (input.kind === `agent_profile_use`) {
-        if (!input.agent || !input.profileId) {
-          throw new TRPCError({
-            code: `BAD_REQUEST`,
-            message: `agent_profile_use needs an agent and a profileId`,
-          })
-        }
-        const caps = row.caps ?? []
-        if (!caps.includes(`agent-login`) || !caps.includes(`account-switch`)) {
-          throw new TRPCError({
-            code: `PRECONDITION_FAILED`,
-            message: `That machine runs an older Exponential app that cannot switch agent accounts. Update it first.`,
-          })
-        }
-        payload = { agent: input.agent, profileId: input.profileId }
       }
 
       // EXP-862: "Remove account" — the machine deletes its own copy of that

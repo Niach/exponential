@@ -223,7 +223,7 @@ pub enum ActionRepo {
 /// constructed locally (the server rejects `actions.get` for their ids),
 /// team actions fetch the FRESH body, fix-conflicts resolves its `pr` input
 /// (issue UUID or identifier) to the PR branch + repository via tRPC.
-/// `trigger` (EXP-530) is set only by the daemon's automation host — it feeds
+/// `trigger` (EXP-530) is set only by the daemon's trigger host — it feeds
 /// the prompt's `## Trigger` section and the row's `started_reason`; every
 /// user-initiated start passes `None`.
 #[allow(clippy::too_many_arguments)]
@@ -237,9 +237,9 @@ pub fn resolve_action_request(
     options: LaunchOptions,
     origin: LaunchOrigin,
     trigger: Option<coding::TriggerNote>,
-    // EXP-583: the `automations` row that fired this run — stamped on the
+    // EXP-583: the action trigger that fired this run — stamped on the
     // session beside `startedReason`. `None` on every person-started run.
-    automation_id: Option<String>,
+    trigger_id: Option<String>,
     // EXP-825: the composer's free text — the chat prompt / creator request
     // for the builtins, additional instructions for everything else.
     prompt: Option<String>,
@@ -427,7 +427,7 @@ pub fn resolve_action_request(
         inputs,
         kind,
         trigger,
-        automation_id,
+        trigger_id,
         device_label: coding::default_device_label(),
         origin,
         options,

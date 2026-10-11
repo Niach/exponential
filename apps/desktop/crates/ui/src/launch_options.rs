@@ -7,7 +7,7 @@
 //!   Effort selects and the capability-gated toggles (ultracode, plan
 //!   mode). This is [`LaunchOptionsSection`], which OWNS that
 //!   state and hands out a [`LaunchOptions`] snapshot.
-//! - Automation: [`crate::trigger_editor`]'s launch PINS:
+//! - Trigger: [`crate::trigger_editor`]'s launch PINS:
 //!   the exact same strip (seeded to the bound device's default agent — no
 //!   "Device default" pill since EXP-615), the same choice lists behind the
 //!   launch "CLI default" sentinel, and NO toggles (an unattended run never
@@ -291,7 +291,7 @@ fn agent_segments<V: Render>(
 /// EXP-694 — the same strip as the FIRST ROW of a
 /// [`crate::surface::glass_group`]: no capsule of its own, 8px padding, the
 /// hairline below drawn by the group. This is what every grouped agent picker
-/// (launch, automation pins, device defaults) leads with.
+/// (launch, trigger pins, device defaults) leads with.
 pub(crate) fn agent_tabs_row<V: Render>(
     id: &'static str,
     pills: Vec<AgentPill>,
@@ -315,7 +315,7 @@ fn pin_label(choices: &'static [(&'static str, &'static str)], picked: Option<&s
         .unwrap_or_else(|| CLI_DEFAULT_LABEL.to_string())
 }
 
-/// One automation choice pin as a GROUPED picker row (EXP-694,
+/// One trigger choice pin as a GROUPED picker row (EXP-694,
 /// S2): the label leading, the pinned value trailing at 70% behind a caret,
 /// no field chrome, and the "CLI default" sentinel while nothing is pinned.
 /// Writes through the `pick` accessor on the host's state `S`.
@@ -810,10 +810,6 @@ pub(crate) struct RemoteDefaults {
     /// start's per-run `computerUse`. Without it the "+" menu offers no
     /// Computer use row (the run would silently take the machine's switch).
     pub(crate) computer_use_run: bool,
-    /// The machine advertises `steer-files` — it localizes non-image FILE
-    /// attachments. Without it the composer's pick takes images only (the
-    /// server refuses a file to such a device anyway).
-    pub(crate) steer_files: bool,
 }
 
 /// The launch cluster's own state: which agent runs, its
@@ -1179,13 +1175,6 @@ impl LaunchOptionsSection {
         self.remote.as_ref().is_none_or(|remote| remote.computer_use_run)
     }
 
-    /// Whether the "Add file or image" pick may stage non-image FILES for
-    /// this target — always on this machine (this build localizes them), on
-    /// a remote one only with the `steer-files` cap.
-    pub(crate) fn files_offered(&self) -> bool {
-        files_offered_for(self.remote.as_ref().map(|remote| remote.steer_files))
-    }
-
     /// EXP-1249: the target machine's own Computer use switch — what a run
     /// with no pick of its own gets.
     pub(crate) fn computer_use_default(&self, cx: &App) -> bool {
@@ -1418,24 +1407,9 @@ fn set_choice(select: &ChoiceSelect, value: &str, window: &mut Window, cx: &mut 
     });
 }
 
-/// [`LaunchOptionsSection::files_offered`]'s pure rule: `None` = this
-/// machine (always), `Some(cap)` = the remote target's `steer-files` cap.
-fn files_offered_for(remote_steer_files: Option<bool>) -> bool {
-    remote_steer_files.is_none_or(|steer_files| steer_files)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// The file pick's target gate: the local machine always takes files, a
-    /// remote one only with the `steer-files` cap.
-    #[test]
-    fn files_are_offered_locally_and_on_a_remote_with_the_cap() {
-        assert!(files_offered_for(None));
-        assert!(files_offered_for(Some(true)));
-        assert!(!files_offered_for(Some(false)));
-    }
 
     fn server(id: &str, name: &str, on_by_default: bool) -> McpServerOption {
         McpServerOption {

@@ -1,45 +1,45 @@
 import { describe, expect, it } from "vitest"
 import type {
-  AutomationScheduleTrigger,
-  AutomationTrigger,
+  ScheduleTriggerWhen,
+  TriggerWhen,
   ActionTriggerEvent,
 } from "@exp/db-schema/domain"
 import {
   formatTriggerBlock,
   nextScheduleRun,
   parseActionTriggers,
-  parseAutomationTrigger,
+  parseTriggerWhen,
   actionRunTitle,
   triggerBadges,
   triggerSummary,
 } from "./action-triggers"
 
 const schedule = (
-  overrides: Partial<AutomationScheduleTrigger> = {}
-): AutomationScheduleTrigger => ({
+  overrides: Partial<ScheduleTriggerWhen> = {}
+): ScheduleTriggerWhen => ({
   kind: `schedule`,
   interval: `daily`,
   minuteOfDay: 420,
   ...overrides,
 })
 
-describe(`parseAutomationTrigger`, () => {
+describe(`parseTriggerWhen`, () => {
   it(`returns null for non-objects`, () => {
-    expect(parseAutomationTrigger(null)).toBeNull()
-    expect(parseAutomationTrigger(undefined)).toBeNull()
-    expect(parseAutomationTrigger(`schedule`)).toBeNull()
-    expect(parseAutomationTrigger(42)).toBeNull()
-    expect(parseAutomationTrigger([{ kind: `schedule` }])).toBeNull()
+    expect(parseTriggerWhen(null)).toBeNull()
+    expect(parseTriggerWhen(undefined)).toBeNull()
+    expect(parseTriggerWhen(`schedule`)).toBeNull()
+    expect(parseTriggerWhen(42)).toBeNull()
+    expect(parseTriggerWhen([{ kind: `schedule` }])).toBeNull()
   })
 
   it(`returns null for an unknown kind (future vocabulary reads as no automation)`, () => {
-    expect(parseAutomationTrigger({ kind: `webhook` })).toBeNull()
-    expect(parseAutomationTrigger({})).toBeNull()
+    expect(parseTriggerWhen({ kind: `webhook` })).toBeNull()
+    expect(parseTriggerWhen({})).toBeNull()
   })
 
   it(`returns null for an unknown event value`, () => {
     expect(
-      parseAutomationTrigger({
+      parseTriggerWhen({
         kind: `event`,
         event: `comment_added`,
       })
@@ -47,28 +47,28 @@ describe(`parseAutomationTrigger`, () => {
   })
 
   it(`rejects out-of-range schedule fields`, () => {
-    expect(parseAutomationTrigger(schedule({ minuteOfDay: -1 }))).toBeNull()
-    expect(parseAutomationTrigger(schedule({ minuteOfDay: 1440 }))).toBeNull()
-    expect(parseAutomationTrigger(schedule({ minuteOfDay: 7.5 }))).toBeNull()
+    expect(parseTriggerWhen(schedule({ minuteOfDay: -1 }))).toBeNull()
+    expect(parseTriggerWhen(schedule({ minuteOfDay: 1440 }))).toBeNull()
+    expect(parseTriggerWhen(schedule({ minuteOfDay: 7.5 }))).toBeNull()
     expect(
-      parseAutomationTrigger(schedule({ interval: `weekly` }))
+      parseTriggerWhen(schedule({ interval: `weekly` }))
     ).toBeNull()
     expect(
-      parseAutomationTrigger(schedule({ interval: `weekly`, weekday: 8 }))
+      parseTriggerWhen(schedule({ interval: `weekly`, weekday: 8 }))
     ).toBeNull()
     expect(
-      parseAutomationTrigger(schedule({ interval: `monthly` }))
+      parseTriggerWhen(schedule({ interval: `monthly` }))
     ).toBeNull()
     expect(
-      parseAutomationTrigger(schedule({ interval: `monthly`, dayOfMonth: 29 }))
+      parseTriggerWhen(schedule({ interval: `monthly`, dayOfMonth: 29 }))
     ).toBeNull()
     expect(
-      parseAutomationTrigger({ ...schedule(), interval: `hourly` })
+      parseTriggerWhen({ ...schedule(), interval: `hourly` })
     ).toBeNull()
   })
 
   it(`round-trips a valid schedule`, () => {
-    const parsed = parseAutomationTrigger({
+    const parsed = parseTriggerWhen({
       kind: `schedule`,
       interval: `weekly`,
       minuteOfDay: 540,
@@ -83,7 +83,7 @@ describe(`parseAutomationTrigger`, () => {
   })
 
   it(`keeps only well-formed event filters and drops empty lists`, () => {
-    const parsed = parseAutomationTrigger({
+    const parsed = parseTriggerWhen({
       kind: `event`,
       event: `label_added`,
       filters: {
@@ -102,7 +102,7 @@ describe(`parseAutomationTrigger`, () => {
 
   it(`parses an event trigger without filters`, () => {
     expect(
-      parseAutomationTrigger({
+      parseTriggerWhen({
         kind: `event`,
         event: `pr_merged`,
       })
@@ -130,7 +130,7 @@ describe(`triggerSummary`, () => {
   })
 
   it(`locks the event sentences`, () => {
-    const event = (name: ActionTriggerEvent): AutomationTrigger => ({
+    const event = (name: ActionTriggerEvent): TriggerWhen => ({
       kind: `event`,
       event: name,
     })
