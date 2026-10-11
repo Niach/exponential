@@ -3578,6 +3578,7 @@ impl ScreensPanel {
                     Button::new("screens-new-board")
                         .primary()
                         .web_sm()
+                        .icon(registry::NAV_BOARDS)
                         .label(crate::empty_state_copy::BOARDS_ACTION)
                         .on_click(|_, window, cx| {
                             window.dispatch_action(Box::new(NewBoard), cx);

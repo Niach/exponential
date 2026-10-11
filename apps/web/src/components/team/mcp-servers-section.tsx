@@ -955,7 +955,7 @@ function BuiltinToolsGroup() {
             onValueChange={setQuery}
             placeholder={BUILTIN_TOOLS_FILTER_PLACEHOLDER}
             aria-label={BUILTIN_TOOLS_FILTER_PLACEHOLDER}
-            className="w-48"
+            className="w-32 sm:w-48"
             data-testid="mcp-builtin-tools-filter"
           />
         }

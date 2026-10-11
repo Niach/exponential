@@ -34,7 +34,7 @@ public enum GithubCopy {
     public static let configure = "Configure"
     public static let installationCaption = "Repositories come from these accounts. Configure one to grant more."
     public static let manage = "Manage"
-    public static let noRepositories = "No repositories added yet."
+    public static let noRepositories = "No repositories yet"
     /// The guided page's failed-link line, shown when a github-connected
     /// return carries an error.
     public static let linkFailed = "GitHub didn’t finish connecting. Try again."

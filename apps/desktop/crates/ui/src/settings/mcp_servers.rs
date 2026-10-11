@@ -1156,6 +1156,7 @@ impl Render for McpServersPane {
         let add_team = team_id.clone();
         let trailing = owner.then(|| {
             glass_pill_button("mcp-servers-add", PillSize::Sm, cx)
+                .icon(registry::UI_ADD)
                 .label("Add server")
                 .disabled(self.busy)
                 .on_click(cx.listener(move |this, _, window, cx| {

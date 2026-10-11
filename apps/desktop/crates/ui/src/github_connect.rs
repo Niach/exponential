@@ -560,7 +560,7 @@ pub(crate) mod copy {
     pub const INSTALLATION_CAPTION: &str = "Repositories come from these accounts. Configure one \
         to grant more.";
     pub const MANAGE: &str = "Manage";
-    pub const NO_REPOSITORIES: &str = "No repositories added yet.";
+    pub const NO_REPOSITORIES: &str = "No repositories yet";
 
     /// `Connected as octocat`.
     pub fn connected_as(login: &str) -> String {
@@ -669,7 +669,7 @@ mod tests {
             copy::suspended_line(&["acme".to_string(), "octocat".to_string()]),
             "GitHub suspended the Exponential app for acme, octocat. Unsuspend it on GitHub."
         );
-        assert_eq!(copy::NO_REPOSITORIES, "No repositories added yet.");
+        assert_eq!(copy::NO_REPOSITORIES, "No repositories yet");
         assert_eq!(
             copy::configure_title("acme"),
             "Configure which repositories acme grants on GitHub"

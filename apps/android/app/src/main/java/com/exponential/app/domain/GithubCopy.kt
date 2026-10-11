@@ -32,7 +32,7 @@ object GithubCopy {
     const val CONFIGURE = "Configure"
     const val INSTALLATION_CAPTION = "Repositories come from these accounts. Configure one to grant more."
     const val MANAGE = "Manage"
-    const val NO_REPOSITORIES = "No repositories added yet."
+    const val NO_REPOSITORIES = "No repositories yet"
     /** The guided page's failed-link line, shown when a github-connected return carries an error. */
     const val LINK_FAILED = "GitHub didn’t finish connecting. Try again."
 

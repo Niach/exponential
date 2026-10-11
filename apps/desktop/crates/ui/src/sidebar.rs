@@ -2028,11 +2028,23 @@ impl Render for RailView {
             .as_deref()
             .map(|team_id| Store::global(cx).collections().boards_in_team(team_id, cx))
             .unwrap_or_default();
-        let board_icons: Vec<gpui::AnyElement> = boards
+        let mut board_icons: Vec<gpui::AnyElement> = boards
             .iter()
             .enumerate()
             .map(|(index, board)| self.rail_board_icon(index, board, cx))
             .collect();
+        // EXP-1274: a team with no boards says so under the band, the shared
+        // list empty state (web sidebar `board-switcher` parity).
+        if board_icons.is_empty() && active_team.is_some() {
+            board_icons.push(
+                crate::controls::empty_state_list(
+                    Icon::new(registry::NAV_BOARDS),
+                    crate::empty_state_copy::BOARD_SWITCHER,
+                    cx,
+                )
+                .into_any_element(),
+            );
+        }
         // EXP-525: the section reads like the web sidebar — a "Boards" group
         // label with a trailing `+`.
         let boards_header: Option<gpui::AnyElement> =

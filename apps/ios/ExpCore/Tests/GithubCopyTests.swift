@@ -45,7 +45,7 @@ final class GithubCopyTests: XCTestCase {
             "GitHub suspended the Exponential app for acme, octocat. Unsuspend it on GitHub."
         )
         XCTAssertEqual(GithubCopy.manage, "Manage")
-        XCTAssertEqual(GithubCopy.noRepositories, "No repositories added yet.")
+        XCTAssertEqual(GithubCopy.noRepositories, "No repositories yet")
         XCTAssertEqual(GithubCopy.linkFailed, "GitHub didn’t finish connecting. Try again.")
     }
 

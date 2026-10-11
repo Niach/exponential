@@ -86,7 +86,7 @@ struct TeamRepositoriesSection: View {
             }
 
             if !loading && repos.isEmpty {
-                EmptyState(title: GithubCopy.noRepositories, size: .list)
+                EmptyState(title: GithubCopy.noRepositories, icon: AppIcons.settingsRepositories, size: .list)
             }
 
             ForEach(repos) { repo in

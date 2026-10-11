@@ -43,7 +43,7 @@ class GithubCopyTest {
             "GitHub suspended the Exponential app for acme, octocat. Unsuspend it on GitHub.",
             GithubCopy.suspendedLine(listOf("acme", "octocat")),
         )
-        assertEquals("No repositories added yet.", GithubCopy.NO_REPOSITORIES)
+        assertEquals("No repositories yet", GithubCopy.NO_REPOSITORIES)
         assertEquals("GitHub didn’t finish connecting. Try again.", GithubCopy.LINK_FAILED)
     }
 

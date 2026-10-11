@@ -14,10 +14,12 @@ pub(crate) const BOARDS_DESCRIPTION: &str = "Create a board to start tracking wo
 pub(crate) const BOARDS_ACTION: &str = "Create a board";
 pub(crate) const ISSUES: &str = "No issues yet";
 pub(crate) const ISSUES_DESCRIPTION: &str = "Create an issue to start tracking work.";
+pub(crate) const ISSUES_ACTION: &str = "New issue";
 pub(crate) const NO_TEAM: &str = "No team yet";
 pub(crate) const NO_TEAM_DESCRIPTION: &str = "Create a team, or join one with an invite link.";
 pub(crate) const NO_SELECTION_ISSUE: &str = "No issue selected";
 pub(crate) const NO_SELECTION_NOTIFICATION: &str = "No notification selected";
+pub(crate) const BOARD_SWITCHER: &str = "No boards yet";
 pub(crate) const ARCHIVED_BOARDS: &str = "No archived boards";
 pub(crate) const NO_TEAM_SELECTED: &str = "No team selected";
 pub(crate) const ACTION_RUNS: &str = "No runs yet";
@@ -64,6 +66,7 @@ mod tests {
             ("no-team", NO_TEAM),
             ("no-selection-issue", NO_SELECTION_ISSUE),
             ("no-selection-notification", NO_SELECTION_NOTIFICATION),
+            ("board-switcher", BOARD_SWITCHER),
             ("archived-boards", ARCHIVED_BOARDS),
             ("no-team-selected", NO_TEAM_SELECTED),
             ("action-runs", ACTION_RUNS),
@@ -93,6 +96,7 @@ mod tests {
             assert_eq!(field(id, "description").as_deref(), Some(*description), "{id}");
         }
         assert_eq!(field("boards", "action").as_deref(), Some(BOARDS_ACTION));
+        assert_eq!(field("issues", "action").as_deref(), Some(ISSUES_ACTION));
     }
 
     /// The states the IDE draws as titles only carry no description in the

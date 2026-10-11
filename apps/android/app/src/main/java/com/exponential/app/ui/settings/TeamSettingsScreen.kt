@@ -476,11 +476,11 @@ private fun RepositoriesSection(
 
         // EXP-721: one self-bordered glass row per repository.
         if (state.reposLoaded && state.repos.isEmpty()) {
-            Text(
-                GithubCopy.NO_REPOSITORIES,
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                modifier = Modifier.fillMaxWidth().glassRow().padding(horizontal = 12.dp, vertical = 10.dp),
+            // EXP-1274: the shared list empty state ×4.
+            EmptyState(
+                title = GithubCopy.NO_REPOSITORIES,
+                icon = ExpIcons.settingsRepositories,
+                size = at.exponential.ui.primitives.EmptyStateSize.List,
             )
         }
         state.repos.forEach { repo ->

@@ -25,6 +25,11 @@ struct TeamLabelsSection: View {
                 })
             }
 
+            // EXP-1274: the shared list empty state ×4.
+            if labels.isEmpty {
+                EmptyState(.labels)
+            }
+
             ForEach(labels, id: \.id) { label in
                 HStack(spacing: 10) {
                     Circle()
