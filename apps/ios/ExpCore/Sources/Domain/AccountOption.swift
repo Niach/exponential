@@ -147,6 +147,24 @@ public enum AccountOptions {
         options.first(where: \.isLastUsed) ?? options.first
     }
 
+    /// EXP-1278: the new device's option for the login picked on the previous
+    /// one — same agent, same email address (case-insensitive). Profile ids
+    /// are per machine, so the address is the identity; a row with no address
+    /// (a plan, "No email", the agent-named ambient fallback) never carries.
+    /// Nil = the new device settles on its own last used login.
+    public static func carried(
+        _ options: [AccountOption],
+        previous: AccountOption?
+    ) -> AccountOption? {
+        guard let previous, previous.email.contains("@") else { return nil }
+        let email = normalized(previous.email)
+        return options.first { $0.agent == previous.agent && normalized($0.email) == email }
+    }
+
+    private static func normalized(_ email: String) -> String {
+        email.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+
     /// EXP-1158: what a start (or an automation pin) carries as `account`
     /// for a picked profile id — the id VERBATIM, `system` included (it NAMES
     /// the ambient login); a blank pick is unnamed and rides as no account,

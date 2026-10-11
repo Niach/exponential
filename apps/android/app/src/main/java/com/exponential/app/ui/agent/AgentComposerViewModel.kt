@@ -432,6 +432,10 @@ class AgentComposerViewModel @Inject constructor(
     // re-emits the SAME device must not stomp the user's edits (EXP-437).
     private var seededDeviceId: String? = null
 
+    // EXP-1278: the seeded machine's login list — a device change reads the
+    // pick off it and carries it when the new machine has the same login.
+    private var seededAccountOptions: List<AccountOption> = emptyList()
+
     // ── `@` / `#` vocabularies (EXP-802/EXP-805) ─────────────────────────────
 
     /**
@@ -504,6 +508,7 @@ class AgentComposerViewModel @Inject constructor(
                 // last used agent's active login, or the first login it reports.
                 val options = accountOptionsFor(settled, availableAgentsFor(settled))
                 if (seededDeviceId == settled.deviceId) {
+                    seededAccountOptions = options
                     val available = availableAgentsFor(settled)
                     // A heartbeat can land AFTER the machine settled: a pick
                     // that no longer names a reported login goes back to the
@@ -515,7 +520,17 @@ class AgentComposerViewModel @Inject constructor(
                     }
                     return@collect
                 }
+                val previous = seededAccountOptions.firstOrNull { it.key == _launch.value.accountKey }
+                    ?: seededAccountOptions.firstOrNull()
                 seededDeviceId = settled.deviceId
+                seededAccountOptions = options
+                // EXP-1278: the same login on the new machine keeps the whole
+                // pick — the agent's model/effort/toggles stay as they were.
+                val carried = AccountOptions.carried(options, previous)
+                if (carried != null && carried.agent == _launch.value.agent) {
+                    applyAccountPick(carried)
+                    return@collect
+                }
                 val lastUsed = AccountOptions.lastUsed(options)
                 applyAgentSeed(lastUsed?.agent ?: defaultAgentFor(settled), settled)
                 applyAccountPick(lastUsed)

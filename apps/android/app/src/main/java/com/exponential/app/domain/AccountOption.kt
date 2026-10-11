@@ -138,6 +138,21 @@ object AccountOptions {
     fun lastUsed(options: List<AccountOption>): AccountOption? =
         options.firstOrNull { it.isLastUsed } ?: options.firstOrNull()
 
+    /**
+     * EXP-1278: the new device's option for the login picked on the previous
+     * one — same agent, same email address (case-insensitive). Profile ids are
+     * per machine, so the address is the identity; a row with no address (a
+     * plan, "No email", the agent-named ambient fallback) never carries. Null
+     * = the new device settles on its own last used login.
+     */
+    fun carried(options: List<AccountOption>, previous: AccountOption?): AccountOption? {
+        if (previous == null || '@' !in previous.email) return null
+        val email = previous.email.trim().lowercase()
+        return options.firstOrNull {
+            it.agent == previous.agent && it.email.trim().lowercase() == email
+        }
+    }
+
     /** An [AccountOption.key] back into its parts; null on anything else. */
     fun parseKey(key: String): AccountOptionKey? {
         val at = key.indexOf(':')
