@@ -305,42 +305,50 @@ export function DeviceReadiness({
         key={row.key}
         data-item={row.key}
         data-state={row.state}
-        className={cn(`gap-2.5`, row.child && `pl-9`)}
+        className={cn(`flex-wrap gap-x-2.5 gap-y-2`, row.child && `pl-9`)}
       >
-        <Glyph aria-hidden className={cn(`size-4 shrink-0`, GLYPH_TONE[row.tone])} />
-        {/* The label keeps its width; the device's detail takes what is
-            left and is the one that truncates. */}
-        <span className="shrink-0 text-sm text-foreground">{row.label}</span>
-        <span
-          className={cn(
-            `min-w-0 flex-1 truncate text-right text-xs`,
-            DETAIL_TONE[row.state] ?? `text-muted-foreground`
-          )}
-        >
-          {row.detail}
+        {/* Glyph, label and detail stay whole on one line; when the pills
+            do not fit beside them they wrap to their own line instead of
+            squeezing the detail down to an ellipsis. Only a detail wider
+            than the whole row truncates. */}
+        <span className="flex min-w-0 flex-1 basis-auto items-center gap-2.5">
+          <Glyph aria-hidden className={cn(`size-4 shrink-0`, GLYPH_TONE[row.tone])} />
+          <span className="shrink-0 text-sm text-foreground">{row.label}</span>
+          <span
+            className={cn(
+              `ml-auto min-w-0 truncate text-right text-xs`,
+              DETAIL_TONE[row.state] ?? `text-muted-foreground`
+            )}
+          >
+            {row.detail}
+          </span>
         </span>
-        {row.importEmail && (
-          <Pill
-            mode="action"
-            size="sm"
-            disabled={busy}
-            data-action={IMPORT_ACTION}
-            onClick={() => setConfirming({ key: row.key, email: row.importEmail! })}
-          >
-            {ACTIONS[IMPORT_ACTION]!.label}
-          </Pill>
-        )}
-        {row.action && row.actionLabel && (
-          <Pill
-            mode="action"
-            size="sm"
-            primary={row.primary}
-            disabled={busy}
-            data-action={row.action}
-            onClick={() => onAction(row.key, row.action!)}
-          >
-            {row.actionLabel}
-          </Pill>
+        {(row.importEmail || (row.action && row.actionLabel)) && (
+          <span className="ml-auto flex shrink-0 items-center gap-2">
+            {row.importEmail && (
+              <Pill
+                mode="action"
+                size="sm"
+                disabled={busy}
+                data-action={IMPORT_ACTION}
+                onClick={() => setConfirming({ key: row.key, email: row.importEmail! })}
+              >
+                {ACTIONS[IMPORT_ACTION]!.label}
+              </Pill>
+            )}
+            {row.action && row.actionLabel && (
+              <Pill
+                mode="action"
+                size="sm"
+                primary={row.primary}
+                disabled={busy}
+                data-action={row.action}
+                onClick={() => onAction(row.key, row.action!)}
+              >
+                {row.actionLabel}
+              </Pill>
+            )}
+          </span>
         )}
       </ListRow>
     )
