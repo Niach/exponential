@@ -46,6 +46,18 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-11-one-empty-state",
+    date: "2026-10-11",
+    title: "One empty state, no refresh buttons, and a filter for the built-in tools",
+    summary: "Every empty list on web, desktop, iOS and Android says the same short thing under the same glyph, refresh buttons are gone from lists that reload on their own, and the MCP settings show the built-in Exponential tools expanded with a filter box.",
+    body: r#"- **One empty state**: every list, page and picker with nothing in it draws the same block on every client: a glyph, a short title and, on a page, one sentence and a button. The copy is shared across web, desktop, iOS and Android.
+- **No refresh buttons**: lists that load from the server reload when you open them, when you come back to the tab and after every change; a small spinner in the list band shows a reload. Refresh stays only where the source is outside Exponential, like GitHub or the local disk. Pull to refresh on the phone issue lists is gone too: they are live.
+- **MCP servers**: the built-in Exponential tools are always listed with their count and a filter box, the explanatory line under the band is gone, and Add server is always there for owners."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_41: ChangelogEntry = ChangelogEntry {
     id: "2026-10-11-compat-cleanup",
     date: "2026-10-11",
     title: "Older apps must update: the compatibility paths for pre-October builds are gone",

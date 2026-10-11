@@ -1,7 +1,7 @@
 import * as React from "react"
 import { Slot } from "radix-ui"
 
-import { ChevronDown, ChevronRight, Search } from "lucide-react"
+import { ChevronDown, ChevronRight, LoaderCircle, Search } from "lucide-react"
 
 import { BARE_FIELD_CLASS, Input } from "./input"
 import { Label } from "./label"
@@ -69,6 +69,7 @@ function GlassSectionHeader({
   leading,
   trailing,
   count,
+  loading,
   expanded,
   onToggle,
   className,
@@ -80,6 +81,12 @@ function GlassSectionHeader({
   /** EXP-862: the muted item count at the trailing edge, before `trailing`.
    * A folded band shows how much it hides without unfolding. */
   count?: number
+  /** EXP-1274: the list under the band is refetching (a server-only list
+   * after a write or on return to the tab). A 12px spinning glyph at the
+   * trailing edge, before the count — never a Refresh button, never a
+   * skeleton over rows that are already there. ×4: iOS `GlassSectionBand`,
+   * Android `SectionHeader`, desktop `glass_section_header`. */
+  loading?: boolean
   /** EXP-862 FOLDABLE variant — pass both to make the band a toggle: the
    * whole strip becomes the click target, a chevron leads it and
    * `aria-expanded` states the fold (the Agent page's "Recent" band, collapsed
@@ -106,8 +113,15 @@ function GlassSectionHeader({
         ))}
       {leading}
       <span data-part="title" className="min-w-0 truncate text-sm font-medium text-foreground/85">{label}</span>
-      {(count !== undefined || trailing) && (
+      {(count !== undefined || trailing || loading) && (
         <div data-part="trailing" className="ml-auto flex items-center gap-1.5">
+          {loading && (
+            <LoaderCircle
+              data-part="loading"
+              aria-label="Loading"
+              className="size-3 shrink-0 animate-spin text-muted-foreground"
+            />
+          )}
           {count !== undefined && (
             <span data-part="count" className="text-xs tabular-nums text-muted-foreground">
               {count}
@@ -132,6 +146,7 @@ function GlassSectionHeader({
         data-slot="glass-section-header"
         data-part="header"
         aria-expanded={open}
+        aria-busy={loading || undefined}
         onClick={onToggle}
         className={bandClassName}
       >
@@ -140,7 +155,12 @@ function GlassSectionHeader({
     )
   }
   return (
-    <div data-slot="glass-section-header" data-part="header" className={bandClassName}>
+    <div
+      data-slot="glass-section-header"
+      data-part="header"
+      aria-busy={loading || undefined}
+      className={bandClassName}
+    >
       {body}
     </div>
   )
