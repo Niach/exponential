@@ -229,4 +229,22 @@ class AccountOptionTest {
         assertEquals(emptyList<AccountOption>(), AccountOptions.flatten(null, null, null))
         assertNull(AccountOptions.lastUsed(emptyList()))
     }
+
+    @Test
+    fun `carries a pick to another device by agent and email`() {
+        val options = flatten()
+        fun previous(agent: String, email: String) = AccountOption(
+            id = "elsewhere",
+            agent = agent,
+            email = email,
+            isLastUsed = false,
+            health = AgentHealth.Unknown,
+        )
+        assertEquals("home", AccountOptions.carried(options, previous("claude", " HOME@x.test"))?.id)
+        // Same address, other agent: a different login.
+        assertNull(AccountOptions.carried(options, previous("codex", "work@x.test")))
+        // No address, nothing to match on.
+        assertNull(AccountOptions.carried(options, previous("claude", "No email")))
+        assertNull(AccountOptions.carried(options, null))
+    }
 }

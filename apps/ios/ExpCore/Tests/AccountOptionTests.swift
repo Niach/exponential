@@ -208,4 +208,20 @@ final class AccountOptionTests: XCTestCase {
         )
         XCTAssertNil(AccountOptions.lastUsed([]))
     }
+
+    func testCarriesAPickToAnotherDeviceByAgentAndEmail() {
+        let options = fixture()
+        func previous(_ agent: String, _ email: String) -> AccountOption {
+            AccountOption(id: "elsewhere", agent: agent, email: email, isLastUsed: false)
+        }
+        XCTAssertEqual(
+            AccountOptions.carried(options, previous: previous("claude", " HOME@x.test"))?.id,
+            "home"
+        )
+        // Same address, other agent: a different login.
+        XCTAssertNil(AccountOptions.carried(options, previous: previous("codex", "work@x.test")))
+        // No address, nothing to match on.
+        XCTAssertNil(AccountOptions.carried(options, previous: previous("claude", "No email")))
+        XCTAssertNil(AccountOptions.carried(options, previous: nil))
+    }
 }

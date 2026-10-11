@@ -28,6 +28,7 @@ import { CLI_DEFAULT_EFFORT } from "@/components/launch-dialog/launch-options-pa
 import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
 import {
   accountOptionKey,
+  carriedAccountOption,
   flattenAccounts,
   lastUsedAccountOption,
   type AccountOption,
@@ -102,9 +103,10 @@ export interface LaunchOptions {
    * the agent's name, so the picker never goes empty while a run could
    * still start. Picking an option IMPLIES its agent. */
   accountOptions: AccountOption[]
-  /** The picked option's key (`accountOptionKey`), re-seeded to the device's
-   * last used login on every device change; `undefined` while there is no
-   * option. */
+  /** The picked option's key (`accountOptionKey`). A device change KEEPS
+   * the login when the new device has it too (EXP-1278: same agent + email,
+   * model/effort/toggles untouched), else re-seeds to that device's last
+   * used login; `undefined` while there is no option. */
   accountKey: string | undefined
   /** A pick: sets the agent (re-seeding model/effort/toggles like an agent
    * switch) and the account in one go. */
@@ -169,6 +171,9 @@ export function useLaunchOptions({
   const [accountKey, setAccountKeyState] = useState<string | undefined>(
     undefined
   )
+  // EXP-1278: the login the pick resolved to on the PREVIOUS device — what a
+  // device change tries to carry over (`carriedAccountOption`).
+  const previousAccountRef = useRef<AccountOption | undefined>(undefined)
   // EXP-792: the pick seeds once per open, the moment the list is there — a
   // reopen reseeds (a teammate may have flipped a default meanwhile).
   const mcpSeededRef = useRef(false)
@@ -186,6 +191,7 @@ export function useLaunchOptions({
     setRequestedDeviceId(initialDeviceId ?? null)
     setPickedDeviceId(null)
     seededDeviceRef.current = null
+    previousAccountRef.current = undefined
     mcpSeededRef.current = false
     setMcpServerIdsState([])
     const seed = agentSeed(DEFAULT_LAUNCH_AGENT, null)
@@ -239,6 +245,14 @@ export function useLaunchOptions({
     if (seededDeviceRef.current === device.deviceId) return
     seededDeviceRef.current = device.deviceId
     const available = deviceAgentIds(device)
+    // EXP-1278: the same login on the new machine keeps the whole pick — the
+    // account and its agent's model/effort/toggles stay as they were.
+    const carried = carriedOption(device)
+    if (carried) {
+      setAccountKeyState(accountOptionKey(carried))
+      setComputerUsePick(null)
+      return
+    }
     // EXP-1158: the machine's LAST USED login names the agent — the last used
     // agent's active login, or the first login it reports.
     const lastUsed = lastUsedAccountOption(accountOptionsOf(device))
@@ -319,11 +333,29 @@ export function useLaunchOptions({
   useEffect(() => {
     if (!open) return
     if (pickedOption) return
-    setAccountKeyState(lastUsedKey)
-    const option = lastUsedAccountOption(accountOptions)
+    // EXP-1278: the carried login first (the same pick the device seed above
+    // made in this commit), else the machine's last used one.
+    const option =
+      carriedOption(device) ?? lastUsedAccountOption(accountOptions)
+    setAccountKeyState(option ? accountOptionKey(option) : undefined)
     if (option && option.agent !== agent) switchAgent(option.agent)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, device?.deviceId, lastUsedKey, pickedOption === undefined])
+  // Declared AFTER both seeds: a device change reads the previous machine's
+  // pick before this records the new one.
+  useEffect(() => {
+    if (pickedOption) previousAccountRef.current = pickedOption
+  }, [pickedOption])
+
+  function carriedOption(target: SteerDevice | undefined) {
+    const carried = carriedAccountOption(
+      accountOptionsOf(target),
+      previousAccountRef.current
+    )
+    return carried && deviceAgentIds(target).includes(carried.agent)
+      ? carried
+      : undefined
+  }
 
   const setAccountKey = (key: string) => {
     const option = accountOptions.find(

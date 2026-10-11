@@ -36,7 +36,8 @@ final class LaunchOptionsState {
     var resume = true
     /// EXP-825: the picked login profile id, sent verbatim (`system` = the
     /// ambient login); `""` = unnamed, the machine's last used login (sent as
-    /// no account). Reset on every device or agent change — profiles are per
+    /// no account). Reset on every agent change and on a device change, unless
+    /// the new machine has the same login (EXP-1278) — profiles are per
     /// machine and per agent.
     var account = ""
 
@@ -85,7 +86,17 @@ final class LaunchOptionsState {
 
     /// Reseed agent + every option from the resolved machine's advertised
     /// defaults (EXP-437). Runs on open and on every device switch.
-    func seed(from device: SteerDevice?) {
+    /// EXP-1278: a switch [carrying] the previous machine's login keeps the
+    /// whole pick when the new machine has that login too (same agent +
+    /// email) — model, effort and the toggles stay as the person left them.
+    func seed(from device: SteerDevice?, carrying previous: AccountOption? = nil) {
+        if let carried = AccountOptions.carried(accountOptions(on: device), previous: previous),
+           carried.agent == agent,
+           availableAgents(for: device).contains(carried.agent) {
+            account = carried.id
+            lastSeededDeviceId = device?.deviceId
+            return
+        }
         let available = availableAgents(for: device)
         if let advertised = device?.defaultLaunchAgent {
             agent = advertised
