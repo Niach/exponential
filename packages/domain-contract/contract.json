@@ -1210,17 +1210,6 @@
         "result": "session"
       },
       {
-        "name": "sessions_results",
-        "title": "Publish results",
-        "blurb": "The Guide tool's old name (exponential_sessions_guide), kept for older CLIs.",
-        "progressive": "Publishing results",
-        "done": "Published results",
-        "progressiveMany": "Publishing results {n} times",
-        "doneMany": "Published results {n} times",
-        "subjectKey": "topic",
-        "result": "results"
-      },
-      {
         "name": "sessions_show",
         "title": "Show picture",
         "blurb": "Shows a screenshot in the run's transcript while it works, filed under its Guide.",
@@ -1456,7 +1445,6 @@
       { "name": "sessions_list", "refs": "list:session@" },
       { "name": "sessions_message", "refs": "session@" },
       { "name": "sessions_messages", "refs": "session@" },
-      { "name": "sessions_results", "refs": "" },
       { "name": "sessions_show", "refs": "" },
       { "name": "sessions_start", "refs": "session@session issue@session issue@$issueId issue@$issueIds[]" },
       { "name": "statuses_create", "refs": "status@" },

@@ -232,11 +232,10 @@ mod tests {
         assert_eq!(exp_tool_preview_spec("Bash"), None);
     }
 
-    /// EXP-933: `sessions_results` answers with the RESULTS kind (it used to
-    /// be `session`), and every named kind is one the contract lists.
+    /// EXP-933: every named result kind is one the contract lists.
     #[test]
-    fn sessions_results_answers_the_results_kind() {
-        let display = exp_tool_display("mcp__exponential__exponential_sessions_results", true)
+    fn every_named_result_kind_is_a_contract_kind() {
+        let display = exp_tool_display("mcp__exponential__exponential_sessions_guide", true)
             .expect("ours");
         assert_eq!(display.result, result::RESULTS);
         for kind in [
@@ -257,8 +256,8 @@ mod tests {
         }
     }
 
-    /// The Guide tool (`sessions_guide`) answers the RESULTS kind too, with
-    /// its own captions; `sessions_results` stays its alias (above).
+    /// The Guide tool (`sessions_guide`) answers the RESULTS kind (it used to
+    /// be `session`), with its own captions.
     #[test]
     fn sessions_guide_answers_the_results_kind() {
         let running = exp_tool_display("mcp__exponential__exponential_sessions_guide", false)

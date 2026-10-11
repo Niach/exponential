@@ -8,7 +8,7 @@ import {
   actionTriggersSchema,
 } from "@exp/db-schema/domain"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
-import { actions, automations, repositories } from "@/db/schema"
+import { actions, repositories } from "@/db/schema"
 import { assertTeamMember, assertTeamOwner } from "@/lib/team-membership"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 import {
@@ -16,7 +16,6 @@ import {
   resolveTriggersWrite,
   storedTriggers,
 } from "@/lib/action-trigger-rules"
-import { syncAutomationMirror } from "@/lib/action-triggers-mirror"
 import { assertMcpServersInTeam } from "@/lib/mcp-servers-guard"
 import {
   BUILTIN_CREATE_ACTION_ID,
@@ -395,13 +394,6 @@ export const actionsRouter = router({
               message: `Action not found`,
             })
           }
-          if (triggers !== undefined) {
-            await syncAutomationMirror(tx, {
-              id: existing.id,
-              teamId: existing.teamId,
-              triggers,
-            })
-          }
           return { action, txId }
         })
       } catch (err) {
@@ -416,8 +408,7 @@ export const actionsRouter = router({
 
   // Live coding_sessions rows survive a delete batch-shaped: action_id nulls
   // (FK SET NULL) while the action_name snapshot keeps labeling the run.
-  // Its triggers go with the row; so do their legacy mirror rows, in the
-  // same transaction (`automations.action_id` carries no FK).
+  // Its triggers go with the row.
   delete: authedProcedure
     .input(z.object({ id: actionIdSchema }))
     .mutation(async ({ ctx, input }) => {
@@ -426,7 +417,6 @@ export const actionsRouter = router({
       await assertTeamOwner(ctx.session.user.id, existing.teamId)
       return await ctx.db.transaction(async (tx) => {
         const txId = await generateTxId(tx)
-        await tx.delete(automations).where(eq(automations.actionId, input.id))
         await tx.delete(actions).where(eq(actions.id, input.id))
         return { ok: true as const, id: input.id, txId }
       })

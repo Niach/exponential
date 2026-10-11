@@ -809,8 +809,8 @@ export const actionInputsSchema = z
 // become one later without a migration. Writes are STRICT (these schemas);
 // readers everywhere stay tolerant and treat an unparseable/unknown trigger as
 // "never fires". The event vocabulary is APPEND-ONLY.
-// `Automation*` = the WHEN-part alone: the shape the legacy `automations`
-// mirror rows keep in their `trigger` column until that table is dropped.
+// `Automation*` = the WHEN-part alone (schedule or event, no runner fields),
+// what the trigger editors and filter checks work on.
 
 export const actionTriggerEventValues = [
   `created`,
@@ -1001,28 +1001,7 @@ export const actionTriggersSchema = z
     }
   })
 
-/**
- * SLOP-2 compat shim: the WHEN-part alone, as clients from before the merge
- * still write it through the `automations.*` adapter router
- * (apps/web/src/lib/trpc/automations.ts). Strip mode on purpose (an unknown
- * key from an old build is dropped, never refused). Delete with that router,
- * once CLIENT_MIN_VERSION_IOS > 0.14.49 and _ANDROID > 0.14.50 and
- * _DESKTOP/_CLI > 0.14.58.
- */
-export const legacyAutomationTriggerSchema = z.discriminatedUnion(`kind`, [
-  z.object(scheduleTriggerShape).superRefine(refineSchedule),
-  z
-    .object({
-      ...eventTriggerShape,
-      filters: z.object(eventFilterShape).optional(),
-    })
-    .superRefine(refineEvent),
-])
-export type LegacyAutomationTriggerInput = z.infer<
-  typeof legacyAutomationTriggerSchema
->
-
-/** The when-part of a stored trigger: what the legacy mirror row keeps. */
+/** The when-part of a stored trigger (schedule or event, no runner fields). */
 export function triggerWhenPart(trigger: ActionTrigger): AutomationTrigger {
   if (trigger.kind === `schedule`) {
     return {

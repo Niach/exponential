@@ -45,7 +45,6 @@ import com.exponential.app.domain.IssueGraph
 import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.LaunchDeviceRules
 import com.exponential.app.domain.steerAttachmentRefusal
-import com.exponential.app.domain.steerFilePickRefusal
 import com.exponential.app.domain.uploadedImageIds
 import com.exponential.app.domain.uploadedSteerFiles
 import com.exponential.app.domain.PendingAttachment
@@ -668,12 +667,6 @@ class AgentComposerViewModel @Inject constructor(
         _imageError.value = null
         val canonical = canonicalContentType(contentType)
         val isImage = isInlineImage(canonical)
-        // F6: a non-image file needs the chosen device to localize it
-        // (`steer-files` cap); an older host gets images only.
-        steerFilePickRefusal(isImage, device.value?.caps)?.let { message ->
-            _imageError.value = message
-            return
-        }
         val current = _images.value
         val refusal = steerAttachmentRefusal(
             imageCount = current.count { it.isImage },

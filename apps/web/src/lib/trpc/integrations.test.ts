@@ -178,8 +178,6 @@ describe(`integrations.github.status`, () => {
         accountType: `Organization`,
         manageUrl: `https://github.com/settings/installations/1`,
         suspended: false,
-        needsReauth: false,
-        stale: false,
         hasMore: false,
       },
     ])

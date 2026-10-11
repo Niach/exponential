@@ -81,20 +81,6 @@ export function isSameOriginPath(
   }
 }
 
-/** Pure: a signed-out native arrival (`?return=app`) that has not been
- * through GitHub's install redirect (no `installation_id`). Compat shim for
- * natives that open the connect URL in a session-less browser
- * (routes/integrations/github.tsx); retired with it. */
-export function isSignedOutConnectStart(
-  returnTo: string | undefined,
-  locationSearch: string
-): boolean {
-  return (
-    returnTo === `app` &&
-    !new URLSearchParams(locationSearch).has(`installation_id`)
-  )
-}
-
 // The message callers show when openGithubPopup returns false with a URL at
 // hand — one string so every surface says the same thing.
 export const POPUP_BLOCKED_MESSAGE = `Your browser blocked the GitHub window. Allow popups for this site and try again.`

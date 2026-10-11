@@ -3490,18 +3490,6 @@ describe(`exponential_sessions_guide`, () => {
     )!({ topic: `t`, label: `l7` })
     expect(replaced.isError).toBeFalsy()
   })
-  // EXP-1251: the old name stays registered (deferred) on the same handler.
-  it(`keeps exponential_sessions_results as an alias of the same handler`, async () => {
-    const tools = collectTools(USER, SESSION, OWN_RUN)
-    expect(tools.has(`exponential_sessions_results`)).toBe(true)
-    dbRows.current = [runRow({ results: [] })]
-    const result = await tools.get(`exponential_sessions_results`)!({
-      topic: `Summary`,
-      text: `Did it`,
-    })
-    expect(parseOk(result)).toMatchObject({ topic: `Summary`, text: 6 })
-  })
-
   it(`stamps every text write and scopes a topic to its PR`, async () => {
     dbRows.current = [runRow({ results: [] })]
     const before = Date.now()

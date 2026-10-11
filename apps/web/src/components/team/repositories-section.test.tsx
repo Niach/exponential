@@ -35,7 +35,6 @@ vi.mock(`@/lib/trpc-client`, () => ({
       github: {
         status: { query: mockState.statusQuery },
         repos: { query: mockState.reposQuery },
-        unlink: { mutate: mockState.unlinkMutate },
         disconnect: { mutate: mockState.unlinkMutate },
       },
     },
@@ -58,8 +57,6 @@ const installation = (overrides: Record<string, unknown> = {}) => ({
   accountType: `Organization`,
   manageUrl: `https://github.com/settings/installations/1`,
   suspended: false,
-  needsReauth: false,
-  stale: false,
   ...overrides,
 })
 

@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { createFileRoute } from "@tanstack/react-router"
 import { and, eq, inArray, isNull, or } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { githubInstallations, issues, repositories } from "@/db/schema"
+import { issues, repositories } from "@/db/schema"
 import {
   applyPrClosedState,
   applyPrMergeState,
@@ -89,66 +89,29 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
 
     const event = request.headers.get(`x-github-event`)
 
-    // App lifecycle: mirror installs into github_installations. SLOP-7: the
-    // mirror is bookkeeping only (the admin console, the suspension mark on
-    // repo rows) — discovery lists installations LIVE off the user's token.
+    // App lifecycle. Installations are never stored (SLOP-24): discovery lists
+    // them LIVE off the member's GitHub token, suspension included. Only the
+    // bound repo rows react.
     if (event === `installation`) {
       const payload = JSON.parse(rawBody) as {
         action?: string
-        installation?: { id?: number; account?: { login?: string; type?: string } }
+        installation?: { id?: number }
       }
       const installation = payload.installation
       if (!installation?.id) {
         return jsonResponse(200, { ok: true })
       }
-      if (payload.action === `created` || payload.action === `unsuspend`) {
-        // `unsuspend` HEALS: the row survived the suspension (see the
-        // `suspend` branch), so clearing `suspended_at` restores token
-        // minting with no manual step. Repo `inaccessible_at` flags stay put —
-        // only a VERIFIED access proof clears those (the token mint,
-        // repositories.list's default-branch heal).
-        await db
-          .insert(githubInstallations)
-          .values({
-            installationId: installation.id,
-            accountLogin: installation.account?.login ?? null,
-            accountType: installation.account?.type ?? null,
-            suspendedAt: null,
-          })
-          .onConflictDoUpdate({
-            target: githubInstallations.installationId,
-            set: {
-              accountLogin: installation.account?.login ?? null,
-              accountType: installation.account?.type ?? null,
-              suspendedAt: null,
-              updatedAt: new Date(),
-            },
-          })
-      } else if (payload.action === `suspend`) {
-        // REVERSIBLE (REV2-29): GitHub keeps the installation and only refuses
-        // to mint tokens for it, so this must NOT delete the row. Mark it
-        // suspended and flag every bound repo as inaccessible so the settings
-        // UI stops showing them healthy while every token mint fails.
-        await db
-          .update(githubInstallations)
-          .set({ suspendedAt: new Date(), updatedAt: new Date() })
-          .where(eq(githubInstallations.installationId, installation.id))
+      if (payload.action === `suspend` || payload.action === `deleted`) {
+        // `suspend` is REVERSIBLE (REV2-29) and `deleted` TERMINAL, but both
+        // stop token minting: flag every bound repo as inaccessible (the
+        // settings badge + the launcher's 412) so the UI stops showing them
+        // healthy. `unsuspend` clears nothing — only a VERIFIED access proof
+        // clears those flags (the token mint, repositories.list's
+        // default-branch heal).
         await db
           .update(repositories)
           .set({ inaccessibleAt: new Date() })
           .where(eq(repositories.installationId, installation.id))
-      } else if (payload.action === `deleted`) {
-        // TERMINAL: the App was uninstalled. Flag every repo bound to it as
-        // inaccessible (the settings badge + the launcher's 412), then drop the
-        // row — a re-install gets a brand-new installation id anyway, so
-        // nothing could have been restored.
-        await db
-          .update(repositories)
-          .set({ inaccessibleAt: new Date() })
-          .where(eq(repositories.installationId, installation.id))
-        await db
-          .delete(githubInstallations)
-          .where(eq(githubInstallations.installationId, installation.id))
       }
       return jsonResponse(200, { ok: true })
     }
@@ -171,17 +134,6 @@ async function handleGithubWebhook(request: Request): Promise<Response> {
       if (!installation?.id) {
         return jsonResponse(200, { ok: true })
       }
-      // Keep the mirror row fresh (this event can arrive before any
-      // install/setup round-trip on instances that added the webhook late).
-      await db
-        .insert(githubInstallations)
-        .values({
-          installationId: installation.id,
-          accountLogin: installation.account?.login ?? null,
-          accountType: installation.account?.type ?? null,
-        })
-        .onConflictDoNothing()
-
       const added = (payload.repositories_added ?? [])
         .map((r) => r.full_name)
         .filter((name): name is string => Boolean(name))

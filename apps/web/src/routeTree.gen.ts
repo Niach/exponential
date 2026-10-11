@@ -51,9 +51,6 @@ import { Route as ApiTrpcSplatRouteImport } from './routes/api/trpc/$'
 import { Route as ApiSupportThreadRouteImport } from './routes/api/support/thread'
 import { Route as ApiSupportReplyRouteImport } from './routes/api/support/reply'
 import { Route as ApiSupportAttachmentRouteImport } from './routes/api/support/attachment'
-import { Route as ApiShapesWorkflowsRouteImport } from './routes/api/shapes/workflows'
-import { Route as ApiShapesWorkflowNodesRouteImport } from './routes/api/shapes/workflow-nodes'
-import { Route as ApiShapesWorkflowEventsRouteImport } from './routes/api/shapes/workflow-events'
 import { Route as ApiShapesUsersRouteImport } from './routes/api/shapes/users'
 import { Route as ApiShapesTeamsRouteImport } from './routes/api/shapes/teams'
 import { Route as ApiShapesTeamMembersRouteImport } from './routes/api/shapes/team-members'
@@ -73,7 +70,6 @@ import { Route as ApiShapesDeviceWorktreesRouteImport } from './routes/api/shape
 import { Route as ApiShapesCommentsRouteImport } from './routes/api/shapes/comments'
 import { Route as ApiShapesCodingSessionsRouteImport } from './routes/api/shapes/coding-sessions'
 import { Route as ApiShapesBoardsRouteImport } from './routes/api/shapes/boards'
-import { Route as ApiShapesAutomationsRouteImport } from './routes/api/shapes/automations'
 import { Route as ApiShapesAttachmentsRouteImport } from './routes/api/shapes/attachments'
 import { Route as ApiShapesActionsRouteImport } from './routes/api/shapes/actions'
 import { Route as ApiSessionResultsTokenRouteImport } from './routes/api/session-results/$token'
@@ -342,21 +338,6 @@ const ApiSupportAttachmentRoute = ApiSupportAttachmentRouteImport.update({
   path: '/api/support/attachment',
   getParentRoute: () => rootRouteImport,
 } as any)
-const ApiShapesWorkflowsRoute = ApiShapesWorkflowsRouteImport.update({
-  id: '/api/shapes/workflows',
-  path: '/api/shapes/workflows',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesWorkflowNodesRoute = ApiShapesWorkflowNodesRouteImport.update({
-  id: '/api/shapes/workflow-nodes',
-  path: '/api/shapes/workflow-nodes',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesWorkflowEventsRoute = ApiShapesWorkflowEventsRouteImport.update({
-  id: '/api/shapes/workflow-events',
-  path: '/api/shapes/workflow-events',
-  getParentRoute: () => rootRouteImport,
-} as any)
 const ApiShapesUsersRoute = ApiShapesUsersRouteImport.update({
   id: '/api/shapes/users',
   path: '/api/shapes/users',
@@ -452,11 +433,6 @@ const ApiShapesCodingSessionsRoute = ApiShapesCodingSessionsRouteImport.update({
 const ApiShapesBoardsRoute = ApiShapesBoardsRouteImport.update({
   id: '/api/shapes/boards',
   path: '/api/shapes/boards',
-  getParentRoute: () => rootRouteImport,
-} as any)
-const ApiShapesAutomationsRoute = ApiShapesAutomationsRouteImport.update({
-  id: '/api/shapes/automations',
-  path: '/api/shapes/automations',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiShapesAttachmentsRoute = ApiShapesAttachmentsRouteImport.update({
@@ -796,7 +772,6 @@ export interface FileRoutesByFullPath {
   '/api/session-results/$token': typeof ApiSessionResultsTokenRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
-  '/api/shapes/automations': typeof ApiShapesAutomationsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
@@ -816,9 +791,6 @@ export interface FileRoutesByFullPath {
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
-  '/api/shapes/workflow-events': typeof ApiShapesWorkflowEventsRoute
-  '/api/shapes/workflow-nodes': typeof ApiShapesWorkflowNodesRoute
-  '/api/shapes/workflows': typeof ApiShapesWorkflowsRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
@@ -911,7 +883,6 @@ export interface FileRoutesByTo {
   '/api/session-results/$token': typeof ApiSessionResultsTokenRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
-  '/api/shapes/automations': typeof ApiShapesAutomationsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
@@ -931,9 +902,6 @@ export interface FileRoutesByTo {
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
-  '/api/shapes/workflow-events': typeof ApiShapesWorkflowEventsRoute
-  '/api/shapes/workflow-nodes': typeof ApiShapesWorkflowNodesRoute
-  '/api/shapes/workflows': typeof ApiShapesWorkflowsRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
@@ -1031,7 +999,6 @@ export interface FileRoutesById {
   '/api/session-results/$token': typeof ApiSessionResultsTokenRoute
   '/api/shapes/actions': typeof ApiShapesActionsRoute
   '/api/shapes/attachments': typeof ApiShapesAttachmentsRoute
-  '/api/shapes/automations': typeof ApiShapesAutomationsRoute
   '/api/shapes/boards': typeof ApiShapesBoardsRoute
   '/api/shapes/coding-sessions': typeof ApiShapesCodingSessionsRoute
   '/api/shapes/comments': typeof ApiShapesCommentsRoute
@@ -1051,9 +1018,6 @@ export interface FileRoutesById {
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
-  '/api/shapes/workflow-events': typeof ApiShapesWorkflowEventsRoute
-  '/api/shapes/workflow-nodes': typeof ApiShapesWorkflowNodesRoute
-  '/api/shapes/workflows': typeof ApiShapesWorkflowsRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
   '/api/support/thread': typeof ApiSupportThreadRoute
@@ -1151,7 +1115,6 @@ export interface FileRouteTypes {
     | '/api/session-results/$token'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
-    | '/api/shapes/automations'
     | '/api/shapes/boards'
     | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
@@ -1171,9 +1134,6 @@ export interface FileRouteTypes {
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
     | '/api/shapes/users'
-    | '/api/shapes/workflow-events'
-    | '/api/shapes/workflow-nodes'
-    | '/api/shapes/workflows'
     | '/api/support/attachment'
     | '/api/support/reply'
     | '/api/support/thread'
@@ -1266,7 +1226,6 @@ export interface FileRouteTypes {
     | '/api/session-results/$token'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
-    | '/api/shapes/automations'
     | '/api/shapes/boards'
     | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
@@ -1286,9 +1245,6 @@ export interface FileRouteTypes {
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
     | '/api/shapes/users'
-    | '/api/shapes/workflow-events'
-    | '/api/shapes/workflow-nodes'
-    | '/api/shapes/workflows'
     | '/api/support/attachment'
     | '/api/support/reply'
     | '/api/support/thread'
@@ -1385,7 +1341,6 @@ export interface FileRouteTypes {
     | '/api/session-results/$token'
     | '/api/shapes/actions'
     | '/api/shapes/attachments'
-    | '/api/shapes/automations'
     | '/api/shapes/boards'
     | '/api/shapes/coding-sessions'
     | '/api/shapes/comments'
@@ -1405,9 +1360,6 @@ export interface FileRouteTypes {
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
     | '/api/shapes/users'
-    | '/api/shapes/workflow-events'
-    | '/api/shapes/workflow-nodes'
-    | '/api/shapes/workflows'
     | '/api/support/attachment'
     | '/api/support/reply'
     | '/api/support/thread'
@@ -1494,7 +1446,6 @@ export interface RootRouteChildren {
   ApiSessionResultsTokenRoute: typeof ApiSessionResultsTokenRoute
   ApiShapesActionsRoute: typeof ApiShapesActionsRoute
   ApiShapesAttachmentsRoute: typeof ApiShapesAttachmentsRoute
-  ApiShapesAutomationsRoute: typeof ApiShapesAutomationsRoute
   ApiShapesBoardsRoute: typeof ApiShapesBoardsRoute
   ApiShapesCodingSessionsRoute: typeof ApiShapesCodingSessionsRoute
   ApiShapesCommentsRoute: typeof ApiShapesCommentsRoute
@@ -1514,9 +1465,6 @@ export interface RootRouteChildren {
   ApiShapesTeamMembersRoute: typeof ApiShapesTeamMembersRoute
   ApiShapesTeamsRoute: typeof ApiShapesTeamsRoute
   ApiShapesUsersRoute: typeof ApiShapesUsersRoute
-  ApiShapesWorkflowEventsRoute: typeof ApiShapesWorkflowEventsRoute
-  ApiShapesWorkflowNodesRoute: typeof ApiShapesWorkflowNodesRoute
-  ApiShapesWorkflowsRoute: typeof ApiShapesWorkflowsRoute
   ApiSupportAttachmentRoute: typeof ApiSupportAttachmentRoute
   ApiSupportReplyRoute: typeof ApiSupportReplyRoute
   ApiSupportThreadRoute: typeof ApiSupportThreadRoute
@@ -1828,27 +1776,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSupportAttachmentRouteImport
       parentRoute: typeof rootRouteImport
     }
-    '/api/shapes/workflows': {
-      id: '/api/shapes/workflows'
-      path: '/api/shapes/workflows'
-      fullPath: '/api/shapes/workflows'
-      preLoaderRoute: typeof ApiShapesWorkflowsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/workflow-nodes': {
-      id: '/api/shapes/workflow-nodes'
-      path: '/api/shapes/workflow-nodes'
-      fullPath: '/api/shapes/workflow-nodes'
-      preLoaderRoute: typeof ApiShapesWorkflowNodesRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/workflow-events': {
-      id: '/api/shapes/workflow-events'
-      path: '/api/shapes/workflow-events'
-      fullPath: '/api/shapes/workflow-events'
-      preLoaderRoute: typeof ApiShapesWorkflowEventsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
     '/api/shapes/users': {
       id: '/api/shapes/users'
       path: '/api/shapes/users'
@@ -1980,13 +1907,6 @@ declare module '@tanstack/react-router' {
       path: '/api/shapes/boards'
       fullPath: '/api/shapes/boards'
       preLoaderRoute: typeof ApiShapesBoardsRouteImport
-      parentRoute: typeof rootRouteImport
-    }
-    '/api/shapes/automations': {
-      id: '/api/shapes/automations'
-      path: '/api/shapes/automations'
-      fullPath: '/api/shapes/automations'
-      preLoaderRoute: typeof ApiShapesAutomationsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/shapes/attachments': {
@@ -2536,7 +2456,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiSessionResultsTokenRoute: ApiSessionResultsTokenRoute,
   ApiShapesActionsRoute: ApiShapesActionsRoute,
   ApiShapesAttachmentsRoute: ApiShapesAttachmentsRoute,
-  ApiShapesAutomationsRoute: ApiShapesAutomationsRoute,
   ApiShapesBoardsRoute: ApiShapesBoardsRoute,
   ApiShapesCodingSessionsRoute: ApiShapesCodingSessionsRoute,
   ApiShapesCommentsRoute: ApiShapesCommentsRoute,
@@ -2556,9 +2475,6 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesTeamMembersRoute: ApiShapesTeamMembersRoute,
   ApiShapesTeamsRoute: ApiShapesTeamsRoute,
   ApiShapesUsersRoute: ApiShapesUsersRoute,
-  ApiShapesWorkflowEventsRoute: ApiShapesWorkflowEventsRoute,
-  ApiShapesWorkflowNodesRoute: ApiShapesWorkflowNodesRoute,
-  ApiShapesWorkflowsRoute: ApiShapesWorkflowsRoute,
   ApiSupportAttachmentRoute: ApiSupportAttachmentRoute,
   ApiSupportReplyRoute: ApiSupportReplyRoute,
   ApiSupportThreadRoute: ApiSupportThreadRoute,

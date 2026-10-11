@@ -9,7 +9,9 @@ import {
   type AutomationTrigger,
 } from "@exp/db-schema/domain"
 import { contract } from "@exp/domain-contract"
+import type { db as Database } from "@/db/connection"
 import {
+  actions,
   boards,
   devices,
   issueStatuses,
@@ -131,7 +133,7 @@ function storedPins(trigger: ActionTrigger): LaunchPins {
  * more triggers than the cap AND more than the action already stores. The
  * SLOP-2 migration folded every automation of an action into its array with
  * no bound, and such an action must still accept a pause, an edit or a
- * removal. Shared by `actions.update` and the legacy `automations.*` adapter.
+ * removal.
  */
 export function assertTriggerGrowth(nextCount: number, storedCount: number): void {
   if (nextCount > MAX_ACTION_TRIGGERS && nextCount > storedCount) {
@@ -241,8 +243,8 @@ export function storedTriggers(value: unknown): ActionTrigger[] {
 
 /**
  * Turns a written triggers array into the stored one. A trigger keeps its id
- * only when the action already holds it (ids are also the legacy mirror's
- * primary keys, so a foreign or made-up id is re-minted); unset pins are
+ * only when the action already holds it (ids key the run history's
+ * `automation_id`, so a foreign or made-up id is re-minted); unset pins are
  * omitted. A binding that did not change is accepted as-is: co-owners can
  * toggle a trigger bound to a teammate's private device they could never
  * re-bind, and a filter whose label was since deleted does not block a pause.
@@ -317,4 +319,35 @@ export async function resolveTriggersWrite(args: {
     resolved.push(next)
   }
   return resolved
+}
+
+type Tx = Parameters<Parameters<typeof Database.transaction>[0]>[0]
+
+/**
+ * Pauses every enabled trigger bound to `deviceId` on the given teams'
+ * actions (a withdrawn device share). Actions with nothing to pause stay
+ * untouched (no needless Electric op).
+ */
+export async function pauseDeviceTriggers(
+  tx: Tx,
+  teamIds: string[],
+  deviceId: string
+): Promise<void> {
+  const rows = await tx
+    .select({ id: actions.id, triggers: actions.triggers })
+    .from(actions)
+    .where(inArray(actions.teamId, teamIds))
+  for (const row of rows) {
+    const triggers = storedTriggers(row.triggers)
+    const bound = (trigger: ActionTrigger) =>
+      trigger.enabled && trigger.deviceId === deviceId
+    if (!triggers.some(bound)) continue
+    const next = triggers.map((trigger) =>
+      bound(trigger) ? { ...trigger, enabled: false } : trigger
+    )
+    await tx
+      .update(actions)
+      .set({ triggers: next, updatedAt: new Date() })
+      .where(eq(actions.id, row.id))
+  }
 }

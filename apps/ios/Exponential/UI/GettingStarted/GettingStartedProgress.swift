@@ -7,9 +7,9 @@ import GRDB
 /// Every signal but one is a synced table this client already holds, so the
 /// checklist ticks itself off the moment the desktop registers, a board gains a
 /// repository or the first coding session starts — no polling, no refresh
-/// button. The exception is the GitHub App install, which is server-only
-/// (`repositories`/`github_installation_links` are never synced): that is one
-/// tRPC read on mount.
+/// button. The exception is the GitHub connection, which is server-only
+/// (`repositories` is never synced and installations list live off the
+/// member's GitHub account): that is one tRPC read on mount.
 ///
 /// The derivation is a 1:1 port of web's `deriveEntryStates`
 /// (`getting-started-model.ts`) minus the three web-only entries — same order,
@@ -149,8 +149,8 @@ final class GettingStartedProgress {
         readGithubStatus(accountId: accountId, teamId: teamId, api: deps.integrationsApi)
     }
 
-    /// The GitHub install state is server-only — `repositories` and
-    /// `github_installation_links` are never synced — so it can only ever
+    /// The GitHub install state is server-only — `repositories` is never
+    /// synced and installations list live off GitHub — so it can only ever
     /// arrive through a tRPC read. A transient failure at bind time would
     /// otherwise leave the step "available" for the whole session, so the host
     /// re-runs this when the app comes back to the foreground (and after a

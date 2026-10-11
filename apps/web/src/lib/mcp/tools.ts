@@ -3938,11 +3938,10 @@ export function registerExponentialTools(
   // automation's. Bytes never come through MCP: the tool mints a signed,
   // ten-minute upload URL bound to (session, topic, label, user) and hands the
   // agent a curl line, so a 3 MB PNG never lands in the context window.
-  // EXP-1251: the tool is the GUIDE (`exponential_sessions_guide`); the old
-  // name stays registered as a deferred alias for shipped CLIs and daemons,
-  // routed to the same handler. Every write is stamped `at` (EXP-1245), a
-  // text may scope its topic to one PR (`prUrl`), and listed files the
-  // branch/PR diff lacks come back in the answer (`missingFromDiff`).
+  // EXP-1251: the tool is the GUIDE (`exponential_sessions_guide`). Every
+  // write is stamped `at` (EXP-1245), a text may scope its topic to one PR
+  // (`prUrl`), and listed files the branch/PR diff lacks come back in the
+  // answer (`missingFromDiff`).
   if (gates.sessionResults) {
     const guideInput = strictInput({
       topic: z.string().trim().min(1).max(SESSION_RESULT_TEXT_MAX),
@@ -4262,14 +4261,6 @@ export function registerExponentialTools(
       {
         description: GUIDE_TOOL_DESCRIPTION,
         _meta: ALWAYS_LOAD_META,
-        inputSchema: guideInput,
-      },
-      guideHandler
-    )
-    server.registerTool(
-      `exponential_sessions_results`,
-      {
-        description: `Old name of exponential_sessions_guide; same input and answer.`,
         inputSchema: guideInput,
       },
       guideHandler

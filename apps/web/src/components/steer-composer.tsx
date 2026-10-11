@@ -52,11 +52,6 @@ import {
 } from "@/lib/pending-images"
 import { cn } from "@/lib/utils"
 import {
-  FILES_NEED_NEWER_DEVICE,
-  filePickAccept,
-  gateFilesForDevice,
-} from "@/lib/steer-files-gate"
-import {
   MentionTextarea,
   type MentionTextareaHandle,
 } from "@/components/mention-textarea"
@@ -101,10 +96,6 @@ export interface SteerComposerProps {
   /** EXP-877: the footer's trailing slot — the caller mounts the context ring
    *  inside its own usage popover here (`ContextRing` in @exp/ui). */
   usageSlot?: ReactNode
-  /** F6: the run's device takes non-image files (`steer-files` cap). False
-   *  = the pick is images only; a file is dropped with the server's
-   *  sentence (`FILES_NEED_NEWER_DEVICE`). Default true (unknown device). */
-  acceptsFiles?: boolean
   /** EXP-893: the phone expands this composer out of a capsule — focus the
    *  field on mount. */
   autoFocus?: boolean
@@ -133,7 +124,6 @@ export function SteerComposer({
   config,
   users,
   usageSlot,
-  acceptsFiles = true,
   autoFocus = false,
   onEmptyBlur,
 }: SteerComposerProps) {
@@ -203,10 +193,7 @@ export function SteerComposer({
     return () => window.removeEventListener(`focus`, release)
   }, [])
 
-  const addFiles = (picked: File[]) => {
-    // F6: an older device (no `steer-files` cap) takes images only.
-    const { files, droppedFiles } = gateFilesForDevice(picked, acceptsFiles)
-    if (droppedFiles > 0) toast.error(FILES_NEED_NEWER_DEVICE)
+  const addFiles = (files: File[]) => {
     if (files.length === 0) return
     // EXP-698: an attached image also drops its POSITIONAL reference at the
     // caret, so "crop [Image #2]" names one of several embeds. The image
@@ -457,7 +444,6 @@ export function SteerComposer({
           ref={fileInputRef}
           type="file"
           multiple
-          accept={filePickAccept(acceptsFiles)}
           className="hidden"
           onChange={(e) => {
             filePickerOpenRef.current = false

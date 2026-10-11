@@ -61,7 +61,6 @@ import {
 } from "@/db/schema"
 import type { ActionTrigger } from "@exp/db-schema/domain"
 import { auth } from "@/lib/auth"
-import { syncAutomationMirror } from "@/lib/action-triggers-mirror"
 import {
   buildAttachmentStorageKey,
   buildAttachmentUrl,
@@ -1253,8 +1252,8 @@ async function main() {
   // runner binding, which is the MACHINE's steer deviceId, not a row uuid.
   // minuteOfDay is device-local wall clock by design (no tz field). One
   // paused trigger so the toggle has an off state to render. Written the way
-  // the router writes them: the array on the action, mirrored into the legacy
-  // `automations` rows the run history's `automation_id` references.
+  // the router writes them: the array on the action; the run history's
+  // `automation_id` names a trigger id.
   const seededTriggers: { action: string; triggers: ActionTrigger[] }[] = [
     {
       action: `Nightly test triage`,
@@ -1303,7 +1302,6 @@ async function main() {
     for (const { action: name, triggers } of seededTriggers) {
       const row = action[name]
       await tx.update(actions).set({ triggers }).where(eq(actions.id, row.id))
-      await syncAutomationMirror(tx, { id: row.id, teamId: ws.id, triggers })
     }
   })
 

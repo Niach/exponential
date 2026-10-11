@@ -38,7 +38,7 @@ object ExpToolDisplay {
     const val RESULT_BOARD = "board"
     const val RESULT_ACTION = "action"
     const val RESULT_LIST = "list"
-    /** EXP-933: `sessions_results` — the card offers `Open Results`. */
+    /** EXP-933: `sessions_guide` — the card offers `Open Results`. */
     const val RESULT_RESULTS = "results"
     /** EXP-1172: `sessions_show` — the settled row draws the picture whose
      *  attachment id is the answer's `preview.id`. */

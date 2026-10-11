@@ -10,8 +10,8 @@
 // and never resolves here; a human's own action carries their real account.
 //
 // SLOP-7: the mapping IS the Better Auth `accounts` row the `github` provider
-// writes (`provider_id = 'github'`, `account_id` = GitHub's numeric id). The
-// old `github_user_identities` table is retired. Matching is on GitHub's
+// writes (`provider_id = 'github'`, `account_id` = GitHub's numeric id), the
+// only GitHub identity the server stores. Matching is on GitHub's
 // NUMERIC account id ONLY: logins are renameable AND re-registerable, so a
 // login-keyed lookup could hand the notification-suppression decision to
 // whoever squatted a freed name.

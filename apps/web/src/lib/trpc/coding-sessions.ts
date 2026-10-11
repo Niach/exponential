@@ -22,7 +22,6 @@ import {
 } from "@/lib/steer-child-messages"
 import {
   actions,
-  automations,
   codingSessions,
   devices,
   issues,
@@ -44,6 +43,7 @@ import {
   builtinActionName,
   isBuiltinActionId,
 } from "@/lib/builtin-actions"
+import { storedTriggers } from "@/lib/action-trigger-rules"
 
 // Built-in action runs (EXP-257/EXP-259) have no DB row to FK — their session
 // rows are batch-shaped (actionId NULL) with the server-constant name
@@ -425,30 +425,27 @@ async function adoptPredecessor(
 // Exactly one of the three.
 // No generateTxId — native callers don't need the Electric tx-wait, and the
 // row's own synced propagation carries the badge.
-// EXP-583: the automation a device claims fired this run must exist and
-// target this very action IN this team (FEED-50: a builtin id like tidy-up's
-// repeats across teams) — a stale/foreign id degrades to NULL (history only;
-// never a reason to refuse the start).
+// EXP-583/SLOP-2: the trigger a device claims fired this run must be one of
+// this very action's stored `triggers` IN this team — a stale/foreign id (or a
+// builtin, which carries no triggers) degrades to NULL (history only; never a
+// reason to refuse the start).
 async function resolveAutomationId(
   db: Context[`db`],
   automationId: string,
   actionId: string,
   teamId: string
 ): Promise<string | null> {
+  if (isBuiltinActionId(actionId)) return null
   const [row] = await db
-    .select({ id: automations.id })
-    .from(automations)
-    .where(
-      and(
-        eq(automations.id, automationId),
-        eq(automations.actionId, actionId),
-        eq(automations.teamId, teamId)
-      )
-    )
+    .select({ triggers: actions.triggers })
+    .from(actions)
+    .where(and(eq(actions.id, actionId), eq(actions.teamId, teamId)))
     .limit(1)
-  return row?.id ?? null
+  if (!row) return null
+  return storedTriggers(row.triggers).some((trigger) => trigger.id === automationId)
+    ? automationId
+    : null
 }
-
 
 /**
  * EXP-876: the issues a batch start covers, as the row will carry them —
@@ -524,44 +521,6 @@ async function bindStartAttachments(
         isNull(sessionAttachments.sessionId)
       )
     )
-}
-
-/**
- * The device that starts a run with non-image attachments must advertise
- * the `steer-files` cap (it localizes `[name](/api/attachments/<id>)` lines
- * for the agent); one without it gets the contract's refusal. Images-only
- * starts never look the device up; a start that outran `devices.register`
- * (no row yet) passes, like `resolveSessionDevice`. Compat shim: delete once
- * CLIENT_MIN_VERSION_DESKTOP/CLI >= 0.14.66.
- */
-async function assertSteerFilesCap(
-  db: Context[`db`],
-  callerId: string,
-  input: { deviceId?: string; attachmentIds?: string[] }
-): Promise<void> {
-  if (!input.deviceId || !input.attachmentIds?.length) return
-  const rows = await db
-    .select({ contentType: sessionAttachments.contentType })
-    .from(sessionAttachments)
-    .where(inArray(sessionAttachments.id, input.attachmentIds))
-  const nonImage = rows.some(
-    (row: { contentType: string }) =>
-      !row.contentType.toLowerCase().startsWith(`image/`)
-  )
-  if (!nonImage) return
-  const [device] = await db
-    .select({ caps: devices.caps })
-    .from(devices)
-    .where(
-      and(eq(devices.userId, callerId), eq(devices.deviceId, input.deviceId))
-    )
-    .limit(1)
-  if (!device) return
-  if ((device.caps ?? []).includes(contract.codingSession.steerFilesCap)) return
-  throw new TRPCError({
-    code: `PRECONDITION_FAILED`,
-    message: contract.composerUi.filesNeedNewerDevice,
-  })
 }
 
 /** FEED-57/46/47: a LIVE run covering an issue — the issue's own run, or a
@@ -969,8 +928,6 @@ export const codingSessionsRouter = router({
         )
     )
     .mutation(async ({ ctx, input }) => {
-      // Before any subject branch: the refusal is the same on every path.
-      await assertSteerFilesCap(ctx.db, ctx.session.user.id, input)
       // A vanished predecessor (swept while the user was away) must never
       // turn Resume into a 500 — see resolveResumedFrom.
       const predecessor = await resolveResumedFrom(
@@ -1007,18 +964,10 @@ export const codingSessionsRouter = router({
           actionId: null,
           actionName: builtinActionName(input.actionId),
           // EXP-679: only `agent` reaches a builtin (the refine keeps
-          // schedule/event on real action rows), except tidy-up (FEED-50),
-          // whose schedule/event starts carry their automation.
+          // schedule/event on real action rows), except tidy-up (FEED-50).
+          // Builtins carry no triggers (SLOP-2), so no trigger id either.
           ...tree,
-          automationId:
-            input.automationId && input.actionId === BUILTIN_TIDY_UP_ID
-              ? await resolveAutomationId(
-                  ctx.db,
-                  input.automationId,
-                  BUILTIN_TIDY_UP_ID,
-                  input.teamId!
-                )
-              : null,
+          automationId: null,
           userId: attribution.userId,
           hostUserId: attribution.hostUserId,
           ...device,
@@ -1407,9 +1356,9 @@ export const codingSessionsRouter = router({
                 )
               }
             }
-            // The id an automation names: the action row, or tidy-up's
-            // builtin id (its row's action_id stays NULL, a uuid FK).
-            const automationTarget = tidyUp ? BUILTIN_TIDY_UP_ID : actionId
+            // The action whose triggers the trigger id must name (builtins
+            // carry none, SLOP-2).
+            const automationTarget = actionId
             // EXP-876: only a batch echo carries these (an action scope
             // names itself off its snapshot), and they are re-scoped to
             // the team exactly like the start path.

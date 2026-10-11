@@ -1149,6 +1149,13 @@
       "when": 1791519562423,
       "tag": "0163_attachments_as_file",
       "breakpoints": true
+    },
+    {
+      "idx": 164,
+      "version": "7",
+      "when": 1791734186088,
+      "tag": "0164_drop_automations_mirror_and_github_claims",
+      "breakpoints": true
     }
   ]
 }

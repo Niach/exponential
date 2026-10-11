@@ -41,8 +41,6 @@ const h = vi.hoisted(() => {
               onConflictDoNothing: () => ({
                 returning: async () => [{ id: `new-action`, ...values }],
               }),
-              // The legacy automations mirror upserts by trigger id.
-              onConflictDoUpdate: async () => undefined,
             }
           },
         }),
@@ -83,7 +81,7 @@ vi.mock(`@/lib/trpc`, async (importOriginal) => {
 })
 
 import { actionsRouter } from "@/lib/trpc/actions"
-import { actions, automations } from "@/db/schema"
+import { actions } from "@/db/schema"
 import { MAX_ACTION_TRIGGERS } from "@exp/db-schema/domain"
 
 const { selectResults, inserts, updates, deletes, fakeDb } = h
@@ -201,14 +199,12 @@ describe(`actions — tidy-up builtin (FEED-50)`, () => {
     expect(inserts).toHaveLength(0)
   })
 
-  // The legacy mirror's action_id carries no FK, so the delete itself
-  // cascades: mirror rows first, then the action row.
-  it(`delete removes the action's mirror rows in the same transaction`, async () => {
+  it(`delete removes the action row (its triggers go with it)`, async () => {
     selectResults.push([
       { id: ACTION_ID, teamId: TEAM_ID, name: `Nightly`, inputs: [] },
     ])
     await caller.delete({ id: ACTION_ID })
-    expect(deletes).toEqual([automations, actions])
+    expect(deletes).toEqual([actions])
   })
 })
 
@@ -419,34 +415,12 @@ describe(`actions.update — triggers (SLOP-2)`, () => {
     expect(written[1]!.id).not.toBe(TRIGGER_ID)
   })
 
-  it(`re-mints an id the action does not hold (ids are the mirror's keys)`, async () => {
+  it(`re-mints an id the action does not hold (trigger ids are run history keys)`, async () => {
     selectResults.push([action([])])
     selectResults.push([ownDevice])
     await caller.update({ id: ACTION_ID, triggers: [existing] })
     const written = updates[0]!.triggers as Record<string, unknown>[]
     expect(written[0]!.id).not.toBe(TRIGGER_ID)
-  })
-
-  it(`mirrors the triggers into the legacy automations rows, when-part only`, async () => {
-    selectResults.push([action([existing])])
-    await caller.update({ id: ACTION_ID, triggers: [existing] })
-    // Rows the action no longer holds go; the kept one is upserted by id.
-    expect(deletes).toEqual([automations])
-    expect(inserts).toEqual([
-      {
-        id: TRIGGER_ID,
-        teamId: TEAM_ID,
-        actionId: ACTION_ID,
-        deviceId: `dev-1`,
-        enabled: true,
-        trigger: { kind: `schedule`, interval: `daily`, minuteOfDay: 540 },
-        agent: `claude`,
-        account: null,
-        model: null,
-        effort: null,
-        sortOrder: 1,
-      },
-    ])
   })
 
   it(`refuses a device that is neither the caller's nor shared with the team`, async () => {

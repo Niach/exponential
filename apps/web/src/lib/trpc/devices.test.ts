@@ -122,8 +122,9 @@ vi.mock(`@/lib/team-membership`, () => ({
   assertTeamMember: h.assertTeamMember,
   getTeamMember: h.getTeamMember,
 }))
-// SLOP-2: the trigger pause is its own unit (action-triggers-mirror.test.ts).
-vi.mock(`@/lib/action-triggers-mirror`, () => ({
+// SLOP-2: the trigger pause is its own unit (action-trigger-rules.test.ts).
+vi.mock(`@/lib/action-trigger-rules`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/action-trigger-rules")>()),
   pauseDeviceTriggers: h.pauseDeviceTriggers,
 }))
 vi.mock(`@/lib/coding-session-kill`, () => ({
@@ -177,9 +178,14 @@ beforeEach(() => {
   h.getTeamMember.mockResolvedValue({ role: `member` })
 })
 
+// Every register carries the readiness report (required since the 0.14.66
+// floor); the doctor-specific suite below asserts its storage.
+const DOCTOR = { checkedAt: `2026-10-05T19:00:00.000Z`, items: [] }
+
 describe(`devices.register`, () => {
   it(`upserts on (user, deviceId) with the advertised agents and caps`, async () => {
     const result = await caller.register({
+      doctor: DOCTOR,
       deviceId: `dev-1`,
       label: `buildbox`,
       kind: `server`,
@@ -201,6 +207,7 @@ describe(`devices.register`, () => {
 
   it(`never overwrites an existing row's label — renames must survive re-register`, async () => {
     await caller.register({
+      doctor: DOCTOR,
       deviceId: `dev-1`,
       label: `buildbox`,
       kind: `server`,
@@ -212,6 +219,7 @@ describe(`devices.register`, () => {
 
   it(`carries the version and consumes a pending update request`, async () => {
     await caller.register({
+      doctor: DOCTOR,
       deviceId: `dev-1`,
       label: `buildbox`,
       kind: `server`,
@@ -251,6 +259,7 @@ describe(`devices.register`, () => {
       },
     }
     const result = await caller.register({
+      doctor: DOCTOR,
       deviceId: `dev-1`,
       label: `unraid-runner`,
       kind: `server`,
@@ -279,6 +288,7 @@ describe(`devices.register`, () => {
   // drive over ACP, and register is its SOLE writer.
   it(`writes the ACP-capable subset on insert and on the conflict update`, async () => {
     await caller.register({
+      doctor: DOCTOR,
       deviceId: `dev-1`,
       label: `buildbox`,
       kind: `server`,
@@ -294,6 +304,7 @@ describe(`devices.register`, () => {
 
   it(`keeps an empty acpAgents list empty — "none over ACP" is not "unknown"`, async () => {
     await caller.register({
+      doctor: DOCTOR,
       deviceId: `dev-1`,
       label: `buildbox`,
       kind: `server`,
@@ -309,6 +320,7 @@ describe(`devices.register`, () => {
     // An older build knows nothing about ACP: its register must return the
     // row to "unknown" rather than leave a newer build's stale list behind.
     await caller.register({
+      doctor: DOCTOR,
       deviceId: `dev-1`,
       label: `buildbox`,
       kind: `server`,
@@ -1061,9 +1073,9 @@ describe(`devices.setLaunchDefaults`, () => {
   })
 
   // EXP-1196: the device-level computer-use switch. A boolean passes the
-  // clamp; a save that OMITS the key (an older client) keeps the stored one;
-  // an explicit true/false wins and an explicit null clears it null-free.
-  it(`clamps computerUse and carries it forward only when the save omits the KEY`, async () => {
+  // clamp; a save that OMITS the key clears it like any other toggle; an
+  // explicit true/false wins and an explicit null clears it null-free.
+  it(`clamps computerUse and clears it when the save omits the KEY`, async () => {
     h.state.selectQueue = deviceRow()
     let result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
@@ -1082,11 +1094,7 @@ describe(`devices.setLaunchDefaults`, () => {
     })
     expect(result.launchDefaults).toEqual({
       defaultAgent: `claude`,
-      computerUse: true,
       agents: { claude: { model: `opus` } },
-    })
-    expect(h.state.updates[0]?.set).toMatchObject({
-      launchDefaults: { computerUse: true },
     })
 
     h.state.selectQueue = deviceRow({ launchDefaults: stored })
@@ -1107,9 +1115,9 @@ describe(`devices.setLaunchDefaults`, () => {
 
   // EXP-1236: the screen-driving subagents' model rides beside `computerUse`
   // under the same contract: a contract alias passes, an unknown one is
-  // dropped (never an error), and a save that OMITS the key keeps the stored
-  // pick while an explicit null clears it.
-  it(`clamps computerUseModel to the contract and carries it forward on omission`, async () => {
+  // dropped (never an error), and a save that OMITS the key or sends null
+  // clears it.
+  it(`clamps computerUseModel to the contract and clears it on omission`, async () => {
     h.state.selectQueue = deviceRow()
     let result = await caller.setLaunchDefaults({
       deviceId: `dev-1`,
@@ -1134,8 +1142,6 @@ describe(`devices.setLaunchDefaults`, () => {
       launchDefaults: { agents: { claude: { model: `fable` } } },
     })
     expect(result.launchDefaults).toEqual({
-      computerUse: true,
-      computerUseModel: `opus`,
       agents: { claude: { model: `fable` } },
     })
 
@@ -1590,6 +1596,7 @@ describe(`devices.register / heartbeat agent status (EXP-484)`, () => {
 
   it(`register stores the reported accounts`, async () => {
     await caller.register({
+      doctor: DOCTOR,
       deviceId: `dev-1`,
       label: `buildbox`,
       kind: `desktop`,
@@ -1606,6 +1613,7 @@ describe(`devices.register / heartbeat agent status (EXP-484)`, () => {
 
   it(`a register without accounts leaves the column untouched`, async () => {
     await caller.register({
+      doctor: DOCTOR,
       deviceId: `dev-1`,
       label: `buildbox`,
       kind: `desktop`,
@@ -1720,11 +1728,11 @@ describe(`devices.register / heartbeat doctor (EXP-1196)`, () => {
     expect(upsert.set.doctor).toEqual(stored)
   })
 
-  it(`a register without a report keeps the stored one`, async () => {
-    await caller.register({ deviceId: `dev-1`, label: `b`, kind: `desktop` })
-    const upsert = h.state.upserts[0] as { set: Record<string, unknown> }
-    expect(upsert.set).not.toHaveProperty(`doctor`)
-    expect((h.state.inserted[0] as Record<string, unknown>).doctor).toBeNull()
+  it(`refuses a register without a report`, async () => {
+    await expect(
+      caller.register({ deviceId: `dev-1`, label: `b`, kind: `desktop` } as never)
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+    expect(h.state.inserted).toHaveLength(0)
   })
 
   it(`parses leniently: unknown vocabulary survives, long lines truncate, extra items drop`, async () => {
@@ -1796,6 +1804,7 @@ describe(`retired agent ids (EXP-849)`, () => {
 
   it(`register drops pi from every agent list it writes`, async () => {
     const result = await caller.register({
+      doctor: DOCTOR,
       deviceId: `dev-1`,
       label: `unraid-runner`,
       kind: `server`,
@@ -1835,6 +1844,7 @@ describe(`retired agent ids (EXP-849)`, () => {
 
   it(`a register reporting ONLY pi lands as a machine that runs nothing`, async () => {
     await caller.register({
+      doctor: DOCTOR,
       deviceId: `dev-1`,
       label: `unraid-runner`,
       kind: `server`,
@@ -2146,6 +2156,7 @@ describe(`devices.createCommand — agent_login_code`, () => {
 describe(`devices.register — EXP-792 caps`, () => {
   it(`stores the mcp and agent-usage-refresh caps like any other`, async () => {
     await caller.register({
+      doctor: DOCTOR,
       deviceId: `dev-1`,
       label: `MacBook`,
       kind: `desktop`,
@@ -2162,6 +2173,7 @@ describe(`devices.register — EXP-792 caps`, () => {
   it(`accepts 16 caps and keeps the 24-cap ceiling`, async () => {
     await expect(
       caller.register({
+        doctor: DOCTOR,
         deviceId: `dev-1`,
         label: `MacBook`,
         kind: `desktop`,
@@ -2170,6 +2182,7 @@ describe(`devices.register — EXP-792 caps`, () => {
     ).resolves.toMatchObject({ ok: true })
     await expect(
       caller.register({
+        doctor: DOCTOR,
         deviceId: `dev-1`,
         label: `MacBook`,
         kind: `desktop`,
@@ -2281,52 +2294,6 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
         profileId: `home`,
       })
     ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-    expect(h.state.inserted).toHaveLength(0)
-  })
-
-  // EXP-849 / EXP-1158 compat shim: "Set as default" left the product, but
-  // iOS <= 0.14.49, Android <= 0.14.50 and desktop <= 0.14.58 still send
-  // `agent_profile_use` and must not get a raw zod enum error. Same payload
-  // as a refresh, gated on BOTH `agent-login` and `account-switch`. Delete
-  // with the shim (CLIENT_MIN_VERSION_IOS > 0.14.49, _ANDROID > 0.14.50,
-  // _DESKTOP/_CLI > 0.14.58).
-  it(`still queues an old client's agent_profile_use with the agent and the profile id`, async () => {
-    h.state.selectQueue = [...capableProbe(), []]
-    h.state.insertReturning = [[{ id: `cmd-9` }]]
-    const result = await caller.createCommand({
-      deviceId: `dev-1`,
-      kind: `agent_profile_use`,
-      agent: `claude`,
-      profileId: `work`,
-    })
-    expect(result).toEqual({ id: `cmd-9` })
-    expect(h.state.inserted[0]).toMatchObject({
-      deviceRowId: `row-1`,
-      kind: `agent_profile_use`,
-      payload: { agent: `claude`, profileId: `work` },
-    })
-  })
-
-  it(`refuses agent_profile_use without an agent, a profile or the cap`, async () => {
-    h.state.selectQueue = capableProbe()
-    await expect(
-      caller.createCommand({
-        deviceId: `dev-1`,
-        kind: `agent_profile_use`,
-        agent: `claude`,
-      })
-    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
-    for (const caps of [[], [`agent-login`], [`account-switch`]]) {
-      h.state.selectQueue = [[{ id: `row-1`, caps }]]
-      await expect(
-        caller.createCommand({
-          deviceId: `dev-1`,
-          kind: `agent_profile_use`,
-          agent: `claude`,
-          profileId: `work`,
-        })
-      ).rejects.toMatchObject({ code: `PRECONDITION_FAILED` })
-    }
     expect(h.state.inserted).toHaveLength(0)
   })
 
@@ -2501,7 +2468,6 @@ describe(`devices.createCommand — agent_usage_refresh (EXP-747 C4)`, () => {
   it(`reuses the pending row for an idempotent kind`, async () => {
     for (const kind of [
       `agent_usage_refresh`,
-      `agent_profile_use`,
       `agent_profile_remove`,
       `agent_profile_sign_out`,
     ] as const) {

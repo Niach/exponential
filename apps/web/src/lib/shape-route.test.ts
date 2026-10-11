@@ -11,9 +11,6 @@ import { Route as issueRelationsRoute } from "@/routes/api/shapes/issue-relation
 import { Route as issueSubscribersRoute } from "@/routes/api/shapes/issue-subscribers"
 import { Route as attachmentsRoute } from "@/routes/api/shapes/attachments"
 import { Route as codingSessionsRoute } from "@/routes/api/shapes/coding-sessions"
-import { Route as automationsRoute } from "@/routes/api/shapes/automations"
-import { Route as workflowNodesRoute } from "@/routes/api/shapes/workflow-nodes"
-import { Route as workflowsRoute } from "@/routes/api/shapes/workflows"
 import { Route as notificationsRoute } from "@/routes/api/shapes/notifications"
 import { Route as pinsRoute } from "@/routes/api/shapes/pins"
 import { Route as issueDraftsRoute } from "@/routes/api/shapes/issue-drafts"
@@ -504,40 +501,6 @@ describe(`shape column + trash contracts`, () => {
     expect(columns).not.toContain(`body`)
     // Member scoping is a plain sorted team_id clause (no trash mirror —
     // actions have no board scope).
-    expect(originUrl.searchParams.get(`where`)).toBe(
-      `"team_id" IN ('w-1','w-2')`
-    )
-  })
-
-  // SLOP-2: the legacy mirror clients from before the merge still sync.
-  it(`pins the automations columns and scopes members by team`, async () => {
-    const originUrl = new URL(`https://electric.example/v1/shape`)
-    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
-    prepareElectricUrl.mockReturnValue(originUrl)
-    membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
-
-    await shapeHandler(automationsRoute)({
-      request: new Request(`https://example.com/api/shapes/automations`, {
-        headers: { authorization: `Bearer t` },
-      }),
-    })
-
-    const columns = originUrl.searchParams.get(`columns`)?.split(`,`) ?? []
-    expect(columns).toEqual([
-      `id`,
-      `team_id`,
-      `action_id`,
-      `device_id`,
-      `enabled`,
-      `trigger`,
-      `agent`,
-      `account`,
-      `model`,
-      `effort`,
-      `sort_order`,
-      `created_at`,
-      `updated_at`,
-    ])
     expect(originUrl.searchParams.get(`where`)).toBe(
       `"team_id" IN ('w-1','w-2')`
     )
@@ -1046,7 +1009,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
   })
 
-  // ALL 24 shape routes (the file list in routes/api/shapes/ IS the list).
+  // ALL 21 shape routes (the file list in routes/api/shapes/ IS the list).
   // The pin is what makes adding a server-only column to a synced table safe
   // — an unpinned proxy would stream it to every client on the next deploy
   // with no code change and no test failure. A new route added without a
@@ -1055,7 +1018,6 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
   const allRoutes = [
     [`actions`, actionsRoute],
     [`attachments`, attachmentsRoute],
-    [`automations`, automationsRoute],
     [`boards`, boardsRoute],
     [`coding-sessions`, codingSessionsRoute],
     [`comments`, commentsRoute],
@@ -1075,8 +1037,6 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     [`team-members`, teamMembersRoute],
     [`teams`, teamsRoute],
     [`users`, usersRoute],
-    [`workflow-nodes`, workflowNodesRoute],
-    [`workflows`, workflowsRoute],
   ] as const
 
   it.each(allRoutes)(
