@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import {
   accountOptionKey,
+  carriedAccountOption,
   lastUsedAccountOption,
   flattenAccounts,
   parseAccountOptionKey,
@@ -176,5 +177,21 @@ describe(`flattenAccounts (EXP-872)`, () => {
     expect(options.some((option) => (option.agent as string) === `pi`)).toBe(false)
     expect(flattenAccounts({})).toEqual([])
     expect(lastUsedAccountOption([])).toBeUndefined()
+  })
+
+  it(`carries a pick to another device by agent and email`, () => {
+    const options = flattenAccounts(ACCOUNT_FIXTURE)
+    expect(
+      carriedAccountOption(options, { agent: `claude`, email: ` HOME@x.test` })?.id
+    ).toBe(`home`)
+    // Same address, other agent: a different login.
+    expect(
+      carriedAccountOption(options, { agent: `codex`, email: `work@x.test` })
+    ).toBeUndefined()
+    // No address, nothing to match on.
+    expect(
+      carriedAccountOption(options, { agent: `claude`, email: `No email` })
+    ).toBeUndefined()
+    expect(carriedAccountOption(options, undefined)).toBeUndefined()
   })
 })

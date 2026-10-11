@@ -1,6 +1,19 @@
-- Guide: an issue's Changes and Results are now one Guide; each section of the agent's report opens its own diff, and Show complete diff sits at the bottom
-- Runs: the run thread reads turn by turn with your own messages in between, and a stacked pull request merges with one Merge stack control
+- Guide: an issue's Changes and Results are now one Guide; each section of the agent's report opens its own diff, Show complete diff sits at the bottom, and Merge sits on the bottom bar while the pull request is open
+- Runs: a run opens as a thread with a status row (device, elapsed time, last tool line) and reads turn by turn with your own messages in between; Show work opens the full transcript, an arrow jumps to the newest message, and the task list shows its progress
+- Runs: the agent's mark spins while it works, amber waits on you, green has a pull request open, blue is done, and a run reads Working until the agent is really done
 - Composer: the + button opens one menu (implement an issue, run an action, add a file or image up to 50 MB, effort, subagents, MCP servers, computer use); suggestions are quiet rows under the box
 - Links: a link in an agent's reply or Guide that points at a run or issue opens in the app, other links open in the in-app browser, and bare URLs are tappable
-- Actions: a failed merge offers Fix merge conflicts, a built-in action that rebases, resolves and merges the pull request
-- Fixes: Reviews names the issue of a pull request whose repository is connected in another team, session text no longer overlaps, a doubled button is gone, and a polish round aligns rows, spacing and copy across the app
+- Stacks: a blocked issue can start as a Stacked PR that builds the whole line of pull requests bottom-up, and a stacked pull request merges with one Merge stack control
+- Actions: automations are now triggers on the action they run, each action is a page with its prompt, triggers and runs, a failed merge offers Fix merge conflicts, Tidy up cleans a board, and deleting an action asks first
+- Navigation: the app opens on the Agent page with Inbox, Devices, Reviews, Agent and Actions tabs; Reviews, runs, actions and devices list every team you belong to, and Inbox, My issues and Drafts swipe sideways
+- Reviews: a pull request from a chat or action run opens its Guide in the app, and a pull request whose repository is connected in another team names its issue
+- New issue: creating an issue opens a full page with every property, saved as a draft while you type; an issue created from a draft on another device lands on the issue here, and leaving a draft with content asks Create, Keep as draft or Discard
+- Issues: Start coding opens a Ready to code checklist when something is missing, a sub-issue names its parent and shows its progress with a ring, relations group into foldable sections, and the title collapses into the header as you scroll
+- GitHub: one guided page connects your GitHub account, installs the app and lists the repositories you can push to
+- Feedback: a widget submission is an issue; reply to the reporter from the comment composer and their answers come back as comments
+- Account: change your email with a code, link or unlink Google, Apple and OIDC logins as long as another way in remains, and manage passkeys
+- MCP servers: connect your own account to a team MCP server once on the web, and every run you start on any machine uses it
+- Devices: the readiness block says what a machine still needs, Computer use can be switched on per device, and every agent login offers Sign out
+- Dialogs and toasts: every confirm and choice prompt uses the same card, Return never picks a destructive answer, and notices stack, tap to expand, swipe to dismiss
+- Joining a team: the invite flow offers the device setup step when you own no device yet, and signing up with an email code asks for your name
+- Fixes: boards show a spinner until their issues arrive, session text no longer overlaps, a doubled button is gone, a run on an empty repository starts, and a polish round aligns rows, spacing and copy across the app

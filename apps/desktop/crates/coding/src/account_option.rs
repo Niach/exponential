@@ -102,6 +102,22 @@ pub fn last_used_account_option(options: &[AccountOption]) -> Option<&AccountOpt
         .or_else(|| options.first())
 }
 
+/// EXP-1278: the new device's option for the login picked on the previous
+/// one — same agent, same email address (case-insensitive). Profile ids are
+/// per machine, so the address is the identity; a row with no address (a
+/// plan, "No email", the agent-named ambient fallback) never carries. `None`
+/// = the new device settles on its own last used login.
+pub fn carried_account_option<'a>(
+    options: &'a [AccountOption],
+    previous: Option<&AccountOption>,
+) -> Option<&'a AccountOption> {
+    let previous = previous.filter(|option| option.email.contains('@'))?;
+    let email = previous.email.trim().to_lowercase();
+    options.iter().find(|option| {
+        option.agent == previous.agent && option.email.trim().to_lowercase() == email
+    })
+}
+
 /// One login row before it becomes an option — the desktop twin of the web's
 /// `AgentProfileUsageRow`, trimmed to what the ordering and the option need.
 #[derive(Clone, Debug)]
@@ -504,5 +520,30 @@ mod tests {
         )
         .is_empty());
         assert_eq!(last_used_account_option(&[]), None);
+    }
+
+    #[test]
+    fn carries_a_pick_to_another_device_by_agent_and_email() {
+        let options = flatten(Some("codex"));
+        let previous = |agent: CodingAgent, email: &str| AccountOption {
+            id: "elsewhere".into(),
+            agent,
+            email: email.into(),
+            is_last_used: false,
+            health: Health::Unknown,
+            limits: None,
+        };
+        let home = previous(CodingAgent::Claude, " HOME@x.test");
+        assert_eq!(
+            carried_account_option(&options, Some(&home)).map(|option| option.id.as_str()),
+            Some("home")
+        );
+        // Same address, other agent: a different login.
+        let codex = previous(CodingAgent::Codex, "work@x.test");
+        assert_eq!(carried_account_option(&options, Some(&codex)), None);
+        // No address, nothing to match on.
+        let bare = previous(CodingAgent::Claude, "No email");
+        assert_eq!(carried_account_option(&options, Some(&bare)), None);
+        assert_eq!(carried_account_option(&options, None), None);
     }
 }

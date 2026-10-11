@@ -126,7 +126,7 @@ pub use doctor::{
 };
 pub use agent_update::{update_agent, AgentUpdateOutcome, AGENT_UPDATE_COMMAND};
 pub use account_option::{
-    flatten_accounts, last_used_account_option, parse_account_option_key, AccountLimits,
+    carried_account_option, flatten_accounts, last_used_account_option, parse_account_option_key, AccountLimits,
     AccountModelLimit, AccountOption,
 };
 pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts, AgentProfileEntry, Health, Importable};

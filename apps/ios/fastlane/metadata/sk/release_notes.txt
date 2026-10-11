@@ -1,6 +1,19 @@
-- Guide: Changes a Results pri issue sú teraz jeden Guide; každá sekcia správy agenta otvorí vlastný diff a Show complete diff je úplne dole
-- Behy: vlákno behu sa číta ťah po ťahu s vašimi správami medzi nimi a stohovaný pull request sa zlúči jediným ovládacím prvkom Merge stack
-- Editor: tlačidlo + otvorí jedno menu (implementovať issue, spustiť akciu, pridať súbor alebo obrázok do 50 MB, úsilie, subagenti, MCP servery, ovládanie počítača); návrhy sú nenápadné riadky pod poľom
-- Odkazy: odkaz v odpovedi agenta alebo v Guide, ktorý vedie na beh alebo issue, sa otvorí v aplikácii, ostatné odkazy v prehliadači v aplikácii a holé URL adresy sa dajú ťuknúť
-- Akcie: neúspešné zlúčenie ponúkne Fix merge conflicts, vstavanú akciu, ktorá pull request rebasuje, vyrieši konflikty a zlúči
-- Opravy: Reviews uvádza issue pull requestu, ktorého repozitár je pripojený v inom tíme, text relácie sa už neprekrýva, zdvojené tlačidlo zmizlo a kolo vylepšení zjednotilo riadky, medzery a texty v celej aplikácii
+- Guide: Changes a Results issue sú teraz jeden Guide; každá sekcia správy agenta otvorí vlastný diff, Show complete diff je dole a Merge je v spodnej lište, kým je pull request otvorený
+- Behy: beh sa otvorí ako vlákno so stavovým riadkom (zariadenie, uplynulý čas, posledný nástroj) a číta sa ťah po ťahu s vašimi správami medzi nimi; Show work otvorí celý prepis, šípka skočí na najnovšiu správu a zoznam úloh ukazuje postup
+- Behy: logo agenta sa točí, keď pracuje, jantárová čaká na vás, zelená má otvorený pull request, modrá je hotovo a beh ukazuje Working, kým agent naozaj neskončí
+- Písanie: tlačidlo + otvorí jedno menu (implementovať issue, spustiť akciu, pridať súbor alebo obrázok do 50 MB, úsilie, subagenti, MCP servery, Computer use); návrhy sú nenápadné riadky pod poľom
+- Odkazy: odkaz na beh alebo issue v odpovedi agenta alebo v Guide sa otvorí v aplikácii, ostatné odkazy vo vstavanom prehliadači a holé URL adresy sa dajú ťuknúť
+- Stacky: blokované issue môže začať ako Stacked PR, ktorý postaví celý rad pull requestov zdola nahor, a stackovaný pull request sa zlúči jedným ovládaním Merge stack
+- Akcie: automatizácie sú teraz spúšťače na akcii, ktorú spúšťajú, každá akcia je stránka s promptom, spúšťačmi a behmi, neúspešný merge ponúkne Fix merge conflicts, Tidy up upratuje board a zmazanie akcie sa najprv opýta
+- Navigácia: aplikácia sa otvorí na stránke Agent s kartami Inbox, Devices, Reviews, Agent a Actions; Reviews, behy, akcie a zariadenia zahŕňajú všetky vaše tímy a medzi Inbox, My issues a Drafts sa posúva do strán
+- Reviews: pull request z chatu alebo behu akcie otvorí v aplikácii svoj Guide a pull request, ktorého repozitár je pripojený v inom tíme, uvedie svoje issue
+- Nové issue: vytvorenie issue otvorí celú stránku so všetkými vlastnosťami, ukladanú ako koncept počas písania; issue vytvorené z konceptu na inom zariadení sa tu otvorí a opustenie konceptu s obsahom ponúkne Create, Keep as draft alebo Discard
+- Issues: Start coding otvorí checklist Ready to code, keď niečo chýba, podúloha uvádza nadradené issue a ukazuje postup krúžkom, vzťahy sa zoskupujú do zbaliteľných sekcií a názov sa pri posúvaní presunie do hlavičky
+- GitHub: jedna sprievodná stránka pripojí váš účet GitHub, nainštaluje aplikáciu a vypíše repozitáre, do ktorých môžete pushovať
+- Spätná väzba: odoslanie z widgetu je issue; odpovedzte oznamovateľovi z poľa komentára a jeho odpovede sa vrátia ako komentáre
+- Účet: zmeňte e-mail pomocou kódu, prepojte alebo odpojte prihlásenia Google, Apple a OIDC, kým zostáva iný spôsob prístupu, a spravujte passkeys
+- MCP servery: raz na webe pripojte svoj účet k tímovému MCP serveru a každý beh, ktorý spustíte na akomkoľvek počítači, ho použije
+- Zariadenia: blok pripravenosti hovorí, čo počítaču ešte chýba, Computer use sa dá zapnúť pre každé zariadenie a každé prihlásenie agenta ponúka Sign out
+- Dialógy a oznámenia: každé potvrdenie a voľba používa rovnakú kartu, Return nikdy nevyberie deštruktívnu odpoveď a oznámenia sa skladajú, ťuknutím sa rozbalia, potiahnutím zavrú
+- Pripojenie k tímu: pozvánka ponúkne krok nastavenia zariadenia, ak ešte žiadne nemáte, a registrácia s e-mailovým kódom sa opýta na meno
+- Opravy: boardy ukazujú indikátor, kým neprídu ich issues, text relácie sa už neprekrýva, zdvojené tlačidlo zmizlo, beh v prázdnom repozitári sa spustí a kolo vylepšení zjednotilo riadky, medzery a texty v celej aplikácii

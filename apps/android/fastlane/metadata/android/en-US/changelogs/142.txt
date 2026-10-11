@@ -1,0 +1,1 @@
+- Fixes: opening a run and typing in the Agent composer no longer crash the app

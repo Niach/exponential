@@ -1,6 +1,19 @@
-- Guide: Changes i Results nekog issuea sada su jedan Guide; svaki odjeljak agentova izvješća otvara vlastiti diff, a Show complete diff nalazi se na dnu
-- Pokretanja: nit pokretanja čita se potez po potez s vašim porukama između, a složeni pull request spaja se jednom kontrolom Merge stack
-- Uređivač: gumb + otvara jedan izbornik (implementiraj issue, pokreni radnju, dodaj datoteku ili sliku do 50 MB, trud, podagenti, MCP poslužitelji, korištenje računala); prijedlozi su diskretni retci ispod polja
-- Poveznice: poveznica u agentovu odgovoru ili u Guideu koja vodi na pokretanje ili issue otvara se u aplikaciji, ostale poveznice u pregledniku unutar aplikacije, a gole URL adrese mogu se dodirnuti
-- Radnje: neuspjelo spajanje nudi Fix merge conflicts, ugrađenu radnju koja radi rebase, rješava sukobe i spaja pull request
-- Ispravci: Reviews navodi issue pull requesta čiji je repozitorij povezan u drugom timu, tekst sesije se više ne preklapa, dvostruki gumb je uklonjen, a krug dorade usklađuje retke, razmake i tekstove u cijeloj aplikaciji
+- Guide: Changes i Results zadatka sada su jedan Guide; svaki odjeljak agentovog izvješća otvara vlastiti diff, Show complete diff je na dnu, a Merge stoji u donjoj traci dok je pull request otvoren
+- Pokretanja: pokretanje se otvara kao nit s retkom stanja (uređaj, proteklo vrijeme, zadnji alat) i čita se potez po potez s vašim porukama između; Show work otvara cijeli prijepis, strelica skače na najnoviju poruku, a popis zadataka prikazuje napredak
+- Pokretanja: agentov logo vrti se dok radi, jantarna čeka vas, zelena ima otvoren pull request, plava je gotovo, a pokretanje prikazuje Working dok agent stvarno ne završi
+- Pisanje: gumb + otvara jedan izbornik (implementiraj zadatak, pokreni radnju, dodaj datoteku ili sliku do 50 MB, trud, subagenti, MCP poslužitelji, Computer use); prijedlozi su diskretni retci ispod polja
+- Poveznice: poveznica na pokretanje ili zadatak u agentovom odgovoru ili Guideu otvara se u aplikaciji, ostale u ugrađenom pregledniku, a gole URL adrese mogu se dodirnuti
+- Stogovi: blokirani zadatak može krenuti kao Stacked PR koji gradi cijeli niz pull requestova odozdo prema gore, a složeni pull request spaja se jednom kontrolom Merge stack
+- Radnje: automatizacije su sada okidači na radnji koju pokreću, svaka radnja je stranica s promptom, okidačima i pokretanjima, neuspjeli merge nudi Fix merge conflicts, Tidy up sređuje ploču, a brisanje radnje prvo pita
+- Navigacija: aplikacija se otvara na stranici Agent s karticama Inbox, Devices, Reviews, Agent i Actions; Reviews, pokretanja, radnje i uređaji obuhvaćaju sve vaše timove, a Inbox, My issues i Drafts listaju se bočno
+- Reviews: pull request iz chata ili radnje otvara svoj Guide u aplikaciji, a pull request čiji je repozitorij povezan u drugom timu navodi svoj zadatak
+- Novi zadatak: stvaranje zadatka otvara punu stranicu sa svim svojstvima, spremljenu kao skicu dok tipkate; zadatak stvoren iz skice na drugom uređaju otvara se ovdje, a napuštanje skice sa sadržajem pita Create, Keep as draft ili Discard
+- Zadaci: Start coding otvara popis Ready to code kad nešto nedostaje, podzadatak navodi nadređeni zadatak i prikazuje napredak prstenom, veze se grupiraju u sklopive odjeljke, a naslov se pri pomicanju sklapa u zaglavlje
+- GitHub: jedna vođena stranica povezuje vaš GitHub račun, instalira aplikaciju i navodi repozitorije u koje možete pushati
+- Povratne informacije: prijava iz widgeta je zadatak; odgovorite prijavitelju iz polja za komentar, a njegovi odgovori vraćaju se kao komentari
+- Račun: promijenite e-poštu kodom, povežite ili odspojite Google, Apple i OIDC prijave dok postoji drugi način ulaska, i upravljajte pristupnim ključevima
+- MCP poslužitelji: jednom na webu povežite svoj račun s timskim MCP poslužiteljem i svako pokretanje na bilo kojem računalu koristi ga
+- Uređaji: blok spremnosti kaže što računalu još treba, Computer use uključuje se po uređaju, a svaka prijava agenta nudi Sign out
+- Dijalozi i obavijesti: svaka potvrda i izbor koriste istu karticu, Return nikad ne bira destruktivan odgovor, a obavijesti se slažu, dodirnite za proširenje, povucite za odbacivanje
+- Pridruživanje timu: pozivnica nudi korak postavljanja uređaja ako ga još nemate, a registracija kodom e-pošte traži vaše ime
+- Ispravci: ploče prikazuju indikator dok ne stignu zadaci, tekst sesije se više ne preklapa, dvostruki gumb je nestao, pokretanje na praznom repozitoriju kreće, a krug dorade usklađuje retke, razmake i tekstove u cijeloj aplikaciji

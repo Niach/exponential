@@ -1033,18 +1033,32 @@ impl LaunchOptionsSection {
     /// and RE-SEED off it — the target's own default agent wins, else the
     /// current pick when it can run there, else its first agent; model,
     /// effort and the toggles follow that agent's defaults on that machine.
-    /// The web twin is `use-launch-options.ts`' device-seed effect.
+    /// EXP-1278: unless the new machine has the SAME login — then the pick
+    /// carries over whole. The web twin is `use-launch-options.ts`'
+    /// device-seed effect.
     pub(crate) fn set_remote(
         &mut self,
         remote: Option<RemoteDefaults>,
         window: &mut Window,
         cx: &mut App,
     ) {
+        let current = self.account_key();
+        let previous = self
+            .account_options(cx)
+            .into_iter()
+            .find(|option| option.account_option_key() == current);
         self.remote = remote;
         self.computer_use = None;
-        // EXP-872: profiles are per MACHINE, so the pick cannot carry over —
-        // the new machine's LAST USED login settles both the agent and the
-        // login, and the model/effort seeds follow it.
+        // Profile ids are per MACHINE, so the login is matched by agent +
+        // email; the agent is unchanged, so model, effort and the toggles stay
+        // as the person left them.
+        let options = self.account_options(cx);
+        if let Some(carried) = coding::carried_account_option(&options, previous.as_ref()) {
+            self.account = carried.wire_account();
+            return;
+        }
+        // EXP-872: otherwise the new machine's LAST USED login settles both
+        // the agent and the login, and the model/effort seeds follow it.
         self.settle_account(window, cx);
     }
 

@@ -184,11 +184,20 @@ describe(`useLaunchOptions account`, () => {
     expect(result.current.buildOptions().account).toBeUndefined()
   })
 
-  it(`re-seeds to the last used login when the pick vanishes with a device switch`, () => {
+  it(`re-seeds to the last used login when the new device lacks the pick`, () => {
     const other: SteerDevice = {
       ...profiled,
       deviceId: `dev-2`,
       launchDefaults: { defaultAgent: `codex` },
+      agentAccounts: {
+        ...profiled.agentAccounts,
+        claude: {
+          signedIn: true,
+          profiles: [
+            { id: `home`, signedIn: true, active: true, email: `me@x.test` },
+          ],
+        },
+      },
     }
     const { result } = renderHook(() =>
       useLaunchOptions({ open: true, devices: [profiled, other] })
@@ -197,6 +206,40 @@ describe(`useLaunchOptions account`, () => {
     act(() => result.current.setDeviceId(`dev-2`))
     expect(result.current.accountKey).toBe(`codex:only`)
     expect(result.current.agent).toBe(`codex`)
+  })
+
+  // EXP-1278: the same login on the next machine keeps the pick, even under
+  // another profile id and against that machine's last used login, and the
+  // agent's options stay as the person left them.
+  it(`keeps the picked login across a device switch when the new device has it`, () => {
+    const other: SteerDevice = {
+      ...profiled,
+      deviceId: `dev-2`,
+      launchDefaults: {
+        defaultAgent: `codex`,
+        agents: { claude: { model: `haiku` } },
+      },
+      agentAccounts: {
+        ...profiled.agentAccounts,
+        claude: {
+          signedIn: true,
+          profiles: [
+            { id: `home`, signedIn: true, email: `me@x.test` },
+            { id: `p-7`, signedIn: true, email: `Work@x.test` },
+          ],
+        },
+      },
+    }
+    const { result } = renderHook(() =>
+      useLaunchOptions({ open: true, devices: [profiled, other] })
+    )
+    act(() => result.current.setAccountKey(`claude:work`))
+    act(() => result.current.setModel(`opus`))
+    act(() => result.current.setDeviceId(`dev-2`))
+    expect(result.current.accountKey).toBe(`claude:p-7`)
+    expect(result.current.agent).toBe(`claude`)
+    expect(result.current.model).toBe(`opus`)
+    expect(result.current.buildOptions().account).toBe(`p-7`)
   })
 })
 

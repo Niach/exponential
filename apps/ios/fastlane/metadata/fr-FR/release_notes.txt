@@ -1,6 +1,19 @@
-- Guide : les Changes et Results d'un issue forment désormais un seul Guide ; chaque section du rapport de l'agent ouvre son propre diff, et Show complete diff se trouve en bas
-- Exécutions : le fil d'une exécution se lit tour par tour avec vos propres messages intercalés, et une pull request empilée se fusionne avec une seule commande Merge stack
-- Éditeur : le bouton + ouvre un seul menu (implémenter un issue, lancer une action, ajouter un fichier ou une image jusqu'à 50 MB, effort, sous-agents, serveurs MCP, utilisation de l'ordinateur) ; les suggestions sont des lignes discrètes sous le champ
-- Liens : un lien dans une réponse de l'agent ou dans le Guide qui pointe vers une exécution ou un issue s'ouvre dans l'app, les autres liens dans le navigateur intégré, et les URL brutes sont touchables
-- Actions : une fusion échouée propose Fix merge conflicts, une action intégrée qui fait un rebase, résout les conflits et fusionne la pull request
-- Corrections : Reviews nomme l'issue d'une pull request dont le dépôt est connecté dans une autre équipe, le texte de session ne se chevauche plus, un bouton en double a disparu, et une passe de finition harmonise lignes, espacements et textes dans toute l'app
+- Guide : les Changes et Results d'un ticket forment désormais un seul Guide ; chaque section du rapport de l'agent ouvre son propre diff, Show complete diff est en bas, et Merge reste dans la barre du bas tant que la pull request est ouverte
+- Exécutions : une exécution s'ouvre en fil avec une ligne d'état (appareil, durée, dernier outil) et se lit tour par tour avec vos messages ; Show work ouvre la transcription complète, une flèche saute au dernier message, et la liste des tâches montre l'avancement
+- Exécutions : le logo de l'agent tourne pendant qu'il travaille, ambre vous attend, vert a une pull request ouverte, bleu est terminé, et une exécution affiche Working jusqu'à la vraie fin
+- Saisie : le bouton + ouvre un seul menu (traiter un ticket, lancer une action, ajouter un fichier ou une image jusqu'à 50 MB, effort, sous-agents, serveurs MCP, Computer use) ; les suggestions sont des lignes discrètes sous le champ
+- Liens : un lien vers une exécution ou un ticket dans une réponse de l'agent ou un Guide s'ouvre dans l'app, les autres liens dans le navigateur intégré, et les URL brutes sont touchables
+- Piles : un ticket bloqué peut démarrer en Stacked PR qui construit toute la suite de pull requests de bas en haut, et une pull request empilée se fusionne avec une seule commande Merge stack
+- Actions : les automatisations sont désormais des déclencheurs sur l'action qu'elles lancent, chaque action est une page avec prompt, déclencheurs et exécutions, une fusion échouée propose Fix merge conflicts, Tidy up range un tableau, et supprimer une action demande confirmation
+- Navigation : l'app s'ouvre sur la page Agent avec les onglets Inbox, Devices, Reviews, Agent et Actions ; Reviews, exécutions, actions et appareils couvrent toutes vos équipes, et Inbox, My issues et Drafts se balaient latéralement
+- Reviews : une pull request issue d'un chat ou d'une action ouvre son Guide dans l'app, et une pull request dont le dépôt est connecté dans une autre équipe nomme son ticket
+- Nouveau ticket : créer un ticket ouvre une page complète avec chaque propriété, enregistrée en brouillon pendant la saisie ; un ticket créé depuis un brouillon sur un autre appareil arrive ici sur le ticket, et quitter un brouillon non vide propose Create, Keep as draft ou Discard
+- Tickets : Start coding ouvre une liste Ready to code s'il manque quelque chose, un sous-ticket nomme son parent avec un anneau de progression, les relations se regroupent en sections repliables, et le titre se replie dans l'en-tête au défilement
+- GitHub : une page guidée connecte votre compte GitHub, installe l'app et liste les dépôts où vous pouvez pousser
+- Retours : un envoi du widget est un ticket ; répondez au rapporteur depuis le champ de commentaire et ses réponses reviennent en commentaires
+- Compte : changez votre e-mail avec un code, liez ou déliez les connexions Google, Apple et OIDC tant qu'un autre accès reste, et gérez les passkeys
+- Serveurs MCP : connectez une fois votre compte à un serveur MCP d'équipe sur le web, et chaque exécution lancée sur n'importe quelle machine l'utilise
+- Appareils : le bloc de préparation indique ce qu'il manque à une machine, Computer use s'active par appareil, et chaque connexion d'agent propose Sign out
+- Dialogues et notifications : chaque confirmation et choix utilise la même carte, Return ne choisit jamais une réponse destructive, et les notifications s'empilent, touchez pour déplier, balayez pour fermer
+- Rejoindre une équipe : l'invitation propose l'étape appareil si vous n'en avez pas encore, et l'inscription par code e-mail demande votre nom
+- Corrections : les tableaux affichent un indicateur jusqu'à l'arrivée des tickets, le texte de session ne se chevauche plus, un bouton en double a disparu, une exécution sur un dépôt vide démarre, et une passe de finition aligne lignes, espacements et textes dans toute l'app

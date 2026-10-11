@@ -36,12 +36,18 @@ final class LaunchOptionsState {
     var resume = true
     /// EXP-825: the picked login profile id, sent verbatim (`system` = the
     /// ambient login); `""` = unnamed, the machine's last used login (sent as
-    /// no account). Reset on every device or agent change — profiles are per
+    /// no account). Reset on every agent change and on a device change, unless
+    /// the new machine has the same login (EXP-1278) — profiles are per
     /// machine and per agent.
     var account = ""
 
     /// The machine the options currently reflect (EXP-437).
     private(set) var lastSeededDeviceId: String?
+
+    /// EXP-1278: the login the pick resolved to on that machine — what the
+    /// next device change (a person's pick OR an implicit re-resolve) carries
+    /// over when the new machine has it too. Nil after an agent switch.
+    private var pickedLogin: AccountOption?
 
     // MARK: - Agents
 
@@ -63,6 +69,7 @@ final class LaunchOptionsState {
         guard value != agent else { return }
         agent = value
         applyAgentDefaults(for: value, device: device)
+        pickedLogin = nil
     }
 
     /// The newly resolved machine may not run the chosen agent.
@@ -85,7 +92,18 @@ final class LaunchOptionsState {
 
     /// Reseed agent + every option from the resolved machine's advertised
     /// defaults (EXP-437). Runs on open and on every device switch.
+    /// EXP-1278: the previous machine's login (`pickedLogin`) keeps the
+    /// whole pick when the new machine has that login too (same agent +
+    /// email) — model, effort and the toggles stay as the person left them.
     func seed(from device: SteerDevice?) {
+        if let carried = AccountOptions.carried(accountOptions(on: device), previous: pickedLogin),
+           carried.agent == agent,
+           availableAgents(for: device).contains(carried.agent) {
+            account = carried.id
+            pickedLogin = carried
+            lastSeededDeviceId = device?.deviceId
+            return
+        }
         let available = availableAgents(for: device)
         if let advertised = device?.defaultLaunchAgent {
             agent = advertised
@@ -108,6 +126,7 @@ final class LaunchOptionsState {
             }
             account = option.id
         }
+        pickedLogin = selectedAccount(in: accountOptions(on: device))
         lastSeededDeviceId = device?.deviceId
     }
 
@@ -217,6 +236,7 @@ final class LaunchOptionsState {
     func selectAccount(_ option: AccountOption, device: SteerDevice?) {
         selectAgent(option.agent, device: device)
         account = option.id
+        pickedLogin = option
     }
 
     // MARK: - Wire

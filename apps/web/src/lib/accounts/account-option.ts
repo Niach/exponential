@@ -21,7 +21,10 @@
 //    the login a PERSON last started or switched a run on, on that device
 //    (`profiles[].active`); the last used agent = `defaultAgent`;
 //  - selecting an option IMPLIES the agent: there is no separate agent pick,
-//    `agent` rides the option and the launch takes both from it.
+//    `agent` rides the option and the launch takes both from it;
+//  - a device switch KEEPS the pick when the new device has the same login
+//    (EXP-1278 `carriedAccountOption`: same agent + same email address,
+//    case-insensitive; a row with no address never carries).
 //
 // `limits` are FRACTIONS 0..1 off the usage windows EXP-909 settled
 // (`DeviceUsageWindow.percent / 100`): `fiveHour` = the `session` window,
@@ -163,4 +166,22 @@ export function lastUsedAccountOption(
   options: readonly AccountOption[]
 ): AccountOption | undefined {
   return options.find((option) => option.isLastUsed) ?? options[0]
+}
+
+/** EXP-1278: the new device's option for the login picked on the previous
+ * one — same agent, same email address (case-insensitive). Profile ids are
+ * per machine, so the address is the identity; a row that reports no
+ * address (a plan, "No email", the agent-named ambient fallback) never
+ * carries. `undefined` = the new device settles on its own last used login. */
+export function carriedAccountOption(
+  options: readonly AccountOption[],
+  previous: Pick<AccountOption, `agent` | `email`> | undefined
+): AccountOption | undefined {
+  if (!previous || !previous.email.includes(`@`)) return undefined
+  const email = previous.email.trim().toLowerCase()
+  return options.find(
+    (option) =>
+      option.agent === previous.agent &&
+      option.email.trim().toLowerCase() === email
+  )
 }
