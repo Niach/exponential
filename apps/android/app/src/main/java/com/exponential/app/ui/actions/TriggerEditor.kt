@@ -53,7 +53,7 @@ import com.exponential.app.ui.components.LaunchOptionsVariant
 import com.exponential.app.ui.components.OptionGroup
 import com.exponential.app.ui.components.PickerRow
 import com.exponential.app.ui.components.accountOptionsFor
-import com.exponential.app.ui.components.ambientAccountOptions
+import com.exponential.app.ui.components.unpinnedAccountOptions
 import com.exponential.app.ui.components.availableAgentsFor
 import com.exponential.app.ui.components.toPickerAccount
 import com.exponential.app.ui.components.defaultAgentFor
@@ -82,7 +82,7 @@ internal const val TRIGGER_KIND_EVENT = "event"
  * [agent] is seeded from the bound machine's last used agent (EXP-615 — empty
  * only before one is bound); EXP-995: [account] is the agent profile the run
  * spends, picked WITH its agent off the account row as the option id
- * VERBATIM (`system` = the ambient login); "" is unpinned, saved as NULL, and
+ * VERBATIM; "" is unpinned, saved as NULL, and
  * runs on the machine's LAST USED login (EXP-1158). An empty [model]/[effort]
  * is the "CLI default" that saves as NULL.
  */
@@ -329,7 +329,7 @@ internal fun TriggerWhenFields(
  *    keeping model/effort; an agent the new machine reports no login for
  *    falls back to its last used login.
  *
- * Every seeded pin is the option id VERBATIM, `system` included.
+ * Every seeded pin is the option id VERBATIM ("" = unpinned).
  */
 internal fun seedTriggerPin(
     draft: TriggerDraft,
@@ -374,10 +374,10 @@ internal fun TriggerBindingFields(
     val device = devices.firstOrNull { it.deviceId == draft.deviceId }
     // EXP-995: every signed-in login the bound machine reports, across
     // agents; a machine that reports none (or none bound yet) offers one
-    // ambient row per runnable agent so the pin can be made before the
+    // unpinned row per runnable agent so the pin can be made before the
     // heartbeat lands (the workflow runner block's rule).
     val accountOptions = if (device == null) {
-        ambientAccountOptions(DomainContract.codingAgentValues, draft.agent.takeIf { it.isNotEmpty() })
+        unpinnedAccountOptions(DomainContract.codingAgentValues, draft.agent.takeIf { it.isNotEmpty() })
     } else {
         accountOptionsFor(device, availableAgentsFor(device))
     }
@@ -443,8 +443,7 @@ internal fun TriggerBindingFields(
                                 // Only an AGENT change invalidates the
                                 // vocabularies below; another login of the same
                                 // agent keeps model and effort exactly as
-                                // picked. The id rides VERBATIM, `system`
-                                // naming the ambient login.
+                                // picked. The id rides VERBATIM.
                                 val agentChanged = option.agent != draft.agent
                                 onChange(
                                     draft.copy(

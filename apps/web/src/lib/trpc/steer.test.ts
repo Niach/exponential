@@ -1013,23 +1013,23 @@ describe(`steer.startSession — builtin fix-conflicts`, () => {
 // ── EXP-1138 gate split: the start-time account fallback ─────────────────────
 
 describe(`steer.startSession — account fallback (EXP-1138)`, () => {
-  const profiles = (ambientSignedIn: boolean, workSignedIn: boolean) => ({
+  const profiles = (lastUsedSignedIn: boolean, workSignedIn: boolean) => ({
     claude: {
-      signedIn: ambientSignedIn,
+      signedIn: lastUsedSignedIn,
       profiles: [
-        { id: `system`, signedIn: ambientSignedIn, active: true },
+        { id: `home`, signedIn: lastUsedSignedIn, active: true },
         { id: `work`, signedIn: workSignedIn },
       ],
     },
   })
 
-  it(`names the first signed-in profile when the ambient login is signed out`, async () => {
+  it(`names the first signed-in profile when the last used one is signed out`, async () => {
     queueOwnDevice({ agentAccounts: profiles(false, true) })
     await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, agent: `claude` })
     expect(lastStartBody()).toMatchObject({ account: `work` })
   })
 
-  it(`leaves the frame alone when the ambient login is signed in, and honours the caller's pick`, async () => {
+  it(`leaves the frame alone when the last used profile is signed in, and honours the caller's pick`, async () => {
     queueOwnDevice({ agentAccounts: profiles(true, true) })
     await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, agent: `claude` })
     expect(lastStartBody().account).toBeUndefined()
@@ -1039,9 +1039,29 @@ describe(`steer.startSession — account fallback (EXP-1138)`, () => {
       issueId: ISSUE_A,
       deviceId: `dev-1`,
       agent: `claude`,
+      account: `home`,
+    })
+    expect(lastStartBody()).toMatchObject({ account: `home` })
+  })
+
+  it(`reads a legacy system pick as unpinned (no ambient login is ever used)`, async () => {
+    queueOwnDevice({ agentAccounts: profiles(false, true) })
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      agent: `claude`,
       account: `system`,
     })
-    expect(lastStartBody()).toMatchObject({ account: `system` })
+    expect(lastStartBody()).toMatchObject({ account: `work` })
+
+    queueOwnDevice({ agentAccounts: profiles(true, true) })
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      agent: `claude`,
+      account: `system`,
+    })
+    expect(lastStartBody().account).toBeUndefined()
   })
 
   it(`refuses when no profile of the agent is signed in`, async () => {
@@ -1068,72 +1088,6 @@ describe(`steer.startSession — account fallback (EXP-1138)`, () => {
       deviceId: `dev-1`,
       inputs: { board: `99999999-9999-4999-8999-999999999999` },
     })
-    expect(lastStartBody()).toMatchObject({ account: `work` })
-  })
-})
-
-// ── EXP-1158 compat shim: old natives omit `account` for the ambient login ───
-// Delete with lib/trpc/legacy-clients.ts (CLIENT_MIN_VERSION_IOS > 0.14.49,
-// _ANDROID > 0.14.50, _DESKTOP/_CLI > 0.14.58).
-
-describe(`steer.startSession — old native clients name no ambient login (EXP-1158 shim)`, () => {
-  const callerFor = (clientVersion?: string) =>
-    steerRouter.createCaller({
-      session: { user: { id: `actor`, name: `Actor`, email: `a@example.com` } },
-      db: ctxDb,
-      request: new Request(`http://localhost/`, {
-        headers: clientVersion ? { "x-client-version": clientVersion } : {},
-      }),
-    } as never)
-  const start = { issueId: ISSUE_A, deviceId: `dev-1`, agent: `claude` } as const
-
-  it(`sends system for an absent account from a build before this release`, async () => {
-    for (const version of [
-      `ios/0.14.45`,
-      `ios/0.14.49`,
-      `android/0.14.50`,
-      `desktop/0.14.58`,
-      `cli/0.14.58-staging`,
-    ]) {
-      queueOwnDevice()
-      await callerFor(version).startSession(start)
-      expect(lastStartBody(), version).toMatchObject({ account: `system` })
-    }
-  })
-
-  it(`leaves the account absent for this release's builds, the web app and unreadable headers`, async () => {
-    for (const version of [
-      `ios/0.14.50`,
-      `android/0.14.51`,
-      `desktop/0.14.59`,
-      `cli/0.15.0`,
-      undefined,
-      `ios/next`,
-      `watch/0.1.0`,
-    ]) {
-      queueOwnDevice()
-      await callerFor(version).startSession(start)
-      expect(lastStartBody().account, String(version)).toBeUndefined()
-    }
-  })
-
-  it(`keeps an old client's own pick and the signed-out fallback`, async () => {
-    queueOwnDevice()
-    await callerFor(`ios/0.14.45`).startSession({ ...start, account: `work` })
-    expect(lastStartBody()).toMatchObject({ account: `work` })
-
-    queueOwnDevice({
-      agentAccounts: {
-        claude: {
-          signedIn: false,
-          profiles: [
-            { id: `system`, signedIn: false, active: true },
-            { id: `work`, signedIn: true },
-          ],
-        },
-      },
-    })
-    await callerFor(`ios/0.14.45`).startSession(start)
     expect(lastStartBody()).toMatchObject({ account: `work` })
   })
 })
@@ -2244,7 +2198,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
         claude: {
           signedIn: true,
           profiles: [
-            { id: `system`, signedIn: true, active: true },
+            { id: `home`, signedIn: true, active: true },
             { id: `work`, signedIn: true },
           ],
         },
@@ -2298,11 +2252,10 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 
-  // EXP-849: PRESENCE of an account is the whole gate — `system` (the ambient
-  // login) names a profile like any other, so switching a live run BACK onto
-  // it is the same accepted move. Nothing validates it against the reported
-  // profiles either: the ambient login always exists on the machine.
-  it(`accepts a switch onto the system profile on a live run`, async () => {
+  // EXP-849: PRESENCE of an account is the whole gate. A legacy `system` pick
+  // (an old client's "Default") rides through unvalidated: the device reads it
+  // as unpinned and resumes on its last used profile.
+  it(`accepts a legacy system switch on a live run`, async () => {
     queueEndedRun({ status: `running`, issueId: ISSUE_A, agent: `claude` })
     queueOwnDevice({
       caps: [`resume-run`, `account-switch`],
@@ -2392,7 +2345,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
       agentAccounts: {
         claude: {
           signedIn: true,
-          profiles: [{ id: `system`, signedIn: true, active: true }],
+          profiles: [{ id: `home`, signedIn: true, active: true }],
         },
       },
     })
@@ -2468,12 +2421,12 @@ describe(`steer.startSession — MCP servers + account (EXP-792)`, () => {
       actionId: ACTION_ID,
       deviceId: `dev-1`,
       mcpServerIds: [MCP_A],
-      account: `system`,
+      account: `work`,
     })
     expect(lastStartBody()).toMatchObject({
       actionId: ACTION_ID,
       mcpServerIds: [MCP_A],
-      account: `system`,
+      account: `work`,
     })
   })
 

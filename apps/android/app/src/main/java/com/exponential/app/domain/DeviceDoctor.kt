@@ -22,6 +22,8 @@ data class DeviceDoctorItem(
     val state: String,
     val detail: String? = null,
     val action: String? = null,
+    /** The email of the agent's AMBIENT login, which the device can import. */
+    val import: String? = null,
 )
 
 data class DeviceDoctor(
@@ -52,6 +54,7 @@ fun parseDeviceDoctor(raw: String?): DeviceDoctor? {
             state = item.str("state") ?: return@mapNotNull null,
             detail = item.str("detail"),
             action = item.str("action"),
+            import = item.str("import")?.trim()?.takeIf { it.isNotEmpty() },
         )
     }
     return DeviceDoctor(checkedAt = obj.str("checkedAt"), items = items)
@@ -82,6 +85,11 @@ data class DoctorRow(
     val actionLabel: String? = null,
     /** The ONE filled pill of the block. */
     val primary: Boolean = false,
+    /**
+     * The OFFERED import (the ambient login's email; null when none, or not
+     * offered on this device): a plain pill BEFORE the action pill.
+     */
+    val importEmail: String? = null,
 )
 
 data class DoctorGroup(
@@ -110,6 +118,7 @@ object DeviceReadiness {
     const val ACTION_INSTALL = "install"
     const val ACTION_UPDATE = "update"
     const val ACTION_SIGN_IN = "sign_in"
+    const val ACTION_IMPORT = "import"
     const val ACTION_GRANT = "grant"
 
     /** Fixture `groups`, in block order. */
@@ -136,8 +145,14 @@ object DeviceReadiness {
         ACTION_INSTALL to Action("Install", remote = false),
         ACTION_UPDATE to Action("Update", remote = true),
         ACTION_SIGN_IN to Action("Sign in", remote = true),
+        ACTION_IMPORT to Action("Import", remote = true),
         ACTION_GRANT to Action("Open System Settings", remote = false),
     )
+
+    /** Fixture `copy`: the import confirm and the duplicate sign-in toast. */
+    fun importTitle(email: String): String = "Import $email?"
+    const val IMPORT_BODY = "Your login moves into Exponential. Sign in again outside of it."
+    fun alreadyAdded(email: String): String = AgentAccountsRows.alreadyAddedToast(email)
 
     fun label(key: String): String = LABELS[key] ?: key
 
@@ -158,16 +173,29 @@ object DeviceReadiness {
     }
 
     /**
+     * An agent row's import pill: offered on the device itself always, on
+     * ANOTHER device only when `import` is remote AND the device declares the
+     * `agent-import` cap ([canImport]).
+     */
+    private fun offeredImport(item: DeviceDoctorItem, remote: Boolean, canImport: Boolean): String? {
+        val email = item.import ?: return null
+        if (!remote) return email
+        return email.takeIf { canImport && ACTIONS[ACTION_IMPORT]?.remote == true }
+    }
+
+    /**
      * The block's groups for [doctor]. [remote] = rendered for ANOTHER device
      * (a phone is always remote). [computerUseOn] overrides the switch row's
      * state with the LOCAL launch-defaults value (the switch writes
      * `launch_defaults.computerUse`; the doctor follows on the next heartbeat);
      * null = read it off the doctor (`off` = off, anything else = on).
+     * [canImport] = the device declares `agent-import` (remote import pills).
      */
     fun groups(
         doctor: DeviceDoctor,
         remote: Boolean,
         computerUseOn: Boolean? = null,
+        canImport: Boolean = false,
     ): List<DoctorGroup> {
         val stateOf = doctor.items.associate { it.key to it.state }
         fun effectiveState(item: DeviceDoctorItem): String =
@@ -220,6 +248,7 @@ object DeviceReadiness {
                         action = action,
                         actionLabel = action?.let { ACTIONS[it]?.label },
                         primary = primary,
+                        importEmail = offeredImport(item, remote, canImport),
                     )
                 }
             }
@@ -242,13 +271,18 @@ object DeviceReadiness {
      * run; null when nothing is wrong (or the doctor does not know the agent).
      * Same row, same action — and, being alone, its pill is the primary one.
      */
-    fun failingRow(doctor: DeviceDoctor, agent: String, remote: Boolean = true): DoctorRow? {
+    fun failingRow(
+        doctor: DeviceDoctor,
+        agent: String,
+        remote: Boolean = true,
+        canImport: Boolean = false,
+    ): DoctorRow? {
         val git = doctor.items.firstOrNull { it.key == KEY_GIT }
         val item = git?.takeIf { it.state != STATE_OK }
             ?: doctor.items.firstOrNull { it.key == agent && it.group == GROUP_AGENTS }
                 ?.takeIf { it.state != STATE_OK }
             ?: return null
-        return singleRow(item, remote)
+        return singleRow(item, remote, canImport)
     }
 
     /**
@@ -260,7 +294,7 @@ object DeviceReadiness {
         groups(doctor, remote).flatMap { it.rows }
             .filter { !it.isSwitch && needsAttention(it.state) }
 
-    private fun singleRow(item: DeviceDoctorItem, remote: Boolean): DoctorRow {
+    private fun singleRow(item: DeviceDoctorItem, remote: Boolean, canImport: Boolean): DoctorRow {
         val (glyph, tone) = glyphAndTone(item.state)
         val action = offered(item.action, remote)
         return DoctorRow(
@@ -274,6 +308,7 @@ object DeviceReadiness {
             action = action,
             actionLabel = action?.let { ACTIONS[it]?.label },
             primary = action != null,
+            importEmail = offeredImport(item, remote, canImport),
         )
     }
 }

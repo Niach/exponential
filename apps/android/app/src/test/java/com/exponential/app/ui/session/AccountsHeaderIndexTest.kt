@@ -23,7 +23,6 @@ class AccountsHeaderIndexTest {
         online = true,
         agent = agent,
         profileId = profileId,
-        profileLabel = "Default",
         active = true,
         signedIn = true,
         health = AgentHealth.Ok,
@@ -37,11 +36,11 @@ class AccountsHeaderIndexTest {
     fun `a login row's command slot is scoped to its machine`() {
         // EXP-849: two machines holding the SAME login would share one spinner
         // and one error caption without the device scope.
-        val studio = login("studio", "claude", "system")
-        assertEquals("studio:claude:system", deviceLoginCommandKey(studio))
+        val studio = login("studio", "claude", "p-a")
+        assertEquals("studio:claude:p-a", deviceLoginCommandKey(studio))
         assertNotEquals(
             deviceLoginCommandKey(studio),
-            deviceLoginCommandKey(login("buildbox", "claude", "system")),
+            deviceLoginCommandKey(login("buildbox", "claude", "p-a")),
         )
         // …and two logins on ONE machine never share one either.
         assertNotEquals(
@@ -68,20 +67,20 @@ class AccountsHeaderIndexTest {
             agentLoginCommandKey("a", "claude", null),
             agentLoginCommandKey("b", "claude", null),
         )
-        // …nor two logins on one machine, nor a new profile and the ambient one.
+        // …nor two logins on one machine, nor a repair and an Add account.
         assertNotEquals(
             agentLoginCommandKey("a", "claude", "work"),
-            agentLoginCommandKey("a", "claude", "system"),
+            agentLoginCommandKey("a", "claude", "p-a"),
         )
         assertNotEquals(
-            agentLoginCommandKey("a", "claude", null, newProfileLabel = "dev@acme.test"),
+            agentLoginCommandKey("a", "claude", "work"),
             agentLoginCommandKey("a", "claude", null),
         )
-        // Null profile = the ambient login, the same slot as naming it.
-        assertEquals(
-            agentLoginCommandKey("a", "claude", "system"),
-            agentLoginCommandKey("a", "claude", null),
-        )
+        // Null profile = "Add account"; a blank id spells the same.
+        assertEquals("login:a:claude:new", agentLoginCommandKey("a", "claude", null))
+        assertEquals(agentLoginCommandKey("a", "claude", " "), agentLoginCommandKey("a", "claude", null))
+        // An import is its own slot per machine × agent.
+        assertEquals("import:a:claude", agentImportCommandKey("a", "claude"))
         // The code slot is the same sign-in under its own prefix.
         assertEquals("login:a:claude:work", agentLoginCommandKey("a", "claude", "work"))
         assertEquals("login-code:a:claude:work", agentLoginCodeCommandKey("a", "claude", "work"))

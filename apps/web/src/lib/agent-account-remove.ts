@@ -1,6 +1,6 @@
 // EXP-862: "Remove account" — the rule behind the chip menu's destructive
 // entry, and the sentence the confirm asks. EXP-1137 adds "Sign out" beside
-// it, and lets the machine's own AMBIENT login be removed too.
+// it.
 //
 // What the removal removes is the MACHINE's copy of a login: the agent CLI's
 // config dir for that profile (credentials included) and its index row. The
@@ -8,17 +8,15 @@
 // would revoke it server-wide, and nothing about it leaves the machine. Which
 // is exactly what the confirm says, so nobody has to guess.
 //
-// EXP-1137: the ambient login (`system`) is the agent CLI's own config dir,
-// so there is no dir to delete. "Remove account" there means: sign it out on
-// the machine (claude's own `auth logout`; codex's credential file deleted,
-// never `codex logout`) and hide the row until that login signs in again.
-// "Sign out" alone does the first half and keeps the row, for any login.
-// Both ride the machine's `account-sign-out` cap.
+// "Sign out" (EXP-1137, cap `account-sign-out`) signs one login out on the
+// machine (claude's own `auth logout` inside its config dir; codex's
+// credential file deleted, never `codex logout`) and keeps the row. Every row
+// is a profile dir the machine created: the agent CLI's own (ambient) login is
+// never listed, so it is never removed or signed out from here.
 //
 // Hand-mirrored ×4 (desktop `usage_bar.rs` / `agent_account_actions.rs`, iOS
 // and Android `AgentAccountsRows`): same rule, same strings.
 import type { DeviceAgentHealth } from "@/db/schema"
-import { SYSTEM_PROFILE_ID } from "./agent-usage"
 import {
   deviceCanAgentLogin,
   deviceCanRemoveAccount,
@@ -26,10 +24,9 @@ import {
   type SteerDevice,
 } from "./steer-devices"
 
-/** The chip fields the rule reads — a `DeviceAccountChip` and the account
- * page's `AgentProfileUsageRow` both satisfy it. */
+/** The chip fields the sign-out rule reads — a `DeviceAccountChip` and the
+ * account page's `AgentProfileUsageRow` both satisfy it. */
 export interface RemovableAccountRow {
-  profileId: string
   signedIn: boolean
   health: DeviceAgentHealth
 }
@@ -38,24 +35,14 @@ export interface RemovableAccountRow {
  * requester that raced a downgrade reads the same sentence twice. */
 export const REMOVE_ACCOUNT_OLD_APP = `That machine runs an older Exponential app that cannot remove agent accounts. Update it first.`
 
-/** EXP-1137: the server's refusal for a sign-out (or an ambient removal,
- * which signs out first) on a build without the body. Byte-identical ×4. */
+/** EXP-1137: the server's refusal for a sign-out on a build without the
+ * body. Byte-identical ×4. */
 export const SIGN_OUT_OLD_APP = `That machine runs an older Exponential app that cannot sign agent accounts out. Update it first.`
-
-/** The ambient login: the CLI's own config dir. */
-export function isAmbientProfile(profileId: string): boolean {
-  return !profileId || profileId === SYSTEM_PROFILE_ID
-}
 
 /** Why "Remove account" is NOT offered for this login on this machine, or
  * null when it is. The menu shows the entry exactly when this is null; the
- * sentence exists for the tooltip and for a requester that raced the state.
- *
- * Two builds, one refusal each:
- *  - the ambient login needs the sign-out body (`account-sign-out`): the
- *    machine signs it out and hides the row;
- *  - a named profile needs the removal body (`account-remove`): the machine
- *    deletes its dir.
+ * sentence exists for the tooltip and for a requester that raced the state:
+ * the machine needs the removal body (`account-remove`) to delete the dir.
  *
  * EXP-944: being signed OUT is not one of them. A dead profile is the thing
  * people most want gone, the removal is a profile-dir delete that never
@@ -64,26 +51,19 @@ export function isAmbientProfile(profileId: string): boolean {
  * credential's state. So a signed-out login offers "Sign in" AND "Remove
  * account". */
 export function removeAccountBlockReason(
-  device: Pick<SteerDevice, `caps`>,
-  row: RemovableAccountRow
+  device: Pick<SteerDevice, `caps`>
 ): string | null {
-  if (!deviceCanAgentLogin(device)) {
-    return isAmbientProfile(row.profileId)
-      ? SIGN_OUT_OLD_APP
-      : REMOVE_ACCOUNT_OLD_APP
+  if (!deviceCanAgentLogin(device) || !deviceCanRemoveAccount(device)) {
+    return REMOVE_ACCOUNT_OLD_APP
   }
-  if (isAmbientProfile(row.profileId)) {
-    return deviceCanSignOutAccount(device) ? null : SIGN_OUT_OLD_APP
-  }
-  return deviceCanRemoveAccount(device) ? null : REMOVE_ACCOUNT_OLD_APP
+  return null
 }
 
 /** Whether the chip menu offers "Remove account" for this login. */
 export function canRemoveAccountOn(
-  device: Pick<SteerDevice, `caps`>,
-  row: RemovableAccountRow
+  device: Pick<SteerDevice, `caps`>
 ): boolean {
-  return removeAccountBlockReason(device, row) === null
+  return removeAccountBlockReason(device) === null
 }
 
 /** EXP-1137: why "Sign out" is NOT offered for this login on this machine,
@@ -118,27 +98,11 @@ export function removeAccountConfirmCopy(
   return `Delete ${accountLabel} on ${deviceLabel}? The login is removed from this device only; the account itself is untouched.`
 }
 
-/** EXP-1137: the ambient login's remove confirm, pinned ×4. `agentLabel` is
- * the agent's display name (`Claude` / `Codex`): the sentence has to say
- * that the CLI in the person's own terminal is signed out along with it. */
-export function removeAmbientAccountConfirmCopy(
-  accountLabel: string,
-  deviceLabel: string,
-  agentLabel: string
-): string {
-  return `Remove ${accountLabel} from ${deviceLabel}? The machine's own ${agentLabel} login is signed out there, including for the ${agentLabel} CLI in the terminal, and hidden here until it signs in again; the account itself is untouched.`
-}
-
-/** EXP-1137: the sign-out confirm, pinned ×4. `ambientAgentLabel` names the
- * agent when the login is the machine's own (the terminal CLI signs out
- * too); a named profile keeps its row for a later sign-in. */
+/** EXP-1137: the sign-out confirm, pinned ×4: the login keeps its row for a
+ * later sign-in. */
 export function signOutConfirmCopy(
   accountLabel: string,
-  deviceLabel: string,
-  ambientAgentLabel?: string | null
+  deviceLabel: string
 ): string {
-  if (ambientAgentLabel) {
-    return `Sign ${accountLabel} out on ${deviceLabel}? That is the machine's own ${ambientAgentLabel} login, so the ${ambientAgentLabel} CLI there is signed out too; the account itself is untouched.`
-  }
   return `Sign ${accountLabel} out on ${deviceLabel}? The login stays listed so it can sign in again; the account itself is untouched.`
 }

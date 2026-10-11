@@ -20,7 +20,7 @@ class SessionAccountSwitchTest {
             health = "ok",
             profiles = listOf(
                 AgentAccountProfile(
-                    id = "system",
+                    id = "me",
                     active = true,
                     signedIn = true,
                     email = "me@acme.test",
@@ -29,13 +29,12 @@ class SessionAccountSwitchTest {
                 ),
                 AgentAccountProfile(
                     id = "work",
-                    label = "Work",
                     signedIn = true,
                     email = "work@acme.test",
                     health = "ok",
                 ),
-                AgentAccountProfile(id = "stale", label = "Old", signedIn = true, health = "needs_relogin"),
-                AgentAccountProfile(id = "empty", label = "Spare", signedIn = false),
+                AgentAccountProfile(id = "stale", signedIn = true, health = "needs_relogin"),
+                AgentAccountProfile(id = "empty", signedIn = false),
             ),
         ),
         "codex" to AgentAccount(signedIn = true, email = "cx@acme.test"),
@@ -69,22 +68,17 @@ class SessionAccountSwitchTest {
     @Test
     fun `options list every profile the machine reported`() {
         val options = SessionAccountSwitch.options(accounts, "claude")
-        assertEquals(listOf("system", "work", "stale", "empty"), options.map { it.profileId })
-        assertEquals("Default", options[0].label)
-        assertEquals("Work", options[1].label)
+        assertEquals(listOf("me", "work", "stale", "empty"), options.map { it.profileId })
+        assertEquals("me@acme.test", options[0].caption)
         assertEquals("work@acme.test", options[1].caption)
-        // EXP-1013: a login that names nobody is never its internal label.
+        // EXP-1013: a login that names nobody reads "No email".
         assertEquals("No email", options[3].caption)
         assertEquals(AgentHealth.NeedsRelogin, options[2].health)
     }
 
     @Test
-    fun `a pre-profile machine offers its one ambient account`() {
-        val options = SessionAccountSwitch.options(accounts, "codex")
-        assertEquals(1, options.size)
-        assertEquals("system", options[0].profileId)
-        assertEquals("cx@acme.test", options[0].caption)
-        assertEquals(AgentHealth.Ok, options[0].health)
+    fun `an agent with no profiles offers nothing, never its top-level login`() {
+        assertEquals(emptyList<SessionAccountOption>(), SessionAccountSwitch.options(accounts, "codex"))
         // Nothing reported for the agent = nothing to switch between.
         assertEquals(emptyList<SessionAccountOption>(), SessionAccountSwitch.options(accounts, "gemini"))
         assertEquals(emptyList<SessionAccountOption>(), SessionAccountSwitch.options(null, "claude"))
@@ -96,10 +90,10 @@ class SessionAccountSwitchTest {
         assertNull(refusal("work"))
         // The machine's own active login is still a valid continuation target —
         // only a run KNOWN to be on it is refused.
-        assertNull(refusal("system"))
+        assertNull(refusal("me"))
         assertEquals(
             SessionAccountSwitch.REASON_ALREADY,
-            refusal("system", currentAccount = "system"),
+            refusal("me", currentAccount = "me"),
         )
     }
 
@@ -129,11 +123,10 @@ class SessionAccountSwitchTest {
     }
 
     @Test
-    fun `a switch names the account it targets, the ambient login included`() {
+    fun `a switch names the account it targets`() {
         // The PRESENCE of `account` is what makes the server accept a resume of
-        // a LIVE run, so the ambient login is named here (unlike a fresh start,
-        // where `system` is the absence of the field).
-        assertEquals("system", SessionAccountSwitch.wireAccount(option("system")))
+        // a LIVE run, so the last used login is named here too.
+        assertEquals("me", SessionAccountSwitch.wireAccount(option("me")))
         assertEquals("work", SessionAccountSwitch.wireAccount(option("work")))
     }
 }

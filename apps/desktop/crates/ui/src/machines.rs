@@ -824,13 +824,7 @@ impl MachinesSection {
             };
             let badge = crate::usage_bar::health_badge(login.health, cx);
             let actions = if actionable {
-                chip_actions(
-                    login.signed_in,
-                    login.health,
-                    &login.profile_id,
-                    can_remove,
-                    can_sign_out,
-                )
+                chip_actions(login.signed_in, login.health, can_remove, can_sign_out)
             } else {
                 Vec::new()
             };
@@ -861,7 +855,7 @@ impl MachinesSection {
                                 device_label.clone(),
                                 own,
                                 agent,
-                                coding::agent_login::LoginTarget::Profile(profile_id.clone()),
+                                Some(profile_id.clone()),
                                 window,
                                 cx,
                             ),
@@ -1180,14 +1174,13 @@ mod tests {
 
     fn login_row(mine: bool, online: bool) -> AgentProfileUsageRow {
         AgentProfileUsageRow {
-            key: "dev-1:claude:system".to_string(),
+            key: "dev-1:claude:0a1b2c3d".to_string(),
             device_id: "dev-1".to_string(),
             device_label: "Studio".to_string(),
             mine,
             online,
             agent: "claude".to_string(),
-            profile_id: crate::usage_bar::SYSTEM_PROFILE_ID.to_string(),
-            profile_label: "Default".to_string(),
+            profile_id: "0a1b2c3d".to_string(),
             active: true,
             signed_in: true,
             email: None,

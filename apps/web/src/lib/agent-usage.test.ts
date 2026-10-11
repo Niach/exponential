@@ -647,7 +647,7 @@ describe(`account health (EXP-849)`, () => {
           claude: {
             signedIn: true,
             profiles: [
-              { id: `system`, signedIn: true, health: `ok`, active: true },
+              { id: `home`, signedIn: true, health: `ok`, active: true },
               { id: `work`, signedIn: true, health: `needs_relogin` },
             ],
           },
@@ -655,10 +655,10 @@ describe(`account health (EXP-849)`, () => {
         },
       })
     ).toBe(`needs_relogin`)
-    // A pre-profile machine falls back to the top-level account…
+    // The top-level fields only mirror a profile: no profiles, no verdict…
     expect(
       deviceWorstHealth({ agentAccounts: { claude: { signedIn: false } } })
-    ).toBe(`signed_out`)
+    ).toBeNull()
     // …and a machine that reported nothing claims nothing.
     expect(deviceWorstHealth({ agentAccounts: {} })).toBeNull()
   })
@@ -683,12 +683,25 @@ describe(`retired agent ids (EXP-849)`, () => {
     label: `unraid`,
     userId: `me`,
     agentAccounts: {
-      claude: { signedIn: true, email: `dev@acme.test` },
+      claude: {
+        signedIn: true,
+        email: `dev@acme.test`,
+        profiles: [
+          { id: `a1`, signedIn: true, active: true, health: `ok` as const },
+        ],
+      },
       pi: {
         signedIn: true,
         email: `dev@acme.test`,
         health: `needs_relogin` as const,
-        profiles: [{ id: `system`, signedIn: true, active: true }],
+        profiles: [
+          {
+            id: `p1`,
+            signedIn: true,
+            active: true,
+            health: `needs_relogin` as const,
+          },
+        ],
       },
     },
     agentUsage: {
@@ -797,7 +810,7 @@ describe(`device logins (EXP-909)`, () => {
         signedIn: true,
         email: `dev@acme.test`,
         profiles: [
-          { id: `system`, signedIn: true, active: true, email: `dev@acme.test` },
+          { id: `c1`, signedIn: true, active: true, email: `dev@acme.test` },
         ],
       },
       claude: {
@@ -805,15 +818,13 @@ describe(`device logins (EXP-909)`, () => {
         profiles: [
           {
             id: `work`,
-            label: `Claude account 2`,
             signedIn: true,
             active: false,
             email: `work@acme.test`,
             plan: `max`,
           },
           {
-            id: `system`,
-            label: `Default`,
+            id: `home`,
             signedIn: true,
             active: true,
             email: `dev@acme.test`,
@@ -821,7 +832,6 @@ describe(`device logins (EXP-909)`, () => {
           },
           {
             id: `dead`,
-            label: `Claude account 3`,
             signedIn: true,
             active: false,
             health: `needs_relogin` as const,
@@ -833,17 +843,17 @@ describe(`device logins (EXP-909)`, () => {
     agentUsageAt: null,
   }
 
-  it(`device logins lead with the active login, in contract agent order`, () => {
+  it(`device logins keep the machine's order, in contract agent order`, () => {
     const rows = sortDeviceLogins(
       deviceLoginRows(device, { mine: true, online: true })
     )
     expect(rows.map((row) => `${row.agent}:${row.profileId}`)).toEqual([
-      // claude before codex (contract order), the machine's ACTIVE login
-      // first, then the expired credential, then the healthy spare.
-      `claude:system`,
-      `claude:dead`,
+      // claude before codex (contract order), then the order the machine
+      // sent its profiles in.
       `claude:work`,
-      `codex:system`,
+      `claude:home`,
+      `claude:dead`,
+      `codex:c1`,
     ])
     // The rows are one machine's: every one carries its label and verdicts.
     expect(rows.every((row) => row.deviceLabel === `MacBook`)).toBe(true)
@@ -857,7 +867,6 @@ describe(`device logins (EXP-909)`, () => {
     expect(loginLabel({ email: null, plan: `openai-codex (oauth)` })).toBe(
       `openai-codex (oauth)`
     )
-    // EXP-1013: never the profile's internal label.
     expect(loginLabel({ email: null, plan: null })).toBe(`No email`)
   })
 
@@ -866,6 +875,23 @@ describe(`device logins (EXP-909)`, () => {
       deviceLoginRows(
         { deviceId: `mint`, deviceLabel: `mint`, agentAccounts: {} },
         { mine: true, online: false }
+      )
+    ).toEqual([])
+    // Never a synthesized ambient row off the top-level fields, even when the
+    // CLI's own login is signed in (that one is only `importable`).
+    expect(
+      deviceLoginRows(
+        {
+          deviceId: `mint`,
+          deviceLabel: `mint`,
+          agentAccounts: {
+            claude: { signedIn: false, importable: { email: `dev@acme.test` } },
+          },
+          agentUsage: {
+            claude: { fetchedAt: `2026-08-28T11:55:00.000Z`, windows: [] },
+          },
+        },
+        { mine: true, online: true }
       )
     ).toEqual([])
     expect(NO_LOGIN_REPORTED).toBe(`No login reported`)

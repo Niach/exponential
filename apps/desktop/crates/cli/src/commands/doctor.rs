@@ -92,8 +92,9 @@ fn fix_hint(item: &DoctorItem) -> Option<String> {
             "fetch again from the app: Devices → this device → Update (or wait a few minutes: the daemon retries on its own for a while)".to_string()
         }
         (DoctorAction::Update, Some(agent)) => format!("run: {} update", agent.id()),
-        (DoctorAction::SignIn, Some(CodingAgent::Claude)) => "run: claude".to_string(),
-        (DoctorAction::SignIn, Some(CodingAgent::Codex)) => {
+        // Runs only ever use the device's account profiles: a terminal
+        // `claude` login lands in the AMBIENT store, which nothing runs on.
+        (DoctorAction::SignIn, Some(_)) => {
             "sign in from the app: Devices → this device → Sign in".to_string()
         }
         (DoctorAction::Install, Some(CodingAgent::Claude)) => {
@@ -130,6 +131,14 @@ fn row(indent: usize, item: &DoctorItem, label: &str) -> String {
         if let Some(hint) = fix_hint(item) {
             line.push_str(&format!("  ({hint})"));
         }
+    }
+    // An ambient login (`~/.claude`, `~/.codex`) the device can take over.
+    if let Some(email) = &item.import {
+        line.push_str(&format!(
+            "  ({} {email} from the app: Devices → this device → {})",
+            DoctorAction::Import.label().to_lowercase(),
+            DoctorAction::Import.label()
+        ));
     }
     line.trim_end().to_string()
 }
@@ -249,7 +258,23 @@ mod tests {
         );
         let lines = render_block(&case(2), None);
         assert!(lines.contains(&format!("  ✗ Git                 Not installed  ({})", git_install_hint())));
-        assert!(lines.contains(&"  ! Claude Code         Signed out  (run: claude)".to_string()));
+        assert!(lines.contains(
+            &"  ! Claude Code         Signed out  (sign in from the app: Devices → this device → Sign in)"
+                .to_string()
+        ));
         assert!(!lines.iter().any(|line| line.contains("Remote desktop")));
+    }
+
+    /// An ambient login to import rides its row, after the sign-in hint.
+    #[test]
+    fn renders_the_import_offer() {
+        let lines = render_block(&case(5), None);
+        assert!(
+            lines.contains(
+                &"  ! Claude Code         Signed out  (sign in from the app: Devices → this device → Sign in)  (import dev@acme.test from the app: Devices → this device → Import)"
+                    .to_string()
+            ),
+            "{lines:?}"
+        );
     }
 }

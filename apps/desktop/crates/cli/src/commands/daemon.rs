@@ -1409,9 +1409,9 @@ fn reconcile_stale_sessions(ctx: &Ctx) {
 const ROTATION_BEAT: Duration = Duration::from_secs(5);
 
 /// One live run's wall in the rotation's vocabulary — `None` unless the
-/// wall is a rate limit. `account` = the run registry's recorded login
-/// (`None` = the ambient one, `system`); a record with no clone (a scratch
-/// run), or no record at all, is a run a switch could not resume.
+/// wall is a rate limit. `account` = the run registry's recorded login (a
+/// legacy record names none); a record with no clone (a scratch run), or no
+/// record at all, is a run a switch could not resume.
 fn walled_run(
     session_id: &str,
     worktree: &Path,
@@ -1665,11 +1665,11 @@ fn act_on_rotation(
     match decision {
         coding::account_rotation::Decision::Switch {
             target,
-            target_label,
+            target_name,
             prompt,
         } => {
             log::info!(
-                "account rotation [{}]: switching {} -> {target} ({target_label})",
+                "account rotation [{}]: switching {} -> {target} ({target_name})",
                 run.session_id,
                 run.account
             );
@@ -1898,10 +1898,9 @@ fn issue_resume_record(
 /// The live row does not carry the account, the run RECORD does
 /// (`runs.json`), so the live ids resolve through the registry — ONE load for
 /// the whole pass (`run_registry::all`), never one parse per session. Order
-/// follows `session_ids`; unknown ids are skipped. EXP-1137: an ambient
-/// (account-less) run is a run on the `system` login, not no login — it is
-/// what an ambient sign-out must refuse for. Mirrored by the IDE's
-/// `device_sync::live_run_accounts`.
+/// follows `session_ids`; unknown ids are skipped, and so is a legacy record
+/// that ran on the retired ambient login (it holds no profile). Mirrored by
+/// the IDE's `device_sync::live_run_accounts`.
 fn live_run_accounts(
     data_dir: &Path,
     session_ids: &[String],
@@ -1910,12 +1909,7 @@ fn live_run_accounts(
     session_ids
         .iter()
         .filter_map(|id| records.iter().find(|record| record.session_id == *id))
-        .map(|record| {
-            (
-                record.agent,
-                coding::profile_id(record.account().as_deref()),
-            )
-        })
+        .filter_map(|record| Some((record.agent, record.account()?)))
         .collect()
 }
 
@@ -1954,8 +1948,8 @@ fn remote_issue_start(
             effort: None,
             prompt,
             // EXP-849: a remote "switch account" IS a resume naming one. The
-            // frame's pick, already normalized (`system`/blank → the ambient
-            // login) by [`LaunchOptions::remote`].
+            // frame's pick, already normalized by [`LaunchOptions::remote`]
+            // (blank or the retired `system` = no switch).
             account: options.account.clone(),
         }),
         None => PrepareRequest::Issue(launch::issue_launch_request(
@@ -2666,7 +2660,7 @@ fn run_device_command(
         // (never past the 429 floor — a hot refusal names when).
         "agent_usage_refresh" => {
             let agent = command.payload["agent"].as_str().unwrap_or_default();
-            let profile = command.payload["profileId"].as_str().unwrap_or("system");
+            let profile = command.payload["profileId"].as_str().unwrap_or_default();
             match coding::CodingAgent::parse(agent) {
                 None => (false, "Malformed command payload.".to_string()),
                 Some(agent) => {
@@ -2703,19 +2697,18 @@ fn run_device_command(
         // EXP-862 — "remove account": delete this machine's copy of a login
         // (the profile dir, credentials included, and its index row). The
         // ACCOUNT is untouched — never `codex logout`, which revokes it
-        // server-wide — and nothing leaves the machine. EXP-1137: the ambient
-        // login is signed out and hidden instead. An account a live run here
-        // is using is refused.
+        // server-wide — and nothing leaves the machine. An account a live run
+        // here is using is refused.
         //
         // EXP-1137 — "sign out": the same guard, and the login's credential
         // goes the agent's own way while its row stays.
         //
-        // Both raise `doctor_soon`: the ambient login's row in the cached
-        // report is stale the moment it signs out, and the advertisement
-        // (runnable agents) follows the fresh check on the next loop turn.
+        // Both raise `doctor_soon`: the login's row in the cached report is
+        // stale the moment it signs out, and the advertisement (runnable
+        // agents) follows the fresh check on the next loop turn.
         kind @ ("agent_profile_remove" | "agent_profile_sign_out") => {
             let agent = command.payload["agent"].as_str().unwrap_or_default();
-            let profile = command.payload["profileId"].as_str().unwrap_or("system");
+            let profile = command.payload["profileId"].as_str().unwrap_or_default();
             match coding::CodingAgent::parse(agent) {
                 None => (false, "Malformed command payload.".to_string()),
                 Some(agent) => {
@@ -4292,14 +4285,13 @@ mod tests {
 
         let ids = |ids: &[&str]| ids.iter().map(|id| id.to_string()).collect::<Vec<_>>();
         let pair = |account: &str| (coding::CodingAgent::Claude, account.to_string());
-        // EXP-1137: an ambient run is a run on the `system` login — the pair
-        // an ambient sign-out must refuse for — never a skipped row.
+        // A legacy ambient run holds no profile: skipped.
         assert_eq!(
             live_run_accounts(&dir, &ids(&["sess-c", "sess-b", "sess-a", "sess-missing"])),
-            vec![pair("personal"), pair("system"), pair("shadow")]
+            vec![pair("personal"), pair("shadow")]
         );
         assert!(live_run_accounts(&dir, &[]).is_empty());
-        assert_eq!(live_run_accounts(&dir, &ids(&["sess-b"])), vec![pair("system")]);
+        assert!(live_run_accounts(&dir, &ids(&["sess-b"])).is_empty());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

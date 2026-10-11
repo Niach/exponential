@@ -55,7 +55,8 @@ struct TriggerFormSheet: View {
     /// machine reports, across agents, its last used login first
     /// (`AccountOptions.flatten`, the composer's list). A machine that reports
     /// no login (or none bound yet) still offers a row per runnable agent,
-    /// named by the agent, so the pin can be made before the heartbeat lands.
+    /// named by the agent (blank id = unpinned), so the pin can be made
+    /// before the heartbeat lands.
     private var accountOptions: [AccountOption] {
         let device = selectedDevice
         let options = AccountOptions.flatten(
@@ -67,7 +68,7 @@ struct TriggerFormSheet: View {
         let lastUsedAgent = LaunchVocabulary.lastUsedAgent(of: device)
         return availableAgents.map { value in
             AccountOption(
-                id: AgentAccountsRows.systemProfileId,
+                id: "",
                 agent: value,
                 email: LaunchVocabulary.agentLabel(value),
                 isLastUsed: value == lastUsedAgent
@@ -206,9 +207,9 @@ struct TriggerFormSheet: View {
     }
 
     /// EXP-995: take BOTH halves of a picked option — the agent first (which
-    /// clears the per-agent pins), then the login on top, VERBATIM: `system`
-    /// pins the machine's ambient login by name, while a NULL account is
-    /// unpinned and runs on the machine's last used login (EXP-1158).
+    /// clears the per-agent pins), then the login on top, VERBATIM; a blank
+    /// (NULL) account is unpinned and runs on the machine's last used login
+    /// (EXP-1158).
     private func selectAccount(_ option: AccountOption) {
         selectAgent(option.agent)
         account = option.id
@@ -222,7 +223,8 @@ struct TriggerFormSheet: View {
         if let editing {
             deviceId = editing.deviceId
             agent = editing.agent ?? ""
-            account = editing.account ?? ""
+            // A legacy `system` pin (the retired ambient login) = unpinned.
+            account = AccountOptions.wireAccount(editing.account) ?? ""
             model = editing.model ?? LaunchVocabulary.cliDefault
             effort = editing.effort ?? LaunchVocabulary.cliDefault
             draft = TriggerDraft(trigger: editing.when)
@@ -247,8 +249,8 @@ struct TriggerFormSheet: View {
             enabled: editing?.enabled ?? true,
             deviceId: deviceId,
             agent: agent.isEmpty ? nil : agent,
-            // EXP-1158: the pick VERBATIM (`system` pins the ambient login);
-            // NULL = unpinned = the machine's last used login.
+            // EXP-1158: the pick VERBATIM; NULL = unpinned = the machine's
+            // last used login.
             account: agent.isEmpty ? nil : AccountOptions.wireAccount(account),
             model: model.isEmpty || model == LaunchVocabulary.cliDefault ? nil : model,
             effort: effort.isEmpty || effort == LaunchVocabulary.cliDefault ? nil : effort,

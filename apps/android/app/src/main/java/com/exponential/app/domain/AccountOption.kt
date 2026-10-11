@@ -13,11 +13,10 @@ import com.exponential.app.data.api.SteerDevice
 //
 //  - one option per signed-in login the device reports, across both contract
 //    agents (`devices.agent_accounts[agent].profiles`; a device that reports
-//    no profiles yields its ambient `system` login);
-//  - the label is ALWAYS the agent's brand mark + the email — never the
-//    profile name, never the word "default". A login the device reports
-//    without an address shows its plan; with neither, its profile id (the
-//    machine has nothing better);
+//    no profiles yields none — the ambient login is never run on);
+//  - the label is ALWAYS the agent's brand mark + the email (a login has no
+//    other name). A login the device reports without an address shows its
+//    plan; with neither, "No email";
 //  - the LAST USED login leads, marked by ORDER (it is first) and by a check,
 //    not by a label: [AccountOption.isLastUsed] is true for exactly one
 //    option — `defaultAgent`'s active login, else the first contract agent's
@@ -30,7 +29,8 @@ import com.exponential.app.data.api.SteerDevice
 // on, on that device (`agent_accounts[agent].profiles[].active`); the last
 // used agent = `launch_defaults.defaultAgent`. Triggered action runs,
 // agent-started runs and auto-rotation never move it. A launch naming no
-// account runs on it; `account: "system"` names the ambient login.
+// account runs on it; a legacy stored `system` reads as naming none
+// ([AccountOptions.pinnedAccount]).
 //
 // [AccountOption.limits] are FRACTIONS 0-1 off the usage windows EXP-909
 // settled (`AgentUsageWindow.percent / 100`): `fiveHour` = the `session`
@@ -55,7 +55,11 @@ data class AccountLimits(
 /** ONE login a run can be started on — the agent rides it, so picking the
  *  option is the whole decision. */
 data class AccountOption(
-    /** The profile id (`agent_profiles`), what a launch passes as `account`. */
+    /**
+     * The profile id (`agent_profiles`), what a launch passes as `account`;
+     * "" = unpinned (the machine's last used login — the fallback options a
+     * machine that reports no login offers).
+     */
     val id: String,
     val agent: String,
     /** What the row SAYS beside the brand mark; see the header's fallbacks. */
@@ -71,8 +75,8 @@ data class AccountOption(
 ) {
     /**
      * `<agent>:<profileId>` — the ONE string a select-shaped picker can carry
-     * for an option, since a profile id alone (`system`) repeats across
-     * agents. [AccountOptions.parseKey] reads it back.
+     * for an option (the agent rides it, and an unpinned "" repeats across
+     * agents). [AccountOptions.parseKey] reads it back.
      */
     val key: String get() = "$agent:$id"
 }
@@ -92,7 +96,7 @@ object AccountOptions {
     /**
      * The flattened logins of ONE machine's reporting, last used first.
      * Empty for a machine that reports no signed-in login at all — the caller
-     * then decides whether it has a fallback (the composer offers one ambient
+     * then decides whether it has a fallback (the composer offers one unpinned
      * option per runnable agent) or simply nothing to pick.
      */
     fun flatten(
@@ -100,9 +104,8 @@ object AccountOptions {
         usage: Map<String, AgentUsage>?,
         launchDefaults: DeviceLaunchDefaults?,
     ): List<AccountOption> {
-        // `loginRows` already knows the shape: one row per profile (or the
-        // ambient `system` login for a profile-less agent), retired agents
-        // dropped, the active profile's numbers read off either slot.
+        // `loginRows` already knows the shape: one row per profile, retired
+        // agents dropped, the active profile's numbers read off either slot.
         val rows = AgentAccountsRows
             .sortDeviceLogins(AgentAccountsRows.loginRows(accounts, usage))
             .filter { it.signedIn }
@@ -153,12 +156,22 @@ object AccountOptions {
         }
     }
 
-    /** An [AccountOption.key] back into its parts; null on anything else. */
+    /** An [AccountOption.key] back into its parts (an unpinned key has id ""); null on anything else. */
     fun parseKey(key: String): AccountOptionKey? {
         val at = key.indexOf(':')
-        if (at <= 0 || at == key.length - 1) return null
+        if (at <= 0) return null
         return AccountOptionKey(agent = key.substring(0, at), id = key.substring(at + 1))
     }
+
+    /** The legacy stored id of the retired ambient login: read as unpinned. */
+    private const val LEGACY_SYSTEM_ACCOUNT = "system"
+
+    /**
+     * A stored launch/trigger/run `account` as a pin: blank, null or the
+     * retired `system` = UNPINNED (null — the machine's last used login).
+     */
+    fun pinnedAccount(raw: String?): String? =
+        raw?.trim()?.takeIf { it.isNotEmpty() && it != LEGACY_SYSTEM_ACCOUNT }
 
     private fun activeOf(
         rows: List<AgentProfileUsageRow>,
@@ -166,8 +179,7 @@ object AccountOptions {
     ): AgentProfileUsageRow? =
         agent?.let { wanted -> rows.firstOrNull { it.agent == wanted && it.active } }
 
-    /** The email a row reads as — the header's fallback ladder. NOTE: the
-     *  profile's own LABEL is never it; the id is the last resort. */
+    /** The email a row reads as — the header's fallback ladder. */
     private fun optionEmail(row: AgentProfileUsageRow): String =
         AgentAccountsRows.accountName(row.email, row.plan)
 

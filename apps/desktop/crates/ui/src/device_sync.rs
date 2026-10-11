@@ -1012,7 +1012,7 @@ fn run_device_command(
         // (never past the 429 floor — a hot refusal names when).
         "agent_usage_refresh" => {
             let agent = command.payload["agent"].as_str().unwrap_or_default();
-            let profile = command.payload["profileId"].as_str().unwrap_or("system");
+            let profile = command.payload["profileId"].as_str().unwrap_or_default();
             match coding::CodingAgent::parse(agent) {
                 None => (false, "Malformed command payload.".to_string()),
                 Some(agent) => {
@@ -1050,19 +1050,18 @@ fn run_device_command(
         // EXP-862 — "remove account": delete THIS machine's copy of a login
         // (its profile dir, credentials included, and its index row). The
         // account itself is untouched: no `codex logout` (it would revoke the
-        // account server-wide) and no request leaves the machine. EXP-1137:
-        // the ambient login is signed out and hidden instead. Refused for an
-        // account a live run here is using.
+        // account server-wide) and no request leaves the machine. Refused for
+        // an account a live run here is using.
         //
         // EXP-1137 — "sign out": the same guard; the credential goes the
         // agent's own way and the row stays.
         //
-        // Both raise `doctor_soon`: the cached report's ambient row is stale
-        // the moment that login signs out, and the hub's doctor (runnable
+        // Both raise `doctor_soon`: the cached report's row for that login is
+        // stale the moment it signs out, and the hub's doctor (runnable
         // agents, the advertisement) must follow the fresh check.
         kind @ ("agent_profile_remove" | "agent_profile_sign_out") => {
             let agent = command.payload["agent"].as_str().unwrap_or_default();
-            let profile = command.payload["profileId"].as_str().unwrap_or("system");
+            let profile = command.payload["profileId"].as_str().unwrap_or_default();
             match coding::CodingAgent::parse(agent) {
                 None => (false, "Malformed command payload.".to_string()),
                 Some(agent) => {
@@ -1143,9 +1142,8 @@ fn live_run_accounts(
     session_ids
         .iter()
         .filter_map(|id| records.iter().find(|record| record.session_id == *id))
-        // EXP-1137: an ambient (account-less) run is a run on the `system`
-        // login, not no login — an ambient sign-out must refuse for it.
-        .map(|record| (record.agent, coding::profile_id(record.account().as_deref())))
+        // A legacy run on the retired ambient login holds no profile.
+        .filter_map(|record| Some((record.agent, record.account()?)))
         .collect()
 }
 
@@ -1208,7 +1206,7 @@ pub(crate) fn refresh_agent_usage_here(
 /// EXP-862 — the LOCAL "Remove account" (the chip's own menu on THIS machine):
 /// the same body the command runs, plus the hub mirror so the accounts list
 /// loses the chip without waiting for the next beat. `Err` is the sentence to
-/// show (the ambient login, an unknown id, a live run still on that account).
+/// show (an unknown id, a live run still on that account).
 pub(crate) fn remove_agent_profile_here(
     agent: coding::CodingAgent,
     profile: &str,
@@ -1230,8 +1228,8 @@ pub(crate) fn sign_out_agent_profile_here(
 
 /// The shared local body of [`remove_agent_profile_here`] and
 /// [`sign_out_agent_profile_here`]. After a change the hub's doctor is
-/// re-run (EXP-1137): the ambient login's row in the cached report is stale
-/// the moment it signs out, and the runnable-agent gates read that report.
+/// re-run (EXP-1137): the login's row in the cached report is stale the
+/// moment it signs out, and the runnable-agent gates read that report.
 fn change_agent_profile_here(
     agent: coding::CodingAgent,
     profile: &str,
@@ -1442,7 +1440,7 @@ mod tests {
 
     /// EXP-862 review nit: the live accounts come off ONE registry load per
     /// pass, and the result is what a per-id `get` produced — `session_ids`
-    /// order, ambient (account-less) runs and unknown ids skipped, and a
+    /// order, legacy ambient (account-less) runs and unknown ids skipped, and a
     /// re-recorded run (`record` upserts by id) resolving to its NEWEST
     /// account.
     #[test]
@@ -1465,14 +1463,13 @@ mod tests {
 
         let ids = |ids: &[&str]| ids.iter().map(|id| id.to_string()).collect::<Vec<_>>();
         let pair = |account: &str| (coding::CodingAgent::Claude, account.to_string());
-        // EXP-1137: an ambient run is a run on the `system` login — the pair
-        // an ambient sign-out must refuse for — never a skipped row.
+        // A legacy ambient run holds no profile: skipped.
         assert_eq!(
             live_run_accounts(&dir, &ids(&["sess-c", "sess-b", "sess-a", "sess-missing"])),
-            vec![pair("personal"), pair("system"), pair("shadow")]
+            vec![pair("personal"), pair("shadow")]
         );
         assert!(live_run_accounts(&dir, &[]).is_empty());
-        assert_eq!(live_run_accounts(&dir, &ids(&["sess-b"])), vec![pair("system")]);
+        assert!(live_run_accounts(&dir, &ids(&["sess-b"])).is_empty());
 
         let _ = std::fs::remove_dir_all(&dir);
     }

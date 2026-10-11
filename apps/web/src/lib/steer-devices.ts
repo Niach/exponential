@@ -11,7 +11,6 @@ import type {
 } from "@/db/schema"
 import { parseVersionTuple } from "./client-version"
 import {
-  SYSTEM_PROFILE_ID,
   parseAgentUsage,
   parseAgentUsageMap,
   usageIsFresh,
@@ -280,10 +279,9 @@ export function deviceCanRemoveAccount(
 }
 
 /** EXP-1137: the machine runs `agent_profile_sign_out` (sign one login out,
- * keep its row) and takes `agent_profile_remove` for its AMBIENT login (sign
- * it out and hide the row). An older build would leave either row pending
- * forever, so requesters hide "Sign out" and the ambient "Remove account"
- * instead; the server refuses both on their behalf either way. */
+ * keep its row). An older build would leave the row pending forever, so
+ * requesters hide "Sign out" instead; the server refuses it on their behalf
+ * either way. */
 export function deviceCanSignOutAccount(
   device: Pick<SteerDevice, `caps`>
 ): boolean {
@@ -297,6 +295,23 @@ export function deviceCanAgentLogin(
   device: Pick<SteerDevice, `caps`>
 ): boolean {
   return (device.caps ?? []).includes(`agent-login`)
+}
+
+/** The machine runs `agent_login {import: true}`: it MOVES the agent CLI's
+ * ambient login into one of its profiles. Without the cap the doctor's
+ * Import pill is hidden on another device (the server refuses it too). */
+export function deviceCanImportAgentLogin(
+  device: Pick<SteerDevice, `caps`>
+): boolean {
+  return (device.caps ?? []).includes(`agent-import`)
+}
+
+/** A launch/trigger/run `account` that pins nothing: absent, blank or the
+ * retired `system` id (the ambient login, never used any more). The device
+ * reads all three as its last used profile. */
+export function isUnpinnedAccount(account: string | null | undefined): boolean {
+  const trimmed = (account ?? ``).trim()
+  return trimmed === `` || trimmed === `system`
 }
 
 /** FEED-36: the daemon runs `update_now` — ends every live session on the
@@ -334,10 +349,9 @@ type UsageReporting = {
  * under `account` (a profile id, or undefined for the machine's active one).
  *
  * The lookup order mirrors what the usage surfaces already do: a profile's
- * OWN `usage` wins, the ACTIVE profile falls back to the pre-profile
- * top-level slot, and a device that reports no profiles at all keeps its
- * ambient login there. A profile the device does not have is UNKNOWN, not
- * spent — `null`, which every caller must fail open on.
+ * OWN `usage` wins, and the ACTIVE (last used) one falls back to the
+ * top-level slot, which mirrors it. A profile the device does not have is UNKNOWN, not spent — `null`, which
+ * every caller must fail open on.
  */
 export function deviceProfileUsage(
   device: UsageReporting,
@@ -346,18 +360,16 @@ export function deviceProfileUsage(
 ): DeviceAgentUsage | null {
   const usageMap = parseAgentUsageMap(device.agentUsage ?? {})
   const profiles = (device.agentAccounts ?? {})[agent]?.profiles ?? []
-  const profile = account
-    ? profiles.find((entry) => entry?.id === account)
-    : profiles.find((entry) => entry?.active)
+  const profile = isUnpinnedAccount(account)
+    ? profiles.find((entry) => entry?.active)
+    : profiles.find((entry) => entry?.id === account)
   if (profile) {
     return (
       parseAgentUsage(profile.usage) ??
       (profile.active ? (usageMap[agent] ?? null) : null)
     )
   }
-  return !account || account === SYSTEM_PROFILE_ID
-    ? (usageMap[agent] ?? null)
-    : null
+  return isUnpinnedAccount(account) ? (usageMap[agent] ?? null) : null
 }
 
 /** EXP-804: when the machine's agent can work again, or `null` when nothing
@@ -402,33 +414,37 @@ export function deviceUsageWallAt(
 
 /** EXP-1138 gate split: which login a start with NO `account` lands on.
  *
- * The device advertises `agent` as runnable when ANY of its logins is signed
- * in, but a frame without `account` lands on the machine's LAST USED login
- * (EXP-1158: the agent's `active` profile, else `system`), which the doctor
- * refuses when that one is signed out ("Pick another account"). So the
- * server fills the gap:
- *   - `ambient`: the last used login is signed in (or the machine reports no
- *     profiles, an older build): send the frame as is;
- *   - `profile`: the last used login is signed out and another profile is
- *     signed in: name the first one in the reported order;
- *   - `none`: nothing is signed in: refuse the start.
+ * The device advertises `agent` as runnable when ANY of its profiles is
+ * signed in, and a frame without `account` lands on the machine's LAST USED
+ * profile (EXP-1158: the agent's `active` one). Runs only ever use profiles,
+ * never the CLI's ambient login, so the server fills the gap:
+ *   - `last_used`: the last used profile is signed in: send the frame as is;
+ *   - `profile`: it is not (or there is none) and another profile is signed
+ *     in: name the first one in the reported order;
+ *   - `none`: no profile is signed in: refuse the start.
+ * A build that does not report the agent's accounts at all, or reports no
+ * profiles but a signed-in account (pre-profile), keeps its own resolution.
  */
 export function resolveStartAccount(
   device: Pick<UsageReporting, `agentAccounts`>,
   agent: string
-): { kind: `ambient` } | { kind: `profile`; account: string } | { kind: `none` } {
-  const profiles = (device.agentAccounts?.[agent]?.profiles ?? []).filter(
+):
+  | { kind: `last_used` }
+  | { kind: `profile`; account: string }
+  | { kind: `none` } {
+  const account = device.agentAccounts?.[agent]
+  // Not reported at all (an older build): the device decides.
+  if (!account) return { kind: `last_used` }
+  const profiles = (account.profiles ?? []).filter(
     (entry): entry is DeviceAgentProfileEntry =>
       Boolean(entry) && typeof entry.id === `string` && entry.id.length > 0
   )
-  if (profiles.length === 0) return { kind: `ambient` }
-  const ambient =
-    profiles.find((entry) => entry.active) ??
-    profiles.find((entry) => entry.id === SYSTEM_PROFILE_ID)
-  if (!ambient || ambient.signedIn !== false) return { kind: `ambient` }
-  const signedIn = profiles.find(
-    (entry) => entry !== ambient && entry.signedIn === true
-  )
+  if (profiles.length === 0) {
+    return account.signedIn === true ? { kind: `last_used` } : { kind: `none` }
+  }
+  const lastUsed = profiles.find((entry) => entry.active)
+  if (lastUsed?.signedIn === true) return { kind: `last_used` }
+  const signedIn = profiles.find((entry) => entry.signedIn === true)
   if (!signedIn) return { kind: `none` }
   return { kind: `profile`, account: signedIn.id }
 }

@@ -4990,7 +4990,7 @@ export function registerExponentialTools(
         prompt: z.string().max(MAX_START_PROMPT).optional(),
         // EXP-906: the agent account profile on the target device — the
         // same field steer.startSession takes (absent = the machine's last
-        // used login, `system` = the ambient one). Without it an orchestrator
+        // used profile). Without it an orchestrator
         // whose last used profile is walled had to route around this tool
         // (and lose the parent link) to launch on another account.
         account: z.string().min(1).max(64).optional(),
@@ -5221,11 +5221,10 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_devices_account_login`,
     {
-      description: `Sign an agent account in on one of your own machines (exponential_devices_list: online, caps has agent-login). The machine runs the agent CLI's own login; only the sign-in URL and the code you type travel, the credential never leaves the machine. Start: {deviceId, agent} adds an account (name = its label, default "<agent> account N"; the default login while it is signed out), or profileId re-signs an existing login (agentAccounts.<agent>.profiles[].id, e.g. one that needs a re-login). Returns status url + url (+ code for codex: enter it at url). Claude: the browser then shows a code, call again with {deviceId, agent, code}. status pending = the machine has not answered yet, call again with commandId. The login appears in exponential_devices_list after the machine's next heartbeat.`,
+      description: `Sign an agent account in on one of your own machines (exponential_devices_list: online, caps has agent-login). The machine runs the agent CLI's own login; only the sign-in URL and the code you type travel, the credential never leaves the machine. Start: {deviceId, agent} adds an account, or profileId re-signs an existing login (agentAccounts.<agent>.profiles[].id, e.g. one that needs a re-login); the login lands on the profile with its email. Returns status url + url (+ code for codex: enter it at url). Claude: the browser then shows a code, call again with {deviceId, agent, code}. status pending = the machine has not answered yet, call again with commandId. The login appears in exponential_devices_list after the machine's next heartbeat.`,
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         agent: z.enum(codingAgentValues),
-        name: z.string().trim().min(1).max(64).optional(),
         profileId: z.string().min(1).max(64).optional(),
         code: z.string().trim().min(1).max(512).optional(),
         commandId: uuidString.optional(),
@@ -5238,16 +5237,6 @@ export function registerExponentialTools(
         const trpc = caller(user, request)
         return ok(
           await deviceAccountLogin(input, {
-            loadAccounts: async (deviceId) => {
-              const [row] = await db
-                .select({ agentAccounts: devices.agentAccounts })
-                .from(devices)
-                .where(
-                  and(eq(devices.userId, user.id), eq(devices.deviceId, deviceId))
-                )
-                .limit(1)
-              return row ? (row.agentAccounts ?? null) : undefined
-            },
             createCommand: (command) => trpc.devices.createCommand(command),
             getCommand: (commandId) => trpc.devices.getCommand({ commandId }),
           })

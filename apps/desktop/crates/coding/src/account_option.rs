@@ -7,16 +7,16 @@
 //! agent. The rules (locked by the ×4 fixture in this file's tests, the same
 //! names as `account-option.test.ts`):
 //!
-//! * one option per signed-in login (`agent_accounts[agent].profiles`; an
-//!   agent that reports no profiles yields its ambient `system` login);
-//!   retired agent ids (`pi`) never produce one;
-//! * the label is ALWAYS the brand mark + the EMAIL — never the profile
-//!   name, never the word "default". A login reported without an address
-//!   shows its plan; with neither, its profile id;
+//! * one option per signed-in login (`agent_accounts[agent].profiles`, the
+//!   ONLY rows: an agent that reports no profiles yields none); retired
+//!   agent ids (`pi`) never produce one;
+//! * the label is ALWAYS the brand mark + the EMAIL. A login reported
+//!   without an address shows its plan; with neither, its profile id;
 //! * EXP-1158: the LAST USED login leads, marked by ORDER (it is first) and
 //!   by a check, not by a label: `defaultAgent`'s active login, else the
 //!   first contract agent's active login, else the first row. The rest follow
-//!   in `sort_device_logins` order (`ui::usage_bar`, web `sortDeviceLogins`);
+//!   in `sort_device_logins` order (`ui::usage_bar`, web `sortDeviceLogins`),
+//!   ties in the order the device sent them;
 //! * `limits` are FRACTIONS 0..1 off the usage windows (`percent / 100`):
 //!   `five_hour` = the `session` window, `week` = the `weekly` window,
 //!   `model` = the FIRST per-model window. A login with no usage report has
@@ -24,7 +24,6 @@
 
 use crate::agent::CodingAgent;
 use crate::agent_accounts::{AgentAccounts, Health};
-use crate::agent_profiles::{SYSTEM_LABEL, SYSTEM_PROFILE};
 use crate::agent_usage::{AgentUsage, AgentUsageMap};
 
 /// The ≥ threshold (as a percent) a login has to reach for its row to lead
@@ -54,8 +53,7 @@ pub struct AccountLimits {
 /// One signed-in login, as every launch surface offers it.
 #[derive(Clone, Debug, PartialEq)]
 pub struct AccountOption {
-    /// The profile id (`agent_profiles`), what a launch passes as `account`
-    /// ([`SYSTEM_PROFILE`] = the ambient login, named as such).
+    /// The profile id (`agent_profiles`), what a launch passes as `account`.
     pub id: String,
     /// Picking the option picks this agent: there is no separate agent pick.
     pub agent: CodingAgent,
@@ -72,14 +70,14 @@ pub struct AccountOption {
 
 impl AccountOption {
     /// `<agent>:<profileId>` — the ONE string a picker can carry for an
-    /// option, since a profile id alone (`system`) repeats across agents.
+    /// option, the agent naming which index the id is from.
     pub fn account_option_key(&self) -> String {
         format!("{}:{}", self.agent.id(), self.id)
     }
 
-    /// What a launch puts on the wire: the id VERBATIM — EXP-1158: `system`
-    /// NAMES the ambient login, while an absent account means "the last used
-    /// login". Always `Some`; the `Option` is the launch slot's own type.
+    /// What a launch puts on the wire: the id VERBATIM (an absent account
+    /// means "the last used login"). Always `Some`; the `Option` is the
+    /// launch slot's own type.
     pub fn wire_account(&self) -> Option<String> {
         Some(self.id.clone())
     }
@@ -126,7 +124,6 @@ pub fn carried_account_option<'a>(
 struct LoginRow {
     agent: CodingAgent,
     profile_id: String,
-    profile_label: String,
     active: bool,
     health: Health,
     email: Option<String>,
@@ -175,7 +172,7 @@ fn agent_rank(agent: CodingAgent) -> usize {
 
 /// Every SIGNED-IN login one machine reports, in `sort_device_logins` order:
 /// contract agent order, that agent's ACTIVE login, [`attention_rank`], then
-/// the label and the id so a heartbeat can never reshuffle two equal rows.
+/// the order the device sent them (a stable sort).
 fn login_rows(accounts: &AgentAccounts, usage: &AgentUsageMap) -> Vec<LoginRow> {
     let mut rows: Vec<LoginRow> = Vec::new();
     // The union of "has an account" and "reported usage", minus every id
@@ -188,26 +185,10 @@ fn login_rows(accounts: &AgentAccounts, usage: &AgentUsageMap) -> Vec<LoginRow> 
         let Some(agent) = CodingAgent::parse(agent_id) else {
             continue;
         };
-        let account = accounts.get(agent_id);
-        let profiles = account.map(|account| account.profiles.as_slice()).unwrap_or(&[]);
-        if profiles.is_empty() {
-            // A machine that reports no profiles reports ONE login, the
-            // ambient one; signed out, it is no option at all.
-            let Some(account) = account.filter(|account| account.signed_in) else {
-                continue;
-            };
-            rows.push(LoginRow {
-                agent,
-                profile_id: SYSTEM_PROFILE.to_string(),
-                profile_label: SYSTEM_LABEL.to_string(),
-                active: true,
-                health: account.health(),
-                email: non_empty(account.email.as_deref()),
-                plan: non_empty(account.plan.as_deref()),
-                usage: usage.get(agent_id).cloned(),
-            });
-            continue;
-        }
+        let profiles = accounts
+            .get(agent_id)
+            .map(|account| account.profiles.as_slice())
+            .unwrap_or(&[]);
         for profile in profiles {
             if !profile.signed_in {
                 continue;
@@ -220,13 +201,6 @@ fn login_rows(accounts: &AgentAccounts, usage: &AgentUsageMap) -> Vec<LoginRow> 
                 .or_else(|| profile.active.then(|| usage.get(agent_id).cloned()).flatten());
             rows.push(LoginRow {
                 agent,
-                profile_label: non_empty(profile.label.as_deref()).unwrap_or_else(|| {
-                    if profile.id == SYSTEM_PROFILE {
-                        SYSTEM_LABEL.to_string()
-                    } else {
-                        profile.id.clone()
-                    }
-                }),
                 profile_id: profile.id.clone(),
                 active: profile.active,
                 health: profile.health(),
@@ -241,8 +215,6 @@ fn login_rows(accounts: &AgentAccounts, usage: &AgentUsageMap) -> Vec<LoginRow> 
             .cmp(&agent_rank(b.agent))
             .then_with(|| b.active.cmp(&a.active))
             .then_with(|| attention_rank(a).cmp(&attention_rank(b)))
-            .then_with(|| a.profile_label.cmp(&b.profile_label))
-            .then_with(|| a.profile_id.cmp(&b.profile_id))
     });
     rows
 }
@@ -303,7 +275,7 @@ pub fn flatten_accounts(
             AccountOption {
                 id: row.profile_id.clone(),
                 agent: row.agent,
-                // EXP-1013: `accountName` — never the profile's id or label.
+                // EXP-1013: `accountName` — never the profile's id.
                 email: crate::agent_accounts::account_name(
                     row.email.as_deref(),
                     row.plan.as_deref(),
@@ -323,7 +295,7 @@ mod tests {
 
     /// The fixture ×4 (`account-option.test.ts` `ACCOUNT_FIXTURE`): two
     /// claude logins (work = active, home = a dead credential), one codex
-    /// login, and a `system` codex profile that is signed out. The last used
+    /// login, and a second codex profile that is signed out. The last used
     /// agent is codex.
     fn fixture() -> AgentAccounts {
         serde_json::from_value(json!({
@@ -333,7 +305,6 @@ mod tests {
                 "profiles": [
                     {
                         "id": "work",
-                        "label": "Work laptop",
                         "signedIn": true,
                         "email": "work@x.test",
                         "active": true,
@@ -349,7 +320,6 @@ mod tests {
                     },
                     {
                         "id": "home",
-                        "label": "Default",
                         "signedIn": true,
                         "email": "home@x.test",
                         "health": "needs_relogin"
@@ -361,7 +331,6 @@ mod tests {
                 "profiles": [
                     {
                         "id": "main",
-                        "label": "Main",
                         "signedIn": true,
                         "email": "codex@x.test",
                         "active": true,
@@ -372,7 +341,7 @@ mod tests {
                             ]
                         }
                     },
-                    { "id": "system", "signedIn": false, "active": false }
+                    { "id": "spare", "signedIn": false, "active": false }
                 ]
             },
             // A retired agent still sitting in a synced row (EXP-849).
@@ -401,10 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn labels_every_option_by_email_never_by_profile_name_and_never_default() {
-        // A profile { id: 'work', label: 'Work laptop', email: 'a@x.test' }
-        // yields email 'a@x.test'; no option's email is 'Work laptop' or
-        // contains the word 'default'.
+    fn labels_every_option_by_email() {
         let options = flatten(Some("codex"));
         assert_eq!(
             options
@@ -413,10 +379,6 @@ mod tests {
                 .collect::<Vec<_>>(),
             vec!["codex@x.test", "work@x.test", "home@x.test"]
         );
-        for option in &options {
-            assert_ne!(option.email, "Work laptop");
-            assert!(!option.email.to_lowercase().contains("default"), "{option:?}");
-        }
     }
 
     #[test]
@@ -514,8 +476,8 @@ mod tests {
             "claude": {
                 "signedIn": true,
                 "profiles": [
-                    { "id": "p1", "label": "Plan only", "signedIn": true, "plan": "Max", "active": true },
-                    { "id": "p2", "label": "Bare", "signedIn": true }
+                    { "id": "p1", "signedIn": true, "plan": "Max", "active": true },
+                    { "id": "p2", "signedIn": true }
                 ]
             }
         }))
@@ -530,8 +492,10 @@ mod tests {
         );
     }
 
+    /// The ambient login is never an option: an agent that reports no
+    /// profiles offers nothing, whatever its top-level fields say.
     #[test]
-    fn yields_the_ambient_system_login_for_a_device_that_reports_no_profiles() {
+    fn yields_nothing_for_a_device_that_reports_no_profiles() {
         let accounts: AgentAccounts =
             serde_json::from_value(json!({ "claude": { "signedIn": true, "email": "solo@x.test" } }))
                 .unwrap();
@@ -539,32 +503,13 @@ mod tests {
             "claude": { "windows": [{ "key": "session", "label": "5h", "percent": 20 }] }
         }))
         .unwrap();
-        assert_eq!(
-            flatten_accounts(&accounts, &usage, None),
-            vec![AccountOption {
-                id: SYSTEM_PROFILE.to_string(),
-                agent: CodingAgent::Claude,
-                email: "solo@x.test".to_string(),
-                is_last_used: true,
-                health: Health::Ok,
-                limits: Some(AccountLimits {
-                    five_hour: 0.2,
-                    week: 0.,
-                    model: None,
-                }),
-            }]
-        );
-        // EXP-1158: and the ambient login is NAMED on the wire.
-        assert_eq!(
-            flatten_accounts(&accounts, &usage, None)[0].wire_account(),
-            Some(SYSTEM_PROFILE.to_string())
-        );
+        assert!(flatten_accounts(&accounts, &usage, None).is_empty());
     }
 
     #[test]
     fn skips_signed_out_logins_and_retired_agents() {
         let options = flatten(Some("codex"));
-        assert!(!options.iter().any(|option| option.id == "system"));
+        assert!(!options.iter().any(|option| option.id == "spare"));
         assert!(!options
             .iter()
             .any(|option| option.account_option_key().starts_with("pi:")));

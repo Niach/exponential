@@ -184,9 +184,9 @@ pub fn start_control_channel(account: &api::Account, cx: &mut App) {
     // machine already replayed, back down the control socket.
     let page_dir = auth.data_dir.clone();
     let page_runtime = Arc::clone(&runtime);
-    // EXP-1137: the register's account rows honour a removed ambient login.
+    // The register's account rows read the profile index.
     let register_dir = auth.data_dir.clone();
-    // EXP-1138: the doctor reads the account profiles beside the ambient login.
+    // EXP-1138: the doctor reads the account profiles.
     let doctor_dir = auth.data_dir.clone();
     // Boot pass (EXP-886): apply the device's "Keep session history" window
     // to stored transcripts and resume records. Unlimited, the default, keeps
@@ -433,10 +433,7 @@ fn register_device(
     let agent_accounts = match crate::device_settings::dev_agent_status() {
         Some(demo) => demo.accounts_json(),
         None => report.and_then(|report| {
-            let mut accounts = report.agent_accounts(&coding::agent_accounts::now_iso());
-            // EXP-1137: a removed ambient login must not ride the register
-            // back into `devices.agent_accounts` ahead of the first beat.
-            coding::doctor::hide_removed_ambient_logins(data_dir, &mut accounts);
+            let accounts = report.agent_accounts(&coding::agent_accounts::now_iso());
             (!accounts.is_empty())
                 .then(|| serde_json::to_value(&accounts).ok())
                 .flatten()

@@ -72,9 +72,8 @@ const automationActionIdSchema = z
 
 /** Old clients write the ambient login as `system` OR null and both were
  * stored as NULL; the SLOP-2 migration folded NULL into an OMITTED pin
- * (= unpinned). The adapter keeps that mapping, so an old build never plants
- * an explicit `system` pin it cannot have meant (EXP-1158 gave it a meaning
- * only newer clients know). */
+ * (= unpinned). The adapter keeps that mapping: the ambient login is never
+ * used any more, so a `system` pin can only ever mean "unpinned". */
 const LEGACY_SYSTEM_ACCOUNT = `system`
 
 function legacyAccount(account: string | null | undefined): string | null {

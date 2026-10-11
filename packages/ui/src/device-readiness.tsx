@@ -1,17 +1,20 @@
+import * as React from "react"
 import deviceDoctorSpec from "@exp/domain-contract/fixtures/device-doctor.json"
 
 import { cn } from "./cn"
 import { GlassSectionHeader, GlassToggleRow, ListRow, SETTINGS_LIST_CLASS } from "./glass-rows"
 import { conceptIcon } from "./icons.generated"
 import { Pill } from "./pill"
+import { Prompt } from "./prompt"
 
 // EXP-1196/1218/1219: THE device readiness block, one spec ×5 —
 // `packages/domain-contract/fixtures/device-doctor.json`. The device writes
 // the report (`devices.doctor`: items with key/group/state/detail/action);
 // this file only draws it: a band per group (the `tag` trailing, muted), one
 // flat row per item (state glyph, label, the device's detail, at most ONE
-// trailing pill), the computer_use item as a switch row, permission rows
-// indented under it and hidden while it is off. No subtitles, no footers.
+// trailing pill, plus an `import` pill before it for an agent with an ambient
+// login, confirmed first), the computer_use item as a switch row, permission
+// rows indented under it and hidden while it is off. No subtitles, no footers.
 // Vocabulary the spec does not name (a newer device) is skipped, never shown
 // raw.
 
@@ -22,6 +25,9 @@ export interface DeviceReadinessItem {
   state: string
   detail?: string | null
   action?: string | null
+  /** The agent CLI's AMBIENT login email: an `import` pill before the
+   *  action pill. */
+  import?: string | null
 }
 export interface DeviceReadinessDoctor {
   checkedAt: string
@@ -43,6 +49,13 @@ export const DEVICE_READINESS_COPY: Spec[`copy`] = deviceDoctorSpec.copy
 
 /** The item that IS the switch row. */
 export const COMPUTER_USE_KEY = `computer_use`
+/** The action an `import` pill sends (after its confirm). */
+export const IMPORT_ACTION = `import`
+
+/** `Import {email}?` — the import confirm's title. */
+export function deviceReadinessImportTitle(email: string): string {
+  return DEVICE_READINESS_COPY.importTitle.replace(`{email}`, email)
+}
 
 export interface DeviceReadinessRowModel {
   key: string
@@ -54,6 +67,8 @@ export interface DeviceReadinessRowModel {
   /** The offered action (null = no pill: none, unknown, or not remote). */
   action: string | null
   actionLabel: string | null
+  /** The ambient login's email when its `import` pill is offered. */
+  importEmail: string | null
   primary: boolean
   /** A permission row under its parent. */
   child: boolean
@@ -77,6 +92,9 @@ export interface DeviceReadinessModelOptions {
   /** The switch's live value (optimistic) — overrides the item's state for
    *  hiding the permission rows. */
   computerUseOn?: boolean
+  /** Another device that cannot import (no cap `agent-import`): no import
+   *  pill. Default true. */
+  canImport?: boolean
 }
 
 const isProblem = (state: string) => state === `action` || state === `error`
@@ -126,6 +144,15 @@ export function deviceReadinessModel(
         const state = STATES[item.state]!
         const action = offered(item)
         const isSwitch = item.key === COMPUTER_USE_KEY
+        const importSpec = ACTIONS[IMPORT_ACTION]
+        const importEmail =
+          item.import &&
+          !isSwitch &&
+          importSpec &&
+          options.canImport !== false &&
+          (!options.remote || importSpec.remote)
+            ? item.import
+            : null
         return {
           key: item.key,
           label: LABELS[item.key]!,
@@ -135,6 +162,7 @@ export function deviceReadinessModel(
           detail: isSwitch ? null : (item.detail ?? null),
           action,
           actionLabel: action ? ACTIONS[action]!.label : null,
+          importEmail,
           primary: action !== null && item.key === primaryKey,
           child: Boolean(item.parent),
           isSwitch,
@@ -189,7 +217,10 @@ export interface DeviceReadinessProps {
   doctor: DeviceReadinessDoctor | null | undefined
   /** Another device than the one rendering (every web surface). */
   remote: boolean
+  /** A pill's action; `import` arrives only after its confirm. */
   onAction: (itemKey: string, action: string) => void
+  /** See `DeviceReadinessModelOptions.canImport`. */
+  canImport?: boolean
   /** The computer_use switch (launch_defaults.computerUse). Absent = the
    *  switch mirrors the report, read-only. */
   computerUse?: {
@@ -214,16 +245,45 @@ export function DeviceReadiness({
   only,
   problemsOnly,
   busy,
+  canImport,
   className,
 }: DeviceReadinessProps) {
+  // The row whose import is being confirmed.
+  const [confirming, setConfirming] = React.useState<{
+    key: string
+    email: string
+  } | null>(null)
   if (!doctor) return null
   const groups = deviceReadinessModel(doctor, {
     remote,
     only,
     problemsOnly,
     computerUseOn: computerUse?.checked,
+    canImport,
   })
   if (groups.length === 0) return null
+  const importPrompt = (
+    <Prompt
+      open={confirming !== null}
+      onOpenChange={(open) => {
+        if (!open) setConfirming(null)
+      }}
+      title={confirming ? deviceReadinessImportTitle(confirming.email) : ``}
+      body={DEVICE_READINESS_COPY.importBody}
+      actions={[
+        { label: `Cancel`, role: `cancel` },
+        {
+          label: ACTIONS[IMPORT_ACTION]!.label,
+          role: `primary`,
+          testId: `device-readiness-import-confirm`,
+          onSelect: () => {
+            if (confirming) onAction(confirming.key, IMPORT_ACTION)
+            setConfirming(null)
+          },
+        },
+      ]}
+    />
+  )
   const bands = !only && !problemsOnly
   const renderRow = (row: DeviceReadinessRowModel) => {
     if (row.isSwitch) {
@@ -245,31 +305,50 @@ export function DeviceReadiness({
         key={row.key}
         data-item={row.key}
         data-state={row.state}
-        className={cn(`gap-2.5`, row.child && `pl-9`)}
+        className={cn(`flex-wrap gap-x-2.5 gap-y-2`, row.child && `pl-9`)}
       >
-        <Glyph aria-hidden className={cn(`size-4 shrink-0`, GLYPH_TONE[row.tone])} />
-        {/* The label keeps its width; the device's detail takes what is
-            left and is the one that truncates. */}
-        <span className="shrink-0 text-sm text-foreground">{row.label}</span>
-        <span
-          className={cn(
-            `min-w-0 flex-1 truncate text-right text-xs`,
-            DETAIL_TONE[row.state] ?? `text-muted-foreground`
-          )}
-        >
-          {row.detail}
-        </span>
-        {row.action && row.actionLabel && (
-          <Pill
-            mode="action"
-            size="sm"
-            primary={row.primary}
-            disabled={busy}
-            data-action={row.action}
-            onClick={() => onAction(row.key, row.action!)}
+        {/* Glyph, label and detail stay whole on one line; when the pills
+            do not fit beside them they wrap to their own line instead of
+            squeezing the detail down to an ellipsis. Only a detail wider
+            than the whole row truncates. */}
+        <span className="flex min-w-0 flex-1 basis-auto items-center gap-2.5">
+          <Glyph aria-hidden className={cn(`size-4 shrink-0`, GLYPH_TONE[row.tone])} />
+          <span className="shrink-0 text-sm text-foreground">{row.label}</span>
+          <span
+            className={cn(
+              `ml-auto min-w-0 truncate text-right text-xs`,
+              DETAIL_TONE[row.state] ?? `text-muted-foreground`
+            )}
           >
-            {row.actionLabel}
-          </Pill>
+            {row.detail}
+          </span>
+        </span>
+        {(row.importEmail || (row.action && row.actionLabel)) && (
+          <span className="ml-auto flex shrink-0 items-center gap-2">
+            {row.importEmail && (
+              <Pill
+                mode="action"
+                size="sm"
+                disabled={busy}
+                data-action={IMPORT_ACTION}
+                onClick={() => setConfirming({ key: row.key, email: row.importEmail! })}
+              >
+                {ACTIONS[IMPORT_ACTION]!.label}
+              </Pill>
+            )}
+            {row.action && row.actionLabel && (
+              <Pill
+                mode="action"
+                size="sm"
+                primary={row.primary}
+                disabled={busy}
+                data-action={row.action}
+                onClick={() => onAction(row.key, row.action!)}
+              >
+                {row.actionLabel}
+              </Pill>
+            )}
+          </span>
         )}
       </ListRow>
     )
@@ -278,6 +357,7 @@ export function DeviceReadiness({
     return (
       <div data-slot="device-readiness" className={cn(SETTINGS_LIST_CLASS, className)}>
         {groups.flatMap((group) => group.rows).map(renderRow)}
+        {importPrompt}
       </div>
     )
   }
@@ -296,6 +376,7 @@ export function DeviceReadiness({
           <div className={SETTINGS_LIST_CLASS}>{group.rows.map(renderRow)}</div>
         </div>
       ))}
+      {importPrompt}
     </div>
   )
 }

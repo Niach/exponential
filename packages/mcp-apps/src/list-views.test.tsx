@@ -38,7 +38,10 @@ describe(`DevicesView`, () => {
         online: true,
         agents: [`claude`],
         agentAccounts: {
-          claude: { signedIn: false, health: `needs_relogin`, email: `me@x.test` },
+          claude: {
+            signedIn: false,
+            profiles: [{ id: `p1`, signedIn: false, health: `needs_relogin`, email: `me@x.test` }],
+          },
         },
       },
       { deviceId: `d2`, label: `Shared box`, kind: `server`, owner: { id: `u`, name: `Ann` }, agentAccounts: {} },
@@ -62,7 +65,7 @@ describe(`DevicesView sign-in (EXP-1199)`, () => {
       online: true,
       caps: [`agent-login`],
       agents: [`claude`],
-      agentAccounts: { claude: { signedIn: true, email: `me@x.test`, profiles: [{ id: `system`, signedIn: true, active: true }] } },
+      agentAccounts: { claude: { signedIn: true, email: `me@x.test`, profiles: [{ id: `home`, signedIn: true, active: true }] } },
     }
     const after = {
       ...before,
@@ -70,8 +73,8 @@ describe(`DevicesView sign-in (EXP-1199)`, () => {
         claude: {
           signedIn: true,
           profiles: [
-            { id: `system`, signedIn: true, active: true },
-            { id: `p2`, label: `Claude Code account 2`, signedIn: true, email: `work@x.test` },
+            { id: `home`, signedIn: true, active: true },
+            { id: `p2`, signedIn: true, email: `work@x.test`, lastLoginAt: `2026-10-10T19:00:00Z` },
           ],
         },
       },
@@ -96,7 +99,7 @@ describe(`DevicesView sign-in (EXP-1199)`, () => {
     await waitFor(() => expect(screen.getByText(`Open sign-in page`)).toBeTruthy())
     expect(calls[0]).toEqual([
       `exponential_devices_account_login`,
-      { deviceId: `d1`, agent: `claude`, name: `Claude Code account 2` },
+      { deviceId: `d1`, agent: `claude` },
     ])
     fireEvent.click(screen.getByText(`Open sign-in page`))
     expect(actions.openLink).toHaveBeenCalledWith(`https://claude.com/x`)
@@ -117,7 +120,7 @@ describe(`DevicesView sign-in (EXP-1199)`, () => {
       online: true,
       caps: [`agent-login`],
       agents: [`codex`],
-      agentAccounts: { codex: { signedIn: true, profiles: [{ id: `p9`, label: `Work`, signedIn: true, health: `needs_relogin`, email: `w@x.test` }] } },
+      agentAccounts: { codex: { signedIn: true, profiles: [{ id: `p9`, signedIn: true, health: `needs_relogin`, email: `w@x.test` }] } },
     }
     const calls: Array<Record<string, unknown>> = []
     const actions: McpActions = {

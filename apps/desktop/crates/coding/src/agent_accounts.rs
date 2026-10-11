@@ -134,8 +134,7 @@ pub const NO_EMAIL_LABEL: &str = "No email";
 /// sheets; `accountName` ×4): its EMAIL, signed in or not. An agent that
 /// reports no address (codex's API-key login) is named by its plan; a login
 /// nobody has ever signed in to is [`NO_EMAIL_LABEL`]. Never the profile's
-/// internal label ("Default", "Claude Code account 2"): nobody knows whose
-/// that is.
+/// internal id: nobody knows whose that is.
 pub fn account_name(email: Option<&str>, plan: Option<&str>) -> String {
     let filled = |value: Option<&str>| {
         value.map(str::trim).filter(|v| !v.is_empty()).map(str::to_string)
@@ -168,12 +167,17 @@ pub struct AgentAccount {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub health: Option<String>,
     /// EXP-792 (EXP-747 B5): every account PROFILE of this agent on the
-    /// machine, `system` first, when there is more than the ambient login.
-    /// Absent (never `[]`) on a single-login machine, so the pre-profile
-    /// payload stays byte-identical. The top-level fields above mirror the
-    /// ACTIVE profile.
+    /// machine, in the device's order: exactly its profile dirs (the ambient
+    /// login is never one). Absent (never `[]`) when the agent has none. The
+    /// top-level fields above mirror the ACTIVE (last used) profile, or read
+    /// signed out when there is none.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub profiles: Vec<AgentProfileEntry>,
+    /// The agent's AMBIENT login (`~/.claude`, `~/.codex`), present only while
+    /// it is signed in. Never used by a run: the device doctor offers to
+    /// IMPORT it into a profile (`agent_login::import_ambient`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub importable: Option<Importable>,
     /// The agent CLI's installed version as the doctor last read it
     /// (`2.1.281`, the bare triple `parse_version_output` keeps); the device
     /// settings' Update section shows it beside the per-agent "Update"
@@ -183,6 +187,16 @@ pub struct AgentAccount {
     pub version: Option<String>,
 }
 
+/// [`AgentAccount::importable`]: who the ambient login is signed in as.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct Importable {
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub plan: Option<String>,
+}
+
 /// One profile's row inside [`AgentAccount::profiles`] — the account
 /// fields again, plus the profile's identity and its OWN usage windows
 /// (the top-level `agentUsage` map carries only the active profile's).
@@ -190,8 +204,6 @@ pub struct AgentAccount {
 #[serde(rename_all = "camelCase", default)]
 pub struct AgentProfileEntry {
     pub id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub label: Option<String>,
     pub signed_in: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub email: Option<String>,
@@ -201,6 +213,11 @@ pub struct AgentProfileEntry {
     #[serde(skip_serializing_if = "std::ops::Not::not")]
     pub active: bool,
     pub checked_at: String,
+    /// When a sign-in or an import last COMMITTED into this profile (ISO).
+    /// Clients pair an open sign-in dialog with the row it landed on by this
+    /// stamp moving.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub last_login_at: Option<String>,
     /// EXP-849: see [`AgentAccount::health`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub health: Option<String>,
@@ -224,6 +241,7 @@ impl AgentProfileEntry {
             checked_at: self.checked_at.clone(),
             health: self.health.clone(),
             profiles: Vec::new(),
+            importable: None,
             // A login row never names the install's version; the doctor
             // stamps it onto the top-level row last.
             version: None,
@@ -324,12 +342,16 @@ pub fn accounts_key(accounts: &AgentAccounts) -> String {
                 .iter()
                 .map(|profile| {
                     format!(
-                        "{}={}:{}:{}:{}:{}:{}:{}",
+                        "{}={}:{}:{}:{}:{}:{}:{}:{}",
                         profile.id,
                         profile.signed_in,
                         profile.email.as_deref().unwrap_or_default(),
                         profile.plan.as_deref().unwrap_or_default(),
                         profile.active,
+                        // A sign-in that refreshed a login moves nothing else
+                        // when the email is the same — and it is what an open
+                        // sign-in dialog waits for.
+                        profile.last_login_at.as_deref().unwrap_or_default(),
                         // EXP-849: a login going `ok` → `needs_relogin` is
                         // the one change a reader most needs shipped, and it
                         // moves no other field.
@@ -340,8 +362,19 @@ pub fn accounts_key(accounts: &AgentAccounts) -> String {
                 })
                 .collect::<Vec<_>>()
                 .join(",");
+            let importable = account
+                .importable
+                .as_ref()
+                .map(|found| {
+                    format!(
+                        "{}/{}",
+                        found.email.as_deref().unwrap_or_default(),
+                        found.plan.as_deref().unwrap_or_default()
+                    )
+                })
+                .unwrap_or_default();
             format!(
-                "{agent}:{}:{}:{}:{}:{profiles}",
+                "{agent}:{}:{}:{}:{}:{importable}:{profiles}",
                 account.signed_in,
                 account.email.as_deref().unwrap_or_default(),
                 account.plan.as_deref().unwrap_or_default(),
@@ -461,7 +494,7 @@ mod tests {
         let mut with_profile = base.clone();
         with_profile.get_mut("claude").unwrap().profiles = vec![
             AgentProfileEntry {
-                id: "system".into(),
+                id: "4e5f6a7b".into(),
                 signed_in: true,
                 email: Some("dev@acme.test".into()),
                 active: true,
@@ -470,7 +503,6 @@ mod tests {
             },
             AgentProfileEntry {
                 id: "0a1b2c3d".into(),
-                label: Some("Work".into()),
                 signed_in: false,
                 checked_at: "T0".into(),
                 ..AgentProfileEntry::default()
@@ -520,6 +552,19 @@ mod tests {
         let mut removed = with_profile.clone();
         removed.get_mut("claude").unwrap().profiles.clear();
         assert_eq!(accounts_key(&base), accounts_key(&removed));
+
+        // A sign-in committing into a login moves it even when nothing else
+        // did (same email: the "already added, refreshed" case), and so does
+        // an ambient login appearing to import.
+        let mut refreshed = with_profile.clone();
+        refreshed.get_mut("claude").unwrap().profiles[0].last_login_at = Some("T2".into());
+        assert_ne!(accounts_key(&with_profile), accounts_key(&refreshed));
+        let mut importable = base.clone();
+        importable.get_mut("claude").unwrap().importable = Some(Importable {
+            email: Some("dev@acme.test".into()),
+            plan: None,
+        });
+        assert_ne!(accounts_key(&base), accounts_key(&importable));
     }
 
     /// The wire shape of a profile row: camelCase, `active` only when true,
@@ -528,34 +573,47 @@ mod tests {
     fn profile_entry_serializes_the_locked_wire_shape() {
         let entry = AgentProfileEntry {
             id: "0a1b2c3d".into(),
-            label: Some("Work".into()),
             signed_in: true,
             email: Some("w@acme.test".into()),
             plan: None,
             active: true,
             checked_at: "2026-08-28T10:00:00.000Z".into(),
+            last_login_at: Some("2026-08-28T09:00:00.000Z".into()),
             ..AgentProfileEntry::default()
         };
         assert_eq!(
             serde_json::to_string(&entry).unwrap(),
-            r#"{"id":"0a1b2c3d","label":"Work","signedIn":true,"email":"w@acme.test","active":true,"checkedAt":"2026-08-28T10:00:00.000Z"}"#
+            r#"{"id":"0a1b2c3d","signedIn":true,"email":"w@acme.test","active":true,"checkedAt":"2026-08-28T10:00:00.000Z","lastLoginAt":"2026-08-28T09:00:00.000Z"}"#
         );
         let signed_out = AgentProfileEntry {
-            id: "system".into(),
+            id: "4e5f6a7b".into(),
             checked_at: "T".into(),
             ..AgentProfileEntry::default()
         };
         assert_eq!(
             serde_json::to_string(&signed_out).unwrap(),
-            r#"{"id":"system","signedIn":false,"checkedAt":"T"}"#
+            r#"{"id":"4e5f6a7b","signedIn":false,"checkedAt":"T"}"#
         );
+        // A legacy row's `label` is read past, never kept.
+        let legacy: AgentProfileEntry =
+            serde_json::from_str(r#"{"id":"4e5f6a7b","label":"Work","signedIn":false}"#).unwrap();
+        assert!(!serde_json::to_string(&legacy).unwrap().contains("label"));
         // An account with profiles nests them; without, the key is absent.
         let mut account = entry.account();
         assert!(!serde_json::to_string(&account).unwrap().contains("profiles"));
         account.profiles = vec![signed_out];
-        assert!(serde_json::to_string(&account).unwrap().contains(r#""profiles":[{"id":"system""#));
+        assert!(serde_json::to_string(&account).unwrap().contains(r#""profiles":[{"id":"4e5f6a7b""#));
         let decoded: AgentAccount = serde_json::from_str(r#"{"signedIn":true}"#).unwrap();
         assert!(decoded.profiles.is_empty());
+        // The ambient login to import: present only when set, never null.
+        assert!(!serde_json::to_string(&account).unwrap().contains("importable"));
+        account.importable = Some(Importable {
+            email: Some("dev@acme.test".into()),
+            plan: None,
+        });
+        assert!(serde_json::to_string(&account)
+            .unwrap()
+            .contains(r#""importable":{"email":"dev@acme.test"}"#));
     }
 
     /// EXP-849 — the four-value health vocabulary: the wire tokens, the
@@ -619,7 +677,7 @@ mod tests {
         assert_eq!(worst_health(&map), Health::Ok);
         map.get_mut("claude").unwrap().profiles = vec![
             AgentProfileEntry {
-                id: "system".into(),
+                id: "4e5f6a7b".into(),
                 signed_in: true,
                 active: true,
                 health: Some(Health::Ok.as_str().into()),

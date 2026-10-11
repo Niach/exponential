@@ -117,7 +117,7 @@ class AgentHealthTest {
                         signedIn = true,
                         health = "ok",
                         profiles = listOf(
-                            AgentAccountProfile(id = "system", active = true, signedIn = true, health = "ok"),
+                            AgentAccountProfile(id = "me", active = true, signedIn = true, health = "ok"),
                             AgentAccountProfile(id = "work", signedIn = true, health = "needs_relogin"),
                         ),
                     ),

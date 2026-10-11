@@ -60,11 +60,11 @@ export function assertTriggersRunnable(
   }
 }
 
-/** Blank = unpinned (unset); anything else, `system` included, is stored
- *  verbatim (EXP-1158: `system` names the ambient login). */
+/** Blank or the retired `system` (the ambient login, never used any more) =
+ *  unpinned (unset); anything else is stored verbatim. */
 function normalizeAccount(account: string | null | undefined): string | null {
   const trimmed = account?.trim() ?? ``
-  return trimmed === `` ? null : trimmed
+  return trimmed === `` || trimmed === `system` ? null : trimmed
 }
 
 // Agent/model/effort: unset = the device's launch defaults. A model/effort is
@@ -73,11 +73,10 @@ function normalizeAccount(account: string | null | undefined): string | null {
 // EXP-995: `account` = the agent PROFILE id on the bound device
 // (`agent_profiles`, what a start passes as `account`). It names a directory
 // under ONE agent's config root, so it needs the agent pinned beside it.
-// EXP-1158: `system` NAMES the ambient login; unset = unpinned = the login the
-// machine LAST USED for that agent.
+// Unset = unpinned = the profile the machine LAST USED for that agent.
 // Which profiles a machine holds is device-local (the heartbeat's
 // `agent_accounts` may lag), so the id itself is not checked here — the
-// runner falls back to the ambient login for a profile it no longer has.
+// runner falls back to its last used profile for one it no longer has.
 // A pin is validated only when it CHANGED against the stored trigger with
 // the same id (or, for model/effort/account, when the agent they hang off
 // changed): a trigger migrated with a model since retired from the contract

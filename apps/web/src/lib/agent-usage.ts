@@ -459,21 +459,18 @@ type HealthDeviceRow = {
   agentAccounts?: Device[`agentAccounts`] | undefined
 }
 
-/** EXP-849: the health a DEVICE row badges — the worst among every account
- * it reported (each agent's profiles, or the top-level account for a
- * pre-profile machine). Null when the machine reported no account at all. */
+/** EXP-849: the health a DEVICE row badges — the worst among every login
+ * it reported (each agent's profiles; the top-level fields only mirror one of
+ * them). Null when the machine reported no login at all. */
 export function deviceWorstHealth(
   device: HealthDeviceRow
 ): DeviceAgentHealth | null {
   const healths: DeviceAgentHealth[] = []
   for (const [agent, account] of Object.entries(device.agentAccounts ?? {})) {
     if (!account || !isContractAgent(agent)) continue
-    const profiles = (account.profiles ?? []).filter(Boolean)
-    if (profiles.length === 0) {
-      healths.push(agentHealth(account))
-      continue
+    for (const profile of account.profiles ?? []) {
+      if (profile) healths.push(agentHealth(profile))
     }
-    for (const profile of profiles) healths.push(agentHealth(profile))
   }
   return worstHealth(healths)
 }
@@ -564,10 +561,11 @@ export function parseAgentLoginResult(
 
 // ── One row per LOGIN a machine holds (EXP-792, EXP-747 C1-C4) ──────────────
 // A device × agent profile row off the synced devices rows. Profiles
-// (`agentAccounts[agent].profiles`, EXP-747 B5) carry their own usage; a
-// device that reports none (an older build) falls back to the top-level
-// account + `agentUsage[agent]` as the single `system` row, so a machine never
-// reads as login-less on a pre-profile build.
+// (`agentAccounts[agent].profiles`, EXP-747 B5) carry their own usage and are
+// the ONLY rows: one per login (email) the machine holds in its own profile
+// dirs. The agent CLI's ambient login is never a row (it is never used; the
+// doctor offers to Import it), and nothing is synthesized from the top-level
+// fields, which only mirror the last used profile.
 //
 // EXP-909 folded the cross-device Accounts page into the device rows, so this
 // is now a ×4 section like the rest of the module — `deviceLoginRows` is what
@@ -575,10 +573,6 @@ export function parseAgentLoginResult(
 // reads (desktop `usage_bar.rs` `agent_profile_usage_rows` /
 // `sort_device_logins` / `login_label`, iOS `AgentAccountsRows`, Android
 // `AgentAccountsRows`). Change a rule here, change it in all four.
-
-/** The ambient login's profile id — byte-identical with the desktop's
- * `agent_profiles::SYSTEM_PROFILE`. */
-export const SYSTEM_PROFILE_ID = `system`
 
 /** A forced usage refresh (`agent_usage_refresh`) is refused while the last
  * fetch is younger than this: the device never hits the agent's usage
@@ -602,9 +596,6 @@ export interface AgentProfileUsageRow {
   online: boolean
   agent: string
   profileId: string
-  /** The profile's label (`Default` for the system profile when the device
-   * sent none). */
-  profileLabel: string
   active: boolean
   signedIn: boolean
   /** EXP-849: the device's verdict on the credential (`agentHealth`, derived
@@ -628,7 +619,6 @@ type UsageDeviceRow = Pick<
   | `userId`
   | `agentAccounts`
   | `agentUsage`
-  | `agentUsageAt`
   | `lastSeenAt`
 >
 
@@ -639,7 +629,6 @@ export type LoginDeviceRow = {
   deviceLabel: string
   agentAccounts?: Device[`agentAccounts`] | undefined
   agentUsage?: Device[`agentUsage`] | undefined
-  agentUsageAt?: Date | string | null | undefined
 }
 
 /** EXP-909: every login ONE machine holds, agent by agent — the rows the
@@ -666,31 +655,8 @@ export function deviceLoginRows(
       online: opts.online,
       agent,
     }
-    const profiles = account?.profiles ?? []
-    if (profiles.length === 0) {
-      out.push({
-        ...base,
-        key: `${device.deviceId}:${agent}:${SYSTEM_PROFILE_ID}`,
-        profileId: SYSTEM_PROFILE_ID,
-        profileLabel: `Default`,
-        active: true,
-        signedIn: account?.signedIn === true,
-        health: agentHealth(account),
-        email: account?.email || null,
-        plan: account?.plan || null,
-        usage: usageMap[agent] ?? null,
-        // A machine that reports no profiles reports one login, and it is
-        // always inside its own probe cap.
-        unmonitored: false,
-        checkedAt:
-          account?.checkedAt ??
-          (device.agentUsageAt
-            ? new Date(device.agentUsageAt).toISOString()
-            : null),
-      })
-      continue
-    }
-    for (const profile of profiles) {
+    for (const profile of account?.profiles ?? []) {
+      if (!profile?.id) continue
       // The active profile's numbers ride BOTH the profile entry and the
       // pre-profile `agentUsage[agent]` slot; prefer the profile's own and
       // fall back for a device that only populated the old slot.
@@ -701,9 +667,6 @@ export function deviceLoginRows(
         ...base,
         key: `${device.deviceId}:${agent}:${profile.id}`,
         profileId: profile.id,
-        profileLabel:
-          profile.label ||
-          (profile.id === SYSTEM_PROFILE_ID ? `Default` : profile.id),
         active: profile.active === true,
         signedIn: profile.signedIn === true,
         health: agentHealth(profile),
@@ -734,7 +697,6 @@ export function agentProfileUsageRows(
         deviceLabel: device.label,
         agentAccounts: device.agentAccounts,
         agentUsage: device.agentUsage,
-        agentUsageAt: device.agentUsageAt,
       },
       {
         mine: device.userId === currentUserId,
@@ -752,8 +714,7 @@ export const NO_EMAIL_LABEL = `No email`
  * sheets; hand-mirrored ×4): its EMAIL, signed in or not (the device keeps
  * the last address a signed-out login answered with). An agent that reports
  * no address (codex's API-key login) is named by its plan; a login nobody
- * ever signed in to is "No email". NEVER the profile's internal label
- * ("Default", "Claude Code account 2"): nobody knows whose that is. */
+ * ever signed in to is "No email". Profiles carry no other name. */
 export function accountName(
   login: { email?: string | null; plan?: string | null } | null | undefined
 ): string {
@@ -771,9 +732,7 @@ export function loginLabel(
 
 /** EXP-909: the order logins appear in UNDER one device: contract agent order
  * first (claude before codex, whatever the map's key order was), then the
- * machine's ACTIVE login for that agent, then attention (a dead credential
- * leads), then the label and the id so a heartbeat can never reshuffle two
- * equal rows. Hand-mirrored ×4. */
+ * order the machine SENDS its profiles in (a stable sort). Hand-mirrored ×4. */
 export function sortDeviceLogins(
   rows: readonly AgentProfileUsageRow[]
 ): AgentProfileUsageRow[] {
@@ -782,16 +741,7 @@ export function sortDeviceLogins(
     const at = order.indexOf(agent)
     return at === -1 ? order.length : at
   }
-  return [...rows].sort((a, b) => {
-    const byAgent = agentRank(a.agent) - agentRank(b.agent)
-    if (byAgent !== 0) return byAgent
-    if (a.active !== b.active) return a.active ? -1 : 1
-    const byAttention = attentionRank(a) - attentionRank(b)
-    if (byAttention !== 0) return byAttention
-    const byLabel = a.profileLabel.localeCompare(b.profileLabel)
-    if (byLabel !== 0) return byLabel
-    return a.profileId.localeCompare(b.profileId)
-  })
+  return [...rows].sort((a, b) => agentRank(a.agent) - agentRank(b.agent))
 }
 
 /** EXP-862: what an account row has to SAY about its numbers, so no surface

@@ -184,8 +184,8 @@ pub(crate) enum RemoteSubject<'a> {
 /// member.
 ///
 /// EXP-849: the account pick rides too. It names a profile on the TARGET
-/// machine (the picker only ever offers that device's own logins), so the
-/// ambient login — `None` here — is the only safe default.
+/// machine (the picker only ever offers that device's own logins), so
+/// `None` — the device's last used login — is the only safe default.
 pub(crate) fn remote_start_input(
     device_id: &str,
     options: &LaunchOptions,
@@ -506,7 +506,7 @@ mod tests {
         assert_eq!(chat.model.as_deref(), Some("opus"));
         assert_eq!(chat.plan_mode, Some(true));
         assert!(chat.issue_id.is_none() && chat.issue_ids.is_none());
-        // EXP-849: no account picked = the target's ambient login.
+        // EXP-849: no account picked = the target's last used login.
         assert_eq!(chat.account, None);
         let picked = remote_start_input(
             "dev-1",

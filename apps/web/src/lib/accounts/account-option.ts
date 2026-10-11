@@ -8,9 +8,9 @@
 //
 //  - one option per signed-in login the device reports, across both contract
 //    agents (`devices.agent_accounts[agent].profiles`; a device that reports
-//    no profiles yields its ambient `system` login);
-//  - the label is ALWAYS the agent's brand mark + the email — never the
-//    profile name (`label`), never the word "default". A login the device
+//    no profiles yields none: the ambient login is never an option);
+//  - the label is ALWAYS the agent's brand mark + the email (profiles carry
+//    no other name), never the word "default". A login the device
 //    reports without an address shows its plan; with neither, "No email"
 //    (EXP-1013 `accountName`; a signed-out login keeps its last address);
 //  - the LAST USED login leads (EXP-1158): `defaultAgent`'s active login,
@@ -79,8 +79,7 @@ export interface AccountSource {
 }
 
 /** `${agent}:${profileId}` — the ONE string a `<select>`-shaped picker can
- * carry for an option, since a profile id alone (`system`) repeats across
- * agents. `parseAccountOptionKey` reads it back. */
+ * carry for an option, so it names the agent too. `parseAccountOptionKey` reads it back. */
 export function accountOptionKey(
   option: Pick<AccountOption, `agent` | `id`>
 ): string {
@@ -121,8 +120,8 @@ function optionLimits(
 }
 
 export function flattenAccounts(device: AccountSource): AccountOption[] {
-  // `deviceLoginRows` already knows the shape: one row per profile (or the
-  // ambient `system` login for a profile-less agent), retired agents dropped,
+  // `deviceLoginRows` already knows the shape: one row per profile, retired
+  // agents dropped,
   // the active profile's numbers read off either slot.
   const rows = sortDeviceLogins(
     deviceLoginRows(

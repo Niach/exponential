@@ -25,6 +25,16 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-10-accounts-by-email`,
+    date: `2026-10-10`,
+    title: `Accounts by email, Import your terminal login, and no duplicate logins`,
+    summary: `Every agent login is named by its email, runs only use logins added in Exponential, the device check offers to import your terminal login, and signing in as an account you already have refreshes it instead of adding it twice.`,
+    body: `- **One login per email**: account rows and pickers no longer carry names like "Claude Code account 2" or "Default"; a login is its email on every client.
+- **No shared terminal login**: runs, usage and rotation only use logins added in Exponential, so switching accounts in your own claude or codex CLI never changes what a run uses. A run that used the terminal login resumes on your last used account.
+- **Import**: when a device still has a terminal login, its device check offers Import next to Sign in. Import moves that login into Exponential (sign in again outside of it), on web, desktop, iOS and Android.
+- **No duplicates**: signing in as an account the device already has refreshes that account, leaves the others untouched and says so in a warning.`,
+  },
+  {
     id: `2026-10-10-release-train`,
     date: `2026-10-10`,
     title: `Fix merge conflicts from a refused merge, Reviews across teams, and a polish round`,

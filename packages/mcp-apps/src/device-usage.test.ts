@@ -10,10 +10,10 @@ import {
   usageAge,
   usageState,
   type DeviceListRow,
-  addAccountTarget,
   addableAgents,
   canSignInOn,
-  loginLanded,
+  loginBaseline,
+  loginLanding,
   loginSignsIn,
   parseLoginStep,
 } from "./device-usage"
@@ -26,17 +26,20 @@ const device = (extra: Partial<DeviceListRow> = {}): DeviceListRow => ({
 })
 
 describe(`deviceLogins`, () => {
-  it(`lists every profile in contract agent order, active first, dead credential next`, () => {
+  it(`lists every profile in contract agent order, in the machine's order`, () => {
     const logins = deviceLogins(
       device({
         agentAccounts: {
-          codex: { signedIn: true, email: `c@x.test` },
+          codex: {
+            signedIn: true,
+            email: `c@x.test`,
+            profiles: [{ id: `c`, signedIn: true, active: true, email: `c@x.test` }],
+          },
           claude: {
             signedIn: true,
             profiles: [
-              { id: `b`, signedIn: true, email: `b@x.test` },
+              { id: `b`, signedIn: true, active: true, email: `b@x.test` },
               { id: `a`, signedIn: false, health: `needs_relogin`, email: `a@x.test` },
-              { id: `system`, signedIn: true, active: true, email: `s@x.test` },
             ],
           },
           pi: { signedIn: true },
@@ -47,23 +50,20 @@ describe(`deviceLogins`, () => {
         },
       })
     )
-    expect(logins.map((login) => login.key)).toEqual([
-      `claude:system`,
-      `claude:a`,
-      `claude:b`,
-      `codex:system`,
-    ])
-    // The active profile falls back to the pre-profile usage slot, clamped.
+    expect(logins.map((login) => login.key)).toEqual([`claude:b`, `claude:a`, `codex:c`])
+    // The active profile falls back to the top-level usage slot, clamped.
     expect(logins[0]!.usage?.windows[0]!.percent).toBe(100)
     expect(logins[1]!.health).toBe(`needs_relogin`)
-    expect(logins[3]!.usage?.windows[0]!.percent).toBe(12)
+    expect(logins[2]!.usage?.windows[0]!.percent).toBe(12)
+    // Never a synthesized ambient row off the top-level fields.
+    expect(deviceLogins(device({ agentAccounts: { claude: { signedIn: true } } }))).toEqual([])
     expect(deviceWorstHealth(logins)).toBe(`needs_relogin`)
   })
 
   it(`tolerates junk payloads`, () => {
     expect(deviceLogins(device({ agentAccounts: null }))).toEqual([])
     expect(
-      deviceLogins(device({ agentAccounts: { claude: { profiles: [null, 3] } } as never }))
+      deviceLogins(device({ agentAccounts: { claude: { profiles: [null, 3, { id: `p` }] } } as never }))
     ).toHaveLength(1)
   })
 })
@@ -77,7 +77,9 @@ describe(`login presentation`, () => {
   })
 
   it(`says what a login's numbers are`, () => {
-    const [login] = deviceLogins(device({ agentAccounts: { claude: { signedIn: true } } }))
+    const [login] = deviceLogins(
+      device({ agentAccounts: { claude: { signedIn: true, profiles: [{ id: `p`, signedIn: true }] } } })
+    )
     expect(usageState(login!)).toBe(`checking`)
     expect(usageState({ ...login!, signedIn: false })).toBe(`none`)
     expect(usageState({ ...login!, unmonitored: true })).toBe(`unmonitored`)
@@ -125,53 +127,42 @@ describe(`sign-in rules (EXP-1199, agent-account-add.ts / device-agent-account.t
     expect(addableAgents(own)).toEqual([`claude`, `codex`])
   })
 
-  it(`lands a new login on the free ambient one, else the next free label`, () => {
-    expect(addAccountTarget({ ...own, agentAccounts: { codex: { signedIn: false } } }, `codex`)).toEqual({
-      profileId: `system`,
-    })
-    expect(
-      addAccountTarget(
-        {
-          ...own,
-          agentAccounts: {
-            claude: {
-              signedIn: true,
-              profiles: [
-                { id: `system`, signedIn: true },
-                { id: `a`, label: `Claude Code account 2`, signedIn: true },
-              ],
-            },
-          },
-        },
-        `claude`
-      )
-    ).toEqual({ name: `Claude Code account 3` })
-  })
-
   it(`offers Sign in on a signed-out login or a dead credential`, () => {
     expect(loginSignsIn({ signedIn: false, health: `signed_out` })).toBe(true)
     expect(loginSignsIn({ signedIn: true, health: `needs_relogin` })).toBe(true)
     expect(loginSignsIn({ signedIn: true, health: `ok` })).toBe(false)
   })
 
-  it(`lands only when the TARGETED login is signed in and healthy`, () => {
-    const device = {
+  it(`lands when a lastLoginAt moves, and flags a duplicate`, () => {
+    const at = (a: string | null, c: string | null) => ({
       ...own,
       agentAccounts: {
         claude: {
           signedIn: true,
           profiles: [
-            { id: `system`, signedIn: true },
-            { id: `p`, label: `Work`, signedIn: true, health: `needs_relogin` },
+            { id: `a`, signedIn: true, email: `a@x.test`, lastLoginAt: a },
+            { id: `c`, signedIn: true, health: `needs_relogin`, email: `c@x.test`, lastLoginAt: c },
           ],
         },
       },
-    }
-    expect(loginLanded(device, `claude`, { name: `Work` })).toBe(false)
-    expect(loginLanded(device, `claude`, { profileId: `p` })).toBe(false)
-    expect(loginLanded(device, `claude`, { profileId: `system` })).toBe(true)
-    expect(loginLanded(device, `claude`, { name: `Other` })).toBe(false)
-    expect(loginLanded({ ...own, agentAccounts: { codex: { signedIn: true } } }, `codex`, { profileId: `system` })).toBe(true)
+    })
+    const T0 = `2026-10-01T10:00:00Z`
+    const T1 = `2026-10-10T19:00:00Z`
+    const baseline = loginBaseline(at(T0, null), `claude`)
+    expect(baseline).toEqual({ a: T0, c: null })
+    expect(loginLanding(at(T0, null), `claude`, baseline, { profileId: `c` })).toBeNull()
+    expect(loginLanding(at(T0, T1), `claude`, baseline, { profileId: `c` })).toEqual({
+      profileId: `c`,
+      email: `c@x.test`,
+      duplicate: false,
+    })
+    // Sign in on C as A: A refreshed, C untouched.
+    expect(loginLanding(at(T1, null), `claude`, baseline, { profileId: `c` })).toEqual({
+      profileId: `a`,
+      email: `a@x.test`,
+      duplicate: true,
+    })
+    expect(loginLanding(at(T1, null), `claude`, baseline, {})?.duplicate).toBe(true)
   })
 
   it(`parses the tool's steps tolerantly`, () => {

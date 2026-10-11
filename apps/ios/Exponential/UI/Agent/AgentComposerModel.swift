@@ -552,7 +552,9 @@ final class AgentComposerModel {
     /// report names no failure.
     var notReadyRow: DeviceReadiness.Row? {
         guard agentNotReady, let device, let doctor = device.doctor else { return nil }
-        return DeviceReadiness.failingRow(doctor, agent: launch.agent, remote: true)
+        return DeviceReadiness.failingRow(
+            doctor, agent: launch.agent, remote: true, canImport: device.canImportAgent
+        )
     }
 
     /// The "nothing to start on" hint — byte-matching the web launch page,

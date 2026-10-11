@@ -109,7 +109,7 @@ describe(`useLaunchOptions readiness`, () => {
 // EXP-872: ONE account picker — the flattened logins of the settled device
 // (both agents, email-labelled, the last used one first); a pick implies
 // the agent. EXP-1158: the picked option's id rides out as `account`
-// VERBATIM, `system` included (it names the ambient login).
+// VERBATIM; an unpinned fallback option sends none.
 describe(`useLaunchOptions account`, () => {
   const profiled: SteerDevice = {
     ...device,
@@ -119,14 +119,14 @@ describe(`useLaunchOptions account`, () => {
       claude: {
         signedIn: true,
         profiles: [
-          { id: `work`, label: `Work`, signedIn: true, email: `work@x.test` },
-          { id: `system`, signedIn: true, active: true, email: `me@x.test` },
+          { id: `work`, signedIn: true, email: `work@x.test` },
+          { id: `home`, signedIn: true, active: true, email: `me@x.test` },
         ],
       },
       codex: {
         signedIn: true,
         profiles: [
-          { id: `only`, label: `Only`, signedIn: true, active: true, email: `codex@x.test` },
+          { id: `only`, signedIn: true, active: true, email: `codex@x.test` },
         ],
       },
     },
@@ -137,7 +137,7 @@ describe(`useLaunchOptions account`, () => {
       useLaunchOptions({ open: true, devices: [profiled] })
     )
     expect(result.current.accountOptions.map((o) => `${o.agent}:${o.id}`)).toEqual([
-      `claude:system`,
+      `claude:home`,
       `claude:work`,
       `codex:only`,
     ])
@@ -146,11 +146,11 @@ describe(`useLaunchOptions account`, () => {
       `work@x.test`,
       `codex@x.test`,
     ])
-    expect(result.current.accountKey).toBe(`claude:system`)
+    expect(result.current.accountKey).toBe(`claude:home`)
     expect(result.current.agent).toBe(`claude`)
-    // The ambient login rides out by NAME: an absent account would mean
-    // "the last used one", which may differ by the time the device starts.
-    expect(result.current.buildOptions().account).toBe(`system`)
+    // The pick rides out by id: an absent account would mean "the last used
+    // one", which may differ by the time the device starts.
+    expect(result.current.buildOptions().account).toBe(`home`)
   })
 
   it(`a pick implies the agent and emits a named profile`, () => {
@@ -167,21 +167,21 @@ describe(`useLaunchOptions account`, () => {
     expect(result.current.buildOptions().account).toBe(`only`)
   })
 
-  it(`falls back to one ambient option per runnable agent when the device reports no login`, () => {
+  it(`falls back to one unpinned option per runnable agent when the device reports no profile`, () => {
     const { result } = renderHook(() =>
       useLaunchOptions({ open: true, devices: [device] })
     )
     expect(result.current.accountOptions).toEqual([
       {
-        id: `system`,
+        id: ``,
         agent: `claude`,
         email: `Claude Code`,
         isLastUsed: true,
         health: `unknown`,
       },
     ])
-    expect(result.current.accountKey).toBe(`claude:system`)
-    expect(result.current.buildOptions().account).toBe(`system`)
+    expect(result.current.accountKey).toBe(`claude:`)
+    expect(result.current.buildOptions().account).toBeUndefined()
   })
 
   it(`re-seeds to the last used login when the new device lacks the pick`, () => {
@@ -194,7 +194,7 @@ describe(`useLaunchOptions account`, () => {
         claude: {
           signedIn: true,
           profiles: [
-            { id: `system`, signedIn: true, active: true, email: `me@x.test` },
+            { id: `home`, signedIn: true, active: true, email: `me@x.test` },
           ],
         },
       },
@@ -224,8 +224,8 @@ describe(`useLaunchOptions account`, () => {
         claude: {
           signedIn: true,
           profiles: [
-            { id: `system`, signedIn: true, email: `me@x.test` },
-            { id: `p-7`, label: `Job`, signedIn: true, email: `Work@x.test` },
+            { id: `home`, signedIn: true, email: `me@x.test` },
+            { id: `p-7`, signedIn: true, email: `Work@x.test` },
           ],
         },
       },

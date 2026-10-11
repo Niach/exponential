@@ -183,7 +183,6 @@ pub(crate) fn own_agent_status(
     if let Some(demo) = dev_agent_status() {
         return (demo.accounts, demo.usage);
     }
-    let data_dir = crate::coding_flow::coding_data_dir(cx);
     let hub = CodingHub::global(cx);
     let hub = hub.read(cx);
     let status = hub.agent_status.clone().unwrap_or_default();
@@ -191,9 +190,6 @@ pub(crate) fn own_agent_status(
     if accounts.is_empty() {
         if let Some(report) = hub.doctor.report.as_ref() {
             accounts = report.agent_accounts(&coding::agent_accounts::now_iso());
-            // EXP-1137: the stand-in must not resurrect a removed ambient
-            // login the collection would hide.
-            coding::doctor::hide_removed_ambient_logins(&data_dir, &mut accounts);
         }
     }
     (accounts, status.usage)
@@ -258,6 +254,23 @@ pub(crate) fn dev_agent_status() -> Option<coding::agent_usage::AgentStatusPaylo
     let mut accounts = AgentAccounts::new();
     let mut usage = AgentUsageMap::new();
     let mut report = |agent: CodingAgent, account_email: Option<String>, plan: &str, windows: Vec<UsageWindow>| {
+        let agent_usage = AgentUsage {
+            fetched_at: stamp.clone(),
+            stale: false,
+            windows,
+        };
+        // Logins are profile rows only: one per agent, the last used one.
+        let profile = coding::AgentProfileEntry {
+            id: "dede0001".to_string(),
+            signed_in: true,
+            email: account_email.clone(),
+            plan: Some(plan.to_string()),
+            active: true,
+            checked_at: stamp.clone(),
+            health: Some(coding::Health::Ok.as_str().to_string()),
+            usage: Some(agent_usage.clone()),
+            ..coding::AgentProfileEntry::default()
+        };
         accounts.insert(
             agent.id().to_string(),
             AgentAccount {
@@ -265,17 +278,11 @@ pub(crate) fn dev_agent_status() -> Option<coding::agent_usage::AgentStatusPaylo
                 email: account_email,
                 plan: Some(plan.to_string()),
                 checked_at: stamp.clone(),
+                profiles: vec![profile],
                 ..AgentAccount::default()
             },
         );
-        usage.insert(
-            agent.id().to_string(),
-            AgentUsage {
-                fetched_at: stamp.clone(),
-                stale: false,
-                windows,
-            },
-        );
+        usage.insert(agent.id().to_string(), agent_usage);
     };
     report(CodingAgent::Claude, Some(email.clone()), "max", claude_windows());
     report(
@@ -1761,8 +1768,16 @@ impl DeviceSettingsView {
                 .filter(|label| !label.trim().is_empty())
                 .unwrap_or_else(|| self.device_id.clone())
                 .into();
+            // The Import pill only for a build that runs the import.
+            let offer_import = row.is_some_and(|row| {
+                row.cap_ids().iter().any(|cap| cap == coding::doctor::AGENT_IMPORT_CAP)
+            });
             device_readiness::BlockProps {
                 id: "device-readiness".into(),
+                offer_import,
+                on_import: offer_import.then(|| {
+                    device_readiness::remote_import_handler(device_id.clone(), label.clone())
+                }),
                 on_action: Some(Rc::new(move |key, action, window, cx| match action {
                     // Tracked here so the outcome lands under the row.
                     DoctorAction::Update => {

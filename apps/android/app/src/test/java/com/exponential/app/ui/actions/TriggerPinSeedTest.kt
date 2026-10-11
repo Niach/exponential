@@ -17,7 +17,7 @@ import org.junit.Test
 class TriggerPinSeedTest {
 
     private fun login(id: String, email: String, active: Boolean = false) =
-        AgentAccountProfile(id = id, label = id, signedIn = true, email = email, active = active, health = "ok")
+        AgentAccountProfile(id = id, signedIn = true, email = email, active = active, health = "ok")
 
     /** Laptop: claude (work = active, home) + codex (main); last used = codex/main. */
     private val laptop = SteerDevice(
@@ -43,7 +43,7 @@ class TriggerPinSeedTest {
         launchDefaults = DeviceLaunchDefaults(defaultAgent = "claude"),
     )
 
-    /** Codex-only box, reporting no logins at all (ambient `system` rows). */
+    /** Codex-only box, reporting no logins at all (unpinned fallback rows). */
     private val codexBox = SteerDevice(deviceId = "box", agents = listOf("codex"))
 
     private val pinned = TriggerDraft(
@@ -80,18 +80,17 @@ class TriggerPinSeedTest {
     fun `a device switch to a machine without the agent seeds its last used login`() {
         val seeded = seedTriggerPin(pinned.copy(deviceId = "box"), codexBox, deviceSwitched = true)
         assertEquals(
-            TriggerDraft(deviceId = "box", agent = "codex", account = "system", model = "", effort = ""),
+            TriggerDraft(deviceId = "box", agent = "codex", account = "", model = "", effort = ""),
             seeded,
         )
     }
 
     @Test
-    fun `a device switch onto an ambient login pins it by name`() {
+    fun `a device switch onto a machine with no logins unpins it`() {
         // Codex on the laptop → the codex box, which reports no profiles: the
-        // pin becomes the `system` login, stored VERBATIM (EXP-1158: `system`
-        // names the ambient login; NULL would mean the last used one).
+        // pin becomes unpinned ("" saves as NULL = the box's last used login).
         val codexPin = TriggerDraft(deviceId = "laptop", agent = "codex", account = "main", model = "gpt-5")
         val seeded = seedTriggerPin(codexPin.copy(deviceId = "box"), codexBox, deviceSwitched = true)
-        assertEquals(codexPin.copy(deviceId = "box", account = "system"), seeded)
+        assertEquals(codexPin.copy(deviceId = "box", account = ""), seeded)
     }
 }

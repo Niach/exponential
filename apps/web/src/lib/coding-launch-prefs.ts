@@ -33,9 +33,8 @@ export interface CodingLaunchPrefs {
    * device advertising `contract.codingSession.computerUseCap`. */
   computerUse?: boolean
   /** EXP-825 (EXP-747 B7): the agent account PROFILE the run launches on —
-   * one of the device's reported `agentAccounts[agent].profiles` ids,
-   * `SYSTEM_PROFILE_ID` naming the ambient login (EXP-1158). Omitted = the
-   * machine's last used login. */
+   * one of the device's reported `agentAccounts[agent].profiles` ids.
+   * Omitted = the machine's last used login. */
   account?: string
 }
 

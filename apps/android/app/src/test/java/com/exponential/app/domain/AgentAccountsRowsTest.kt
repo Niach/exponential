@@ -5,7 +5,6 @@ import com.exponential.app.data.api.AgentAccountProfile
 import com.exponential.app.data.api.DeviceOwner
 import com.exponential.app.data.api.AgentUsage
 import com.exponential.app.data.api.AgentUsageWindow
-import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.db.DeviceEntity
 import java.time.Instant
@@ -18,8 +17,8 @@ import org.junit.Test
 /**
  * EXP-829/EXP-909: the Devices page's per-login rules, on the same fixtures
  * and the same test names as web (`agent-usage.test.ts`) and the desktop
- * (`usage_bar.rs`): one row per login a MACHINE holds, its active login first,
- * and an identity label that never doubles as a status.
+ * (`usage_bar.rs`): one row per profile a MACHINE reports, in its own order,
+ * and an identity label (the email) that never doubles as a status.
  */
 class AgentAccountsRowsTest {
 
@@ -28,7 +27,7 @@ class AgentAccountsRowsTest {
     private fun row(
         deviceId: String,
         agent: String,
-        profileId: String = SYSTEM_PROFILE_ID,
+        profileId: String = "work",
         deviceLabel: String = deviceId,
         mine: Boolean = true,
         online: Boolean = true,
@@ -39,7 +38,6 @@ class AgentAccountsRowsTest {
         checkedAt: String? = null,
         health: AgentHealth = AgentHealthRules.derived(signedIn),
         active: Boolean = true,
-        profileLabel: String = "Default",
     ) = AgentProfileUsageRow(
         key = "$deviceId:$agent:$profileId",
         deviceId = deviceId,
@@ -48,7 +46,6 @@ class AgentAccountsRowsTest {
         online = online,
         agent = agent,
         profileId = profileId,
-        profileLabel = profileLabel,
         active = active,
         signedIn = signedIn,
         health = health,
@@ -95,39 +92,17 @@ class AgentAccountsRowsTest {
     // ── agentProfileUsageRows ────────────────────────────────────────────────
 
     @Test
-    fun `agent profile usage rows fall back to the system profile`() {
+    fun `agent profile usage rows never synthesize a login from the top level`() {
+        // A device that reports top-level fields (or only usage) but no
+        // profiles has no login to list: the ambient one is never a row.
         val studio = device(
             deviceId = "dev-1",
             label = "Studio",
-            agentAccounts = """{"claude":{"signedIn":true,"email":"dev@acme.test","plan":"max","checkedAt":"2026-08-28T11:00:00.000Z"}}""",
+            agentAccounts = """{"claude":{"signedIn":true,"email":"dev@acme.test","plan":"max","checkedAt":"2026-08-28T11:00:00.000Z","importable":{"email":"dev@acme.test"}}}""",
             agentUsage = """{"claude":${usageJson("2026-08-28T11:55:00.000Z", "session", 42)},"codex":${usageJson("2026-08-28T11:55:00.000Z", "weekly", 8)}}""",
             agentUsageAt = "2026-08-28T11:30:00.000Z",
         )
-        val rows = AgentAccountsRows.agentProfileUsageRows(listOf(studio), "me") { true }
-        assertEquals(listOf("dev-1:claude:system", "dev-1:codex:system"), rows.map { it.key })
-
-        val claude = rows[0]
-        assertEquals("claude", claude.agent)
-        assertEquals(SYSTEM_PROFILE_ID, claude.profileId)
-        assertEquals("Default", claude.profileLabel)
-        assertTrue("the ambient login is always the active one", claude.active)
-        assertTrue(claude.mine)
-        assertTrue(claude.online)
-        assertTrue(claude.signedIn)
-        assertEquals("Studio", claude.deviceLabel)
-        assertEquals("dev@acme.test", claude.email)
-        assertEquals("max", claude.plan)
-        assertEquals(42, AgentAccountsRows.peakPercent(claude.usage))
-        // The account's own probe stamp wins over the row's usage stamp.
-        assertEquals("2026-08-28T11:00:00.000Z", claude.checkedAt)
-
-        // codex reported numbers but no account: a signed-out row.
-        val codex = rows[1]
-        assertFalse(codex.signedIn)
-        assertNull(codex.email)
-        assertEquals(8, AgentAccountsRows.peakPercent(codex.usage))
-        // No account to date it: the device's `agent_usage_at` is the fallback.
-        assertEquals("2026-08-28T11:30:00.000Z", codex.checkedAt)
+        assertTrue(AgentAccountsRows.agentProfileUsageRows(listOf(studio), "me") { true }.isEmpty())
 
         // A teammate's shared machine is never "mine", and the online-ness is
         // the caller's to decide.
@@ -137,14 +112,16 @@ class AgentAccountsRowsTest {
             userId = "someone-else",
             sharedTeamIds = listOf("team-1"),
             kind = "server",
-            agentAccounts = """{"claude":{"signedIn":true,"checkedAt":""}}""",
+            agentAccounts = """{"claude":{"signedIn":true,"checkedAt":"","profiles":[{"id":"p-1","active":true,"signedIn":true,"checkedAt":""}]}}""",
+            agentUsageAt = "2026-08-28T11:30:00.000Z",
         )
         val shared = AgentAccountsRows.agentProfileUsageRows(listOf(theirs), "me") { false }
-        assertEquals(1, shared.size)
+        assertEquals(listOf("dev-2:claude:p-1"), shared.map { it.key })
         assertFalse(shared[0].mine)
         assertFalse(shared[0].online)
-        // An empty `checkedAt` is nothing to say, never an "as of " with no date.
-        assertNull(shared[0].checkedAt)
+        // An empty `checkedAt` is nothing to say: the device's `agent_usage_at`
+        // is the fallback, never an "as of " with no date.
+        assertEquals("2026-08-28T11:30:00.000Z", shared[0].checkedAt)
 
         // A machine that reported nothing at all contributes no rows.
         val quiet = device(deviceId = "dev-3")
@@ -159,7 +136,7 @@ class AgentAccountsRowsTest {
             agentAccounts = """
                 {"claude":{"signedIn":true,"email":"dev@acme.test","plan":"max","checkedAt":"2026-08-28T11:00:00.000Z",
                   "profiles":[
-                    {"id":"system","label":"Default","active":true,"signedIn":true,"email":"dev@acme.test","plan":"max","checkedAt":"2026-08-28T11:10:00.000Z"},
+                    {"id":"p-dev","label":"Default","active":true,"signedIn":true,"email":"dev@acme.test","plan":"max","checkedAt":"2026-08-28T11:10:00.000Z"},
                     {"id":"work","label":"Work","active":false,"signedIn":true,"email":"alex@northwind.dev","plan":"team",
                      "usage":${usageJson("2026-08-28T11:50:00.000Z", "weekly", 9)}},
                     {"id":"old","active":false,"signedIn":false}
@@ -169,27 +146,27 @@ class AgentAccountsRowsTest {
         )
         val rows = AgentAccountsRows.agentProfileUsageRows(listOf(studio), "me") { true }
         assertEquals(
-            listOf("dev-1:claude:system", "dev-1:claude:work", "dev-1:claude:old"),
+            listOf("dev-1:claude:p-dev", "dev-1:claude:work", "dev-1:claude:old"),
             rows.map { it.key },
         )
         // Only the ACTIVE profile falls back to the pre-profile slot.
         val active = rows[0]
         assertTrue(active.active)
-        assertEquals("Default", active.profileLabel)
+        // A legacy `label` key from an older device is ignored: the email names it.
+        assertEquals("dev@acme.test", AgentAccountsRows.loginLabel(active))
         assertEquals(73, AgentAccountsRows.peakPercent(active.usage))
         assertEquals("2026-08-28T11:10:00.000Z", active.checkedAt)
         // A profile with its own numbers keeps them.
         val work = rows[1]
         assertFalse(work.active)
-        assertEquals("Work", work.profileLabel)
         assertEquals("alex@northwind.dev", work.email)
         assertEquals("team", work.plan)
         assertEquals(9, AgentAccountsRows.peakPercent(work.usage))
         // No own stamp: the account's probe stamp is the fallback.
         assertEquals("2026-08-28T11:00:00.000Z", work.checkedAt)
-        // An inactive, label-less profile: its id names it, no fallback numbers.
+        // An inactive profile with no address: "No email", no fallback numbers.
         val old = rows[2]
-        assertEquals("old", old.profileLabel)
+        assertEquals("No email", AgentAccountsRows.loginLabel(old))
         assertFalse(old.signedIn)
         assertNull(old.usage)
     }
@@ -225,64 +202,62 @@ class AgentAccountsRowsTest {
     @Test
     fun `profile health rides the synced rows`() {
         val accounts = """{"claude":{"signedIn":true,"email":"a@acme.test","health":"ok","profiles":[""" +
-            """{"id":"system","active":true,"signedIn":true,"email":"a@acme.test","health":"ok"},""" +
+            """{"id":"p-a","active":true,"signedIn":true,"email":"a@acme.test","health":"ok"},""" +
             """{"id":"work","signedIn":true,"email":"b@acme.test","health":"needs_relogin"}]}}"""
         val rows = AgentAccountsRows.agentProfileUsageRows(
             listOf(device(deviceId = "macbook", agentAccounts = accounts)),
             "me",
         ) { true }
-        assertEquals(AgentHealth.Ok, rows.first { it.profileId == "system" }.health)
+        assertEquals(AgentHealth.Ok, rows.first { it.profileId == "p-a" }.health)
         assertEquals(AgentHealth.NeedsRelogin, rows.first { it.profileId == "work" }.health)
     }
     // ── EXP-909: the Devices page's per-device fold ─────────────────────────
 
     @Test
-    fun `device logins lead with the active login, in contract agent order`() {
-        val accounts = """{"codex":{"signedIn":true,"email":"c@acme.test","plan":"plus"},""" +
+    fun `device logins keep the device's order, in contract agent order`() {
+        val accounts = """{"codex":{"signedIn":true,"email":"c@acme.test","plan":"plus","profiles":[""" +
+            """{"id":"cx","active":true,"signedIn":true,"email":"c@acme.test","plan":"plus"}]},""" +
             """"claude":{"signedIn":true,"email":"a@acme.test","health":"ok","profiles":[""" +
-            """{"id":"work","signedIn":true,"email":"b@acme.test","label":"Work","health":"needs_relogin"},""" +
-            """{"id":"system","active":true,"signedIn":true,"email":"a@acme.test","health":"ok"}]}}"""
+            """{"id":"work","signedIn":true,"email":"b@acme.test","health":"needs_relogin"},""" +
+            """{"id":"p-a","active":true,"signedIn":true,"email":"a@acme.test","health":"ok"}]}}"""
         val rows = AgentAccountsRows.deviceLoginRows(
             steerDevice(deviceId = "studio", label = "Studio", agentAccounts = parseAgentAccounts(accounts)),
         )
-        // Contract agent order (claude before codex), the ACTIVE login of each
-        // agent first, and a profile-less agent yields its ambient account.
+        // Contract agent order (claude before codex), then the order the
+        // device SENDS — the active login is not hoisted.
         assertEquals(
-            listOf("studio:claude:system", "studio:claude:work", "studio:codex:system"),
+            listOf("studio:claude:work", "studio:claude:p-a", "studio:codex:cx"),
             rows.map { it.key },
         )
-        val ambient = rows[0]
-        assertTrue(ambient.active)
-        assertEquals("Default", ambient.profileLabel)
-        assertEquals("a@acme.test", ambient.email)
-        assertEquals(AgentHealth.Ok, ambient.health)
-        // The device meta rides every row — the fold never re-derives it.
-        assertTrue(ambient.mine)
-        assertTrue(ambient.online)
-        assertEquals("Studio", ambient.deviceLabel)
-        val work = rows[1]
+        val work = rows[0]
         assertFalse(work.active)
-        assertEquals("Work", work.profileLabel)
         assertEquals(AgentHealth.NeedsRelogin, work.health)
-        // The pre-profile machine's single ambient account is always "active".
-        assertTrue(rows[2].active)
-        assertEquals("Default", rows[2].profileLabel)
-        // Behind the active login, the ones that need attention lead.
-        val ordered = AgentAccountsRows.sortDeviceLogins(
-            listOf(
-                row(deviceId = "d", agent = "claude", profileId = "fine", active = false, profileLabel = "Fine"),
-                row(
-                    deviceId = "d",
-                    agent = "claude",
-                    profileId = "dead",
-                    active = false,
-                    profileLabel = "Dead",
-                    health = AgentHealth.NeedsRelogin,
-                ),
-                row(deviceId = "d", agent = "claude", profileId = "system", active = true),
+        // The device meta rides every row — the fold never re-derives it.
+        assertTrue(work.mine)
+        assertTrue(work.online)
+        assertEquals("Studio", work.deviceLabel)
+        val active = rows[1]
+        assertTrue(active.active)
+        assertEquals("a@acme.test", active.email)
+        assertEquals(AgentHealth.Ok, active.health)
+        // A profile-less agent yields nothing, whatever its top level says.
+        val bare = AgentAccountsRows.deviceLoginRows(
+            steerDevice(
+                deviceId = "studio",
+                agentAccounts = mapOf("codex" to AgentAccount(signedIn = true, email = "c@acme.test")),
             ),
         )
-        assertEquals(listOf("system", "dead", "fine"), ordered.map { it.profileId })
+        assertTrue(bare.isEmpty())
+        // The sort is stable within an agent: attention and activity never reorder.
+        val ordered = AgentAccountsRows.sortDeviceLogins(
+            listOf(
+                row(deviceId = "d", agent = "codex", profileId = "c1"),
+                row(deviceId = "d", agent = "claude", profileId = "fine", active = false),
+                row(deviceId = "d", agent = "claude", profileId = "dead", active = false, health = AgentHealth.NeedsRelogin),
+                row(deviceId = "d", agent = "claude", profileId = "last", active = true),
+            ),
+        )
+        assertEquals(listOf("fine", "dead", "last", "c1"), ordered.map { it.profileId })
     }
 
     @Test
@@ -300,7 +275,7 @@ class AgentAccountsRowsTest {
         assertEquals(
             "No email",
             AgentAccountsRows.loginLabel(
-                row(deviceId = "d", agent = "claude", signedIn = false, profileLabel = "Work"),
+                row(deviceId = "d", agent = "claude", signedIn = false),
             ),
         )
         // …and the badge is where the status lives.
@@ -319,15 +294,12 @@ class AgentAccountsRowsTest {
             signedIn: Boolean,
             active: Boolean,
             health: AgentHealth,
-            profileId: String = "work",
         ) = row(
             deviceId = "studio",
             agent = "claude",
-            profileId = profileId,
             signedIn = signedIn,
             health = health,
             active = active,
-            profileLabel = "Work",
         )
         // EXP-944: a dead credential IS removable; the removal deletes a profile
         // dir and the credential's state never decided whether that is possible.
@@ -349,21 +321,6 @@ class AgentAccountsRowsTest {
                 canAgentLogin = true,
             ),
         )
-        // The AMBIENT login still ends at its sign-in: its config dir is the
-        // agent CLI's own, which Exponential never created.
-        assertEquals(
-            listOf("Sign in"),
-            AgentAccountsRows.chipActions(
-                chip(
-                    signedIn = false,
-                    active = true,
-                    health = AgentHealth.SignedOut,
-                    profileId = "system",
-                ),
-                canRemoveAccount = true,
-                canAgentLogin = true,
-            ),
-        )
         // EXP-1158: healthy, last used or not, the menu is the same — there
         // is no "make it the default" entry any more.
         listOf(true, false).forEach { active ->
@@ -379,7 +336,7 @@ class AgentAccountsRowsTest {
     }
 
     @Test
-    fun `the caps gate their own entries, and the ambient login is never removable`() {
+    fun `the caps gate their own entries`() {
         fun chip(profileId: String, active: Boolean) = row(
             deviceId = "studio",
             agent = "claude",
@@ -405,14 +362,15 @@ class AgentAccountsRowsTest {
                 canAgentLogin = true,
             ).isEmpty(),
         )
-        // The AMBIENT login is the agent CLI's own config dir — not ours to
-        // delete, whatever the machine advertises.
-        assertTrue(
+        // The last used login is removable like any other: every row is a
+        // profile dir Exponential created.
+        assertEquals(
+            listOf("Remove account"),
             AgentAccountsRows.chipActions(
-                chip("system", active = true),
+                chip("p-a", active = true),
                 canRemoveAccount = true,
                 canAgentLogin = true,
-            ).isEmpty(),
+            ),
         )
         // `agent_profile_remove` ALSO needs `agent-login` server-side: a
         // machine advertising `account-remove` without it offers no removal.
@@ -426,19 +384,16 @@ class AgentAccountsRowsTest {
     }
 
     // EXP-1137: a build with the sign-out body offers "Sign out" on every
-    // signed-in login and "Remove account" on the ambient one too; the fixed
-    // order ×4 is sign in, sign out, remove.
+    // signed-in login; the fixed order ×4 is sign in, sign out, remove.
     @Test
-    fun `a build that signs out offers it and removes the ambient login`() {
+    fun `a build that signs out offers it`() {
         fun chip(
             signedIn: Boolean,
             active: Boolean,
             health: AgentHealth,
-            profileId: String = "work",
         ) = row(
             deviceId = "mint",
             agent = "codex",
-            profileId = profileId,
             signedIn = signedIn,
             health = health,
             active = active,
@@ -456,22 +411,6 @@ class AgentAccountsRowsTest {
             listOf("Sign out", "Remove account"),
             all(chip(signedIn = true, active = false, health = AgentHealth.Ok)),
         )
-        // The ambient login, healthy and active (the screenshot's first row):
-        // a sign-out and a removal instead of no menu at all.
-        assertEquals(
-            listOf("Sign out", "Remove account"),
-            all(chip(signedIn = true, active = true, health = AgentHealth.Ok, profileId = "system")),
-        )
-        // The ambient login, signed out (the screenshot's second row): the
-        // sign-in and the removal that hides it. A blank id spells the same.
-        assertEquals(
-            listOf("Sign in", "Remove account"),
-            all(chip(signedIn = false, active = true, health = AgentHealth.SignedOut, profileId = "system")),
-        )
-        assertEquals(
-            listOf("Sign in", "Remove account"),
-            all(chip(signedIn = false, active = true, health = AgentHealth.SignedOut, profileId = " ")),
-        )
         // A revoked credential still signs out: that is how it leaves.
         assertEquals(
             listOf("Sign in", "Sign out", "Remove account"),
@@ -482,8 +421,8 @@ class AgentAccountsRowsTest {
             listOf("Sign in", "Remove account"),
             all(chip(signedIn = false, active = false, health = AgentHealth.SignedOut)),
         )
-        // The sign-out cap alone never removes a NAMED profile, and
-        // `agent-login` is required for everything.
+        // The sign-out cap alone never removes a profile, and `agent-login`
+        // is required for everything.
         assertEquals(
             listOf("Sign out"),
             AgentAccountsRows.chipActions(
@@ -495,34 +434,20 @@ class AgentAccountsRowsTest {
         )
         assertTrue(
             AgentAccountsRows.chipActions(
-                chip(signedIn = true, active = true, health = AgentHealth.Ok, profileId = "system"),
+                chip(signedIn = true, active = true, health = AgentHealth.Ok),
                 canRemoveAccount = true,
                 canAgentLogin = false,
                 canSignOutAccount = true,
             ).isEmpty(),
         )
-        assertTrue(AgentAccountsRows.isAmbient("system"))
-        assertTrue(AgentAccountsRows.isAmbient(""))
-        assertFalse(AgentAccountsRows.isAmbient("work"))
     }
 
     @Test
-    fun `the sign-out and ambient remove confirms are the pinned sentences`() {
+    fun `the sign-out confirm is the pinned sentence`() {
         assertEquals(
             "Sign me@example.com out on mint? The login stays listed so it can sign in " +
                 "again; the account itself is untouched.",
             AgentAccountsRows.signOutConfirm("me@example.com", "mint"),
-        )
-        assertEquals(
-            "Sign me@example.com out on mint? That is the machine's own Claude login, so " +
-                "the Claude CLI there is signed out too; the account itself is untouched.",
-            AgentAccountsRows.signOutConfirm("me@example.com", "mint", "Claude"),
-        )
-        assertEquals(
-            "Remove me@example.com from mint? The machine's own Codex login is signed out " +
-                "there, including for the Codex CLI in the terminal, and hidden here until it " +
-                "signs in again; the account itself is untouched.",
-            AgentAccountsRows.removeAmbientAccountConfirm("me@example.com", "mint", "Codex"),
         )
         assertEquals(
             "That machine runs an older Exponential app that cannot sign agent accounts out. Update it first.",
@@ -547,14 +472,15 @@ class AgentAccountsRowsTest {
         // one of these columns; nothing this build draws may name it.
         val stale = device(
             deviceId = "old-box",
-            agentAccounts = """{"pi":{"signedIn":true,"email":"pi@acme.test"},"claude":{"signedIn":true,"email":"a@acme.test"}}""",
+            agentAccounts = """{"pi":{"signedIn":true,"email":"pi@acme.test","profiles":[{"id":"p","active":true,"signedIn":true}]},""" +
+                """"claude":{"signedIn":true,"email":"a@acme.test","profiles":[{"id":"c","active":true,"signedIn":true,"email":"a@acme.test"}]}}""",
             agentUsage = """{"pi":${usageJson("2026-08-28T11:55:00.000Z", "weekly", 99)}}""",
         )
         val rows = AgentAccountsRows.agentProfileUsageRows(listOf(stale), "me") { true }
-        assertEquals(listOf("old-box:claude:system"), rows.map { it.key })
+        assertEquals(listOf("old-box:claude:c"), rows.map { it.key })
         // …and the per-device fold drops it just as hard.
         assertEquals(
-            listOf("old-box:claude:system"),
+            listOf("old-box:claude:c"),
             AgentAccountsRows.deviceLoginRows(
                 steerDevice(
                     deviceId = "old-box",
@@ -570,7 +496,7 @@ class AgentAccountsRowsTest {
         )
     }
 
-    // ── EXP-862: "Add account" — who can take a sign-in, and where it lands ──
+    // ── EXP-862: "Add account" — who can take a sign-in ──
 
     /** A relay/registry row as the Add-account rules see it. */
     private fun steerDevice(
@@ -615,166 +541,86 @@ class AgentAccountsRowsTest {
         )
     }
 
+    // The sign-in sheet's self-close rule: a fresh `lastLoginAt` against the
+    // baseline taken when the command was queued.
+    private fun profile(id: String, email: String, lastLoginAt: String? = null) =
+        AgentAccountProfile(id = id, email = email, signedIn = true, lastLoginAt = lastLoginAt)
+
     @Test
-    fun `a new login takes the ambient slot only while it is signed out`() {
-        // Nothing reported at all: the ambient config dir is free.
-        assertEquals(
-            AgentAccountsRows.LoginTarget(profileId = SYSTEM_PROFILE_ID, newProfileLabel = null),
-            AgentAccountsRows.addAccountLoginTarget(steerDevice("dev"), "claude", "Claude Code account 2"),
-        )
-        // The agent is known but signed out there: still the ambient slot.
-        val signedOut = steerDevice(
-            "dev",
-            agentAccounts = mapOf("claude" to AgentAccount(signedIn = false)),
-        )
-        assertEquals(
-            SYSTEM_PROFILE_ID,
-            AgentAccountsRows.addAccountLoginTarget(signedOut, "claude", "Claude Code account 2").profileId,
-        )
-        // Signed in on the ambient login: a SECOND account gets its own
-        // profile, never the agent CLI's own config dir.
-        val signedIn = steerDevice(
-            "dev",
-            agentAccounts = mapOf("claude" to AgentAccount(signedIn = true, email = "dev@acme.test")),
-        )
-        assertEquals(
-            AgentAccountsRows.LoginTarget(profileId = null, newProfileLabel = "Claude Code account 2"),
-            AgentAccountsRows.addAccountLoginTarget(signedIn, "claude", "Claude Code account 2"),
-        )
-        // The PROFILE's own flag wins over the pre-profile slot: an ambient
-        // entry that says signed out frees the slot even when the account
-        // header (another profile's identity) claims signed in.
-        val ambientSignedOut = steerDevice(
-            "dev",
-            agentAccounts = mapOf(
-                "claude" to AgentAccount(
-                    signedIn = true,
-                    profiles = listOf(
-                        AgentAccountProfile(id = SYSTEM_PROFILE_ID, signedIn = false),
-                        AgentAccountProfile(id = "work", signedIn = true, active = true),
-                    ),
-                ),
+    fun `a login lands on a fresh lastLoginAt`() {
+        val before = AgentAccount(
+            signedIn = true,
+            profiles = listOf(
+                profile("a", "a@acme.test", "2026-10-01T00:00:00Z"),
+                profile("b", "b@acme.test"),
+                profile("c", "c@acme.test", "2026-09-01T00:00:00Z"),
             ),
         )
+        val baseline = AgentAccountsRows.loginBaseline(before)
         assertEquals(
-            SYSTEM_PROFILE_ID,
-            AgentAccountsRows.addAccountLoginTarget(ambientSignedOut, "claude", "x").profileId,
+            mapOf("a" to "2026-10-01T00:00:00Z", "b" to null, "c" to "2026-09-01T00:00:00Z"),
+            baseline,
         )
-        // A machine with only OTHER agents signed in keeps claude's slot free.
-        val otherAgent = steerDevice(
-            "dev",
-            agentAccounts = mapOf("codex" to AgentAccount(signedIn = true)),
+        assertNull(AgentAccountsRows.loginBaseline(null)["a"])
+        // Nothing moved: nothing landed.
+        assertNull(AgentAccountsRows.loginLanding(before, baseline, "c"))
+        assertNull(AgentAccountsRows.loginLanding(null, baseline, "c"))
+
+        // C was signed in again as C: the intended login, no duplicate.
+        val repaired = before.copy(
+            profiles = before.profiles!!.map {
+                if (it.id == "c") it.copy(lastLoginAt = "2026-10-10T00:00:00Z") else it
+            },
         )
         assertEquals(
-            SYSTEM_PROFILE_ID,
-            AgentAccountsRows.addAccountLoginTarget(otherAgent, "claude", "x").profileId,
+            AgentAccountsRows.LoginLanding("c", "c@acme.test", duplicate = false),
+            AgentAccountsRows.loginLanding(repaired, baseline, "c"),
         )
+
+        // Add account with a NEW email: a new id with a stamp, no duplicate.
+        val added = before.copy(
+            profiles = before.profiles!! + profile("d", "d@acme.test", "2026-10-10T00:00:00Z"),
+        )
+        assertEquals(
+            AgentAccountsRows.LoginLanding("d", "d@acme.test", duplicate = false),
+            AgentAccountsRows.loginLanding(added, baseline, null),
+        )
+        // A new id with no stamp yet has not landed.
+        val unstamped = before.copy(profiles = before.profiles!! + profile("e", "e@acme.test"))
+        assertNull(AgentAccountsRows.loginLanding(unstamped, baseline, null))
     }
 
     @Test
-    fun `the next profile label counts past the logins the machine reports`() {
-        // Nothing reported: the ambient login still counts as the first.
-        assertEquals(
-            "Claude Code account 2",
-            AgentAccountsRows.nextProfileLabel(steerDevice("dev"), "claude", "Claude Code"),
-        )
-        val twoProfiles = steerDevice(
-            "dev",
-            agentAccounts = mapOf(
-                "claude" to AgentAccount(
-                    signedIn = true,
-                    profiles = listOf(
-                        AgentAccountProfile(id = SYSTEM_PROFILE_ID, signedIn = true, active = true),
-                        AgentAccountProfile(id = "work", signedIn = true),
-                    ),
-                ),
+    fun `a login that refreshed another profile is a duplicate`() {
+        val before = AgentAccount(
+            signedIn = true,
+            profiles = listOf(
+                profile("a", "a@acme.test", "2026-10-01T00:00:00Z"),
+                profile("b", "b@acme.test"),
+                profile("c", "c@acme.test"),
             ),
         )
-        // A profile whose label is not an "account N" takes no number.
+        val baseline = AgentAccountsRows.loginBaseline(before)
+        // Sign in on C, but the browser signed in as A: A refreshed, C untouched.
+        val refreshedA = before.copy(
+            profiles = before.profiles!!.map {
+                if (it.id == "a") it.copy(lastLoginAt = "2026-10-10T00:00:00Z") else it
+            },
+        )
+        val onC = AgentAccountsRows.loginLanding(refreshedA, baseline, "c")!!
+        assertEquals(AgentAccountsRows.LoginLanding("a", "a@acme.test", duplicate = true), onC)
+        // Add account as an email the device already holds: a duplicate too.
+        assertTrue(AgentAccountsRows.loginLanding(refreshedA, baseline, null)!!.duplicate)
+        // B had never stamped: its first stamp under another intent still counts.
+        val refreshedB = before.copy(
+            profiles = before.profiles!!.map {
+                if (it.id == "b") it.copy(lastLoginAt = "2026-10-10T00:00:00Z") else it
+            },
+        )
+        assertTrue(AgentAccountsRows.loginLanding(refreshedB, baseline, "c")!!.duplicate)
         assertEquals(
-            "Claude Code account 2",
-            AgentAccountsRows.nextProfileLabel(twoProfiles, "claude", "Claude Code"),
+            "a@acme.test was already added. Refreshed it.",
+            AgentAccountsRows.alreadyAddedToast(onC.email!!),
         )
-        // The label follows the AGENT asked about, not the machine's busiest.
-        assertEquals(
-            "Codex account 2",
-            AgentAccountsRows.nextProfileLabel(twoProfiles, "codex", "Codex"),
-        )
-        // An empty profile list is the same "one ambient login" floor.
-        val empty = steerDevice(
-            "dev",
-            agentAccounts = mapOf("claude" to AgentAccount(signedIn = true, profiles = emptyList())),
-        )
-        assertEquals(
-            "Claude Code account 2",
-            AgentAccountsRows.nextProfileLabel(empty, "claude", "Claude Code"),
-        )
-    }
-
-    @Test
-    fun `the next profile label takes the smallest free number`() {
-        fun device(vararg labels: String) = steerDevice(
-            "dev",
-            agentAccounts = mapOf(
-                "claude" to AgentAccount(
-                    signedIn = true,
-                    profiles = listOf(
-                        AgentAccountProfile(id = SYSTEM_PROFILE_ID, signedIn = true, active = true),
-                    ) + labels.mapIndexed { i, label ->
-                        AgentAccountProfile(id = "p$i", label = label, signedIn = true)
-                    },
-                ),
-            ),
-        )
-        // "account 2" was removed: its number is free again, never a duplicate 3.
-        assertEquals(
-            "Claude Code account 2",
-            AgentAccountsRows.nextProfileLabel(device("Claude Code account 3"), "claude", "Claude Code"),
-        )
-        assertEquals(
-            "Claude Code account 4",
-            AgentAccountsRows.nextProfileLabel(
-                device("Claude Code account 2", "Claude Code account 3"),
-                "claude",
-                "Claude Code",
-            ),
-        )
-    }
-
-    @Test
-    fun `a profile label is trimmed and clamped to the server limit`() {
-        assertEquals("work", AgentAccountsRows.clampProfileLabel("  work "))
-        assertEquals(64, AgentAccountsRows.clampProfileLabel("x".repeat(80)).length)
-    }
-
-    // EXP-862: the sign-in sheet's self-close rule, on the TARGETED login.
-    @Test
-    fun loginLandedReadsTheTargetedLogin() {
-        val ambientOut = AgentAccountProfile(id = SYSTEM_PROFILE_ID, signedIn = false)
-        val ambientIn = AgentAccountProfile(id = SYSTEM_PROFILE_ID, signedIn = true, health = "ok")
-        val work = AgentAccountProfile(id = "p-work", label = "Work", signedIn = true, health = "ok")
-        val stale = AgentAccountProfile(id = "p-stale", label = "Stale", signedIn = true, health = "needs_relogin")
-
-        assertFalse(AgentAccountsRows.loginLanded(null, null, null))
-        // The ambient login: its own `system` row decides, never the header.
-        assertFalse(
-            AgentAccountsRows.loginLanded(AgentAccount(signedIn = true, profiles = listOf(ambientOut, work)), SYSTEM_PROFILE_ID, null),
-        )
-        assertTrue(
-            AgentAccountsRows.loginLanded(AgentAccount(signedIn = true, profiles = listOf(ambientIn)), SYSTEM_PROFILE_ID, null),
-        )
-        // No profile rows at all: the top-level fields, minus needs_relogin.
-        assertTrue(AgentAccountsRows.loginLanded(AgentAccount(signedIn = true, health = "ok"), null, null))
-        assertFalse(AgentAccountsRows.loginLanded(AgentAccount(signedIn = true, health = "needs_relogin"), null, null))
-        // A named profile is its own state; a refused one has not landed.
-        val account = AgentAccount(signedIn = true, profiles = listOf(ambientIn, work, stale))
-        assertTrue(AgentAccountsRows.loginLanded(account, "p-work", null))
-        assertFalse(AgentAccountsRows.loginLanded(account, "p-stale", null))
-        assertFalse(AgentAccountsRows.loginLanded(account, "p-missing", null))
-        // A NEW profile lands when a row carrying its label is usable.
-        assertTrue(AgentAccountsRows.loginLanded(account, null, " Work "))
-        assertFalse(AgentAccountsRows.loginLanded(account, null, "Stale"))
-        assertFalse(AgentAccountsRows.loginLanded(account, null, "Nowhere"))
-        assertFalse(AgentAccountsRows.loginLanded(account, null, "  "))
     }
 }

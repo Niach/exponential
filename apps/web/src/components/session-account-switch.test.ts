@@ -156,7 +156,7 @@ describe(`switchBlockedReason (EXP-849)`, () => {
       switchBlockedReason({ ...switchable, currentAccount: `work` })
     ).toBe(REASON_ALREADY)
     expect(
-      switchBlockedReason({ ...switchable, currentAccount: `system` })
+      switchBlockedReason({ ...switchable, currentAccount: `home` })
     ).toBeNull()
     expect(switchBlockedReason({ ...switchable, currentAccount: null })).toBeNull()
   })
@@ -183,13 +183,13 @@ describe(`usage overlay account rules (EXP-863)`, () => {
 
   it(`names the active account: known, else by the reported email, else the active login`, () => {
     const options = [
-      option(`system`, { active: true, email: `a@x.io` }),
+      option(`home`, { active: true, email: `a@x.io` }),
       option(`work`, { email: `b@x.io` }),
       option(`spare`, { current: true, email: `c@x.io` }),
     ]
     expect(activeAccountIndex(options, `b@x.io`)).toBe(2)
     const unknown = [
-      option(`system`, { active: true, email: `a@x.io` }),
+      option(`home`, { active: true, email: `a@x.io` }),
       option(`work`, { email: `b@x.io` }),
     ]
     expect(activeAccountIndex(unknown, `b@x.io`)).toBe(1)

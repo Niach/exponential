@@ -20,7 +20,7 @@ import type { AgentProfileUsageRow } from "@/lib/agent-usage"
 function row(overrides: Partial<AgentProfileUsageRow> = {}): AgentProfileUsageRow {
   const deviceId = overrides.deviceId ?? `dev-1`
   const agent = overrides.agent ?? `claude`
-  const profileId = overrides.profileId ?? `system`
+  const profileId = overrides.profileId ?? `home`
   return {
     key: `${deviceId}:${agent}:${profileId}`,
     deviceId,
@@ -29,7 +29,6 @@ function row(overrides: Partial<AgentProfileUsageRow> = {}): AgentProfileUsageRo
     online: true,
     agent,
     profileId,
-    profileLabel: `Default`,
     active: true,
     signedIn: true,
     health: `ok`,
@@ -131,7 +130,7 @@ describe(`planUsageRefresh`, () => {
       )
     }
     // Only the one answerable login, and only up to the blind cap.
-    expect(new Set(commanded)).toEqual(new Set([`mine:claude:system`]))
+    expect(new Set(commanded)).toEqual(new Set([`mine:claude:home`]))
     expect(commanded).toHaveLength(MAX_BLIND_ATTEMPTS)
   })
 
@@ -191,6 +190,6 @@ describe(`planUsageRefresh`, () => {
       at: 1_000_000,
       state,
     })
-    expect(keys).toEqual([`b:claude:system`])
+    expect(keys).toEqual([`b:claude:home`])
   })
 })

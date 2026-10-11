@@ -8,12 +8,11 @@ import Foundation
 /// `domain/AccountOption.kt` — same fixture, same test names. The rules:
 ///
 ///  - one option per SIGNED-IN login the device reports, across both contract
-///    agents (`devices.agent_accounts[agent].profiles`; an agent that reports
-///    no profiles yields its ambient `system` login);
-///  - the label is ALWAYS the agent's brand mark + the login's EMAIL — never
-///    the profile name (`label`), never the word "default". A login reported
-///    without an address shows its plan; with neither, its profile id (the
-///    machine has nothing better to say);
+///    agents (`devices.agent_accounts[agent].profiles`, and ONLY those: no
+///    ambient login is ever used, so none is synthesized);
+///  - the label is ALWAYS the agent's brand mark + the login's EMAIL (a
+///    profile has no other name). A login reported without an address shows
+///    its plan; with neither, "No email";
 ///  - the LAST USED login leads, marked by ORDER (it is first) and by a
 ///    check, not by a label: `isLastUsed` is true for exactly one option —
 ///    `defaultAgent`'s active login, else the first contract agent's active
@@ -26,7 +25,7 @@ import Foundation
 /// switched a run on, on that device (`agent_accounts[agent].profiles[].active`);
 /// the last used agent = `launch_defaults.defaultAgent`. Triggered action
 /// runs, agent-started runs and auto-rotation never move it. A launch naming
-/// no account runs on it; `account: "system"` names the ambient login.
+/// no account runs on it; a legacy stored `system` reads as no account.
 ///
 /// `limits` are FRACTIONS 0..1 off the usage windows (`percent / 100`):
 /// `fiveHour` = the `session` window, `week` = the `weekly` window, `model` =
@@ -90,8 +89,8 @@ public struct AccountOption: Equatable, Sendable {
         self.limits = limits
     }
 
-    /// `<agent>:<profileId>` — the ONE string a picker keys a row by, since a
-    /// profile id alone (`system`) repeats across agents.
+    /// `<agent>:<profileId>` — the ONE string a picker keys a row by (the
+    /// no-login fallback rows share a blank id across agents).
     public var key: String { "\(agent):\(id)" }
 }
 
@@ -104,9 +103,9 @@ public enum AccountOptions {
         usage: [String: AgentUsage]?,
         launchDefaults: DeviceLaunchDefaults?
     ) -> [AccountOption] {
-        // `deviceLoginRows` already knows the shape: one row per profile (or
-        // the ambient `system` login for a profile-less agent), retired agents
-        // dropped, the active profile's numbers read off either slot, sorted.
+        // `deviceLoginRows` already knows the shape: one row per reported
+        // profile, retired agents dropped, the active profile's numbers read
+        // off either slot, sorted.
         let rows = AgentAccountsRows.deviceLoginRows(
             SteerDevice(
                 deviceId: "",
@@ -166,19 +165,22 @@ public enum AccountOptions {
     }
 
     /// EXP-1158: what a start (or an automation pin) carries as `account`
-    /// for a picked profile id — the id VERBATIM, `system` included (it NAMES
-    /// the ambient login); a blank pick is unnamed and rides as no account,
-    /// which runs on the machine's last used login.
+    /// for a picked profile id — the id VERBATIM; a blank pick is unnamed and
+    /// rides as no account, which runs on the machine's last used login. A
+    /// legacy stored `system` (the retired ambient login) is unnamed too.
     public static func wireAccount(_ picked: String?) -> String? {
-        guard let picked, !picked.isEmpty else { return nil }
+        guard let picked, !picked.isEmpty, picked != legacySystemAccount else { return nil }
         return picked
     }
 
+    /// The retired ambient-login id older clients stored on runs, launches
+    /// and trigger pins. Read only to fold it to UNPINNED (the server's
+    /// `LEGACY_SYSTEM_ACCOUNT`); never sent, never a row.
+    public static let legacySystemAccount = "system"
+
     // MARK: - Internals
 
-    /// The email a row reads as — see the header's fallback ladder. The last
-    /// rung is the profile ID, not its label: a label is a name somebody
-    /// typed, and this list never shows one.
+    /// The email a row reads as — see the header's fallback ladder.
     private static func optionEmail(_ row: AgentProfileUsageRow) -> String {
         AgentAccountsRows.accountName(email: row.email, plan: row.plan)
     }

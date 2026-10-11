@@ -397,9 +397,9 @@ describe(`LaunchComposer`, () => {
     const model = fakeModel({
       launch: {
         ...fakeLaunch(),
-        accountKey: `claude:system`,
+        accountKey: `claude:home`,
         accountOptions: [
-          { id: `system`, agent: `claude`, email: `me@example.com`, isLastUsed: true, health: `ok` },
+          { id: `home`, agent: `claude`, email: `me@example.com`, isLastUsed: true, health: `ok` },
         ],
       },
     })

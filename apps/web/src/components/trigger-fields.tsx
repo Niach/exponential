@@ -413,7 +413,7 @@ export interface TriggerAccountPin {
   /** `` = no agent pinned yet (only while no device is bound). */
   agent: string
   /** `` = unpinned (stored NULL): the machine's LAST USED login for `agent`.
-   *  `system` NAMES the ambient login (EXP-1158). */
+   *  The server folds a legacy `system` to unpinned too. */
   account: string
 }
 
@@ -424,8 +424,8 @@ export function triggerAccountKey(pin: TriggerAccountPin): string {
   })
 }
 
-/** The pin an `AccountOption` stores: the agent and the profile id VERBATIM,
- * the ambient `system` login included (EXP-1158). */
+/** The pin an `AccountOption` stores: the agent and the profile id VERBATIM
+ * (`` for an unpinned option). */
 export function accountPinOf(option: AccountOption): TriggerAccountPin {
   return { agent: option.agent, account: option.id }
 }
@@ -482,8 +482,8 @@ export function seedAccountPin(
  * agent so it draws no strip. Blank on Model/Effort means "whatever the
  * device is configured to launch with" (the row stores NULL).
  *
- * A machine that reports no login at all offers one ambient row per runnable
- * agent, named by the agent (`accountOptionsOf`); a binding to a machine the
+ * A machine that reports no profile at all offers one unpinned row per
+ * runnable agent, named by the agent (`accountOptionsOf`); a binding to a machine the
  * viewer cannot see (a teammate's private device) keeps its stored agent on a
  * plain Agent row, so editing another field never silently rebinds it. */
 export function TriggerLaunchFields({

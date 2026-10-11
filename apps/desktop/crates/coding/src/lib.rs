@@ -129,8 +129,8 @@ pub use account_option::{
     carried_account_option, flatten_accounts, last_used_account_option, parse_account_option_key, AccountLimits,
     AccountModelLimit, AccountOption,
 };
-pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts, AgentProfileEntry, Health};
-pub use agent_profiles::{profile_id, AgentProfile, SYSTEM_PROFILE};
+pub use agent_accounts::{now_iso, AgentAccount, AgentAccounts, AgentProfileEntry, Health, Importable};
+pub use agent_profiles::{profile_id, AgentProfile};
 pub use agent_login::{login_plan, LoginPhase, LoginPlan, LoginProgress};
 pub use agent_usage::{
     collect_if_due, force_collect, refresh_on_demand, AgentStatusPayload,

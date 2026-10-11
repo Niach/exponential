@@ -11,7 +11,7 @@ import SwiftUI
 // MARK, and the email + badge + bars are the row's BODY (`renderItem`, the
 // one bespoke row body in the package — web's account picker does exactly the
 // same on the same seam). A row is keyed by `AccountOption.key`, never the
-// bare profile id: `system` repeats across agents.
+// bare profile id: a no-login fallback's blank id repeats across agents.
 // (The file is not `AccountPicker.swift`: swiftc refuses two files of one
 // name in a module, and that one holds the trigger label + the limit bars.)
 

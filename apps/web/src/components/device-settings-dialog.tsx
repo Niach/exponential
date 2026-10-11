@@ -58,6 +58,7 @@ import {
   agentSupportsUltracode,
 } from "@/lib/coding-launch-prefs"
 import {
+  deviceCanImportAgentLogin,
   deviceCanUpdateNow,
   deviceRowIsOnline,
   deviceUpdateAvailable,
@@ -71,6 +72,7 @@ import {
 } from "@/components/launch-dialog/launch-options-pane"
 import { agentLabel } from "@exp/ui"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
+import { queueAgentImport } from "@/components/device-readiness-notice"
 
 const RemoveIcon = conceptIcon(`ui-delete`)
 const OfflineIcon = conceptIcon(`ui-device-offline`)
@@ -865,8 +867,14 @@ export function DeviceSettingsDialog({
                 remote
                 busy={tracked.some((command) => isAgentUpdateKey(command.key))}
                 computerUse={{ checked: computerUse, onCheckedChange: toggleComputerUse }}
+                canImport={device ? deviceCanImportAgentLogin(device) : false}
                 onAction={(itemKey, action) => {
-                  if (action === `update`) {
+                  if (action === `import` && device) {
+                    const email = row.doctor?.items.find(
+                      (item) => item.key === itemKey
+                    )?.import
+                    if (email) void queueAgentImport(device, itemKey, email)
+                  } else if (action === `update`) {
                     void queueCommand(agentUpdateKey(itemKey), {
                       kind: `agent_update`,
                       agent: itemKey,

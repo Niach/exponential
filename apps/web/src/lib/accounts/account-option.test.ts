@@ -14,8 +14,8 @@ import {
 // Kotlin copies (see the header of account-option.ts).
 
 /** The fixture ×4: two claude logins (work = active, home = a dead
- * credential), one codex login, and a `system` codex profile that is signed
- * out. The last used agent is codex. */
+ * credential), one codex login, and a signed-out codex profile. The last used
+ * agent is codex. */
 export const ACCOUNT_FIXTURE: AccountSource = {
   launchDefaults: { defaultAgent: `codex` },
   agentAccounts: {
@@ -25,7 +25,6 @@ export const ACCOUNT_FIXTURE: AccountSource = {
       profiles: [
         {
           id: `work`,
-          label: `Work laptop`,
           signedIn: true,
           email: `work@x.test`,
           active: true,
@@ -41,7 +40,6 @@ export const ACCOUNT_FIXTURE: AccountSource = {
         },
         {
           id: `home`,
-          label: `Default`,
           signedIn: true,
           email: `home@x.test`,
           health: `needs_relogin`,
@@ -53,7 +51,6 @@ export const ACCOUNT_FIXTURE: AccountSource = {
       profiles: [
         {
           id: `main`,
-          label: `Main`,
           signedIn: true,
           email: `codex@x.test`,
           active: true,
@@ -64,7 +61,7 @@ export const ACCOUNT_FIXTURE: AccountSource = {
             ],
           },
         },
-        { id: `system`, signedIn: false, active: false },
+        { id: `old`, signedIn: false, email: `old@x.test` },
       ],
     },
     // A retired agent still sitting in a synced row (EXP-849).
@@ -82,10 +79,7 @@ describe(`flattenAccounts (EXP-872)`, () => {
     ])
   })
 
-  it(`labels every option by email, never by profile name and never "default"`, () => {
-    // A profile { id: 'work', label: 'Work laptop', email: 'a@x.test' }
-    // yields email 'a@x.test'; no option's email is 'Work laptop' or contains
-    // the word 'default'.
+  it(`labels every option by email, never "default"`, () => {
     const options = flattenAccounts(ACCOUNT_FIXTURE)
     expect(options.map((option) => option.email)).toEqual([
       `codex@x.test`,
@@ -93,7 +87,6 @@ describe(`flattenAccounts (EXP-872)`, () => {
       `home@x.test`,
     ])
     for (const option of options) {
-      expect(option.email).not.toBe(`Work laptop`)
       expect(option.email.toLowerCase()).not.toContain(`default`)
     }
   })
@@ -159,8 +152,8 @@ describe(`flattenAccounts (EXP-872)`, () => {
         claude: {
           signedIn: true,
           profiles: [
-            { id: `p1`, label: `Plan only`, signedIn: true, plan: `Max`, active: true },
-            { id: `p2`, label: `Bare`, signedIn: true },
+            { id: `p1`, signedIn: true, plan: `Max`, active: true },
+            { id: `p2`, signedIn: true },
           ],
         },
       },
@@ -168,28 +161,19 @@ describe(`flattenAccounts (EXP-872)`, () => {
     expect(options.map((option) => option.email)).toEqual([`Max`, `No email`])
   })
 
-  it(`yields the ambient system login for a device that reports no profiles`, () => {
+  it(`never synthesizes the ambient login for a device that reports no profiles`, () => {
     const options = flattenAccounts({
       agentAccounts: { claude: { signedIn: true, email: `solo@x.test` } },
       agentUsage: {
         claude: { windows: [{ key: `session`, label: `5h`, percent: 20 }] },
       },
     })
-    expect(options).toEqual([
-      {
-        id: `system`,
-        agent: `claude`,
-        email: `solo@x.test`,
-        isLastUsed: true,
-        health: `ok`,
-        limits: { fiveHour: 0.2, week: 0 },
-      },
-    ])
+    expect(options).toEqual([])
   })
 
   it(`skips signed-out logins and retired agents`, () => {
     const options = flattenAccounts(ACCOUNT_FIXTURE)
-    expect(options.some((option) => option.id === `system`)).toBe(false)
+    expect(options.some((option) => option.id === `old`)).toBe(false)
     expect(options.some((option) => (option.agent as string) === `pi`)).toBe(false)
     expect(flattenAccounts({})).toEqual([])
     expect(lastUsedAccountOption([])).toBeUndefined()

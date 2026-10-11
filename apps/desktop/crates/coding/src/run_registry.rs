@@ -345,32 +345,33 @@ pub fn mcp_server_ids_extra(ids: &[String]) -> BTreeMap<String, serde_json::Valu
 
 /// EXP-792 (EXP-747 B7): the [`RunRecord::extra`] key carrying the run's
 /// agent ACCOUNT PROFILE id — a resume must reopen the SAME config dir
-/// (credentials, trust flags, codex rollouts). Absent for the ambient
-/// login, so a profile-less run serializes exactly as before.
+/// (credentials, trust flags, codex rollouts). Absent on a legacy record
+/// that ran on the retired ambient login.
 pub const ACCOUNT_KEY: &str = "account";
 
 impl RunRecord {
-    /// EXP-792: the recorded account profile; `None` = the ambient login.
+    /// EXP-792: the recorded account profile; `None` = a legacy record (the
+    /// retired ambient login), which resumes on the device's resolved one.
     pub fn account(&self) -> Option<String> {
         self.extra
             .get(ACCOUNT_KEY)
             .and_then(|value| value.as_str())
-            .filter(|id| !crate::agent_profiles::is_system(Some(id)))
-            .map(str::to_string)
+            .filter(|id| !crate::agent_profiles::is_unpinned(Some(id)))
+            .map(|id| id.trim().to_string())
     }
 
-    /// EXP-792: record (or, for `None`/`system`, clear) the profile.
+    /// EXP-792: record (or, for an unpinned slot, clear) the profile.
     pub fn set_account(&mut self, account: Option<&str>) {
         self.extra.remove(ACCOUNT_KEY);
         self.extra.extend(account_extra(account));
     }
 }
 
-/// EXP-792: the `extra` entry an account pick writes — empty for the
-/// ambient login.
+/// EXP-792: the `extra` entry an account pick writes — empty for an
+/// unpinned slot.
 pub fn account_extra(account: Option<&str>) -> BTreeMap<String, serde_json::Value> {
     let mut extra = BTreeMap::new();
-    if !crate::agent_profiles::is_system(account) {
+    if !crate::agent_profiles::is_unpinned(account) {
         if let Some(id) = account {
             extra.insert(
                 ACCOUNT_KEY.to_string(),
@@ -779,7 +780,7 @@ pub fn live_host_cwds(data_dir: &Path) -> Vec<PathBuf> {
 }
 
 /// FEED-61: how many runs of `agent` with a LIVE host each account profile
-/// is carrying right now (`system` = the ambient login). The start pick
+/// is carrying right now. The start pick
 /// weighs them: the usage cache only knows what a login has already spent,
 /// not the runs currently drawing on it.
 pub fn live_runs_per_account(
@@ -798,9 +799,11 @@ fn live_account_counts(
 ) -> std::collections::BTreeMap<String, u32> {
     let mut counts = std::collections::BTreeMap::new();
     for record in records {
+        // A legacy run on the retired ambient login spends no profile.
         if record.agent == agent && record.host_pid.is_some_and(&alive) {
-            let profile = crate::agent_profiles::profile_id(record.account().as_deref());
-            *counts.entry(profile).or_insert(0) += 1;
+            if let Some(profile) = record.account() {
+                *counts.entry(profile).or_insert(0) += 1;
+            }
         }
     }
     counts
@@ -1659,7 +1662,7 @@ mod tests {
     }
 
     /// EXP-792 (EXP-747 B7): the account profile rides `extra["account"]`;
-    /// the ambient login writes nothing.
+    /// an unpinned slot (the retired `system` included) writes nothing.
     #[test]
     fn account_round_trips_through_extra_and_system_writes_nothing() {
         let dir = temp_dir("account-extra");
@@ -1823,9 +1826,8 @@ mod tests {
         let records = [ambient, work, work_too, dead, ended];
         let agent = records[0].agent;
         let counts = live_account_counts(&records, agent, |pid| pid != 99);
-        assert_eq!(counts.get(crate::SYSTEM_PROFILE), Some(&1));
         assert_eq!(counts.get("work"), Some(&2));
-        assert_eq!(counts.len(), 2);
+        assert_eq!(counts.len(), 1, "a legacy ambient run spends no profile");
     }
 
     #[test]

@@ -8,7 +8,7 @@ import XCTest
 // Android `AccountOptionTest.kt`. Change a rule here, change it in all four.
 final class AccountOptionTests: XCTestCase {
     /// The fixture ×4: two claude logins (work = active, home = a dead
-    /// credential), one codex login, and a `system` codex profile that is
+    /// credential), one codex login, and a spare codex profile that is
     /// signed out. The last used agent is codex.
     private func fixtureAccounts() -> [String: AgentAccount] {
         [
@@ -18,7 +18,6 @@ final class AccountOptionTests: XCTestCase {
                 profiles: [
                     AgentAccountProfile(
                         id: "work",
-                        label: "Work laptop",
                         active: true,
                         signedIn: true,
                         email: "work@x.test",
@@ -34,7 +33,6 @@ final class AccountOptionTests: XCTestCase {
                     ),
                     AgentAccountProfile(
                         id: "home",
-                        label: "Default",
                         signedIn: true,
                         email: "home@x.test",
                         health: "needs_relogin"
@@ -46,7 +44,6 @@ final class AccountOptionTests: XCTestCase {
                 profiles: [
                     AgentAccountProfile(
                         id: "main",
-                        label: "Main",
                         active: true,
                         signedIn: true,
                         email: "codex@x.test",
@@ -55,11 +52,14 @@ final class AccountOptionTests: XCTestCase {
                             AgentUsageWindow(key: "weekly", label: "Week", percent: 50),
                         ])
                     ),
-                    AgentAccountProfile(id: "system", active: false, signedIn: false),
+                    AgentAccountProfile(id: "spare", active: false, signedIn: false),
                 ]
             ),
             // A retired agent still sitting in a synced row (EXP-849).
-            "pi": AgentAccount(signedIn: true, email: "pi@x.test"),
+            "pi": AgentAccount(
+                signedIn: true,
+                profiles: [AgentAccountProfile(id: "pi1", active: true, signedIn: true, email: "pi@x.test")]
+            ),
         ]
     }
 
@@ -77,18 +77,12 @@ final class AccountOptionTests: XCTestCase {
         )
     }
 
-    func testLabelsEveryOptionByEmailNeverByProfileNameAndNeverDefault() {
-        // A profile { id: 'work', label: 'Work laptop', email: 'a@x.test' }
-        // yields email 'a@x.test'; no option's email is 'Work laptop' or
-        // contains the word 'default'.
+    func testLabelsEveryOptionByEmail() {
+        // A login has no other name: profiles carry no label.
         let options = fixture()
         XCTAssertEqual(
             options.map(\.email), ["codex@x.test", "work@x.test", "home@x.test"]
         )
-        for option in options {
-            XCTAssertNotEqual(option.email, "Work laptop")
-            XCTAssertFalse(option.email.lowercased().contains("default"))
-        }
     }
 
     func testPutsTheLastUsedLoginFirstAndMarksExactlyOneOption() {
@@ -152,11 +146,8 @@ final class AccountOptionTests: XCTestCase {
                 "claude": AgentAccount(
                     signedIn: true,
                     profiles: [
-                        AgentAccountProfile(
-                            id: "p1", label: "Plan only", active: true,
-                            signedIn: true, plan: "Max"
-                        ),
-                        AgentAccountProfile(id: "p2", label: "Bare", signedIn: true),
+                        AgentAccountProfile(id: "p1", active: true, signedIn: true, plan: "Max"),
+                        AgentAccountProfile(id: "p2", signedIn: true),
                     ]
                 )
             ],
@@ -166,7 +157,9 @@ final class AccountOptionTests: XCTestCase {
         XCTAssertEqual(options.map(\.email), ["Max", "No email"])
     }
 
-    func testYieldsTheAmbientSystemLoginForADeviceThatReportsNoProfiles() {
+    // No ambient login is ever used: an agent reporting only top-level
+    // fields (no profiles) yields NO option — never a synthesized `system`.
+    func testYieldsNothingForADeviceThatReportsNoProfiles() {
         let options = AccountOptions.flatten(
             accounts: ["claude": AgentAccount(signedIn: true, email: "solo@x.test")],
             usage: [
@@ -176,32 +169,24 @@ final class AccountOptionTests: XCTestCase {
             ],
             launchDefaults: nil
         )
-        XCTAssertEqual(options, [
-            AccountOption(
-                id: "system",
-                agent: "claude",
-                email: "solo@x.test",
-                isLastUsed: true,
-                health: .ok,
-                limits: AccountLimits(fiveHour: 0.2, week: 0)
-            )
-        ])
+        XCTAssertEqual(options, [])
     }
 
     /// EXP-1158: a composer (and an automation pin) sends the picked id
-    /// VERBATIM — `system` names the ambient login and is never dropped; only
-    /// a blank pick is unnamed, which runs on the last used login.
-    func testTheComposerSendsThePickedIdVerbatimIncludingSystem() {
+    /// VERBATIM; a blank pick is unnamed, which runs on the last used login,
+    /// and so is a legacy stored `system` (the retired ambient login).
+    func testTheComposerSendsThePickedIdVerbatim() {
         let options = fixture()
-        XCTAssertEqual(AccountOptions.wireAccount(AgentAccountsRows.systemProfileId), "system")
         XCTAssertEqual(AccountOptions.wireAccount(options.first?.id), "main")
+        XCTAssertNil(AccountOptions.wireAccount(AccountOptions.legacySystemAccount))
+        XCTAssertNil(AccountOptions.wireAccount("system"))
         XCTAssertNil(AccountOptions.wireAccount(""))
         XCTAssertNil(AccountOptions.wireAccount(nil))
     }
 
     func testSkipsSignedOutLoginsAndRetiredAgents() {
         let options = fixture()
-        XCTAssertFalse(options.contains { $0.id == "system" })
+        XCTAssertFalse(options.contains { $0.id == "spare" })
         XCTAssertFalse(options.contains { $0.agent == "pi" })
         XCTAssertEqual(
             AccountOptions.flatten(accounts: nil, usage: nil, launchDefaults: nil), []

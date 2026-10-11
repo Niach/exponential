@@ -49,10 +49,9 @@ import { parseSteerMessage } from "@/lib/steer-image-message"
 import {
   deviceRowIsOnline,
   deviceUsageWallAt,
+  isUnpinnedAccount,
   resolveStartAccount,
 } from "@/lib/steer-devices"
-import { SYSTEM_PROFILE_ID } from "@/lib/agent-usage"
-import { omitsSystemAccount } from "@/lib/trpc/legacy-clients"
 import { runIsStaleEnd } from "@/lib/past-runs"
 import { findLiveResumeId } from "@/lib/steer-child-messages"
 import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
@@ -355,8 +354,8 @@ export const steerRouter = router({
           // EXP-849: also rides a `resumeSessionId` start — naming a
           // DIFFERENT profile there is the account switch (claude only; the
           // device refuses what it cannot move a transcript into).
-          // EXP-1158: `system` NAMES the ambient login and rides verbatim;
-          // absent = the machine's last used login for the agent.
+          // Absent (or the retired `system`, the ambient login runs never use
+          // any more) = the machine's last used profile for the agent.
           account: z.string().min(1).max(64).optional(),
           // EXP-637: relaunch an ENDED run in its own worktree, continuing
           // the agent's transcript where it stopped. A subject of its own —
@@ -775,17 +774,16 @@ export const steerRouter = router({
       }
 
       // EXP-1138 gate split: `device.agents` lists an agent as runnable when
-      // ANY of its logins is signed in, but a frame with no `account` lands on
-      // the machine's LAST USED login, which the doctor refuses when that one
-      // is signed out. Name the first signed-in profile instead; refuse when
-      // none is (lib/steer-devices.ts `resolveStartAccount`). A caller's own
-      // pick always wins. Additive: an older heartbeat without profiles
-      // leaves the frame as it was.
+      // ANY of its profiles is signed in, but a frame with no `account` lands
+      // on the machine's LAST USED profile, which the doctor refuses when that
+      // one is signed out. Name the first signed-in profile instead; refuse
+      // when none is (lib/steer-devices.ts `resolveStartAccount`). A caller's
+      // own pick always wins; a legacy `system` pick pins nothing.
       const resolveLaunchAccount = (
         device: TargetDevice,
         agent: string
       ): string | undefined => {
-        if (input.account) return input.account
+        if (!isUnpinnedAccount(input.account)) return input.account
         const resolved = resolveStartAccount(device, agent)
         if (resolved.kind === `profile`) return resolved.account
         if (resolved.kind === `none`) {
@@ -794,14 +792,6 @@ export const steerRouter = router({
             message: `${agent} is installed on that device but not signed in — sign in on the machine first`,
           })
         }
-        // EXP-1158 compat shim: a native build from before this release
-        // OMITS `account` for the ambient "Default" login, which a current
-        // device would read as "last used" and spend another account on.
-        // Name it for them (new starts only: a resume never comes through
-        // here). Delete with lib/trpc/legacy-clients.ts, once
-        // CLIENT_MIN_VERSION_IOS > 0.14.49 and _ANDROID > 0.14.50 and
-        // _DESKTOP/_CLI > 0.14.58.
-        if (omitsSystemAccount(ctx.request)) return SYSTEM_PROFILE_ID
         return undefined
       }
 
@@ -923,7 +913,7 @@ export const steerRouter = router({
         // the resumed run onto that profile — refused early when the machine
         // reported profiles for the run's agent and none of them is it, so a
         // typo cannot turn a switch into a silent same-account resume.
-        if (input.account && input.account !== SYSTEM_PROFILE_ID) {
+        if (!isUnpinnedAccount(input.account)) {
           const profiles = session.agent
             ? (device.agentAccounts?.[session.agent]?.profiles ?? [])
             : []

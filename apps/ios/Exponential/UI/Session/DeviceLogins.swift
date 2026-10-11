@@ -12,8 +12,8 @@ import SwiftUI
 /// groups claimed one set of numbers for logins that are per MACHINE. A login
 /// belongs to the machine that holds it, so it reads there and nowhere else.
 ///
-/// Each sub-row says WHO (`loginLabel` — the email, else the plan, else the
-/// profile label; never a status), badges its health, carries the unchanged
+/// Each sub-row says WHO (`loginLabel` — the email, else the plan; never a
+/// status), badges its health, carries the unchanged
 /// action menu, and draws its own compact usage line.
 ///
 /// A teammate's shared server renders the same rows READ-ONLY: seeing that a
@@ -195,8 +195,7 @@ struct DeviceLogins: View {
         return AgentAccountsRows.canRemoveAccount(
             row,
             canAgentLogin: device.canAgentLogin,
-            canRemoveAccount: device.canRemoveAccount,
-            canSignOutAccount: device.canSignOutAccount
+            canRemoveAccount: device.canRemoveAccount
         )
     }
 
@@ -206,9 +205,8 @@ struct DeviceLogins: View {
         // desktop rows and Android, in this fixed order: Sign in, Sign out
         // (EXP-1137), Remove account. EXP-944: a signed-out
         // or refused login keeps Sign in as its first, repairing entry — but
-        // no longer ENDS there: a dead NAMED profile can be removed too.
-        // EXP-1137: a signed-in login can be signed out, and the ambient
-        // login removed (signed out there and hidden), on a build with the
+        // no longer ENDS there: a dead profile can be removed too.
+        // EXP-1137: a signed-in login can be signed out on a build with the
         // sign-out body.
         if AgentAccountsRows.chipSignsIn(row) {
             GlassMenuItem("Sign in", icon: AppIcons.uiSignIn) {
@@ -232,8 +230,7 @@ struct DeviceLogins: View {
         if AgentAccountsRows.canRemoveAccount(
             row,
             canAgentLogin: device.canAgentLogin,
-            canRemoveAccount: device.canRemoveAccount,
-            canSignOutAccount: device.canSignOutAccount
+            canRemoveAccount: device.canRemoveAccount
         ) {
             GlassMenuItem("Remove account", icon: AppIcons.uiDelete, destructive: true) {
                 onRemove(row)

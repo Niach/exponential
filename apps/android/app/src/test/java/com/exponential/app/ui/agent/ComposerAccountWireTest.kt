@@ -1,33 +1,34 @@
 package com.exponential.app.ui.agent
 
-import com.exponential.app.data.api.AgentAccount
-import com.exponential.app.data.api.SYSTEM_PROFILE_ID
-import com.exponential.app.domain.AccountOptions
+import com.exponential.app.data.api.SteerDevice
+import com.exponential.app.ui.components.accountOptionsFor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
 
 /**
- * EXP-1158: the composer sends the picked login's id VERBATIM. `system` NAMES
- * the ambient login; only an absent account means "the last used login".
+ * EXP-1158: the composer sends the picked login's id VERBATIM; an absent
+ * account means "the last used login". The ambient login is never named.
  */
 class ComposerAccountWireTest {
 
     @Test
-    fun `the composer sends a picked ambient login as system`() {
-        // A machine signed into claude without profiles: its one option is
-        // the ambient `system` login, and it is the last used one.
-        val options = AccountOptions.flatten(
-            mapOf("claude" to AgentAccount(signedIn = true, email = "me@x.test")),
-            usage = null,
-            launchDefaults = null,
-        )
-        val ambient = AccountOptions.lastUsed(options)!!
-        assertEquals(SYSTEM_PROFILE_ID, ambient.id)
+    fun `a machine with no logins offers unpinned options that send no account`() {
+        // A machine that reports no profiles: one unpinned option per runnable
+        // agent, the machine's last used login decides.
+        val options = accountOptionsFor(SteerDevice(deviceId = "dev"), listOf("claude"))
+        val unpinned = options.single()
+        assertEquals("", unpinned.id)
 
-        val draft = LaunchDraft(agent = "claude").withAccount(ambient)
-        assertEquals("system", draft.wireAccount)
-        assertEquals("claude:system", draft.accountKey)
+        val draft = LaunchDraft(agent = "claude").withAccount(unpinned)
+        assertNull(draft.wireAccount)
+        assertEquals("claude:", draft.accountKey)
+        assertEquals(unpinned.key, draft.accountKey)
+    }
+
+    @Test
+    fun `a legacy system account sends none`() {
+        assertNull(LaunchDraft(agent = "claude", account = "system").wireAccount)
     }
 
     @Test

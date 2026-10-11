@@ -16,7 +16,6 @@ import com.exponential.app.domain.preselectMcpServerIds
 import com.exponential.app.domain.subjectOwnsMcpServers
 import kotlinx.coroutines.flow.collectLatest
 import com.exponential.app.data.api.IssuesApi
-import com.exponential.app.data.api.SYSTEM_PROFILE_ID
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
 import com.exponential.app.data.api.builtinChatAction
@@ -156,16 +155,16 @@ data class LaunchDraft(
     /**
      * EXP-872: the picked login as an `AccountOption.key`, which is what the
      * ONE account picker selects on. `""` (nothing picked yet) reads as the
-     * ambient `system` option.
+     * agent's unpinned option.
      */
-    val accountKey: String get() = "$agent:${account.ifEmpty { SYSTEM_PROFILE_ID }}"
+    val accountKey: String get() = "$agent:$account"
 
     /**
-     * The `account` a start sends: the picked id VERBATIM, `system` included
-     * (EXP-1158: it NAMES the ambient login); null = none named, which runs on
-     * the machine's LAST USED login.
+     * The `account` a start sends: the picked id VERBATIM; null = none named
+     * (nothing picked, or a legacy `system`), which runs on the machine's LAST
+     * USED login.
      */
-    val wireAccount: String? get() = account.takeIf { it.isNotEmpty() }
+    val wireAccount: String? get() = AccountOptions.pinnedAccount(account)
 
     /** [account] set to [option]'s id verbatim; "" only for no option at all. */
     fun withAccount(option: AccountOption?): LaunchDraft = copy(account = option?.id.orEmpty())

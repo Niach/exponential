@@ -71,7 +71,6 @@ export function DeviceLogins({
             deviceLabel: device.deviceLabel,
             agentAccounts: device.agentAccounts,
             agentUsage: device.agentUsage,
-            agentUsageAt: device.agentUsageAt,
           },
           { mine: deviceIsMine(device), online: deviceIsOnline(device) }
         )

@@ -112,8 +112,7 @@ export interface SessionAccountOption {
  *
  *  `currentAccount` is the profile this run is on: `coding_sessions.agent_account`,
  *  synced since EXP-909. Absent (an older device never stamped it) means
- *  UNKNOWN, never the ambient login — the machine's own active login is not a
- *  safe stand-in. */
+ *  UNKNOWN — the machine's last used login is not a safe stand-in. */
 export function switchBlockedReason(input: {
   agent: string | null
   mine: boolean
@@ -248,7 +247,7 @@ export function useSessionAccountSwitch(
   // EXP-909: the run's own account, synced on the row — the device stamps it
   // at start (and on the continuation a switch creates). Absent only when an
   // older device never sent one, and that stays UNKNOWN rather than being
-  // guessed as the ambient login.
+  // guessed.
   const currentAccount = session.agentAccount ?? null
 
   const options = useMemo<SessionAccountOption[]>(() => {
@@ -325,8 +324,8 @@ export function useSessionAccountSwitch(
         {
           resumeSessionId: session.id,
           deviceId: session.deviceId,
-          // The picked profile VERBATIM, `system` included: the server reads
-          // the PRESENCE of `account` as "this resume is a switch", and it is
+          // The picked profile VERBATIM: the server reads the PRESENCE of
+          // `account` as "this resume is a switch", and it is
           // the only thing that lets a resume ride a LIVE run.
           account: profileId,
         },

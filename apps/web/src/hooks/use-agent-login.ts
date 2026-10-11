@@ -31,12 +31,11 @@ export interface AgentLoginState {
   codeError: string
 }
 
-/** EXP-827: WHICH account profile a login lands in — an existing one by id,
- * or a new one the machine creates first (labelled). Absent = the ambient
- * login (`system`). */
+/** The profile a login is FOR (Sign in on a row); absent = Add account. The
+ * machine lands the login on the profile whose email it signed in as and
+ * only uses this for its duplicate check. */
 export interface AgentLoginProfileTarget {
   profileId?: string
-  newProfileLabel?: string
 }
 
 export interface AgentLogin {
@@ -173,9 +172,6 @@ export function useAgentLogin({
       agent,
       switch: switchAccount,
       ...(target.profileId ? { profileId: target.profileId } : {}),
-      ...(target.newProfileLabel
-        ? { newProfileLabel: target.newProfileLabel }
-        : {}),
     })
   }
 

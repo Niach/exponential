@@ -16,13 +16,8 @@ import Foundation
 /// and the desktop's `ResumeRunRequest.account` gate: same refusals, same
 /// strings, same order.
 public struct SessionAccountOption: Equatable, Sendable, Identifiable {
-    /// What a switch sends as `account` (`system` = the machine's ambient
-    /// login, named on the wire here unlike on a fresh start — see
-    /// `wireAccount`).
+    /// What a switch sends as `account` (see `wireAccount`).
     public let profileId: String
-    /// The row label (`Default` for the ambient login when the device sent
-    /// none).
-    public let label: String
     public let email: String?
     public let plan: String?
     public let signedIn: Bool
@@ -39,12 +34,11 @@ public struct SessionAccountOption: Equatable, Sendable, Identifiable {
 
     public var id: String { profileId }
 
-    /// The identity line: the email, else the plan, else the profile label.
+    /// The identity line — a login's ONLY name: the email, else the plan.
     public var caption: String { AgentAccountsRows.accountName(email: email, plan: plan) }
 
     public init(
         profileId: String,
-        label: String,
         email: String?,
         plan: String?,
         signedIn: Bool,
@@ -54,7 +48,6 @@ public struct SessionAccountOption: Equatable, Sendable, Identifiable {
         current: Bool = false
     ) {
         self.profileId = profileId
-        self.label = label
         self.email = email
         self.plan = plan
         self.signedIn = signedIn
@@ -109,9 +102,11 @@ public enum SessionAccountSwitch {
     }
 
     /// The logins the session screen lists for the run's `agent` on its host
-    /// machine: every profile the machine reported, or the single ambient
-    /// account for a pre-profile machine. Empty when the machine said nothing
-    /// about the agent — there is then nothing to switch between.
+    /// machine: every profile the machine reported, and nothing else — no
+    /// ambient login is ever used, so none is synthesized. Empty when the
+    /// machine reported no profile for the agent — there is then nothing to
+    /// switch between. A legacy `system` / blank `currentAccount` is UNKNOWN
+    /// (the run's account was never recorded), never a row.
     public static func options(
         accounts: [String: AgentAccount]?,
         agent: String?,
@@ -121,27 +116,9 @@ public enum SessionAccountSwitch {
         guard let agent, !agent.trimmingCharacters(in: .whitespaces).isEmpty,
               let account = accounts?[agent]
         else { return [] }
-        let profiles = account.profiles ?? []
-        if profiles.isEmpty {
-            return [
-                SessionAccountOption(
-                    profileId: AgentAccountsRows.systemProfileId,
-                    label: "Default",
-                    email: nonEmpty(account.email),
-                    plan: nonEmpty(account.plan),
-                    signedIn: account.signedIn == true,
-                    health: AgentAccountHealth.of(account),
-                    active: true,
-                    usage: nil,
-                    current: current == AgentAccountsRows.systemProfileId
-                )
-            ]
-        }
-        return profiles.map { profile in
+        return (account.profiles ?? []).filter { !$0.id.isEmpty }.map { profile in
             SessionAccountOption(
                 profileId: profile.id,
-                label: nonEmpty(profile.label)
-                    ?? (profile.id == AgentAccountsRows.systemProfileId ? "Default" : profile.id),
                 email: nonEmpty(profile.email),
                 plan: nonEmpty(profile.plan),
                 signedIn: profile.signedIn == true,
@@ -246,16 +223,12 @@ public enum SessionAccountSwitch {
         activeAccountIndex(options, reportedEmail: reportedEmail).map { options[$0] }
     }
 
-    /// What the switch carries as `account` — the picked profile VERBATIM,
-    /// `system` included.
+    /// What the switch carries as `account` — the picked profile VERBATIM.
     ///
-    /// A fresh start sends it verbatim too since EXP-1158 (`system` names the
-    /// ambient login, an absent account means the last used one), and a
-    /// switch must never omit it: the server reads the PRESENCE of
+    /// A switch must never omit it: the server reads the PRESENCE of
     /// `account` as "this resume is a switch" and that is the only thing that
     /// lets a resume ride a LIVE run, so an omitted field would come back as
-    /// "That run is still live". `system` is accepted there explicitly and
-    /// skips the profile-membership check (Android `wireAccount`, web
+    /// "That run is still live" (Android `wireAccount`, web
     /// `session-account-switch.tsx` send it verbatim too).
     public static func wireAccount(_ option: SessionAccountOption) -> String {
         option.profileId

@@ -15,7 +15,7 @@ final class SessionAccountSwitchTests: XCTestCase {
             plan: "max",
             profiles: [
                 AgentAccountProfile(
-                    id: "system",
+                    id: "me",
                     active: true,
                     signedIn: true,
                     email: "me@acme.test",
@@ -24,15 +24,12 @@ final class SessionAccountSwitchTests: XCTestCase {
                 ),
                 AgentAccountProfile(
                     id: "work",
-                    label: "Work",
                     signedIn: true,
                     email: "work@acme.test",
                     health: "ok"
                 ),
-                AgentAccountProfile(
-                    id: "stale", label: "Old", signedIn: true, health: "needs_relogin"
-                ),
-                AgentAccountProfile(id: "empty", label: "Spare", signedIn: false),
+                AgentAccountProfile(id: "stale", signedIn: true, health: "needs_relogin"),
+                AgentAccountProfile(id: "empty", signedIn: false),
             ],
             health: "ok"
         ),
@@ -73,24 +70,20 @@ final class SessionAccountSwitchTests: XCTestCase {
 
     func testOptionsListEveryProfileTheMachineReported() throws {
         let options = SessionAccountSwitch.options(accounts: accounts, agent: "claude")
-        XCTAssertEqual(options.map(\.profileId), ["system", "work", "stale", "empty"])
-        XCTAssertEqual(options[0].label, "Default")
-        XCTAssertEqual(options[1].label, "Work")
+        XCTAssertEqual(options.map(\.profileId), ["me", "work", "stale", "empty"])
+        XCTAssertEqual(options[0].caption, "me@acme.test")
         XCTAssertEqual(options[1].caption, "work@acme.test")
-        // EXP-1013: a login that names nobody is never its internal label.
+        // EXP-1013: a login that names nobody reads "No email".
         XCTAssertEqual(options[3].caption, "No email")
         XCTAssertEqual(options[2].health, .needsRelogin)
         XCTAssertTrue(options[0].active)
         XCTAssertFalse(options[1].active)
     }
 
-    func testAPreProfileMachineOffersItsOneAmbientAccount() {
-        let options = SessionAccountSwitch.options(accounts: accounts, agent: "codex")
-        XCTAssertEqual(options.count, 1)
-        XCTAssertEqual(options[0].profileId, "system")
-        XCTAssertEqual(options[0].caption, "cx@acme.test")
-        XCTAssertEqual(options[0].health, .ok)
-        XCTAssertTrue(options[0].active)
+    // No ambient login is ever used: an agent reporting only top-level
+    // fields (no profiles) offers nothing — never a synthesized `system` row.
+    func testAnAgentWithoutProfilesOffersNothing() {
+        XCTAssertTrue(SessionAccountSwitch.options(accounts: accounts, agent: "codex").isEmpty)
         // Nothing reported for the agent = nothing to switch between.
         XCTAssertTrue(SessionAccountSwitch.options(accounts: accounts, agent: "gemini").isEmpty)
         XCTAssertTrue(SessionAccountSwitch.options(accounts: nil, agent: "claude").isEmpty)
@@ -102,10 +95,16 @@ final class SessionAccountSwitchTests: XCTestCase {
         XCTAssertNil(try refusal("work"))
         // The machine's own active login is still a valid continuation target —
         // only a run KNOWN to be on it is refused.
-        XCTAssertNil(try refusal("system"))
+        XCTAssertNil(try refusal("me"))
         XCTAssertEqual(
-            try refusal("system", currentAccount: "system"),
+            try refusal("me", currentAccount: "me"),
             SessionAccountSwitch.reasonAlready
+        )
+        // A legacy `system` run account is unknown, never a row's.
+        XCTAssertNil(try refusal("me", currentAccount: "system"))
+        XCTAssertFalse(
+            SessionAccountSwitch.options(accounts: accounts, agent: "claude", currentAccount: "system")
+                .contains(where: \.current)
         )
     }
 
@@ -138,11 +137,10 @@ final class SessionAccountSwitchTests: XCTestCase {
         XCTAssertEqual(try refusal("empty"), SessionAccountSwitch.reasonSignedOut)
     }
 
-    func testASwitchNamesTheAccountItTargetsTheAmbientLoginIncluded() throws {
+    func testASwitchNamesTheAccountItTargets() throws {
         // The PRESENCE of `account` is what makes the server accept a resume of
-        // a LIVE run, so the ambient login is named here (unlike a fresh start,
-        // where `system` is the absence of the field).
-        XCTAssertEqual(SessionAccountSwitch.wireAccount(try option("system")), "system")
+        // a LIVE run, so the profile is always named.
+        XCTAssertEqual(SessionAccountSwitch.wireAccount(try option("me")), "me")
         XCTAssertEqual(SessionAccountSwitch.wireAccount(try option("work")), "work")
     }
 

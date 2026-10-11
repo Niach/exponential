@@ -235,10 +235,10 @@ const DEFAULT_ACCOUNT_KEY: &str = "defaultAccount";
 /// EXP-1158 — the ONE-TIME upgrade of a stored `defaultAccount`: it becomes
 /// `agent`'s (the file's `defaultAgent`) LAST USED login, so a machine whose
 /// default was a named profile keeps running unnamed launches on it instead
-/// of silently moving to the ambient login. Then the key leaves the file —
-/// before any save would drop it unseen, and so a later pick is never
-/// overwritten by a second pass. A profile that no longer exists (and the
-/// ambient `system`) seeds nothing.
+/// of silently moving to another one. Then the key leaves the file — before
+/// any save would drop it unseen, and so a later pick is never overwritten
+/// by a second pass. A profile that no longer exists (and the retired
+/// `system`) seeds nothing.
 fn migrate_default_account(path: &Path, agent: CodingAgent) {
     let Some(data_dir) = path.parent() else {
         return;
@@ -255,7 +255,7 @@ fn migrate_default_account(path: &Path, agent: CodingAgent) {
         return;
     };
     let account = account.as_str().map(str::trim).unwrap_or_default();
-    if !account.is_empty() && !crate::agent_profiles::is_system(Some(account)) {
+    if !account.is_empty() && !crate::agent_profiles::is_unpinned(Some(account)) {
         if let Err(err) = crate::agent_profiles::note_last_used(data_dir, agent, account) {
             log::warn!("coding: stored default account not carried over ({account}): {err}");
         }
@@ -944,15 +944,17 @@ mod tests {
         let dir = TempDir::new("exp-1158-default-account-migrates");
         let path = dir.0.join("settings.json");
         let agent = CodingAgent::Codex;
-        let work = crate::agent_profiles::create(&dir.0, agent, "Work").unwrap();
-        let home = crate::agent_profiles::create(&dir.0, agent, "Home").unwrap();
+        // `work` is the first profile — the last used login when nothing is
+        // recorded — so the stored `home` proves the carry-over.
+        let work = crate::agent_profiles::create(&dir.0, agent).unwrap();
+        let home = crate::agent_profiles::create(&dir.0, agent).unwrap();
         let stored = |account: &str| {
             fs::write(&path, format!(r#"{{"defaultAgent":"codex","defaultAccount":"{account}","other":1}}"#))
                 .unwrap();
         };
-        stored(&work.id);
+        stored(&home.id);
         Settings::load(&path);
-        assert_eq!(crate::agent_profiles::active_profile(&dir.0, agent), work.id);
+        assert_eq!(crate::agent_profiles::active_profile(&dir.0, agent), Some(home.id.clone()));
         // The key left with the load (foreign keys stay), so a later pick is
         // never overwritten by a second pass.
         let root: serde_json::Value =
@@ -960,13 +962,13 @@ mod tests {
         assert!(root.get("defaultAccount").is_none());
         assert_eq!(root["defaultAgent"], "codex");
         assert_eq!(root["other"], 1);
-        crate::agent_profiles::note_last_used(&dir.0, agent, &home.id).unwrap();
+        crate::agent_profiles::note_last_used(&dir.0, agent, &work.id).unwrap();
         Settings::load(&path);
-        assert_eq!(crate::agent_profiles::active_profile(&dir.0, agent), home.id);
+        assert_eq!(crate::agent_profiles::active_profile(&dir.0, agent), Some(work.id.clone()));
         // A profile that is gone seeds nothing; the key still goes.
         stored("deadbeef");
         Settings::load(&path);
-        assert_eq!(crate::agent_profiles::active_profile(&dir.0, agent), home.id);
+        assert_eq!(crate::agent_profiles::active_profile(&dir.0, agent), Some(work.id.clone()));
         assert!(!fs::read_to_string(&path).unwrap().contains("defaultAccount"));
     }
 

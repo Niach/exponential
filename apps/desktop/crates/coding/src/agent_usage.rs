@@ -600,7 +600,7 @@ pub fn read_claude_credential() -> CredentialRead {
 /// (the credential a relocated config keeps beside itself); on macOS the
 /// keychain item claude names after a non-default dir (the service suffixed
 /// with the dir's hash) is tried when the file is absent. `None` = the
-/// ambient login, keychain first as before.
+/// ambient login, keychain first (never a usage target any more).
 ///
 /// EXP-852: the store itself is [`crate::claude_oauth`]'s — the module that
 /// also WRITES it — so the search order, the keychain service naming and the
@@ -676,8 +676,8 @@ pub fn fetch_oauth_usage(access_token: &str, user_agent: &str) -> UsageFetch {
 /// key ([`super::merge_live_windows`]) instead of replacing it.
 ///
 /// EXP-909: the registry is keyed by `(agent, profile)` — the LOGIN the run
-/// spends, not just the agent — because a run on a secondary account must
-/// never move the ambient login's numbers (and vice versa). A transcript
+/// spends, not just the agent — because a run on one account must never
+/// move another's numbers. A transcript
 /// REPLAY attaches nothing at all: it spends no tokens.
 ///
 /// Process-global on purpose: publisher (the engine's codex and claude
@@ -712,7 +712,7 @@ pub mod live {
     }
 
     /// `(agent, profile)` — the profile is [`crate::agent_profiles::profile_id`]
-    /// of the run's launch account, so `system` = the ambient login.
+    /// of the run's launch account.
     type LiveKey = (CodingAgent, String);
 
     static LIVE: OnceLock<Mutex<HashMap<LiveKey, LiveUsage>>> = OnceLock::new();
@@ -928,25 +928,22 @@ pub fn profile_usage_snapshot(
                     }
                 }
             }
-            // The label is what the devices row shows; the email stays on
-            // this device (the run note, the log), never in a team event.
-            let label = if profile.is_system() {
-                crate::agent_profiles::SYSTEM_LABEL.to_string()
-            } else {
-                profile.label.clone()
-            };
+            // `accountName`: the email the login last answered with, else
+            // its plan (a signed-out login's cache row may name nobody).
             let email = account
                 .and_then(|account| account.email.clone())
-                .map(|email| email.trim().to_string())
-                .filter(|email| !email.is_empty());
+                .or_else(|| crate::agent_profiles::known_email(data_dir, agent, &profile.id));
+            let name = crate::agent_accounts::account_name(
+                email.as_deref(),
+                account.and_then(|account| account.plan.as_deref()),
+            );
             ProfileUsage {
                 profile_id: profile.id,
                 agent,
                 signed_in,
                 health,
                 windows,
-                label,
-                email,
+                name,
             }
         })
         .collect()
@@ -975,10 +972,8 @@ fn collect_inner(
 ) -> AgentStatusPayload {
     let stamp = iso_from_unix_secs(now as i64).unwrap_or_else(now_iso);
     // EXP-792 (EXP-747 B3): the heartbeat's account map carries this
-    // machine's profiles; a machine with only the ambient login sends the
-    // pre-profile payload unchanged. EXP-808: the same pass answers which of
-    // those logins may be asked for usage at all, so no profile is probed
-    // twice.
+    // machine's profiles. EXP-808: the same pass answers which of those
+    // logins may be asked for usage at all, so no profile is probed twice.
     let detail = report.agent_accounts_detailed(settings, data_dir, &stamp);
     let mut accounts = detail.accounts;
     let mut usage = AgentUsageMap::new();
@@ -1232,8 +1227,8 @@ fn collect_inner(
 /// with it instead of polling); `Ok` is the same payload [`collect_if_due`]
 /// would answer, with that login re-read.
 ///
-/// EXP-808: `profile` names the account profile to refresh (`system`, blank
-/// or `None`-ish = the ambient login). The forced login is also put past the
+/// EXP-808: `profile` names the account profile to refresh (an unknown or
+/// blank id = the last used one). The forced login is also put past the
 /// stagger for this pass — a person pressing Refresh is not a beat.
 pub fn force_collect(
     data_dir: &Path,
@@ -1244,11 +1239,14 @@ pub fn force_collect(
     now: u64,
 ) -> Result<AgentStatusPayload, u64> {
     // An id this machine does not have — a picker that raced a profile
-    // deletion — refreshes
-    // the ambient login, the one a run without an account lands on.
-    let profile = crate::agent_profiles::get(data_dir, agent, profile.trim())
+    // deletion — refreshes the last used login, the one a run without an
+    // account lands on. No profile at all: nothing to read.
+    let Some(profile) = crate::agent_profiles::get(data_dir, agent, profile)
         .map(|row| row.id)
-        .unwrap_or_else(|| crate::agent_profiles::SYSTEM_PROFILE.to_string());
+        .or_else(|| crate::agent_profiles::active_profile(data_dir, agent))
+    else {
+        return Ok(collect_inner(data_dir, settings, report, now, Forced::None));
+    };
     let cache_id = usage_cache::entry_key(agent.id(), &profile);
     {
         let mut cache = usage_cache::load(data_dir);
@@ -1284,9 +1282,9 @@ pub fn refresh_on_demand(
     profile: &str,
     now: u64,
 ) -> Option<AgentStatusPayload> {
-    let profile = crate::agent_profiles::get(data_dir, agent, profile.trim())
+    let profile = crate::agent_profiles::get(data_dir, agent, profile)
         .map(|row| row.id)
-        .unwrap_or_else(|| crate::agent_profiles::SYSTEM_PROFILE.to_string());
+        .or_else(|| crate::agent_profiles::active_profile(data_dir, agent))?;
     let cache_id = usage_cache::entry_key(agent.id(), &profile);
     let due = usage_cache::load(data_dir)
         .get(&cache_id)
@@ -1294,35 +1292,20 @@ pub fn refresh_on_demand(
     due.then(|| collect_inner(data_dir, settings, report, now, Forced::Profile(agent, &profile)))
 }
 
-/// Whether `profile`'s login of `agent` is signed in as this machine sees it
-/// RIGHT NOW: a named profile's own `auth status` inside its config dir, the
-/// ambient login as `report` last probed it (a single-login machine has no
-/// profile rows — the ambient login IS the account row).
-fn profile_signed_in(
-    data_dir: &Path,
-    settings: &Settings,
-    report: &DoctorReport,
-    agent: CodingAgent,
-    profile: &str,
-) -> bool {
-    let stamp = now_iso();
-    let accounts = report.agent_accounts_with_profiles(settings, data_dir, &stamp);
-    accounts
-        .get(agent.id())
-        .map(|account| match account.profiles.iter().find(|row| row.id == profile) {
-            Some(row) => row.signed_in,
-            None => crate::agent_profiles::is_system(Some(profile)) && account.signed_in,
-        })
-        .unwrap_or(false)
+/// Whether `profile`'s login of `agent` is signed in as `report` (fresh
+/// for `agent`) probed it inside its config dir.
+fn profile_signed_in(report: &DoctorReport, agent: CodingAgent, profile: &str) -> bool {
+    report
+        .check_for(agent)
+        .profiles
+        .iter()
+        .any(|probe| probe.id == profile && probe.account.signed_in)
 }
 
 /// EXP-1137 — the accounts the runs a host is executing right now, as
-/// `(agent, profile id)` pairs with the ambient login spelled `system`
-/// (`agent_profiles::profile_id`): the guard [`sign_out_profile`] and
-/// [`remove_profile`] apply before pulling a credential out from under a
-/// turn. A run record's `account()` filters the ambient login to `None`, so
-/// the hosts build these pairs through `profile_id`, never through the raw
-/// slot — otherwise an ambient sign-out could never be refused.
+/// `(agent, profile id)` pairs (`agent_profiles::profile_id`): the guard
+/// [`sign_out_profile`] and [`remove_profile`] apply before pulling a
+/// credential out from under a turn.
 pub type LiveAccounts = [(CodingAgent, String)];
 
 /// The sentence both bodies refuse with when a live run holds the login.
@@ -1379,7 +1362,7 @@ pub fn sign_out_profile(
     usage_cache::forget_profile(data_dir, agent.id(), &profile);
     let mut report = report.clone();
     report.reprobe_agent(settings, data_dir, agent);
-    if profile_signed_in(data_dir, settings, &report, agent, &profile) {
+    if profile_signed_in(&report, agent, &profile) {
         return Err(format!(
             "{} still reports that login after the sign-out. Sign out in a terminal on that machine instead.",
             agent.label()
@@ -1403,18 +1386,11 @@ pub fn sign_out_profile(
 /// (its credentials, the agent CLI's own files) and its index row. The ACCOUNT
 /// itself is untouched — no `codex logout`, which would revoke it server-wide,
 /// and no request of any kind leaves this machine. The last used login falls
-/// back to the ambient login when the removed profile held it.
-///
-/// EXP-1137: the AMBIENT login is taken too. It has no dir of ours to delete,
-/// so removing it means signing it out ([`sign_out_profile`], when it is
-/// signed in) and hiding its row
-/// ([`crate::agent_profiles::set_ambient_hidden`]) until it signs in again;
-/// the last used login moves to the first named profile meanwhile.
+/// back to the first remaining profile when the removed one held it.
 ///
 /// `Err` is the sentence to show: an id this machine does not have, a login a
-/// LIVE run here is using, a sign-out that failed, or an unwritable index. The
-/// returned report is fresh for `agent` after an ambient sign-out (see
-/// [`sign_out_profile`]), the caller's otherwise.
+/// LIVE run here is using, or an unwritable index. The returned report is
+/// re-probed for `agent` (the removed login must leave its check).
 pub fn remove_profile(
     data_dir: &Path,
     settings: &Settings,
@@ -1425,21 +1401,6 @@ pub fn remove_profile(
     now: u64,
 ) -> Result<(AgentStatusPayload, DoctorReport), String> {
     let profile = crate::agent_profiles::profile_id(Some(profile));
-    if crate::agent_profiles::is_system(Some(&profile)) {
-        if crate::agent_profiles::config_env_var(agent).is_none() {
-            return Err(format!("{} has no account profiles.", agent.id()));
-        }
-        refuse_if_live(live, agent, &profile)?;
-        let report = if profile_signed_in(data_dir, settings, report, agent, &profile) {
-            sign_out_profile(data_dir, settings, report, agent, &profile, live, now)?.1
-        } else {
-            report.clone()
-        };
-        crate::agent_profiles::set_ambient_hidden(data_dir, agent, true)
-            .map_err(|err| format!("Could not remove the {} account here: {err}", agent.id()))?;
-        usage_cache::forget_profile(data_dir, agent.id(), &profile);
-        return Ok((collect_if_due(data_dir, settings, &report, now), report));
-    }
     if crate::agent_profiles::get(data_dir, agent, &profile).is_none() {
         return Err(format!("No such {} account on this machine.", agent.id()));
     }
@@ -1452,7 +1413,9 @@ pub fn remove_profile(
     // Its numbers and its identity go with it: a later profile created under
     // a recycled id must never inherit them.
     usage_cache::forget_profile(data_dir, agent.id(), &profile);
-    Ok((collect_if_due(data_dir, settings, report, now), report.clone()))
+    let mut report = report.clone();
+    report.reprobe_agent(settings, data_dir, agent);
+    Ok((collect_if_due(data_dir, settings, &report, now), report))
 }
 
 // ---------------------------------------------------------------------------
@@ -1463,10 +1426,9 @@ pub fn remove_profile(
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct UsageTarget {
     agent: CodingAgent,
-    /// The account profile's id; `system` is the ambient login.
+    /// The account profile's id.
     profile: String,
-    /// The profile's config dir (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`) —
-    /// `None` for the ambient login.
+    /// The profile's config dir (`CLAUDE_CONFIG_DIR` / `CODEX_HOME`).
     dir: Option<PathBuf>,
     /// The device's last used login for this agent: it owns the top-level
     /// account fields and the top-level `agentUsage` entry.
@@ -1539,26 +1501,17 @@ fn usage_targets(
     // cache records it: the spacing the rotation keys on.
     let mut last_secondary_probe_secs: u64 = 0;
     for agent in CodingAgent::ALL {
-        // Installed = a version resolved. Nothing else about the ambient
-        // login gates a PROFILE: a machine may well have signed the default
-        // out and kept working in a named account.
+        // Installed = a version resolved; each profile's own probe gates it.
         if report.check_for(agent).version.is_none() {
             continue;
         }
         let active = crate::agent_profiles::active_profile(data_dir, agent);
         let profiles = monitored_profiles(data_dir, agent);
         for profile in profiles {
-            let is_active = profile.id == active;
+            let is_active = Some(&profile.id) == active.as_ref();
             let key = usage_cache::entry_key(agent.id(), &profile.id);
-            let ok = match eligible.get(&key) {
-                Some(ok) => *ok,
-                // No profile row was probed: this is the ambient login on a
-                // machine with nothing but the ambient login.
-                None => {
-                    profile.is_system() && report.ambient_usage_eligible(agent)
-                }
-            };
-            if !ok {
+            // A login the profile probe never judged is never read.
+            if !eligible.get(&key).copied().unwrap_or(false) {
                 continue;
             }
             let dir = crate::agent_profiles::profile_dir(data_dir, agent, &profile.id);
@@ -1627,13 +1580,8 @@ fn monitored_profiles(
 ) -> Vec<crate::agent_profiles::AgentProfile> {
     let active = crate::agent_profiles::active_profile(data_dir, agent);
     let mut profiles = crate::agent_profiles::list(data_dir, agent);
-    // EXP-1137: a removed ambient login is nobody's to probe — no slot, no
-    // cache row, no rotation pick — until it signs in again and unhides.
-    if crate::agent_profiles::ambient_hidden(data_dir, agent) {
-        profiles.retain(|profile| !profile.is_system());
-    }
     // Stable: the active login first, the rest in list order.
-    profiles.sort_by_key(|profile| profile.id != active);
+    profiles.sort_by_key(|profile| Some(&profile.id) != active.as_ref());
     profiles.truncate(MAX_USAGE_PROFILES);
     profiles
 }
@@ -1645,14 +1593,9 @@ fn monitored_profiles(
 fn logins_used_on_this_machine(data_dir: &Path) -> std::collections::BTreeSet<String> {
     crate::run_registry::all(data_dir)
         .into_iter()
-        .map(|record| {
-            usage_cache::entry_key(
-                record.agent.id(),
-                record
-                    .account()
-                    .as_deref()
-                    .unwrap_or(crate::agent_profiles::SYSTEM_PROFILE),
-            )
+        .filter_map(|record| {
+            let account = record.account()?;
+            Some(usage_cache::entry_key(record.agent.id(), &account))
         })
         .collect()
 }
@@ -1683,15 +1626,11 @@ fn apply_health(
     };
     for (agent, account) in accounts.iter_mut() {
         if account.profiles.is_empty() {
-            // A single-login machine: the ambient login IS the account row.
+            // No profile: nobody to be healthy, the row reads signed out.
             account.health = Some(
-                health_of(
-                    agent,
-                    crate::agent_profiles::SYSTEM_PROFILE,
-                    account.signed_in,
-                )
-                .as_str()
-                .to_string(),
+                crate::agent_accounts::Health::from_signed_in(account.signed_in)
+                    .as_str()
+                    .to_string(),
             );
             continue;
         }
@@ -2080,8 +2019,7 @@ fn claude_keep_alive_step_at(
 
 /// Probe ONE login's usage. EXP-808: `config_dir` is the account profile's
 /// config dir — claude reads the credential kept beside it, codex answers
-/// with that `CODEX_HOME` in its app-server's env. `None` = the ambient
-/// login.
+/// with that `CODEX_HOME` in its app-server's env.
 ///
 /// EXP-852: `fresh_access_token` is the token claude's keep-alive just
 /// rotated for THIS login, when it ran on this beat — either on its schedule
@@ -2237,7 +2175,22 @@ fn fetch_and_parse(access_token: &str, user_agent: &str) -> AgentProbe {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::agent_profiles::SYSTEM_PROFILE;
+
+    /// The fixed profile id the single-login fixtures run on (every
+    /// [`usage_dir`] carries it for both agents, the last used login).
+    const MAIN: &str = "0000beef";
+
+    /// A signed-in, usage-eligible probe of `id`, as the doctor would record it.
+    fn probe(id: &str) -> crate::doctor::ProfileProbe {
+        crate::doctor::ProfileProbe {
+            id: id.to_string(),
+            account: crate::agent_accounts::AgentAccount {
+                signed_in: true,
+                ..crate::agent_accounts::AgentAccount::default()
+            },
+            usage_eligible: true,
+        }
+    }
 
     /// The modern `limits[]` body: every window it lists, in report order,
     /// plus the enabled credits pool. EXP-688: an inactive window is kept —
@@ -2476,6 +2429,8 @@ mod tests {
             account: Some(AgentAccount::default()),
             usage_eligible: false,
             signed_in_profile: None,
+            importable: None,
+            profiles: Vec::new(),
             acp: None,
             acp_note: None,
         };
@@ -2488,6 +2443,8 @@ mod tests {
             account: None,
             usage_eligible: false,
             signed_in_profile: None,
+            importable: None,
+            profiles: Vec::new(),
             acp: None,
             acp_note: None,
         };
@@ -2538,6 +2495,9 @@ mod tests {
                 .as_nanos()
         ));
         std::fs::create_dir_all(&dir).unwrap();
+        for agent in CodingAgent::ALL {
+            crate::agent_profiles::create_with_id(&dir, agent, MAIN).unwrap();
+        }
         dir
     }
 
@@ -2568,6 +2528,8 @@ mod tests {
             account: None,
             usage_eligible: false,
             signed_in_profile: None,
+            importable: None,
+            profiles: Vec::new(),
             acp: None,
             acp_note: None,
         };
@@ -2579,9 +2541,14 @@ mod tests {
                 version: Some("codex-cli 0.144.5".to_string()),
                 error: None,
                 authed: Some(true),
-                account: None,
+                account: Some(crate::agent_accounts::AgentAccount {
+                    signed_in: true,
+                    ..crate::agent_accounts::AgentAccount::default()
+                }),
                 usage_eligible: false,
                 signed_in_profile: None,
+                importable: None,
+                profiles: vec![probe(MAIN)],
                 acp: None,
                 acp_note: None,
             },
@@ -2604,8 +2571,8 @@ mod tests {
         };
         let report = codex_ready_report();
 
-        let session = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
-        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![session_window(4)]);
+        let session = live::attach(CodingAgent::Codex, MAIN);
+        live::publish(CodingAgent::Codex, MAIN, vec![session_window(4)]);
 
         let now = crate::run_registry::now_secs();
         let payload = collect_if_due(&dir, &settings, &report, now);
@@ -2615,7 +2582,7 @@ mod tests {
 
         // Ten seconds later — deep inside the poll floor — moving numbers
         // still land, because reading them costs nothing.
-        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![session_window(9)]);
+        live::publish(CodingAgent::Codex, MAIN, vec![session_window(9)]);
         let payload = collect_if_due(&dir, &settings, &report, now + 10);
         let usage = payload.usage.get("codex").expect("the live windows");
         assert_eq!(usage.windows, vec![session_window(9)]);
@@ -2641,8 +2608,8 @@ mod tests {
         };
 
         // A session ran, published, and ended.
-        drop(live::attach(CodingAgent::Codex, SYSTEM_PROFILE));
-        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![session_window(4)]);
+        drop(live::attach(CodingAgent::Codex, MAIN));
+        live::publish(CodingAgent::Codex, MAIN, vec![session_window(4)]);
 
         // What an earlier real poll cached.
         let earlier = vec![session_window(71)];
@@ -2655,7 +2622,7 @@ mod tests {
             "EARLIER",
         );
         let mut cache = usage_cache::UsageCache::default();
-        cache.insert(usage_cache::entry_key("codex", "system"), entry);
+        cache.insert(usage_cache::entry_key("codex", MAIN), entry);
         usage_cache::save(&dir, &cache);
 
         let now = crate::run_registry::now_secs() + usage_cache::SHARED_TTL_SECS + 60;
@@ -2667,7 +2634,7 @@ mod tests {
         let reloaded = usage_cache::load(&dir);
         assert_eq!(
             reloaded
-                .get(&usage_cache::entry_key("codex", "system"))
+                .get(&usage_cache::entry_key("codex", MAIN))
                 .unwrap()
                 .next_poll_at_secs,
             now + usage_cache::FAILED_BACKOFF_SECS
@@ -2712,12 +2679,12 @@ mod tests {
         assert!(entry.usage.as_ref().unwrap().stale);
         assert!(!usage_cache::poll_due(&entry, now), "deep in the backoff");
         let mut cache = usage_cache::UsageCache::default();
-        cache.insert(usage_cache::entry_key("codex", "system"), entry);
+        cache.insert(usage_cache::entry_key("codex", MAIN), entry);
         usage_cache::save(&dir, &cache);
 
         // A session starts and reports the very same percentages.
-        let session = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
-        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, windows.clone());
+        let session = live::attach(CodingAgent::Codex, MAIN);
+        live::publish(CodingAgent::Codex, MAIN, windows.clone());
 
         let payload = collect_if_due(&dir, &settings, &codex_ready_report(), now);
         let usage = payload.usage.get("codex").expect("the live windows");
@@ -2728,7 +2695,7 @@ mod tests {
         // The sibling process reading the file sees the same.
         let reloaded = usage_cache::load(&dir);
         let stored = reloaded
-            .get(&usage_cache::entry_key("codex", "system"))
+            .get(&usage_cache::entry_key("codex", MAIN))
             .expect("the shared entry");
         assert!(!stored.usage.as_ref().unwrap().stale);
         assert_eq!(stored.fetched_at_secs, now);
@@ -2765,9 +2732,9 @@ mod tests {
             ..Settings::default()
         };
 
-        let session = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
+        let session = live::attach(CodingAgent::Codex, MAIN);
         let windows = vec![session_window(12)];
-        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, windows.clone());
+        live::publish(CodingAgent::Codex, MAIN, windows.clone());
 
         let now = crate::run_registry::now_secs();
         let payload = collect_if_due(&dir, &settings, &codex_ready_report(), now);
@@ -2781,7 +2748,7 @@ mod tests {
 
         // The next beat is inside the floor: no second spawn.
         std::fs::remove_file(&marker).unwrap();
-        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![session_window(13)]);
+        live::publish(CodingAgent::Codex, MAIN, vec![session_window(13)]);
         let payload = collect_if_due(&dir, &settings, &codex_ready_report(), now + 10);
         assert!(!marker.exists(), "every later beat rides the live shortcut");
         assert_eq!(
@@ -2920,6 +2887,8 @@ mod tests {
             account: None,
             usage_eligible: false,
             signed_in_profile: None,
+            importable: None,
+            profiles: Vec::new(),
             acp: None,
             acp_note: None,
         };
@@ -2930,9 +2899,14 @@ mod tests {
                 version: Some("2.1.267 (Claude Code)".to_string()),
                 error: None,
                 authed: Some(true),
-                account: None,
+                account: Some(crate::agent_accounts::AgentAccount {
+                    signed_in: true,
+                    ..crate::agent_accounts::AgentAccount::default()
+                }),
                 usage_eligible: true,
                 signed_in_profile: None,
+                importable: None,
+                profiles: vec![probe(MAIN)],
                 acp: None,
                 acp_note: None,
             },
@@ -2970,7 +2944,7 @@ mod tests {
         let now = crate::run_registry::now_secs();
         let mut cache = usage_cache::load(&dir);
         cache.insert(
-            usage_cache::entry_key("claude", SYSTEM_PROFILE),
+            usage_cache::entry_key("claude", MAIN),
             cached(
                 vec![
                     window("session", "5h", 40, "2099-09-05T19:00:00.000Z"),
@@ -2982,10 +2956,10 @@ mod tests {
         );
         usage_cache::save(&dir, &cache);
 
-        let session = live::attach(CodingAgent::Claude, SYSTEM_PROFILE);
+        let session = live::attach(CodingAgent::Claude, MAIN);
         live::publish(
             CodingAgent::Claude,
-            SYSTEM_PROFILE,
+            MAIN,
             vec![
                 window("session", "5h", 55, "2099-09-06T14:00:00.000Z"),
                 UsageWindow { key: "weekly".to_string(), label: "Week".to_string(), percent: 12, resets_at: None },
@@ -3007,7 +2981,7 @@ mod tests {
         // The next turn, seconds later: still lands, still over the report.
         live::publish(
             CodingAgent::Claude,
-            SYSTEM_PROFILE,
+            MAIN,
             vec![window("session", "5h", 58, "2099-09-06T14:00:00.000Z")],
         );
         let payload = collect_if_due(&dir, &settings, &report, now + 10);
@@ -3022,7 +2996,7 @@ mod tests {
         // 58; the frame stops answering instead and the report stands.
         let mut cache = usage_cache::load(&dir);
         let mut entry = cache
-            .get(&usage_cache::entry_key("claude", SYSTEM_PROFILE))
+            .get(&usage_cache::entry_key("claude", MAIN))
             .cloned()
             .expect("the live-applied entry");
         usage_cache::apply_outcome(
@@ -3039,7 +3013,7 @@ mod tests {
         entry.endpoint_fetched_at_secs = Some(now + 20);
         entry.next_poll_at_secs = now + 10_000;
         entry.endpoint_due_at_secs = Some(now + 10_000);
-        cache.insert(usage_cache::entry_key("claude", SYSTEM_PROFILE), entry);
+        cache.insert(usage_cache::entry_key("claude", MAIN), entry);
         usage_cache::save(&dir, &cache);
 
         let payload = collect_if_due(&dir, &settings, &report, now + 30);
@@ -3110,13 +3084,13 @@ mod tests {
             codex_path: "/usr/bin/true".to_string(),
             ..Settings::default()
         };
-        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
         crate::agent_profiles::note_last_used(&dir, CodingAgent::Codex, &work.id).unwrap();
 
         let now = crate::run_registry::now_secs();
         let mut cache = usage_cache::load(&dir);
         cache.insert(
-            usage_cache::entry_key("codex", SYSTEM_PROFILE),
+            usage_cache::entry_key("codex", MAIN),
             cached(vec![session_window(11)], now),
         );
         cache.insert(
@@ -3126,8 +3100,8 @@ mod tests {
         usage_cache::save(&dir, &cache);
 
         // A run on the AMBIENT login while `work` is the machine default.
-        let session = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
-        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![session_window(88)]);
+        let session = live::attach(CodingAgent::Codex, MAIN);
+        live::publish(CodingAgent::Codex, MAIN, vec![session_window(88)]);
 
         let payload = collect_if_due(&dir, &settings, &codex_named_report(), now);
         let row = |id: &str| {
@@ -3139,7 +3113,7 @@ mod tests {
                 .map(|usage| usage.windows.clone())
                 .unwrap_or_default()
         };
-        assert_eq!(row(SYSTEM_PROFILE), vec![session_window(88)], "the run's own login moved");
+        assert_eq!(row(MAIN), vec![session_window(88)], "the run's own login moved");
         assert_eq!(row(&work.id), vec![session_window(22)], "the active login did NOT");
         assert_eq!(
             payload.usage["codex"].windows,
@@ -3161,18 +3135,18 @@ mod tests {
         let _lock = live_lock();
         live::reset();
         let entry = AgentCacheEntry::default();
-        let session = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
-        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![session_window(4)]);
+        let session = live::attach(CodingAgent::Codex, MAIN);
+        live::publish(CodingAgent::Codex, MAIN, vec![session_window(4)]);
         let published = crate::run_registry::now_secs();
 
         assert!(
-            live_probe(CodingAgent::Codex, SYSTEM_PROFILE, &entry, published).is_some(),
+            live_probe(CodingAgent::Codex, MAIN, &entry, published).is_some(),
             "a frame from this turn answers"
         );
         assert!(
             live_probe(
                 CodingAgent::Codex,
-                SYSTEM_PROFILE,
+                MAIN,
                 &entry,
                 published + usage_cache::LIVE_ENDPOINT_POLL_SECS - 1,
             )
@@ -3182,7 +3156,7 @@ mod tests {
         assert!(
             live_probe(
                 CodingAgent::Codex,
-                SYSTEM_PROFILE,
+                MAIN,
                 &entry,
                 published + usage_cache::LIVE_ENDPOINT_POLL_SECS,
             )
@@ -3195,7 +3169,7 @@ mod tests {
         assert!(
             live_probe(
                 CodingAgent::Codex,
-                SYSTEM_PROFILE,
+                MAIN,
                 &entry,
                 published + usage_cache::SHARED_TTL_SECS - 1,
             )
@@ -3204,7 +3178,7 @@ mod tests {
         assert!(
             live_probe(
                 CodingAgent::Codex,
-                SYSTEM_PROFILE,
+                MAIN,
                 &entry,
                 published + usage_cache::SHARED_TTL_SECS,
             )
@@ -3230,29 +3204,29 @@ mod tests {
             resets_at: resets.map(str::to_string),
         };
 
-        let session = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
+        let session = live::attach(CodingAgent::Codex, MAIN);
         live::publish(
             CodingAgent::Codex,
-            SYSTEM_PROFILE,
+            MAIN,
             vec![window(Some("2026-09-06T14:00:00.000Z"))],
         );
         assert!(
-            live_probe(CodingAgent::Codex, SYSTEM_PROFILE, &entry, now).is_none(),
+            live_probe(CodingAgent::Codex, MAIN, &entry, now).is_none(),
             "that window reset long ago"
         );
 
         live::publish(
             CodingAgent::Codex,
-            SYSTEM_PROFILE,
+            MAIN,
             vec![window(Some("2099-09-06T14:00:00.000Z"))],
         );
-        assert!(live_probe(CodingAgent::Codex, SYSTEM_PROFILE, &entry, now).is_some());
+        assert!(live_probe(CodingAgent::Codex, MAIN, &entry, now).is_some());
 
         // Neither an absent nor an unparsable stamp is evidence of a reset.
-        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![window(None)]);
-        assert!(live_probe(CodingAgent::Codex, SYSTEM_PROFILE, &entry, now).is_some());
-        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![window(Some("soon"))]);
-        assert!(live_probe(CodingAgent::Codex, SYSTEM_PROFILE, &entry, now).is_some());
+        live::publish(CodingAgent::Codex, MAIN, vec![window(None)]);
+        assert!(live_probe(CodingAgent::Codex, MAIN, &entry, now).is_some());
+        live::publish(CodingAgent::Codex, MAIN, vec![window(Some("soon"))]);
+        assert!(live_probe(CodingAgent::Codex, MAIN, &entry, now).is_some());
 
         drop(session);
         live::reset();
@@ -3294,11 +3268,11 @@ mod tests {
         entry.next_poll_at_secs = now - 1;
         assert!(usage_cache::poll_due(&entry, now));
         let mut cache = usage_cache::UsageCache::default();
-        cache.insert(usage_cache::entry_key("codex", SYSTEM_PROFILE), entry);
+        cache.insert(usage_cache::entry_key("codex", MAIN), entry);
         usage_cache::save(&dir, &cache);
 
-        let session = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
-        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, windows.clone());
+        let session = live::attach(CodingAgent::Codex, MAIN);
+        live::publish(CodingAgent::Codex, MAIN, windows.clone());
 
         let payload = collect_if_due(&dir, &settings, &codex_ready_report(), now);
         let usage = payload.usage.get("codex").expect("the cached windows");
@@ -3308,7 +3282,7 @@ mod tests {
             "the numbers keep the age they actually have"
         );
         let stored = usage_cache::load(&dir)
-            .get(&usage_cache::entry_key("codex", SYSTEM_PROFILE))
+            .get(&usage_cache::entry_key("codex", MAIN))
             .cloned()
             .expect("the entry");
         assert_eq!(stored.fetched_at_secs, now - 10_000, "nothing was restamped");
@@ -3332,8 +3306,8 @@ mod tests {
             percent,
             resets_at: Some("2099-09-06T14:00:00.000Z".to_string()),
         };
-        let session = live::attach(CodingAgent::Claude, SYSTEM_PROFILE);
-        live::publish(CodingAgent::Claude, SYSTEM_PROFILE, vec![window(55)]);
+        let session = live::attach(CodingAgent::Claude, MAIN);
+        live::publish(CodingAgent::Claude, MAIN, vec![window(55)]);
         let published = crate::run_registry::now_secs();
 
         let mut entry = AgentCacheEntry::default();
@@ -3347,20 +3321,20 @@ mod tests {
 
         // A report read BEFORE the frame: the frame is the newer word.
         entry.endpoint_fetched_at_secs = Some(published - 1);
-        let probe = live_probe(CodingAgent::Claude, SYSTEM_PROFILE, &entry, published)
+        let probe = live_probe(CodingAgent::Claude, MAIN, &entry, published)
             .expect("the frame answers");
         assert_eq!(probe.windows.as_deref(), Some(&[window(55)][..]));
 
         // Read at the same second or later: the report stands on its own.
         entry.endpoint_fetched_at_secs = Some(published);
-        assert!(live_probe(CodingAgent::Claude, SYSTEM_PROFILE, &entry, published).is_none());
+        assert!(live_probe(CodingAgent::Claude, MAIN, &entry, published).is_none());
         entry.endpoint_fetched_at_secs = Some(published + 30);
-        assert!(live_probe(CodingAgent::Claude, SYSTEM_PROFILE, &entry, published + 30).is_none());
+        assert!(live_probe(CodingAgent::Claude, MAIN, &entry, published + 30).is_none());
 
         // codex's frame is the WHOLE report, so no such question arises.
-        let codex = live::attach(CodingAgent::Codex, SYSTEM_PROFILE);
-        live::publish(CodingAgent::Codex, SYSTEM_PROFILE, vec![window(55)]);
-        assert!(live_probe(CodingAgent::Codex, SYSTEM_PROFILE, &entry, published).is_some());
+        let codex = live::attach(CodingAgent::Codex, MAIN);
+        live::publish(CodingAgent::Codex, MAIN, vec![window(55)]);
+        assert!(live_probe(CodingAgent::Codex, MAIN, &entry, published).is_some());
 
         drop(codex);
         drop(session);
@@ -3398,8 +3372,8 @@ mod tests {
             codex_path: program.to_string_lossy().to_string(),
             ..Settings::default()
         };
-        let home = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Home").unwrap();
-        let other = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Other").unwrap();
+        let home = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
+        let other = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
 
         // The ambient login is the machine default. `home` is a secondary
         // that IS due a poll and whose identity nobody has named yet — but a
@@ -3408,7 +3382,7 @@ mod tests {
         let now = crate::run_registry::now_secs();
         let mut cache = usage_cache::load(&dir);
         cache.insert(
-            usage_cache::entry_key("codex", SYSTEM_PROFILE),
+            usage_cache::entry_key("codex", MAIN),
             cached(vec![session_window(11)], now),
         );
         cache.insert(
@@ -3428,7 +3402,7 @@ mod tests {
         // The state the guard is about: a poll IS due for `home`, and its
         // stagger slot is NOT free.
         let eligible = std::collections::BTreeMap::from([
-            (usage_cache::entry_key("codex", SYSTEM_PROFILE), true),
+            (usage_cache::entry_key("codex", MAIN), true),
             (usage_cache::entry_key("codex", &home.id), true),
             (usage_cache::entry_key("codex", &other.id), true),
         ]);
@@ -3641,16 +3615,16 @@ mod tests {
         use crate::agent_accounts::{AgentProfileEntry, Health};
         let dir = usage_dir("health");
         let mut ids = Vec::new();
-        for n in 0..MAX_USAGE_PROFILES + 1 {
+        for _ in 0..MAX_USAGE_PROFILES + 1 {
             ids.push(
-                crate::agent_profiles::create(&dir, CodingAgent::Claude, &format!("acct {n}"))
+                crate::agent_profiles::create(&dir, CodingAgent::Claude)
                     .unwrap()
                     .id,
             );
         }
         let mut cache = usage_cache::UsageCache::default();
         cache.insert(
-            usage_cache::entry_key("claude", crate::agent_profiles::SYSTEM_PROFILE),
+            usage_cache::entry_key("claude", MAIN),
             AgentCacheEntry {
                 health: Some(Health::Ok.as_str().into()),
                 ..AgentCacheEntry::default()
@@ -3675,7 +3649,7 @@ mod tests {
 
         let mut accounts = AgentAccounts::new();
         let mut rows = vec![AgentProfileEntry {
-            id: crate::agent_profiles::SYSTEM_PROFILE.into(),
+            id: MAIN.into(),
             signed_in: true,
             active: true,
             ..AgentProfileEntry::default()
@@ -3716,7 +3690,7 @@ mod tests {
                 .clone()
         };
         assert_eq!(
-            row(crate::agent_profiles::SYSTEM_PROFILE).health(),
+            row(MAIN).health(),
             Health::Ok
         );
         // The top-level fields mirror the active profile.
@@ -3745,7 +3719,7 @@ mod tests {
             claude.profiles.len() - MAX_USAGE_PROFILES,
             "{unmonitored:?}"
         );
-        assert!(!unmonitored.contains(&crate::agent_profiles::SYSTEM_PROFILE.to_string()));
+        assert!(!unmonitored.contains(&MAIN.to_string()));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -3760,13 +3734,13 @@ mod tests {
         let report = codex_named_report();
         let mut eligible = BTreeMap::new();
         eligible.insert(
-            usage_cache::entry_key("codex", crate::agent_profiles::SYSTEM_PROFILE),
+            usage_cache::entry_key("codex", MAIN),
             true,
         );
         let mut ids = Vec::new();
-        for n in 0..2 {
+        for _ in 0..2 {
             let profile =
-                crate::agent_profiles::create(&dir, CodingAgent::Codex, &format!("acct {n}"))
+                crate::agent_profiles::create(&dir, CodingAgent::Codex)
                     .unwrap();
             eligible.insert(usage_cache::entry_key("codex", &profile.id), true);
             ids.push(profile.id);
@@ -3865,15 +3839,15 @@ mod tests {
         let report = codex_named_report();
         let mut eligible = BTreeMap::new();
         eligible.insert(
-            usage_cache::entry_key("codex", crate::agent_profiles::SYSTEM_PROFILE),
+            usage_cache::entry_key("codex", MAIN),
             true,
         );
         let mut ids = Vec::new();
         // Two logins past the cap, so the truncation is exercised whatever
         // [`MAX_USAGE_PROFILES`] is set to.
-        for n in 0..MAX_USAGE_PROFILES + 1 {
+        for _ in 0..MAX_USAGE_PROFILES + 1 {
             let profile =
-                crate::agent_profiles::create(&dir, CodingAgent::Codex, &format!("acct {n}"))
+                crate::agent_profiles::create(&dir, CodingAgent::Codex)
                     .unwrap();
             eligible.insert(usage_cache::entry_key("codex", &profile.id), true);
             ids.push(profile.id);
@@ -3903,14 +3877,8 @@ mod tests {
             targets.iter().all(|target| target.may_poll),
             "every never-read login is read at once"
         );
-        // A custom profile carries its config dir; the ambient login does not.
-        assert!(targets[0].dir.is_some());
-        assert!(targets
-            .iter()
-            .find(|target| target.profile == crate::agent_profiles::SYSTEM_PROFILE)
-            .unwrap()
-            .dir
-            .is_none());
+        // Every profile carries its config dir.
+        assert!(targets.iter().all(|target| target.dir.is_some()));
 
         // Now every login has numbers, each staler than the last. One pass
         // takes ONE of them: the oldest.
@@ -4034,8 +4002,8 @@ mod tests {
             codex_path: "/usr/bin/true".to_string(),
             ..Settings::default()
         };
-        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
-        let home = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Home").unwrap();
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
+        let home = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
         crate::agent_profiles::note_last_used(&dir, CodingAgent::Codex, &work.id).unwrap();
 
         // Every login already has numbers and none is due, so this pass
@@ -4045,7 +4013,7 @@ mod tests {
         let now = crate::run_registry::now_secs();
         let mut cache = usage_cache::load(&dir);
         cache.insert(
-            usage_cache::entry_key("codex", crate::agent_profiles::SYSTEM_PROFILE),
+            usage_cache::entry_key("codex", MAIN),
             cached(vec![session_window(11)], now),
         );
         cache.insert(
@@ -4069,7 +4037,7 @@ mod tests {
                 .unwrap_or_else(|| panic!("no row for {id}"))
         };
         let windows = |id: &str| row(id).usage.as_ref().expect("this login's own numbers").windows.clone();
-        assert_eq!(windows(crate::agent_profiles::SYSTEM_PROFILE), vec![session_window(11)]);
+        assert_eq!(windows(MAIN), vec![session_window(11)]);
         assert_eq!(windows(&work.id), vec![session_window(22)]);
         assert_eq!(windows(&home.id), vec![session_window(33)]);
         assert!(row(&work.id).active && !row(&home.id).active);
@@ -4101,7 +4069,7 @@ mod tests {
         assert_eq!(windows(&home.id), vec![session_window(77)], "its own row moved");
         assert_eq!(windows(&work.id), vec![session_window(22)], "the active login did not");
         assert_eq!(
-            windows(crate::agent_profiles::SYSTEM_PROFILE),
+            windows(MAIN),
             vec![session_window(11)],
             "and neither did the ambient one"
         );
@@ -4132,8 +4100,8 @@ mod tests {
             ..Settings::default()
         };
         let report = codex_named_report();
-        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
-        let home = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Home").unwrap();
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
+        let home = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
         crate::agent_profiles::note_last_used(&dir, CodingAgent::Codex, &work.id).unwrap();
 
         // Nothing cached: all three logins are read on this pass.
@@ -4141,7 +4109,7 @@ mod tests {
         collect_if_due(&dir, &settings, &report, now);
         let claimed = cache_keys(&dir);
         assert_eq!(claimed.len(), 3, "3 never-read logins, 3 probed: {claimed:?}");
-        for id in [crate::agent_profiles::SYSTEM_PROFILE, &work.id, &home.id] {
+        for id in [MAIN, &work.id, &home.id] {
             assert!(claimed.contains(&usage_cache::entry_key("codex", id)), "{id}");
         }
 
@@ -4187,13 +4155,13 @@ mod tests {
             ..Settings::default()
         };
         let report = codex_named_report();
-        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
         crate::agent_profiles::note_last_used(&dir, CodingAgent::Codex, &work.id).unwrap();
 
         // Everything is fresh and far from due, so only a FORCED login moves.
         let now = 1_800_000_000;
         let mut cache = usage_cache::load(&dir);
-        for id in [crate::agent_profiles::SYSTEM_PROFILE, work.id.as_str()] {
+        for id in [MAIN, work.id.as_str()] {
             cache.insert(
                 usage_cache::entry_key("codex", id),
                 cached(vec![session_window(7)], now),
@@ -4206,13 +4174,13 @@ mod tests {
             &settings,
             &report,
             CodingAgent::Codex,
-            crate::agent_profiles::SYSTEM_PROFILE,
+            MAIN,
             now,
         )
         .unwrap();
         let cache = usage_cache::load(&dir);
         let system = cache
-            .get(&usage_cache::entry_key("codex", crate::agent_profiles::SYSTEM_PROFILE))
+            .get(&usage_cache::entry_key("codex", MAIN))
             .unwrap()
             .clone();
         let active = cache.get(&usage_cache::entry_key("codex", &work.id)).unwrap();
@@ -4236,8 +4204,8 @@ mod tests {
 
     /// EXP-862 — "Remove account": the machine's copy of ONE login goes (its
     /// profile dir and its index row), the account itself is untouched, and
-    /// three things are refused: the ambient login, an id this machine does
-    /// not have, and an account a live run here is still using.
+    /// two things are refused: an id this machine does not have, and an
+    /// account a live run here is still using.
     #[test]
     fn removing_an_account_deletes_only_this_machines_login() {
         let _lock = live_lock();
@@ -4249,7 +4217,7 @@ mod tests {
         };
         let report = codex_named_report();
         let now = 1_800_000_000;
-        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
         crate::agent_profiles::note_last_used(&dir, CodingAgent::Codex, &work.id).unwrap();
         let dir_on_disk = crate::agent_profiles::profile_dir(&dir, CodingAgent::Codex, &work.id)
             .expect("the profile has a config dir");
@@ -4285,70 +4253,15 @@ mod tests {
         );
         assert!(!dir_on_disk.exists(), "the credentials went with it");
         assert_eq!(
-            crate::agent_profiles::active_profile(&dir, CodingAgent::Codex),
-            crate::agent_profiles::SYSTEM_PROFILE,
-            "the default falls back to the ambient login"
+            crate::agent_profiles::active_profile(&dir, CodingAgent::Codex).as_deref(),
+            Some(MAIN),
+            "the last used login falls back to the first profile"
         );
         assert!(
             usage_cache::load(&dir)
                 .get(&usage_cache::entry_key("codex", &work.id))
                 .is_none(),
             "its numbers and its identity go with it"
-        );
-        live::reset();
-        let _ = std::fs::remove_dir_all(&dir);
-    }
-
-    /// EXP-1137: removing the AMBIENT login hides it. A signed-out one (the
-    /// screenshot's "No email · Signed out" row) needs no sign-out first;
-    /// the flag lands, its cached numbers go, and the heartbeat built from
-    /// the same report drops the agent (no other login). A live ambient run
-    /// refuses like any other, and `system`/blank spell the same login.
-    #[test]
-    fn removing_the_ambient_login_hides_it() {
-        let _lock = live_lock();
-        live::reset();
-        let dir = usage_dir("remove-ambient");
-        let settings = Settings {
-            codex_path: "/usr/bin/true".to_string(),
-            ..Settings::default()
-        };
-        let mut report = codex_named_report();
-        // Signed OUT: the removal must not reach for a credential (a signed-in
-        // ambient login is signed out through the real CLI dir, which no test
-        // touches).
-        report.codex.account.as_mut().unwrap().signed_in = false;
-        let now = 1_800_000_000;
-        let mut cache = usage_cache::load(&dir);
-        cache.insert(
-            usage_cache::entry_key("codex", crate::agent_profiles::SYSTEM_PROFILE),
-            cached(vec![session_window(42)], now),
-        );
-        usage_cache::save(&dir, &cache);
-
-        let remove = |profile: &str, live: &[(CodingAgent, String)]| {
-            remove_profile(&dir, &settings, &report, CodingAgent::Codex, profile, live, now)
-        };
-        assert_eq!(
-            remove("", &[(CodingAgent::Codex, "system".to_string())]).unwrap_err(),
-            LIVE_RUN_USES_ACCOUNT,
-            "a live ambient run holds the login"
-        );
-        assert!(!crate::agent_profiles::ambient_hidden(&dir, CodingAgent::Codex));
-
-        let (payload, _) = remove(" system ", &[(CodingAgent::Claude, "system".to_string())])
-            .expect("the ambient login is removable");
-        assert!(crate::agent_profiles::ambient_hidden(&dir, CodingAgent::Codex));
-        assert!(
-            usage_cache::load(&dir)
-                .get(&usage_cache::entry_key("codex", crate::agent_profiles::SYSTEM_PROFILE))
-                .is_none(),
-            "its numbers go"
-        );
-        assert!(
-            !payload.accounts.contains_key("codex"),
-            "no other login: the agent leaves the heartbeat — {:?}",
-            payload.accounts
         );
         live::reset();
         let _ = std::fs::remove_dir_all(&dir);
@@ -4369,7 +4282,7 @@ mod tests {
         };
         let report = codex_named_report();
         let now = 1_800_000_000;
-        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
         let home = crate::agent_profiles::profile_dir(&dir, CodingAgent::Codex, &work.id).unwrap();
         std::fs::write(home.join(crate::agent_login::CODEX_AUTH_FILE), "{}").unwrap();
         let sign_out = |profile: &str, live: &[(CodingAgent, String)]| {
@@ -4450,7 +4363,7 @@ mod tests {
             claude_path: claude_auth_stub(&dir),
             ..Settings::default()
         };
-        let work = crate::agent_profiles::create(&dir, CodingAgent::Claude, "Work").unwrap();
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Claude).unwrap();
         // A store the step could READ but never spend: an access token and no
         // refresh token at all. It is what keeps these tests honest — a gate
         // that wrongly fired would answer `NoRefreshToken` and stamp
@@ -4468,7 +4381,7 @@ mod tests {
         .unwrap();
         let mut cache = usage_cache::load(&dir);
         cache.insert(
-            usage_cache::entry_key("claude", crate::agent_profiles::SYSTEM_PROFILE),
+            usage_cache::entry_key("claude", MAIN),
             AgentCacheEntry {
                 claude_expires_at_ms: Some((now as i64 + 30 * 86_400) * 1000),
                 ..cached(vec![session_window(5)], now)
@@ -4610,11 +4523,11 @@ mod tests {
         live::reset();
         let now = 1_800_000_000;
         let (dir, settings, work) = claude_keep_alive_fixture("refresh-parked", now);
-        // The ambient login stays the last used login, so `work` is a login
-        // this machine merely HOLDS…
+        // MAIN stays the last used login, so `work` is a login this machine
+        // merely HOLDS…
         assert_eq!(
-            crate::agent_profiles::active_profile(&dir, CodingAgent::Claude),
-            crate::agent_profiles::SYSTEM_PROFILE
+            crate::agent_profiles::active_profile(&dir, CodingAgent::Claude).as_deref(),
+            Some(MAIN)
         );
         // …and no recorded run ever named it.
         assert!(crate::run_registry::all(&dir).is_empty());
@@ -4910,7 +4823,7 @@ mod tests {
     #[test]
     fn the_profile_snapshot_maps_the_cache_into_the_pickers_shape() {
         let dir = usage_dir("snapshot-shape");
-        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
         let now = 1_800_000_000;
         let mut cache = usage_cache::load(&dir);
         let mut entry = cached(
@@ -4948,19 +4861,16 @@ mod tests {
 
         let profiles = profile_usage_snapshot(CodingAgent::Codex, &dir);
         // The ACTIVE login first (ties in the picker keep it).
-        assert_eq!(profiles[0].profile_id, crate::agent_profiles::SYSTEM_PROFILE);
+        assert_eq!(profiles[0].profile_id, MAIN);
         assert_eq!(profiles[0].health, crate::agent_accounts::Health::Unknown);
         assert!(!profiles[0].signed_in, "never probed: never picked");
-        assert_eq!(profiles[0].label, crate::agent_profiles::SYSTEM_LABEL);
+        assert_eq!(profiles[0].name, "No email");
         let row = &profiles[1];
         assert_eq!(row.profile_id, work.id);
         assert_eq!(row.health, crate::agent_accounts::Health::Ok);
         assert!(row.signed_in);
-        // The label is the profile's (what the devices row shows); the
-        // probed email rides beside it, for this device only.
-        assert_eq!(row.label, work.label);
-        assert_eq!(row.email.as_deref(), Some("work@example.com"));
-        assert_eq!(profiles[0].email, None);
+        // Named by the probed email (`accountName`).
+        assert_eq!(row.name, "work@example.com");
         assert_eq!(row.windows.session.as_ref().map(|w| w.percent), Some(42));
         assert!(row.windows.session.as_ref().unwrap().resets_at.is_some());
         assert_eq!(row.windows.weekly.as_ref().map(|w| (w.percent, w.resets_at)), Some((7, None)));
@@ -4982,11 +4892,11 @@ mod tests {
             ..Settings::default()
         };
         let report = codex_named_report();
-        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Work").unwrap();
-        let home = crate::agent_profiles::create(&dir, CodingAgent::Codex, "Home").unwrap();
+        let work = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
+        let home = crate::agent_profiles::create(&dir, CodingAgent::Codex).unwrap();
         let now = 1_800_000_000;
         let mut cache = usage_cache::load(&dir);
-        for id in [crate::agent_profiles::SYSTEM_PROFILE, work.id.as_str(), home.id.as_str()] {
+        for id in [MAIN, work.id.as_str(), home.id.as_str()] {
             cache.insert(
                 usage_cache::entry_key("codex", id),
                 cached(vec![session_window(7)], now),
@@ -5001,7 +4911,7 @@ mod tests {
         let profiles = collect_now(CodingAgent::Codex, &dir, &settings, &report, now);
         assert_eq!(profiles.len(), 3, "every monitored login is reported");
         let cache = usage_cache::load(&dir);
-        for id in [crate::agent_profiles::SYSTEM_PROFILE, work.id.as_str()] {
+        for id in [MAIN, work.id.as_str()] {
             let entry = cache.get(&usage_cache::entry_key("codex", id)).unwrap();
             assert!(
                 entry.usage.as_ref().is_some_and(|usage| usage.stale),

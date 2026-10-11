@@ -20,7 +20,7 @@ class AccountOptionTest {
 
     /**
      * The fixture ×4: two claude logins (work = active, home = a dead
-     * credential), one codex login, and a `system` codex profile that is
+     * credential), one codex login, and a second codex profile that is
      * signed out. The last used agent is codex.
      */
     private val accounts = mapOf(
@@ -30,7 +30,6 @@ class AccountOptionTest {
             profiles = listOf(
                 AgentAccountProfile(
                     id = "work",
-                    label = "Work laptop",
                     signedIn = true,
                     email = "work@x.test",
                     active = true,
@@ -46,7 +45,6 @@ class AccountOptionTest {
                 ),
                 AgentAccountProfile(
                     id = "home",
-                    label = "Default",
                     signedIn = true,
                     email = "home@x.test",
                     health = "needs_relogin",
@@ -58,7 +56,6 @@ class AccountOptionTest {
             profiles = listOf(
                 AgentAccountProfile(
                     id = "main",
-                    label = "Main",
                     signedIn = true,
                     email = "codex@x.test",
                     active = true,
@@ -69,7 +66,7 @@ class AccountOptionTest {
                         ),
                     ),
                 ),
-                AgentAccountProfile(id = "system", signedIn = false, active = false),
+                AgentAccountProfile(id = "spare", signedIn = false, active = false),
             ),
         ),
         // A retired agent still sitting in a synced row (EXP-849).
@@ -92,19 +89,12 @@ class AccountOptionTest {
     }
 
     @Test
-    fun `labels every option by email, never by profile name and never 'default'`() {
-        // A profile { id: 'work', label: 'Work laptop', email: 'a@x.test' }
-        // yields email 'a@x.test'; no option's email is 'Work laptop' or
-        // contains the word 'default'.
-        val options = flatten()
+    fun `labels every option by email`() {
+        // A login has no other name: the option reads its email.
         assertEquals(
             listOf("codex@x.test", "work@x.test", "home@x.test"),
-            options.map { it.email },
+            flatten().map { it.email },
         )
-        options.forEach { option ->
-            assertTrue(option.email != "Work laptop")
-            assertTrue(!option.email.lowercase().contains("default"))
-        }
     }
 
     @Test
@@ -141,6 +131,17 @@ class AccountOptionTest {
             AccountOptions.parseKey(options.first().key),
         )
         assertNull(AccountOptions.parseKey("nope"))
+        // An unpinned option's key carries an empty id.
+        assertEquals(AccountOptionKey(agent = "claude", id = ""), AccountOptions.parseKey("claude:"))
+    }
+
+    @Test
+    fun `a legacy system or blank account reads as unpinned`() {
+        assertNull(AccountOptions.pinnedAccount(null))
+        assertNull(AccountOptions.pinnedAccount(""))
+        assertNull(AccountOptions.pinnedAccount("  "))
+        assertNull(AccountOptions.pinnedAccount("system"))
+        assertEquals("work", AccountOptions.pinnedAccount("work"))
     }
 
     @Test
@@ -178,12 +179,11 @@ class AccountOptionTest {
                     profiles = listOf(
                         AgentAccountProfile(
                             id = "p1",
-                            label = "Plan only",
                             signedIn = true,
                             plan = "Max",
                             active = true,
                         ),
-                        AgentAccountProfile(id = "p2", label = "Bare", signedIn = true),
+                        AgentAccountProfile(id = "p2", signedIn = true),
                     ),
                 ),
             ),
@@ -194,7 +194,7 @@ class AccountOptionTest {
     }
 
     @Test
-    fun `yields the ambient system login for a device that reports no profiles`() {
+    fun `yields nothing for a device that reports no profiles`() {
         val options = AccountOptions.flatten(
             accounts = mapOf("claude" to AgentAccount(signedIn = true, email = "solo@x.test")),
             usage = mapOf(
@@ -206,25 +206,14 @@ class AccountOptionTest {
             ),
             launchDefaults = null,
         )
-        assertEquals(
-            listOf(
-                AccountOption(
-                    id = "system",
-                    agent = "claude",
-                    email = "solo@x.test",
-                    isLastUsed = true,
-                    health = AgentHealth.Ok,
-                    limits = AccountLimits(fiveHour = 0.2, week = 0.0),
-                ),
-            ),
-            options,
-        )
+        // The top-level login is the ambient one, which is never run on.
+        assertEquals(emptyList<AccountOption>(), options)
     }
 
     @Test
     fun `skips signed-out logins and retired agents`() {
         val options = flatten()
-        assertTrue(options.none { it.id == "system" })
+        assertTrue(options.none { it.id == "spare" })
         assertTrue(options.none { it.agent == "pi" })
         assertEquals(emptyList<AccountOption>(), AccountOptions.flatten(null, null, null))
         assertNull(AccountOptions.lastUsed(emptyList()))

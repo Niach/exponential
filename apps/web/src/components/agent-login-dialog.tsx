@@ -10,7 +10,9 @@
 //
 // EXP-940: and it ENDS. The code goes back to the machine, the dialog spins on
 // "Signing in…", the device's next heartbeat lands the login and turns that
-// into "Signed in", and the dialog closes a beat later. It used to stop on the
+// into "Signed in", and the dialog closes a beat later. The machine lands a
+// login on the profile whose EMAIL it signed in as; an address it already held
+// (other than the one clicked) raises the `alreadyAdded` warning toast. It used to stop on the
 // device's own sentence about finishing the sign-in and sit there forever,
 // whether or not the sign-in ever landed; a wait that never lands is now a
 // short error with a "Try again" that re-queues the login.
@@ -24,8 +26,11 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import {
-  agentLoginLanded,
+  agentLoginBaseline,
+  agentLoginLanding,
+  alreadyAddedCopy,
   AgentLoginOutcome,
+  type AgentLoginBaseline,
 } from "@/components/device-agent-account"
 import {
   agentLabel,
@@ -35,6 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
   conceptIcon,
+  toast,
 } from "@exp/ui"
 
 // Multi-client surface (iOS `AgentLoginSheet`, the IDE's login dialog) — a
@@ -57,12 +63,10 @@ const SIGN_IN_TIMEOUT_MS = 120_000
 export interface AgentLoginTarget {
   device: SteerDevice
   agent: string
-  /** EXP-827: sign into this EXISTING profile on the machine (absent = the
-   *  ambient login). */
+  /** The profile the sign-in is FOR (Sign in on a row); absent = Add
+   *  account. Only the duplicate check reads it: the login lands on the
+   *  profile whose email it signed in as. */
   profileId?: string
-  /** EXP-827: create a profile with this label on the machine, then sign
-   *  into it — "Add account" / "add this machine to an account". */
-  newProfileLabel?: string
 }
 
 export function AgentLoginDialog({
@@ -85,33 +89,11 @@ export function AgentLoginDialog({
   })
   const state = login.stateFor(agent)
 
-  // Queue once per open — the dialog opening IS the sign-in request. A
-  // signed-out agent never needs the switch arm, and the codex logout
-  // confirmation belongs to Switch account in device settings.
-  const queuedRef = useRef<string | null>(null)
-  useEffect(() => {
-    if (!open || !device || !agent) {
-      queuedRef.current = null
-      return
-    }
-    const key = `${device.deviceId}:${agent}:${target?.profileId ?? ``}:${target?.newProfileLabel ?? ``}`
-    if (queuedRef.current === key) return
-    queuedRef.current = key
-    login.queueLogin(agent, false, {
-      profileId: target?.profileId,
-      newProfileLabel: target?.newProfileLabel,
-    })
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, device?.deviceId, agent, target?.profileId, target?.newProfileLabel])
-
-  const label = device ? device.deviceLabel || device.deviceId : ``
-
-  // EXP-862: closes itself on success. The device re-probes after the login
-  // and its next heartbeat reports the TARGETED login as usable — that
-  // TRANSITION (never the state it opened in) is the signal, so re-signing a
-  // healthy login stays open until it really lands. `agentLoginLanded` is the
-  // predicate: a revoked credential and a not-yet-created profile both read
-  // as "signed in" on the account itself.
+  // EXP-862: closes itself on success. The device stamps `lastLoginAt` on the
+  // profile a login COMMITS into and its next heartbeat reports it — a move
+  // against the baseline captured at queue time is the signal
+  // (`agentLoginLanding`), so re-signing a healthy login stays open until it
+  // really lands, wherever it lands.
   const { data: deviceRows } = useLiveQuery(
     (query) =>
       open && device?.rowId
@@ -123,10 +105,34 @@ export function AgentLoginDialog({
   )
   const row = (deviceRows?.[0] as Device | undefined) ?? null
   const account = agent ? (row?.agentAccounts?.[agent] ?? null) : null
-  const landed = agentLoginLanded(account, {
-    profileId: target?.profileId,
-    newProfileLabel: target?.newProfileLabel,
-  })
+
+  // Queue once per open — the dialog opening IS the sign-in request — and
+  // capture the baseline beside it (or as soon as the row is there). A
+  // signed-out agent never needs the switch arm, and the codex logout
+  // confirmation belongs to Switch account in device settings.
+  const queuedRef = useRef<string | null>(null)
+  const baselineRef = useRef<AgentLoginBaseline | null>(null)
+  useEffect(() => {
+    if (!open || !device || !agent) {
+      queuedRef.current = null
+      baselineRef.current = null
+      return
+    }
+    const key = `${device.deviceId}:${agent}:${target?.profileId ?? ``}`
+    if (queuedRef.current === key) return
+    queuedRef.current = key
+    baselineRef.current = row ? agentLoginBaseline(account) : null
+    login.queueLogin(agent, false, { profileId: target?.profileId })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, device?.deviceId, agent, target?.profileId])
+  if (open && queuedRef.current !== null && baselineRef.current === null && row) {
+    baselineRef.current = agentLoginBaseline(account)
+  }
+  const landing = baselineRef.current
+    ? agentLoginLanding(account, baselineRef.current, target?.profileId)
+    : null
+
+  const label = device ? device.deviceLabel || device.deviceId : ``
   // EXP-940: it no longer VANISHES on that transition. The code goes in, the
   // dialog spins on "Signing in…", the landing turns it into "Signed in", and
   // the dialog closes a beat later — so the flow ends with an answer instead
@@ -134,23 +140,20 @@ export function AgentLoginDialog({
   const [signing, setSigning] = useState(false)
   const [signedIn, setSignedIn] = useState(false)
   const [timedOut, setTimedOut] = useState(false)
-  const hadLanded = useRef<boolean | null>(null)
   useEffect(() => {
     if (!open) {
-      hadLanded.current = null
       setSigning(false)
       setSignedIn(false)
       setTimedOut(false)
       return
     }
-    if (hadLanded.current === null) {
-      hadLanded.current = landed
-      return
-    }
-    if (!hadLanded.current && landed) setSignedIn(true)
-    hadLanded.current = landed
+    if (!landing || signedIn) return
+    setSignedIn(true)
+    // The login landed on a profile the machine already held, and not the
+    // one clicked: that one is refreshed, the clicked one is untouched.
+    if (landing.duplicate) toast.warning(alreadyAddedCopy(landing.email))
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, landed])
+  }, [open, landing?.profileId, landing?.duplicate])
 
   useEffect(() => {
     if (!open || !signedIn) return
@@ -174,11 +177,8 @@ export function AgentLoginDialog({
     setTimedOut(false)
     setSigning(false)
     setSignedIn(false)
-    hadLanded.current = landed
-    login.queueLogin(agent, false, {
-      profileId: target?.profileId,
-      newProfileLabel: target?.newProfileLabel,
-    })
+    baselineRef.current = row ? agentLoginBaseline(account) : null
+    login.queueLogin(agent, false, { profileId: target?.profileId })
   }
 
   const failure = timedOut ? SIGN_IN_TIMED_OUT : state.codeError || state.error

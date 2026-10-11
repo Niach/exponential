@@ -128,7 +128,6 @@ export function MyMachines({
             deviceLabel: device.deviceLabel,
             agentAccounts: device.agentAccounts,
             agentUsage: device.agentUsage,
-            agentUsageAt: device.agentUsageAt,
           },
           { mine: true, online: deviceIsOnline(device) }
         )

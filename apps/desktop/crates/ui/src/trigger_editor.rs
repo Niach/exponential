@@ -133,8 +133,8 @@ pub(crate) struct DeviceOption {
     pub(crate) is_default: bool,
     /// EXP-995: the machine's `agent_accounts` payload off its synced row —
     /// which login each agent CLI runs as there and its profiles. Empty for
-    /// a row that never reported: the account picker then offers one ambient
-    /// row per runnable agent.
+    /// a row that never reported: the account picker then offers one
+    /// unpinned row per runnable agent.
     pub(crate) accounts: coding::agent_accounts::AgentAccounts,
     /// EXP-992: its `agent_usage` payload, the picker's limit bars.
     pub(crate) usage: coding::agent_usage::AgentUsageMap,
@@ -597,8 +597,8 @@ impl TriggerEditorState {
     /// EXP-995: every signed-in login the BOUND machine reports, across
     /// agents, its last used login first
     /// ([`launch_options::machine_account_options`]);
-    /// a machine that reports none (or none bound yet) offers one ambient row
-    /// per runnable agent, named by the agent, so the row never goes empty.
+    /// a machine that reports none (or none bound yet) offers one unpinned
+    /// row per runnable agent, named by the agent, so the row never goes empty.
     fn account_options(&self, cx: &mut App) -> Vec<coding::AccountOption> {
         let available: Vec<coding::CodingAgent> = self
             .device_agents(cx)
@@ -1515,8 +1515,7 @@ fn settle_seed_agent(
 /// machine's last used login when it is `agent`'s, else `agent`'s first login
 /// there — exactly the row the account picker would DISPLAY for that agent
 /// ([`TriggerEditorState::render_launch_pins`]'s fallback), its id
-/// verbatim on the wire (EXP-1158: `system` names the ambient login). `None`
-/// when nothing of `agent`'s is runnable there.
+/// verbatim on the wire. `None` when nothing of `agent`'s is runnable there.
 fn settle_device_account(
     agent: Option<&str>,
     options: &[coding::AccountOption],
@@ -1693,14 +1692,14 @@ mod tests {
         assert_eq!(settle_device_account(Some("codex"), &options), Some("work".to_string()));
         // Another agent: its FIRST login there — what the picker shows.
         assert_eq!(settle_device_account(Some("claude"), &options), Some("home".to_string()));
-        // EXP-1158: the ambient login is NAMED on the wire.
-        let ambient = vec![option("claude", coding::SYSTEM_PROFILE, true)];
+        // A lone login is named on the wire verbatim.
+        let lone = vec![option("claude", "4e5f6a7b", true)];
         assert_eq!(
-            settle_device_account(Some("claude"), &ambient),
-            Some(coding::SYSTEM_PROFILE.to_string())
+            settle_device_account(Some("claude"), &lone),
+            Some("4e5f6a7b".to_string())
         );
         // Nothing of the agent's runnable there, or no agent: no pin.
-        assert_eq!(settle_device_account(Some("codex"), &ambient), None);
+        assert_eq!(settle_device_account(Some("codex"), &lone), None);
         assert_eq!(settle_device_account(None, &options), None);
     }
 

@@ -48,7 +48,6 @@ export interface DeviceLogin {
   key: string
   agent: string
   profileId: string
-  profileLabel: string
   active: boolean
   signedIn: boolean
   health: DeviceHealth
@@ -67,7 +66,6 @@ export const DEVICE_AGENT_LABEL: Record<string, string> = {
   codex: `Codex`,
 }
 
-export const SYSTEM_PROFILE_ID = `system`
 export const NO_LOGIN_REPORTED = `No login reported`
 export const NO_EMAIL_LABEL = `No email`
 const USAGE_FRESH_MS = 15 * 60 * 1000
@@ -133,8 +131,9 @@ const isShippedAgent = (agent: string): boolean =>
   (DEVICE_AGENT_ORDER as readonly string[]).includes(agent)
 
 /** EXP-909: every login ONE machine reports, agent by agent, sorted the ×4
- *  way: contract agent order, the ACTIVE login first, then a dead credential,
- *  then label and id so a heartbeat never reshuffles two equal rows. */
+ *  way: contract agent order, then the order the machine sent its profiles
+ *  in. Only `profiles[]` rows: the CLI's ambient login is never a row, and
+ *  nothing is synthesized from the top-level fields. */
 export function deviceLogins(device: DeviceListRow): DeviceLogin[] {
   const accounts = isRecord(device.agentAccounts) ? device.agentAccounts : {}
   const usageMap: Record<string, DeviceUsage> = {}
@@ -153,31 +152,14 @@ export function deviceLogins(device: DeviceListRow): DeviceLogin[] {
     const profiles = Array.isArray(account?.profiles)
       ? (account.profiles as unknown[]).filter(isRecord)
       : []
-    if (profiles.length === 0) {
-      out.push({
-        key: `${agent}:${SYSTEM_PROFILE_ID}`,
-        agent,
-        profileId: SYSTEM_PROFILE_ID,
-        profileLabel: `Default`,
-        active: true,
-        signedIn: account?.signedIn === true,
-        health: loginHealth(account),
-        email: str(account?.email),
-        plan: str(account?.plan),
-        usage: usageMap[agent] ?? null,
-        unmonitored: false,
-        checkedAt: str(account?.checkedAt) ?? device.agentUsageAt ?? null,
-      })
-      continue
-    }
     for (const profile of profiles) {
-      const id = str(profile.id) ?? SYSTEM_PROFILE_ID
+      const id = str(profile.id)
+      if (!id) continue
       const active = profile.active === true
       out.push({
         key: `${agent}:${id}`,
         agent,
         profileId: id,
-        profileLabel: str(profile.label) ?? (id === SYSTEM_PROFILE_ID ? `Default` : id),
         active,
         signedIn: profile.signedIn === true,
         health: loginHealth(profile),
@@ -192,22 +174,7 @@ export function deviceLogins(device: DeviceListRow): DeviceLogin[] {
   }
   const agentRank = (agent: string) =>
     (DEVICE_AGENT_ORDER as readonly string[]).indexOf(agent)
-  return out.sort((a, b) => {
-    const byAgent = agentRank(a.agent) - agentRank(b.agent)
-    if (byAgent !== 0) return byAgent
-    if (a.active !== b.active) return a.active ? -1 : 1
-    const byAttention = attentionRank(a) - attentionRank(b)
-    if (byAttention !== 0) return byAttention
-    return (
-      a.profileLabel.localeCompare(b.profileLabel) || a.profileId.localeCompare(b.profileId)
-    )
-  })
-}
-
-function attentionRank(login: DeviceLogin): number {
-  if (!login.signedIn) return 0
-  const peak = Math.max(0, ...(login.usage?.windows ?? []).map((w) => w.percent))
-  return peak >= DANGER_PERCENT ? 1 : 2
+  return out.sort((a, b) => agentRank(a.agent) - agentRank(b.agent))
 }
 
 /** The worst health across a machine's logins — what its row badges. */
@@ -301,9 +268,10 @@ export function deviceHasRunnableAgent(device: DeviceListRow): boolean {
 // ── EXP-1199: Add account / Sign in over MCP ────────────────────────────────
 // `exponential_devices_account_login` runs the clients' remote sign-in (the
 // `agent_login` → `agent_login_code` device commands). The rules below are
-// ported from `apps/web/src/lib/agent-account-add.ts` (where a new login
-// lands, its label) and `components/device-agent-account.tsx` (which login
-// offers Sign in, when a sign-in has landed), ×4 like the rest of this file.
+// ported from `apps/web/src/lib/agent-account-add.ts` and
+// `components/device-agent-account.tsx` (which login offers Sign in, when a
+// sign-in has landed), ×4 like the rest of this file. A login lands on the
+// profile whose EMAIL it signed in as; nothing here names a profile.
 
 export const ACCOUNT_LOGIN_TOOL = `exponential_devices_account_login`
 export const ADD_ACCOUNT_LABEL = `Add account`
@@ -311,11 +279,9 @@ export const SIGN_IN_LABEL = `Sign in`
 export const SIGNING_IN = `Signing in…`
 export const SIGNED_IN = `Signed in`
 export const SIGN_IN_TIMED_OUT = `The machine did not confirm the sign-in.`
-const MAX_PROFILE_LABEL = 64
 
-/** Where a sign-in lands: an existing login (`system` = the ambient one) or
- *  a new one the machine creates first under `name`. */
-export type LoginTarget = { profileId: string } | { name: string }
+/** The login a sign-in is FOR (Sign in on a row); `{}` = Add account. */
+export type LoginTarget = { profileId?: string }
 
 /** Every installed agent (runnable or signed out) can take a login. */
 export function addableAgents(device: DeviceListRow): string[] {
@@ -344,37 +310,41 @@ function profilesOf(account: Record<string, unknown> | null): Record<string, unk
     : []
 }
 
-/** `addAccountLoginTarget` + `nextProfileLabel`: the ambient login while it
- *  is signed out, else `<Agent> account N` (smallest N ≥ 2 not taken). */
-export function addAccountTarget(device: DeviceListRow, agent: string): LoginTarget {
-  const account = accountOf(device, agent)
-  const profiles = profilesOf(account)
-  const ambient = profiles.find((profile) => profile.id === SYSTEM_PROFILE_ID)
-  const ambientSignedIn = ambient ? ambient.signedIn === true : account?.signedIn === true
-  if (!ambientSignedIn) return { profileId: SYSTEM_PROFILE_ID }
-  const taken = new Set(profiles.map((profile) => str(profile.label) ?? ``))
-  const label = DEVICE_AGENT_LABEL[agent] ?? agent
-  let n = 2
-  while (taken.has(`${label} account ${n}`)) n += 1
-  return { name: `${label} account ${n}`.slice(0, MAX_PROFILE_LABEL) }
+/** `agentLoginBaseline`: profile id → its `lastLoginAt`, captured when the
+ *  sign-in is queued. */
+export type LoginBaseline = Record<string, string | null>
+
+export function loginBaseline(device: DeviceListRow, agent: string): LoginBaseline {
+  return Object.fromEntries(
+    profilesOf(accountOf(device, agent)).map((profile) => [
+      str(profile.id)!,
+      str(profile.lastLoginAt),
+    ])
+  )
 }
 
-/** `agentLoginLanded`: the TARGETED login reads signed in and healthy. */
-export function loginLanded(device: DeviceListRow, agent: string, target: LoginTarget): boolean {
-  const account = accountOf(device, agent)
-  if (!account) return false
-  const usable = (entry: Record<string, unknown>) =>
-    entry.signedIn === true && loginHealth(entry) !== `needs_relogin`
-  const profiles = profilesOf(account)
-  if (`name` in target) {
-    const label = target.name.trim()
-    return profiles.some((profile) => (str(profile.label) ?? ``).trim() === label && usable(profile))
+/** `agentLoginLanding`: the profile whose `lastLoginAt` moved against the
+ *  baseline (or a new one carrying it), and whether it was a DUPLICATE (the
+ *  machine already held that email and it was not the login clicked). */
+export function loginLanding(
+  device: DeviceListRow,
+  agent: string,
+  baseline: LoginBaseline,
+  target: LoginTarget
+): { profileId: string; email: string; duplicate: boolean } | null {
+  for (const profile of profilesOf(accountOf(device, agent))) {
+    const id = str(profile.id)!
+    const at = str(profile.lastLoginAt)
+    if (!at) continue
+    const existed = id in baseline
+    if (existed && baseline[id] === at) continue
+    return {
+      profileId: id,
+      email: loginName({ email: str(profile.email), plan: str(profile.plan) }),
+      duplicate: existed && (!target.profileId || target.profileId !== id),
+    }
   }
-  if (target.profileId !== SYSTEM_PROFILE_ID) {
-    return profiles.some((profile) => profile.id === target.profileId && usable(profile))
-  }
-  const ambient = profiles.find((profile) => profile.id === SYSTEM_PROFILE_ID)
-  return usable(ambient ?? account)
+  return null
 }
 
 /** One `exponential_devices_account_login` answer (handlers/device-account-login.ts). */

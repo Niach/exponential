@@ -5,9 +5,9 @@ import { DeviceReadiness, type DeviceReadinessDoctor } from "@exp/ui"
 import type { StyleguideEntry } from "./types.ts"
 
 // EXP-1196/1218/1219: THE device readiness block. The REAL `@exp/ui`
-// `DeviceReadiness` over the three cases of the contract fixture
+// `DeviceReadiness` over every case of the contract fixture
 // `device-doctor.json`, each on the device itself (every action offered) and
-// from another device (remote: only Update / Sign in).
+// from another device (remote: only Update / Sign in / Import).
 
 interface DoctorCase {
   name: string
@@ -34,7 +34,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1196`,
   title: `Device readiness`,
-  blurb: `One block ×5 from the device's doctor report (device-doctor.json): a band per group (Required, Coding agents, Computer use; the tag trailing), one flat row per item with its state glyph, label, the device's detail and at most one pill. Computer use is the switch row; its permission rows indent under it and hide while it is off. On the device every action is offered, from another device only Update and Sign in; the first action/error row's pill is primary. No subtitles, no footers.`,
+  blurb: `One block ×5 from the device's doctor report (device-doctor.json): a band per group (Required, Coding agents, Computer use; the tag trailing), one flat row per item with its state glyph, label, the device's detail and at most one action pill. An agent with an ambient login carries an Import pill before it, confirmed first (Import {email}?). Computer use is the switch row; its permission rows indent under it and hide while it is off. On the device every action is offered, from another device only Update, Sign in and Import; the first action/error row's pill is primary. No subtitles, no footers.`,
   status: {
     web: {
       state: `ok`,

@@ -15,7 +15,7 @@ import type { SteerDevice } from "@/lib/steer-devices"
 // and Android editors mirror rule for rule: a bound machine seeds its LAST
 // USED login (which names the agent), a stored profile the machine no longer
 // reports reads back as that agent's first login, and every pick stores its
-// profile id verbatim, the ambient `system` login included (EXP-1158).
+// profile id verbatim (`` for an unpinned option).
 
 const device: SteerDevice = {
   deviceId: `dev-1`,
@@ -29,21 +29,21 @@ const device: SteerDevice = {
 describe(`trigger account pin (EXP-995)`, () => {
   it(`keys the pin like every account picker`, () => {
     expect(triggerAccountKey({ agent: `claude`, account: `work` })).toBe(`claude:work`)
-    expect(triggerAccountKey({ agent: `codex`, account: `system` })).toBe(`codex:system`)
+    expect(triggerAccountKey({ agent: `codex`, account: `` })).toBe(`codex:`)
   })
 
-  it(`stores a picked option as its agent + profile, system included`, () => {
+  it(`stores a picked option as its agent + profile, unpinned included`, () => {
     const options = flattenAccounts(ACCOUNT_FIXTURE)
     expect(accountPinOf(options[0]!)).toEqual({ agent: `codex`, account: `main` })
     expect(
       accountPinOf({
-        id: `system`,
+        id: ``,
         agent: `claude`,
         email: `Claude Code`,
         isLastUsed: false,
         health: `unknown`,
       })
-    ).toEqual({ agent: `claude`, account: `system` })
+    ).toEqual({ agent: `claude`, account: `` })
   })
 
   it(`seeds a bound machine's last used login and leaves a reported pin alone`, () => {
@@ -91,12 +91,12 @@ describe(`trigger account pin (EXP-995)`, () => {
       agent: `claude`,
       account: `work`,
     })
-    // A machine reporting no login offers the ambient row per agent: a
-    // profile pin there lands on the agent's ambient login.
+    // A machine reporting no profile offers an unpinned row per agent: a
+    // profile pin there lands unpinned (its last used login).
     const bare: SteerDevice = { ...claudeOnly, agentAccounts: undefined }
     expect(seedAccountPin(bare, { agent: `claude`, account: `work` })).toEqual({
       agent: `claude`,
-      account: `system`,
+      account: ``,
     })
   })
 
