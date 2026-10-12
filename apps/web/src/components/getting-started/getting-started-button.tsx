@@ -51,7 +51,7 @@ export function GettingStartedButton({
         {/* No corner close: the Docs button holds that corner; Escape and
             a click outside close it. */}
         <DialogContent
-          className="sm:max-w-[60rem]"
+          className="sm:max-w-fit"
           showCloseButton={false}
           aria-describedby={undefined}
           onCloseAutoFocus={(event) => {
