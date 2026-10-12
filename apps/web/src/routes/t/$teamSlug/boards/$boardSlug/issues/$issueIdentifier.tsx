@@ -86,7 +86,11 @@ export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
 )({
   head: ({ params }) => ({
-    meta: [{ title: pageTitle(params.issueIdentifier) }],
+    meta: [
+      { title: pageTitle(params.issueIdentifier) },
+      // FEED-88: the identifier only: unfurlers are anonymous.
+      { property: `og:title`, content: pageTitle(params.issueIdentifier) },
+    ],
   }),
   // No route-level auth guard: the parent `/t/$teamSlug` layout route
   // (route.tsx) already gates access — anonymous or non-member requests are

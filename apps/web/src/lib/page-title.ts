@@ -11,6 +11,17 @@ export function pageTitle(...parts: (string | null | undefined)[]): string {
     .join(` · `)
 }
 
+// An absolute app URL for head tags that must not be relative (`og:image`):
+// the SSR shell resolves it against the public base, the client against its
+// own origin.
+export function appUrl(path: string): string {
+  const base =
+    typeof window === `undefined`
+      ? process.env.BETTER_AUTH_URL
+      : window.location.origin
+  return base ? `${base.replace(/\/+$/, ``)}${path}` : path
+}
+
 // A route's `head` title is static (params/search only). Pages whose name comes
 // from synced data (an issue, a board, a thread) set it here once it resolves;
 // until then the route's `head` fallback shows. The root `HeadContent` remounts
