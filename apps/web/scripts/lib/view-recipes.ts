@@ -477,39 +477,6 @@ async function recipeOpenAddServer(page: Page): Promise<void> {
 // ---------------------------------------------------------------- actions
 
 /**
- * The shipped seed catalog that prefills the creator run. EXP-686 split its
- * two homes: the phone keeps it as the Actions page's third tab, while a
- * desktop viewport reaches it through the icon-only "Suggestions" lightbulb in
- * the Actions header, which opens Getting started on its Suggested actions
- * tab. Click whichever of the two is mounted. The seeds are constants
- * (`lib/action-suggestions.ts`), never DB rows, so the anchor can be a
- * specific seed title rather than a header the trigger shares.
- */
-async function recipeOpenSuggestionsTab(page: Page): Promise<void> {
-  const tab = page.getByRole(`tab`, { name: `Suggestions`, exact: true })
-  if (await appears(tab, 5_000)) {
-    await tab.first().click()
-  } else {
-    const lightbulb = page.getByRole(`button`, {
-      name: `Suggestions`,
-      exact: true,
-    })
-    if (!(await appears(lightbulb, 20_000))) {
-      throw new Error(
-        `neither a Suggestions tab nor the Suggestions lightbulb — the seeds ` +
-          `live on the Actions page (phone) or in Getting started (desktop)`
-      )
-    }
-    await lightbulb.first().click()
-  }
-  await page
-    .getByText(`Daily standup digest`)
-    .filter({ visible: true })
-    .first()
-    .waitFor({ timeout: 15_000 })
-}
-
-/**
  * Open the new-trigger form on the seeded action's page (`actions/$actionId`;
  * the phone route lands on its Triggers tab). Owner-only, and it needs a
  * steer relay: without either the "Add trigger" pill is not mounted.
@@ -557,24 +524,29 @@ async function recipeOpenWidgetEditor(page: Page): Promise<void> {
 // -------------------------------------------------------- getting started
 
 /**
- * Open the sidebar-footer "Getting started" sheet (EXP-88). EXP-548 hides the
- * entry entirely once every checklist item is done — and while the signals are
- * still loading — so an absent entry is a seed problem, not a flake, and says so.
+ * Open the Getting started block from its sidebar-footer entry (EXP-88), which
+ * EXP-1270 turned into a centred dialog over the page (the right sheet is
+ * gone). EXP-548 hides the entry once every step is done, and while the
+ * signals are still loading, so an absent entry is a seed problem, not a
+ * flake, and says so. Both ids are getting-started.json's `testIds`.
  */
 async function recipeOpenGettingStarted(page: Page): Promise<void> {
-  const trigger = page.getByRole(`button`, { name: `Getting started`, exact: true })
+  const trigger = page.getByTestId(`getting-started-entry`)
   if (!(await appears(trigger, 15_000))) {
     await openSidebar(page)
   }
   if (!(await appears(trigger, 10_000))) {
     throw new Error(
-      `no "Getting started" sidebar entry — EXP-548 hides it once every ` +
-        `checklist entry is complete. Re-seed so at least one stays incomplete: ` +
+      `no "Getting started" sidebar entry: EXP-548 hides it once every ` +
+        `step is complete. Re-seed so at least one stays open: ` +
         `bun run seed:screenshots`
     )
   }
   await trigger.first().click()
-  await page.getByText(`Set up the coding loop`).first().waitFor({ timeout: 15_000 })
+  await page
+    .getByRole(`dialog`)
+    .getByTestId(`getting-started`)
+    .waitFor({ timeout: 15_000 })
 }
 
 /**
@@ -596,7 +568,6 @@ export const RECIPES: Record<string, Recipe> = {
   openMachineSettings: recipeOpenMachineSettings,
   expandFirstDevice: recipeExpandFirstDevice,
   openAddServer: recipeOpenAddServer,
-  openSuggestionsTab: recipeOpenSuggestionsTab,
   openTriggerEditor: recipeOpenTriggerEditor,
   openWidgetEditor: recipeOpenWidgetEditor,
   openGettingStarted: recipeOpenGettingStarted,

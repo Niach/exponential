@@ -21,7 +21,7 @@
     {
       "id": "coding",
       "label": "Coding",
-      "blurb": "The Actions surface, the Devices page, the Agent composer that launches every run, and one live session being steered.",
+      "blurb": "The Actions surface, the Devices page, the Agent home whose composer launches every run, one live session being steered and the run thread’s cards.",
       "order": 4
     },
     {
@@ -57,7 +57,7 @@
     {
       "id": "getting-started",
       "label": "Getting started",
-      "blurb": "The setup checklist: a sidebar sheet on web, a rail screen on desktop.",
+      "blurb": "The setup block: one row of eight square step cards with a progress meter and Docs, on an empty board, on the Agent home while the team has no board, and behind the sidebar entry as a dialog.",
       "order": 10
     },
     {
@@ -103,14 +103,6 @@
       "reason": "RFC 8628 device-code entry for the CLI daemon; needs a pending device code to render anything."
     },
     {
-      "route": "/account/notifications",
-      "reason": "Legacy redirect into /t/$teamSlug/settings/notifications, kept alive for email verification links."
-    },
-    {
-      "route": "/t/$teamSlug",
-      "reason": "Team index is a redirect to the last-visited (or first) board; it only paints when the team has zero boards."
-    },
-    {
       "route": "/t/$teamSlug/settings",
       "reason": "Bare settings forwards to the first section the viewer may see."
     },
@@ -125,14 +117,6 @@
     {
       "route": "/t/$teamSlug/settings/boards/archived",
       "reason": "EXP-862: archived boards and the 48h trash on their own page. The pane is photographed on desktop as settings-boards-archived; the web and web-mobile captures land with the EXP-865 screenshot refresh (a declared capture without a committed webp fails shots:check)."
-    },
-    {
-      "route": "/t/$teamSlug/settings/api-keys",
-      "reason": "Legacy redirect to /t/$teamSlug/settings/security since EXP-862, kept for older desktop builds, bookmarks and the MCP setup card."
-    },
-    {
-      "route": "/t/$teamSlug/workflows/$",
-      "reason": "SLOP-3: Workflows are gone; old links and native deep links redirect to /t/$teamSlug/agent."
     },
     {
       "route": "/admin",
@@ -584,7 +568,7 @@
       "id": "board-empty",
       "group": "issues",
       "title": "Empty board",
-      "blurb": "A board with nothing on it yet: the empty state, with the getting-started cards inline underneath on every client.",
+      "blurb": "A board with nothing on it yet: the empty state, with the Getting started block (one row of step cards) underneath on every client.",
       "order": 7,
       "web": {
         "route": "/t/$teamSlug/boards/launch-marketing",
@@ -709,6 +693,26 @@
         },
         "recipe": "openIssuePropertiesMobile",
         "settleMs": 600
+      }
+    },
+    {
+      "id": "search-list",
+      "group": "issues",
+      "title": "Search list",
+      "blurb": "THE search list (SLOP-28, search-list.json): typing `#` in any editor opens it with a focused input prefilled with the token, no result cap, the list scrolls with a bottom fade; ↑↓ Enter inserts `#IDENT`. A popover at the caret on a pointer, a bottom sheet on phones; the + menu’s submenus and global search draw the same rows.",
+      "order": 11,
+      "ios": {
+        "shot": "sg_search-list",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_search-list",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The styleguide entry `search-list` (apps/styleguide/src/entries/search-list.tsx) draws the popover on the real component; the `search` view photographs the same list behind Cmd+K. No web recipe types `#` into an editor yet.",
+        "web-mobile": "See web: on phones the list is a bottom sheet with the input focused.",
+        "desktop": "The desktop styleguide entry `search_list.rs`; the `search` view’s dialog (Cmd+K) is the same list. No `EXP_DEV_*` value opens the `#` popover."
       }
     },
     {
@@ -879,7 +883,7 @@
         "lane": "store"
       },
       "notes": {
-        "web": "EXP-686 gave Actions its own top-level route on every client; SLOP-5 moved the entry behind More, EXP-1187 made it a phone tab again (the composer's action chip is the everyday way to run one). A desktop viewport shows the list alone — the seeds live in Getting started; the phone keeps Actions and Suggestions behind ?tab=. A row opens the action's page."
+        "web": "EXP-686 gave Actions its own top-level route on every client; SLOP-5 moved the entry behind More, EXP-1187 made it a phone tab again (the composer’s Run action › submenu is the everyday way to run one). Every viewport shows the list alone: EXP-1270 removed the suggestion seeds ×4. A row opens the action’s page."
       },
       "desktop": {
         "drive": {
@@ -892,7 +896,7 @@
       "id": "chat",
       "group": "coding",
       "title": "Agent",
-      "blurb": "The Agent page: the composer — the ONE launcher since EXP-825 — here empty: a free prompt bound to no issue that needs no repository. EXP-923 moved the runs off the page: what is RUNNING is a section of the sidebar, and the history sits behind the page's own toggle.",
+      "blurb": "The Agent page, HOME on every client (EXP-1253): the disc mark and a time-of-day greeting over the composer (the ONE launcher), empty here, a free prompt bound to no issue that needs no repository, and Recent (the last three own runs) under the options line. No suggestion rows, no watermark; what is RUNNING is a section of the sidebar.",
       "order": 4,
       "web": {
         "route": "/t/$teamSlug/agent",
@@ -912,15 +916,43 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "EXP-923: the page is the COMPOSER alone. My live runs are the sidebar's Running section, and Recent is a panel behind the ghost history button at the page's top-left — so the shot shows a full-width composer, not a list.",
+        "web": "EXP-923: my live runs are the sidebar’s Running section, and the full history is a panel behind the ghost history button at the page’s top-left. EXP-1253: the page is home (the team index redirects here, see `agent-home`): greeting, composer, Recent.",
         "web-mobile": "EXP-923: the phone keeps the Running list under the composer; Recent left the page for the header's history button, which opens it as a bottom sheet.",
-        "desktop": "EXP-1192: the IDE LANDS here on startup, and Agent is the rail's first entry (above Inbox). The page is the COMPOSER alone; my live runs are the rail's own Running section. The ghost history button at the page's top-left slides Recent runs in as a second sidebar INSIDE the content card and turns into a Back button while it is open. `EXP_DEV_SCREEN=chat` opens the page; add `EXP_DEV_TOOL=history` for the Recent runs sidebar."
+        "desktop": "EXP-1192: the IDE LANDS here on startup, and Agent is the rail’s first entry (above Inbox). The page is the home column (EXP-1253: greeting, composer, Recent); my live runs are the rail’s own Running section. The ghost history button at the page’s top-left slides Recent runs in as a second sidebar INSIDE the content card and turns into a Back button while it is open. `EXP_DEV_SCREEN=chat` opens the page; add `EXP_DEV_TOOL=history` for the Recent runs sidebar."
       },
       "desktop": {
         "drive": {
           "kind": "screen",
           "value": "chat"
         }
+      }
+    },
+    {
+      "id": "agent-home",
+      "group": "coding",
+      "title": "Agent home",
+      "blurb": "Where every client lands (EXP-1253, composer-home.json): the disc mark and ONE greeting line in Inter semibold, “What do you want to build?” in the composer, and Recent, the last three own runs as small SessionRows, under the options line.",
+      "order": 3,
+      "web": {
+        "route": "/t/$teamSlug",
+        "anchor": {
+          "testId": "agent-home-recent",
+          "timeoutMs": 30000
+        },
+        "settleMs": 800
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_agent-home",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_agent-home",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The team index redirects to the Agent page (a replace), so this is the landing a team URL gets; the anchor waits for Recent, which needs the seeded runs.",
+        "desktop": "The IDE starts on Agent (EXP-1192) and the dev screen for it is `chat`, so `chat`’s desktop capture is this page; a second drive would photograph the same pixels."
       }
     },
     {
@@ -1385,7 +1417,7 @@
       },
       "notes": {
         "web": "`action=builtin:create-action` seeds the composer with the virtual Create action builtin (not a DB row, `lib/builtin-actions.ts`); the chip renders before the row lookup, so no seed data is needed beyond a team.",
-        "web-mobile": "The phone reaches the creator from the Actions page's Actions tab (\"New action\" pushes the same composer); the paired native shots cover it.",
+        "web-mobile": "The phone reaches the creator from the Actions page (\"New action\" pushes the same composer); the paired native shots cover it.",
         "desktop": "`EXP_DEV_SCREEN=chat?action=builtin:create-action`, paired with `EXP_DEV_TOOL=agent` by the lane (EXP-825 retired the create-action dialog)."
       }
     },
@@ -1441,52 +1473,6 @@
       "notes": {
         "web": "A desktop viewport has no tabs: Runs is a section of `action-page`.",
         "desktop": "The desktop app has no tabs: Runs is a section of `action-page`."
-      }
-    },
-    {
-      "id": "action-suggestions",
-      "group": "actions",
-      "title": "Suggestions",
-      "blurb": "The starter catalog: curated action seeds that prefill the creator run, some setting up a trigger with them.",
-      "order": 6,
-      "web": {
-        "route": "/t/$teamSlug/actions",
-        "anchor": {
-          "text": "Daily standup digest",
-          "timeoutMs": 30000
-        },
-        "recipe": "openSuggestionsTab",
-        "settleMs": 800
-      },
-      "webMobile": {
-        "route": "/t/$teamSlug/actions?tab=suggestions",
-        "anchor": {
-          "text": "Daily standup digest",
-          "timeoutMs": 30000
-        },
-        "recipe": "openSuggestionsTab",
-        "settleMs": 800
-      },
-      "ios": {
-        "shot": "sg_action-suggestions",
-        "lane": "styleguide"
-      },
-      "android": {
-        "shot": "sg_action-suggestions",
-        "lane": "styleguide"
-      },
-      "desktop": {
-        "drive": {
-          "kind": "screen",
-          "value": "getting-started"
-        },
-        "env": {
-          "EXP_DEV_GETTING_STARTED_TAB": "suggestions"
-        }
-      },
-      "notes": {
-        "web": "EXP-686: the seeds left the Actions surface for Getting started's second tab — the lightbulb next to \"New action\" opens it, which is what the recipe clicks.",
-        "web-mobile": "The phone keeps the seeds as the Actions page's third tab (/actions?tab=suggestions); Getting started is desktop-shaped."
       }
     },
     {
@@ -2073,12 +2059,12 @@
       "id": "getting-started",
       "group": "getting-started",
       "title": "Getting started",
-      "blurb": "The setup checklist: connect a repo, install the desktop app or CLI, wire MCP, drop in the widget.",
+      "blurb": "ONE block ×4 (getting-started.json): the title, “4 of 8”, a meter and Docs over one row of square cards in the order Create a board · Connect GitHub · Add a device · Start a run · Invite your team · Set up a server · Connect your tools · Feedback widget; the next step highlighted, done steps checked and still clickable. Here: the sidebar entry’s dialog.",
       "order": 1,
       "web": {
         "route": "/t/$teamSlug/boards/$boardSlug",
         "anchor": {
-          "text": "Getting started",
+          "testId": "getting-started",
           "timeoutMs": 20000
         },
         "recipe": "openGettingStarted",
@@ -2086,15 +2072,27 @@
       },
       "desktop": {
         "drive": {
-          "kind": "screen",
-          "value": "getting-started"
+          "kind": "tool",
+          "value": "board"
+        },
+        "env": {
+          "EXP_DEV_BOARD_ID": "$emptyBoard"
         }
       },
       "notes": {
-        "web": "Not a route: it is a sidebar-footer sheet (EXP-88), and the button hides once every checklist entry is done (EXP-548). The seed must leave at least one entry incomplete or the recipe has nothing to click. The same cards also render inline under an EMPTY board's and an empty team's empty state.",
-        "web-mobile": "No sheet on phones: the cards render inline under an empty board / empty team.",
-        "ios": "Inline under an empty board / empty team.",
-        "android": "Inline under an empty board / empty team."
+        "web": "Not a route: the sidebar-footer entry (EXP-88) opens the block in a centred dialog (EXP-1270; the right sheet is gone), and the entry hides once every step is done (EXP-548), so the seed must leave a step open. The same block renders inline on an EMPTY board (`board-empty`) and on the Agent home while the team has no board.",
+        "web-mobile": "The phone sidebar keeps the same entry and dialog; the inline block is `board-empty`’s web-mobile capture.",
+        "ios": "Settings’ Getting started row opens the block in a bottom sheet (a horizontal strip of the same cards).",
+        "android": "See ios: the Settings row’s bottom sheet.",
+        "desktop": "The rail entry opens the block in its own dialog window (`getting_started::open_dialog`) and no `EXP_DEV_DIALOG` value reaches it yet, so the drive photographs the same block inline under the seeded empty board. The old `getting-started` screen and its tabs are gone."
+      },
+      "ios": {
+        "shot": "sg_getting-started",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_getting-started",
+        "lane": "styleguide"
       }
     },
     {
@@ -4381,7 +4379,7 @@
       "id": "composer-menu",
       "group": "coding",
       "title": "Composer + menu",
-      "blurb": "The composer's ONE \"+\" menu (EXP-1249, fixture composer-menu.json): Implement issue, Run action, Add file or image, Effort, Subagents, Ultracode, MCP servers, Computer use; a dropdown at desktop widths and a bottom sheet on phones.",
+      "blurb": "The composer’s ONE \"+\" menu (EXP-1249, fixture composer-menu.json): Implement issue › and Run action › (SLOP-28: submenus on THE search list), Add file or image, Effort ›, Subagents ›, Ultracode, MCP servers ›, Computer use; a dropdown at desktop widths and a bottom sheet on phones, submenus pushed as pages.",
       "order": 12,
       "ios": {
         "shot": "sg_composer-menu",
@@ -4392,9 +4390,9 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "The styleguide `menu` and `composer-dialog` entries show the open menu; the app view is `chat`.",
+        "web": "The styleguide `composer-dialog` and `menu-submenu` entries show the open menu and a submenu; the app view is `chat`.",
         "web-mobile": "See web: on phones the same entries open as a bottom sheet.",
-        "desktop": "The desktop styleguide `menu` entry draws the real \"+\" menu (`chat_screen::plus_menu`)."
+        "desktop": "The desktop styleguide `menu_submenu` entry draws the real \"+\" menu and a submenu; the app view is `chat`."
       }
     },
     {
@@ -4560,6 +4558,86 @@
       },
       "notes": {
         "web-mobile": "No phone-browser shot: the site's live render is the responsive web view, and the iOS and Android shots are the phone frames."
+      }
+    },
+    {
+      "id": "work-card",
+      "group": "coding",
+      "title": "Work card",
+      "blurb": "ONE card ×4 for a workflow, a task list and a subagent (EXP-1240, work-card.json): kind icon, name, kind word, progress and elapsed over a segment bar; finished phases fold to one row, the running phase lists its lanes one line each.",
+      "order": 13,
+      "ios": {
+        "shot": "sg_work-card",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_work-card",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The styleguide entry `work-card` (apps/styleguide/src/entries/work-card.tsx) draws it on the real component; the app view is `steering`.",
+        "web-mobile": "See web: the phone thread draws the same card at full width.",
+        "desktop": "The desktop styleguide entry `work_card.rs`; the app view is a run’s thread."
+      }
+    },
+    {
+      "id": "script-card",
+      "group": "coding",
+      "title": "Script card",
+      "blurb": "A code-mode call (EXP-1279, script-card.json): “Ran a script · N calls · T” with the nested calls grouped by tool, failures in rose, the script itself behind a Script disclosure.",
+      "order": 14,
+      "ios": {
+        "shot": "sg_script-card",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_script-card",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The styleguide entry `script-card` (apps/styleguide/src/entries/script-card.tsx) draws it on the real component; the app view is `steering`.",
+        "web-mobile": "See web: the phone thread draws the same card at full width.",
+        "desktop": "The desktop styleguide entry `script_card.rs`; the app view is a run’s thread."
+      }
+    },
+    {
+      "id": "comment-call-card",
+      "group": "coding",
+      "title": "Comment card",
+      "blurb": "An `exponential_comments_create` call drawn as the real comment (EXP-1241): the author row with the agent mark and “via MCP”, the markdown clamped to three lines with Show more; a click opens the issue scrolled to that comment.",
+      "order": 15,
+      "ios": {
+        "shot": "sg_comment-call-card",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_comment-call-card",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The styleguide entry `comment-call-card` (apps/styleguide/src/entries/comment-call-card.tsx) draws it on the real component; the app view is `steering`.",
+        "web-mobile": "See web: the phone thread draws the same card at full width.",
+        "desktop": "The desktop styleguide entry `comment_card.rs`; the app view is a run’s thread."
+      }
+    },
+    {
+      "id": "feedback-states",
+      "group": "coding",
+      "title": "Feedback states",
+      "blurb": "The six feedback kinds ×4 (EXP-1275, feedback-states.json): the inline spinner with its progressive word, the pending button, skeleton rows, the mark’s stroke sweep, the blocking backdrop, and a failed action as an error toast with Retry.",
+      "order": 16,
+      "ios": {
+        "shot": "sg_feedback-states",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_feedback-states",
+        "lane": "styleguide"
+      },
+      "notes": {
+        "web": "The styleguide entry `feedback-states` (apps/styleguide/src/entries/feedback-states.tsx) draws every kind on its real primitive; in the app they show wherever work is pending (the composer’s “Starting on <device>”, list skeletons, toasts).",
+        "web-mobile": "See web.",
+        "desktop": "The desktop styleguide entry `feedback_states.rs`."
       }
     }
   ]

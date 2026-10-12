@@ -79,19 +79,19 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "controls::rows::disclosure_header",
         "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/rows.rs",
-        "note": "EXP-963: the steer feed's tool groups, Exponential runs, subagent lanes and workflow agents fold on it"
+        "note": "EXP-963: the steer feed's tool groups and Exponential runs fold on it (EXP-1240: lanes moved into the Work card)"
       },
       "ios": {
         "status": "leftover",
-        "symbol": "ToolGroupRow / ExpToolGroupRow / SubagentGroupRow",
+        "symbol": "ToolGroupRow / ExpToolGroupRow",
         "file": "apps/ios/Exponential/UI/Session/AgentSessionView.swift",
-        "note": "three private structs repeat the 11pt chevron row, each with its own @State expanded"
+        "note": "two private structs repeat the 11pt chevron row, each with its own @State expanded"
       },
       "android": {
         "status": "leftover",
-        "symbol": "ToolGroupRow / ExpToolGroupRow / SubagentGroupRow",
+        "symbol": "ToolGroupRow / ExpToolGroupRow",
         "file": "apps/android/app/src/main/java/com/exponential/app/ui/session/AgentSessionScreen.kt",
-        "note": "the same three private composables, each rebuilding the chevron row"
+        "note": "the same two private composables, each rebuilding the chevron row"
       }
     }
   },
