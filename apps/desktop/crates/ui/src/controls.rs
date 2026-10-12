@@ -142,9 +142,10 @@ pub(crate) fn jump_to_bottom_button(
             gpui_component::tooltip::Tooltip::new(JUMP_TO_BOTTOM_LABEL).build(window, cx)
         })
         .on_click(on_click)
+        // EXP-1243: an enter — `ENTER` on decelerate.
         .with_animation(
             "jump-to-bottom-fade",
-            Animation::new(theme::motion::FAST).with_easing(theme::motion::standard()),
+            Animation::new(theme::motion::ENTER).with_easing(theme::motion::decelerate()),
             |button, delta| button.opacity(delta),
         )
         .into_any_element()
@@ -480,9 +481,24 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> gpui::RenderOnce for
                     menu
                 }
             };
-            with_pointer_layer(menu)
+            overlay_enter(
+                ElementId::Name(SharedString::from(format!("pointer-menu-enter:{:?}", self.id))),
+                with_pointer_layer(menu),
+            )
         })
     }
+}
+
+/// EXP-1243 — an overlay's ENTER (a menu, a popover the pointer opened): a
+/// fade over [`theme::motion::ENTER`] on `decelerate`. gpui has no element
+/// scale, so the web's `scale 0.96 → 1` is the fade alone; the exit is
+/// instant (the popover unmounts). Never for a keyboard-opened surface.
+pub(crate) fn overlay_enter(id: impl Into<ElementId>, overlay: Div) -> impl IntoElement {
+    overlay.with_animation(
+        id,
+        Animation::new(theme::motion::ENTER).with_easing(theme::motion::decelerate()),
+        |overlay, delta| overlay.opacity(delta),
+    )
 }
 
 /// A menu surface under the pointer layer (half 2 of the section note): the
@@ -656,7 +672,10 @@ impl<E: gpui::ParentElement + Styled + IntoElement + 'static> gpui::Element for 
                                             .position(position)
                                             .snap_to_window_with_margin(px(8.))
                                             .anchor(Anchor::TopLeft)
-                                            .child(with_pointer_layer(menu)),
+                                            .child(overlay_enter(
+                                                "context-menu-enter",
+                                                with_pointer_layer(menu),
+                                            )),
                                     ),
                             ),
                         )

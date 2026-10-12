@@ -79,9 +79,11 @@ pub(crate) struct ActionPromptForm {
     /// save can never blank the body.
     body_loading: bool,
     submitting: bool,
-    /// Duplicate-name CONFLICT, rendered inline under Name.
+    /// EXP-1259 D8: Save's pending face ("Saving").
+    pending: crate::feedback::Pending,
+    /// Duplicate-name CONFLICT — INVALID INPUT, so it stays under Name
+    /// (FEED-79); every other failure is a toast.
     name_error: Option<SharedString>,
-    error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -173,8 +175,8 @@ impl ActionPromptForm {
             body,
             body_loading: true,
             submitting: false,
+            pending: crate::feedback::Pending::default(),
             name_error: None,
-            error: None,
             _subscriptions: subscriptions,
         };
         this.fetch_body(window, cx);
@@ -186,7 +188,6 @@ impl ActionPromptForm {
     /// The ONLY body path (EXP-268): synced rows exclude it.
     fn fetch_body(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
         let Some(trpc) = queries::trpc_client(cx) else {
-            self.error = Some("Not signed in.".into());
             self.body_loading = false;
             return;
         };
@@ -205,7 +206,24 @@ impl ActionPromptForm {
                         view.mcp_server_ids = action.mcp_server_ids.clone();
                         view.saved_mcp_server_ids = action.mcp_server_ids;
                     }
-                    Err(err) => view.error = Some(err.user_message().into()),
+                    // FEED-79: a failed load = the toast (Retry refetches);
+                    // the prompt stays empty and Save waits for a body.
+                    Err(err) => {
+                        let form = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "load",
+                            "the prompt",
+                            crate::action_error::action_error_description(&err),
+                            move |window, cx| {
+                                let _ = form.update(cx, |view, cx| {
+                                    view.body_loading = true;
+                                    view.fetch_body(window, cx);
+                                    cx.notify();
+                                });
+                            },
+                            cx,
+                        );
+                    }
                 }
                 view.body.update(cx, |state, cx| {
                     state.set_placeholder("Prompt", window, cx);
@@ -302,13 +320,11 @@ impl ActionPromptForm {
             .take(api::actions::MAX_PROMPT_PLACEHOLDER_CHARS)
             .collect();
         let Some(trpc) = queries::trpc_client(cx) else {
-            self.error = Some("Not signed in.".into());
-            cx.notify();
             return;
         };
         self.submitting = true;
+        self.pending.start(cx);
         self.name_error = None;
-        self.error = None;
         cx.notify();
 
         let mut input = api::actions::ActionUpdate::new(self.action_id.clone());
@@ -331,6 +347,7 @@ impl ActionPromptForm {
                 .await;
             let _ = this.update_in(window, |view, _, cx| {
                 view.submitting = false;
+                view.pending.finish();
                 match result {
                     // The synced echo repaints the header and the list —
                     // nothing to gate on; the form stays where it is.
@@ -345,7 +362,19 @@ impl ActionPromptForm {
                             api::ApiError::Http { status: 409, message } => {
                                 view.name_error = Some(message.into());
                             }
-                            other => view.error = Some(format!("{other}").into()),
+                            // FEED-79: anything else is the error toast.
+                            other => {
+                                let form = cx.entity().downgrade();
+                                crate::action_error::failed_action_with_retry(
+                                    "save",
+                                    "the action",
+                                    crate::action_error::action_error_description(&other),
+                                    move |window, cx| {
+                                        let _ = form.update(cx, |view, cx| view.submit(window, cx));
+                                    },
+                                    cx,
+                                );
+                            }
                         }
                     }
                 }
@@ -362,7 +391,6 @@ impl Render for ActionPromptForm {
         let name_empty = self.name.read(cx).value().trim().is_empty();
         let body_empty = self.body.read(cx).value().trim().is_empty();
         let disabled = name_empty || body_empty || self.body_loading || self.submitting;
-        let danger = cx.theme().danger;
         let muted = cx.theme().muted_foreground;
 
         // -- left column: the metadata form ---------------------------------
@@ -434,7 +462,7 @@ impl Render for ActionPromptForm {
                 prompt_placeholder_row,
             ]));
         if let Some(name_error) = self.name_error.clone() {
-            form = form.child(div().px_1().text_xs().text_color(danger).child(name_error));
+            form = form.child(crate::action_error::field_error(name_error, cx).px_1());
         }
         let left = form
             .w(px(META_COLUMN_W))
@@ -477,30 +505,17 @@ impl Render for ActionPromptForm {
                 .justify_end()
                 .items_center()
                 .gap_3()
-                .when_some(self.error.clone(), |this, error| {
-                    this.child(
-                        div()
-                            .flex_1()
-                            .min_w_0()
-                            .text_sm()
-                            .text_color(danger)
-                            .child(error),
-                    )
-                })
-                .child(
+                .child(self.pending.apply(
                     Button::new("action-edit-save")
                         .primary()
                         .cursor_pointer()
                         .web_sm()
-                        .label(if self.submitting {
-                            "Saving…"
-                        } else {
-                            "Save changes"
-                        })
-                        .disabled(disabled)
-                        .loading(self.submitting)
+                        .label("Save changes")
+                        .disabled(disabled && !self.submitting)
                         .on_click(cx.listener(|this, _, window, cx| this.submit(window, cx))),
-                )
+                    crate::feedback::PENDING_SAVE,
+                    cx,
+                ))
         });
 
         v_flex()
@@ -514,12 +529,6 @@ impl Render for ActionPromptForm {
                     .child(left)
                     .child(right),
             )
-            // A reader still sees why the prompt did not load.
-            .when(read_only, |this| {
-                this.when_some(self.error.clone(), |this, error| {
-                    this.child(div().text_sm().text_color(danger).child(error))
-                })
-            })
             .children(footer)
     }
 }

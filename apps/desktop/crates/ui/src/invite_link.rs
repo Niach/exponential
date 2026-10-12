@@ -58,7 +58,6 @@ pub struct InviteLinkPanel {
     capacity: Capacity,
     invite_url: Option<SharedString>,
     generating: bool,
-    error: Option<SharedString>,
     /// Bumped on every counted change; a debounce task only refetches while
     /// it is still the newest one.
     refetch_generation: u64,
@@ -88,7 +87,6 @@ impl InviteLinkPanel {
             capacity: Capacity::Loading,
             invite_url: None,
             generating: false,
-            error: None,
             refetch_generation: 0,
             counts,
             _refetch: None,
@@ -171,7 +169,6 @@ impl InviteLinkPanel {
         let team_id = self.team_id.clone();
 
         self.generating = true;
-        self.error = None;
         cx.notify();
 
         cx.spawn_in(window, async move |this, window| {
@@ -200,7 +197,19 @@ impl InviteLinkPanel {
                         this.capacity = Capacity::Known(Some(0));
                         this.invite_url = None;
                     }
-                    Err(err) => this.error = Some(err.user_message().into()),
+                    // FEED-79: the error toast; Retry mints again.
+                    Err(err) => {
+                        let panel = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "create",
+                            "the invite link",
+                            crate::action_error::action_error_description(&err),
+                            move |window, cx| {
+                                let _ = panel.update(cx, |this, cx| this.generate(window, cx));
+                            },
+                            cx,
+                        );
+                    }
                 }
                 cx.notify();
             });
@@ -260,9 +269,6 @@ impl Render for InviteLinkPanel {
                     })),
             ),
         );
-        if let Some(error) = &self.error {
-            column = column.child(crate::settings::error_notice(error.clone(), cx));
-        }
         column.into_any_element()
     }
 }

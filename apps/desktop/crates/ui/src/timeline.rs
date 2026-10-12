@@ -859,7 +859,11 @@ impl IssueTimeline {
                     Err(error) => {
                         log::warn!("[ui] comments.create failed: {error}");
                         this.note_attachment_failure(scope, &error);
-                        crate::toast::error(format!("Could not post {what}: {error}"), window, cx);
+                        crate::toast::show(
+                            crate::action_error::failed_toast("post", &format!("the {what}"), Some(error.to_string())),
+                            window,
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
@@ -1232,7 +1236,11 @@ impl IssueTimeline {
                         if let Some(editing) = this.editing.as_mut() {
                             editing.saving = false;
                         }
-                        crate::toast::error(format!("Could not save comment: {error}"), window, cx);
+                        crate::toast::show(
+                            crate::action_error::failed_toast("save", "the comment", Some(error.to_string())),
+                            window,
+                            cx,
+                        );
                     }
                 }
                 cx.notify();

@@ -346,8 +346,7 @@ impl ServerCard {
             return;
         }
         let Some((instance_url, token, client)) = credentials(cx) else {
-            self.error = Some(copy::FAILED.into());
-            cx.notify();
+            crate::action_error::failed_action("approve", "the code", Some(copy::FAILED.into()), cx);
             return;
         };
         self.busy = true;
@@ -366,6 +365,22 @@ impl ServerCard {
                 this.busy = false;
                 match result {
                     Ok(()) => this.approved = true,
+                    // FEED-79: a request that failed is the toast (Retry
+                    // approves again); a code the server refused (expired,
+                    // invalid, used, another account's) is about the INPUT,
+                    // so it stays under the field.
+                    Err(message) if message == copy::FAILED => {
+                        let view = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "approve",
+                            "the code",
+                            Some(message.into()),
+                            move |_, cx| {
+                                let _ = view.update(cx, |this, cx| this.approve(cx));
+                            },
+                            cx,
+                        );
+                    }
                     Err(message) => this.error = Some(message.into()),
                 }
                 cx.notify();
@@ -446,7 +461,7 @@ impl Render for ServerCard {
                         ),
                 );
             if let Some(error) = self.error.clone() {
-                form = form.child(div().text_sm().text_color(cx.theme().danger).child(error));
+                form = form.child(crate::action_error::field_error(error, cx));
             }
             card = card.child(form);
         }

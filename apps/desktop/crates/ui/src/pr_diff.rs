@@ -283,12 +283,6 @@ impl PrDiffView {
 
 impl Render for PrDiffView {
     fn render(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        // The merge/close refusal captions under the work header's pill; the
-        // pane only repeats it over the diff, where the reader is looking.
-        let caption = self
-            .issue_id
-            .as_ref()
-            .and_then(|id| MergeState::global(cx).read(cx).error(id));
         let shown = self.shown(cx);
         let all = self.pane_files(cx);
         let files: Vec<crate::diff_pane::PaneFile> =
@@ -300,7 +294,6 @@ impl Render for PrDiffView {
                 selected,
                 filter: Some(self.filter.clone()),
                 folded_dirs: self.folded_dirs.clone(),
-                caption,
                 diff: self.diff.clone(),
                 pane_width: self.pane_width.clone(),
                 on_pick: std::rc::Rc::new(move |this: &mut Self, index, cx| {

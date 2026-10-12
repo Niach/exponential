@@ -161,7 +161,15 @@ fn confirmed_account_change(change: AccountChange, window: &mut Window, cx: &mut
                     Ok(()) => {
                         crate::toast::success(format!("{account_label} {local_done}"), window, cx)
                     }
-                    Err(err) => crate::toast::error(err, window, cx),
+                    Err(err) => crate::toast::show(
+                        crate::action_error::failed_toast(
+                            if remove { "remove" } else { "sign out" },
+                            &account_label,
+                            Some(err.to_string()),
+                        ),
+                        window,
+                        cx,
+                    ),
                 }
                 return true;
             }
@@ -171,6 +179,7 @@ fn confirmed_account_change(change: AccountChange, window: &mut Window, cx: &mut
             let device_id = device_id.clone();
             let profile_id = profile_id.clone();
             let device_label = device_label.clone();
+            let account_label = account_label.clone();
             cx.spawn(async move |cx| {
                 let result = cx
                     .background_executor()
@@ -187,7 +196,15 @@ fn confirmed_account_change(change: AccountChange, window: &mut Window, cx: &mut
                     Ok(_) => {
                         crate::toast::success(format!("{device_label} {remote_done}"), window, cx)
                     }
-                    Err(err) => crate::toast::error(err.user_message(), window, cx),
+                    Err(err) => crate::toast::show(
+                        crate::action_error::failed_toast(
+                            if remove { "remove" } else { "sign out" },
+                            &account_label,
+                            crate::action_error::action_error_description(&err),
+                        ),
+                        window,
+                        cx,
+                    ),
                 });
             })
             .detach();

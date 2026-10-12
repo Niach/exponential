@@ -704,7 +704,8 @@ impl SessionScreenView {
                 (
                     right,
                     Some(header.chip_row(&issue, actions, cx)),
-                    header.agent_row(&issue, cx),
+                    // FEED-79: a merge refusal is a toast now, not a row.
+                    None,
                 )
             });
             return crate::work_header::render_work_header(
@@ -777,10 +778,8 @@ impl SessionScreenView {
         // ONE merge control lives in the header on every face. EXP-917: the
         // shared pill, so a batch run's conflict opens the fix-conflicts
         // composer (EXP-1233) exactly like the issue tray's, and any other
-        // refusal captions the header (`extra`) instead of dying in the log.
-        let extra = merge_target
-            .as_ref()
-            .and_then(|target| crate::work_header::merge_error_caption(target, cx));
+        // refusal is a toast (FEED-79) instead of dying in the log.
+        let extra = None;
         if let Some(target) = merge_target {
             // EXP-926: this cluster stands beside the face toggle, so it
             // wears the TOGGLE's height, not a chip's.
@@ -892,7 +891,15 @@ fn resume_remote_inner(
     cx: &mut App,
 ) {
     let Some(trpc) = crate::queries::trpc_client(cx) else {
-        crate::toast::error("Sign in and wait for sync before resuming.", window, cx);
+        crate::toast::show(
+            crate::action_error::failed_toast(
+                "resume",
+                "the run",
+                Some("Sign in and wait for sync before resuming.".into()),
+            ),
+            window,
+            cx,
+        );
         return;
     };
     let input = api::steer::StartSessionInput {
@@ -913,7 +920,11 @@ fn resume_remote_inner(
             Ok(()) => Toast::success(format!(
                 "Resume sent to {device_label}."
             )),
-            Err(err) => Toast::error(err.user_message()),
+            Err(err) => crate::action_error::failed_toast(
+                "resume",
+                "the run",
+                crate::action_error::action_error_description(&err),
+            ),
         };
         let _ = handle.update(cx, |_, window, cx| {
             crate::toast::show(note, window, cx);

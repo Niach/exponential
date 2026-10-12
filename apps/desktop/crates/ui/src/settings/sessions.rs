@@ -22,7 +22,7 @@ use coding::session_retention::{self, CHOICES};
 
 use crate::surface::{glass_group_rows, glass_picker_row, picker_value_label};
 
-use super::{error_notice, section};
+use super::section;
 
 /// The menu label for a stored window. A value the pane does not offer (a
 /// hand-edited file) still reads truthfully.
@@ -42,7 +42,6 @@ pub struct SessionsPane {
     /// account (and with it the data dir) changes.
     loaded_for: Option<PathBuf>,
     days: Option<u32>,
-    save_error: Option<SharedString>,
 }
 
 impl SessionsPane {
@@ -50,7 +49,6 @@ impl SessionsPane {
         Self {
             loaded_for: None,
             days: None,
-            save_error: None,
         }
     }
 
@@ -59,7 +57,6 @@ impl SessionsPane {
         if self.loaded_for.as_ref() != Some(&data_dir) {
             self.days = session_retention::load_days(&data_dir);
             self.loaded_for = Some(data_dir.clone());
-            self.save_error = None;
         }
         data_dir
     }
@@ -71,7 +68,6 @@ impl SessionsPane {
         }
         let previous = self.days;
         self.days = days;
-        self.save_error = None;
         cx.notify();
         // File I/O (and the prune, which can walk many journals) stays off
         // the UI thread.
@@ -90,7 +86,17 @@ impl SessionsPane {
             if let Err(err) = write.await {
                 let _ = this.update(cx, |this, cx| {
                     this.days = previous;
-                    this.save_error = Some(format!("Couldn't save the setting: {err}").into());
+                    // FEED-79: the error toast; Retry writes the pick again.
+                    let pane = cx.entity().downgrade();
+                    crate::action_error::failed_action_with_retry(
+                        "save",
+                        "the run history setting",
+                        Some(err),
+                        move |_, cx| {
+                            let _ = pane.update(cx, |this, cx| this.set_days(days, cx));
+                        },
+                        cx,
+                    );
                     cx.notify();
                 });
             }
@@ -138,13 +144,9 @@ impl Render for SessionsPane {
             cx,
         );
 
-        let mut card = section(cx)
+        section(cx)
             .child(crate::surface::glass_section_header("Runs", None, cx))
-            .child(glass_group_rows(vec![row]));
-        if let Some(error) = &self.save_error {
-            card = card.child(error_notice(error.clone(), cx));
-        }
-        card
+            .child(glass_group_rows(vec![row]))
     }
 }
 

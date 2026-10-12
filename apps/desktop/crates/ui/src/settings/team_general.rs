@@ -13,7 +13,7 @@
 use std::time::Instant;
 
 use gpui::{
-    div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, IntoElement,
+    div, prelude::FluentBuilder as _, App, AppContext as _, Entity, IntoElement,
     ParentElement, Render, SharedString, Styled, Subscription, Task, Window,
 };
 use gpui_component::{
@@ -31,7 +31,7 @@ use crate::native_dialog::{self, AlertEnter, AlertSpec};
 use crate::navigation::Navigation;
 
 use super::{
-    active_team, danger_zone, error_notice, is_owner, open_url, section,
+    active_team, danger_zone, is_owner, open_url, section,
     team_delete_error_message,
 };
 use crate::icons::registry;
@@ -142,14 +142,8 @@ pub struct GeneralPane {
     prompt: PromptState,
     snapshot: Option<Snapshot>,
     saving: bool,
-    error: Option<SharedString>,
-    /// REV2-55: the server can REFUSE a delete (a live subscription, a lost
-    /// ownership race), so the Danger Zone shows why instead of leaving the
-    /// confirm dialog looking like it worked.
-    delete_error: Option<SharedString>,
     /// EXP-1105: a yolo-mode `teams.update` is in flight (switch disabled).
     yolo_busy: bool,
-    yolo_error: Option<SharedString>,
     /// EXP-288: the read-only plan/usage summary between the name card and
     /// the Danger Zone. Refetched on team/account change; hidden while
     /// loading/failed and entirely on self-hosted (`plan == "unlimited"`).
@@ -211,10 +205,7 @@ impl GeneralPane {
             prompt: PromptState::default(),
             snapshot: None,
             saving: false,
-            error: None,
-            delete_error: None,
             yolo_busy: false,
-            yolo_error: None,
             billing: BillingLoad::Idle,
             billing_team: None,
             billing_account: None,
@@ -290,10 +281,7 @@ impl GeneralPane {
         });
         let team_changed = self.snapshot.as_ref().map(|held| &held.team_id) != Some(&snapshot.team_id);
         self.snapshot = Some(snapshot);
-        // A refused delete belonged to the team that was selected then.
-        self.delete_error = None;
         if team_changed {
-            self.yolo_error = None;
             self.fetch_prompt(window, cx);
         }
         cx.notify();
@@ -533,12 +521,7 @@ impl GeneralPane {
             .child(crate::surface::glass_group().child(field).child(footer))
             // FEED-79: a byte cap is INVALID INPUT — inline under the field.
             .when(over, |body| {
-                body.child(
-                    div()
-                        .text_size(px(13.))
-                        .text_color(cx.theme().danger)
-                        .child(prompt_too_long(bytes)),
-                )
+                body.child(crate::action_error::field_error(prompt_too_long(bytes), cx))
             })
     }
 
@@ -571,7 +554,6 @@ impl GeneralPane {
         input.name = Some(name);
 
         self.saving = true;
-        self.error = None;
         cx.notify();
 
         cx.spawn(async move |this, cx| {
@@ -581,8 +563,18 @@ impl GeneralPane {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.saving = false;
+                // FEED-79: the error toast; Retry saves the field again.
                 if let Err(err) = result {
-                    this.error = Some(format!("Failed to save changes: {err}").into());
+                    let pane = cx.entity().downgrade();
+                    crate::action_error::failed_action_with_retry(
+                        "save",
+                        "the team name",
+                        crate::action_error::action_error_description(&err),
+                        move |_, cx| {
+                            let _ = pane.update(cx, |this, cx| this.save(cx));
+                        },
+                        cx,
+                    );
                 }
                 // Success needs no action: the Electric echo resyncs the
                 // snapshot, which clears `dirty`.
@@ -603,7 +595,6 @@ impl GeneralPane {
             return;
         };
         self.yolo_busy = true;
-        self.yolo_error = None;
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -618,9 +609,7 @@ impl GeneralPane {
                 this.yolo_busy = false;
                 if let Err(err) = result {
                     log::warn!("[ui] teams.update(yoloMode) failed: {err}");
-                    this.yolo_error = Some(
-                        format!("Couldn't update yolo mode: {}", err.user_message()).into(),
-                    );
+                    crate::action_error::failed_action_err("update", "yolo mode", &err, cx);
                 }
                 cx.notify();
             });
@@ -745,8 +734,6 @@ impl GeneralPane {
         self.delete_input.update(cx, |state, cx| {
             state.set_value("", window, cx);
         });
-        // Re-opening the confirm clears the previous refusal.
-        self.delete_error = None;
         cx.notify();
         let pane = cx.entity().downgrade();
         let content_input = self.delete_input.clone();
@@ -794,11 +781,17 @@ impl GeneralPane {
                     .background_executor()
                     .spawn(async move { api::teams::teams_delete(&trpc, &team_id) })
                     .await;
-                let _ = pane.update(cx, |this, cx| {
+                let _ = pane.update(cx, |_, cx| {
+                    // FEED-79: a refusal (the REV2-55 billing gate above all)
+                    // is the error toast, never swallowed.
                     if let Err(err) = &result {
                         log::warn!("[ui] teams.delete failed: {err}");
-                        this.delete_error = Some(team_delete_error_message(err));
-                        cx.notify();
+                        crate::action_error::failed_action(
+                            "delete",
+                            "the team",
+                            Some(team_delete_error_message(err).to_string()),
+                            cx,
+                        );
                     }
                     // Success needs no action: the Electric echo drops the
                     // team and navigation re-scopes.
@@ -870,17 +863,6 @@ impl Render for GeneralPane {
             ]));
         }
 
-        if let Some(error) = &self.error {
-            general = general.child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().danger)
-                    .child(error.clone()),
-            );
-        }
-        if let Some(error) = &self.yolo_error {
-            general = general.child(error_notice(error.clone(), cx));
-        }
 
         let mut pane = v_flex().gap_4().child(general);
 
@@ -915,13 +897,7 @@ impl Render for GeneralPane {
                             );
                         })),
                     cx,
-                )
-                // Web parity (settings/general.tsx): a refused delete —
-                // the REV2-55 billing gate above all — is shown, never
-                // swallowed.
-                .when_some(self.delete_error.clone(), |zone, message| {
-                    zone.child(error_notice(message, cx))
-                }),
+                ),
             );
         }
 

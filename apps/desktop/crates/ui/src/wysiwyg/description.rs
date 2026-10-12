@@ -736,7 +736,11 @@ impl WysiwygDescription {
         self.staged
             .retain(|other| other.draft_url != staged.draft_url);
         self.delete_image(&staged.draft_url, window, cx);
-        crate::toast::error(format!("Image upload failed: {error}"), window, cx);
+        crate::toast::show(
+            crate::action_error::failed_toast("upload", "the image", Some(error.to_string())),
+            window,
+            cx,
+        );
     }
 
     /// EXP-878: append `fragment` as its own paragraph at the BOTTOM of the

@@ -351,6 +351,25 @@ pub(crate) fn skeleton_rows(
     .into_any_element()
 }
 
+/// The PLACEHOLDER inside a dropdown menu (a lazily-fetched list's first
+/// load): ONE inert item holding the skeleton rows at the menu row height.
+pub(crate) fn menu_skeleton(
+    menu: gpui_component::menu::PopupMenu,
+    id: &'static str,
+) -> gpui_component::menu::PopupMenu {
+    menu.item(
+        gpui_component::menu::PopupMenuItem::element(move |_, cx| {
+            div()
+                .w(px(MENU_SKELETON_W))
+                .child(skeleton_rows(id, SKELETON_ROWS, crate::controls::MENU_ROW_H, cx))
+        })
+        .disabled(true),
+    )
+}
+
+/// The menu skeleton's width: a dropdown sizes to its widest item.
+const MENU_SKELETON_W: f32 = 220.;
+
 // ---------------------------------------------------------------------------
 // 4. The mark
 // ---------------------------------------------------------------------------

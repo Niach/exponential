@@ -19,7 +19,6 @@
 //! [`crate::markdown::AttachmentTransport`] and deletion through
 //! `api::attachments::attachments_delete`.
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::{div, AnyElement, App, IntoElement, ParentElement, SharedString, Styled, Window};
 use gpui_component::{h_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _};
 use sync::Store;
@@ -615,17 +614,9 @@ pub(crate) fn file_row(
         .into_any_element()
 }
 
-/// A staged pick: "Uploading…" until the server answers, or the failure
-/// message with a dismiss ✕ (`on_dismiss`).
-pub(crate) fn pending_file_row(
-    key: u64,
-    filename: String,
-    error: Option<SharedString>,
-    on_dismiss: impl Fn(&mut Window, &mut App) + 'static,
-    cx: &App,
-) -> AnyElement {
-    let failed = error.is_some();
-    let status = error.unwrap_or_else(|| SharedString::from("Uploading…"));
+/// A staged pick going up: its name and the inline "Uploading" status (a
+/// failed upload leaves the list and is a toast, FEED-79).
+pub(crate) fn pending_file_row(filename: String, cx: &App) -> AnyElement {
     h_flex()
         .w_full()
         .min_w_0()
@@ -651,30 +642,12 @@ pub(crate) fn pending_file_row(
                 .text_color(cx.theme().muted_foreground)
                 .child(SharedString::from(filename)),
         )
-        .child(
-            div()
-                .flex_shrink_0()
-                .text_xs()
-                .text_color(if failed {
-                    cx.theme().danger
-                } else {
-                    cx.theme().muted_foreground
-                })
-                .child(status),
-        )
-        .when(failed, |row| {
-            row.child(
-                crate::controls::ghost_icon_button(
-                    SharedString::from(format!("issue-file-dismiss-{key}")),
-                    Icon::new(crate::icons::registry::UI_CLOSE),
-                    cx,
-                )
-                .tooltip("Dismiss")
-                .on_click(move |_, window, cx| on_dismiss(window, cx)),
-            )
-        })
+        .child(crate::feedback::inline_status(UPLOADING, true, cx))
         .into_any_element()
 }
+
+/// The pending row's progressive word.
+const UPLOADING: &str = "Uploading";
 
 #[cfg(test)]
 mod tests {

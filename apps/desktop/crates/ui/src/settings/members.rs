@@ -55,7 +55,7 @@ use crate::queries;
 use super::invite_form::{
     invite_link_row, out_of_seats_notice, InviteForm, InviteFormLayout, ResendTarget,
 };
-use super::{section, error_notice, is_owner, is_plan_limit, spawn_trpc};
+use super::{section, is_owner, is_plan_limit, spawn_trpc};
 use crate::icons::registry;
 
 /// One joined member row (web `members` + `userMap`).
@@ -74,7 +74,6 @@ pub struct MembersPane {
     invite_url: Option<SharedString>,
     /// Web `generating` — the OUTLINE "Generate invite link" is in flight.
     generating: bool,
-    error: Option<SharedString>,
     /// The seat cap rejected the invite — the web's "Out of seats" notice.
     out_of_seats: bool,
     _subscriptions: Vec<Subscription>,
@@ -95,7 +94,6 @@ impl MembersPane {
                 // Team switch: the generated URL belongs to the old one, and so
                 // does everything the form has on screen.
                 this.invite_url = None;
-                this.error = None;
                 this.out_of_seats = false;
                 let team_id = active_team_id(&this.nav, cx).unwrap_or_default();
                 this.invite_form
@@ -114,7 +112,6 @@ impl MembersPane {
             invite_form,
             invite_url: None,
             generating: false,
-            error: None,
             out_of_seats: false,
             _subscriptions: subscriptions,
         }
@@ -175,9 +172,9 @@ impl MembersPane {
         let base = account.instance_url;
 
         self.generating = true;
-        self.error = None;
         self.out_of_seats = false;
         cx.notify();
+        let retry_team = team_id.clone();
 
         cx.spawn_in(window, async move |this, window| {
             let result = window
@@ -201,9 +198,19 @@ impl MembersPane {
                     Err(err) if is_plan_limit(&err) => {
                         this.out_of_seats = true;
                     }
+                    // FEED-79: the error toast; Retry mints again.
                     Err(err) => {
-                        this.error =
-                            Some(super::form_error(&err, "Couldn't create the invite.").into());
+                        let pane = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "create",
+                            "the invite link",
+                            crate::action_error::action_error_description(&err),
+                            move |window, cx| {
+                                let team_id = retry_team.clone();
+                                let _ = pane.update(cx, |this, cx| this.generate_link(team_id, window, cx));
+                            },
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
@@ -603,9 +610,6 @@ impl Render for MembersPane {
             // its own).
             if self.out_of_seats {
                 invite_section = invite_section.child(out_of_seats_notice(cx));
-            }
-            if let Some(error) = &self.error {
-                invite_section = invite_section.child(error_notice(error.clone(), cx));
             }
 
             if let Some(url) = &self.invite_url {

@@ -3156,14 +3156,16 @@ impl ScreensPanel {
 
     /// §4.1: while the team/boards shapes have not caught up, render a
     /// skeleton — never a wrong empty state.
-    fn render_syncing(&self, _cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    fn render_syncing(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         v_flex()
             .size_full()
             .p_4()
-            .gap_2()
-            .child(crate::controls::skeleton().h_4().w_48())
-            .child(crate::controls::skeleton().h_4().w_64())
-            .child(crate::controls::skeleton().h_4().w_56())
+            .child(crate::feedback::skeleton_rows(
+                "screen-syncing-skeleton",
+                crate::feedback::SKELETON_ROWS,
+                crate::settings::SETTINGS_ROW_H,
+                cx,
+            ))
             .into_any_element()
     }
 

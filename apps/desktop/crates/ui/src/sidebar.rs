@@ -2668,13 +2668,17 @@ impl ListPanel {
             .child(label)
     }
 
-    fn list_skeleton(&self, _cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
+    /// EXP-1259 D8: a side list's first load = skeleton rows in the
+    /// compact row geometry.
+    fn list_skeleton(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         v_flex()
-            .p_3()
-            .gap_2()
-            .child(crate::controls::skeleton().h_3p5().w_40())
-            .child(crate::controls::skeleton().h_3p5().w_48())
-            .child(crate::controls::skeleton().h_3p5().w_32())
+            .py_1()
+            .child(crate::feedback::skeleton_rows(
+                "side-list-skeleton",
+                crate::feedback::SKELETON_ROWS,
+                exponential_ui_gpui::controls::FLAT_ROW_COMPACT_H,
+                cx,
+            ))
             .into_any_element()
     }
 

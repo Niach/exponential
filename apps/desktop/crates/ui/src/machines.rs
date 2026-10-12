@@ -1274,7 +1274,6 @@ impl Render for MachinesSection {
             self.derived = Self::derive(cx);
         }
 
-        let muted = cx.theme().muted_foreground;
         let derived = self.derived.clone();
         let (mine, team) = match derived.as_ref() {
             Some(derived) => (derived.mine.as_slice(), derived.team.as_slice()),
@@ -1320,15 +1319,14 @@ impl Render for MachinesSection {
                 Some(add_server),
                 cx,
             ))
+            // EXP-1259 D8: the first load is skeleton rows.
             .when(derived.is_none(), |this| {
-                this.child(
-                    div()
-                        .px_1()
-                        .py_2()
-                        .text_xs()
-                        .text_color(muted)
-                        .child("Loading devices…"),
-                )
+                this.child(crate::feedback::skeleton_rows(
+                    "devices-skeleton",
+                    crate::feedback::SKELETON_ROWS,
+                    crate::settings::SETTINGS_ROW_H,
+                    cx,
+                ))
             })
             .when(derived.is_some() && mine.is_empty(), |this| {
                 this.child(crate::controls::empty_state_list(

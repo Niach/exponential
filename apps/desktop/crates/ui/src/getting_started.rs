@@ -49,7 +49,7 @@ const VISIBLE_GRACE: Duration = Duration::from_secs(40);
 
 /// The device-setup block's words (EXP-1169) that started life on the old
 /// checklist: the desktop and server cards of [`crate::device_setup`] still
-/// read them, byte-identical with web `GETTING_STARTED_COPY`.
+/// read them, byte-identical with web `DEVICE_CARD_COPY`.
 pub(crate) mod copy {
     pub const DESKTOP_TITLE: &str = "Get the desktop app";
     pub const DESKTOP_DESCRIPTION: &str = "Runs agents on your machine and registers it as one of your devices.";

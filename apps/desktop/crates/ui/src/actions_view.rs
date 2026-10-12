@@ -54,6 +54,10 @@ use crate::navigation::{
 use crate::native_dialog::{self, AlertSpec};
 use crate::queries;
 
+/// An action row's height (`py_2p5` around a title and a two-line
+/// description): the first load's skeleton rows take it (EXP-1259 D8).
+const ACTION_ROW_H: f32 = 56.;
+
 /// The page column's width cap — the web page's `md:max-w-5xl`.
 const PAGE_COLUMN_W: f32 = 1024.;
 
@@ -484,7 +488,6 @@ impl ActionsView {
 
 impl Render for ActionsView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let muted = cx.theme().muted_foreground;
         // EXP-832: the rows were derived when the data last changed
         // (`refresh`); this only draws them. The team is read off the
         // derivation too, so a header and its rows never disagree.
@@ -520,8 +523,6 @@ impl Render for ActionsView {
                     })
                     .into_any_element()
             });
-        let header = crate::surface::glass_section_header("Actions", new_action, cx);
-
         let rows: Vec<gpui::AnyElement> = self
             .derived
             .actions
@@ -545,29 +546,34 @@ impl Render for ActionsView {
             .map(|team_id| self.render_nudge(team_id, cx));
 
         // EXP-642: each row is its OWN card — a gapped column, no fused
-        // bordered block. The rows render as soon as they hydrate; readiness
-        // only appends the loading note (the tool-window list's behavior —
-        // never blank a list that already has data).
+        // bordered block. The rows render as soon as they hydrate (never
+        // blank a list that already has data): EXP-1259 D8 — a first load
+        // with nothing yet is skeleton rows, a load behind rows spins the
+        // band.
+        let header = crate::surface::glass_section_header_loading(
+            "Actions",
+            loading && !rows.is_empty(),
+            new_action,
+            cx,
+        );
         let mut body = gpui_component::v_flex().min_w_0().gap_2();
         if !rows.is_empty() {
             body = body.child(gpui_component::v_flex().min_w_0().children(rows));
+        } else if loading {
+            body = body.child(crate::feedback::skeleton_rows(
+                "actions-skeleton",
+                crate::feedback::SKELETON_ROWS,
+                ACTION_ROW_H,
+                cx,
+            ));
         }
         // NO gap on the section (EXP-697): the header's own `pb_2` IS the
         // 8px to the list — a gap here doubles it. The rows keep their gap
         // inside `body`.
-        let mut actions_section = gpui_component::v_flex()
+        let actions_section = gpui_component::v_flex()
             .min_w_0()
             .child(header)
             .child(body.children(nudge));
-        if loading {
-            actions_section = actions_section.child(
-                div()
-                    .pt_2()
-                    .text_xs()
-                    .text_color(muted)
-                    .child("Loading actions…"),
-            );
-        }
 
         page_scaffold(
             "actions-screen-scroll",

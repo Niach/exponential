@@ -25,7 +25,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{InputEvent, InputState},
-    spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
@@ -39,13 +38,17 @@ use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
 use super::repositories::RepositoriesPane;
-use super::{error_notice, open_url, row_stroke};
+use super::{open_url, row_stroke};
 
 enum Load {
     Loading,
     Ready(GithubReposResult),
-    Failed(SharedString),
+    Failed,
 }
+
+/// The repo row's height (`py_1p5` around a `text_sm` line): the first
+/// load's skeleton rows take it.
+const REPO_ROW_H: f32 = 32.;
 
 /// Open the dialog over the Repositories pane. `pane` is refreshed after a
 /// successful add — `repositories.list` is a server read with no Electric
@@ -79,19 +82,20 @@ pub struct AddRepositoryDialogView {
     /// Monotonic guard: a stale in-flight fetch must not clobber a newer one.
     generation: u64,
     adding: bool,
-    error: Option<SharedString>,
+    /// FEED-79: a failed load toasts ONCE per failing streak (every window
+    /// activation re-lists, so a down server must not toast on each one).
+    load_failed: bool,
     /// The add failed a plan cap — the server's own message, rendered with
     /// the neutral "Upgrade on the web" pointer (§4.9).
     plan_limited: Option<SharedString>,
-    /// The add failed FORBIDDEN with the server's "reconnect GitHub" hint —
-    /// pair the error with the Reconnect GitHub hop.
-    grant_reconnect: bool,
     focused_once: bool,
     /// FEED-30: the footer's "Add by name" escape hatch — `owner/name`, looked
     /// up through `integrations.github.lookupRepo` (the connect path's own
     /// checks) and, on a hit, added exactly like a row pick.
     lookup: Entity<InputState>,
     lookup_busy: bool,
+    /// The server's reason the typed name was refused — about the INPUT, so
+    /// it stays under the field (FEED-79); offline is a toast instead.
     lookup_error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
@@ -145,16 +149,13 @@ impl AddRepositoryDialogView {
                 };
                 match outcome {
                     crate::github_connect::GithubConnectOutcome::Connected => {
-                        this.error = None;
                         // Spinner only when there's no usable list on screen
                         // (the `show_loading` convention below).
                         let show_loading = !matches!(this.load, Load::Ready(_));
                         this.fetch(true, show_loading, cx);
                     }
                     crate::github_connect::GithubConnectOutcome::Failed(code) => {
-                        this.error =
-                            Some(crate::github_connect::connect_error_message(&code).into());
-                        cx.notify();
+                        this.connect_failed(crate::github_connect::connect_error_message(&code).into(), cx);
                     }
                 }
             }),
@@ -163,15 +164,10 @@ impl AddRepositoryDialogView {
             cx.observe_global::<crate::oauth::SignInLinkOutcome>(|this, cx| {
                 match crate::github_connect::github_link_outcome(cx) {
                     Some(Ok(())) => {
-                        this.error = None;
-                        this.grant_reconnect = false;
                         let show_loading = !matches!(this.load, Load::Ready(_));
                         this.fetch(true, show_loading, cx);
                     }
-                    Some(Err(message)) => {
-                        this.error = Some(message);
-                        cx.notify();
-                    }
+                    Some(Err(message)) => this.connect_failed(message.to_string(), cx),
                     None => {}
                 }
             }),
@@ -183,9 +179,8 @@ impl AddRepositoryDialogView {
             load: Load::Loading,
             generation: 0,
             adding: false,
-            error: None,
+            load_failed: false,
             plan_limited: None,
-            grant_reconnect: false,
             focused_once: false,
             lookup,
             lookup_busy: false,
@@ -205,10 +200,24 @@ impl AddRepositoryDialogView {
     /// Connect / Reconnect GitHub: the in-app link hop; the outcome lands as a
     /// [`crate::oauth::SignInLinkOutcome`] the constructor observes.
     fn connect_github(&mut self, cx: &mut gpui::Context<Self>) {
-        self.error = None;
-        self.grant_reconnect = false;
         cx.notify();
         crate::github_connect::connect_github(cx);
+    }
+
+    /// FEED-79: a failed connect hand-back is the error toast; Retry runs
+    /// the hop again.
+    fn connect_failed(&mut self, message: String, cx: &mut gpui::Context<Self>) {
+        let dialog = cx.entity().downgrade();
+        crate::action_error::failed_action_with_retry(
+            "connect",
+            "GitHub",
+            Some(message),
+            move |_, cx| {
+                let _ = dialog.update(cx, |this, cx| this.connect_github(cx));
+            },
+            cx,
+        );
+        cx.notify();
     }
 
     /// FEED-30: `integrations.github.lookupRepo` for the typed `owner/name`;
@@ -221,8 +230,7 @@ impl AddRepositoryDialogView {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
-            self.lookup_error = Some("Not signed in.".into());
-            cx.notify();
+            crate::action_error::failed_action("look up", "the repository", Some("Not signed in.".into()), cx);
             return;
         };
         self.lookup_busy = true;
@@ -242,8 +250,23 @@ impl AddRepositoryDialogView {
                             .update(cx, |state, cx| state.set_value("", window, cx));
                         this.add(&repo, window, cx);
                     }
+                    // The server's reason is about the typed name (not
+                    // installed there, no push access): the field's own
+                    // line. Offline is a failed action (FEED-79).
+                    Err(err @ api::ApiError::Transport { .. }) => {
+                        let dialog = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "look up",
+                            "the repository",
+                            crate::action_error::action_error_description(&err),
+                            move |window, cx| {
+                                let _ = dialog.update(cx, |this, cx| this.lookup(window, cx));
+                            },
+                            cx,
+                        );
+                    }
                     Err(err) => {
-                        this.lookup_error = Some(format!("{err}").into());
+                        this.lookup_error = Some(err.user_message().into());
                     }
                 }
                 cx.notify();
@@ -358,7 +381,7 @@ impl AddRepositoryDialogView {
             .children(
                 self.lookup_error
                     .clone()
-                    .map(|message| div().text_color(cx.theme().danger).child(message)),
+                    .map(|message| crate::action_error::field_error(message, cx)),
             )
     }
 
@@ -382,7 +405,7 @@ impl AddRepositoryDialogView {
     /// spinner over it.
     fn fetch(&mut self, refresh: bool, show_loading: bool, cx: &mut gpui::Context<Self>) {
         let Some(trpc) = queries::trpc_client(cx) else {
-            self.load = Load::Failed("Not signed in.".into());
+            self.load = Load::Failed;
             cx.notify();
             return;
         };
@@ -397,7 +420,7 @@ impl AddRepositoryDialogView {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    fetch_github_repos(&trpc, &team_id, refresh).map_err(|err| err.to_string())
+                    fetch_github_repos(&trpc, &team_id, refresh).map_err(|err| err.user_message())
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
@@ -405,8 +428,27 @@ impl AddRepositoryDialogView {
                     return; // superseded by a newer fetch
                 }
                 this.load = match result {
-                    Ok(result) => Load::Ready(result),
-                    Err(message) => Load::Failed(message.into()),
+                    Ok(result) => {
+                        this.load_failed = false;
+                        Load::Ready(result)
+                    }
+                    Err(message) => {
+                        // FEED-79: the empty state + ONE toast per streak.
+                        if !this.load_failed {
+                            this.load_failed = true;
+                            let dialog = cx.entity().downgrade();
+                            crate::action_error::failed_action_with_retry(
+                                "load",
+                                "your GitHub repositories",
+                                Some(message),
+                                move |_, cx| {
+                                    let _ = dialog.update(cx, |this, cx| this.fetch(true, true, cx));
+                                },
+                                cx,
+                            );
+                        }
+                        Load::Failed
+                    }
                 };
                 cx.notify();
             });
@@ -419,15 +461,13 @@ impl AddRepositoryDialogView {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
-            self.error = Some("Not signed in.".into());
-            cx.notify();
+            crate::action_error::failed_action("add", "the repository", Some("Not signed in.".into()), cx);
             return;
         };
         self.adding = true;
-        self.error = None;
         self.plan_limited = None;
-        self.grant_reconnect = false;
         cx.notify();
+        let retry_repo = repo.clone();
 
         let team_id = self.team_id.clone();
         let pane = self.pane.clone();
@@ -463,13 +503,33 @@ impl AddRepositoryDialogView {
                     // 412/403-shaped cap, and a stale GitHub grant must not be
                     // misread as an upsell (create_board_dialog precedent).
                     // The dialog stays open on every failure (FEED-42).
+                    // FEED-79: a failed add is the error toast — a stale
+                    // grant's one action is the Reconnect GitHub hop, any
+                    // other failure's is Retry.
+                    let dialog = cx.entity().downgrade();
                     if crate::create_board_dialog::is_grant_forbidden(&err) {
-                        this.error = Some(copy::ADD_FORBIDDEN.into());
-                        this.grant_reconnect = true;
+                        let toast = crate::toast::Toast::error(crate::action_error::action_error_title(
+                            "add",
+                            "the repository",
+                        ))
+                        .description(copy::ADD_FORBIDDEN)
+                        .action(copy::RECONNECT_GITHUB, move |_, cx| {
+                            let _ = dialog.update(cx, |this, cx| this.connect_github(cx));
+                        });
+                        crate::toast::show(toast, window, cx);
                     } else if super::is_plan_limit(&err) {
                         this.plan_limited = Some(super::form_error(&err, &err.to_string()).into());
                     } else {
-                        this.error = Some(format!("{err}").into());
+                        crate::action_error::failed_action_with_retry(
+                            "add",
+                            "the repository",
+                            crate::action_error::action_error_description(&err),
+                            move |window, cx| {
+                                let repo = retry_repo.clone();
+                                let _ = dialog.update(cx, |this, cx| this.add(&repo, window, cx));
+                            },
+                            cx,
+                        );
                     }
                     cx.notify();
                 }
@@ -483,14 +543,6 @@ impl AddRepositoryDialogView {
             .text_sm()
             .text_color(cx.theme().muted_foreground)
             .child(message)
-    }
-
-    /// The inline "Reconnect GitHub" pill (a FORBIDDEN add) — the link hop.
-    fn reconnect_pill(&self, id: &'static str, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        pill(id, cx)
-            .icon(registry::UI_REFRESH)
-            .label(copy::RECONNECT_GITHUB)
-            .on_click(cx.listener(|this, _, _, cx| this.connect_github(cx)))
     }
 
     /// A missing prerequisite (web `GithubRepoPicker`, ×4): one sentence
@@ -656,27 +708,19 @@ impl Render for AddRepositoryDialogView {
         let github_glyph = || Icon::new(registry::UI_GITHUB).small().into_any_element();
 
         match &self.load {
+            // First load: the list's rows as placeholders (EXP-1259 D8).
             Load::Loading => {
-                body = body.child(state_box(
-                    Spinner::new()
-                        .icon(registry::UI_LOADING)
-                        .small()
-                        .into_any_element(),
-                    copy::PICKER_LOADING,
+                body = body.child(crate::feedback::skeleton_rows(
+                    "add-repo-skeleton",
+                    crate::feedback::SKELETON_ROWS,
+                    REPO_ROW_H,
                     cx,
                 ));
             }
-            Load::Failed(message) => {
+            Load::Failed => {
                 // A fetch that failed with no data reads like not configured
-                // (web parity), plus the inline error.
-                body = body
-                    .child(state_box(github_glyph(), copy::PICKER_NOT_CONFIGURED, cx))
-                    .child(
-                        div()
-                            .text_xs()
-                            .text_color(cx.theme().danger)
-                            .child(message.clone()),
-                    );
+                // (web parity); the failure itself was a toast (FEED-79).
+                body = body.child(state_box(github_glyph(), copy::PICKER_NOT_CONFIGURED, cx));
             }
             Load::Ready(result) if result.prerequisite() == Prerequisite::NotConfigured => {
                 body = body.child(state_box(github_glyph(), copy::PICKER_NOT_CONFIGURED, cx));
@@ -753,13 +797,6 @@ impl Render for AddRepositoryDialogView {
                     ),
             );
         }
-        if let Some(error) = &self.error {
-            body = body.child(error_notice(error.clone(), cx));
-            if self.grant_reconnect {
-                body = body.child(h_flex().child(self.reconnect_pill("add-repo-grant-reconnect", cx)));
-            }
-        }
-
         body
     }
 }

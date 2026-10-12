@@ -924,8 +924,8 @@ pub(crate) fn resume_pill(id: impl Into<gpui::ElementId>, size: PillSize, cx: &A
 /// composer on the Fix merge conflicts builtin at once, the pull request
 /// picked and the refusal flagged ([`conflict_recovery`]); the pill stays
 /// plain Merge, so a conflict resolved elsewhere is one click away. A SESSION
-/// target (a run's own chore PR, EXP-734) and every other refusal caption
-/// instead ([`merge_error_caption`]).
+/// target (a run's own chore PR, EXP-734) and every other refusal is the
+/// error toast (FEED-79, `pr_merge`).
 pub(crate) fn merge_pill(
     id: impl Into<gpui::ElementId>,
     target: &MergeTarget,
@@ -1077,32 +1077,6 @@ pub(crate) fn conflict_recovery(
             })
             .unwrap_or(false)
     })
-}
-
-/// EXP-917: the refusal caption for a merge target, for a header that has no
-/// property tray to carry it (an issue-less run's — the issue tray's
-/// `agent_row` renders the same line). A merge that fails for a reason no run
-/// can fix (offline, stale base, no GitHub App, a run's own chore PR) still
-/// gets a visible message under the pill, never only a log line. A CONFLICT
-/// the composer took ([`conflict_recovery`]) left no failure behind to
-/// caption.
-pub(crate) fn merge_error_caption(target: &MergeTarget, cx: &mut App) -> Option<AnyElement> {
-    let state = crate::pr_merge::MergeState::global(cx);
-    let error = state.read(cx).error(&target.key())?;
-    Some(
-        v_flex()
-            .w_full()
-            .px(px(WORK_GUTTER))
-            .pb_2()
-            .child(
-                div()
-                    .min_w_0()
-                    .text_xs()
-                    .text_color(cx.theme().danger)
-                    .child(error),
-            )
-            .into_any_element(),
-    )
 }
 
 // ---------------------------------------------------------------------------

@@ -185,6 +185,9 @@ pub enum FeedKind {
         /// script itself), as its settle published it. `None` until then,
         /// and for every other kind.
         script: Option<crate::frames::ScriptLog>,
+        /// EXP-1241: the settling `tool_update`'s `at` (epoch ms), when it
+        /// carried one — the comment card's time until its row syncs.
+        settled_at: Option<i64>,
     },
     UserMessage {
         text: String,
@@ -428,6 +431,20 @@ impl FeedItem {
     pub fn is_workflow_call(&self, workflow_ids: &[&str]) -> bool {
         self.call_id()
             .is_some_and(|id| workflow_ids.contains(&id))
+    }
+
+    /// EXP-1279 — whether this row is a code-mode `exec` call: a tool call of
+    /// kind `script`, or (a publisher that predates the kind) one whose name
+    /// passes [`crate::script_card::is_script_tool`]. It renders as its own
+    /// Script card, so it is never folded into a run and it ENDS the run
+    /// before it (web `isScriptCall`, ×4).
+    pub fn is_script_call(&self) -> bool {
+        match &self.kind {
+            FeedKind::Tool { name, tool_kind, .. } => {
+                *tool_kind == Some(ToolKind::Script) || crate::script_card::is_script_tool(name)
+            }
+            _ => false,
+        }
     }
 }
 
@@ -1195,6 +1212,7 @@ impl SteerFeed {
                     output: None,
                     preview: None,
                     script: None,
+                    settled_at: None,
                 });
             }
             // EXP-785/786: folded INTO the tool row with that call id — the
@@ -1208,7 +1226,7 @@ impl SteerFeed {
                 output: printed,
                 preview: settled_preview,
                 script: settled_script,
-                ..
+                at: settled_at_ms,
             } => {
                 let Some(item) = self.items.iter_mut().rev().find(|item| {
                     matches!(&item.kind, FeedKind::Tool { call_id: Some(call_id), .. } if *call_id == id)
@@ -1223,12 +1241,16 @@ impl SteerFeed {
                     output,
                     preview,
                     script,
+                    settled_at,
                     ..
                 } = &mut item.kind
                 {
                     if let Some(status) = status {
                         *settled = true;
                         *failed = status == ToolUpdateStatus::Failed;
+                        if settled_at_ms.is_some() {
+                            *settled_at = settled_at_ms;
+                        }
                     }
                     if let Some(patch) = non_blank(patch) {
                         *diff = Some(patch);
@@ -2300,8 +2322,9 @@ pub fn group_feed_row_specs_into(
         }
         // EXP-850 §3: the `Workflow` call renders as its own CARD, so it is
         // never folded into a collapsed "N tool calls" run — neither as the
-        // run's opener nor as a member of one (web `groupFeedRows`).
-        if !item.is_tool() || item.is_workflow_call(workflow_ids) {
+        // run's opener nor as a member of one (web `groupFeedRows`). EXP-1279:
+        // so does a code-mode call (its Script card).
+        if !item.is_tool() || item.is_workflow_call(workflow_ids) || item.is_script_call() {
             rows.push(FeedRowSpec::Single {
                 id: item.id,
                 item: i,
@@ -2356,6 +2379,8 @@ pub fn group_feed_row_specs_into(
             && !items[end + 1].is_edit_call(workflow_ids)
             // EXP-948: one of our own calls BREAKS the run and never joins it.
             && !items[end + 1].is_exp_tool_call(workflow_ids)
+            // EXP-1279: so does a code-mode call.
+            && !items[end + 1].is_script_call()
         {
             end += 1;
         }
@@ -2409,8 +2434,9 @@ pub fn group_subagent_row_specs_into(
         }
         // EXP-850 §3: a workflow call is its OWN card here too — it never
         // joins the lane's tool run and never a card, exactly as in the main
-        // projection (web/iOS/Android say the same).
-        if !item.is_tool() || item.is_workflow_call(workflow_ids) {
+        // projection (web/iOS/Android say the same). EXP-1279: a code-mode
+        // call is its own Script card here too.
+        if !item.is_tool() || item.is_workflow_call(workflow_ids) || item.is_script_call() {
             rows.push(FeedRowSpec::Single {
                 id: item.id,
                 item: i,
@@ -2438,6 +2464,7 @@ pub fn group_subagent_row_specs_into(
             if scoped(next) {
                 if !next.is_tool()
                     || next.is_workflow_call(workflow_ids)
+                    || next.is_script_call()
                     || next.is_edit_call(workflow_ids) != edits
                     || next.exp_tool_row(workflow_ids) != exp_row
                 {
@@ -3036,6 +3063,7 @@ mod tests {
                 output: None,
                 preview: None,
                 script: None,
+                settled_at: None,
             }
         );
     }
@@ -3108,6 +3136,34 @@ mod tests {
             } => (*settled, *failed, diff.clone()),
             other => panic!("not a tool row: {other:?}"),
         }
+    }
+
+    /// EXP-1241: the settle's `at` rides on the row (the comment card's
+    /// time until its comment syncs); a status-less update never sets it.
+    #[test]
+    fn a_settling_update_stamps_its_time() {
+        let settled_at = |feed: &SteerFeed| match &feed.items()[0].kind {
+            FeedKind::Tool { settled_at, .. } => *settled_at,
+            other => panic!("not a tool row: {other:?}"),
+        };
+        let update = |status: Option<ToolUpdateStatus>, at: Option<i64>| ActivityEvent::ToolUpdate {
+            id: "tc-1".into(),
+            status,
+            diff: None,
+            output: None,
+            at,
+            preview: None,
+            script: None,
+        };
+        let mut feed = SteerFeed::new();
+        feed.apply(tool_with_id("tc-1", ToolKind::Other));
+        feed.apply(update(None, Some(1_000)));
+        assert_eq!(settled_at(&feed), None);
+        feed.apply(update(Some(ToolUpdateStatus::Completed), Some(2_000)));
+        assert_eq!(settled_at(&feed), Some(2_000));
+        // A later settle without a time keeps the one it had.
+        feed.apply(update(Some(ToolUpdateStatus::Completed), None));
+        assert_eq!(settled_at(&feed), Some(2_000));
     }
 
     #[test]
@@ -4181,6 +4237,7 @@ mod tests {
                 output: None,
                 preview: None,
                 script: None,
+                settled_at: None,
             },
             seq: None,
         };
@@ -5172,6 +5229,64 @@ mod exp850_tests {
         assert!(matches!(rows[2], FeedRowSpec::ToolRun { ref items, .. } if items == &[3, 4]));
     }
 
+    /// EXP-1279 — a code-mode call is its own Script card: never a run's
+    /// opener nor a member, and it ENDS the run before it, in the main
+    /// projection and inside a lane (web `isScriptCall`, ×4).
+    #[test]
+    fn a_script_call_splits_a_tool_run() {
+        let call = |name: &str, id: &str, lane: Option<&str>| ActivityEvent::Tool {
+            name: name.to_string(),
+            detail: None,
+            id: Some(id.to_string()),
+            tool_kind: None,
+            subagent_id: lane.map(str::to_string),
+            at: None,
+        };
+        let mut feed = SteerFeed::new();
+        feed.apply(call("Bash", "tc-1", None));
+        feed.apply(call("Read", "tc-2", None));
+        feed.apply(call("mcp__codemode__exec", "tc-3", None));
+        feed.apply(call("mcp__codemode__exec", "tc-4", None));
+        feed.apply(call("Bash", "tc-5", None));
+        feed.apply(call("Read", "tc-6", None));
+        assert!(feed.items()[2].is_script_call());
+        assert!(!feed.items()[0].is_script_call());
+        let rows = feed.row_specs();
+        assert_eq!(rows.len(), 4);
+        assert!(matches!(rows[0], FeedRowSpec::ToolRun { ref items, .. } if items == &[0, 1]));
+        assert!(matches!(rows[1], FeedRowSpec::Single { item: 2, .. }));
+        assert!(matches!(rows[2], FeedRowSpec::Single { item: 3, .. }));
+        assert!(matches!(rows[3], FeedRowSpec::ToolRun { ref items, .. } if items == &[4, 5]));
+
+        // The contract kind alone marks one too (a renamed server).
+        let mut feed = SteerFeed::new();
+        feed.apply(call("Bash", "tc-1", None));
+        feed.apply(ActivityEvent::Tool {
+            name: "exec".to_string(),
+            detail: None,
+            id: Some("tc-2".to_string()),
+            tool_kind: Some(ToolKind::Script),
+            subagent_id: None,
+            at: None,
+        });
+        let rows = feed.row_specs();
+        assert_eq!(rows.len(), 2);
+        assert!(matches!(rows[1], FeedRowSpec::Single { item: 1, .. }));
+
+        // Inside a lane: the same split.
+        let mut feed = SteerFeed::new();
+        feed.apply(call("Bash", "tc-1", Some("lane")));
+        feed.apply(call("Read", "tc-2", Some("lane")));
+        feed.apply(call("mcp__codemode__exec", "tc-3", Some("lane")));
+        feed.apply(call("Bash", "tc-4", Some("lane")));
+        let mut rows = Vec::new();
+        group_subagent_row_specs_into(feed.items(), 0, "lane", &[], &mut rows);
+        assert_eq!(rows.len(), 3);
+        assert!(matches!(rows[0], FeedRowSpec::ToolRun { ref items, .. } if items == &[0, 1]));
+        assert!(matches!(rows[1], FeedRowSpec::Single { item: 2, .. }));
+        assert!(matches!(rows[2], FeedRowSpec::Single { item: 3, .. }));
+    }
+
     /// EXP-856: the duplicate edge is a MARKER row that survives the card
     /// collapsing and it never becomes the row's caption; EXP-1225: the
     /// workflow agent is a tab by the ordinary running/selected rule.
@@ -5288,6 +5403,7 @@ mod edit_card_fixture_tests {
                 output: None,
                 preview: None,
                 script: None,
+                settled_at: None,
             },
             "user_message" => FeedKind::UserMessage {
                 text: raw.text.clone().unwrap_or_default(),
@@ -5427,6 +5543,7 @@ mod edit_card_fixture_tests {
                 output: None,
                 preview: None,
                 script: None,
+                settled_at: None,
             },
             seq: None,
         };
@@ -5526,6 +5643,7 @@ mod exp_tool_group_fixture_tests {
                 output: None,
                 preview: None,
                 script: None,
+                settled_at: None,
             },
             "user_message" => FeedKind::UserMessage {
                 text: raw.text.clone().unwrap_or_default(),
@@ -5669,6 +5787,7 @@ mod last_tool_line_tests {
                             preview: (!raw["preview"].is_null())
                                 .then(|| serde_json::from_value(raw["preview"].clone()).unwrap()),
                             script: None,
+                            settled_at: None,
                         },
                         _ => FeedKind::Narration {
                             text: text("text").unwrap_or_default(),

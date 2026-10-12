@@ -453,9 +453,7 @@ pub(crate) fn download_image(
             )),
             Err(error) => {
                 log::warn!("attachment download failed for {url}: {error}");
-                Toast::error(format!(
-                    "Download failed: {error}"
-                ))
+                crate::action_error::failed_toast("download", "the file", Some(error.to_string()))
             }
         };
         let _ = handle.update(cx, |_, window, cx| {
@@ -1659,9 +1657,10 @@ impl MarkdownEditor {
                             // the inserted image survives without a blur.
                             this.emit_commit(window, cx);
                         }
+                        // FEED-79: a failed upload is the error toast.
                         Err(error) => {
                             log::warn!("image upload failed: {error}");
-                            this.error = Some("Image upload failed".into());
+                            crate::action_error::failed_action("upload", "the image", Some(error.to_string()), cx);
                             this.remove_image_by_url(&draft, window, cx);
                         }
                     }
@@ -1941,8 +1940,7 @@ impl MarkdownEditor {
                             this.insert_image_bytes(filename, mime, bytes, window, cx);
                         }
                         Err(error) => {
-                            this.error = Some(SharedString::from(error.to_string()));
-                            cx.notify();
+                            crate::action_error::failed_action("attach", "the image", Some(error.to_string()), cx);
                         }
                     }
                 }
@@ -2250,15 +2248,10 @@ impl Render for MarkdownEditor {
             .capture_action(cx.listener(Self::on_tab))
             .capture_action(cx.listener(Self::on_paste))
             .child(toolbar::render_toolbar(self, window, cx))
+            // An image the editor refuses (type, size) is INVALID INPUT: the
+            // line under the toolbar (FEED-79).
             .when_some(error, |el, error| {
-                el.child(
-                    div()
-                        .px_2()
-                        .py_1()
-                        .text_xs()
-                        .text_color(cx.theme().danger)
-                        .child(error),
-                )
+                el.child(crate::action_error::field_error(error, cx).px_2().py_1())
             })
             .child(
                 v_flex()

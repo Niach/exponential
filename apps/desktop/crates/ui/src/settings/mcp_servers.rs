@@ -42,7 +42,7 @@ use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 use crate::surface::{glass_pill, glass_pill_button, glass_pill_button_primary, PillMode, PillSize};
 
-use super::{error_notice, open_url, section};
+use super::{open_url, section};
 
 /// How often a Connect re-reads the list while the browser is out, and for
 /// how long before it gives up.
@@ -220,6 +220,8 @@ pub struct McpServersPane {
     /// next render to start it, `reloading` is the fetch in flight.
     reload_requested: bool,
     reloading: bool,
+    /// FEED-79: the load failure already toasted (once per failing streak).
+    load_failed: bool,
     /// EXP-1274: the built-in tools band's inline filter.
     tool_filter: Entity<InputState>,
     _subscriptions: Vec<Subscription>,
@@ -254,6 +256,7 @@ impl McpServersPane {
             value_input,
             reload_requested: false,
             reloading: false,
+            load_failed: false,
             tool_filter,
             _subscriptions: subscriptions,
         }
@@ -321,6 +324,25 @@ impl McpServersPane {
                 if this.generation != generation {
                     return;
                 }
+                // FEED-79: a failed load = the empty state + ONE toast per
+                // failing streak.
+                match &result {
+                    Err(message) if !this.load_failed => {
+                        this.load_failed = true;
+                        let pane = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "load",
+                            "the MCP servers",
+                            Some(message.clone()),
+                            move |_, cx| {
+                                let _ = pane.update(cx, |this, cx| this.refetch(cx));
+                            },
+                            cx,
+                        );
+                    }
+                    Err(_) => {}
+                    Ok(_) => this.load_failed = false,
+                }
                 this.load = Load::Ready(result);
                 this.reloading = false;
                 cx.notify();
@@ -375,9 +397,11 @@ impl McpServersPane {
             _ => None,
         };
         let Some(page) = page else {
-            let note = Toast::error(format!(
-                "Could not connect to {name}: open Settings → MCP servers on the web and connect it there."
-            ));
+            let note = crate::action_error::failed_toast(
+                "connect to",
+                &name,
+                Some("Open Settings → MCP servers on the web and connect it there.".into()),
+            );
             crate::toast::show(note, window, cx);
             return;
         };
@@ -444,9 +468,11 @@ impl McpServersPane {
                         if this.connect_generation == generation {
                             this.connecting = None;
                         }
-                        let note = Toast::error(format!(
-                            "{name} is still not connected. Finish the sign-in in your browser, or Connect again."
-                        ));
+                        let note = crate::action_error::failed_toast(
+                            "connect to",
+                            &name,
+                            Some("Finish the sign-in in your browser, or Connect again.".into()),
+                        );
                         let _ = handle.update(cx, |_, window, cx| crate::toast::show(note, window, cx));
                         cx.notify();
                     });
@@ -535,10 +561,11 @@ impl McpServersPane {
                                 "Key saved for {server}"
                             ))
                         }
-                        Err(err) => Toast::error(format!(
-                            "Could not save the key for {server}: {}",
-                            err.user_message()
-                        )),
+                        Err(err) => crate::action_error::failed_toast(
+                            "save",
+                            "the key",
+                            crate::action_error::action_error_description(&err),
+                        ),
                     };
                     let _ = handle.update(cx, |_, window, cx| crate::toast::show(note, window, cx));
                     cx.notify();
@@ -637,10 +664,11 @@ impl McpServersPane {
                                 "Disconnected from {name}"
                             ))
                         }
-                        Err(err) => Toast::error(format!(
-                            "Could not disconnect: {}",
-                            err.user_message()
-                        )),
+                        Err(err) => crate::action_error::failed_toast(
+                            "disconnect from",
+                            &name,
+                            crate::action_error::action_error_description(&err),
+                        ),
                     };
                     let _ = handle.update(cx, |_, window, cx| crate::toast::show(note, window, cx));
                     cx.notify();
@@ -727,7 +755,6 @@ impl McpServersPane {
                 cx.notify();
             });
             let server_id = server_id.clone();
-            let name = name.clone();
             cx.spawn(async move |cx| {
                 let result = cx
                     .background_executor()
@@ -738,10 +765,11 @@ impl McpServersPane {
                     match result {
                         Ok(()) => this.refetch(cx),
                         Err(err) => {
-                            let note = Toast::error(format!(
-                                "Could not remove {name}: {}",
-                                err.user_message()
-                            ));
+                            let note = crate::action_error::failed_toast(
+                                "remove",
+                                "the server",
+                                crate::action_error::action_error_description(&err),
+                            );
                             let _ = handle.update(cx, |_, window, cx| {
                                 crate::toast::show(note, window, cx);
                             });
@@ -1175,18 +1203,17 @@ impl Render for McpServersPane {
 
         match &self.load {
             Load::Idle | Load::Loading => {
-                body = body.child(
-                    v_flex()
-                        .gap_2()
-                        .child(crate::controls::skeleton().h_4().w_full())
-                        .child(crate::controls::skeleton().h_4().w_full())
-                        .child(crate::controls::skeleton().h_4().w_64()),
-                );
+                body = body.child(super::settings_skeleton("mcp-servers-skeleton", cx));
             }
-            Load::Ready(Err(message)) => {
-                body = body.child(error_notice(SharedString::from(message.clone()), cx));
+            // A failed load reads as the empty list; the failure was a toast.
+            Load::Ready(Err(_)) => {
+                body = body.child(crate::controls::empty_state_list(
+                    Icon::new(registry::SETTINGS_MCP),
+                    crate::empty_state_copy::MCP_SERVERS,
+                    cx,
+                ));
             }
-            Load::Ready(Ok(servers)) if servers.is_empty() => {
+            Load::Ready(Ok(rows)) if rows.is_empty() => {
                 body = body.child(crate::controls::empty_state_list(
                     Icon::new(registry::SETTINGS_MCP),
                     crate::empty_state_copy::MCP_SERVERS,

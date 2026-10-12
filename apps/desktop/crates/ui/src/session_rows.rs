@@ -487,6 +487,7 @@ mod tests {
                 output: None,
                 preview: None,
                 script: None,
+                settled_at: None,
             },
         )
     }

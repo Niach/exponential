@@ -915,7 +915,12 @@ impl SurfaceView {
     /// one closes.
     pub(crate) fn layers_changed(&mut self, layers: &[Layer], now: Instant, window: &mut Window, cx: &mut Context<Self>) {
         let reduced = self.surface.settings().reduced_motion;
-        let enter_ms = self.surface.theme().and_then(|t| t.tokens.motion.get("fast").copied()).unwrap_or(120.0) as f32;
+        // EXP-1243: enters take `motion.standard` (exits the faster `fast`).
+        let enter_ms = self
+            .surface
+            .theme()
+            .and_then(|t| t.tokens.motion.get("standard").copied())
+            .unwrap_or(super::motion::ENTER_FALLBACK_MS) as f32;
         for l in layers {
             if !self.layers.iter().any(|o| o.owner == l.owner && o.layer == l.layer) && !reduced {
                 self.motion.layer_opened(&l.owner, enter_ms, now);

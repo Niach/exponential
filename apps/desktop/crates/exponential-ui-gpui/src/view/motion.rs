@@ -1,9 +1,13 @@
 //! Motion: a node whose resolved style carries a `transition` animates its
 //! colours, opacity, radii and transform (and a leaf its size) from the
 //! style it SHOWED to the new one, eased by the transition's cubic bezier;
-//! a newly opened overlay fades and rises in. Reduced motion: the core
-//! resolves every transition to 0 ms and the view starts no enter
-//! animation, so nothing here runs.
+//! a newly opened overlay fades and rises in over the theme's
+//! `motion.standard` (decelerate), a closed one fades out — opacity only —
+//! over the faster `motion.fast` (accelerate), the EXP-1243 rules
+//! (`tokens.json` `motion.rules`). gpui has no element scale, so an overlay
+//! never scales: the short rise stands in for the web's `scale 0.96 → 1`.
+//! Reduced motion: the core resolves every transition to 0 ms and the view
+//! starts no enter or exit animation, so nothing here runs.
 
 use std::collections::HashMap;
 use std::time::Instant;
@@ -27,8 +31,18 @@ struct FrameAnim {
     easing: [f32; 4],
 }
 
-/// The enter animation of an overlay layer (fade + a short rise).
+/// The enter animation of an overlay layer (fade + a short rise): the
+/// `decelerate` curve.
 pub(crate) const ENTER_EASING: [f32; 4] = [0.0, 0.0, 0.2, 1.0];
+
+/// A closed layer's fade: the `accelerate` curve (exits are faster and
+/// opacity only).
+pub(crate) const EXIT_EASING: [f32; 4] = [0.3, 0.0, 1.0, 1.0];
+
+/// The theme's `motion.standard` (ms) when a theme names none.
+pub(crate) const ENTER_FALLBACK_MS: f64 = 180.0;
+/// The theme's `motion.fast` (ms) when a theme names none.
+pub(crate) const EXIT_FALLBACK_MS: f64 = 120.0;
 
 #[derive(Default)]
 pub(crate) struct Motion {

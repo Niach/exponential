@@ -3066,7 +3066,6 @@ impl SteerSessionView {
                 selected,
                 filter: Some(self.diff_filter.clone()),
                 folded_dirs: self.folded_dirs.clone(),
-                caption: None,
                 diff: self.changes_diff.clone(),
                 pane_width: self.diff_pane_width.clone(),
                 on_pick: std::rc::Rc::new(move |this: &mut Self, index, cx| {
@@ -3591,8 +3590,7 @@ impl SteerSessionView {
         // is what retires the old "no issue = no attachment" gate.
         let session_id = self.session_id.clone();
         let Some(transport) = crate::queries::attachment_transport(cx) else {
-            self.notice = Some(SharedString::from("Couldn't upload attachment"));
-            cx.notify();
+            crate::action_error::failed_action("upload", "the attachment", None, cx);
             return;
         };
         // Sequential + idempotent per image: a mid-batch failure keeps the
@@ -3626,7 +3624,18 @@ impl SteerSessionView {
                         // Keep what landed so a retry uploads only the rest.
                         this.pending_images.note_uploaded(&resolved);
                         log::warn!("[ui] steer composer upload failed: {error}");
-                        this.notice = Some(SharedString::from("Couldn't upload attachment"));
+                        // FEED-79: the error toast; Retry sends again (only
+                        // the rest uploads).
+                        let viewer = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "upload",
+                            "the attachment",
+                            None,
+                            move |window, cx| {
+                                let _ = viewer.update(cx, |this, cx| this.send(window, cx));
+                            },
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
@@ -5502,7 +5511,7 @@ impl SteerSessionView {
     /// call — and for a comment call still running or failed, which keeps
     /// its ordinary row.
     fn render_comment_call(&self, item: &FeedItem, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let FeedKind::Tool { name, settled, failed, preview, .. } = &item.kind else {
+        let FeedKind::Tool { name, settled, failed, preview, settled_at, .. } = &item.kind else {
             return None;
         };
         if !*settled || *failed || steer::exp_tool_row(name) != Some(COMMENTS_CREATE_ROW) {
@@ -5533,7 +5542,15 @@ impl SteerSessionView {
         let now = chrono::Utc::now().timestamp();
         let meta = match comment.as_ref() {
             Some(comment) => crate::comments::thread_comment_meta(comment, now),
-            None => "via MCP".to_string(),
+            // The settle's own time until the row syncs (the synced meta's
+            // "<time> · via MCP" order).
+            None => match settled_at {
+                Some(ms) => {
+                    let ago = crate::comments::relative_time_epoch(ms.div_euclid(1000), now);
+                    format!("{ago} · via MCP")
+                }
+                None => "via MCP".to_string(),
+            },
         };
         let body = comment
             .as_ref()

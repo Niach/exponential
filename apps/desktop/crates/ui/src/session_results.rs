@@ -690,7 +690,6 @@ pub(crate) fn turn_row_caption(
 pub(crate) enum PrBodyContent<'a> {
     Loading,
     Ready(&'a str),
-    Error(&'a str),
 }
 
 /// EXP-1154/EXP-1251 — the Guide's lead for an issue with an OPEN pull
@@ -710,12 +709,13 @@ pub(crate) fn pr_body_block(
         .unwrap_or(PR_BODY_FALLBACK_LABEL)
         .to_string();
     let content: AnyElement = match body {
-        PrBodyContent::Loading => div().text_sm().text_color(muted).child("Loading…").into_any_element(),
-        PrBodyContent::Error(message) => div()
-            .text_sm()
-            .text_color(cx.theme().danger)
-            .child(SharedString::from(message.to_string()))
-            .into_any_element(),
+        // EXP-1259 D8: the body's lines as placeholders.
+        PrBodyContent::Loading => crate::feedback::skeleton_rows(
+            "session-results-pr-body-skeleton",
+            crate::feedback::SKELETON_ROWS,
+            28.,
+            cx,
+        ),
         PrBodyContent::Ready(text) if text.trim().is_empty() => div()
             .text_sm()
             .text_color(muted)

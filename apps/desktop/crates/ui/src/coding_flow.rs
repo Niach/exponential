@@ -1035,7 +1035,7 @@ pub fn start_codex_fetch(hub: &Entity<CodingHub>, data_dir: PathBuf, cx: &mut Ap
         };
         let _ = cx.update(|cx| {
             if let Err(message) = result {
-                crate::toast::show_in_active_window(crate::toast::Toast::error(message), cx);
+                crate::action_error::failed_action("download", "Codex", Some(message), cx);
             }
             CodingHub::refresh_doctor(&hub, cx);
         });
@@ -1884,9 +1884,8 @@ pub struct StartCodingControl {
     picker_open: bool,
     /// Its search field (created on first open — it needs a window).
     repo_query: Option<Entity<InputState>>,
-    /// `boards.setRepository` in flight / its refusal.
+    /// `boards.setRepository` in flight (a refusal is a toast, FEED-79).
     linking: bool,
-    link_error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -1946,7 +1945,6 @@ impl StartCodingControl {
             picker_open: false,
             repo_query: None,
             linking: false,
-            link_error: None,
             _subscriptions: subscriptions,
         }
     }
@@ -1968,7 +1966,6 @@ impl StartCodingControl {
         self.issue_id = issue_id;
         self.probe = RepoProbe::Idle;
         self.picker_open = false;
-        self.link_error = None;
         cx.notify();
     }
 
@@ -2135,6 +2132,20 @@ impl StartCodingControl {
                 if this.github_generation != generation {
                     return;
                 }
+                // FEED-79: the picker's list failed — its empty state + the
+                // toast (only while the popover asks for it).
+                if facts.repos.is_none() && this.readiness_open {
+                    let control = cx.entity().downgrade();
+                    crate::action_error::failed_action_with_retry(
+                        "load",
+                        "the repositories",
+                        None,
+                        move |_, cx| {
+                            let _ = control.update(cx, |this, cx| this.refresh_github(cx));
+                        },
+                        cx,
+                    );
+                }
                 this.github = crate::coding_readiness::GithubProbe::Ready { team_id, facts };
                 cx.notify();
             });
@@ -2165,8 +2176,7 @@ impl StartCodingControl {
             }
         } else {
             self.picker_open = false;
-            self.link_error = None;
-        }
+            }
         cx.notify();
     }
 
@@ -2188,7 +2198,6 @@ impl StartCodingControl {
         query.update(cx, |input, cx| input.set_value("", window, cx));
         query.read(cx).focus_handle(cx).focus(window, cx);
         self.picker_open = true;
-        self.link_error = None;
         cx.notify();
     }
 
@@ -2203,8 +2212,8 @@ impl StartCodingControl {
             return;
         };
         self.linking = true;
-        self.link_error = None;
         cx.notify();
+        let retry_repo = repository_id.clone();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -2223,7 +2232,17 @@ impl StartCodingControl {
                     Ok(_) => this.picker_open = false,
                     Err(err) => {
                         log::warn!("[ui] readiness: boards.setRepository failed: {err}");
-                        this.link_error = Some(err.user_message().into());
+                        let control = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "change",
+                            "the board's repository",
+                            crate::action_error::action_error_description(&err),
+                            move |_, cx| {
+                                let repository_id = retry_repo.clone();
+                                let _ = control.update(cx, |this, cx| this.link_repository(repository_id, cx));
+                            },
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
@@ -2256,7 +2275,6 @@ impl StartCodingControl {
             subject,
             picker_open: this.picker_open,
             linking: this.linking,
-            link_error: this.link_error.clone(),
             github,
             repos,
             query: this.repo_query.clone(),

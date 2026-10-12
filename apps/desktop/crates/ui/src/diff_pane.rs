@@ -138,8 +138,6 @@ pub(crate) struct DiffPaneSpec<V: Render> {
     /// default — a tree that opens closed is a list of folders, not a
     /// review — so this set is what is shut, keyed by the node's path.
     pub(crate) folded_dirs: HashSet<String>,
-    /// A failure line over the diff (the issue's merge/close refusal).
-    pub(crate) caption: Option<SharedString>,
     pub(crate) diff: Entity<crate::diff::DiffView>,
     /// The host's probe of the pane's own painted width (0 before the first
     /// paint). The pane writes it and reads it back for [`fits_tree`]: the
@@ -460,7 +458,6 @@ pub(crate) fn render<V: Render>(
         selected,
         filter,
         folded_dirs,
-        caption,
         diff,
         pane_width,
         on_pick,
@@ -502,17 +499,6 @@ pub(crate) fn render<V: Render>(
         .h_full()
         .min_w_0()
         .overflow_hidden()
-        .children(caption.map(|message| {
-            div()
-                .w_full()
-                .flex_shrink_0()
-                .px(px(crate::diff::LIST_PAD))
-                .pb_1()
-                .text_xs()
-                .truncate()
-                .text_color(cx.theme().danger)
-                .child(message)
-        }))
         .child(div().flex_1().min_h_0().w_full().min_w_0().child(diff));
     let host = cx.entity_id();
     v_flex()

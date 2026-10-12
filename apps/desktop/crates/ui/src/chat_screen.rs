@@ -560,7 +560,6 @@ pub(crate) struct ChatScreenView {
     sending: bool,
     /// The launch is preparing / the remote start is in flight.
     launching: bool,
-    error: Option<SharedString>,
     /// EXP-1255: the New run tab hosting this composer (`None` = the Agent
     /// page or a dialog); its run lands IN that tab.
     new_run_id: Option<String>,
@@ -709,7 +708,6 @@ impl ChatScreenView {
             notice: None,
             sending: false,
             launching: false,
-            error: None,
             new_run_id: None,
             greeting: None,
             start_pending: crate::feedback::Pending::default(),
@@ -842,6 +840,22 @@ impl ChatScreenView {
         crate::toast::show(toast, window, cx);
     }
 
+    /// FEED-79: a start that failed (refused, unreachable, nothing to run
+    /// on) is the error toast; Retry sends the kept draft again.
+    fn start_failed(&mut self, message: SharedString, cx: &mut gpui::Context<Self>) {
+        let composer = cx.entity().downgrade();
+        crate::action_error::failed_action_with_retry(
+            "start",
+            "the run",
+            Some(message.to_string()),
+            move |window, cx| {
+                let _ = composer.update(cx, |this, cx| this.send(window, cx));
+            },
+            cx,
+        );
+        cx.notify();
+    }
+
     /// The start `generation` settled (landed, failed or timed out): the
     /// send and the card return to rest. A later start's state survives.
     fn end_starting(&mut self, generation: u64, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -894,7 +908,6 @@ impl ChatScreenView {
         self.pending_icon = None;
         self.pending_board = None;
         self.pending_conflict = false;
-        self.error = None;
         self.mention_team = team_id.clone();
         self.mention.update(cx, |mention, _| {
             mention.set_source(team_id.clone().map(crate::markdown::store_completion_source));
@@ -1795,8 +1808,7 @@ impl ChatScreenView {
             return;
         };
         let Some(transport) = queries::attachment_transport(cx) else {
-            self.notice = Some("Couldn't upload attachment".into());
-            cx.notify();
+            crate::action_error::failed_action("upload", "the attachment", None, cx);
             return;
         };
         let jobs = self.images.jobs();
@@ -1833,7 +1845,18 @@ impl ChatScreenView {
                         // Keep what landed so a retry uploads only the rest.
                         this.images.note_uploaded(&resolved);
                         log::warn!("[ui] chat composer upload failed: {error}");
-                        this.notice = Some("Couldn't upload attachment".into());
+                        // FEED-79: a failed upload is the error toast; Retry
+                        // sends again (only the rest uploads).
+                        let composer = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "upload",
+                            "the attachment",
+                            None,
+                            move |window, cx| {
+                                let _ = composer.update(cx, |this, cx| this.send(window, cx));
+                            },
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
@@ -1948,8 +1971,7 @@ impl ChatScreenView {
                 // this window, one tick later).
                 let target = navigation::deferred_open_window(window, cx);
                 if crate::session_bar::host_for_window_id(target.window_id(), cx).is_none() {
-                    self.error = Some("Open a team window to start a chat.".into());
-                    cx.notify();
+                    self.start_failed("Open a team window to start a chat.".into(), cx);
                     return false;
                 }
                 let repo = self
@@ -2016,8 +2038,7 @@ impl ChatScreenView {
                     if let Some(record) = record {
                         let same_agent = options.agent == record.agent;
                         let Some(deps) = coding_flow::build_resume_deps(&record, cx) else {
-                            self.error = Some("Sign in and wait for sync before starting a run.".into());
-                            cx.notify();
+                            self.start_failed("Sign in and wait for sync before starting a run.".into(), cx);
                             return false;
                         };
                         let request = ResumeRunRequest {
@@ -2061,8 +2082,7 @@ impl ChatScreenView {
                         prompt,
                         cx,
                     ) else {
-                        self.error = Some("Sign in and wait for sync before starting a run.".into());
-                        cx.notify();
+                        self.start_failed("Sign in and wait for sync before starting a run.".into(), cx);
                         return false;
                     };
                     self.run_prepare(
@@ -2087,8 +2107,7 @@ impl ChatScreenView {
                 };
                 let batch_id = request.batch_id.clone();
                 let Some(deps) = coding_flow::build_batch_deps(cx) else {
-                    self.error = Some("Sign in and wait for sync before starting a run.".into());
-                    cx.notify();
+                    self.start_failed("Sign in and wait for sync before starting a run.".into(), cx);
                     return false;
                 };
                 self.run_prepare(
@@ -2221,14 +2240,12 @@ impl ChatScreenView {
     ) {
         let Some(trpc) = queries::trpc_client(cx) else {
             self.end_starting(generation, window, cx);
-            self.error = Some("Sign in and wait for sync before starting a run.".into());
-            cx.notify();
+            self.start_failed("Sign in and wait for sync before starting a run.".into(), cx);
             return;
         };
         let device_id = input.device_id.clone();
         let subject = coding_flow::RemoteRunSubject::of(&input);
         self.launching = true;
-        self.error = None;
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let result = cx
@@ -2271,7 +2288,7 @@ impl ChatScreenView {
                     }
                     Err(err) => {
                         this.end_starting(generation, window, cx);
-                        this.error = Some(err.user_message().into());
+                        this.start_failed(err.user_message().into(), cx);
                     }
                 }
                 cx.notify();
@@ -2293,7 +2310,6 @@ impl ChatScreenView {
         cx: &mut gpui::Context<Self>,
     ) {
         self.launching = true;
-        self.error = None;
         cx.notify();
         cx.spawn_in(window, async move |this, cx| {
             let prepared = cx
@@ -2309,11 +2325,11 @@ impl ChatScreenView {
                             .map_err(SharedString::from)
                     }
                     Ok(Prepared::Disabled(reason)) => Err(reason.message().into()),
-                    Err(err) => Err(format!("Could not start the coding session: {err}").into()),
+                    Err(err) => Err(err.to_string().into()),
                 };
                 match outcome {
                     Ok(()) => this.after_started(window, cx),
-                    Err(message) => this.error = Some(message),
+                    Err(message) => this.start_failed(message, cx),
                 }
                 cx.notify();
             });
@@ -2331,7 +2347,6 @@ impl ChatScreenView {
             .update(cx, |input, cx| input.set_value("", window, cx));
         self.images.clear();
         self.notice = None;
-        self.error = None;
         self.blocked_confirmed = false;
         self.blocked = None;
         self.clear_subject(cx);
@@ -3092,7 +3107,6 @@ impl ChatScreenView {
             None => self.render_options_row(cx),
         };
         let muted = cx.theme().muted_foreground;
-        let danger = cx.theme().danger;
         let mut notes = v_flex().w_full().min_w_0().gap_0p5().px_1().text_xs();
         if let Some(notice) = &self.notice {
             notes = notes.child(div().text_color(muted).child(notice.clone()));
@@ -3120,9 +3134,6 @@ impl ChatScreenView {
         }
         if let Some(note) = no_session_note {
             notes = notes.child(div().text_color(muted).child(note));
-        }
-        if let Some(error) = &self.error {
-            notes = notes.child(div().text_color(danger).child(error.clone()));
         }
         v_flex()
             .w_full()
@@ -3876,6 +3887,8 @@ fn implement_issue_source(view: &gpui::WeakEntity<ChatScreenView>) -> search_lis
                 "No matches. Only open issues are shown.".into()
             }
         }),
+        // Open issues are synced rows: never a first load to wait out.
+        loading: Rc::new(|_: &App| false),
         footer: Some(Rc::new(
             move |query: &str, close: search_list::MenuClose, _window: &mut Window, cx: &mut App| {
                 let view = footer_view.upgrade()?;
@@ -3924,7 +3937,7 @@ fn implement_issue_source(view: &gpui::WeakEntity<ChatScreenView>) -> search_lis
 fn run_action_source(view: &gpui::WeakEntity<ChatScreenView>) -> search_list::MenuListSource {
     let rows_view = view.clone();
     let pick_view = view.clone();
-    let empty_view = view.clone();
+    let loading_view = view.clone();
     search_list::MenuListSource {
         placeholder: RUN_ACTION_PLACEHOLDER,
         rows: Rc::new(move |query: &str, _window: &mut Window, cx: &mut App| {
@@ -3957,15 +3970,16 @@ fn run_action_source(view: &gpui::WeakEntity<ChatScreenView>) -> search_list::Me
             }
             true
         }),
-        empty: Rc::new(move |query: &str, cx: &App| {
-            let ready = empty_view.upgrade().is_some_and(|view| view.read(cx).actions_ready);
-            if !ready {
-                "Loading actions…".into()
-            } else if query.trim().is_empty() {
+        empty: Rc::new(move |query: &str, _cx: &App| {
+            if query.trim().is_empty() {
                 "No actions yet.".into()
             } else {
                 "No actions match".into()
             }
+        }),
+        // First load: skeleton rows (EXP-1259 D8).
+        loading: Rc::new(move |cx: &App| {
+            loading_view.upgrade().is_some_and(|view| !view.read(cx).actions_ready)
         }),
         footer: None,
     }

@@ -1,7 +1,9 @@
 //! EXP-1275 — `feedback-states` (2 General components): the SIX kinds of
 //! `fixtures/feedback-states.json`, each the REAL primitive of
 //! [`crate::feedback`] (or the toast layer's own face for errors), at rest
-//! where a live one would need a window root.
+//! where a live one would need a window root. EXP-1243: closed by the
+//! MOTION rules (`theme::motion::rules`, the web `tokens-motion` spec) —
+//! the IDE has no tokens entry of its own to carry them.
 
 use std::time::{Duration, Instant};
 
@@ -108,15 +110,24 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
     let errors = v_flex()
         .gap_3()
         .child(toast::card(&failed, cx).w(px(toast::constants::WIDTH)))
-        .child(
-            div()
-                .text_size(px(13.))
-                .text_color(cx.theme().danger)
-                .child(crate::settings::team_general::prompt_too_long(
-                    domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES + 1,
-                )),
-        )
+        .child(crate::action_error::field_error(
+            crate::settings::team_general::prompt_too_long(
+                domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES + 1,
+            ),
+            cx,
+        ))
         .child(toast::card(&remote, cx).w(px(toast::constants::WIDTH)));
+    // EXP-1243: the motion rules, one line each (the web spec's table).
+    let muted = cx.theme().muted_foreground;
+    let motion = v_flex().gap_1().w(px(560.)).children(theme::motion::rules().into_iter().map(
+        |(label, value)| {
+            h_flex()
+                .gap_4()
+                .text_xs()
+                .child(div().w(px(200.)).flex_shrink_0().child(label))
+                .child(div().text_color(muted).child(value))
+        },
+    ));
     v_flex()
         .gap_6()
         .child(labelled("Inline", inline, cx))
@@ -125,4 +136,5 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .child(labelled("The mark", mark, cx))
         .child(labelled("Blocking", blocking, cx))
         .child(labelled("Errors", errors, cx))
+        .child(labelled("Motion", motion, cx))
 }

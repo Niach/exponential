@@ -445,7 +445,7 @@ Update Exponential on this machine."
 team settings → Repositories.";
                         log::warn!("actions: fix-conflicts start refused — {message}");
                         let _ = window.update(cx, |_, window, cx| {
-                            crate::toast::error(message, window, cx);
+                            crate::toast::show(run_failed("start", message.to_string()), window, cx);
                         });
                         report.fail(message, cx);
                         fire_settled(&mut on_settled, false, cx);
@@ -540,7 +540,7 @@ fn take_over_branch(branch: &str, window: gpui::AnyWindowHandle, cx: &mut App) -
             let message = FIX_RUN_BUSY_REASON;
             log::warn!("actions: fix-conflicts start refused — {message}");
             let _ = window.update(cx, |_, window, cx| {
-                crate::toast::error(message, window, cx);
+                crate::toast::show(run_failed("start", message.to_string()), window, cx);
             });
             false
         }
@@ -697,18 +697,18 @@ history setting.";
                 {
                     log::warn!("actions: resume spawn failed: {message}");
                     report.fail(message.clone(), cx);
-                    crate::toast::error(message, window, cx);
+                    crate::toast::show(run_failed("resume", message.to_string()), window, cx);
                 }
             }
             Ok(Prepared::Disabled(reason)) => {
                 log::warn!("actions: resume disabled — {}", reason.message());
                 report.fail(steer::disabled_launch_reason(&reason.message()), cx);
-                crate::toast::error(reason.message(), window, cx);
+                crate::toast::show(run_failed("resume", reason.message().to_string()), window, cx);
             }
             Err(err) => {
                 log::warn!("actions: resume prepare failed: {err}");
                 report.fail(err.to_string(), cx);
-                crate::toast::error(format!("Could not resume the run: {err}"), window, cx);
+                crate::toast::show(run_failed("resume", err.to_string()), window, cx);
             }
         });
     })
@@ -734,9 +734,15 @@ pub(crate) fn notify_target_error(
     if let Some(window) = target.or_else(|| crate::steer_wiring::find_team_window(cx)) {
         let message = SharedString::from(message.to_string());
         let _ = window.update(cx, |_, window, cx| {
-            crate::toast::error(message, window, cx);
+            crate::toast::show(run_failed("start", message.to_string()), window, cx);
         });
     }
+}
+
+/// FEED-79: a run that could not start (or resume) is the error toast,
+/// `Couldn't <verb> the run` + the reason.
+fn run_failed(verb: &str, reason: String) -> crate::toast::Toast {
+    crate::action_error::failed_toast(verb, "the run", Some(reason))
 }
 
 /// The launch tail: background `prepare(Action)` → foreground
@@ -785,7 +791,7 @@ fn launch_action(
                     Err(message) => {
                         log::warn!("actions: spawn failed: {message}");
                         report.fail(message.clone(), cx);
-                        crate::toast::error(message, window, cx);
+                        crate::toast::show(run_failed("start", message.to_string()), window, cx);
                         fire_settled(&mut on_settled, false, cx);
                     }
                 }
@@ -793,13 +799,13 @@ fn launch_action(
             Ok(Prepared::Disabled(reason)) => {
                 log::warn!("actions: run disabled — {}", reason.message());
                 report.fail(steer::disabled_launch_reason(&reason.message()), cx);
-                crate::toast::error(reason.message(), window, cx);
+                crate::toast::show(run_failed("start", reason.message().to_string()), window, cx);
                 fire_settled(&mut on_settled, false, cx);
             }
             Err(err) => {
                 log::warn!("actions: prepare failed: {err}");
                 report.fail(err.to_string(), cx);
-                crate::toast::error(format!("Could not start the action: {err}"), window, cx);
+                crate::toast::show(run_failed("start", err.to_string()), window, cx);
                 fire_settled(&mut on_settled, false, cx);
             }
         });

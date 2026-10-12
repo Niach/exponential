@@ -935,6 +935,9 @@ pub(crate) struct MenuListSource {
     pub(crate) pick: Rc<dyn Fn(&str, &mut Window, &mut App) -> bool>,
     /// What an empty list reads as.
     pub(crate) empty: Rc<dyn Fn(&str, &App) -> SharedString>,
+    /// EXP-1259 D8: the rows are still on their first load — the empty list
+    /// is skeleton rows in the row geometry, not a "Loading…" line.
+    pub(crate) loading: Rc<dyn Fn(&App) -> bool>,
     /// Under the rows (notes, the Implement button), handed the "close the
     /// whole menu" hook.
     pub(crate) footer:
@@ -1095,14 +1098,23 @@ impl gpui::Render for MenuSearchList {
             .footer
             .clone()
             .and_then(|footer| footer(&query, self.close_hook(), window, cx));
-        let empty = (self.source.empty)(&query, cx);
+        let empty = if (self.source.loading)(cx) {
+            crate::feedback::skeleton_rows(
+                ElementId::Name(SharedString::from(format!("{}-skeleton", self.id))),
+                crate::feedback::SKELETON_ROWS,
+                ROW_HEIGHT,
+                cx,
+            )
+        } else {
+            empty_row((self.source.empty)(&query, cx), cx).into_any_element()
+        };
         let mut list = SearchList::new(
             ElementId::Name(SharedString::from(format!("{}-rows", self.id))),
             &self.list.input,
             &self.list.scroll,
         )
         .rows(elements, count)
-        .empty(empty_row(empty, cx));
+        .empty(empty);
         if let Some(footer) = footer {
             list = list.footer(footer);
         }

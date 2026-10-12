@@ -742,12 +742,20 @@ impl SessionBar {
                 let launch = match prepared {
                     Ok(coding::PreparedAgentShell::Ready(launch)) => launch,
                     Ok(coding::PreparedAgentShell::Disabled(reason)) => {
-                        crate::toast::error(reason.message(), window, cx);
+                        crate::toast::show(
+                            crate::action_error::failed_toast("open", "the agent shell", Some(reason.message().to_string())),
+                            window,
+                            cx,
+                        );
                         return;
                     }
                     Err(err) => {
                         log::warn!("session bar: agent shell prepare failed: {err}");
-                        crate::toast::error(err.to_string(), window, cx);
+                        crate::toast::show(
+                            crate::action_error::failed_toast("open", "the agent shell", Some(err.to_string())),
+                            window,
+                            cx,
+                        );
                         return;
                     }
                 };
@@ -768,7 +776,11 @@ impl SessionBar {
                     }
                     Err(error) => {
                         log::warn!("session bar: agent shell spawn failed: {error:#}");
-                        crate::toast::error(error.to_string(), window, cx);
+                        crate::toast::show(
+                            crate::action_error::failed_toast("open", "the agent shell", Some(error.to_string())),
+                            window,
+                            cx,
+                        );
                     }
                 }
             });

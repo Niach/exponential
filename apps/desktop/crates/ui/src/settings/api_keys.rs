@@ -32,7 +32,6 @@ use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _,
 };
 
-use crate::toast::Toast;
 use api::token_store::{SecretKind, TokenStore};
 use api::users::{MintedPersonalKey, PersonalKeyMeta, PERSONAL_KEY_READ_TIMEOUT};
 
@@ -44,7 +43,7 @@ use crate::queries;
 use crate::session::AuthContext;
 
 use super::storage::format_created_date;
-use super::{error_notice, section};
+use super::{section, settings_skeleton};
 
 /// The `Device: ` name prefix `api::users::device_key_name` mints with —
 /// rows carrying it belong to a signed-in desktop/CLI, not a script.
@@ -153,7 +152,7 @@ impl ApiKeysPane {
                 .background_executor()
                 .spawn(async move {
                     let list = api::users::list_personal_api_keys(&trpc)
-                        .map_err(|err| err.to_string());
+                        .map_err(|err| err.user_message());
                     let device_key_id = store.and_then(|(store, account_id)| {
                         store.get_bounded(
                             &account_id,
@@ -170,6 +169,19 @@ impl ApiKeysPane {
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation {
                     return;
+                }
+                // FEED-79: a failed load = the empty lists + the toast.
+                if let Err(message) = &result.list {
+                    let pane = cx.entity().downgrade();
+                    crate::action_error::failed_action_with_retry(
+                        "load",
+                        "your API keys",
+                        Some(message.clone()),
+                        move |_, cx| {
+                            let _ = pane.update(cx, |this, cx| this.refetch(cx));
+                        },
+                        cx,
+                    );
                 }
                 this.load = Load::Ready(result);
                 cx.notify();
@@ -280,9 +292,11 @@ impl ApiKeysPane {
                         }
                         Err(err) => {
                             log::warn!("[ui] users.mintPersonalApiKey failed: {err}");
-                            let note = Toast::error(format!(
-                                "Could not create the key: {err}"
-                            ));
+                            let note = crate::action_error::failed_toast(
+                                "create",
+                                "the key",
+                                crate::action_error::action_error_description(&err),
+                            );
                             let _ = handle.update(cx, |_, window, cx| {
                                 crate::toast::show(note, window, cx);
                             });
@@ -406,9 +420,11 @@ impl ApiKeysPane {
                     });
                     if let Err(err) = result {
                         log::warn!("[ui] users.revokePersonalApiKey({key_id}) failed: {err}");
-                        let note = Toast::error(format!(
-                            "Could not revoke {label}: {err}"
-                        ));
+                        let note = crate::action_error::failed_toast(
+                            "revoke",
+                            &label,
+                            crate::action_error::action_error_description(&err),
+                        );
                         let _ = handle.update(cx, |_, window, cx| {
                             crate::toast::show(note, window, cx);
                         });
@@ -669,12 +685,6 @@ impl Render for ApiKeysPane {
             keys = keys.child(self.render_minted(&minted, cx));
         }
 
-        let skeleton = || {
-            v_flex()
-                .gap_2()
-                .child(crate::controls::skeleton().h_4().w_full())
-                .child(crate::controls::skeleton().h_4().w_64())
-        };
         let empty = |text: &'static str, cx: &App| {
             div()
                 .text_sm()
@@ -684,13 +694,13 @@ impl Render for ApiKeysPane {
 
         match &self.load {
             Load::Idle | Load::Loading => {
-                sessions = sessions.child(skeleton());
-                keys = keys.child(skeleton());
+                sessions = sessions.child(settings_skeleton("api-sessions-skeleton", cx));
+                keys = keys.child(settings_skeleton("api-keys-skeleton", cx));
             }
-            Load::Ready(Loaded {
-                list: Err(message), ..
-            }) => {
-                sessions = sessions.child(error_notice(SharedString::from(message.clone()), cx));
+            // A failed load reads as the empty lists; the failure was a toast.
+            Load::Ready(Loaded { list: Err(_), .. }) => {
+                sessions = sessions.child(empty("No signed-in devices.", cx));
+                keys = keys.child(empty("No API keys.", cx));
             }
             Load::Ready(Loaded {
                 list: Ok(rows),

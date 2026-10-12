@@ -15,7 +15,7 @@
 //! `widget_configs` is server-only (never an Electric shape), so this is a
 //! fetch-on-open tRPC read; `widgets.list` is owner-gated, and the nav only
 //! shows the section to owners, so a FORBIDDEN here means the role changed
-//! under us and the error notice says so.
+//! under us and the failed-load toast says so (FEED-79).
 
 use gpui::{
     div, App, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
@@ -28,7 +28,7 @@ use crate::icons::registry;
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
-use super::{error_notice, open_url, section};
+use super::{open_url, section, settings_skeleton};
 
 enum Load {
     Idle,
@@ -122,6 +122,19 @@ impl WidgetPane {
                 if this.generation != generation {
                     return;
                 }
+                // FEED-79: a failed load = the empty state + the toast.
+                if let Err(message) = &result {
+                    let pane = cx.entity().downgrade();
+                    crate::action_error::failed_action_with_retry(
+                        "load",
+                        "the widgets",
+                        Some(message.clone()),
+                        move |_, cx| {
+                            let _ = pane.update(cx, |this, cx| this.mark_stale(cx));
+                        },
+                        cx,
+                    );
+                }
                 this.load = Load::Ready(result);
                 this.reloading = false;
                 cx.notify();
@@ -214,18 +227,17 @@ impl Render for WidgetPane {
 
         match &self.load {
             Load::Idle | Load::Loading => {
-                body = body.child(
-                    v_flex()
-                        .gap_2()
-                        .child(crate::controls::skeleton().h_4().w_full())
-                        .child(crate::controls::skeleton().h_4().w_full())
-                        .child(crate::controls::skeleton().h_4().w_64()),
-                );
+                body = body.child(settings_skeleton("widgets-skeleton", cx));
             }
-            Load::Ready(Err(message)) => {
-                body = body.child(error_notice(SharedString::from(message.clone()), cx));
+            // A failed load reads as the empty list; the failure was a toast.
+            Load::Ready(Err(_)) => {
+                body = body.child(crate::controls::empty_state_list(
+                    gpui_component::Icon::new(registry::SETTINGS_WIDGET),
+                    crate::empty_state_copy::WIDGETS,
+                    cx,
+                ));
             }
-            Load::Ready(Ok(widgets)) if widgets.is_empty() => {
+            Load::Ready(Ok(rows)) if rows.is_empty() => {
                 body = body.child(crate::controls::empty_state_list(
                     gpui_component::Icon::new(registry::SETTINGS_WIDGET),
                     crate::empty_state_copy::WIDGETS,

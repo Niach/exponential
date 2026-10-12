@@ -21,6 +21,7 @@
 //! stays reachable behind `EXP_DEV_BOARD=1`.
 
 mod account_switch;
+mod action_error;
 mod action_prompt_form;
 mod action_view;
 mod action_inputs;

@@ -472,7 +472,15 @@ pub(crate) fn switch_to(
 ) {
     if !local {
         let Some(device_id) = device_id.filter(|id| !id.is_empty()) else {
-            crate::toast::error("This run's machine is unknown — it cannot be resumed.", window, cx);
+            crate::toast::show(
+                crate::action_error::failed_toast(
+                    "switch",
+                    "the account",
+                    Some("This run's machine is unknown.".into()),
+                ),
+                window,
+                cx,
+            );
             return;
         };
         crate::session_screen::resume_remote_on_account(
@@ -499,7 +507,11 @@ pub(crate) fn switch_to(
         crate::steer_wiring::StartReport::none(),
         cx,
     ) {
-        crate::toast::error(REASON_BUSY, window, cx);
+        crate::toast::show(
+            crate::action_error::failed_toast("switch", "the account", Some(REASON_BUSY.into())),
+            window,
+            cx,
+        );
         return;
     }
     if let Some(agent) = agent {
