@@ -5,7 +5,6 @@ import type {
   ActionTriggerEvent,
 } from "@exp/db-schema/domain"
 import {
-  formatTriggerBlock,
   nextScheduleRun,
   parseActionTriggers,
   parseTriggerWhen,
@@ -237,31 +236,6 @@ describe(`nextScheduleRun`, () => {
   })
 })
 
-describe(`formatTriggerBlock`, () => {
-  it(`emits the machine-readable block, byte-locked ×4`, () => {
-    expect(
-      formatTriggerBlock({
-        trigger: { kind: `schedule`, interval: `daily`, minuteOfDay: 540 },
-        deviceId: `d-1`,
-      })
-    ).toBe(
-      `\n\nTrigger — after creating the action, call exponential_actions_update with its id and \`triggers\` set to exactly this array: \`[{"kind":"schedule","interval":"daily","minuteOfDay":540,"deviceId":"d-1"}]\`. A triggered run fills no inputs, so declare none as required.`
-    )
-  })
-
-  it(`appends the set pins after the device, and omits blank ones`, () => {
-    const trigger = schedule()
-    expect(
-      formatTriggerBlock({ trigger, deviceId: `dev-1`, agent: `claude`, model: `opus` })
-    ).toContain(
-      JSON.stringify([{ ...trigger, deviceId: `dev-1`, agent: `claude`, model: `opus` }])
-    )
-    expect(formatTriggerBlock({ trigger, deviceId: `dev-1`, model: `` })).toContain(
-      JSON.stringify([{ ...trigger, deviceId: `dev-1` }])
-    )
-  })
-})
-
 describe(`parseActionTriggers`, () => {
   const stored = {
     id: `t-1`,
@@ -313,13 +287,13 @@ describe(`parseActionTriggers`, () => {
 
 describe(`actionRunTitle`, () => {
   it(`says what started the run`, () => {
-    expect(actionRunTitle(`schedule`)).toBe(`Scheduled run`)
-    expect(actionRunTitle(`event`)).toBe(`Event run`)
-    expect(actionRunTitle(null)).toBe(`Manual run`)
-    expect(actionRunTitle(undefined)).toBe(`Manual run`)
+    expect(actionRunTitle(`schedule`)).toBe(`Scheduled session`)
+    expect(actionRunTitle(`event`)).toBe(`Event session`)
+    expect(actionRunTitle(null)).toBe(`Manual session`)
+    expect(actionRunTitle(undefined)).toBe(`Manual session`)
     // A child run another run started is neither a trigger's nor a person's.
-    expect(actionRunTitle(`agent`)).toBe(`Agent run`)
-    expect(actionRunTitle(`workflow`)).toBe(`Agent run`)
+    expect(actionRunTitle(`agent`)).toBe(`Agent session`)
+    expect(actionRunTitle(`workflow`)).toBe(`Agent session`)
   })
 })
 

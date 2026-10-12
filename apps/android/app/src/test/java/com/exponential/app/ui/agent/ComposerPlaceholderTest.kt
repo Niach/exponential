@@ -29,6 +29,24 @@ class ComposerPlaceholderTest {
     }
 
     @Test
+    fun `the agent home asks composer-home json's question`() {
+        // EXP-1253: the home column's placeholder; a subject still reads its own.
+        assertEquals("What do you want to build?", composerPlaceholder(null, null, home = true))
+        assertEquals(
+            "Additional instructions (optional)…",
+            composerPlaceholder(ComposerSubject.Issues(listOf("i-1")), null, home = true),
+        )
+    }
+
+    @Test
+    fun `the starting row's clock reads tenths of a second`() {
+        // EXP-1271: web `startingElapsed` — "1.4 s", never negative.
+        assertEquals("0.0 s", startingElapsed(-50))
+        assertEquals("1.4 s", startingElapsed(1_420))
+        assertEquals("30.0 s", startingElapsed(30_000))
+    }
+
+    @Test
     fun `issue chips ask for optional instructions`() {
         val issues = ComposerSubject.Issues(listOf("i-1"))
         assertEquals("Additional instructions (optional)…", composerPlaceholder(issues, null))

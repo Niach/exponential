@@ -16,7 +16,6 @@ final class ActionsViewModel {
 
     var actions: [ActionDto] = []
     var isLoading = false
-    var loadError: String?
     /// EVERY synced device, offline included (EXP-530) — a suggestion's
     /// trigger block names the runner, and an offline machine must still be
     /// nameable (its missed schedule fires once it comes back).
@@ -51,8 +50,9 @@ final class ActionsViewModel {
         if actions.isEmpty { isLoading = true }
         actionsObservationTask?.cancel()
         guard let pool = try? db.pool(forAccountId: accountId) else {
+            // FEED-79: the list loads on its own, so a failure is quiet: the
+            // empty state, never a toast.
             isLoading = false
-            loadError = "The local database is unavailable."
             return
         }
         allDevices = await DeviceQueries.devices(
@@ -74,12 +74,11 @@ final class ActionsViewModel {
                     // composer builds its own pool that still carries it.
                     self.actions = dtos
                     self.isLoading = false
-                    self.loadError = nil
                 }
             } catch {
                 guard let self, !Task.isCancelled, self.loadedTeamId == teamId else { return }
+                // Quiet (FEED-79): the empty state.
                 self.isLoading = false
-                self.loadError = error.localizedDescription
             }
         }
     }

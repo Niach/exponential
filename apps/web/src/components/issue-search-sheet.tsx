@@ -1,13 +1,7 @@
 import { useMemo } from "react"
 import { useNavigate } from "@tanstack/react-router"
 import { useLiveQuery, inArray } from "@tanstack/react-db"
-import {
-  Button,
-  useIsMobile,
-  conceptIcon,
-  BoardGlyph,
-  EmptyState,
-} from "@exp/ui"
+import { Button, conceptIcon, EmptyState } from "@exp/ui"
 import { issueCollection } from "@/lib/collections"
 import { IssuePickerHost } from "@/components/issue-picker-host"
 import {
@@ -19,18 +13,10 @@ import {
   type IssueSearchRow,
 } from "@/lib/issue-search"
 import { useTeamBoards } from "@/hooks/use-team-data"
-import {
-  IssueStatusIcon,
-} from "@/components/issue-properties/status-dropdown"
 import type { Board } from "@/db/schema"
 
 const UiBackIcon = conceptIcon(`ui-back`)
 
-// EXP-971: the result rows are ONE flat list on both shells — full width,
-// a hairline between rows, no inset card — and the row under the keyboard
-// cursor or the pointer keeps the primitive's highlight, so the phone sheet
-// and the desktop dialog read as the same list.
-const FLAT_ROWS = `**:data-[slot=command-group]:p-0 **:data-[slot=command-item]:rounded-none **:data-[slot=command-item]:border-b **:data-[slot=command-item]:border-border/30 **:data-[slot=command-item]:px-4 **:data-[slot=command-item]:py-3`
 const SearchGlyph = conceptIcon(`nav-search`)
 const NoMatchGlyph = conceptIcon(`ui-empty-search`)
 
@@ -71,8 +57,9 @@ const SEARCH_ENGINE = {
 // pointer device (the sidebar, Cmd/Ctrl+F), a full-screen page on a phone
 // with the back arrow inside the field's row (EXP-971). The engine lists
 // nothing on an empty query (the hint shows instead), and picking NAVIGATES,
-// so no row is ever the picked one. This surface keeps its own two-line row
-// (the board and the identifier under the title, EXP-922).
+// so no row is ever the picked one. SLOP-28: the rows are THE search list's
+// (status glyph, mono identifier, title), the same ones the `#` typeahead
+// and every issue picker draw; the two-line board row is gone.
 export function IssueSearchSheet({
   open,
   onOpenChange,
@@ -80,7 +67,6 @@ export function IssueSearchSheet({
   teamSlug,
 }: IssueSearchSheetProps) {
   const navigate = useNavigate()
-  const isMobile = useIsMobile()
   const boards = useTeamBoards(teamId)
   const boardIds = useMemo(() => boards.map((p: Board) => p.id), [boards])
   const boardMap = useMemo(
@@ -130,26 +116,6 @@ export function IssueSearchSheet({
       <EmptyState icon={NoMatchGlyph} title={ISSUE_SEARCH_NO_RESULTS} />
     )
 
-  const renderRow = (issue: SearchResult) => {
-    const board = boardMap.get(issue.boardId)
-    return (
-      <>
-        <IssueStatusIcon issue={issue} className="size-4 shrink-0" />
-        <div className="flex flex-col flex-1 min-w-0">
-          <span className="text-sm truncate">{issue.title}</span>
-          {board && (
-            <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <BoardGlyph board={board} className="size-3" />
-              <span className="truncate">
-                {board.name} · {issue.identifier}
-              </span>
-            </span>
-          )}
-        </div>
-      </>
-    )
-  }
-
   return (
     <IssuePickerHost
       shell="page"
@@ -172,16 +138,7 @@ export function IssueSearchSheet({
       }
       searchPlaceholder={ISSUE_SEARCH_PLACEHOLDER}
       emptyText={emptyState}
-      statusGlyphs={false}
-      renderItem={renderRow}
       onPick={handlePick}
-      // The rows wear FLAT_ROWS on both shells; the shell caps the height.
-      className={
-        isMobile
-          ? FLAT_ROWS
-          : `${FLAT_ROWS} **:data-[slot=command-input-wrapper]:h-14 **:data-[slot=command-input-wrapper]:border-border/50`
-      }
-      listClassName="max-h-none"
       backButton={(close) => (
         <Button
           type="button"

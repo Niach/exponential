@@ -486,6 +486,9 @@ mod tests {
                 diff: diff.map(str::to_string),
                 output: None,
                 preview: None,
+                script: None,
+                settled_at: None,
+                started_at: None,
             },
         )
     }
@@ -512,6 +515,7 @@ mod tests {
                 tool_calls: None,
                 title: None,
                 workflow_id: workflow.map(str::to_string),
+                at: None,
             },
         )
     }
@@ -918,17 +922,21 @@ mod tests {
             // the lead agent's phase (§7's fixture rule).
             "Workflow wire-probe · 1/2 agents done · Alpha"
         );
-        assert_eq!(
-            crate::workflow_card::agent_meta(&workflow.agents[0]),
-            "claude-haiku-4-5-20251001 · 9.6k tokens · 1s"
-        );
-        assert_eq!(
-            crate::workflow_card::phase_counts(workflow)
-                .iter()
-                .map(|phase| phase.caption())
-                .collect::<Vec<_>>(),
-            vec!["1 done · 1 queued".to_string(), String::new()]
-        );
+        // EXP-1240: the Work card reads the same payload — one lane per
+        // agent under its phase, the model folded to its family.
+        let card = steer::work_card::work_card(&steer::work_card::WorkCardInput::from_workflow(
+            workflow, None,
+        ));
+        assert_eq!(card.progress.as_deref(), Some("1 / 2"));
+        match &card.rows[0] {
+            steer::work_card::WorkCardRow::Phase { title, detail, lanes, .. } => {
+                assert_eq!(title, "Alpha");
+                assert_eq!(detail.as_deref(), Some("1 done · 1 queued"));
+                assert_eq!(lanes[0].model.as_deref(), Some("haiku"));
+                assert_eq!(lanes[0].duration.as_deref(), Some("1s"));
+            }
+            other => panic!("expected the Alpha phase, got {other:?}"),
+        }
         // …and it is the newest RUNNING one, so it drives the working caption.
         assert!(feed.running_workflow().is_some());
     }

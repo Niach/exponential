@@ -467,7 +467,7 @@ enum EntityRefResolver {
                 CodingSessionLiveness.isLive(session) ? SessionStateDot.tone(of: state) : .muted,
                 pulsing: CodingSessionDisplayState.working(status: session.status, state: state)
             ),
-            eyebrow: sessionRowIdentifier(issue: issue, session: session, batchIssues: batchIssues) ?? "Run",
+            eyebrow: sessionRowIdentifier(issue: issue, session: session, batchIssues: batchIssues) ?? "Session",
             title: sessionRowTitle(issue: issue, session: session, batchIssues: batchIssues),
             subtitle: "Started \(RelativeTime.long(wire: session.startedAt))",
             facts: facts,

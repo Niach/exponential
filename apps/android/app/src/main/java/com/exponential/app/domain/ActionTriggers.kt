@@ -470,10 +470,10 @@ fun triggerCaption(whenPart: TriggerWhen): String =
  * another run starting it (`agent`, `workflow`, or one added later).
  */
 fun actionRunTitle(startedReason: String?): String = when {
-    startedReason == "schedule" -> "Scheduled run"
-    startedReason == "event" -> "Event run"
-    !startedReason.isNullOrEmpty() -> "Agent run"
-    else -> "Manual run"
+    startedReason == "schedule" -> "Scheduled session"
+    startedReason == "event" -> "Event session"
+    !startedReason.isNullOrEmpty() -> "Agent session"
+    else -> "Manual session"
 }
 
 /**
@@ -500,5 +500,5 @@ fun formatTriggerBlock(
     }
     return "\n\nTrigger — after creating the action, call " +
         "exponential_actions_update with its id and `triggers` set to exactly this array: " +
-        "`[$payload]`. A triggered run fills no inputs, so declare none as required."
+        "`[$payload]`. A triggered session fills no inputs, so declare none as required."
 }

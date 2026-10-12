@@ -1130,9 +1130,13 @@ fn file_header_row(
 // The view
 // ---------------------------------------------------------------------------
 
+/// The first load's skeleton row height: a file card's header line.
+const FILE_HEADER_SKELETON_H: f32 = 36.;
+
 enum Phase {
     Loading,
-    Error(SharedString),
+    /// The load failed (a toast said so, FEED-79): the empty list.
+    Error,
     Ready,
 }
 
@@ -1162,6 +1166,12 @@ pub struct DiffView {
     text_w: f32,
     h_scroll: HScroll,
     scroll: VirtualListScrollHandle,
+    /// EXP-1261: the Changes page's file tree height and the pane's, last
+    /// paint ([`crate::diff_pane::render`] measures both).
+    tree_metrics: Rc<std::cell::Cell<(f32, f32)>>,
+    /// Review #21: the file tree's OWN scroll, used only while the tree
+    /// outgrows what the diff's scroll can carry it through.
+    tree_scroll: gpui::ScrollHandle,
 }
 
 impl DiffView {
@@ -1184,6 +1194,8 @@ impl DiffView {
             text_w: 0.,
             h_scroll: HScroll::default(),
             scroll: VirtualListScrollHandle::new(),
+            tree_metrics: Rc::default(),
+            tree_scroll: gpui::ScrollHandle::new(),
         }
     }
 
@@ -1200,9 +1212,21 @@ impl DiffView {
         cx.notify();
     }
 
-    /// Show a load failure (web parity: "Couldn't load changes: …").
-    pub fn set_error(&mut self, message: impl Into<SharedString>, cx: &mut gpui::Context<Self>) {
-        self.phase = Phase::Error(message.into());
+    /// A load failure: the empty list, plus (FEED-79) the error toast
+    /// `Couldn't load the changes` + the reason only when `attended` (the
+    /// person asked for this diff: a click). A load on open, a prefetch or a
+    /// refresh fails quietly (web `guide-face.tsx` parity).
+    pub fn set_error(
+        &mut self,
+        message: impl Into<SharedString>,
+        attended: bool,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        let message: SharedString = message.into();
+        if attended {
+            crate::action_error::failed_action("load", "the changes", Some(message.to_string()), cx);
+        }
+        self.phase = Phase::Error;
         self.clear_rows();
         cx.notify();
     }
@@ -1311,7 +1335,9 @@ impl DiffView {
                 .await;
             let _ = this.update(cx, |this, cx| match result {
                 Ok(prepared) => this.set_prepared(prepared, cx),
-                Err(err) => this.set_error(err.to_string(), cx),
+                // Fetched on open (the Guide's counts, the Changes face):
+                // quiet, the empty list says it.
+                Err(err) => this.set_error(err.to_string(), false, cx),
             });
         })
         .detach();
@@ -1333,6 +1359,23 @@ impl DiffView {
     /// Per-file summaries in render order (drives an external file list).
     pub fn files(&self) -> &[FileSummary] {
         &self.files
+    }
+
+    /// EXP-1261 — the list's vertical scroll: the Changes page's file tree
+    /// rides it ([`crate::diff_pane::render`]), and the work body's top fade
+    /// waits for it to leave the top.
+    pub(crate) fn page_scroll(&self) -> gpui::ScrollHandle {
+        (*self.scroll).clone()
+    }
+
+    /// EXP-1261: (file tree height, pane height), last paint.
+    pub(crate) fn tree_metrics(&self) -> Rc<std::cell::Cell<(f32, f32)>> {
+        self.tree_metrics.clone()
+    }
+
+    /// Review #21: the file tree's own scroll ([`crate::diff_pane`]).
+    pub(crate) fn tree_scroll(&self) -> gpui::ScrollHandle {
+        self.tree_scroll.clone()
     }
 
     /// Scroll the diff so `file_ix`'s header row is at the top.
@@ -1439,6 +1482,10 @@ impl DiffView {
             .collect();
         let file_ix = sticky_file(&sizes, &self.visible, &self.files, scroll_y)?;
         let row = self.rows.get(self.files.get(file_ix)?.row_index)?;
+        // The header's own fill is the translucent section glass (web pins
+        // it over `backdrop-blur`); gpui cannot blur, so the pinned copy
+        // sits on an OPAQUE band of the panel ground, or the lines that
+        // scroll under it read through the header (EXP-1259).
         Some(
             div()
                 .absolute()
@@ -1446,6 +1493,8 @@ impl DiffView {
                 .left_0()
                 .right_0()
                 .px(px(LIST_PAD))
+                .bg(crate::surface::scrim_ground())
+                .block_mouse_except_scroll()
                 .child(self.render_file_card(row, RowShape::Top, file_ix, cx))
                 .into_any_element(),
         )
@@ -1460,31 +1509,26 @@ impl Focusable for DiffView {
 
 impl Render for DiffView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let theme = cx.theme();
         let body: AnyElement = match &self.phase {
+            // EXP-1259 D8: the file rows as placeholders.
             Phase::Loading => div()
                 .px(px(LIST_PAD))
                 .py_3()
-                .text_xs()
-                .text_color(theme.muted_foreground)
-                .child("Loading changes…")
+                .child(crate::feedback::skeleton_rows(
+                    "diff-view-skeleton",
+                    crate::feedback::SKELETON_ROWS,
+                    FILE_HEADER_SKELETON_H,
+                    cx,
+                ))
                 .into_any_element(),
-            Phase::Error(message) => div()
-                .px(px(LIST_PAD))
-                .py_3()
-                .text_xs()
-                .text_color(theme.danger)
-                .child(SharedString::from(format!(
-                    "Couldn't load changes: {message}"
-                )))
-                .into_any_element(),
-            Phase::Ready if self.rows.is_empty() => crate::controls::empty_state_list(
+            // A failed load reads as the empty list (its rows are cleared).
+            Phase::Error | Phase::Ready if self.rows.is_empty() => crate::controls::empty_state_list(
                 gpui_component::Icon::new(crate::icons::registry::CODING_DIFF),
                 crate::empty_state_copy::CHANGED_FILES,
                 cx,
             )
             .into_any_element(),
-            Phase::Ready => {
+            Phase::Ready | Phase::Error => {
                 let h_scroll = self.h_scroll.clone();
                 let wheel_scroll = self.h_scroll.clone();
                 let prepaint_scroll = self.h_scroll.clone();

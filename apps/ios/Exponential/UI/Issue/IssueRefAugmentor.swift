@@ -20,8 +20,9 @@ import Foundation
 /// repaint a newer keystroke's menu.
 @MainActor
 final class IssueRefAugmentor {
-    /// The `#` menu shows at most this many rows, local + server hits.
-    static let limit = 8
+    /// SLOP-28 (EXP-1259 D4): the `#` search list takes the engine's DEFAULT
+    /// limit, local + server hits — the old 8-row typeahead cap is gone.
+    static let limit = IssueSearch.defaultLimit
     /// Coalesces keystrokes, same as the Search tab's debounce.
     private static let debounce: UInt64 = 250_000_000
 
@@ -56,6 +57,24 @@ final class IssueRefAugmentor {
                 query, scope: scope, db: db, accountId: accountId, limit: Self.limit)
         }
         editor.onIssueRefQuery = { [weak self] query in self?.queryChanged(query) }
+        // SLOP-28: the `#` sheet's server half — the same merge, awaited.
+        editor.issueRefRemoteSearch = { [weak self] query in
+            await self?.merged(query) ?? []
+        }
+    }
+
+    /// The local ranking spliced with the team's full-text hits for `query`
+    /// (the local rows alone when the server has nothing to add).
+    func merged(_ query: String) async -> [IssueRefCandidate] {
+        let local = IssueRefLookup.search(
+            query, scope: scope, db: db, accountId: accountId, limit: Self.limit)
+        guard !IssueSearch.normalizeQuery(query).isEmpty,
+              let teamId = IssueRefLookup.teamId(for: scope, db: db, accountId: accountId),
+              let hits = try? await issuesApi.search(
+                  accountId: accountId, teamId: teamId, query: query, limit: Self.limit),
+              !hits.isEmpty
+        else { return local }
+        return mergeHits(hits, local: local)
     }
 
     private func queryChanged(_ query: String) {
@@ -79,6 +98,10 @@ final class IssueRefAugmentor {
         guard let editor, editor.activeIssueRefQuery == query else { return }
         let local = IssueRefLookup.search(
             query, scope: scope, db: db, accountId: accountId, limit: Self.limit)
+        editor.offerIssueRefCandidates(mergeHits(hits, local: local), for: query)
+    }
+
+    private func mergeHits(_ hits: [SearchIssueHit], local: [IssueRefCandidate]) -> [IssueRefCandidate] {
         let table = IssueRefLookup.candidates(
             for: hits, scope: scope, db: db, accountId: accountId)
         // The issue being edited never offers itself — on either half.
@@ -86,7 +109,7 @@ final class IssueRefAugmentor {
             if case .issue(let id) = scope { return [id] }
             return []
         }()
-        let merged = IssueSearch.mergeServerHits(
+        return IssueSearch.mergeServerHits(
             local: local,
             hits: hits,
             limit: Self.limit,
@@ -98,6 +121,5 @@ final class IssueRefAugmentor {
             hitId: { $0.id },
             resolve: { table[$0.id] }
         )
-        editor.offerIssueRefCandidates(merged, for: query)
     }
 }

@@ -88,13 +88,13 @@ export function PrivacyPage() {
             </li>
             <li style={listItem}>
               <strong>Coding sessions.</strong> If you run coding sessions, we
-              store a small record of each run (the issue or action it worked
+              store a small record of each session (the issue or action it worked
               on, the machine and agent that ran it, its branch or pull
               request, its status and timestamps) so your team can see it. We
-              do not store session history: a run&apos;s transcript is kept
+              do not store session history: a session&apos;s transcript is kept
               only on the computer that ran it, for as long as that
               machine&apos;s Sessions setting says (unlimited by default), and
-              never on our servers. When you watch a live run or open a past
+              never on our servers. When you watch a live session or open a past
               one from another device, its activity passes through our relay
               in memory only and is not written to disk.
             </li>

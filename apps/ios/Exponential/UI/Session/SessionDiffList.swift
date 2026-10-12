@@ -62,6 +62,7 @@ struct DiffFileList<Header: View>: View {
     /// Sparse reader overrides on top of the default, keyed by path — a refresh
     /// replaces `files` without discarding the toggles.
     @State private var overrides: [String: Bool] = [:]
+    @Environment(\.motion) private var motion
 
     var body: some View {
         ScrollViewReader { proxy in
@@ -100,7 +101,7 @@ struct DiffFileList<Header: View>: View {
                 guard let path = key, !path.isEmpty else { return }
                 overrides[path] = true
                 Task { @MainActor in
-                    withAnimation { proxy.scrollTo(path, anchor: .top) }
+                    withAnimation(motion.standard) { proxy.scrollTo(path, anchor: .top) }
                 }
             }
         }

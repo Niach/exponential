@@ -20,7 +20,8 @@ struct SignInMethodsSection: View {
 
     @Environment(AppDependencies.self) private var deps
     @State private var methods: SignInMethods?
-    @State private var loadError: String?
+    // FEED-79: a failed load = the band with only its Retry (no toast).
+    @State private var loadFailed = false
     @Environment(\.toaster) private var toaster
     @State private var confirm: Confirm?
     @State private var busyId: String?
@@ -49,14 +50,11 @@ struct SignInMethodsSection: View {
                 VStack(alignment: .leading, spacing: 0) {
                     GlassSectionBand("Sign-in methods")
                     HStack(spacing: 8) {
-                        if let loadError {
-                            Text(loadError)
-                                .font(.caption)
-                                .foregroundStyle(.red.opacity(0.8))
-                            Spacer()
-                            GlassPill("Retry", mode: .action {
-                                Task { await load() }
+                        if loadFailed {
+                            GlassPill(FeedbackStates.Errors.retry, mode: .action {
+                                Task { await load(retried: true) }
                             })
+                            Spacer()
                         } else {
                             ProgressView().tint(.white)
                             Spacer()
@@ -271,13 +269,22 @@ struct SignInMethodsSection: View {
 
     // MARK: - Actions
 
-    private func load() async {
+    /// FEED-79: the list loads on appear and on change notices, so a failure
+    /// is quiet (the band's Retry); only a failed Retry tap toasts.
+    private func load(retried: Bool = false) async {
         do {
             let next = try await deps.usersApi.signInMethods(accountId: accountId)
             methods = next
-            loadError = nil
+            loadFailed = false
         } catch {
-            if methods == nil { loadError = error.trpcUserMessage }
+            if methods == nil {
+                loadFailed = true
+                guard retried else { return }
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "load", thing: "sign-in methods"),
+                    description: error.trpcUserMessage
+                )
+            }
         }
     }
 
@@ -294,8 +301,12 @@ struct SignInMethodsSection: View {
             }
         } catch {
             // A PRECONDITION_FAILED refusal carries the server's last-way-in
-            // sentence — shown as is.
-            toaster.error(error.trpcUserMessage)
+            // sentence — the toast's description (FEED-79).
+            let title: String = switch target {
+            case .unlink: FeedbackStates.Errors.title(verb: "remove", thing: "the sign-in method")
+            case .removePasskey: FeedbackStates.Errors.title(verb: "remove", thing: "the passkey")
+            }
+            toaster.error(title, description: error.trpcUserMessage)
         }
         busyId = nil
         await load()
@@ -312,7 +323,10 @@ struct SignInMethodsSection: View {
             ticket = try await deps.usersApi.mintSignInLinkTicket(accountId: accountId, provider: provider.id)
         } catch {
             pendingLink = nil
-            toaster.error(error.trpcUserMessage)
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "link", thing: provider.name),
+                description: error.trpcUserMessage
+            )
             return
         }
         let pkce = Pkce.generate()
@@ -320,7 +334,10 @@ struct SignInMethodsSection: View {
             instanceUrl: instanceUrl, ticket: ticket.ticket, provider: provider.id, codeChallenge: pkce.challenge
         ) else {
             pendingLink = nil
-            toaster.error(OAuthReturn.linkErrorMessage(""))
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "link", thing: provider.name),
+                description: OAuthReturn.linkErrorMessage("")
+            )
             return
         }
         linkSession.start(url: url, pkce: pkce) { result in
@@ -332,7 +349,10 @@ struct SignInMethodsSection: View {
                 toaster.success("\(provider.name) is linked.")
                 Task { await load() }
             case let .error(reason):
-                toaster.error(OAuthReturn.linkErrorMessage(reason))
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "link", thing: provider.name),
+                    description: OAuthReturn.linkErrorMessage(reason)
+                )
             case .code, .none:
                 // A link hop never returns a code; refetch in case it landed.
                 Task { await load() }

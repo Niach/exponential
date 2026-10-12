@@ -549,6 +549,27 @@ const descriptors: Array<Descriptor> = [
     },
     calledWith: { issueId: UUID, body: `We shipped a fix.`, audience: `reporter` },
   },
+  // EXP-1241: the issue's identifier rides beside the comment row (the run's
+  // comment card links `<issue>?comment=<id>` off it).
+  {
+    tool: `exponential_comments_create`,
+    pick: () => caller.comments.create,
+    args: { issueId: UUID, body: `Confirmed.` },
+    resolved: {
+      comment: { id: UUID, issueId: UUID, body: `Confirmed.`, source: `mcp` },
+      reporterEmailed: null,
+      txId: 1,
+    },
+    expected: {
+      id: UUID,
+      issueId: UUID,
+      body: `Confirmed.`,
+      source: `mcp`,
+      issueIdentifier: `EXP-42`,
+      reporterEmailed: null,
+    },
+    rows: [{ identifier: `EXP-42` }],
+  },
   {
     tool: `exponential_comments_update`,
     pick: () => caller.comments.update,
@@ -1004,7 +1025,7 @@ describe(`exponential_pr_update`, () => {
   it(`refuses a call with no subject and no run header`, async () => {
     const result = await tool(`exponential_pr_update`)({ title: `x` })
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`no run header`)
+    expect(result.content[0].text).toContain(`no session header`)
     expect(caller.issues.updatePr).not.toHaveBeenCalled()
   })
 
@@ -2691,7 +2712,7 @@ describe(`exponential_comments_create audience reporter`, () => {
   })
 
   it.each([`schedule`, `event`, `agent`])(
-    `refuses an unattended run (%s)`,
+    `refuses an unattended session (%s)`,
     async (startedReason) => {
       dbRows.current = [ownRun(startedReason)]
       const result = await collectTools(USER, SESSION).get(
@@ -3138,7 +3159,7 @@ describe(`exponential_sessions_show`, () => {
   it(`refuses another member's run and an ended one`, async () => {
     dbRows.current = [runRow({ userId: `user-2` })]
     const tool = collectTools(USER, SESSION, OWN_RUN).get(`exponential_sessions_show`)!
-    expect((await tool({ file: `a.png` })).content[0].text).toContain(`not your run`)
+    expect((await tool({ file: `a.png` })).content[0].text).toContain(`not your session`)
     dbRows.current = [runRow({ status: `ended` })]
     expect((await tool({ file: `a.png` })).content[0].text).toContain(`ended`)
   })
@@ -3258,7 +3279,7 @@ describe(`exponential_sessions_guide`, () => {
       `exponential_sessions_guide`
     )!({ topic: `chatui`, label: `web` })
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`not your run`)
+    expect(result.content[0].text).toContain(`not your session`)
   })
 
   it(`requires a label to publish a picture`, async () => {
@@ -3700,7 +3721,7 @@ describe(`exponential_sessions_message`, () => {
         id: TARGET,
         delivered: true,
         consumed: false,
-        note: `The run's agent did not start a turn within 6s: the text reached its device but nothing is reading it. Kill the run (exponential_sessions_kill) and start it again with resumeSessionId (the resumed run continues the transcript), then message the new run.`,
+        note: `The session's agent did not start a turn within 6s: the text reached its device but nothing is reading it. Kill the session (exponential_sessions_kill) and start it again with resumeSessionId (the resumed session continues the transcript), then message the new session.`,
       })
     } finally {
       vi.useRealTimers()
@@ -3720,7 +3741,7 @@ describe(`exponential_sessions_message`, () => {
     expect(relayPostInput).toHaveBeenCalledWith(
       RELAY,
       TARGET,
-      `[Answer from your parent run ${SESSION.slice(0, 8)} via exponential_sessions_message] Use staging.`
+      `[Answer from your parent session ${SESSION.slice(0, 8)} via exponential_sessions_message] Use staging.`
     )
   })
 
@@ -5738,7 +5759,7 @@ describe(`exponential_sessions_kill`, () => {
       id: UUID,
     })
     expect(parseOk(result)).toMatchObject({
-      note: `The run's worktree on its device reported uncommitted changes (tracked, as of 2026-09-30T10:00:00.000Z); the device saves them as a WIP commit on exp/EXP-1 when it tears the run down.`,
+      note: `The session's worktree on its device reported uncommitted changes (tracked, as of 2026-09-30T10:00:00.000Z); the device saves them as a WIP commit on exp/EXP-1 when it tears the session down.`,
     })
     const { params } = renderWhere()
     expect(params).toContain(`mac-1`)
@@ -6113,7 +6134,7 @@ describe(`exponential_sessions_start`, () => {
       const result = await pending
       expect(result.isError).toBe(true)
       expect(result.content[0].text).toBe(
-          `Device mac-1 took the start but reported no run within 10s. Check that it is online (exponential_devices_list), its app or daemon log, and whether a live run already holds the issue (exponential_sessions_list). Check exponential_sessions_list before starting again: the run may still appear.`
+          `Device mac-1 took the start but reported no session within 10s. Check that it is online (exponential_devices_list), its app or daemon log, and whether a live session already holds the issue (exponential_sessions_list). Check exponential_sessions_list before starting again: the session may still appear.`
       )
     } finally {
       vi.useRealTimers()
@@ -6143,7 +6164,7 @@ describe(`exponential_sessions_start`, () => {
       const result = await pending
       expect(result.isError).toBe(true)
       expect(result.content[0].text).toBe(
-        `Device mac-1 could not start the run: git checkout refused: uncommitted changes`
+        `Device mac-1 could not start the session: git checkout refused: uncommitted changes`
       )
     } finally {
       vi.useRealTimers()

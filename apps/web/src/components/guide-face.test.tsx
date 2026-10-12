@@ -13,6 +13,9 @@ import {
 } from "@/components/guide-face"
 import type { StackView } from "@/lib/pr-stack"
 
+const failedAction = vi.hoisted(() => vi.fn())
+vi.mock(`@/lib/action-error`, () => ({ failedAction }))
+
 // EXP-1251: the Guide face — the Stack card over the report, one Changes row
 // per section, Other changes, Show complete diff; the PR body stands in for a
 // missing report.
@@ -148,20 +151,35 @@ describe(`GuideBody`, () => {
     )
     expect(screen.getByText(GUIDE_NO_CHANGES)).toBeTruthy()
     rerender(<GuideBody groups={[]} files={null} filesState={{ kind: `loading` }} />)
-    expect(screen.getByText(`Loading the pull request…`)).toBeTruthy()
+    expect(screen.getByTestId(`feedback-skeleton`)).toBeTruthy()
   })
 
-  it(`offers Retry on a failed fetch`, () => {
+  it(`a failed fetch on open = the empty state + Retry, no toast; a failed Retry tap toasts`, () => {
+    failedAction.mockClear()
     const onRetry = vi.fn()
-    render(
-      <GuideBody
-        groups={[]}
-        files={null}
-        filesState={{ kind: `error`, message: `boom` }}
-        onRetry={onRetry}
-      />
+    const body = (filesState: { kind: `error`; message: string } | { kind: `loading` }) => (
+      <GuideBody groups={[]} files={null} filesState={filesState} onRetry={onRetry} />
     )
+    const { rerender } = render(body({ kind: `error`, message: `boom` }))
+    expect(screen.getByText(GUIDE_NO_CHANGES)).toBeTruthy()
+    rerender(body({ kind: `error`, message: `boom` }))
+    expect(failedAction).not.toHaveBeenCalled()
+
     fireEvent.click(screen.getByText(`Retry`))
-    expect(onRetry).toHaveBeenCalled()
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    rerender(body({ kind: `loading` }))
+    rerender(body({ kind: `error`, message: `boom` }))
+    expect(failedAction).toHaveBeenCalledTimes(1)
+    const [verb, thing, error, options] = failedAction.mock.calls[0]
+    expect([verb, thing, error]).toEqual([`load`, `the changes`, `boom`])
+    options.retry()
+    expect(onRetry).toHaveBeenCalledTimes(2)
+  })
+
+  it(`a failed PR body load stays quiet`, () => {
+    failedAction.mockClear()
+    render(<GuideBody groups={[]} files={null} error="boom" />)
+    expect(screen.getByText(GUIDE_NO_CHANGES)).toBeTruthy()
+    expect(failedAction).not.toHaveBeenCalled()
   })
 })

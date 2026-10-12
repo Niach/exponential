@@ -13,6 +13,7 @@ import com.exponential.app.data.db.DatabaseHolder
 import com.exponential.app.data.db.accountDatabaseFlow
 import com.exponential.app.domain.CodingReadiness
 import com.exponential.app.domain.WireTimestamps
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.steer.steerDeviceFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -78,8 +79,9 @@ class CodingReadinessViewModel @Inject constructor(
     private val _setting = MutableStateFlow<String?>(null)
     /** The repository id a pick is writing (the row spins). */
     val setting: StateFlow<String?> = _setting
-    private val _setError = MutableStateFlow<String?>(null)
-    val setError: StateFlow<String?> = _setError
+    // FEED-79: a refused pick, raised once as an error toast.
+    private val _setError = MutableStateFlow<FailedAction?>(null)
+    val setError: StateFlow<FailedAction?> = _setError
 
     private val teamName = combine(dbFlow, teamId) { db, id -> db to id }
         .flatMapLatest { (db, id) ->
@@ -272,7 +274,9 @@ class CodingReadinessViewModel @Inject constructor(
             } catch (cancel: CancellationException) {
                 throw cancel
             } catch (t: Throwable) {
-                _setError.value = trpcErrorMessage(t, "The repository could not be connected.")
+                _setError.value = FailedAction("change", "the board's repository", trpcErrorMessage(t, "")) {
+                    setRepository(repositoryId, onDone)
+                }
             } finally {
                 _setting.value = null
             }

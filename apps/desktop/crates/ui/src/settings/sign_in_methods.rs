@@ -37,13 +37,16 @@ use crate::oauth::SignInLinkOutcome;
 use crate::queries;
 
 use super::storage::format_created_date;
-use super::{error_notice, form_error, open_url, section};
+use super::{open_url, section, settings_skeleton};
+
+/// The methods band when its load failed (FEED-79: the empty state + Retry).
+const NO_SIGN_IN_METHODS: &str = "No sign-in methods";
 
 enum Load {
     Idle,
     Loading,
     Ready(SignInMethods),
-    Error(String),
+    Error,
 }
 
 pub struct SignInMethodsSection {
@@ -61,6 +64,9 @@ pub struct SignInMethodsSection {
     copy_url: Option<SharedString>,
     /// The last [`SignInLinkOutcome::seq`] adopted.
     outcome_seq: u64,
+    /// FEED-79: the load in flight is the person's Retry press (its failure
+    /// toasts); a load on entry or after a write fails quietly.
+    retry_pressed: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -85,13 +91,14 @@ impl SignInMethodsSection {
             pending_link: None,
             copy_url: None,
             outcome_seq,
+            retry_pressed: false,
             _subscriptions: subscriptions,
         }
     }
 
     /// Server read — refetch on every pane entry.
     pub fn mark_stale(&mut self, cx: &mut gpui::Context<Self>) {
-        if matches!(self.load, Load::Ready(_) | Load::Error(_)) {
+        if matches!(self.load, Load::Ready(_) | Load::Error) {
             self.load = Load::Idle;
         }
         self.copy_url = None;
@@ -102,6 +109,12 @@ impl SignInMethodsSection {
     pub(crate) fn refetch(&mut self, cx: &mut gpui::Context<Self>) {
         self.load = Load::Idle;
         cx.notify();
+    }
+
+    /// The failed load's Retry: the same read, attended.
+    fn retry_load(&mut self, cx: &mut gpui::Context<Self>) {
+        self.retry_pressed = true;
+        self.refetch(cx);
     }
 
     /// The change-email dialog's success: say so, re-read.
@@ -142,11 +155,20 @@ impl SignInMethodsSection {
                 if this.generation != generation {
                     return;
                 }
+                let attended = std::mem::take(&mut this.retry_pressed);
                 this.load = match result {
                     Ok(methods) => Load::Ready(methods),
                     Err(err) => {
                         log::warn!("[ui] users.signInMethods failed: {err}");
-                        Load::Error(form_error(&err, "Couldn't load your sign-in methods."))
+                        // FEED-79: the empty state + Retry; only a Retry
+                        // press that fails again toasts.
+                        crate::action_error::failed_load(
+                            "your sign-in methods",
+                            attended,
+                            crate::action_error::action_error_description(&err),
+                            cx,
+                        );
+                        Load::Error
                     }
                 };
                 cx.notify();
@@ -199,7 +221,7 @@ impl SignInMethodsSection {
                     .unwrap_or(provider_id);
                 Toast::success(format!("{name} linked to your account."))
             }
-            Err(message) => Toast::error(message),
+            Err(message) => crate::action_error::failed_toast("link", "the account", Some(message.to_string())),
         };
         crate::toast::show_in_active_window(toast, cx);
         self.refetch(cx);
@@ -219,6 +241,7 @@ impl SignInMethodsSection {
             return;
         };
         let provider_id = provider.id.clone();
+        let provider = provider.clone();
         self.pending_link = Some(provider_id.clone());
         self.copy_url = None;
         cx.notify();
@@ -237,8 +260,16 @@ impl SignInMethodsSection {
                     Err(err) => {
                         log::warn!("[ui] users.mintSignInLinkTicket failed: {err}");
                         this.pending_link = None;
-                        crate::toast::show_in_active_window(
-                            Toast::error(form_error(&err, "Couldn't start linking. Try again.")),
+                        let section = cx.entity().downgrade();
+                        let retry_provider = provider.clone();
+                        crate::action_error::failed_action_with_retry(
+                            "link",
+                            &provider.name,
+                            crate::action_error::action_error_description(&err),
+                            move |_, cx| {
+                                let provider = retry_provider.clone();
+                                let _ = section.update(cx, |this, cx| this.link(&provider, cx));
+                            },
                             cx,
                         );
                         cx.notify();
@@ -287,10 +318,15 @@ impl SignInMethodsSection {
             )
         };
         let provider_id = provider.id.clone();
+        let (verb, thing) = if provider.kind == "password" {
+            ("remove", "the password".to_string())
+        } else {
+            ("unlink", provider.name.clone())
+        };
         self.confirm_removal(
             window_title,
             prompt,
-            "Couldn't remove that sign-in method.",
+            (verb, thing),
             move |trpc| api::users::unlink_sign_in_method(trpc, &provider_id),
             window,
             cx,
@@ -307,7 +343,7 @@ impl SignInMethodsSection {
         self.confirm_removal(
             "Remove passkey",
             domain::prompts::remove_passkey(passkey.name.as_deref()),
-            "Couldn't remove the passkey.",
+            ("remove", "the passkey".to_string()),
             move |trpc| api::users::delete_passkey(trpc, &id),
             window,
             cx,
@@ -321,7 +357,7 @@ impl SignInMethodsSection {
         &mut self,
         window_title: &'static str,
         prompt: domain::prompts::Prompt,
-        fallback: &'static str,
+        failure: (&'static str, String),
         call: impl Fn(&api::TrpcClient) -> Result<(), api::ApiError> + Send + Sync + 'static,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
@@ -340,6 +376,7 @@ impl SignInMethodsSection {
                 });
                 let section = section.clone();
                 let call = call.clone();
+                let failure = failure.clone();
                 cx.spawn(async move |cx| {
                     let result = cx
                         .background_executor()
@@ -354,7 +391,11 @@ impl SignInMethodsSection {
                     });
                     if let Err(err) = result {
                         log::warn!("[ui] sign-in method removal failed: {err}");
-                        let note = Toast::error(form_error(&err, fallback));
+                        let note = crate::action_error::failed_toast(
+                            failure.0,
+                            &failure.1,
+                            crate::action_error::action_error_description(&err),
+                        );
                         let _ = handle.update(cx, |_, window, cx| {
                             crate::toast::show(note, window, cx);
                         });
@@ -556,13 +597,6 @@ impl Render for SignInMethodsSection {
         let mut passkeys_section =
             section(cx).child(crate::surface::glass_section_header("Passkeys", None, cx));
 
-        let skeleton = || {
-            v_flex()
-                .gap_2()
-                .child(crate::controls::skeleton().h_4().w_full())
-                .child(crate::controls::skeleton().h_4().w_64())
-        };
-
         let methods = match &self.load {
             Load::Ready(methods) => Some(methods.clone()),
             _ => None,
@@ -600,14 +634,25 @@ impl Render for SignInMethodsSection {
                         passkeys_section.child(v_flex().w_full().min_w_0().children(list));
                 }
             }
-            (Load::Error(message), None) => {
-                methods_section =
-                    methods_section.child(error_notice(SharedString::from(message.clone()), cx));
-                passkeys_section = passkeys_section.child(skeleton());
+            // A failed load (FEED-79): the empty state + Retry, no toast;
+            // the passkey list reads empty under it.
+            (Load::Error, None) => {
+                methods_section = methods_section.child(crate::action_error::load_failed_state(
+                    "sign-in-methods-retry",
+                    gpui_component::Icon::new(registry::SETTINGS_ACCOUNT),
+                    NO_SIGN_IN_METHODS,
+                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
+                    cx,
+                ));
+                passkeys_section = passkeys_section.child(crate::controls::empty_state_list(
+                    gpui_component::Icon::new(crate::icons::registry::AUTH_PASSKEY),
+                    crate::empty_state_copy::PASSKEYS,
+                    cx,
+                ));
             }
             _ => {
-                methods_section = methods_section.child(skeleton());
-                passkeys_section = passkeys_section.child(skeleton());
+                methods_section = methods_section.child(settings_skeleton("sign-in-methods-skeleton", cx));
+                passkeys_section = passkeys_section.child(settings_skeleton("passkeys-skeleton", cx));
             }
         }
 

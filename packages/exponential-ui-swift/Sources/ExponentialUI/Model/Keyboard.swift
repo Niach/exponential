@@ -347,6 +347,21 @@ extension SurfaceModel {
     @discardableResult
     public func fieldKey(_ index: Int, key: String, shift: Bool = false) -> Bool {
         guard let n = node(index) else { return false }
+        // EXP-1259: a search list's field keeps the focus; ↑/↓ move the
+        // highlighted row (the core's), Tab picks it (Enter comes through
+        // `fieldCommitted`), ← at the caret's start (`leftAtStart`, the text
+        // view knows the caret) leaves a searchable submenu.
+        if n.component == "SearchList" {
+            let rtl = isRTL
+            switch key {
+            case "down": searchKey(index, "ArrowDown")
+            case "up": searchKey(index, "ArrowUp")
+            case "tab" where !shift: searchKey(index, "Tab")
+            case "leftAtStart" where n.ownerComponent == "Menu" && !rtl, "rightAtStart" where n.ownerComponent == "Menu" && rtl: searchKey(index, "ArrowLeft")
+            default: return false
+            }
+            return true
+        }
         switch (n.ownerComponent ?? "", key) {
         case ("NumberField", "up"), ("NumberField", "down"), ("NumberField", "pageup"), ("NumberField", "pagedown"):
             guard let ownerId = n.owner else { return false }
@@ -366,6 +381,14 @@ extension SurfaceModel {
         default:
             return false
         }
+    }
+
+    /// EXP-1259: a key for a search list's field: the outstanding text goes
+    /// first (the filter is current), then the core moves or picks the
+    /// highlighted row.
+    public func searchKey(_ index: Int, _ key: String) {
+        flushPending(index)
+        fire(index, "key", payload: .object(["key": .string(key)]))
     }
 
     /// The siblings a roving widget moves between: same owner + part +

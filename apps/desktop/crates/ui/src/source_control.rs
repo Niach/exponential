@@ -338,9 +338,15 @@ impl SourceControlView {
                         this.status = Some(summary);
                         this.error = None;
                     }
+                    // FEED-79: the status re-reads on its own (scope change,
+                    // after every write), so a failed read is quiet: the
+                    // empty view.
                     Err(err) => {
+                        if this.status.is_some() || this.error.is_none() {
+                            log::warn!("[ui] source control: git status failed: {err}");
+                        }
                         this.status = None;
-                        this.error = Some(format!("git status failed: {err}").into());
+                        this.error = Some(err.to_string().into());
                     }
                 }
                 this.conflict = conflict;
@@ -364,7 +370,7 @@ impl SourceControlView {
                         let rail = this.rail.clone();
                         rail.update(cx, |rail, cx| rail.clear_sc_selection(cx));
                     } else {
-                        this.select_working_tree(cx);
+                        this.select_working_tree(false, cx);
                     }
                 }
                 cx.notify();
@@ -403,7 +409,7 @@ impl SourceControlView {
                 }
                 this.diff.update(cx, |diff, cx| match result {
                     Ok(prepared) => diff.set_prepared(prepared, cx),
-                    Err(err) => diff.set_error(err.to_string(), cx),
+                    Err(err) => diff.set_error(err.to_string(), true, cx),
                 });
             });
         })
@@ -435,7 +441,7 @@ impl SourceControlView {
                 }
                 this.diff.update(cx, |diff, cx| match result {
                     Ok(prepared) => diff.set_prepared(prepared, cx),
-                    Err(err) => diff.set_error(err.to_string(), cx),
+                    Err(err) => diff.set_error(err.to_string(), true, cx),
                 });
             });
         })
@@ -445,7 +451,9 @@ impl SourceControlView {
     /// EXP-509: the uncommitted working tree — the whole `git diff HEAD`
     /// patch plus synthesized adds for untracked files, through the same
     /// shared renderer (per-file headers come free).
-    fn select_working_tree(&mut self, cx: &mut gpui::Context<Self>) {
+    /// `attended` = the person picked the row (a failed read toasts); the
+    /// re-cut after a status refresh is quiet.
+    fn select_working_tree(&mut self, attended: bool, cx: &mut gpui::Context<Self>) {
         self.selection = Selection::WorkingTree;
         let Some(scope) = self.scope.clone() else {
             return;
@@ -470,7 +478,7 @@ impl SourceControlView {
                 }
                 this.diff.update(cx, |diff, cx| match result {
                     Ok(prepared) => diff.set_prepared(prepared, cx),
-                    Err(err) => diff.set_error(err.to_string(), cx),
+                    Err(err) => diff.set_error(err.to_string(), attended, cx),
                 });
             });
         })
@@ -485,8 +493,12 @@ impl SourceControlView {
             return;
         };
         let Some(manager) = coding_flow::window_terminal_manager(window, cx) else {
-            self.error = Some("No terminal in this window.".into());
-            cx.notify();
+            crate::action_error::failed_action(
+                "open",
+                "a terminal",
+                Some("No terminal in this window.".into()),
+                cx,
+            );
             return;
         };
         let shell_override = crate::coding_flow::terminal_shell_override(cx);
@@ -494,8 +506,7 @@ impl SourceControlView {
             manager.open_shell(Some(scope.clone_dir.clone()), shell_override, cx)
         });
         if let Err(err) = result {
-            self.error = Some(format!("Could not open terminal: {err}").into());
-            cx.notify();
+            crate::action_error::failed_action("open", "a terminal", Some(err.to_string()), cx);
         }
     }
 
@@ -520,7 +531,11 @@ impl SourceControlView {
             let _ = this.update(cx, |this, cx| {
                 this.busy = None;
                 if let Err(err) = result {
-                    this.error = Some(format!("Abort failed: {err}").into());
+                    let thing = match kind {
+                        coding::scm::ConflictKind::Rebase => "the rebase",
+                        coding::scm::ConflictKind::Merge => "the merge",
+                    };
+                    crate::action_error::failed_action("abort", thing, Some(err.to_string()), cx);
                 }
                 this.refresh(cx);
             });
@@ -694,7 +709,6 @@ impl SourceControlView {
         // Copied out (Hsla is Copy) so the theme borrow doesn't overlap the
         // listener borrows below.
         let muted = cx.theme().muted_foreground;
-        let danger = cx.theme().danger;
 
         let column = gpui_component::v_flex()
             .size_full()
@@ -713,16 +727,8 @@ impl SourceControlView {
         }
         let failed = error.is_some();
         column
-            .child(match error {
-                Some(error) => div()
-                    .max_w_full()
-                    .text_color(danger)
-                    .child(SharedString::from(format!("Repository clone failed: {error}")))
-                    .into_any_element(),
-                None => div()
-                    .child("Repository not cloned yet.")
-                    .into_any_element(),
-            })
+            // The failed clone was a toast (FEED-79): the empty state.
+            .child("Repository not cloned yet.")
             .when(git_missing, |this| {
                 this.child(
                     "Git is required to clone repositories. Install it, then run \
@@ -887,7 +893,7 @@ impl Render for SourceControlView {
             self.seen_selection = want.clone();
             match want {
                 ScSelection::Commit(hash) => self.select_commit(hash, cx),
-                ScSelection::WorkingTree => self.select_working_tree(cx),
+                ScSelection::WorkingTree => self.select_working_tree(true, cx),
                 // Deselected out from under us (scope change) — back to the
                 // placeholder.
                 ScSelection::None => {
@@ -898,7 +904,6 @@ impl Render for SourceControlView {
             }
         }
         let conflict = self.conflict.clone();
-        let error = self.error.clone();
 
         // EXP-282: no opaque fill — the screen floats on the page gradient
         // like every other center screen (the old `theme.background` paint
@@ -907,17 +912,6 @@ impl Render for SourceControlView {
             .size_full()
             .when_some(conflict, |this, conflict| {
                 this.child(self.render_conflict_banner(&conflict, cx))
-            })
-            .when_some(error, |this, error| {
-                this.child(
-                    div()
-                        .flex_shrink_0()
-                        .px_3()
-                        .py_1()
-                        .text_xs()
-                        .text_color(cx.theme().danger)
-                        .child(error),
-                )
             })
             .child(self.render_body(cx))
     }
@@ -1556,11 +1550,13 @@ impl HistoryList {
             .child(gutter)
             .child(
                 crate::surface::glass_pill_button("hist-more", crate::surface::PillSize::Sm, cx)
+                    // EXP-1259 D8: the pending face — spinner + the word.
                     .label(if self.history_loading {
-                        "Loading…"
+                        crate::feedback::WORD_LOADING
                     } else {
                         "Load more"
                     })
+                    .loading(self.history_loading)
                     .disabled(self.history_loading)
                     .on_click(cx.listener(|this, _, _window, cx| {
                         this.load_more(cx);

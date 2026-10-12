@@ -51,7 +51,6 @@ use gpui_component::{
     button::{Button, ButtonVariants as _},
     h_flex,
     input::{Input, InputEvent, InputState},
-    spinner::Spinner,
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 use sync::{SessionPhase, Store};
@@ -277,8 +276,9 @@ impl LoginView {
                 return;
             };
             // The attempt is over — drop the "Waiting for your browser…" label.
+            // FEED-79: a failed browser sign-in is the error toast.
             this.pending_provider = None;
-            this.error = Some(message);
+            crate::action_error::failed_action("sign", "you in", Some(message.to_string()), cx);
             cx.notify();
         }));
 
@@ -555,6 +555,12 @@ impl LoginView {
                             sent_to: email.clone().into(),
                         };
                     }
+                    // FEED-79: a request that never reached the server is a
+                    // toast; the server's refusal (the address) stays under
+                    // the field.
+                    Err(err @ api::ApiError::Transport { .. }) => {
+                        crate::action_error::failed_action_err("send", "the code", &err, cx)
+                    }
                     Err(err) => this.error = Some(err.user_message().into()),
                 }
                 cx.notify();
@@ -699,6 +705,11 @@ impl LoginView {
                         store.abort_sign_in(cx);
                         if api::login::is_name_required(&err) {
                             name_required = true;
+                            None
+                        } else if matches!(err, api::ApiError::Transport { .. }) {
+                            // FEED-79: never reached the server — a toast;
+                            // what was typed is fine.
+                            crate::action_error::failed_action_err("sign", "you in", &err, cx);
                             None
                         } else {
                             Some(error_message(&err))
@@ -1189,26 +1200,22 @@ impl Render for LoginView {
 
         // -- the method list + the revealed email step (per auth-config) ----
         if config_loading {
-            // Roughly the method-list footprint, so the card doesn't jump
-            // when the real list swaps in (iOS `configLoading` parity).
-            form = form.child(
-                h_flex()
-                    .justify_center()
-                    .py_6()
-                    .child(Spinner::new().icon(registry::UI_LOADING)),
-            );
+            // EXP-1259 D8: the method list's rows as placeholders, so the
+            // card doesn't jump when the real list swaps in.
+            form = form.child(crate::feedback::skeleton_rows(
+                "login-methods-skeleton",
+                crate::feedback::SKELETON_ROWS,
+                theme::tokens::size::CONTROL_LG,
+                cx,
+            ));
         } else if let Some(methods) = self.render_methods(&config, signing_in, window, cx) {
             form = form.child(methods);
         }
 
         // -- copyable-URL degradation --------------------------------
+        // INVALID INPUT (FEED-79): the form's own line, 13px rose.
         if let Some(error) = &self.error {
-            form = form.child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().danger)
-                    .child(error.clone()),
-            );
+            form = form.child(crate::action_error::field_error(error.clone(), cx));
         }
         if let Some(url) = self.copy_url.clone() {
             form = form.child(self.render_copy_url(&url, cx));

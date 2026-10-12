@@ -99,7 +99,7 @@ const INTERVAL_LABELS: [(ScheduleInterval, &str); 3] = [
 /// instead of letting the owner discover it as a failed toggle. Byte-shared
 /// ×4 (web `REQUIRED_INPUTS_HINT`).
 pub(crate) const TRIGGER_REQUIRED_INPUTS_HINT: &str =
-    "This action has required inputs, and a triggered run has none to fill them with. \
+    "This action has required inputs, and a triggered session has none to fill them with. \
      Make the inputs optional to enable it.";
 
 /// The cap the server enforces per filter list — the pickers stop offering
@@ -185,67 +185,6 @@ pub(crate) struct TriggerSpec {
     pub(crate) model: Option<String>,
     pub(crate) effort: Option<String>,
 }
-
-/// The machine-readable block appended to a creator run's request when a
-/// suggestion carries a trigger (EXP-530/583/825; SLOP-2 reshaped it for
-/// `actions.triggers`). Byte-identical to web `formatTriggerBlock`
-/// (`lib/action-triggers.ts`), key order included: the when-part's keys in
-/// their stored order, then `deviceId`, then the launch pins only when they
-/// are set. The composer never talks to the server — the creator agent passes
-/// this JSON verbatim as `triggers` to `exponential_actions_update` once the
-/// action exists.
-pub(crate) fn format_trigger_block(spec: &TriggerSpec) -> String {
-    // The workspace serde_json preserves insertion order (the fingerprint's
-    // doc has the why), so this map IS the key order on the wire.
-    let mut payload = spec.trigger.as_object().cloned().unwrap_or_default();
-    payload.insert("deviceId".to_string(), json!(spec.device_id));
-    for (key, value) in [
-        ("agent", spec.agent.as_deref()),
-        ("model", spec.model.as_deref()),
-        ("effort", spec.effort.as_deref()),
-    ] {
-        if let Some(value) = value.filter(|value| !value.is_empty()) {
-            payload.insert(key.to_string(), json!(value));
-        }
-    }
-    let json = serde_json::to_string(&Value::Array(vec![Value::Object(payload)]))
-        .unwrap_or_else(|_| "[]".to_string());
-    format!(
-        "\n\nTrigger — after creating the action, call exponential_actions_update \
-         with its id and `triggers` set to exactly this array: `{json}`. A triggered \
-         run fills no inputs, so declare none as required."
-    )
-}
-
-/// EXP-825: the block a getting-started suggestion that carries a trigger
-/// appends to its composer seed — web `action-suggestions-list.tsx` parity:
-/// the runner is the caller's DEFAULT trigger-capable machine, else the
-/// first one; without any the block is simply left off (the old dialog did
-/// the same). No launch pins: the creator agent sets the trigger, its
-/// agent/model/effort stay the machine's defaults.
-pub(crate) fn suggestion_trigger_block(trigger: Value, cx: &App) -> String {
-    let devices = trigger_devices(cx);
-    let device_id = devices
-        .iter()
-        .find(|device| device.is_default)
-        .or_else(|| devices.first())
-        .map(|device| device.device_id.clone());
-    match device_id {
-        Some(device_id) => format_trigger_block(&TriggerSpec {
-            trigger,
-            device_id,
-            agent: None,
-            account: None,
-            model: None,
-            effort: None,
-        }),
-        None => String::new(),
-    }
-}
-
-// ---------------------------------------------------------------------------
-// The write shapes (SLOP-2: `actions.update({triggers})`, a whole-array replace)
-// ---------------------------------------------------------------------------
 
 /// ONE trigger element as written: the runner, then the when-part, and an
 /// event names its source. `id` is absent on a NEW trigger (the server mints
@@ -439,15 +378,6 @@ impl TriggerBadges {
         Self {
             schedule: badge(true),
             event: badge(false),
-        }
-    }
-
-    /// A suggestion seed's glyph: its one suggested trigger, drawn active.
-    pub(crate) fn of_when(when: &ParsedTrigger) -> Self {
-        match when.kind {
-            TriggerKind::Schedule(_) => Self { schedule: Some(true), event: None },
-            TriggerKind::Event(_) => Self { schedule: None, event: Some(true) },
-            TriggerKind::Unsupported => Self::default(),
         }
     }
 
@@ -1544,7 +1474,7 @@ pub(crate) fn trigger_devices(cx: &App) -> Vec<DeviceOption> {
     };
     let collection = store.collections().devices.clone();
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let me = crate::queries::active_account(cx).map(|account| account.id);
+    let me = crate::queries::active_account(cx).map(|account| account.user_id);
     let mut devices: Vec<DeviceOption> = collection
         .read(cx)
         .iter()
@@ -1808,7 +1738,7 @@ mod tests {
     fn required_inputs_hint_matches_the_shared_copy() {
         assert_eq!(
             TRIGGER_REQUIRED_INPUTS_HINT,
-            "This action has required inputs, and a triggered run has none to fill them \
+            "This action has required inputs, and a triggered session has none to fill them \
              with. Make the inputs optional to enable it."
         );
     }
@@ -1822,42 +1752,6 @@ mod tests {
             model: None,
             effort: None,
         }
-    }
-
-    /// SLOP-2: the machine-readable trigger block is cross-client copy —
-    /// byte-locked against web `formatTriggerBlock` (`lib/action-triggers.ts`)
-    /// and the mobile mirrors, including the compact `JSON.stringify` form
-    /// and its key order (the when-part's keys, `deviceId`, then only the
-    /// pins that are set).
-    #[test]
-    fn trigger_block_matches_the_shared_example() {
-        // The brief's example: daily 09:00 on device d-1.
-        let block = format_trigger_block(&spec(
-            json!({"kind": "schedule", "interval": "daily", "minuteOfDay": 540}),
-            "d-1",
-        ));
-        assert_eq!(
-            block,
-            "\n\nTrigger — after creating the action, call exponential_actions_update with its id and `triggers` set to exactly this array: `[{\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":540,\"deviceId\":\"d-1\"}]`. A triggered run fills no inputs, so declare none as required."
-        );
-
-        // The pins ride AFTER the device, in agent/model/effort order, and
-        // only when set — an empty pin is omitted, never sent as "". The
-        // account never rides (a profile id is device-local).
-        let pinned = format_trigger_block(&TriggerSpec {
-            agent: Some("codex".to_string()),
-            account: Some("prof-1".to_string()),
-            model: Some(String::new()),
-            effort: Some("high".to_string()),
-            ..spec(json!({"kind": "event", "event": "created"}), "d")
-        });
-        assert!(
-            pinned.contains(
-                "`[{\"kind\":\"event\",\"event\":\"created\",\"deviceId\":\"d\",\
-                 \"agent\":\"codex\",\"effort\":\"high\"}]`"
-            ),
-            "{pinned}"
-        );
     }
 
     fn stored() -> Vec<ActionTrigger> {

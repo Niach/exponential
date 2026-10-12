@@ -19,8 +19,12 @@ const DISMISS_DISTANCE_PX = 80
 /** A flick: px per ms, over the (much smaller) FLICK_DISTANCE_PX. */
 const DISMISS_VELOCITY = 0.6
 const FLICK_DISTANCE_PX = 24
-/** Matches the panel's own slide-out duration. */
-const DISMISS_ANIMATION_MS = 200
+/** Matches the panel's own slide-out duration: the `standard` motion token
+ *  (`motion-sheet`'s exit, EXP-1243). The timer needs the number; the CSS
+ *  reads the live var. */
+const DISMISS_ANIMATION_MS = 180
+const DISMISS_TRANSITION = `transform var(--motion-duration-standard, ${DISMISS_ANIMATION_MS}ms) var(--motion-ease-accelerate, cubic-bezier(0.3, 0, 1, 1))`
+const SNAP_BACK_TRANSITION = `transform var(--motion-duration-standard, ${DISMISS_ANIMATION_MS}ms) var(--motion-ease-decelerate, cubic-bezier(0, 0, 0.2, 1))`
 
 /**
  * Pure decision half of the gesture: did a downward drag of `dy` px over
@@ -116,7 +120,7 @@ export function useSheetDrag({
         drag.current = null
         const dy = event.clientY - started.y
         if (shouldDismissSheet(dy, Date.now() - started.at)) {
-          paint(`translateY(100%)`, `transform ${DISMISS_ANIMATION_MS}ms ease-in`)
+          paint(`translateY(100%)`, DISMISS_TRANSITION)
           window.setTimeout(() => {
             // Close while the panel is still off-screen: Radix's exit
             // keyframes only carry a `to` frame, so they start from the
@@ -133,8 +137,8 @@ export function useSheetDrag({
           }, DISMISS_ANIMATION_MS)
           return
         }
-        paint(`translateY(0px)`, `transform 200ms ease-out`)
-        window.setTimeout(release, 200)
+        paint(`translateY(0px)`, SNAP_BACK_TRANSITION)
+        window.setTimeout(release, DISMISS_ANIMATION_MS)
       },
       onPointerCancel: (event) => {
         if (!drag.current || drag.current.pointerId !== event.pointerId) {

@@ -2,7 +2,6 @@ package com.exponential.app.ui.components
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -13,13 +12,11 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -43,6 +40,7 @@ import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.domain.BoardRepoLabel
+import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.GithubRepoPickerSheet
 import com.exponential.app.ui.theme.GlassTokens
@@ -61,7 +59,7 @@ import kotlinx.coroutines.launch
  * otherwise self-explanatory, so nothing else is said there.
  * `apps/web/src/lib/board-copy.test.ts` greps this tree for the literal.
  */
-const val BOARD_REPO_NOTE = "Runs start from here."
+const val BOARD_REPO_NOTE = "Sessions start from here."
 
 private const val NO_REPOSITORY = "No repository"
 
@@ -134,8 +132,6 @@ fun BoardRepoField(
     onBranchChange: (String?) -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
-    error: String? = null,
-    onRetry: (() -> Unit)? = null,
     // FEED-32: the host's one-shot re-list for a Registry selection [repos]
     // doesn't know is in flight — the field reads "Loading repository…"
     // instead of "Repository unavailable" meanwhile.
@@ -217,20 +213,6 @@ fun BoardRepoField(
         }
 
         Text(BOARD_REPO_NOTE, style = MaterialTheme.typography.bodySmall, color = tertiary)
-
-        if (error != null) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    error,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.weight(1f),
-                )
-                if (onRetry != null) {
-                    TextButton(onClick = onRetry) { Text("Retry") }
-                }
-            }
-        }
     }
 
     if (repoSheet) {
@@ -327,27 +309,31 @@ fun BoardRepoField(
         } else {
             listOf(repoDefault) + state.branches
         }
+        // FEED-79: the list loads when the sheet opens, so a failure is quiet:
+        // the default alone + the Retry row; only a failed Retry tap toasts.
+        val toaster = LocalToaster.current
+        var branchesRetried by remember(registry.id) { mutableStateOf(false) }
+        val retryBranches = {
+            branchesRetried = true
+            viewModel.load(accountId, registry.id, force = true)
+        }
+        LaunchedEffect(state.error) {
+            val message = state.error ?: return@LaunchedEffect
+            if (branchesRetried) toaster.failedAction("load", "the branches", message) { retryBranches() }
+        }
         GlassSheet(title = "Branch", onDismiss = { branchSheet = false }) {
             LazyColumn(
                 modifier = Modifier.fillMaxWidth(),
                 contentPadding = PaddingValues(bottom = 12.dp),
             ) {
                 if (state.loading) {
-                    item { SheetStatusRow(loading = true, text = "Loading branches…", color = tertiary) }
-                }
-                state.error?.let { message ->
+                    // EXP-1275: skeleton rows in the sheet row's geometry.
                     item {
-                        Column {
-                            SheetStatusRow(
-                                loading = false,
-                                text = message,
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                            GlassSheetRow(
-                                label = "Retry",
-                                onClick = { viewModel.load(accountId, registry.id, force = true) },
-                            )
-                        }
+                        SkeletonRows(
+                            modifier = Modifier.padding(horizontal = GlassSheetDefaults.HorizontalPadding - 12.dp),
+                            rows = 2,
+                            rowHeight = 44.dp,
+                        )
                     }
                 }
                 items(options, key = { it }) { name ->
@@ -380,6 +366,15 @@ fun BoardRepoField(
                             onBranchChange(if (isDefault) null else name)
                         },
                     )
+                }
+                if (state.error != null && !state.loading) {
+                    item(key = "\u0000retry") {
+                        GlassSheetRow(
+                            label = FeedbackStates.RETRY,
+                            leading = { RowGlyph(ExpIcons.uiRefresh) },
+                            onClick = { retryBranches() },
+                        )
+                    }
                 }
             }
         }
@@ -484,24 +479,3 @@ private fun RowGlyph(icon: ImageVector) {
     )
 }
 
-/** Loading / error line inside an option sheet, aligned with its rows. */
-@Composable
-private fun SheetStatusRow(
-    loading: Boolean,
-    text: String,
-    color: Color,
-) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-    ) {
-        if (loading) {
-            Box(modifier = Modifier.width(30.dp), contentAlignment = Alignment.CenterStart) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-            }
-        }
-        Text(text, style = MaterialTheme.typography.bodySmall, color = color)
-    }
-}

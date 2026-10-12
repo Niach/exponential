@@ -4,6 +4,7 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.focusable
@@ -12,9 +13,12 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.PressInteraction
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,22 +30,19 @@ import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.InputMode
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onPlaced
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.ui.platform.LocalInputModeManager
 import androidx.compose.ui.zIndex
-import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
 import at.exponential.ui.ffi.animationFrameJson
 import at.exponential.ui.json.JsonValue
 import at.exponential.ui.model.NodeInfo
@@ -164,9 +165,17 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
         }
     }
 
+    // EXP-1259: a pressed Button scales to the theme's `scale.press` (none
+    // under reduced motion).
+    val pressSource = remember(node.id) { MutableInteractionSource() }
+    val pressScale = if (pressable && node.component == "Button" && !model.reducedMotion) model.theme?.scale("press") ?: 1f else 1f
+    val isPressed by pressSource.collectIsPressedAsState()
+    val scale by animateFloatAsState(if (isPressed) pressScale else 1f, tween((model.theme?.motion("fast") ?: 120f).toInt(), easing = CubicBezierEasing(0.2f, 0f, 0f, 1f)), label = "press")
+    val pressedScale = if (pressScale != 1f) Modifier.graphicsLayer { scaleX = scale; scaleY = scale } else Modifier
+
     val press: Modifier = when {
         pressable -> {
-            val interactions = remember(node.id) { MutableInteractionSource() }
+            val interactions = pressSource
             LaunchedEffect(interactions) {
                 interactions.interactions.collect { i ->
                     when (i) {
@@ -284,6 +293,8 @@ private fun NodeBody(index: Int, node: NodeInfo, model: SurfaceModel, modifier: 
             .traversal(index)
             .nodeSemantics(node, model)
             .then(animated)
+            .then(pressedScale)
+            .skeletonPulse(node.component == "Skeleton" && node.isLeaf, model.reducedMotion)
             .then(hover)
             .then(toast)
             .then(press)

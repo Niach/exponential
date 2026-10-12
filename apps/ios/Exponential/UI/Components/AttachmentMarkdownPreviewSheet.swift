@@ -18,21 +18,23 @@ struct AttachmentMarkdownPreviewSheet: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    // FEED-79: a failed Download (the person's tap) is a toast; the load on
+    // open fails quietly into the empty state. Never a rose line.
+    @Environment(\.toaster) private var toaster
 
     private enum Phase {
         case loading
         case ready(String)
         case tooLarge
-        case error(String)
+        /// The fetch on open failed: the empty state, no toast.
+        case failed
     }
 
     @State private var phase: Phase = .loading
     /// The fetched bytes, kept so Download writes them without a second request.
     @State private var data: Data?
+    /// A failed Download keeps the rendered file on screen and toasts.
     @State private var downloading = false
-    /// A failed Download keeps the rendered file on screen; the reason shows
-    /// under the subtitle instead.
-    @State private var downloadError: String?
     @State private var shareTarget: ShareTarget?
 
     private var title: String {
@@ -67,11 +69,6 @@ struct AttachmentMarkdownPreviewSheet: View {
                     Text(AttachmentFiles.markdownPreviewSubtitle(sizeBytes: attachment.sizeBytes))
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    if let downloadError {
-                        Text(downloadError)
-                            .font(.caption)
-                            .foregroundStyle(DesignTokens.Semantic.red)
-                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, GlassSheetTokens.headerHPadding)
@@ -102,15 +99,9 @@ struct AttachmentMarkdownPreviewSheet: View {
     private var phaseView: some View {
         switch phase {
         case .loading:
-            HStack(spacing: 6) {
-                ProgressView()
-                    .controlSize(.small)
-                    .tint(.white)
-                Text("Loading...")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            .padding(.vertical, 24)
+            // D8 PLACEHOLDER: skeleton text lines, never "Loading" copy.
+            SkeletonRows(rows: 3, rowHeight: 28, dot: false, dividers: false)
+                .padding(.vertical, 12)
         case let .ready(markdown):
             AgentMarkdownText(
                 text: markdown,
@@ -122,10 +113,11 @@ struct AttachmentMarkdownPreviewSheet: View {
                 .font(.callout)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .padding(.vertical, 24)
-        case let .error(message):
-            Text(message)
+        case .failed:
+            // Web's line for the same state (no toast: the load ran on open).
+            Text("No preview. Download it to read it.")
                 .font(.callout)
-                .foregroundStyle(DesignTokens.Semantic.red)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .padding(.vertical, 24)
         }
     }
@@ -151,7 +143,7 @@ struct AttachmentMarkdownPreviewSheet: View {
         } catch is CancellationError {
             return
         } catch {
-            phase = .error(AttachmentFiles.markdownPreviewErrorMessage(error))
+            phase = .failed
         }
     }
 
@@ -160,7 +152,6 @@ struct AttachmentMarkdownPreviewSheet: View {
     private func download() {
         guard !downloading else { return }
         downloading = true
-        downloadError = nil
         Task {
             defer { downloading = false }
             let directory = FileManager.default.temporaryDirectory
@@ -184,7 +175,10 @@ struct AttachmentMarkdownPreviewSheet: View {
                 }
                 shareTarget = ShareTarget(url: destination, text: attachment.filename)
             } catch {
-                downloadError = AttachmentFiles.markdownPreviewErrorMessage(error)
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "download", thing: "the file"),
+                    description: AttachmentFiles.markdownPreviewErrorMessage(error)
+                )
             }
         }
     }

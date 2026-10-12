@@ -5,15 +5,25 @@ import android.database.ContentObserver
 import android.os.Handler
 import android.os.Looper
 import android.provider.Settings
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FiniteAnimationSpec
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.TransformOrigin
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
 
 // Motion (EXP-523) — the hand-written half of the shared motion system.
@@ -110,4 +120,43 @@ object Motion {
         reduceMotion: Boolean,
     ): FiniteAnimationSpec<T> =
         if (reduceMotion) snap() else tween(durationMs, easing = easing)
+}
+
+// EXP-1243 (EXP-1259 D17): the motion rules (animations.dev), pinned in
+// `packages/design-tokens` and applied ×4. Enters ease OUT (`decelerate`) at
+// the standard duration, exits are faster (`accelerate`, the fast duration)
+// and opacity-only; a popover or menu scales from `PopoverFrom` (never from 0)
+// at its trigger's origin; a primary button presses to `Press`. Nothing
+// animates for keyboard-initiated or high-frequency changes (typeahead, tab
+// switches, list navigation). Reduce motion = opacity only.
+
+/** A popover / menu ENTER: fade + scale from [DesignTokens.Motion.Scale.PopoverFrom]
+ *  at [origin] (the trigger's side), decelerating; opacity only under reduce
+ *  motion. */
+fun popoverEnter(reduceMotion: Boolean, origin: TransformOrigin = TransformOrigin.Center): EnterTransition {
+    val fade = fadeIn(tween(DesignTokens.Motion.Duration.Standard, easing = DesignTokens.Motion.Ease.Decelerate))
+    if (reduceMotion) return fade
+    return fade + scaleIn(
+        tween(DesignTokens.Motion.Duration.Standard, easing = DesignTokens.Motion.Ease.Decelerate),
+        initialScale = DesignTokens.Motion.Scale.PopoverFrom,
+        transformOrigin = origin,
+    )
+}
+
+/** A popover / menu EXIT: opacity only, faster than its enter. */
+fun popoverExit(): ExitTransition =
+    fadeOut(tween(DesignTokens.Motion.Duration.Fast, easing = DesignTokens.Motion.Ease.Accelerate))
+
+/** A primary button's press: scale to [DesignTokens.Motion.Scale.Press] while
+ *  [pressed]; none under reduce motion. */
+@Composable
+fun Modifier.pressScale(pressed: Boolean): Modifier {
+    val reduce = LocalReduceMotion.current
+    val target = if (pressed && !reduce) DesignTokens.Motion.Scale.Press else 1f
+    val scale by animateFloatAsState(
+        target,
+        Motion.fast(reduce, if (pressed) DesignTokens.Motion.Ease.Decelerate else DesignTokens.Motion.Ease.Standard),
+        label = "press-scale",
+    )
+    return if (scale == 1f) this else graphicsLayer { scaleX = scale; scaleY = scale }
 }

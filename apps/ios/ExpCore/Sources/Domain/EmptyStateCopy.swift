@@ -112,7 +112,7 @@ public extension EmptyStateCopy.State {
     )
     static let runNotFound = Self(
         id: "run-not-found", size: .page, icon: "action-run",
-        title: "Run not found", description: nil, action: "Go to Agent"
+        title: "Session not found", description: nil, action: "Go to Agent"
     )
     static let noSelectionIssue = Self(
         id: "no-selection-issue", size: .page, icon: "ui-issue",
@@ -148,7 +148,7 @@ public extension EmptyStateCopy.State {
     )
     static let actionRuns = Self(
         id: "action-runs", size: .list, icon: "action-run",
-        title: "No runs yet", description: nil, action: nil
+        title: "No sessions yet", description: nil, action: nil
     )
     static let actionTriggers = Self(
         id: "action-triggers", size: .list, icon: "trigger-event",
@@ -156,7 +156,7 @@ public extension EmptyStateCopy.State {
     )
     static let recentRuns = Self(
         id: "recent-runs", size: .list, icon: "coding-ended",
-        title: "No recent runs", description: nil, action: nil
+        title: "No recent sessions", description: nil, action: nil
     )
     static let runningAgents = Self(
         id: "running-agents", size: .list, icon: "coding-running",

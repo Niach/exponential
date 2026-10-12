@@ -6,13 +6,13 @@ import {
   MobilePopover,
   MobilePopoverContent,
   MobilePopoverTrigger,
-  PickerList,
+  SearchList,
   Sheet,
   SheetContent,
   SheetTitle,
-  issuePickerItems,
+  issueSearchItems,
   useIsMobile,
-  type PickerItem,
+  type SearchListDensity,
 } from "@exp/ui"
 import { toStatusPickerStatus } from "@/components/issue-properties/status-dropdown"
 import { useTeamStatusesContext } from "@/hooks/use-team-statuses"
@@ -29,9 +29,10 @@ import type { IssueSearchRow } from "@/lib/issue-search"
 // in three shells. The ENGINE is the shared one (EXP-892,
 // `useIssueSearchResults`: local ranking now, the server's full-text pass
 // spliced in behind; cmdk's own filter OFF so the ranking renders verbatim),
-// the BODY is the shared picker list (EXP-1021: the status glyph in its
-// colour, then `IDENT Title`, ×4), single (a pick) or multi (pinned picks
-// first, a toggle per row). Only the SHELL is a prop:
+// the BODY is THE search list (SLOP-28, `@exp/ui` `SearchList`: the status
+// glyph in its colour, the mono identifier, the title, ×4; at the default
+// limit, no cap), single (a pick) or multi (pinned picks first with their
+// check, a toggle per row). Only the SHELL is a prop:
 //
 //   dialog   a centred dialog md+, the full sheet on a phone (opened from a
 //            menu row: there is no trigger to hang a popover off)
@@ -64,17 +65,20 @@ interface IssuePickerBodyBase<R extends IssuePickerRow> {
   searchPlaceholder?: string
   /** The empty line, given the query. */
   emptyText?: (query: string) => ReactNode
-  /** Replaces the row BODY (the selection language stays the primitive's). */
-  renderItem?: (row: R, item: PickerItem) => ReactNode
-  /** Resolve each row's status glyph into its item (default). `false` for a
-   *  `renderItem` that draws its own — resolving one per hit per keystroke
-   *  would be thrown away. */
-  statusGlyphs?: boolean
-  /** Rendered in the field's row before the search glyph (a back arrow). */
+  /** Rendered in the input row before the search glyph (a back arrow). */
   leading?: ReactNode
-  inputVariant?: `inline` | `field`
+  /** At most this many rows visible (the search list's eight by default);
+   *  `null` = the shell caps the height (a full-screen page). */
+  maxVisibleRows?: number | null
+  /** Under the rows (the Implement submenu's button). */
+  footer?: ReactNode
+  autoFocus?: boolean
+  /** Pointer or phone geometry; defaults to the viewport's. */
+  density?: SearchListDensity
+  /** Backspace in the empty input (the `#` typeahead deletes its `#`). */
+  onBackspaceEmpty?: () => void
+  inputTestId?: string
   className?: string
-  listClassName?: string
 }
 
 export type IssuePickerBodyProps<R extends IssuePickerRow> =
@@ -94,7 +98,7 @@ export type IssuePickerBodyProps<R extends IssuePickerRow> =
 
 const NO_ROWS: never[] = []
 
-/** The engine + the shared list, with no surface around it. */
+/** The engine + THE search list (SLOP-28), with no surface around it. */
 export function IssuePickerBody<R extends IssuePickerRow>(
   props: IssuePickerBodyProps<R> & {
     query: string
@@ -111,14 +115,16 @@ export function IssuePickerBody<R extends IssuePickerRow>(
     emptyQuery,
     query,
     onQueryChange,
-    searchPlaceholder = `Search issues…`,
+    searchPlaceholder = `Search issues`,
     emptyText,
-    renderItem,
-    statusGlyphs = true,
     leading,
-    inputVariant,
+    maxVisibleRows,
+    footer,
+    autoFocus,
+    density,
+    onBackspaceEmpty,
+    inputTestId,
     className,
-    listClassName,
   } = props
   const { resolve } = useTeamStatusesContext()
   const checked = props.mode === `multi` ? props.checked : (NO_ROWS as R[])
@@ -144,15 +150,13 @@ export function IssuePickerBody<R extends IssuePickerRow>(
   })
   const ordered = useMemo(() => [...checked, ...results], [checked, results])
   const byId = useMemo(() => new Map(ordered.map((row) => [row.id, row])), [ordered])
+  // The search list's issue rows: the issue's own status row (resolved
+  // against the team's synced statuses exactly as every list row resolves
+  // it), the identifier in its mono column, the title.
   const items = useMemo(
     () =>
-      issuePickerItems(
+      issueSearchItems(
         ordered.map((row) => {
-          if (!statusGlyphs) {
-            return { id: row.id, identifier: row.identifier, title: row.title }
-          }
-          // The issue's own status row, resolved against the team's synced
-          // statuses exactly as every list row resolves it.
           const status = toStatusPickerStatus(resolve(row as never))
           return {
             id: row.id,
@@ -163,27 +167,24 @@ export function IssuePickerBody<R extends IssuePickerRow>(
           }
         })
       ),
-    [ordered, statusGlyphs, resolve]
+    [ordered, resolve]
   )
   const shared = {
     items,
-    search: true,
     // The engine already ranked and capped the rows (EXP-892).
     shouldFilter: false,
     query,
     onQueryChange,
-    searchPlaceholder,
+    placeholder: searchPlaceholder,
     emptyText: emptyText?.(query),
     leading,
-    inputVariant,
+    maxVisibleRows,
+    footer,
+    autoFocus,
+    density,
+    onBackspaceEmpty,
+    inputTestId,
     className,
-    listClassName,
-    renderItem: renderItem
-      ? (item: PickerItem) => {
-          const row = byId.get(item.value)
-          return row ? renderItem(row, item) : null
-        }
-      : undefined,
   }
 
   // The picker marker every typed picker is asserted through.
@@ -201,7 +202,7 @@ export function IssuePickerBody<R extends IssuePickerRow>(
   if (props.mode === `multi`) {
     const values = checked.map((row) => row.id)
     return marker(
-      <PickerList
+      <SearchList
         mode="multi"
         value={values}
         onChange={(next) => {
@@ -215,7 +216,7 @@ export function IssuePickerBody<R extends IssuePickerRow>(
     )
   }
   return marker(
-    <PickerList
+    <SearchList
       mode="single"
       // Picking LINKS or NAVIGATES: nothing is ever the picked row.
       value={null}
@@ -279,7 +280,11 @@ export function IssuePickerHost<R extends IssuePickerRow>(
         }
       : props
   // Pickers off the shell never call the server.
-  const engine = { ...bodyProps, server: (props.server ?? true) && open }
+  const engine = {
+    ...bodyProps,
+    server: (props.server ?? true) && open,
+    density: props.density ?? (isMobile ? (`phone` as const) : (`pointer` as const)),
+  }
 
   // cmdk's input takes no `autoFocus`, and the dialog shells' own open-focus
   // lands on their first tabbable child; the field is focused explicitly.
@@ -332,8 +337,8 @@ export function IssuePickerHost<R extends IssuePickerRow>(
             query={query}
             onQueryChange={setQuery}
             leading={backButton?.(() => handleOpenChange(false))}
-            inputVariant="field"
-            className={`${props.className ?? ``} **:data-[slot=command-input-wrapper]:border-border/50 **:data-[slot=command-input]:rounded-full`}
+            maxVisibleRows={null}
+            className={`${props.className ?? ``} **:data-[slot=command-input]:rounded-full`}
           />
         </SheetContent>
       </Sheet>
@@ -350,7 +355,13 @@ export function IssuePickerHost<R extends IssuePickerRow>(
         className={`flex flex-col gap-0 overflow-hidden p-0 sm:p-0 max-sm:px-0 sm:top-[15%] sm:max-h-[60vh] sm:max-w-lg sm:translate-y-0 ${contentClassName ?? ``}`}
       >
         <DialogTitle className="sr-only">{title}</DialogTitle>
-        <IssuePickerBody {...engine} query={query} onQueryChange={setQuery} />
+        {/* A phone's sheet is the height: the list fills it. */}
+        <IssuePickerBody
+          {...engine}
+          query={query}
+          onQueryChange={setQuery}
+          maxVisibleRows={isMobile ? null : undefined}
+        />
       </DialogContent>
     </Dialog>
   )

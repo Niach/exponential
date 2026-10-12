@@ -79,6 +79,21 @@ export function issuePickerItems(issues: readonly IssuePickerIssue[]): PickerIte
   }))
 }
 
+/** SLOP-28: the search list's issue rows (`SearchList`, ×4) — the status
+ *  glyph, the identifier in its own mono column, the title. Search matches
+ *  both. */
+export function issueSearchItems(issues: readonly IssuePickerIssue[]): PickerItem[] {
+  return issues.map((issue) => ({
+    value: issue.id,
+    label: issue.title,
+    identifier: issue.identifier,
+    keywords: [issue.identifier, issue.title],
+    icon: issue.icon,
+    color: issue.color,
+    disabled: issue.disabled,
+  }))
+}
+
 export function IssuePicker({
   issues,
   emptyText = `No issues`,

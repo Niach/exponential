@@ -1,8 +1,11 @@
 package com.exponential.app.ui.components
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,6 +16,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -22,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.pressScale
 
 /**
  * Full-width primary on glass — "Create board", "Continue". Replaces Material's
@@ -42,6 +48,9 @@ fun GlassSubmitButton(
     icon: (@Composable () -> Unit)? = null,
 ) {
     val shape = GlassTokens.ButtonShape
+    // EXP-1243 (D17): the primary button presses to 0.97.
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
     val content = if (enabled) {
         DesignTokens.Palette.PrimaryForeground
     } else {
@@ -52,6 +61,7 @@ fun GlassSubmitButton(
         horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterHorizontally),
         modifier = modifier
             .fillMaxWidth()
+            .pressScale(pressed && enabled)
             .clip(shape)
             .background(
                 if (enabled) DesignTokens.Palette.Primary else GlassTokens.CardFill,
@@ -63,7 +73,17 @@ fun GlassSubmitButton(
                 if (enabled) Color.Transparent else GlassTokens.StrokeCard,
                 shape,
             )
-            .then(if (enabled) Modifier.clickable(onClick = onClick) else Modifier)
+            .then(
+                if (enabled) {
+                    Modifier.clickable(
+                        interactionSource = interactionSource,
+                        indication = LocalIndication.current,
+                        onClick = onClick,
+                    )
+                } else {
+                    Modifier
+                },
+            )
             .padding(vertical = 14.dp),
     ) {
         // The icon slot (a glyph, or the in-flight spinner) draws in the

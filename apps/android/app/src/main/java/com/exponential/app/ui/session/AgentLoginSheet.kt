@@ -38,6 +38,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.domain.parseAgentLoginResult
+import com.exponential.app.ui.components.ClaimedFailedActionToast
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
@@ -82,6 +83,9 @@ internal fun AgentLoginSheet(
     val device = target.device
     val commandStates by viewModel.commandStates.collectAsStateWithLifecycle()
     val toaster = LocalToaster.current
+    // FEED-79: a refused sign-in (or code) is the ViewModel's error toast.
+    val failure by viewModel.failure.collectAsStateWithLifecycle()
+    ClaimedFailedActionToast(failure, viewModel::claimFailure)
 
     // EXP-862: the sheet closes itself once a login COMMITS on the device
     // (web/desktop/iOS do the same). The baseline = every profile's

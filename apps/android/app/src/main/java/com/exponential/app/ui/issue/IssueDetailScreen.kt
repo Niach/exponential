@@ -80,7 +80,8 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.IssueChip
-import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.components.FailedActionToast
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
 import com.exponential.app.ui.icons.ExpIcons
@@ -260,6 +261,8 @@ fun IssueFace(
     /** EXP-1097: the Sub-issues `+` — the create screen with this issue as
      *  the parent. Null hides it (and the empty "Add sub-issues" band). */
     onAddSubIssue: (() -> Unit)? = null,
+    /** EXP-1241: scroll to this comment once it renders, then highlight it. */
+    focusCommentId: String? = null,
 ) {
     val issueId = viewModel.issueId
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -351,46 +354,31 @@ fun IssueFace(
     // Surface failed description saves (retries exhausted) — the draft is
     // retained in the ViewModel, so the user knows to stay/retry instead of
     // believing the edit persisted.
+    // FEED-79: every failure below is `Couldn't <verb> <thing>` + the
+    // server's message (FailedActionToast), Retry where re-running is safe.
     val toaster = LocalToaster.current
     val descriptionSaveError by viewModel.descriptionSaveError.collectAsStateWithLifecycle()
-    LaunchedEffect(descriptionSaveError) {
-        descriptionSaveError?.let {
-            toaster.error(it)
-            viewModel.consumeDescriptionSaveError()
-        }
-    }
+    FailedActionToast(descriptionSaveError, onShown = viewModel::consumeDescriptionSaveError)
 
     // Surface a failed move (EXP-57) — otherwise the issue silently stays put.
     val moveError by viewModel.moveError.collectAsStateWithLifecycle()
-    LaunchedEffect(moveError) {
-        moveError?.let {
-            toaster.error(it)
-            viewModel.consumeMoveError()
-        }
-    }
+    FailedActionToast(moveError, onShown = viewModel::consumeMoveError)
 
     // Surface a failed inline label create (EXP-254 duplicate-name CONFLICT) —
     // otherwise the label sheet closes and nothing happens.
     val labelError by viewModel.labelError.collectAsStateWithLifecycle()
-    LaunchedEffect(labelError) {
-        labelError?.let {
-            toaster.error(it)
-            viewModel.consumeLabelError()
-        }
-    }
+    FailedActionToast(labelError, onShown = viewModel::consumeLabelError)
 
     // Surface a refused property mutation — status/priority/due date/assignee/
     // labels/title, subscribe, duplicate, delete (REV2-50). The screen renders
     // synced state, so without this the tap read as "nothing happened".
     val mutationError by viewModel.mutationError.collectAsStateWithLifecycle()
-    LaunchedEffect(mutationError) {
-        mutationError?.let {
-            toaster.error(it)
-            viewModel.consumeMutationError()
-        }
-    }
+    FailedActionToast(mutationError, onShown = viewModel::consumeMutationError)
 
-    // Same for the comment thread (send / edit / delete).
+    // Same for the comment thread (send / edit / delete / upload) ...
+    val commentFailure by commentViewModel.commentFailure.collectAsStateWithLifecycle()
+    FailedActionToast(commentFailure, onShown = commentViewModel::consumeCommentFailure)
+    // ... and a picked attachment it refused (caps, unreadable): a plain toast.
     val commentError by commentViewModel.commentError.collectAsStateWithLifecycle()
     LaunchedEffect(commentError) {
         commentError?.let {
@@ -465,8 +453,8 @@ fun IssueFace(
                 }
             } else {
                 // Still resolving: sync was kicked and the direct fetch may be
-                // in flight — a spinner, not a dead end.
-                LoadingState(modifier = Modifier.padding(padding))
+                // in flight — skeleton rows (EXP-1275, web parity), not a dead end.
+                SkeletonRows(modifier = Modifier.padding(padding).padding(horizontal = 16.dp, vertical = 16.dp))
             }
             return@CompositionLocalProvider
         }
@@ -778,6 +766,7 @@ fun IssueFace(
                     // reporter; members moderate (delete) those comments.
                     reporterName = widgetSubmission?.reporterName,
                     canModerate = permissions.isMember,
+                    focusCommentId = focusCommentId,
                 )
 
                 // Clearance so the last timeline row scrolls out from under the

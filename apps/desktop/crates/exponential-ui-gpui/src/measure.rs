@@ -514,7 +514,7 @@ pub fn text_chrome(owner_component: &str, part: Option<&str>, props: &Map<String
 
 /// Is a leaf a host-owned one-line field (`search`, NumberField/ChipInput `input`)?
 pub fn is_inline_field(component: &str, part: Option<&str>) -> bool {
-    matches!((component, part), ("Select", Some("search")) | ("NumberField", Some("input")) | ("ChipInput", Some("input")))
+    matches!((component, part), ("Select" | "SearchList", Some("search")) | ("NumberField", Some("input")) | ("ChipInput", Some("input")))
 }
 
 // ---------------------------------------------------------------------------
@@ -681,12 +681,20 @@ impl<'a> GpuiMeasure<'a> {
         let props = leaf.props;
         let ts = leaf.text_style;
         let label = str_prop(props, "label");
-        let has_icon = has(props, "icon") || props.get("loading").and_then(Value::as_bool) == Some(true);
+        let loading = props.get("loading").and_then(Value::as_bool) == Some(true);
+        let has_icon = has(props, "icon") || loading;
         let icon_only = str_prop(props, "size") == "icon";
         let icon = if has_icon || icon_only { px_prop(&self.part(component, "icon", props, &[]), "width").unwrap_or_else(|| control(self.theme, "iconSm", 16.0)) } else { 0.0 };
         let label_w = if icon_only || label.is_empty() { 0.0 } else { self.line(label, ts) };
         let gap = if has_icon && label_w > 0.0 { leaf.control.gap } else { 0.0 };
-        let w = if has_icon || icon_only { icon } else { 0.0 } + gap + label_w;
+        let mut w = if has_icon || icon_only { icon } else { 0.0 } + gap + label_w;
+        // EXP-1259: the pending state (the spinner + `pendingLabel`) never
+        // narrows the button below its idle width, nor clips the word.
+        let pending = str_prop(props, "pendingLabel");
+        if loading && !icon_only && !pending.is_empty() {
+            let pending_w = icon + leaf.control.gap + self.line(pending, ts);
+            w = w.max(pending_w);
+        }
         let h = ts.line_height.max(if has_icon { icon } else { 0.0 });
         let baseline = (label_w > 0.0).then(|| (h - ts.line_height) / 2.0 + self.line_baseline(ts));
         (w, h, baseline)

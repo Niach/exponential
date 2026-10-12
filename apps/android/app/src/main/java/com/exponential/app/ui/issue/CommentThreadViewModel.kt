@@ -33,6 +33,7 @@ import com.exponential.app.domain.commentComposerAfterBind
 import com.exponential.app.domain.MediaPreparer
 import com.exponential.app.domain.isInlineImage
 import com.exponential.app.domain.isInlineMedia
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.markdown.MarkdownMediaUtils
 import dagger.hilt.android.lifecycle.HiltViewModel
 import java.io.File
@@ -291,8 +292,7 @@ class CommentThreadViewModel @Inject constructor(
                     throw cancel
                 } catch (t: Throwable) {
                     android.util.Log.w("CommentThreadViewModel", "Media prepare failed", t)
-                    _commentError.value = t.message?.takeIf { it.isNotBlank() }
-                        ?: "That file could not be prepared"
+                    _commentFailure.value = FailedAction("attach", "the file", t.message)
                     return@launch
                 }
                 if (prepared.bytes.size > MAX_FILE_UPLOAD_BYTES) {
@@ -375,7 +375,7 @@ class CommentThreadViewModel @Inject constructor(
             } catch (t: Throwable) {
                 // The 412 body's billing copy never reaches the UI — the API
                 // already replaced it (EXP-216).
-                _commentError.value = trpcErrorMessage(t, "The attachment could not be uploaded")
+                _commentFailure.value = FailedAction("upload", "the attachment", trpcErrorMessage(t, ""))
                 return null
             }
             target.value = target.value.mapIndexed { i, entry ->
@@ -404,7 +404,7 @@ class CommentThreadViewModel @Inject constructor(
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (t: Throwable) {
-            reportFailure(t, "The file could not be downloaded")
+            reportFailure(t, "download", "the file")
             null
         }
     }
@@ -431,9 +431,8 @@ class CommentThreadViewModel @Inject constructor(
     private val _sending = MutableStateFlow(false)
     val sending: StateFlow<Boolean> = _sending
 
-    // Surfaced when a comment send / edit / delete is refused (snackbar in the
-    // issue screen, REV2-50): the thread is driven by Electric sync, so a
-    // failed write left the composer looking like a dead button.
+    // A picked attachment refused before it queues (count/size caps, an
+    // unreadable file): a plain toast in the issue screen (web parity).
     private val _commentError = MutableStateFlow<String?>(null)
     val commentError: StateFlow<String?> = _commentError
 
@@ -441,9 +440,19 @@ class CommentThreadViewModel @Inject constructor(
         _commentError.value = null
     }
 
-    private fun reportFailure(t: Throwable, fallback: String) {
+    // FEED-79: a comment send / edit / delete / upload the server refused
+    // (REV2-50): the thread is driven by Electric sync, so a failed write left
+    // the composer looking like a dead button. An error toast in the screen.
+    private val _commentFailure = MutableStateFlow<FailedAction?>(null)
+    val commentFailure: StateFlow<FailedAction?> = _commentFailure
+
+    fun consumeCommentFailure() {
+        _commentFailure.value = null
+    }
+
+    private fun reportFailure(t: Throwable, verb: String, thing: String) {
         if (t is CancellationException) throw t
-        _commentError.value = trpcErrorMessage(t, fallback)
+        _commentFailure.value = FailedAction(verb, thing, trpcErrorMessage(t, ""))
     }
 
     fun updateDraft(text: String) {
@@ -507,7 +516,7 @@ class CommentThreadViewModel @Inject constructor(
                 accountId, issueId, body, attachmentIds.ifEmpty { null }, parentId, audience,
             )
         }
-            .onFailure { reportFailure(it, "The comment could not be posted") }
+            .onFailure { reportFailure(it, "post", "the comment") }
             .getOrNull()
     }
 
@@ -533,7 +542,7 @@ class CommentThreadViewModel @Inject constructor(
         return runCatching {
             commentsApi.update(accountId, id, body, attachmentIds)
         }
-            .onFailure { reportFailure(it, "The comment could not be saved") }
+            .onFailure { reportFailure(it, "save", "the comment") }
             .isSuccess
             .also { if (it) _editAttachments.value = emptyList() }
     }
@@ -541,7 +550,7 @@ class CommentThreadViewModel @Inject constructor(
     suspend fun deleteComment(id: String) {
         val accountId = auth.activeAccountId.value ?: return
         runCatching { commentsApi.delete(accountId, id) }
-            .onFailure { reportFailure(it, "The comment could not be deleted") }
+            .onFailure { reportFailure(it, "delete", "the comment") }
     }
 
 }

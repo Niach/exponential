@@ -199,7 +199,7 @@ impl Render for DoctorPanel {
             (hub.doctor.device.clone(), hub.doctor.running)
         };
         let block = match &doctor {
-            None => device_readiness::render_loading(),
+            None => device_readiness::render_loading(cx),
             Some(doctor) => {
                 let mut props = device_readiness::local_props("doctor", cx);
                 for item in &doctor.items {

@@ -19,7 +19,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-1021`,
   title: `Action picker`,
-  blurb: `The team's actions (and the two listed builtins) by curated icon and name — the Agent composer's action chip and the automation editor's "Action" row. An action whose inputs are required is rendered and disabled in the automation arm, because an automated run has nobody to fill them in; a row with no icon of its own draws the default action glyph rather than nothing.`,
+  blurb: `The team's actions (and the two listed builtins) by curated icon and name — the Agent composer's action chip and the automation editor's "Action" row. An action whose inputs are required is rendered and disabled in the automation arm, because an automated session has nobody to fill them in; a row with no icon of its own draws the default action glyph rather than nothing.`,
   status: typedPickerStatus(`ActionPicker`, {
     web: `action-picker.tsx`,
     desktop: `action_picker.rs`,

@@ -17,6 +17,10 @@ import {
   upsertFromRoute,
   isPreviewOrigin,
   previewSlotKey,
+  isNewRunPath,
+  landNewRun,
+  NEW_RUN_TAB,
+  openNewRunTab,
   type LiveRun,
   type WorkTab,
   type WorkTabsState,
@@ -639,3 +643,58 @@ describe(`parseWorkTabsState`, () => {
   })
 })
 
+
+// EXP-1255: the New run tab — ONE per team, the Agent page, and it turns into
+// the run it starts.
+describe(`the New run tab`, () => {
+  const issueTab: WorkTab = {
+    kind: `issue`,
+    issueId: `i1`,
+    face: `issue`,
+    runId: null,
+    from: null,
+    live: false,
+  }
+
+  it(`opens once at the end and goes to the Agent page`, () => {
+    const opened = openNewRunTab(state([issueTab]))
+    expect(keys(opened)).toEqual([`issue:i1`, `new`])
+    expect(openNewRunTab(opened)).toBe(opened)
+    expect(tabHref(`acme`, NEW_RUN_TAB, () => null)).toEqual({
+      to: `/t/$teamSlug/agent`,
+      params: { teamSlug: `acme` },
+      search: {},
+    })
+    expect(isNewRunPath(`/t/acme/agent`)).toBe(true)
+    expect(isNewRunPath(`/t/acme/agent/`)).toBe(true)
+    expect(isNewRunPath(`/t/acme/agent-x`)).toBe(false)
+    expect(isNewRunPath(`/t/acme/sessions/r1`)).toBe(false)
+  })
+
+  it(`turns into the landed run's tab in place`, () => {
+    const s = state([NEW_RUN_TAB, issueTab])
+    expect(keys(landNewRun(s, { runId: `r1`, issueId: null }))).toEqual([`run:r1`, `issue:i1`])
+    const issueRun = landNewRun(s, { runId: `r2`, issueId: `i2` })
+    expect(issueRun.tabs[0]).toEqual({
+      kind: `issue`,
+      issueId: `i2`,
+      face: `run`,
+      runId: `r2`,
+      from: null,
+      live: false,
+    })
+  })
+
+  it(`takes the place of a work item that already has a tab`, () => {
+    const s = state([NEW_RUN_TAB, issueTab])
+    expect(keys(landNewRun(s, { runId: `r1`, issueId: `i1` }))).toEqual([`issue:i1`])
+    expect(landNewRun(state([issueTab]), { runId: `r1`, issueId: null }).tabs).toEqual([issueTab])
+  })
+
+  it(`survives a reload, a live reconcile and closes like any tab`, () => {
+    const s = state([issueTab, NEW_RUN_TAB])
+    expect(parseWorkTabsState(JSON.stringify(s))).toEqual(s)
+    expect(reconcileLive(s, [{ runId: `r9`, issueId: null }])).toBe(s)
+    expect(keys(closeTabs(s, [`new`]))).toEqual([`issue:i1`])
+  })
+})

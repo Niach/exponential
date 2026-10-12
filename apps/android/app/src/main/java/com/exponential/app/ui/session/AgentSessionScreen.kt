@@ -111,6 +111,8 @@ import com.exponential.app.ui.components.GlassAlertAction
 import com.exponential.app.ui.components.detailHazeSource
 import com.exponential.app.ui.components.FadeEdge
 import com.exponential.app.ui.components.EdgeFade
+import com.exponential.app.ui.components.InlineSpinner
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.FloatingBarEdge
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalLayoutDirection
@@ -147,6 +149,10 @@ import com.exponential.app.domain.SessionResultEntry
 import com.exponential.app.domain.ThreadItem
 import com.exponential.app.domain.SessionThread
 import com.exponential.app.domain.sessionThread
+import com.exponential.app.domain.ToastAction
+import com.exponential.app.domain.RunRowTone
+import com.exponential.app.domain.FeedbackStates
+import com.exponential.app.domain.TURN_STATE_STARTED
 import com.exponential.app.domain.SessionTurn
 import com.exponential.app.domain.SessionTurnMessage
 import com.exponential.app.domain.SessionTurns
@@ -174,7 +180,6 @@ import com.exponential.app.ui.components.BarCapsule
 import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.ContextRing
 import com.exponential.app.ui.components.FloatingBottomBar
-import com.exponential.app.ui.components.TaskListProgress
 import com.exponential.app.ui.components.modelLabel
 import com.exponential.app.ui.components.modelOptionsFor
 import androidx.lifecycle.Lifecycle
@@ -200,10 +205,7 @@ import com.exponential.app.domain.BackgroundTask
 import com.exponential.app.domain.QUEUE_REMOVE_LABEL
 import com.exponential.app.domain.QUEUE_STRIP_TITLE
 import com.exponential.app.domain.QueuedMessage
-import com.exponential.app.domain.TASK_LIST_STATUS_COMPLETED
-import com.exponential.app.domain.TASK_LIST_STATUS_IN_PROGRESS
 import com.exponential.app.domain.TaskListEntry
-import com.exponential.app.domain.TaskListSummary
 import com.exponential.app.domain.WorkflowAgent
 import com.exponential.app.domain.WorkflowState
 import com.exponential.app.domain.backgroundTaskLabel
@@ -212,12 +214,15 @@ import com.exponential.app.domain.openWaitLabels
 import com.exponential.app.domain.runningWorkflow
 import com.exponential.app.domain.stripBackgroundTasks
 import com.exponential.app.domain.taskListSummary
+import com.exponential.app.domain.ScriptCards
+import com.exponential.app.domain.foldedPhases
+import com.exponential.app.domain.isScriptCall
+import com.exponential.app.domain.laneAgent
+import com.exponential.app.domain.scriptCardInput
+import com.exponential.app.domain.taskListWorkCard
+import com.exponential.app.domain.workCard
 import com.exponential.app.domain.waitingLabel
 import com.exponential.app.domain.workflowDuplicates
-import com.exponential.app.domain.workflowPhaseCounts
-import com.exponential.app.domain.workflowPhaseSummary
-import com.exponential.app.domain.workflowAgentMetrics
-import com.exponential.app.domain.workflowAgentNote
 import com.exponential.app.domain.splitWorkflowToolRows
 import com.exponential.app.domain.WORKFLOW_STATUS_COMPLETED
 import com.exponential.app.domain.WORKFLOW_STATUS_FAILED
@@ -306,7 +311,8 @@ import com.exponential.app.ui.markdown.autocompleteCandidateCount
 import com.exponential.app.ui.markdown.autocompleteTriggersAt
 import com.exponential.app.ui.markdown.mentionCandidatesFor
 import com.exponential.app.ui.markdown.pickAutocompleteAt
-import com.exponential.app.ui.markdown.rememberIssueRefCandidates
+import com.exponential.app.ui.markdown.IssueTypeaheadSheetHost
+import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.withEmoji
 import com.exponential.app.ui.markdown.withIssueRef
 import com.exponential.app.ui.markdown.withMention
@@ -451,7 +457,40 @@ private fun RunFaceContent(
     val feed = activity.feed
     val latestDiff = activity.latestDiff
     val killError by viewModel.killError.collectAsStateWithLifecycle()
+    // FEED-79 (EXP-1259 D10): a failed kill call (EXP-268) is the error toast
+    // with Retry — success needs nothing: the synced row flips to ended.
+    val toaster = LocalToaster.current
+    LaunchedEffect(killError) {
+        val failure = killError ?: return@LaunchedEffect
+        val title = FeedbackStates.errorTitle("stop", "the session")
+        toaster.error(
+            title,
+            failure.takeIf { it != title },
+            ToastAction(FeedbackStates.RETRY) { viewModel.killSession() },
+        )
+        viewModel.clearKillError()
+    }
     val launchRunState by viewModel.runState.collectAsStateWithLifecycle()
+    // FEED-79 (EXP-1259 D10): a failed Resume start is the error toast (the
+    // caption row draws nothing for it). Its Retry re-sends the press under
+    // the same `startId`; a late row landing (Idle) takes the toast down.
+    val failedStartToaster = LocalToaster.current
+    var failedStartToastId by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(launchRunState) {
+        val failed = launchRunState as? ActionRunState.Failed
+        if (failed == null) {
+            if (launchRunState is ActionRunState.Idle) {
+                failedStartToastId?.let { failedStartToaster.dismiss(it) }
+                failedStartToastId = null
+            }
+            return@LaunchedEffect
+        }
+        failedStartToastId = failedStartToaster.error(
+            FeedbackStates.errorTitle("resume", "the session"),
+            failed.message,
+            ToastAction(FeedbackStates.RETRY) { viewModel.retryResume() },
+        )
+    }
     val attachmentDims by viewModel.attachmentDims.collectAsStateWithLifecycle()
     // EXP-760: the run's team issues, newest-first — resolves the identifiers
     // the agent names in the feed (IssueFace's handler, same shape).
@@ -603,14 +642,25 @@ private fun RunFaceContent(
         RunRowState.Review -> CodingSessionDisplayState.Review
         RunRowState.Done -> CodingSessionDisplayState.Done
     }
+    // EXP-1271 (EXP-1259 D8): before the run's first turn the OWNER's status
+    // row is the mark over "Starting on <device>" — nothing streamed, nothing
+    // published, no turn begun (web `startingRun`).
+    val threadBlank = remember(session?.results) {
+        sessionThread(session?.results).let { it.items.isEmpty() && it.reply == null }
+    }
+    val startingRun = session != null && session?.userId == currentUserId &&
+        !sessionEnded && !rowPaused && feed.isEmpty() && threadBlank &&
+        activity.turnState != TURN_STATE_STARTED && history == null &&
+        phase !is AgentPhase.Closed && phase !is AgentPhase.Ended
     val statusRow: @Composable () -> Unit = {
         ReadingColumn {
             RunStatusRow(
                 agent = session?.agent?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
                 markState = rowMarkState,
                 ended = rowState == RunRowState.Ended,
-                caption = rowCaption.text,
-                tone = rowCaption.tone,
+                starting = startingRun,
+                caption = if (startingRun) FeedbackStates.startingLabel(hostDevice.displayLabel) else rowCaption.text,
+                tone = if (startingRun) RunRowTone.Muted else rowCaption.tone,
                 toolLine = rowToolLine,
                 showWork = showWork,
                 onToggle = { viewModel.setShowWork(!showWork) },
@@ -711,7 +761,9 @@ private fun RunFaceContent(
     val composerMentions = mentionCandidatesFor(mentionMembers, composerTriggers.mentionQuery)
     // EXP-892: ranked by the shared engine, with the server's full-text hits
     // (comment bodies included) spliced in behind them once typing settles.
-    val composerRefs = rememberIssueRefCandidates(issueRefHandler, composerTriggers.issueRefQuery)
+    // SLOP-28 (EXP-1259 D4): `#` opens THE search list in a bottom sheet
+    // (the IssueTypeaheadSheetHost below), never issue rows in this menu.
+    val composerRefs = emptyList<IssueRefTarget>()
     val composerEmojiMatch = composerTriggers.emoji
     val composerEmojiData = rememberEmojiData(enabled = composerEmojiMatch != null)
     val composerEmojiPrefs = rememberEmojiPrefs()
@@ -738,6 +790,13 @@ private fun RunFaceContent(
         viewModel.setDraft(next.text)
         composerArmed = false
     }
+    IssueTypeaheadSheetHost(
+        handler = issueRefHandler.takeIf { issueRefCandidates.isNotEmpty() },
+        field = composerField,
+        armed = composerArmed && composerTriggers.issueRef != null,
+        onDisarm = { composerArmed = false },
+        onCommit = { next -> commitComposerToken(next) },
+    )
     // `:tada:` — the closing colon plus an EXACT shortcode commits immediately
     // (no trailing space), so a user who habitually types the closed form never
     // leaves literal shortcode text in a steered message. Web/iOS/desktop
@@ -759,8 +818,8 @@ private fun RunFaceContent(
     var contextLayoutExpanded by rememberSaveable { mutableStateOf(false) }
     // EXP-1051/EXP-1031: a refused account switch says why when its disabled
     // control is tapped, as an error toast — the toast window draws above the
-    // Usage sheet, so it is no longer an inline line inside it.
-    val toaster = LocalToaster.current
+    // Usage sheet, so it is no longer an inline line inside it. (`toaster`
+    // is held above, beside the kill toast.)
 
     // EXP-656: the reader's place in the feed lives at the FACE level, not
     // inside ActivityFeed. Held there, a single frame of empty feed flipped the
@@ -928,14 +987,11 @@ private fun RunFaceContent(
             // machine for it. Say which machine, and say plainly when
             // it cannot answer — this is not a connection problem the
             // viewer can wait out.
+            // EXP-1259 D8.3: the transcript's first load = placeholder rows
+            // in its own column, the phase as a muted caption.
+            feed.isEmpty() && history == HistoryState.Pending ->
+                TranscriptPlaceholder(historyStatus(history, hostDevice.displayLabel))
             feed.isEmpty() && history != null -> CenteredState {
-                if (history == HistoryState.Pending) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                }
                 Text(
                     historyStatus(history, hostDevice.displayLabel),
                     style = MaterialTheme.typography.bodySmall,
@@ -966,23 +1022,16 @@ private fun RunFaceContent(
                         textAlign = TextAlign.Center,
                     )
                 }
+            // EXP-1271: the status row above says "Starting on …".
+            startingRun -> Unit
             feed.isEmpty() && (phase == AgentPhase.Connecting || phase == AgentPhase.Starting) ->
-                CenteredState {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(18.dp),
-                        strokeWidth = 2.dp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                    )
-                    Text(
-                        if (phase == AgentPhase.Starting) {
-                            "The agent is starting. Waiting for the live stream…"
-                        } else {
-                            "Connecting…"
-                        },
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    )
-                }
+                TranscriptPlaceholder(
+                    if (phase == AgentPhase.Starting) {
+                        "The agent is starting. Waiting for the live stream…"
+                    } else {
+                        "Connecting…"
+                    },
+                )
             feed.isEmpty() && !everRendered && phase == AgentPhase.Live &&
                 latestDiff == null ->
                 CenteredState {
@@ -1050,6 +1099,12 @@ private fun RunFaceContent(
             // EXP-1188: a link to an issue or run on this instance opens
             // in the app; anything else stays a browser link.
             LocalAppLinks provides appLinkHandler,
+            // EXP-1241: a comment call's card names the run's agent and its
+            // owner (the author until the comment row syncs).
+            LocalRunCards provides RunCards(
+                agent = session?.agent?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
+                ownerId = session?.userId,
+            ),
         ) {
         Column(
             modifier = Modifier
@@ -1158,6 +1213,8 @@ private fun RunFaceContent(
             bottomInset = bottomInset,
             // An expanded composer card is its own surface.
             visible = !composerExpanded,
+            // EXP-1256: the thread's bottom edge in the page's own ground.
+            ground = true,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
@@ -1207,18 +1264,15 @@ private fun RunFaceContent(
                 when (val p = phase) {
                     is AgentPhase.Ended -> BannerRow {
                         Text(
-                            p.detail ?: "Run ended",
+                            p.detail ?: "Session ended",
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
                         )
                     }
                     is AgentPhase.Closed -> BannerRow {
                         if (p.reconnecting) {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(13.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
+                            // EXP-1259 D8.1: the band's inline spinner.
+                            InlineSpinner()
                         }
                         Text(
                             p.detail
@@ -1230,11 +1284,8 @@ private fun RunFaceContent(
                     }
                     AgentPhase.Starting -> if (feed.isNotEmpty()) {
                         BannerRow {
-                            CircularProgressIndicator(
-                                modifier = Modifier.size(13.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onSurface,
-                            )
+                            // EXP-1259 D8.1: the band's inline spinner.
+                            InlineSpinner()
                             Text(
                                 "The agent is starting. Waiting for the live stream…",
                                 style = MaterialTheme.typography.labelMedium,
@@ -1246,18 +1297,6 @@ private fun RunFaceContent(
                 }
             }
 
-            // A failed kill call (EXP-268) — success needs no banner: the
-            // synced row flips to ended and the screen reacts on its own.
-            val killFailure = killError
-            if (killFailure != null) {
-                BannerRow {
-                    Text(
-                        killFailure,
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
-                }
-            }
 
             // Start feedback for a Resume (EXP-773) — the same caption Reviews
             // and the Changes bar show.
@@ -1461,7 +1500,7 @@ private fun RunFaceContent(
             // above: a finished run has no plan left to work.
             if (phase == AgentPhase.Live && !sessionEnded && taskList != null) {
                 ReadingColumn {
-                    TaskListBlock(summary = taskList, entries = activity.taskList)
+                    TaskListWorkCard(entries = activity.taskList)
                 }
                 Spacer(Modifier.height(4.dp))
             }
@@ -1983,7 +2022,7 @@ internal fun sessionStatusLine(
                 if (label != null) "$prefix · $label" else prefix
             }
             AgentPhase.Connecting, AgentPhase.Starting, AgentPhase.Idle -> "Connecting…"
-            is AgentPhase.Ended -> "Run ended"
+            is AgentPhase.Ended -> "Session ended"
             is AgentPhase.Closed -> if (phase.reconnecting) "Reconnecting…" else "Disconnected"
         }
     }
@@ -2269,7 +2308,7 @@ private fun ActivityFeed(
                 // addressed to it and its tool calls, in publish order.
                 item(key = "agent-summary") {
                     TranscriptRow(TranscriptGap.None) {
-                        SubagentGroupRow(run = focused.copy(items = emptyList()), liveTail = false)
+                        SubagentWorkCard(run = focused, onOpen = null)
                     }
                 }
                 if (focused.items.isEmpty()) {
@@ -2333,9 +2372,14 @@ private fun ActivityFeed(
                         // MCP tools is ONE captioned row ("Read 3 issues") —
                         // our tools never hide inside "N other tools".
                         is AgentFeedRow.ExpRun -> ExpToolGroupRow(items = row.items)
-                        is AgentFeedRow.SubagentRun -> SubagentGroupRow(
+                        // EXP-1240: a subagent is THE Work card; its rows are
+                        // its own tab's, which the card opens.
+                        is AgentFeedRow.SubagentRun -> SubagentWorkCard(
                             run = row,
-                            liveTail = live && row.id == rows.last().id,
+                            onOpen = {
+                                onAgentTabChange(row.subagentId)
+                                onFollowChange(true)
+                            },
                         )
                         is AgentFeedRow.QuestionStepper -> AnswerCardRow(row, cards)
                         is AgentFeedRow.Single -> when (val item = row.item) {
@@ -2359,9 +2403,13 @@ private fun ActivityFeed(
                                     } else {
                                         ToolRow(item, live = item.id == liveRowId)
                                     }
-                                    else -> WorkflowCard(
+                                    else -> WorkflowWorkCard(
                                         workflow = workflow,
                                         duplicates = workflowDuplicates(feed, workflow.id),
+                                        onOpenAgent = { id ->
+                                            onAgentTabChange(id)
+                                            onFollowChange(true)
+                                        },
                                     )
                                 }
                             // EXP-856: a second copy of a live agent, inline —
@@ -2388,7 +2436,7 @@ private fun ActivityFeed(
                             // Unreachable in practice — groupFeedRows folds every
                             // subagent marker into a SubagentRun — kept for `when`
                             // exhaustiveness.
-                            is AgentFeedItem.Subagent -> SubagentGroupRow(
+                            is AgentFeedItem.Subagent -> SubagentWorkCard(
                                 run = AgentFeedRow.SubagentRun(
                                     id = item.id,
                                     subagentId = item.subagentId,
@@ -2398,7 +2446,7 @@ private fun ActivityFeed(
                                     title = item.title,
                                     items = emptyList(),
                                 ),
-                                liveTail = false,
+                                onOpen = null,
                             )
                             is AgentFeedItem.Question -> AnswerCardRow(row, cards)
                         }
@@ -2412,9 +2460,13 @@ private fun ActivityFeed(
             if (orphanWorkflows.isNotEmpty()) {
                 items(orphanWorkflows, key = { "workflow-${it.id}" }) { workflow ->
                     TranscriptRow(TranscriptGap.Tool) {
-                        WorkflowCard(
+                        WorkflowWorkCard(
                             workflow = workflow,
                             duplicates = workflowDuplicates(feed, workflow.id),
+                            onOpenAgent = { id ->
+                                onAgentTabChange(id)
+                                onFollowChange(true)
+                            },
                         )
                     }
                 }
@@ -2462,12 +2514,14 @@ private fun ActivityFeed(
         // (`HeaderEdgeChrome`), over every face alike. EXP-1175: the list
         // starts below the status row (and the tabs), so its own head dissolves.
         run {
+            // EXP-1256: the thread's edge in the page's own ground, no tint.
             EdgeFade(
                 FadeEdge.Top,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .height(DetailChrome.EDGE_TOP.dp),
+                ground = true,
             )
         }
         }
@@ -2654,12 +2708,14 @@ private fun RunThread(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = bottomInset + 4.dp),
             )
+            // EXP-1256: the thread's edge in the page's own ground, no tint.
             EdgeFade(
                 FadeEdge.Top,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
                     .height(DetailChrome.EDGE_TOP.dp),
+                ground = true,
             )
         }
     }
@@ -2904,147 +2960,21 @@ internal fun rememberWorkingMarkPulse(): Float {
 private const val WORKING_CLOCK_TICK_MS = 1_000L
 private const val WORKING_PULSE_MS = 1_400
 
-/** EXP-927: the task list opens to at most eight lines and then scrolls — a
- *  fifty-entry plan may not eat the transcript. */
-private val TaskListEntryHeight = 20.dp
-private const val TASK_LIST_VISIBLE_ROWS = 8
-
-/** EXP-927: one full turn of the `ui-loading` glyph beside the running entry. */
-private const val TASK_LIST_SPIN_MS = 1_200
-
 /**
  * EXP-927 (wire doc §2c): the agent's OWN task list — EXP-1191: the LAST
- * block above the composer. EXP-1213: on the same [glassRow] ground as its
- * sibling strips ([BackgroundWorkStrip], [QueueStrip]) — the band floats over
- * the transcript, and plain rows there read as feed text. Collapsed (the default) it is ONE plain line: the checklist glyph, the
- * current entry, the segmented [TaskListProgress] mark, `{completed}/{total}`
- * and the disclosure chevron; the whole line toggles. Expanded it is one line
- * per entry in wire order. The expansion is view state, never persisted — a
- * rejoin opens collapsed.
+ * block above the composer. EXP-1240: as THE Work card (`Tasks · 3 / 7`, a
+ * segment per task, the task in progress); opaque, since the band floats
+ * over the transcript.
  */
 @Composable
-private fun TaskListBlock(summary: TaskListSummary, entries: List<TaskListEntry>) {
-    var expanded by remember { mutableStateOf(false) }
-    val tertiary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-    val secondary = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-    Column(
+private fun TaskListWorkCard(entries: List<TaskListEntry>) {
+    val card = remember(entries) { taskListWorkCard(entries) }
+    WorkCardView(
+        card = card,
         modifier = Modifier
-            .fillMaxWidth()
-            .glassRow()
-            .padding(horizontal = 8.dp)
+            .background(DesignTokens.Palette.Card, RoundedCornerShape(DesignTokens.Radius.Lg))
             .testTag("task-list-block"),
-    ) {
-        // The header is the toggle, so its own tag is the one a test may read:
-        // a clickable row MERGES its children's semantics into this node.
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(role = Role.Button) { expanded = !expanded }
-                .padding(horizontal = 4.dp, vertical = 6.dp)
-                .testTag("task-list-toggle"),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-        ) {
-            Icon(
-                imageVector = ExpIcons.uiChecklist,
-                contentDescription = null,
-                modifier = Modifier.size(12.dp),
-                tint = tertiary,
-            )
-            Text(
-                summary.current,
-                style = MaterialTheme.typography.labelSmall,
-                color = secondary,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            TaskListProgress(statuses = entries.map { it.status })
-            Text(
-                "${summary.completed}/${summary.total}",
-                style = MaterialTheme.typography.labelSmall.copy(fontFeatureSettings = "tnum"),
-                color = tertiary,
-                maxLines = 1,
-            )
-            Icon(
-                imageVector = if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
-                contentDescription = null,
-                modifier = Modifier.size(12.dp),
-                tint = tertiary,
-            )
-        }
-        if (expanded) {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .heightIn(max = TaskListEntryHeight * TASK_LIST_VISIBLE_ROWS)
-                    .verticalScroll(rememberScrollState())
-                    .padding(start = 4.dp, end = 4.dp, bottom = 6.dp),
-            ) {
-                entries.forEach { entry -> TaskListEntryLine(entry) }
-            }
-        }
-    }
-}
-
-/** EXP-927: one expanded entry — done is struck through and dim, the running
- *  one spins its glyph and reads at full strength, a pending one waits. */
-@Composable
-private fun TaskListEntryLine(entry: TaskListEntry) {
-    val running = entry.status == TASK_LIST_STATUS_IN_PROGRESS
-    val done = entry.status == TASK_LIST_STATUS_COMPLETED
-    Row(
-        // A MINIMUM, not a fixed height: at a large font scale the line grows
-        // rather than clipping, and the eight-line cap simply shows fewer.
-        modifier = Modifier.fillMaxWidth().heightIn(min = TaskListEntryHeight),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        val tint = MaterialTheme.colorScheme.onSurface.copy(
-            alpha = if (done) TextEmphasis.Quaternary else TextEmphasis.Tertiary,
-        )
-        if (running) {
-            // The ONLY animated line — the transition is built here and not
-            // per entry, so a fifty-item plan does not schedule fifty of them.
-            val spin by rememberInfiniteTransition(label = "task-list").animateFloat(
-                initialValue = 0f,
-                targetValue = 360f,
-                animationSpec = infiniteRepeatable(
-                    tween(TASK_LIST_SPIN_MS, easing = LinearEasing),
-                ),
-                label = "taskListSpin",
-            )
-            Icon(
-                imageVector = ExpIcons.uiLoading,
-                contentDescription = null,
-                modifier = Modifier
-                    .size(12.dp)
-                    .then(if (LocalReduceMotion.current) Modifier else Modifier.rotate(spin)),
-                tint = tint,
-            )
-        } else {
-            Icon(
-                imageVector = if (done) ExpIcons.uiSelected else ExpIcons.uiUnselected,
-                contentDescription = null,
-                modifier = Modifier.size(12.dp),
-                tint = tint,
-            )
-        }
-        Text(
-            entry.content,
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(
-                alpha = when {
-                    done -> TextEmphasis.Quaternary
-                    running -> TextEmphasis.Primary
-                    else -> TextEmphasis.Secondary
-                },
-            ),
-            textDecoration = if (done) TextDecoration.LineThrough else null,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
+    )
 }
 
 /**
@@ -3187,239 +3117,65 @@ private fun DuplicateAgentRow(item: AgentFeedItem.DuplicateAgent) {
 }
 
 /**
- * EXP-850 (S3): the workflow card — drawn IN PLACE OF the `Workflow` tool row
- * with the same id (its own settle folds in here, never a second row).
- *
- * Collapsed it is the name, the shared caption ([WorkflowCaption], the ×4
- * sentence) and any duplicate warnings; expanded it adds the description, the
- * phase strip with per-phase counts, one row per agent and the summary once it
- * is finished. It SUMMARISES its agents; EXP-1225: their rows live in their
- * own conversation tabs, never folded in here.
+ * EXP-850 (S3) / EXP-1240: a claude `Workflow` call as THE Work card — drawn
+ * IN PLACE OF the `Workflow` tool row with the same id: the phases as a
+ * segment bar, the finished ones folded into one row, the running phase's
+ * lanes one line each. A lane opens that agent's own tab (EXP-1225: a
+ * workflow agent is a conversation tab like any subagent). EXP-856: the
+ * duplicate warnings stay under the card whatever it is doing.
  */
 @Composable
-private fun WorkflowCard(
+private fun WorkflowWorkCard(
     workflow: WorkflowState,
     duplicates: List<AgentFeedItem.DuplicateAgent>,
+    onOpenAgent: (subagentId: String) -> Unit,
 ) {
-    var expanded by rememberSaveable(workflow.id) { mutableStateOf(true) }
-    val phases = remember(workflow) { workflowPhaseCounts(workflow) }
-    val agents = remember(workflow) { workflow.agents.sortedBy { it.index } }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .glassCard()
-            .padding(horizontal = 12.dp, vertical = 10.dp)
-            .testTag("workflow-card"),
-        verticalArrangement = Arrangement.spacedBy(6.dp),
+    val card = remember(workflow) { workflow.workCard() }
+    val folded = remember(workflow, card) { workflow.foldedPhases(card) }
+    WorkCardView(
+        card = card,
+        foldedPhases = folded,
+        onOpenLane = { target -> workflow.laneAgent(target)?.agentId?.let(onOpenAgent) },
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth().clickable { expanded = !expanded },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Icon(
-                if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
-                contentDescription = if (expanded) "Collapse" else "Expand",
-                modifier = Modifier.size(14.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-            Icon(
-                ExpIcons.uiChecklist,
-                contentDescription = null,
-                modifier = Modifier.size(12.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-            Text(
-                workflow.name,
-                style = transcriptToolStyle(),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f),
-            )
-            WorkflowStatusGlyph(workflow.status)
-        }
-        // The caption every client shares — the same sentence the session
-        // header and the synced `agent_caption` carry.
-        Text(
-            workflow.caption(),
-            style = MaterialTheme.typography.labelSmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(start = 22.dp),
-        )
-        if (expanded) {
-            workflow.description?.let { description ->
-                Text(
-                    description,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier.padding(start = 22.dp),
-                )
-            }
-            if (phases.isNotEmpty()) {
-                Column(
-                    modifier = Modifier.padding(start = 22.dp),
-                    verticalArrangement = Arrangement.spacedBy(2.dp),
-                ) {
-                    phases.forEach { phase ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            Text(
-                                phase.title,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(
-                                    alpha = TextEmphasis.Secondary,
-                                ),
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                            Text(
-                                workflowPhaseSummary(phase),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurface.copy(
-                                    alpha = TextEmphasis.Tertiary,
-                                ),
-                                maxLines = 1,
-                            )
-                        }
-                    }
-                }
-            }
-            agents.forEach { agent -> WorkflowAgentRow(agent) }
-            workflow.summary?.takeIf { !workflow.isRunning }?.let { summary ->
-                Text(
-                    summary,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                    modifier = Modifier.padding(start = 22.dp),
-                )
+        if (duplicates.isNotEmpty()) {
+            Column(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                duplicates.forEach { DuplicateAgentRow(it) }
             }
         }
-        // EXP-856: kept whatever the card is doing — a warning that hides
-        // behind a chevron is a warning nobody reads.
-        duplicates.forEach { DuplicateAgentRow(it) }
-    }
-}
-
-/** The workflow's own state, as one glyph: a spinner while it runs, a check
- *  when it completed, amber for a stop, the error tone for a failure. */
-@Composable
-private fun WorkflowStatusGlyph(status: String) {
-    when (status) {
-        WORKFLOW_STATUS_COMPLETED -> Icon(
-            ExpIcons.uiCheck,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = LiveGreen,
-        )
-        WORKFLOW_STATUS_FAILED -> Icon(
-            ExpIcons.uiWarning,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = MaterialTheme.colorScheme.error,
-        )
-        WORKFLOW_STATUS_STOPPED -> Icon(
-            ExpIcons.uiStop,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = NeedsInputAmber,
-        )
-        else -> CircularProgressIndicator(
-            modifier = Modifier.size(11.dp),
-            strokeWidth = 2.dp,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
     }
 }
 
 /**
- * EXP-850 (S3): one agent of a workflow — its label, its state, what it cost
- * and what it is on (or produced, or failed with). EXP-1225: a summary line;
- * the agent's own rows are read in its conversation tab.
+ * EXP-1240: a subagent's work as THE Work card — its name, the calls it made,
+ * done or running. [onOpen] opens the subagent's own tab, where its rows live
+ * (null = the card heading that tab). EXP-748: the count is the publisher's.
  */
 @Composable
-private fun WorkflowAgentRow(agent: WorkflowAgent) {
-    val metrics = remember(agent) { workflowAgentMetrics(agent) }
-    val note = remember(agent) { workflowAgentNote(agent) }
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(start = 22.dp)
-            .testTag("workflow-agent-row"),
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            WorkflowAgentStateGlyph(agent.state)
-            Text(
-                agent.label.ifBlank { "Agent ${agent.index}" },
-                style = MaterialTheme.typography.labelMedium,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            if (metrics != null) {
-                Text(
-                    metrics,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-        }
-        if (note != null) {
-            Text(
-                note,
-                style = MaterialTheme.typography.labelSmall,
-                color = if (agent.state == WORKFLOW_AGENT_STATE_ERROR) {
-                    MaterialTheme.colorScheme.error
-                } else {
-                    MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-                },
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 20.dp),
-            )
-        }
-    }
+private fun SubagentWorkCard(run: AgentFeedRow.SubagentRun, onOpen: (() -> Unit)?) {
+    val card = remember(run.label, run.completed, run.toolCount) { run.workCard() }
+    WorkCardView(card = card, onOpenSubagent = onOpen)
 }
 
-/** One workflow agent's state, as the glyph its row leads with. */
+/** EXP-1259 D8.3: the transcript's first load — skeleton rows in its own
+ *  column, the phase as a muted caption under them (web
+ *  `transcript-placeholder`). */
 @Composable
-private fun WorkflowAgentStateGlyph(state: String) {
-    when (state) {
-        WORKFLOW_AGENT_STATE_DONE -> Icon(
-            ExpIcons.uiCheck,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = LiveGreen,
-        )
-        WORKFLOW_AGENT_STATE_ERROR -> Icon(
-            ExpIcons.uiWarning,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = MaterialTheme.colorScheme.error,
-        )
-        WORKFLOW_AGENT_STATE_RUNNING -> CircularProgressIndicator(
-            modifier = Modifier.size(11.dp),
-            strokeWidth = 2.dp,
-            color = MaterialTheme.colorScheme.onSurface,
-        )
-        else -> Icon(
-            ExpIcons.uiClock,
-            contentDescription = null,
-            modifier = Modifier.size(12.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-        )
+private fun TranscriptPlaceholder(caption: String) {
+    ReadingColumn {
+        Column(
+            modifier = Modifier.padding(vertical = 16.dp).testTag("transcript-placeholder"),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            SkeletonRows(rowHeight = 36.dp)
+            Text(
+                caption,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
+            )
+        }
     }
 }
 
@@ -4558,132 +4314,6 @@ private fun PermissionRow(tool: String, detail: String?, showHint: Boolean) {
     }
 }
 
-// A subagent and the tool calls it made (EXP-249), collapsed into one group.
-// The header always shows the agent type, a check/spinner, and the delegation
-// detail; expansion only reveals the tool calls — a run with none renders as a
-// static row with no chevron (EXP-350: the chevron used to expand to nothing).
-// While the group is the trailing row of a live session its latest call stays
-// visible so the viewer still sees progress.
-@Composable
-private fun SubagentGroupRow(
-    run: AgentFeedRow.SubagentRun,
-    liveTail: Boolean,
-) {
-    var expanded by remember { mutableStateOf(false) }
-    val expandable = run.items.isNotEmpty()
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .let { if (expandable) it.clickable { expanded = !expanded } else it },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            if (expandable) {
-                Icon(
-                    if (expanded) ExpIcons.uiChevronDown else ExpIcons.uiChevronRight,
-                    contentDescription = if (expanded) "Collapse" else "Expand",
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                )
-            }
-            Icon(
-                ExpIcons.codingSubagent,
-                contentDescription = null,
-                modifier = Modifier.size(12.dp),
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-            Text(
-                // EXP-847: what the spawning Agent call called this run, with
-                // the agent type as the fallback.
-                run.label,
-                style = transcriptToolStyle(),
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                // A sentence-long description shrinks instead of pushing the
-                // spinner and the tool count off the row.
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            // EXP-847: the type stays readable as a SECONDARY caption whenever
-            // the description took the headline.
-            if (run.label != run.agentType) {
-                Text(
-                    run.agentType,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            if (run.completed) {
-                Icon(
-                    ExpIcons.uiCheck,
-                    contentDescription = null,
-                    modifier = Modifier.size(12.dp),
-                    tint = LiveGreen,
-                )
-            } else {
-                CircularProgressIndicator(
-                    modifier = Modifier.size(11.dp),
-                    strokeWidth = 2.dp,
-                    color = MaterialTheme.colorScheme.onSurface,
-                )
-            }
-        }
-        // EXP-847: what the run DID, in the collapsed tool group's own words —
-        // `ToolGroupSummary`, the caption shared ×4 ("Ran 4 commands · edited 2
-        // files"), instead of counting calls. EXP-748's count survives as the
-        // fallback for exactly the case it was added for: replay evicts a
-        // subagent's tool events first, so when the rows are gone and the
-        // publisher's number is not, the number is all the truth there is.
-        val toolCaption = remember(run.items, run.toolCount) {
-            val calls = run.items.filterIsInstance<AgentFeedItem.Tool>()
-            when {
-                calls.isNotEmpty() -> ToolGroupSummary.summarize(
-                    calls.map { ToolCallSummary(it.toolKind ?: "other", it.detail, it.failed) },
-                )
-                run.toolCount > 0 -> "${run.toolCount} tool calls"
-                else -> null
-            }
-        }
-        if (toolCaption != null) {
-            Text(
-                toolCaption,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 22.dp),
-            )
-        }
-        if (!run.detail.isNullOrBlank()) {
-            Text(
-                run.detail,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 22.dp),
-            )
-        }
-        when {
-            // EXP-773: the run's whole conversation in order, not just its
-            // tool calls.
-            // Inside the group the rows keep their own compact rhythm — the
-            // gap ladder spaces the GROUP, not its contents (EXP-787).
-            // EXP-916: the lane projection, so a run of edits inside a
-            // subagent's conversation is the same ONE card it is outside it.
-            expanded -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                projectLaneRows(run.items).forEach { LaneRow(it, liveItemId = null, nested = true) }
-            }
-            liveTail && run.items.isNotEmpty() -> Column(modifier = Modifier.padding(start = 22.dp)) {
-                projectLaneRows(run.items).last().let { LaneRow(it, liveItemId = null, nested = true) }
-            }
-        }
-    }
-}
-
 /**
  * EXP-916: one row of a LANE's projection ([projectLaneRows]) — an
  * edited-files card, a run of our own MCP calls (EXP-948), or the single item's
@@ -4728,6 +4358,25 @@ private fun ToolRow(
      *  itself. */
     live: Boolean = false,
 ) {
+    // EXP-1279: a code-mode call is its Script card, the calls it made
+    // grouped by tool.
+    if (item.isScriptCall) {
+        val card = remember(item) { ScriptCards.of(item.scriptCardInput()) }
+        ScriptCardView(
+            card = card,
+            running = !item.settled,
+            failed = item.failed,
+            source = item.script?.source,
+            modifier = if (nested) Modifier.padding(vertical = 2.dp) else Modifier,
+        )
+        return
+    }
+    // EXP-1241: a SETTLED comment call is the comment itself, in the comment
+    // look; running or failed it keeps its ordinary row.
+    if (isCommentCallCard(item)) {
+        Box(modifier = if (nested) Modifier.padding(vertical = 2.dp) else Modifier) { CommentCallRow(item) }
+        return
+    }
     val exp = remember(item.name, item.settled) {
         ExpToolDisplay.forName(item.name, item.settled)
     }

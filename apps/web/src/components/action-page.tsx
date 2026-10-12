@@ -7,6 +7,7 @@ import {
   Button,
   GlassSectionHeader,
   Menu,
+  SkeletonRows,
   Tabs,
   TabsContent,
   TabsList,
@@ -119,7 +120,11 @@ export function ActionPage({
 
   if (!isMember) return null
   if (actionRows === undefined) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading…</div>
+    return (
+      <div className="p-6">
+        <SkeletonRows />
+      </div>
+    )
   }
   if (!action) {
     return (
@@ -226,7 +231,7 @@ export function ActionPage({
                 Triggers
               </TabsTrigger>
               <TabsTrigger value="runs" className="flex-1">
-                Runs
+                Sessions
               </TabsTrigger>
             </TabsList>
             <TabsContent value="prompt" data-face-body="">

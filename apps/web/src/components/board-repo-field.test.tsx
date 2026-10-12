@@ -12,7 +12,17 @@ const mockState = vi.hoisted(() => ({
   listQuery: vi.fn(),
   listBranchesQuery: vi.fn(),
   reposQuery: vi.fn(),
+  toastError: vi.fn(),
 }))
+
+// FEED-79: a failed list is neither a toast nor a rose sentence under the field.
+vi.mock(`sonner`, async (importOriginal) => {
+  const actual = await importOriginal<typeof import("sonner")>()
+  return {
+    ...actual,
+    toast: Object.assign(() => {}, actual.toast, { error: mockState.toastError }),
+  }
+})
 
 vi.mock(`@/lib/trpc-client`, () => ({
   trpc: {
@@ -73,6 +83,7 @@ describe(`BoardRepoField (FEED-32)`, () => {
       .mockReset()
       .mockResolvedValue({ branches: [`main`] })
     mockState.reposQuery.mockReset()
+    mockState.toastError.mockReset()
   })
 
   it(`re-lists once when the value is missing from the first list and shows the name`, async () => {
@@ -103,17 +114,18 @@ describe(`BoardRepoField (FEED-32)`, () => {
     )
   })
 
-  it(`a failed list shows the error and keeps a labelled trigger`, async () => {
+  it(`a failed list stays quiet and keeps a labelled trigger`, async () => {
     mockState.listQuery.mockRejectedValue(new Error(`boom`))
     renderField(`repo-1`)
 
-    await screen.findByText(/Couldn.t load the team.s repositories: boom/)
-    expect(trigger().textContent).not.toBe(``)
-    // The one-shot re-list is still in flight for a beat ("Loading
-    // repository…"); what matters is that the trigger settles on a label.
+    // The one-shot re-list is still in flight for a beat; what matters is
+    // that the trigger settles on a label.
     await waitFor(() =>
       expect(trigger().textContent).toContain(`Repository unavailable`)
     )
+    // FEED-79: an automatic list (mount, focus) never toasts.
+    expect(mockState.toastError).not.toHaveBeenCalled()
+    expect(screen.queryByText(/boom/)).toBeNull()
   })
 
   it(`reads "No repository" with nothing selected`, async () => {

@@ -55,7 +55,7 @@ export function ActionsDocsPage() {
             </p>
             <p>
               An action can name a <strong>repository</strong>, in which case
-              the run gets its own git worktree on its own branch{` `}
+              the session gets its own git worktree on its own branch{` `}
               (<code>exp/&lt;slug&gt;-&lt;id&gt;</code>) — never the trunk
               checkout. Without a repository it runs in a scratch directory.
               Either way it runs on the member&apos;s own device, with their
@@ -92,7 +92,7 @@ export function ActionsDocsPage() {
                 you, covered <a href="#triggers">below</a>.
               </li>
               <li>
-                <strong>Runs</strong>: every run of the action, newest first.
+                <strong>Sessions</strong>: every session of the action, newest first.
               </li>
             </ul>
             <p>
@@ -102,7 +102,7 @@ export function ActionsDocsPage() {
 
             <DocShot
               view="action-page"
-              caption="An action's page: Prompt, Triggers, Runs"
+              caption="An action's page: Prompt, Triggers, Sessions"
             />
           </DocsSection>
 
@@ -133,7 +133,7 @@ export function ActionsDocsPage() {
               There is no free-text input type. Whatever the runner wants to
               add goes into the composer&apos;s{` `}
               <strong>Additional instructions</strong> box, whose hint text is
-              the action&apos;s prompt placeholder; it lands in the run&apos;s
+              the action&apos;s prompt placeholder; it lands in the session&apos;s
               prompt under a heading of that name.
             </p>
           </DocsSection>
@@ -146,7 +146,7 @@ export function ActionsDocsPage() {
               {` `}
               <a href="/docs/coding/#start-coding">Agent page composer</a>{` `}
               takes one as a chip (the ▶ button), with the same agent, model
-              and effort pickers as an issue run.
+              and effort pickers as an issue session.
             </p>
             <p>
               From the web (<strong>Actions</strong> in the sidebar) or the{` `}
@@ -154,15 +154,15 @@ export function ActionsDocsPage() {
               hands the action to one of your online desktops and drops you
               into the live session, the same watch-and-steer view as a coding
               run. All four clients edit actions in full; the writes are still
-              owner-only. A run that opens a pull request shows{` `}
+              owner-only. A session that opens a pull request shows{` `}
               <strong>Merge</strong> in its session view, and the PR is listed
-              under <strong>Agent runs</strong> in{` `}
+              under <strong>Agent sessions</strong> in{` `}
               <a href="/docs/coding/#review-merge">Reviews</a>.
             </p>
             <p>
               Starting from scratch? A curated catalog of{` `}
               <strong>suggestions</strong>, seeds that prefill the creator
-              run, some carrying a trigger, sits behind the lightbulb next to
+              session, some carrying a trigger, sits behind the lightbulb next to
               {` `}
               <strong>New action</strong> (on desktop web it is Getting
               started&apos;s <strong>Suggested actions</strong> tab; on the
@@ -212,7 +212,7 @@ export function ActionsDocsPage() {
               </li>
               <li>
                 <strong>Account</strong>, <strong>model</strong> and{` `}
-                <strong>effort</strong>: optional pins for the run.
+                <strong>effort</strong>: optional pins for the session.
               </li>
             </ul>
 
@@ -221,22 +221,22 @@ export function ActionsDocsPage() {
               caption="The trigger form: schedule or event, device, account, model, effort"
             />
 
-            <DocsCallout kind="note" title="A triggered run fills in no inputs">
+            <DocsCallout kind="note" title="A triggered session fills in no inputs">
               A trigger can only be switched on while every input of its
               action is optional.
             </DocsCallout>
             <p>
               Triggers run locally. There is no server scheduler: the bound
-              device starts the run itself. If it was offline at a scheduled
-              time, it catches up with one run when it is back. Withdrawing a
+              device starts the session itself. If it was offline at a scheduled
+              time, it catches up with one session when it is back. Withdrawing a
               shared machine from a team pauses the triggers bound to it.
             </p>
             <p>
               In the Actions list, a row shows a clock while its action has a
               schedule trigger and a bolt while it has an event trigger; the
               glyph is muted while no trigger of that kind is switched on. A
-              triggered run carries the same glyph under{` `}
-              <strong>Runs</strong> and stays out of the Agent page&apos;s
+              triggered session carries the same glyph under{` `}
+              <strong>Sessions</strong> and stays out of the Agent page&apos;s
               Recent list.
             </p>
           </DocsSection>
@@ -273,7 +273,7 @@ export function ActionsDocsPage() {
               <strong>Chat</strong> is not an action you pick: it is the{` `}
               <a href="/docs/coding/#watch-steer">Agent page</a> composer
               with nothing chipped, a free prompt with no issue attached and
-              no repository required. With a repository picked the run gets
+              no repository required. With a repository picked the session gets
               its own <code>exp/chat-&lt;id&gt;</code> worktree, without one
               it runs in a scratch directory. Either way it steers like any
               other session.

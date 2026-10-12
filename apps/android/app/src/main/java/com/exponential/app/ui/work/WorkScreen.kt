@@ -68,6 +68,7 @@ import com.exponential.app.ui.issue.rememberIssueFaceController
 import com.exponential.app.ui.issue.toDiffFile
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.IssueChipSize
@@ -127,6 +128,9 @@ fun WorkScreen(
     // message's inbox row or push); null = the subject's default face. A face
     // not yet available falls back like any vanished face.
     initialFace: WorkFaceKind? = null,
+    /** EXP-1241: the comment the Issue face scrolls to and briefly
+     *  highlights (`issue/{id}?comment=`, a comment call's card). */
+    focusCommentId: String? = null,
 ) {
     // ── Screen state (survives rotation and process death) ─────────────────
     var faceName by rememberSaveable { mutableStateOf(initialFace?.name) }
@@ -271,6 +275,19 @@ fun WorkScreen(
     // EXP-895: the raw `git diff` is parsed ONCE here — the Changes face draws
     // the files.
     val parsedDiff = remember(latestDiff) { latestDiff?.let { Diff.parse(it) } }
+    // EXP-875 (web `shouldConnectSessionDiff`): the run's live diff is what
+    // gives a running issue its Guide tab, so the screen dials it while the
+    // Issue face shows too (only the Run face's own mount dialed before, and
+    // the tab appeared only after visiting it). A live run, or one riding an
+    // open PR; the connection is the shared one the Run face reuses.
+    val dialForDiff = shownSession?.let { run ->
+        run.status == DomainContract.codingSessionStatusRunning ||
+            run.status == DomainContract.codingSessionStatusInReview ||
+            (run.prState ?: issue?.prState) == DomainContract.prStateOpen
+    } == true
+    LaunchedEffect(sessionVm, dialForDiff) {
+        if (dialForDiff) sessionVm?.ensureConnected()
+    }
 
     // EXP-773/849: a Resume or an account switch lands a NEW row — the
     // continuation swaps into the same screen in place.
@@ -563,7 +580,8 @@ fun WorkScreen(
             toastedMergeError = null
         } else if (mergeRefusal != toastedMergeError) {
             toastedMergeError = mergeRefusal
-            toaster.error(mergeRefusal)
+            // FEED-79: `Couldn't merge the PR` (or the stack) + the refusal.
+            toaster.failedAction("merge", if (mergeControl?.stackConfirm != null) "the stack" else "the PR", mergeRefusal)
         }
     }
     // A refused Close PR toasts once too (the merge control carries only
@@ -575,7 +593,7 @@ fun WorkScreen(
             toastedCloseError = null
         } else if (error != toastedCloseError) {
             toastedCloseError = error
-            toaster.error(error)
+            toaster.failedAction("close", "the PR", error)
         }
     }
     // EXP-1251: the Guide's Stack card — the subject's open stack, top first.
@@ -674,7 +692,7 @@ fun WorkScreen(
         // EXP-968: the joined issue when there is one — never a hard null
         // that would make the bar say "Issue syncing…" about a synced row.
         shownSession != null -> sessionRowTitle(shownSession!!, issue, batchIssues)
-        else -> "Run"
+        else -> "Session"
     }
     val canKill = ownShown && !sessionEnded && shownLive
     val verb = when {
@@ -815,6 +833,7 @@ fun WorkScreen(
                             },
                             trailingBarSlot = issueTrailing,
                             mergeBarSlot = issueMergeSlot,
+                            focusCommentId = focusCommentId,
                             onAddSubIssue = onCreateSubIssue?.let { create ->
                                 issue?.let { parent -> { create(parent.boardId, parent.id) } }
                             },
@@ -855,6 +874,7 @@ fun WorkScreen(
                                 load = prLoad,
                                 merge = mergeControl,
                                 onBack = { guideSectionName = null },
+                                onRetry = changesVm?.let { vm -> vm::refresh },
                             )
                         } else {
                             GuideFace(
@@ -1046,7 +1066,7 @@ fun WorkScreen(
 }
 
 /** EXP-876: the covered-issues sheet's title behind a batch run's title. */
-internal const val COVERED_ISSUES_TITLE = "Issues in this run"
+internal const val COVERED_ISSUES_TITLE = "Issues in this session"
 
 /** EXP-1251: a section page key as the saveable screen state. */
 internal fun guideSectionParam(key: GuideSectionKey): String = when (key) {

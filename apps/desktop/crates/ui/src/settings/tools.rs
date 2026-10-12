@@ -25,7 +25,7 @@
 //! of `overlay_owned` and out of the Save-changes button.
 
 use gpui::{
-    App, AppContext as _, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
+    App, AppContext as _, Entity, IntoElement, ParentElement, Render, Styled,
     Subscription, Window,
 };
 use gpui_component::{
@@ -42,7 +42,7 @@ use crate::controls::{glass_input, WebControl as _};
 use crate::native_dialog::{self, AlertSpec};
 
 use super::doctor_section::DoctorPanel;
-use super::{danger_zone, error_notice, section};
+use super::{danger_zone, section};
 
 pub struct ToolsPane {
     repos_input: Entity<InputState>,
@@ -54,7 +54,6 @@ pub struct ToolsPane {
     doctor: Entity<DoctorPanel>,
     /// The hub settings the controls were last synced from (dirty baseline).
     synced: Option<Settings>,
-    save_error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -88,7 +87,6 @@ impl ToolsPane {
             shell_input,
             doctor,
             synced: None,
-            save_error: None,
             _subscriptions: subscriptions,
         };
         this.resync(window, cx);
@@ -168,9 +166,19 @@ impl ToolsPane {
         // save here can never roll back a concurrent Agents-pane save.
         let mut settings = hub.read(cx).settings.clone();
         Self::overlay_owned(&mut settings, &drafted);
-        self.save_error = CodingHub::save_settings(&hub, settings.clone(), cx)
-            .err()
-            .map(SharedString::from);
+        // FEED-79: a failed write is the error toast; Retry saves again.
+        if let Err(error) = CodingHub::save_settings(&hub, settings.clone(), cx) {
+            let pane = cx.entity().downgrade();
+            crate::action_error::failed_action_with_retry(
+                "save",
+                "the tools settings",
+                Some(error.to_string()),
+                move |_, cx| {
+                    let _ = pane.update(cx, |this, cx| this.save(cx));
+                },
+                cx,
+            );
+        }
         // `synced` follows the hub via the observer's resync; setting it here
         // too keeps the Save button honest when the observer coalesces.
         self.synced = Some(settings);
@@ -231,11 +239,7 @@ impl Render for ToolsPane {
                 Self::field_row("Terminal shell", &self.shell_input, window, cx),
             ]));
 
-        let mut save_area = v_flex().gap_2();
-        if let Some(error) = &self.save_error {
-            save_area = save_area.child(error_notice(error.clone(), cx));
-        }
-        save_area = save_area.child(
+        let save_area = v_flex().gap_2().child(
             h_flex().justify_end().child(
                 Button::new("tools-save")
                     .primary()

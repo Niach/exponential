@@ -39,7 +39,7 @@ pub const MAX_RUN: usize = 5;
 
 const PLAN_NOTE_TEMPLATE: &str = "Starts #{first} first, then #{rest}.";
 const BASE_TEMPLATE: &str = "Stacked on #{ident}. Before any edit: `git fetch origin {branch}`; if this branch has no commits of its own, `git reset --hard origin/{branch}`, else `git rebase origin/{branch}`. Open your PR with `exponential_pr_open({issueId, base: \"{branch}\"})`.";
-const LINE_TEMPLATE: &str = "This is the bottom of a stacked line: {line}. After your PR is open and your branch is pushed, start #{next} as a follow-up run on your branch (playbook: Follow-ups and follow-up runs), even under `no follow-up runs`. If more issues follow it, give it this paragraph with your own issue dropped from the line. Do not wait for it.";
+const LINE_TEMPLATE: &str = "This is the bottom of a stacked line: {line}. After your PR is open and your branch is pushed, start #{next} as a follow-up session on your branch (playbook: Follow-ups and follow-up runs), even under `no follow-up runs`. If more issues follow it, give it this paragraph with your own issue dropped from the line. Do not wait for it.";
 const TEXT_TEMPLATE: &str = "Instructions for #{subject}, pass them along unchanged:\n{text}";
 
 // ---------------------------------------------------------------------------

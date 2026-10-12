@@ -1,7 +1,12 @@
 package com.exponential.app.ui.components.picker
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.exponential.app.ui.components.SearchListPanel
 import com.exponential.app.ui.icons.ExpIcons
 
 /**
@@ -53,8 +58,33 @@ fun ActionPicker(
      */
     open: Boolean? = null,
     onOpenChange: ((Boolean) -> Unit)? = null,
+    /**
+     * SLOP-28 (EXP-1259 D5): render the rows INLINE as THE search list (the
+     * composer "+" menu's pushed Run action › page) instead of a sheet; the
+     * rows are icon + name only there. [loading] draws skeleton rows.
+     */
+    inline: Boolean = false,
+    loading: Boolean = false,
+    modifier: Modifier = Modifier,
     trigger: @Composable (open: () -> Unit) -> Unit = {},
 ) {
+    if (inline) {
+        var query by remember { mutableStateOf("") }
+        val all = remember(actions) { actionPickerItems(actions.map { it.copy(description = null) }) }
+        val items = remember(all, query) { PickerRules.filter(all, query) }
+        SearchListPanel(
+            query = query,
+            onQueryChange = { query = it },
+            placeholder = "Search actions",
+            items = items,
+            value = setOfNotNull(value),
+            onPick = { onChange(it.value) },
+            emptyText = emptyText,
+            loading = loading,
+            modifier = modifier,
+        )
+        return
+    }
     Picker(
         items = actionPickerItems(actions),
         mode = PickerMode.Single,

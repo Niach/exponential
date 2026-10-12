@@ -30,10 +30,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.autofill.AutofillNode
 import androidx.compose.ui.autofill.AutofillType
 import androidx.compose.ui.composed
-import androidx.compose.ui.layout.boundsInWindow
-import androidx.compose.ui.layout.onGloballyPositioned
-import androidx.compose.ui.platform.LocalAutofill
-import androidx.compose.ui.platform.LocalAutofillTree
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -47,6 +43,10 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalAutofill
+import androidx.compose.ui.platform.LocalAutofillTree
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
@@ -70,6 +70,7 @@ import at.exponential.ui.model.fieldCommitted
 import at.exponential.ui.model.fieldEdited
 import at.exponential.ui.model.fieldFocused
 import at.exponential.ui.model.fieldSubmitted
+import at.exponential.ui.model.searchKey
 import at.exponential.ui.theme.ResolvedTextStyle
 
 /**
@@ -104,6 +105,9 @@ fun OwnedTextField(
     val secure = inputType == "password"
     val state = model.field(index)
     val id = model.node(index)?.id ?: "#$index"
+    // EXP-1259: a SearchList's (or a searchable submenu's) field.
+    val searchList = model.node(index)?.component == "SearchList"
+    val submenu = searchList && model.node(index)?.ownerComponent == "Menu"
     var value by remember(id) {
         val t = state?.text ?: ""
         mutableStateOf(TextFieldValue(t, TextRange(t.length)))
@@ -159,6 +163,17 @@ fun OwnedTextField(
                         model.fieldSubmitted(index)
                         true
                     }
+                    // EXP-1259: a search list's field picks on Tab and leaves a
+                    // searchable submenu on ← (→ in RTL) at the caret's start.
+                    searchList && e.key == Key.Tab && !e.isShiftPressed && !e.isCtrlPressed -> {
+                        if (e.type == KeyEventType.KeyDown) model.searchKey(index, "Tab")
+                        true
+                    }
+                    searchList && submenu && e.type == KeyEventType.KeyDown && value.selection == TextRange(0) &&
+                        e.key == (if (model.direction == "rtl") Key.DirectionRight else Key.DirectionLeft) -> {
+                        model.searchKey(index, "ArrowLeft")
+                        true
+                    }
                     // Tab leaves a field (a multi-line one too), like the web's.
                     e.key == Key.Tab && !e.isCtrlPressed -> {
                         if (e.type == KeyEventType.KeyDown) focusManager.moveFocus(if (e.isShiftPressed) FocusDirection.Previous else FocusDirection.Next)
@@ -186,7 +201,7 @@ fun OwnedTextField(
             onDone = {
                 // Enter in a single-line field submits (a Form, a ChipInput's chip).
                 if (!multiline) model.fieldSubmitted(index) else model.fieldCommitted(index)
-                if (model.node(index)?.component != "ChipInput") focusManager.clearFocus()
+                if (model.node(index)?.component != "ChipInput" && !searchList) focusManager.clearFocus()
             },
             onSend = { model.composerSubmit(index) },
         ),
@@ -293,7 +308,10 @@ internal fun TextFieldLeaf(cx: LeafContext, multiline: Boolean) {
 internal fun InlineFieldLeaf(cx: LeafContext) {
     val owner = cx.ownerProps
     val placeholder = cx.part(cx.node.recipeComponent, "placeholder")
+    // A `search` part leads with its glyph (the measurer's 16 + 8).
+    val glyph = cx.node.part == "search" && cx.props["icon"] != null
     InnerBox(cx, contentAlignment = Alignment.CenterStart) {
+        if (glyph) GlyphView(Glyph.Search, 16f, placeholder.color ?: cx.themeColor("mutedForeground") ?: cx.ink.copy(alpha = cx.ink.alpha * 0.6f))
         OwnedTextField(
             index = cx.index,
             model = cx.model,
@@ -304,7 +322,7 @@ internal fun InlineFieldLeaf(cx: LeafContext) {
             disabled = cx.model.isDisabled(cx.index),
             submitsOnReturn = false,
             accessibilityLabel = owner.str("label").ifEmpty { owner.str("placeholder") },
-            modifier = Modifier.fillMaxSize(),
+            modifier = if (glyph) Modifier.fillMaxSize().padding(start = 24.dp) else Modifier.fillMaxSize(),
             keyboardType = if (cx.node.component == "NumberField") KeyboardType.Decimal else KeyboardType.Text,
         )
     }

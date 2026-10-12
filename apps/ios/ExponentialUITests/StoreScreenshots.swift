@@ -136,7 +136,7 @@ final class StoreScreenshots: XCTestCase {
         expect(
             statusRow,
             within: Wait.nav,
-            "The Run face never appeared — is screenshots:desktop publishing to the relay?"
+            "The Session face never appeared — is screenshots:desktop publishing to the relay?"
         )
         // An EMPTY feed still renders the container (a dropped relay socket
         // leaves the view "Reconnecting…" with nothing in it), so the tag alone

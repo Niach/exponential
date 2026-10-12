@@ -14,7 +14,7 @@
 //! `InputState` when the markdown-editor track lands it.
 
 use gpui::{
-    div, px, Div, Entity, FontWeight, InteractiveElement as _, IntoElement, ParentElement,
+    div, px, Div, ElementId, Entity, FontWeight, InteractiveElement as _, IntoElement, ParentElement,
     SharedString, StatefulInteractiveElement as _, Styled,
 };
 use gpui_component::{
@@ -820,6 +820,274 @@ fn emoji_button(
 }
 
 use gpui::prelude::FluentBuilder as _;
+
+// ---------------------------------------------------------------------------
+// EXP-1241 (EXP-1259 D14): the comment an agent posted, in the run thread
+// ---------------------------------------------------------------------------
+
+/// The thread's comment card clamps its body to this many lines (the body
+/// rung's 22px line), then offers Show more.
+pub(crate) const THREAD_COMMENT_LINES: usize = 3;
+/// How long the focused comment's tint takes to fade out.
+const COMMENT_FOCUS_FADE: std::time::Duration = std::time::Duration::from_millis(2_400);
+/// A focus request nobody painted within this long is stale (the reader
+/// went elsewhere before the issue loaded).
+const COMMENT_FOCUS_TTL: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// What one comment card in the run thread draws.
+pub(crate) struct ThreadCommentProps {
+    pub id: SharedString,
+    /// The run agent's mark, in front of the author.
+    pub mark: gpui::AnyElement,
+    /// The author's name; `None` when the comment has not synced here.
+    pub author: Option<String>,
+    /// The muted meta beside the name (`2 minutes ago · via MCP`).
+    pub meta: String,
+    pub body: String,
+    /// Scopes the body's `@email`/`#IDENT` pills.
+    pub team_id: Option<String>,
+    pub expanded: bool,
+    pub on_toggle: Option<std::rc::Rc<dyn Fn(&mut gpui::Window, &mut gpui::App)>>,
+    /// Opens the issue scrolled to this comment.
+    pub on_open: Option<std::rc::Rc<dyn Fn(&mut gpui::Window, &mut gpui::App)>>,
+}
+
+/// The meta line a synced comment wears in the thread card: the timeline's
+/// own (`relative time · edited · via MCP`).
+pub(crate) fn thread_comment_meta(comment: &Comment, now_epoch: i64) -> String {
+    let mut meta = relative_time(comment.created_at.as_deref().unwrap_or(""), now_epoch);
+    if comment.edited_at.is_some() {
+        meta.push_str(" · edited");
+    }
+    if let Some(caption) = comment_caption(comment) {
+        if !meta.is_empty() {
+            meta.push_str(" · ");
+        }
+        meta.push_str(&caption);
+    }
+    meta
+}
+
+/// The author name a synced comment wears (the timeline's rule).
+pub(crate) fn thread_comment_author(comment: &Comment, author: Option<&User>) -> String {
+    comment_author_name(comment, author, domain::reporter_reply::FORMER_MEMBER_NAME)
+}
+
+/// Whether a body runs past the card's [`THREAD_COMMENT_LINES`] clamp.
+pub(crate) fn thread_comment_clamps(body: &str) -> bool {
+    body.trim().lines().count() > THREAD_COMMENT_LINES || body.trim().chars().count() > 240
+}
+
+/// EXP-1241 — the real comment an `exponential_comments_create` call
+/// posted, in the comment row's style: the author row (the agent's mark, the
+/// name, the muted meta), the markdown body clamped to three lines with Show
+/// more. The whole card opens the issue scrolled to the comment.
+pub(crate) fn thread_comment_card(props: ThreadCommentProps, cx: &gpui::App) -> gpui::AnyElement {
+    let muted = cx.theme().muted_foreground;
+    let clamps = thread_comment_clamps(&props.body);
+    let mut view = MarkdownView::new(SharedString::from(format!("{}-body", props.id)), props.body.clone())
+        .chat(true)
+        .autolink(true);
+    if let Some(team_id) = props.team_id.as_deref() {
+        let team = team_id.to_string();
+        view = view
+            .resolver(RefResolver::from_store(team_id))
+            .on_open_issue(move |identifier, window, cx| {
+                open_issue_by_identifier(&team, identifier, window, cx);
+            });
+    }
+    let line = theme::tokens::transcript::BODY_LINE_HEIGHT;
+    let body = div()
+        .w_full()
+        .min_w_0()
+        .text_size(px(theme::tokens::transcript::BODY_SIZE))
+        .line_height(px(line))
+        .when(clamps && !props.expanded, |this| {
+            this.max_h(px(line * THREAD_COMMENT_LINES as f32)).overflow_hidden()
+        })
+        .child(view);
+    let header = h_flex()
+        .w_full()
+        .min_w_0()
+        .gap_2()
+        .items_center()
+        .child(div().flex_shrink_0().child(props.mark))
+        .when_some(props.author, |this, author| {
+            this.child(
+                div()
+                    .flex_shrink_0()
+                    .text_sm()
+                    .font_weight(FontWeight::MEDIUM)
+                    .child(SharedString::from(author)),
+            )
+        })
+        .when(!props.meta.is_empty(), |this| {
+            this.child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_xs()
+                    .text_color(muted)
+                    .child(SharedString::from(props.meta.clone())),
+            )
+        });
+    let mut card = v_flex()
+        .id(props.id.clone())
+        .w_full()
+        .min_w_0()
+        .gap_1()
+        .px_3()
+        .pt_2p5()
+        .pb_3()
+        .rounded(px(theme::tokens::radius::MD))
+        .border_1()
+        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
+        .bg(theme::tokens::glass::FILL_ROW.to_hsla())
+        .child(header)
+        .child(body);
+    if clamps {
+        if let Some(toggle) = props.on_toggle.clone() {
+            card = card.child(
+                crate::controls::text_button(
+                    ElementId::from(SharedString::from(format!("{}-more", props.id))),
+                    if props.expanded { "Show less" } else { "Show more" },
+                    crate::controls::TextButtonVariant::Text,
+                    cx,
+                )
+                .on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    toggle(window, cx)
+                }),
+            );
+        }
+    }
+    if let Some(open) = props.on_open {
+        card = card
+            .cursor_pointer()
+            .hover(|this| this.border_color(theme::tokens::glass::STROKE_STRONG.to_hsla()))
+            .on_click(move |_, window, cx| open(window, cx));
+    }
+    card.into_any_element()
+}
+
+/// EXP-1241: a pending "open the issue AT this comment" — set by the thread's
+/// comment card, consumed by the issue's timeline, which scrolls the comment
+/// into view once and tints it briefly.
+#[derive(Clone, Debug)]
+struct CommentFocusRequest {
+    issue_id: String,
+    comment_id: String,
+    nonce: u64,
+    scrolled: bool,
+    at: std::time::Instant,
+}
+
+#[derive(Default)]
+struct CommentFocus {
+    request: Option<CommentFocusRequest>,
+    nonce: u64,
+}
+
+impl gpui::Global for CommentFocus {}
+
+/// Ask the issue's timeline to bring `comment_id` into view and highlight it.
+pub(crate) fn request_comment_focus(issue_id: &str, comment_id: &str, cx: &mut gpui::App) {
+    let focus = cx.default_global::<CommentFocus>();
+    focus.nonce += 1;
+    focus.request = Some(CommentFocusRequest {
+        issue_id: issue_id.to_string(),
+        comment_id: comment_id.to_string(),
+        nonce: focus.nonce,
+        scrolled: false,
+        at: std::time::Instant::now(),
+    });
+}
+
+/// Open the issue a comment belongs to, scrolled to that comment.
+pub(crate) fn open_issue_at_comment(
+    issue_id: &str,
+    comment_id: &str,
+    window: &mut gpui::Window,
+    cx: &mut gpui::App,
+) {
+    request_comment_focus(issue_id, comment_id, cx);
+    crate::navigation::navigate(
+        window,
+        cx,
+        crate::navigation::Screen::IssueDetail { issue_id: issue_id.to_string() },
+    );
+}
+
+/// The live focus request naming one of `comment_ids` on `issue_id`.
+fn focus_for(issue_id: &str, comment_ids: &[&str], cx: &gpui::App) -> Option<CommentFocusRequest> {
+    let request = cx.try_global::<CommentFocus>()?.request.as_ref()?;
+    (request.issue_id == issue_id
+        && comment_ids.contains(&request.comment_id.as_str())
+        && (request.scrolled || request.at.elapsed() < COMMENT_FOCUS_TTL))
+        .then(|| request.clone())
+}
+
+/// Wrap a timeline row so a focus request naming its comment (or one of its
+/// replies) scrolls it into `scroll` once and tints it while the tint fades.
+pub(crate) fn with_comment_focus(
+    row: gpui::AnyElement,
+    issue_id: &str,
+    comment_ids: &[&str],
+    scroll: Option<&gpui::ScrollHandle>,
+    cx: &gpui::App,
+) -> gpui::AnyElement {
+    use gpui::{AnimationExt as _, Styled as _};
+    let Some(request) = focus_for(issue_id, comment_ids, cx) else {
+        return row;
+    };
+    let tint = cx.theme().primary.opacity(0.10);
+    let scroll = scroll.cloned();
+    let probe = (!request.scrolled).then(|| {
+        gpui::canvas(
+            move |bounds, window, cx| {
+                let Some(scroll) = scroll.as_ref() else {
+                    return;
+                };
+                let viewport = scroll.bounds();
+                let offset = scroll.offset();
+                let max = scroll.max_offset();
+                let target = viewport.top() + px(24.);
+                let y = (offset.y - (bounds.top() - target)).clamp(-max.y, px(0.));
+                scroll.set_offset(gpui::point(offset.x, y));
+                if let Some(request) = cx.default_global::<CommentFocus>().request.as_mut() {
+                    request.scrolled = true;
+                }
+                window.refresh();
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+    });
+    div()
+        .relative()
+        .w_full()
+        .min_w_0()
+        .rounded(px(theme::tokens::radius::LG))
+        .child(row)
+        .children(probe)
+        .child(
+            div()
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full()
+                .rounded(px(theme::tokens::radius::LG))
+                .with_animation(
+                    ElementId::from(SharedString::from(format!("comment-focus-{}", request.nonce))),
+                    gpui::Animation::new(COMMENT_FOCUS_FADE).with_easing(gpui::ease_in_out),
+                    move |this, delta| this.bg(tint.opacity(1. - delta)),
+                ),
+        )
+        .into_any_element()
+}
 
 #[cfg(test)]
 mod tests {

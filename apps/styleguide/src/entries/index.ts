@@ -35,9 +35,18 @@ import { entry as mcpAppViews } from "./mcp-app-views.tsx"
 import { entry as runStatusRow } from "./run-status-row.tsx"
 import { entry as sessionThread } from "./session-thread.tsx"
 import { entry as composerOptions } from "./composer-options.tsx"
+import { entry as workCard } from "./work-card.tsx"
+import { entry as scriptCard } from "./script-card.tsx"
+import { entry as commentCallCard } from "./comment-call-card.tsx"
 import { entry as teamAgentsSettings } from "./team-agents-settings.tsx"
 import { entry as yourAgentSettings } from "./your-agent-settings.tsx"
 import { entry as voiceCallOverlay } from "./voice-call-overlay.tsx"
+import { entry as feedbackStates } from "./feedback-states.tsx"
+import { entry as agentHome } from "./agent-home.tsx"
+import { entry as workTabsStrip } from "./work-tabs-strip.tsx"
+import { entry as searchList } from "./search-list.tsx"
+import { entry as menuSubmenu } from "./menu-submenu.tsx"
+import { entry as gettingStarted } from "./getting-started.tsx"
 import type { StyleguideEntry } from "./types.ts"
 
 export type { StyleguideEntry } from "./types.ts"
@@ -56,8 +65,11 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   pickerMcp,
   pickerRepository,
   scopePicker,
+  searchList,
+  menuSubmenu,
   toast,
   jumpToBottom,
+  feedbackStates,
   composerDialog,
   composerFixConflicts,
   issueContextMenu,
@@ -75,9 +87,15 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   runStatusRow,
   sessionThread,
   composerOptions,
+  workCard,
+  scriptCard,
+  commentCallCard,
   teamAgentsSettings,
   yourAgentSettings,
   voiceCallOverlay,
+  agentHome,
+  workTabsStrip,
+  gettingStarted,
 ]
 
 export function entryById(id: string): StyleguideEntry | undefined {

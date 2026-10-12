@@ -1,17 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
-import { toast } from "@exp/ui"
 import type { CodingSession, Device } from "@/db/schema"
-import { codingSessionCollection, deviceCollection } from "@/lib/collections"
-import {
-  findStartedRun,
-  STARTED_RUN_DEADLINE_MS,
-  STARTED_RUN_SKEW_MS,
-} from "@/lib/started-run-match"
+import { deviceCollection } from "@/lib/collections"
 import { deviceCanResumeRun, deviceRowIsOnline } from "@/lib/steer-devices"
-import { trpc } from "@/lib/trpc-client"
 import { useNow } from "@/hooks/use-now"
-import { useOpenSession } from "@/hooks/use-open-session"
+import { useResumeStart } from "@/hooks/use-resume-start"
 import { useSessionDevice } from "@/hooks/use-session-device"
 
 // EXP-877: the Resume machinery, lifted out of the session route's ended-run
@@ -51,65 +44,23 @@ export function useCanResumeOn(
  * settles) was the whole complaint. `resumedFromId` names it. The command is
  * only half of it: `resuming` stays true until the new row syncs in and its
  * page opens, and says so if the machine never starts it (the desktop holds
- * the reason — a conflicted worktree, a failed doctor). */
+ * the reason — a conflicted worktree, a failed doctor). EXP-1259: the send,
+ * its startId and its Retries live in `useResumeStart`. */
 export function useResumeRun(session: CodingSession): {
   resuming: boolean
   resume: () => Promise<void>
 } {
-  const [resuming, setResuming] = useState(false)
   const device = useSessionDevice(session)
-  const openSession = useOpenSession()
-  const [sentAt, setSentAt] = useState<number | null>(null)
-  const { data: sessionRows } = useLiveQuery(
-    (query) =>
-      sentAt !== null ? query.from({ s: codingSessionCollection }) : undefined,
-    [sentAt !== null]
-  )
-  const deadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(
-    () => () => {
-      if (deadlineRef.current) clearTimeout(deadlineRef.current)
-    },
-    []
-  )
-  useEffect(() => {
-    if (sentAt === null) return
-    const match = findStartedRun(
-      (sessionRows ?? []) as CodingSession[],
-      { kind: `resumed`, fromId: session.id },
-      session.userId,
-      sentAt - STARTED_RUN_SKEW_MS
-    )
-    if (!match) return
-    if (deadlineRef.current) clearTimeout(deadlineRef.current)
-    setSentAt(null)
-    setResuming(false)
-    openSession(match)
-  }, [sessionRows, sentAt, session.id, session.userId, openSession])
-
-  const resume = async () => {
-    if (!session.deviceId) return
-    setResuming(true)
-    try {
-      await trpc.steer.startSession.mutate({
-        resumeSessionId: session.id,
-        deviceId: session.deviceId,
-      })
-      setSentAt(Date.now())
-      if (deadlineRef.current) clearTimeout(deadlineRef.current)
-      deadlineRef.current = setTimeout(() => {
-        setSentAt(null)
-        setResuming(false)
-        toast.error(
-          `${device.label ?? `That machine`} never started this run`,
-          { description: `Open the Exponential desktop app there to see why.` }
-        )
-      }, STARTED_RUN_DEADLINE_MS)
-    } catch (e) {
-      setResuming(false)
-      toast.error(e instanceof Error ? e.message : `Could not resume that run`)
-    }
+  const { pending, resume } = useResumeStart({
+    sessionId: session.id,
+    userId: session.userId,
+    deviceId: session.deviceId,
+    deadlineTitle: () =>
+      `${device.label ?? `That machine`} never started this session`,
+    failure: { verb: `resume`, thing: `the session` },
+  })
+  return {
+    resuming: pending !== null,
+    resume: async () => resume(),
   }
-
-  return { resuming, resume }
 }

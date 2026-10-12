@@ -142,9 +142,10 @@ pub(crate) fn jump_to_bottom_button(
             gpui_component::tooltip::Tooltip::new(JUMP_TO_BOTTOM_LABEL).build(window, cx)
         })
         .on_click(on_click)
+        // EXP-1243: an enter — `ENTER` on decelerate.
         .with_animation(
             "jump-to-bottom-fade",
-            Animation::new(theme::motion::FAST).with_easing(theme::motion::standard()),
+            Animation::new(theme::motion::ENTER).with_easing(theme::motion::decelerate()),
             |button, delta| button.opacity(delta),
         )
         .into_any_element()
@@ -387,6 +388,9 @@ pub(crate) struct PointerMenu<T: gpui_component::Selectable + IntoElement + 'sta
             &mut gpui::Context<gpui_component::menu::PopupMenu>,
         ) -> gpui_component::menu::PopupMenu,
     >,
+    /// EXP-1259 (DEV-ONLY): open on this render, with the first row
+    /// selected (a submenu row = its submenu open), for a capture.
+    dev_open: bool,
 }
 
 impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
@@ -405,7 +409,17 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> PointerMenu<T> {
             trigger,
             anchor: Anchor::TopLeft,
             builder: std::rc::Rc::new(builder),
+            dev_open: false,
         }
+    }
+
+    /// EXP-1259 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU`): open the menu on THIS
+    /// render, as a click would, and select its first row once it is built,
+    /// as a hover would — so a first-row submenu shows open beside it. Pass
+    /// `true` for one render only; the popover keeps itself open after.
+    pub(crate) fn dev_open(mut self, open: bool) -> Self {
+        self.dev_open = open;
+        self
     }
 
     /// Which corner of the trigger the menu hangs off (upstream's anchor:
@@ -442,6 +456,8 @@ impl PointerMenu<gpui_component::button::Button> {
 #[derive(Default)]
 struct PointerMenuState {
     menu: Option<gpui::Entity<gpui_component::menu::PopupMenu>>,
+    /// EXP-1259: a dev open is waiting for the menu to select its first row.
+    dev_select: bool,
 }
 
 impl<T: gpui_component::Selectable + IntoElement + 'static> gpui::RenderOnce for PointerMenu<T> {
@@ -451,10 +467,16 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> gpui::RenderOnce for
         let state_id = ElementId::Name(SharedString::from(format!("pointer-menu:{:?}", self.id)));
         let menu_state =
             window.use_keyed_state(state_id.clone(), cx, |_, _| PointerMenuState::default());
-        gpui_component::popover::Popover::new(ElementId::Name(SharedString::from(format!(
-            "pointer-menu-popover:{:?}",
-            self.id
-        ))))
+        if self.dev_open {
+            menu_state.update(cx, |state, _| state.dev_select = true);
+        }
+        let popover = gpui_component::popover::Popover::new(ElementId::Name(SharedString::from(
+            format!("pointer-menu-popover:{:?}", self.id),
+        )));
+        // EXP-1259: controlled for this one render; uncontrolled after, so
+        // a pick, Escape or a click outside still closes it.
+        let popover = if self.dev_open { popover.open(true) } else { popover };
+        popover
         .appearance(false)
         .overlay_closable(false)
         .trigger(self.trigger)
@@ -467,8 +489,19 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> gpui::RenderOnce for
                     let menu = gpui_component::menu::PopupMenu::build(window, cx, move |menu, window, cx| {
                         builder(menu, window, cx)
                     });
-                    menu_state.update(cx, |state, _| state.menu = Some(menu.clone()));
+                    let dev_select = menu_state.update(cx, |state, _| {
+                        state.menu = Some(menu.clone());
+                        std::mem::take(&mut state.dev_select)
+                    });
                     menu.focus_handle(cx).focus(window, cx);
+                    if dev_select {
+                        // The first frame that PAINTED the menu owns its key
+                        // context: Down from nothing selects row 0.
+                        let handle = menu.focus_handle(cx);
+                        window.on_next_frame(move |window, cx| {
+                            handle.dispatch_action(&gpui_base::actions::SelectDown, window, cx);
+                        });
+                    }
                     let popover_state = cx.entity();
                     let dismiss_state = menu_state.clone();
                     window
@@ -480,9 +513,24 @@ impl<T: gpui_component::Selectable + IntoElement + 'static> gpui::RenderOnce for
                     menu
                 }
             };
-            with_pointer_layer(menu)
+            overlay_enter(
+                ElementId::Name(SharedString::from(format!("pointer-menu-enter:{:?}", self.id))),
+                with_pointer_layer(menu),
+            )
         })
     }
+}
+
+/// EXP-1243 — an overlay's ENTER (a menu, a popover the pointer opened): a
+/// fade over [`theme::motion::ENTER`] on `decelerate`. gpui has no element
+/// scale, so the web's `scale 0.96 → 1` is the fade alone; the exit is
+/// instant (the popover unmounts). Never for a keyboard-opened surface.
+pub(crate) fn overlay_enter(id: impl Into<ElementId>, overlay: Div) -> impl IntoElement {
+    overlay.with_animation(
+        id,
+        Animation::new(theme::motion::ENTER).with_easing(theme::motion::decelerate()),
+        |overlay, delta| overlay.opacity(delta),
+    )
 }
 
 /// A menu surface under the pointer layer (half 2 of the section note): the
@@ -656,7 +704,10 @@ impl<E: gpui::ParentElement + Styled + IntoElement + 'static> gpui::Element for 
                                             .position(position)
                                             .snap_to_window_with_margin(px(8.))
                                             .anchor(Anchor::TopLeft)
-                                            .child(with_pointer_layer(menu)),
+                                            .child(overlay_enter(
+                                                "context-menu-enter",
+                                                with_pointer_layer(menu),
+                                            )),
                                     ),
                             ),
                         )

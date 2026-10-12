@@ -12,6 +12,8 @@ import {
   SheetHeader,
   SheetTitle,
   BoardGlyph,
+  blockingLabel,
+  whileBlocking,
 } from "@exp/ui"
 import type { Board, Team } from "@/db/schema"
 import { cn } from "@/lib/utils"
@@ -138,7 +140,7 @@ export function BoardSwitcherSheet({
                         <TeamLiveDot
                           live={teamLive.get(row.id)}
                           placement="trailing"
-                          title="Runs in this team"
+                          title="Sessions in this team"
                         />
                       )}
                     </div>
@@ -159,13 +161,22 @@ export function BoardSwitcherSheet({
                           )}
                           onClick={() => {
                             onOpenChange(false)
-                            navigate({
-                              to: `/t/$teamSlug/boards/$boardSlug`,
-                              params: {
-                                teamSlug: row.slug,
-                                boardSlug: board.slug,
-                              },
-                            })
+                            const go = () =>
+                              navigate({
+                                to: `/t/$teamSlug/boards/$boardSlug`,
+                                params: {
+                                  teamSlug: row.slug,
+                                  boardSlug: board.slug,
+                                },
+                              })
+                            // EXP-1275: a board in ANOTHER team is a team
+                            // switch: the window blocks until it is up.
+                            if (row.slug === teamSlug) void go()
+                            else
+                              void whileBlocking(
+                                blockingLabel(`switchTeam`, row.name),
+                                go
+                              )
                           }}
                         >
                           <BoardGlyph board={board} />

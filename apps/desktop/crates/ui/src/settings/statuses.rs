@@ -298,10 +298,16 @@ impl StatusesPane {
             let _ = this.update(cx, |this, cx| {
                 if let Err(err) = &result {
                     log::warn!("[ui] statuses.update(name) failed: {err}");
-                    this.row_error = Some((
-                        status_id.clone(),
-                        super::form_error(err, "Failed to rename status."),
-                    ));
+                    // FEED-79: a name already taken is INVALID INPUT (under
+                    // the row); anything else is the error toast.
+                    if crate::action_error::is_name_conflict(err) {
+                        this.row_error = Some((
+                            status_id.clone(),
+                            super::form_error(err, "Failed to rename status."),
+                        ));
+                    } else {
+                        crate::action_error::failed_action_err("rename", "the status", err, cx);
+                    }
                     cx.notify();
                 }
             });
@@ -344,11 +350,15 @@ impl StatusesPane {
                 this.submitting = false;
                 if let Err(err) = &result {
                     log::warn!("[ui] statuses.create failed: {err}");
-                    // The started cap and the duplicate-name CONFLICT both
-                    // arrive here — show their clean message inline, and the
-                    // web's fallback sentence for everything else.
-                    this.create_error =
-                        Some(super::form_error(err, "Failed to create status."));
+                    // The duplicate-name CONFLICT is INVALID INPUT (inline);
+                    // the started cap and everything else is the error toast
+                    // (FEED-79). A create can duplicate: no Retry.
+                    if crate::action_error::is_name_conflict(err) {
+                        this.create_error =
+                            Some(super::form_error(err, "Failed to create status."));
+                    } else {
+                        crate::action_error::failed_action_err("create", "the status", err, cx);
+                    }
                 } else {
                     this.creating = None;
                     this.reset_form();
@@ -394,13 +404,10 @@ impl StatusesPane {
                     )
                 })
                 .await;
-            let _ = this.update(cx, |this, cx| {
+            let _ = this.update(cx, |_, cx| {
                 if let Err(err) = &result {
                     log::warn!("[ui] statuses.delete failed: {err}");
-                    this.row_error = Some((
-                        status_id.clone(),
-                        super::form_error(err, "Failed to delete status."),
-                    ));
+                    crate::action_error::failed_action_err("delete", "the status", err, cx);
                     cx.notify();
                 }
             });
@@ -583,34 +590,24 @@ impl StatusesPane {
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                this.set_row_error(&status_id, result, "Failed to move status.", cx);
+                this.set_row_error(&status_id, result, "move", cx);
             });
         })
         .detach();
     }
 
-    /// The row-error writer for the awaited row mutations (EXP-774): a
-    /// rejection puts the server's message (or `fallback`) under the row, a
-    /// success clears whatever that row showed before.
+    /// The failure writer for the awaited row mutations (EXP-774): a
+    /// rejection is the error toast `Couldn't <verb> the status` (FEED-79).
     fn set_row_error<T>(
         &mut self,
         status_id: &str,
         result: Result<T, api::ApiError>,
-        fallback: &str,
+        verb: &str,
         cx: &mut gpui::Context<Self>,
     ) {
-        match result {
-            Ok(_) => {
-                if self.row_error.as_ref().is_some_and(|(id, _)| id == status_id) {
-                    self.row_error = None;
-                    cx.notify();
-                }
-            }
-            Err(err) => {
-                log::warn!("[ui] status row mutation failed: {err}");
-                self.row_error = Some((status_id.to_string(), super::form_error(&err, fallback)));
-                cx.notify();
-            }
+        if let Err(err) = result {
+            log::warn!("[ui] status row mutation failed ({status_id}): {err}");
+            crate::action_error::failed_action_err(verb, "the status", &err, cx);
         }
     }
 
@@ -706,12 +703,7 @@ impl StatusesPane {
                                         })
                                         .await;
                                     let _ = pane.update(cx, |this, cx| {
-                                        this.set_row_error(
-                                            &status_id,
-                                            result,
-                                            "Failed to set color.",
-                                            cx,
-                                        );
+                                        this.set_row_error(&status_id, result, "update", cx);
                                     });
                                 })
                                 .detach();
@@ -889,13 +881,7 @@ impl StatusesPane {
             .gap_1()
             .child(line)
             .when_some(error, |col, message| {
-                col.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().danger)
-                        .px_1()
-                        .child(SharedString::from(message)),
-                )
+                col.child(crate::action_error::field_error(message, cx).px_1())
             })
     }
 
@@ -924,12 +910,7 @@ impl StatusesPane {
             .p_3()
             .child(glass_input(&self.new_name, window, cx).web_input_sm())
             .when_some(form_error, |col, message| {
-                col.child(
-                    div()
-                        .text_xs()
-                        .text_color(cx.theme().danger)
-                        .child(SharedString::from(message)),
-                )
+                col.child(crate::action_error::field_error(message, cx))
             })
             .child(
                 v_flex()
@@ -1009,10 +990,7 @@ impl Render for StatusesPane {
                     cx,
                 )
             } else {
-                v_flex()
-                    .gap_2()
-                    .child(crate::controls::skeleton().h_8().w_full())
-                    .child(crate::controls::skeleton().h_8().w_full())
+                v_flex().child(super::settings_skeleton("statuses-skeleton", cx))
             };
             return v_flex().child(
                 body.child(crate::surface::glass_section_header("Statuses", None, cx))

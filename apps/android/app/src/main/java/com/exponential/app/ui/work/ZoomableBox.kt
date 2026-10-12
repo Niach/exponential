@@ -1,7 +1,6 @@
 package com.exponential.app.ui.work
 
 import androidx.compose.animation.core.animate
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
@@ -21,6 +20,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.IntSize
+import com.exponential.app.ui.theme.Motion
 import kotlinx.coroutines.launch
 
 // EXP-1149: pinch-to-zoom for the Results viewer. iOS previews a shot through
@@ -54,6 +54,9 @@ fun ZoomableBox(
     var offset by remember { mutableStateOf(Offset.Zero) }
     var boxSize by remember { mutableStateOf(IntSize.Zero) }
     val scope = rememberCoroutineScope()
+    // EXP-1243 (D17): the double-tap zoom rides the standard token, snapping
+    // under reduce motion.
+    val zoomSpec = Motion.standard<Float>()
 
     // The picture's drawn size at 1×: FIT inside the box by its aspect.
     fun fittedSize(): Pair<Float, Float> {
@@ -86,7 +89,7 @@ fun ZoomableBox(
         val startScale = scale
         val startOffset = offset
         scope.launch {
-            animate(0f, 1f, animationSpec = tween(220)) { t, _ ->
+            animate(0f, 1f, animationSpec = zoomSpec) { t, _ ->
                 scale = startScale + (targetScale - startScale) * t
                 offset = startOffset + (targetOffset - startOffset) * t
             }

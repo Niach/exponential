@@ -1,145 +1,183 @@
 package com.exponential.app.ui.gettingstarted
 
-// The pure state model behind the getting-started checklist — a 1:1 port of
-// web's `components/getting-started/getting-started-model.ts`
-// (`deriveEntryStates`) minus the two web-only entries (widget, mcp), which
-// mobile does not show. Kept free of Room, Hilt and Compose so
-// the order / lock / done rules are unit tested without a device.
+// EXP-1270 (EXP-1259 D6): Getting started ×4 = ONE block of rows (a vertical path) in
+// one linear order. The pure model, a port of web
+// `components/getting-started/getting-started-model.ts`
+// (`deriveGettingStarted`), locked to
+// `packages/domain-contract/fixtures/getting-started.json` by
+// GettingStartedModelTest (which replays its `cases`, whole objects). Free of
+// Room, Hilt and Compose.
 
-/** The seven steps mobile shows, in their single static display order. */
-enum class GettingStartedEntryKey {
-    Desktop,
-    Github,
-    Invite,
-    Board,
-    Coding,
-    Action,
-    Server,
+/** The eight steps, in the fixture's `steps` order. */
+enum class GettingStartedStepKey(val wire: String) {
+    Board("board"),
+    Github("github"),
+    Device("device"),
+    Run("run"),
+    Invite("invite"),
+    Server("server"),
+    Mcp("mcp"),
+    Widget("widget"),
 }
 
-enum class GettingStartedEntryState { Done, Available, Locked }
+/** What a row's tap opens (fixture `target`). */
+enum class GettingStartedTarget(val wire: String) {
+    CreateBoard("create-board"),
+    Github("github"),
+    AddDevice("add-device"),
+    Agent("agent"),
+    Invite("invite"),
+    AddServer("add-server"),
+    Mcp("mcp"),
+    Widget("widget"),
+}
 
-/** Everything the derivation reads — all of it off Electric except [githubInstalled]. */
+enum class GettingStartedPlatform(val wire: String) { Pointer("pointer"), Phone("phone") }
+
+/** Everything the derivation reads. */
 data class GettingStartedSignals(
-    /** An own `devices` row of kind `desktop` — the IDE registered. */
-    val hasDesktopDevice: Boolean = false,
-    /** An own `devices` row of kind `server` — the CLI daemon registered. */
-    val hasServerDevice: Boolean = false,
-    /** integrations.github.status → installed (the team has a linked App install). */
-    val githubInstalled: Boolean = false,
-    /** More than one member, or any open invite. */
-    val hasInvitedTeam: Boolean = false,
     /** Any live (non-trashed) board in the team. */
     val hasBoard: Boolean = false,
-    /** Any live board with a repository attached. */
-    val hasRepoBoard: Boolean = false,
+    /** integrations.github.status → installed. */
+    val githubInstalled: Boolean = false,
+    /** An own `devices` row of kind `desktop`. */
+    val hasDesktopDevice: Boolean = false,
+    /** An own `devices` row of kind `server`. */
+    val hasServerDevice: Boolean = false,
     /** Any `coding_sessions` row in the team, running or ended. */
     val hasCodingSession: Boolean = false,
-    /** Any synced `actions` row (the two builtins are not rows). */
-    val hasAction: Boolean = false,
+    /** More than one member, or any open invite. */
+    val hasInvitedTeam: Boolean = false,
+    /** A connected team MCP server (web + IDE only). */
+    val mcpConnected: Boolean = false,
+    /** A widget configured (web + IDE only). */
+    val hasWidget: Boolean = false,
+)
+
+/** The owner-only surfaces' gates (fixture `visibleWhen`). */
+data class GettingStartedPermissions(
+    val canManageMembers: Boolean = false,
+    val canManageWidgets: Boolean = false,
+)
+
+/** One step of the fixture's `steps`. */
+data class GettingStartedStep(
+    val key: GettingStartedStepKey,
+    val title: String,
+    /** A concept id (packages/icons/icons.json). */
+    val icon: String,
+    val target: GettingStartedTarget,
+    val needsDevice: Boolean = false,
+    /** False = never on iOS/Android. */
+    val phones: Boolean = true,
+    /** Null = everyone; else the permission it needs. */
+    val visibleWhen: String? = null,
 )
 
 data class GettingStartedEntry(
-    val key: GettingStartedEntryKey,
-    val state: GettingStartedEntryState,
-    /** For a locked entry: the step whose completion unlocks it. */
-    val lockedBy: GettingStartedEntryKey? = null,
+    val key: GettingStartedStepKey,
+    val done: Boolean,
+    val target: GettingStartedTarget,
+    /** The first step not done — the expanded row. */
+    val next: Boolean,
 )
 
-/**
- * Derive every entry's state in the fixed order desktop → github → invite →
- * board → coding → action → server. Completion always wins over locking (a
- * signal that exists proves the prerequisite was satisfiable).
- *
- * The natives have no `canManageMembers` capability of their own, so the two
- * owner-gated web entries — invite (teamInvites.create is owner-only) and
- * action (action writes are owner-only) — gate on [isOwner]; a non-owner
- * neither sees them nor counts them in the total.
- */
-fun deriveGettingStartedEntries(
-    signals: GettingStartedSignals,
-    isOwner: Boolean,
-): List<GettingStartedEntry> {
-    val entries = mutableListOf<GettingStartedEntry>()
+data class GettingStartedModel(
+    val entries: List<GettingStartedEntry>,
+    val done: Int,
+    val total: Int,
+    val progress: String,
+    val complete: Boolean,
+)
 
-    entries += GettingStartedEntry(
-        GettingStartedEntryKey.Desktop,
-        if (signals.hasDesktopDevice) GettingStartedEntryState.Done else GettingStartedEntryState.Available,
-    )
-    entries += GettingStartedEntry(
-        GettingStartedEntryKey.Github,
-        if (signals.githubInstalled) GettingStartedEntryState.Done else GettingStartedEntryState.Available,
-    )
-    if (isOwner) {
-        entries += GettingStartedEntry(
-            GettingStartedEntryKey.Invite,
-            if (signals.hasInvitedTeam) GettingStartedEntryState.Done else GettingStartedEntryState.Available,
-        )
-    }
-    entries += GettingStartedEntry(
-        GettingStartedEntryKey.Board,
-        if (signals.hasBoard) GettingStartedEntryState.Done else GettingStartedEntryState.Available,
+object GettingStarted {
+    val STEPS: List<GettingStartedStep> = listOf(
+        GettingStartedStep(GettingStartedStepKey.Board, "Create a board", "ui-folder", GettingStartedTarget.CreateBoard),
+        GettingStartedStep(GettingStartedStepKey.Github, "Connect GitHub", "ui-github", GettingStartedTarget.Github),
+        GettingStartedStep(GettingStartedStepKey.Device, "Add a device", "ui-device", GettingStartedTarget.AddDevice),
+        GettingStartedStep(
+            GettingStartedStepKey.Run, "Start a session", "action-run", GettingStartedTarget.Agent,
+            needsDevice = true,
+        ),
+        GettingStartedStep(
+            GettingStartedStepKey.Invite, "Invite your team", "ui-invite", GettingStartedTarget.Invite,
+            visibleWhen = "canManageMembers",
+        ),
+        GettingStartedStep(GettingStartedStepKey.Server, "Set up a server", "ui-server", GettingStartedTarget.AddServer),
+        GettingStartedStep(
+            GettingStartedStepKey.Mcp, "Connect your tools", "ui-mcp", GettingStartedTarget.Mcp,
+            phones = false,
+        ),
+        GettingStartedStep(
+            GettingStartedStepKey.Widget, "Feedback widget", "ui-widget", GettingStartedTarget.Widget,
+            phones = false, visibleWhen = "canManageWidgets",
+        ),
     )
 
-    // Coding needs a repo-backed board AND a machine to run on; when locked,
-    // point at whichever feeder step is still missing, in display order
-    // (desktop first — without a machine nothing can run; then GitHub, without
-    // which the board step cannot attach a repo either).
-    val hasDevice = signals.hasDesktopDevice || signals.hasServerDevice
-    entries += when {
-        signals.hasCodingSession ->
-            GettingStartedEntry(GettingStartedEntryKey.Coding, GettingStartedEntryState.Done)
-        signals.hasRepoBoard && hasDevice ->
-            GettingStartedEntry(GettingStartedEntryKey.Coding, GettingStartedEntryState.Available)
-        else -> GettingStartedEntry(
-            GettingStartedEntryKey.Coding,
-            GettingStartedEntryState.Locked,
-            lockedBy = when {
-                !hasDevice -> GettingStartedEntryKey.Desktop
-                signals.githubInstalled -> GettingStartedEntryKey.Board
-                else -> GettingStartedEntryKey.Github
-            },
-        )
+    fun step(key: GettingStartedStepKey): GettingStartedStep = STEPS.first { it.key == key }
+
+    private fun done(key: GettingStartedStepKey, s: GettingStartedSignals): Boolean = when (key) {
+        GettingStartedStepKey.Board -> s.hasBoard
+        GettingStartedStepKey.Github -> s.githubInstalled
+        GettingStartedStepKey.Device -> s.hasDesktopDevice || s.hasServerDevice
+        GettingStartedStepKey.Run -> s.hasCodingSession
+        GettingStartedStepKey.Invite -> s.hasInvitedTeam
+        GettingStartedStepKey.Server -> s.hasServerDevice
+        GettingStartedStepKey.Mcp -> s.mcpConnected
+        GettingStartedStepKey.Widget -> s.hasWidget
     }
 
-    // EXP-548: actions are authored by the builtin creator run, which — like
-    // any coding session — needs a machine; the desktop step is the feeder.
-    if (isOwner) {
-        entries += when {
-            signals.hasAction ->
-                GettingStartedEntry(GettingStartedEntryKey.Action, GettingStartedEntryState.Done)
-            hasDevice ->
-                GettingStartedEntry(GettingStartedEntryKey.Action, GettingStartedEntryState.Available)
-            else -> GettingStartedEntry(
-                GettingStartedEntryKey.Action,
-                GettingStartedEntryState.Locked,
-                lockedBy = GettingStartedEntryKey.Desktop,
-            )
+    private fun visible(step: GettingStartedStep, p: GettingStartedPermissions, platform: GettingStartedPlatform): Boolean {
+        if (platform == GettingStartedPlatform.Phone && !step.phones) return false
+        return when (step.visibleWhen) {
+            null -> true
+            "canManageMembers" -> p.canManageMembers
+            "canManageWidgets" -> p.canManageWidgets
+            else -> false
         }
     }
 
-    entries += GettingStartedEntry(
-        GettingStartedEntryKey.Server,
-        if (signals.hasServerDevice) GettingStartedEntryState.Done else GettingStartedEntryState.Available,
-    )
-
-    return entries
+    /**
+     * The block for [signals]: the visible steps in order, each done or not,
+     * its target (a step needing a device with none opens the device step),
+     * the first open one marked `next`; complete once every visible step is
+     * done.
+     */
+    fun derive(
+        signals: GettingStartedSignals,
+        permissions: GettingStartedPermissions,
+        platform: GettingStartedPlatform,
+    ): GettingStartedModel {
+        val hasDevice = signals.hasDesktopDevice || signals.hasServerDevice
+        val rows = STEPS.filter { visible(it, permissions, platform) }.map { step ->
+            val target = if (step.needsDevice && !hasDevice) GettingStartedTarget.AddDevice else step.target
+            Triple(step.key, done(step.key, signals), target)
+        }
+        val nextIndex = rows.indexOfFirst { !it.second }
+        val entries = rows.mapIndexed { index, (key, done, target) ->
+            GettingStartedEntry(key = key, done = done, target = target, next = index == nextIndex)
+        }
+        val doneCount = entries.count { it.done }
+        return GettingStartedModel(
+            entries = entries,
+            done = doneCount,
+            total = entries.size,
+            progress = GettingStartedCopy.progress(doneCount, entries.size),
+            complete = entries.isNotEmpty() && doneCount == entries.size,
+        )
+    }
 }
 
 /**
- * What the cards render. [loading] means the signals have not all resolved
- * yet — it counts as incomplete-unknown, so the section stays up.
+ * What the block renders. [loading] = the signals have not all resolved yet;
+ * the block stays hidden rather than flipping a wrong count a moment later.
  */
 data class GettingStartedState(
-    val entries: List<GettingStartedEntry> = emptyList(),
+    val model: GettingStartedModel? = null,
     val loading: Boolean = true,
 ) {
-    val done: Int get() = entries.count { it.state == GettingStartedEntryState.Done }
-    val total: Int get() = entries.size
+    val complete: Boolean get() = !loading && model?.complete == true
 
-    /**
-     * EXP-548: the checklist has no dismissal — it simply disappears once
-     * every visible entry is done.
-     */
-    val complete: Boolean get() = !loading && total > 0 && done == total
+    /** The block (and the entry) shows once loaded and until complete. */
+    val visible: Boolean get() = !loading && model != null && !model.complete && model.entries.isNotEmpty()
 }

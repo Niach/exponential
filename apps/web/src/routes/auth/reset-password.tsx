@@ -3,7 +3,15 @@ import { createFileRoute, Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { authClient } from "@/lib/auth/client"
 import { authErrorMessage } from "@/lib/auth/error-messages"
-import { Button, Label, AuthFormShell, PasswordInput } from "@exp/ui"
+import {
+  Button,
+  FEEDBACK_WORDS,
+  FieldError,
+  Label,
+  AuthFormShell,
+  PasswordInput,
+} from "@exp/ui"
+import { failedAction } from "@/lib/action-error"
 import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/auth/reset-password`)({
@@ -18,6 +26,8 @@ export const Route = createFileRoute(`/auth/reset-password`)({
   }),
 })
 
+const PASSWORDS_DIFFER = `Passwords don't match.`
+
 function ResetPasswordPage() {
   const { token, error: tokenError } = Route.useSearch()
   const [password, setPassword] = useState(``)
@@ -31,7 +41,7 @@ function ResetPasswordPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (password !== confirm) {
-      setError(`Passwords don't match.`)
+      setError(PASSWORDS_DIFFER)
       return
     }
     setIsLoading(true)
@@ -46,8 +56,8 @@ function ResetPasswordPage() {
       } else {
         setDone(true)
       }
-    } catch {
-      setError(`An unexpected error occurred`)
+    } catch (err) {
+      failedAction(`save`, `the new password`, err)
     } finally {
       setIsLoading(false)
     }
@@ -99,6 +109,7 @@ function ResetPasswordPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="At least 8 characters"
+              aria-invalid={error && error !== PASSWORDS_DIFFER ? true : undefined}
             />
           </div>
           <div className="space-y-2">
@@ -110,11 +121,17 @@ function ResetPasswordPage() {
               value={confirm}
               onChange={(e) => setConfirm(e.target.value)}
               placeholder="Repeat the password"
+              aria-invalid={error === PASSWORDS_DIFFER ? true : undefined}
             />
+            <FieldError>{error}</FieldError>
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? `Saving…` : `Set new password`}
+          <Button
+            type="submit"
+            className="w-full"
+            pending={isLoading}
+            pendingLabel={FEEDBACK_WORDS.pending.save}
+          >
+            Set new password
           </Button>
         </form>
       )}

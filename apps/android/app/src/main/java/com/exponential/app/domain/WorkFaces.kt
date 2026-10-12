@@ -25,9 +25,9 @@ import com.exponential.app.data.db.CodingSessionEntity
 enum class WorkFaceKind { Issue, Run, Guide }
 
 const val ISSUE_FACE_LABEL = "Issue"
-const val RUN_FACE_LABEL = "Run"
+const val RUN_FACE_LABEL = "Session"
 /** EXP-886: the Run face's label with MORE THAN ONE own run on the issue. */
-const val RUNS_FACE_LABEL = "Runs"
+const val RUNS_FACE_LABEL = "Sessions"
 /** EXP-1251: the Guide face (contract `diffUi.guideFace`). */
 val GUIDE_FACE_LABEL: String = DomainContract.diffUiGuideFace
 /** EXP-933: the transcript card under a settled `sessions_guide` call that

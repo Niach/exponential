@@ -14,7 +14,7 @@ enum ActionPageTab: String, CaseIterable, Hashable {
         switch self {
         case .prompt: "Prompt"
         case .triggers: "Triggers"
-        case .runs: "Runs"
+        case .runs: "Sessions"
         }
     }
 }
@@ -43,6 +43,7 @@ struct ActionDetailView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
+    @Environment(\.motion) private var motion
     @State private var tab: ActionPageTab
     @State private var viewModel: ActionDetailViewModel?
     @State private var steerEnabled = false
@@ -95,7 +96,11 @@ struct ActionDetailView: View {
             } else if viewModel?.resolved == true {
                 unavailableState
             } else {
-                ProgressView().tint(.white)
+                // EXP-1275 (D8): a first load is skeleton rows.
+                SkeletonRows()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
         .navigationBarTitleDisplayMode(.inline)
@@ -199,7 +204,7 @@ struct ActionDetailView: View {
     private func selectTab(_ next: ActionPageTab) {
         guard next != tab else { return }
         dismissKeyboard()
-        withAnimation { tab = next }
+        withAnimation(motion.standard) { tab = next }
     }
 
     private func dismissKeyboard() {
@@ -243,14 +248,6 @@ struct ActionDetailView: View {
                         addTriggerButton(action, vm: vm)
                     }
                     .padding(.bottom, 8)
-                }
-                if let error = vm.triggerError {
-                    Text(error)
-                        .font(.caption2)
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                        .padding(.horizontal, 4)
-                        .padding(.bottom, 8)
-                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 if vm.triggers.isEmpty {
                     EmptyState(.actionTriggers)

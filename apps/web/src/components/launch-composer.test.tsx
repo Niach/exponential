@@ -5,7 +5,6 @@ import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 import type { LaunchOptions } from "@/components/launch-dialog/use-launch-options"
 import type { SteerDevice } from "@/lib/steer-devices"
 import { builtinCreateAction, builtinFixConflictsAction } from "@/lib/builtin-actions"
-import { CHAT_SUGGESTION_COUNT, CHAT_SUGGESTION_POOL } from "@/lib/chat-suggestions"
 import {
   BLOCKED_BATCH_BODY,
   BLOCKED_BATCH_TITLE,
@@ -15,8 +14,9 @@ import {
 } from "@/lib/blocked-start"
 
 // EXP-825: the composer card over a FAKE model — chips, the per-subject
-// submit label and placeholder, Enter-sends, the suggestion pills. The hook
-// has its own tests; this only proves the chrome reads the model.
+// submit label and placeholder, Enter-sends, the pending submit and the
+// starting row (EXP-1271). The hook has its own tests; this only proves the
+// chrome reads the model.
 
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
@@ -48,10 +48,7 @@ vi.mock(`@/hooks/use-issue-search-results`, () => ({
   useIssueSearchResults: ({ rows }: { rows: unknown[] }) => ({ results: rows }),
 }))
 
-import {
-  LaunchComposer,
-  suggestionCaretOffset,
-} from "@/components/launch-composer"
+import { LaunchComposer } from "@/components/launch-composer"
 
 // Radix positions the popovers with ResizeObserver and cmdk scrolls the
 // active row into view; jsdom has neither.
@@ -188,39 +185,33 @@ function fakeModel(overrides: Partial<LaunchComposerModel> = {}): LaunchComposer
     costHint: false,
     busy: false,
     sentTo: null,
+    starting: null,
     submit: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   }
 }
 
 describe(`LaunchComposer`, () => {
-  it(`renders the chat state: placeholder, suggestions, an icon-only submit`, () => {
+  it(`renders the chat state: placeholder, an icon-only submit, no suggestions`, () => {
     render(<LaunchComposer model={fakeModel()} users={[]} />)
     expect(screen.getByTestId(`agent-composer`)).toBeTruthy()
+    // The dialog keeps the contract's chat placeholder.
     expect(screen.getByPlaceholderText(`Ask the agent…`)).toBeTruthy()
     const submit = screen.getByTestId(`agent-composer-submit`) as HTMLButtonElement
     // EXP-827: the label is the button's NAME, never its text.
     expect(submit.getAttribute(`aria-label`)).toBe(`Start chat`)
     expect(submit.textContent).toBe(``)
     expect(submit.disabled).toBe(true)
-    // EXP-820/EXP-1249: a few pool entries as QUIET rows (a random draw),
-    // under the options line — never pills over the card.
-    const rows = screen.getAllByTestId(`agent-composer-suggestion`)
-    expect(rows.length).toBe(CHAT_SUGGESTION_COUNT)
-    for (const row of rows) {
-      expect(CHAT_SUGGESTION_POOL).toContain(row.textContent)
-      expect(row.getAttribute(`data-slot`)).not.toBe(`pill`)
-    }
-    const options = screen.getByTestId(`agent-options-row`)
-    expect(
-      options.compareDocumentPosition(rows[0]!) & Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy()
+    // EXP-1270: the suggestion rows are gone.
+    expect(screen.queryByTestId(`agent-composer-suggestion`)).toBeNull()
     expect(screen.queryByTestId(/agent-composer-chip-/)).toBeNull()
   })
 
-  it(`inserts a suggestion into the field and hides the rows once there is a subject`, () => {
-    render(<LaunchComposer model={fakeModel()} users={[]} />)
-    expect(screen.getAllByTestId(`agent-composer-suggestion`).length).toBeGreaterThan(0)
+  // EXP-1253: the home column asks composer-home.json's question; a subject
+  // still turns the field into the optional half.
+  it(`asks what to build on the home column`, () => {
+    render(<LaunchComposer model={fakeModel()} users={[]} variant="home" />)
+    expect(screen.getByPlaceholderText(`What do you want to build?`)).toBeTruthy()
     render(
       <LaunchComposer
         model={fakeModel({
@@ -228,12 +219,43 @@ describe(`LaunchComposer`, () => {
           checkedIssues: [issue(`i1`, `APP-1`)],
         })}
         users={[]}
+        variant="home"
       />
     )
-    // Only the first render's rows remain.
-    expect(screen.getAllByTestId(`agent-composer-suggestion`).length).toBe(
-      CHAT_SUGGESTION_COUNT
-    )
+    expect(screen.getByPlaceholderText(`Additional instructions (optional)…`)).toBeTruthy()
+  })
+
+  // EXP-1271: after Start the submit goes pending (after the 150 ms delay)
+  // and the card leads with "Starting on <device>" + the elapsed seconds.
+  it(`shows the pending submit and the starting row while the run starts`, () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(10_000)
+      render(
+        <LaunchComposer
+          model={fakeModel({
+            starting: { deviceLabel: `buildbox`, since: 10_000 },
+            busy: true,
+            blocked: true,
+          })}
+          users={[]}
+          variant="home"
+        />
+      )
+      const submit = screen.getByTestId(`agent-composer-submit`)
+      expect(submit.getAttribute(`aria-busy`)).toBe(`true`)
+      expect(screen.queryByTestId(`composer-starting`)).toBeNull()
+      act(() => vi.advanceTimersByTime(150))
+      expect(submit.getAttribute(`aria-label`)).toBe(`Starting`)
+      expect(submit.querySelector(`[data-slot=spinner]`)).not.toBeNull()
+      const row = screen.getByTestId(`composer-starting`)
+      expect(row.textContent).toContain(`Starting on buildbox`)
+      expect(row.querySelector(`[data-slot=feedback-mark]`)).not.toBeNull()
+      act(() => vi.advanceTimersByTime(1_300))
+      expect(row.textContent).toContain(`1.4 s`)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it(`draws one chip per checked issue and lets a chip remove itself`, () => {
@@ -381,14 +403,6 @@ describe(`LaunchComposer`, () => {
     expect(model.setText).toHaveBeenCalledWith(`Fix #`)
   })
 
-  // EXP-827: a `#` suggestion parks the caret right behind the `#`, wherever
-  // it sits, so the issue-ref menu opens without a backspace.
-  it(`lands the caret after a suggestion's # placeholder`, () => {
-    expect(suggestionCaretOffset(`Fix #`)).toBe(5)
-    expect(suggestionCaretOffset(`Start a session for # on my other machine`)).toBe(21)
-    expect(suggestionCaretOffset(`Label every issue in the backlog`)).toBeUndefined()
-  })
-
   // EXP-872: the options line — ONE account picker over the machine's
   // flattened logins (brand mark + email, never a profile name), the agent
   // implied by the pick; one login collapses to plain text.
@@ -448,9 +462,8 @@ describe(`LaunchComposer`, () => {
     const row = within(picker)
       .getByText(fix.name)
       .closest(`[data-slot=command-item]`)!
-    expect(
-      row.querySelector(`[data-slot=picker-description]`)?.textContent
-    ).toBe(fix.description)
+    // SLOP-28 (EXP-1259 D5): an action row is its name + icon, no description.
+    expect(row.querySelector(`[data-slot=picker-description]`)).toBeNull()
     fireEvent.click(row)
     expect(model.pickAction).toHaveBeenCalledWith(fix.id)
     expect(screen.queryByTestId(`agent-composer-menu`)).toBeNull()

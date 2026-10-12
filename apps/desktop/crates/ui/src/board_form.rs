@@ -341,7 +341,7 @@ pub(crate) fn color_swatch_grid(
 /// on web (`lib/board-copy.ts` `BOARD_REPO_NOTE`), iOS, Android and here —
 /// `apps/web/src/lib/board-copy.test.ts` greps this file for it. The fields
 /// are otherwise self-explanatory, so nothing else is said there.
-pub(crate) const BOARD_REPO_NOTE: &str = "Runs start from here.";
+pub(crate) const BOARD_REPO_NOTE: &str = "Sessions start from here.";
 
 /// The "No repository" selection label — the same words in the trigger and in
 /// the menu, so the select reads as one control.
@@ -372,7 +372,30 @@ pub(crate) fn board_repo_note(cx: &App) -> impl IntoElement {
 pub(crate) enum BranchLoad {
     Loading,
     Ready(Vec<String>),
-    Failed(SharedString),
+    /// The fetch failed, quietly ([`branches_failed`]); the next open of
+    /// the menu fetches again.
+    Failed,
+}
+
+/// The Branch menu's empty list.
+const NO_BRANCHES: &str = "No branches found.";
+
+/// FEED-79: the branch list loads as the menu opens, so a failure is quiet:
+/// the menu reads empty and its next open fetches again.
+pub(crate) fn branches_failed(err: &api::ApiError) -> BranchLoad {
+    log::warn!("[ui] repositories.listBranches failed: {err}");
+    BranchLoad::Failed
+}
+
+/// Whether the lazy branch fetch for `repository_id` is already in flight
+/// or landed (a FAILED one fetches again on the next open).
+pub(crate) fn branches_settled_for(
+    branches: Option<&(String, BranchLoad)>,
+    repository_id: &str,
+) -> bool {
+    branches.is_some_and(|(id, load)| {
+        id == repository_id && !matches!(load, BranchLoad::Failed)
+    })
 }
 
 /// The board form's **Branch** dropdown (EXP-712): the branch this board's
@@ -449,13 +472,13 @@ fn branch_dropdown<V: gpui::Render>(
                 branches(host, cx)
             };
             match load {
+                // First load: the rows as placeholders (EXP-1259 D8).
                 None | Some(BranchLoad::Loading) => {
-                    return menu.label("Loading branches\u{2026}");
+                    return crate::feedback::menu_skeleton(menu, "board-branch-skeleton");
                 }
-                Some(BranchLoad::Failed(message)) => {
-                    return menu.label(SharedString::from(format!(
-                        "Couldn't load branches: {message}"
-                    )));
+                // A failed load is quiet (FEED-79): the empty list.
+                Some(BranchLoad::Failed) => {
+                    return menu.label(NO_BRANCHES);
                 }
                 Some(BranchLoad::Ready(branches)) => {
                     // The shown branch always renders, even when GitHub no

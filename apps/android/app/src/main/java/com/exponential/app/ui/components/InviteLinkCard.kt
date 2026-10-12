@@ -117,15 +117,6 @@ fun InviteLinkCard(
                 )
             }
         }
-        // Only NON-plan failures ever reach here (the ViewModel swallows the
-        // cap by hiding the card).
-        state.error?.let { message ->
-            Text(
-                message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-            )
-        }
     }
 }
 
@@ -137,6 +128,9 @@ fun InviteLinkCard(teamId: String, modifier: Modifier = Modifier) {
     val viewModel = hiltViewModel<InviteLinkViewModel>(key = "invite-link:$teamId")
     LaunchedEffect(teamId) { viewModel.bind(teamId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // Only NON-plan failures ever arrive (the ViewModel swallows the cap by
+    // hiding the card): an error toast (FEED-79).
+    FailedActionToast(state.failure, onShown = viewModel::clearFailure)
     InviteLinkCard(
         state = state,
         onGenerate = viewModel::generate,

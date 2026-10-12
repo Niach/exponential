@@ -1,10 +1,14 @@
 import { useState } from "react"
-import { Check, Copy, Plug } from "lucide-react"
 import { Link, useParams } from "@tanstack/react-router"
 import {
   Button,
   ClaudeIcon,
+  conceptIcon,
   CursorIcon,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
   OpenAiIcon,
   Tabs,
   TabsContent,
@@ -19,10 +23,16 @@ import {
   buildMcpServersConfig,
 } from "@/lib/widget-snippet"
 import { docsUrl } from "@/lib/docs-links"
+import { GETTING_STARTED_STEP_TITLES } from "@/components/getting-started/getting-started-copy"
 
-// Per-client MCP setup instructions for the getting-started checklist
-// (EXP-141). Content verified July 2026 — concise numbered steps + one
+// Per-client MCP setup instructions (EXP-141): concise numbered steps + one
 // copyable snippet per client; the full walkthroughs live in the docs.
+// EXP-1259 D6: Getting started's "Connect your tools" row opens them in
+// `McpSetupDialog` (the row is done once an MCP grant or API key exists).
+
+const CheckIcon = conceptIcon(`ui-check`)
+const CopyIcon = conceptIcon(`ui-copy`)
+const McpIcon = conceptIcon(`ui-mcp`)
 
 export function CopySnippetButton({
   label,
@@ -44,11 +54,11 @@ export function CopySnippetButton({
     >
       {copied ? (
         <>
-          <Check className="mr-1 size-4" /> Copied
+          <CheckIcon className="mr-1 size-4" /> Copied
         </>
       ) : (
         <>
-          <Copy className="mr-1 size-4" /> {label}
+          <CopyIcon className="mr-1 size-4" /> {label}
         </>
       )}
     </Button>
@@ -79,8 +89,8 @@ function Note({ children }: { children: React.ReactNode }) {
 }
 
 export function McpSetupTabs() {
-  // SSR-safe origin (defaultSsr is off, but keep the guard — same pattern as
-  // the previous cards): the cloud origin is only a placeholder fallback.
+  // SSR-safe origin (defaultSsr is off, but keep the guard): the cloud
+  // origin is only a placeholder fallback.
   const origin =
     typeof window === `undefined`
       ? `https://app.exponential.at`
@@ -111,7 +121,7 @@ export function McpSetupTabs() {
             <span className="max-sm:hidden">Cursor</span>
           </TabsTrigger>
           <TabsTrigger value="other" title="Other MCP clients">
-            <Plug className="size-4" />
+            <McpIcon className="size-4" />
             <span className="max-sm:hidden">Other</span>
           </TabsTrigger>
         </TabsList>
@@ -277,7 +287,7 @@ export function McpSetupTabs() {
       <Note>
         Signing in via OAuth lets you scope access per team/board; personal API
         keys (Bearer expu_…) work for headless use and can be scoped to
-        teams/boards when you create one —{` `}
+        teams/boards when you create one:{` `}
         {teamSlug ? (
           <Link
             to="/t/$teamSlug/settings/security"
@@ -292,5 +302,25 @@ export function McpSetupTabs() {
         .
       </Note>
     </div>
+  )
+}
+
+/** Getting started's `mcp` target: the per-client instructions in a dialog. */
+export function McpSetupDialog({
+  open,
+  onOpenChange,
+}: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg" aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>{GETTING_STARTED_STEP_TITLES.mcp}</DialogTitle>
+        </DialogHeader>
+        <McpSetupTabs />
+      </DialogContent>
+    </Dialog>
   )
 }

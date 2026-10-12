@@ -31,6 +31,7 @@ import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ResolvedIssueStatus
 import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.sortIssuesForCategory
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.steer.onlineStartTargets
 import com.exponential.app.ui.steer.steerDeviceFlow
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -97,7 +98,8 @@ data class IssueListState(
     // vocabulary. Falls back to the constructed builtins until the
     // issue_statuses shape has synced.
     val teamStatuses: List<ResolvedIssueStatus> = emptyList(),
-    val error: String? = null,
+    // FEED-79: a failed row/bulk write, raised once as an error toast.
+    val error: FailedAction? = null,
     // EXP-1115: true once the issues shape has reached up-to-date at least
     // once for this account (a zero-row snapshot counts). Until then an
     // empty group list means "still syncing", not "empty board" — the screen
@@ -129,7 +131,11 @@ class IssueListViewModel @Inject constructor(
     // constructor-time DB snapshot, no key(activeAccountId) rebuild needed).
     private val dbFlow = accountDatabaseFlow(auth, holder)
 
-    private val _error = MutableStateFlow<String?>(null)
+    private val _error = MutableStateFlow<FailedAction?>(null)
+
+    fun consumeError() {
+        _error.value = null
+    }
     private val _board = MutableStateFlow<BoardEntity?>(null)
 
     /** Swap the list to another board in place (Issues tab root). */
@@ -420,7 +426,7 @@ class IssueListViewModel @Inject constructor(
      * mid-loop failure left a half-applied batch behind one error toast.
      */
     fun bulkUpdateStatus(issueIds: Collection<String>, status: ResolvedIssueStatus) {
-        runBulk(issueIds, "Failed to update status") { accountId, ids ->
+        runBulk(issueIds, "change", "the status") { accountId, ids ->
             issuesApi.bulkUpdate(
                 accountId,
                 ids,
@@ -445,7 +451,7 @@ class IssueListViewModel @Inject constructor(
                 )
             }.onFailure { error ->
                 if (error is CancellationException) throw error
-                _error.value = trpcErrorMessage(error, "Failed to update status")
+                _error.value = FailedAction("change", "the status", trpcErrorMessage(error, "")) { updateStatus(issueId, status) }
             }
         }
     }
@@ -458,21 +464,23 @@ class IssueListViewModel @Inject constructor(
                 issuesApi.update(accountId, UpdateIssueInput(id = issueId, priority = priority.wire))
             }.onFailure { error ->
                 if (error is CancellationException) throw error
-                _error.value = trpcErrorMessage(error, "Failed to update priority")
+                _error.value = FailedAction("change", "the priority", trpcErrorMessage(error, "")) {
+                    updatePriority(issueId, priority)
+                }
             }
         }
     }
 
     /** Bulk priority change from the selection bar (EXP-247). */
     fun bulkUpdatePriority(issueIds: Collection<String>, priority: IssuePriority) {
-        runBulk(issueIds, "Failed to update priority") { accountId, ids ->
+        runBulk(issueIds, "change", "the priority") { accountId, ids ->
             issuesApi.bulkUpdate(accountId, ids, priority = priority.wire)
         }
     }
 
     /** Bulk (re)assignment from the selection bar (EXP-247). null = unassign. */
     fun bulkUpdateAssignee(issueIds: Collection<String>, assigneeId: String?) {
-        runBulk(issueIds, "Failed to update assignee") { accountId, ids ->
+        runBulk(issueIds, "change", "the assignee") { accountId, ids ->
             // clearAssignee sends an explicit JSON null — without it the
             // shared Json omits the key and "Unassigned" is a silent no-op.
             issuesApi.bulkUpdate(
@@ -491,7 +499,7 @@ class IssueListViewModel @Inject constructor(
      * record a timeline event for rows they really inserted/deleted.
      */
     fun bulkToggleLabel(issueIds: Collection<String>, labelId: String, add: Boolean) {
-        runBulk(issueIds, "Failed to update labels") { accountId, ids ->
+        runBulk(issueIds, "update", "the labels") { accountId, ids ->
             if (add) labelsApi.bulkAddLabel(accountId, ids, labelId)
             else labelsApi.bulkRemoveLabel(accountId, ids, labelId)
         }
@@ -503,7 +511,7 @@ class IssueListViewModel @Inject constructor(
      * once.
      */
     fun bulkDelete(issueIds: Collection<String>) {
-        runBulk(issueIds, "Failed to delete issues") { accountId, ids ->
+        runBulk(issueIds, "delete", "the issues") { accountId, ids ->
             issuesApi.bulkDelete(accountId, ids)
         }
     }
@@ -516,7 +524,8 @@ class IssueListViewModel @Inject constructor(
      */
     private fun runBulk(
         issueIds: Collection<String>,
-        errorMessage: String,
+        verb: String,
+        thing: String,
         write: suspend (accountId: String, ids: List<String>) -> Unit,
     ) {
         if (issueIds.isEmpty()) return
@@ -525,7 +534,7 @@ class IssueListViewModel @Inject constructor(
             for (chunk in issueIds.toList().chunked(BULK_CHUNK_SIZE)) {
                 runCatching { write(accountId, chunk) }.onFailure { error ->
                     if (error is CancellationException) throw error
-                    _error.value = trpcErrorMessage(error, errorMessage)
+                    _error.value = FailedAction(verb, thing, trpcErrorMessage(error, ""))
                     return@launch
                 }
             }

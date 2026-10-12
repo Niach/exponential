@@ -4,29 +4,44 @@ import {
   Button,
   conceptIcon,
   ExponentialLogo,
+  FeedbackStatesSpecimen,
+  SkeletonRows,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@exp/ui"
+import {
+  HOME_GEOMETRY,
+  HOME_TEST_IDS,
+  homeGreeting,
+  localWallClock,
+} from "@exp/domain-contract/home-greeting"
 import { useSteerConfig } from "@/components/agent-session"
 import { SessionsList } from "@/components/agent-shell"
+import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { LaunchComposer } from "@/components/launch-composer"
-import { COMPOSER_MENU_TEST_IDS } from "@/components/launch-dialog/composer-menu"
 import { useAgentsData } from "@/hooks/use-agents-data"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
 import { useRemoteStart, type RemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
-import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
+import {
+  useTeamBoardsWithReady,
+  useTeamBySlug,
+  useTeamUsers,
+} from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
+import { updateWorkTabs } from "@/hooks/use-work-tabs"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
-import type { User } from "@/db/schema"
+import type { CodingSession, Team, User } from "@/db/schema"
+import { landNewRun } from "@/lib/work-tabs"
 import {
   seedFromSearch,
   type AgentSearch,
   type LaunchSeed,
 } from "@/lib/launch-seed"
 import { pageTitle } from "@/lib/page-title"
+import { isProductionBuild } from "@/lib/production-build"
 import {
   setRecentRunsPanelOpen,
   useRecentRunsPanelOpen,
@@ -46,6 +61,15 @@ const flag = (value: unknown): string | undefined =>
 // EXP-818: the team's AGENT page — the composer over the caller's sessions
 // list (Running, then Past). EXP-825 made that composer THE launcher: issues,
 // actions and a plain chat all start from it.
+//
+// EXP-1253 (EXP-1259 D1): it is HOME (composer-home.json): the team index
+// lands here, and the web New run tab (EXP-1255) hosts it. Top to bottom:
+// the headline (the disc mark + the time-of-day greeting, computed once per
+// mount) while no subject is picked (a subject's own headline leads instead),
+// the composer ("What do you want to build?") and its options line, then,
+// while the team has no board, the Getting started block. Nothing else sits
+// under the options line: recent sessions live behind the history button
+// (the Agent › Recent panel).
 //
 // EXP-1019: a play button no longer travels here for work it can already
 // name — a seed carrying a SUBJECT opens the same composer as a dialog over
@@ -74,11 +98,20 @@ const flag = (value: unknown): string | undefined =>
 // `/t/$teamSlug/sessions/$sessionId` (EXP-851: full width, with this list in
 // the sidebar beside it).
 
+// EXP-1259 (DEV-ONLY): `?dev=feedback-states` swaps the page for the six
+// feedback kinds side by side (`@exp/ui` `FeedbackStatesSpecimen`, the
+// styleguide's board), for the view catalog's `feedback-states` capture:
+// the kinds never show together in the app. Never parsed in a production
+// build (`isProductionBuild`).
+type DevView = `feedback-states`
+const devView = (value: unknown): DevView | undefined =>
+  !isProductionBuild && value === `feedback-states` ? value : undefined
+
 export const Route = createFileRoute(`/t/$teamSlug/agent`)({
   head: () => ({ meta: [{ title: pageTitle(`Agent`) }] }),
   validateSearch: (
     search: Record<string, unknown>
-  ): AgentSearch & { from?: string } => ({
+  ): AgentSearch & { from?: string; dev?: DevView } => ({
     issues: str(search.issues),
     action: str(search.action),
     pr: str(search.pr),
@@ -87,6 +120,7 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
     icon: str(search.icon),
     conflict: flag(search.conflict),
     from: str(search.from),
+    dev: devView(search.dev),
   }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
@@ -96,8 +130,20 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
       })
     }
   },
-  component: AgentPage,
+  component: AgentRoute,
 })
+
+function AgentRoute() {
+  const { dev } = Route.useSearch()
+  if (dev === `feedback-states`) {
+    return (
+      <div className={`h-full min-h-0 overflow-y-auto p-6 ${TAB_BAR_CLEARANCE}`}>
+        <FeedbackStatesSpecimen />
+      </div>
+    )
+  }
+  return <AgentPage />
+}
 
 function AgentPage() {
   const { teamSlug } = Route.useParams()
@@ -115,10 +161,23 @@ function AgentPage() {
   // enforces both at mint time, this only decides what renders.
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
 
+  // EXP-1255: a run started here LANDS → the New run tab (when one is open)
+  // turns into that run's tab, in place.
+  const teamIdForTabs = team?.id
+  const onOpened = useCallback(
+    (run: CodingSession) => {
+      if (!teamIdForTabs) return
+      updateWorkTabs(teamIdForTabs, (state) =>
+        landNewRun(state, { runId: run.id, issueId: run.issueId })
+      )
+    },
+    [teamIdForTabs]
+  )
   const remote = useRemoteStart({
     enabled: steerEnabled,
     currentUserId,
     teamId: team?.id,
+    onOpened,
   })
 
   // The one-shot seed: held here after the URL keys are stripped, handed to
@@ -231,7 +290,7 @@ function AgentPage() {
   const recentOpen = useRecentRunsPanelOpen()
 
   if (!team || !currentUserId) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading…</div>
+    return <SkeletonRows className="mx-auto w-full max-w-2xl px-4 py-6" />
   }
 
   // EXP-851: ONE column on every breakpoint, ONE scroller — the composer on
@@ -254,7 +313,7 @@ function AgentPage() {
               variant="ghost"
               size="icon"
               className="absolute top-3 left-3 z-10 hidden size-8 text-muted-foreground hover:text-foreground md:flex"
-              aria-label="Recent runs"
+              aria-label="Recent sessions"
               data-testid="recent-runs-toggle"
               onClick={() => {
                 setRecentRunsPanelOpen(true)
@@ -270,47 +329,27 @@ function AgentPage() {
               <RecentRunsIcon className="size-4" />
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="right">Recent runs</TooltipContent>
+          <TooltipContent side="right">Recent sessions</TooltipContent>
         </Tooltip>
       )}
       <div className="relative min-h-0 flex-1 overflow-y-auto">
         <div
-          className={`mx-auto flex w-full max-w-2xl flex-col gap-6 px-4 py-6 md:min-h-full md:justify-center ${
+          data-testid={HOME_TEST_IDS.home}
+          className={`mx-auto flex w-full max-w-2xl flex-col px-4 py-6 md:min-h-full md:justify-center ${
             listEmpty ? `min-h-full justify-center` : ``
           } ${TAB_BAR_CLEARANCE}`}
         >
-          {/* EXP-1249: the faint brand mark's TOP HALF above the composer —
-              THIS page only (the composer dialog has none) and md+ only
-              (phones draw none): the column's first row, a clip of half the
-              mark's height with the logo at its top, so the column gap
-              keeps it 24px off the card; the half FADES out toward the box
-              (solid for its top third, transparent at the clip's bottom
-              edge). */}
-          <div
-            aria-hidden
-            data-testid={COMPOSER_MENU_TEST_IDS.brandMark}
-            className="pointer-events-none mx-auto hidden h-[220px] w-[440px] overflow-hidden text-foreground opacity-[0.025] select-none [mask-image:linear-gradient(to_bottom,black_33%,transparent_100%)] [-webkit-mask-image:linear-gradient(to_bottom,black_33%,transparent_100%)] md:block"
-          >
-            <ExponentialLogo variant="light" size={440} className="size-[440px]" />
-          </div>
-          {steerEnabled ? (
-            // Keyed by team: the composer's repo pick and seed latches are
-            // one-shot per mount, so a /t/a/agent → /t/b/agent navigation
-            // remounts it instead of carrying team A's repo into team B.
-            <ComposerPane
-              key={team.id}
-              teamId={team.id}
-              remote={remote}
-              users={teamUsers}
-              seed={seed}
-              onSeedConsumed={onSeedConsumed}
-              onActionChange={onActionChange}
-            />
-          ) : (
-            <p className="text-center text-sm text-muted-foreground">
-              Live steering is unavailable on this instance.
-            </p>
-          )}
+          <HomeColumn
+            team={team}
+            userName={authSession?.user?.name ?? null}
+            isMember={isMember}
+            steerEnabled={steerEnabled}
+            remote={remote}
+            users={teamUsers}
+            seed={seed}
+            onSeedConsumed={onSeedConsumed}
+            onActionChange={onActionChange}
+          />
           {/* EXP-923: PHONE ONLY. On md+ what is running is a sidebar
               section, so the page is the composer alone; the phone keeps its
               Running list under the composer, inside the page's ONE scroller
@@ -328,10 +367,106 @@ function AgentPage() {
             showWhenEmpty
             // The page's own container already reserves the tab bar's
             // clearance — the list must not add a second one inside it.
-            className="p-0 max-md:pb-0 md:hidden"
+            className="mt-6 p-0 max-md:pb-0 md:hidden"
           />
         </div>
       </div>
+    </div>
+  )
+}
+
+/** EXP-1253: the home column under the page chrome: the headline + composer
+ *  (or the relay-less line), then Getting started while the team has no
+ *  board; nothing else. The greeting is computed ONCE per mount. */
+export function HomeColumn({
+  team,
+  userName,
+  isMember,
+  steerEnabled,
+  remote,
+  users,
+  seed,
+  onSeedConsumed,
+  onActionChange,
+}: {
+  team: Team
+  userName: string | null
+  isMember: boolean
+  steerEnabled: boolean
+  remote: RemoteStart
+  users: User[]
+  seed: LaunchSeed | null
+  onSeedConsumed: () => void
+  onActionChange: (actionId: string | null) => void
+}) {
+  const [greeting] = useState(() => homeGreeting(localWallClock(new Date()), userName))
+  const { boards, boardsReady } = useTeamBoardsWithReady(team.id)
+  return (
+    <>
+      {steerEnabled ? (
+        // Keyed by team: the composer's repo pick and seed latches are
+        // one-shot per mount, so a /t/a/agent → /t/b/agent navigation
+        // remounts it instead of carrying team A's repo into team B.
+        <ComposerPane
+          key={team.id}
+          teamId={team.id}
+          greeting={greeting}
+          remote={remote}
+          users={users}
+          seed={seed}
+          onSeedConsumed={onSeedConsumed}
+          onActionChange={onActionChange}
+        />
+      ) : (
+        <>
+          <HomeHeadline greeting={greeting} />
+          <p
+            className="text-center text-sm text-muted-foreground"
+            style={{ marginTop: HOME_GEOMETRY.headlineToCard }}
+          >
+            Live steering is unavailable on this instance.
+          </p>
+        </>
+      )}
+      {/* EXP-1270: a board-less team's Getting started block (members only:
+          meaningless before the viewer's own member row has synced). */}
+      {isMember && boardsReady && boards.length === 0 && (
+        <div style={{ marginTop: HOME_GEOMETRY.composerToGettingStarted }}>
+          <GettingStartedSection team={team} teamSlug={team.slug} />
+        </div>
+      )}
+    </>
+  )
+}
+
+/** The disc mark + ONE line of Inter semibold (composer-home.json
+ *  `geometry`; phones `markPhone`/`headlinePhone`). */
+function HomeHeadline({ greeting }: { greeting: string }) {
+  const { mark, markPhone, gap, headline, headlinePhone, headlineWeight } = HOME_GEOMETRY
+  return (
+    <div className="flex items-center justify-center" style={{ gap }}>
+      <span
+        aria-hidden
+        data-testid={HOME_TEST_IDS.mark}
+        className="flex size-[var(--home-mark-phone)] shrink-0 text-foreground md:size-[var(--home-mark)]"
+        style={{
+          [`--home-mark` as string]: `${mark}px`,
+          [`--home-mark-phone` as string]: `${markPhone}px`,
+        }}
+      >
+        <ExponentialLogo variant="light" size={mark} className="size-full" />
+      </span>
+      <h1
+        data-testid={HOME_TEST_IDS.greeting}
+        className="min-w-0 truncate text-[length:var(--home-headline-phone)] leading-tight tracking-tight text-foreground md:text-[length:var(--home-headline)]"
+        style={{
+          fontWeight: headlineWeight,
+          [`--home-headline` as string]: `${headline}px`,
+          [`--home-headline-phone` as string]: `${headlinePhone}px`,
+        }}
+      >
+        {greeting}
+      </h1>
     </div>
   )
 }
@@ -341,6 +476,7 @@ function AgentPage() {
  * instance. */
 function ComposerPane({
   teamId,
+  greeting,
   remote,
   users,
   seed,
@@ -348,6 +484,7 @@ function ComposerPane({
   onActionChange,
 }: {
   teamId: string
+  greeting: string
   remote: RemoteStart
   users: User[]
   seed: LaunchSeed | null
@@ -362,5 +499,14 @@ function ComposerPane({
   useEffect(() => {
     onActionChange(activeActionId)
   }, [activeActionId, onActionChange])
-  return <LaunchComposer model={model} users={users} />
+  return (
+    <>
+      {/* EXP-1253: the greeting leads while nothing is picked; a picked
+          subject's own headline (inside the composer) leads instead. */}
+      {subject === null && <HomeHeadline greeting={greeting} />}
+      <div style={subject === null ? { marginTop: HOME_GEOMETRY.headlineToCard } : undefined}>
+        <LaunchComposer model={model} users={users} variant="home" />
+      </div>
+    </>
+  )
 }

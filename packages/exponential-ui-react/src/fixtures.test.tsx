@@ -3,9 +3,9 @@
 // and the kitchen sink renders under `exponential`, `neutral` and the
 // `playful` test theme with no code change — the recipes do the work.
 
-import { describe, expect, it } from "vitest"
-import { render } from "@testing-library/react"
-import { CORE_CATALOG_ID, A2UI_BASIC_CATALOG_ID, BUILTIN_THEME_IDS, defineExtension, reduceNested, reduceSurface, expandMacros, builtinTheme } from "@exponential-at/ui"
+import { describe, expect, it, vi } from "vitest"
+import { act, render } from "@testing-library/react"
+import { PENDING_DELAY_MS, CORE_CATALOG_ID, A2UI_BASIC_CATALOG_ID, BUILTIN_THEME_IDS, defineExtension, reduceNested, reduceSurface, expandMacros, builtinTheme } from "@exponential-at/ui"
 import type { ExtensionDef, FlatComponent, NestedNode, UiNode } from "@exponential-at/ui"
 import componentsFixture from "@exponential-at/ui/fixtures/catalog-components.json"
 import macrosFixture from "@exponential-at/ui/fixtures/catalog-macros.json"
@@ -49,7 +49,7 @@ function markup(container: HTMLElement): string {
   const clone = container.cloneNode(true) as HTMLElement
   for (const s of clone.querySelectorAll(`style`)) s.remove()
   // The theme scope hash and React ids would churn the snapshot.
-  return clone.innerHTML.replace(/xui-t-[a-z0-9-]+-[a-z0-9]+/g, `xui-t-THEME`).replace(/xui-s-[a-zA-Z0-9_]+/g, `xui-s-SURFACE`).replace(/\b(id|for|aria-labelledby|aria-describedby|aria-controls)="[^"]*"/g, `$1="ID"`)
+  return clone.innerHTML.replace(/xui-t-[a-z0-9-]+-[a-z0-9]+/g, `xui-t-THEME`).replace(/xui-s-[a-zA-Z0-9_]+/g, `xui-s-SURFACE`).replace(/\b(id|for|aria-labelledby|aria-describedby|aria-controls|aria-activedescendant)="[^"]*"/g, `$1="ID"`)
 }
 
 describe(`catalog fixture → every component renders`, () => {
@@ -57,7 +57,28 @@ describe(`catalog fixture → every component renders`, () => {
     it(c.name, () => {
       const { root, issues, templates } = reduceNested(c.node, { catalogId: CORE_CATALOG_ID })
       expect(issues).toEqual([])
-      const { container } = render(<ExponentialSurface root={root} templates={templates} theme="neutral" id="fx" />)
+      // EXP-1259 final review #24: a LOADING case snapshots the frame past
+      // the pending delay (feedback-states.json `pending`), what a person
+      // sees: the spinner and its `pendingLabel`, not the idle first frame.
+      const loading = JSON.stringify(c.node).includes(`"loading":true`)
+      if (loading) vi.useFakeTimers()
+      let container: HTMLElement
+      try {
+        container = render(<ExponentialSurface root={root} templates={templates} theme="neutral" id="fx" />).container
+        if (loading) {
+          act(() => {
+            vi.advanceTimersByTime(PENDING_DELAY_MS)
+          })
+        }
+      } finally {
+        if (loading) vi.useRealTimers()
+      }
+      const pendingLabel = root.component === `Button` && root.props.loading === true ? root.props.pendingLabel : undefined
+      if (typeof pendingLabel === `string`) {
+        const button = container.querySelector(`[data-xui-id="${root.id}"]`)
+        expect(button?.getAttribute(`data-pending`)).toBe(`true`)
+        expect(button?.textContent).toBe(pendingLabel)
+      }
       const el = container.querySelector(`[data-xui-id="${root.id}"]`)
       // A closed Toast paints nothing (it lives in the toast layer when open).
       if (!(root.component === `Toast` && root.props.open === false)) expect(el, `root element of ${c.name}`).not.toBeNull()

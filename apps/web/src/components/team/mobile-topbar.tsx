@@ -146,7 +146,7 @@ export function TeamMobileTopbar({
             variant="ghost"
             size="icon"
             className="size-9 text-muted-foreground"
-            aria-label="Recent runs"
+            aria-label="Recent sessions"
             data-testid="recent-runs-sheet-button"
             onClick={() => setRecentOpen(true)}
           >

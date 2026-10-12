@@ -17,7 +17,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
         .child(
             "Web only: five views render inside the MCP host (OpenClaw, Claude, \
              ChatGPT) beside their call: the issue list (exponential_issues_show), \
-             the run list (exponential_sessions_list), the run report \
+             the session list (exponential_sessions_list), the session report \
              (exponential_sessions_get), the inbox (exponential_notifications_list) \
              and the devices page (exponential_devices_list). See the web styleguide.",
         )

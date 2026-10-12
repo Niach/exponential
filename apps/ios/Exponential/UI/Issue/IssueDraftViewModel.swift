@@ -117,6 +117,10 @@ final class IssueDraftViewModel {
 
     /// A row for `draftId` exists server-side.
     private(set) var rowExists = false
+    /// An upsert was SENT since the last delete: a write whose answer never
+    /// came back (a timeout, a dropped connection) may still have landed, so
+    /// an emptied page deletes on the way out even when `rowExists` is false.
+    @ObservationIgnored private var mayHaveRow = false
     private(set) var creating = false
     /// One-shot hand-off to the toaster; the view clears it once shown.
     var error: String?
@@ -613,20 +617,30 @@ final class IssueDraftViewModel {
     /// (or an upload needs the row), delete an emptied row on the way out,
     /// nothing otherwise.
     private func writeOnce() async {
-        guard writesDraft, !finished, !blockedByCreate, !holdWrites, let deps else { return }
-        guard hasContent || ensureRequested else {
-            // Only a KNOWN-empty draft is deleted: an attachment list that
-            // never loaded may still hold files.
-            if rowExists, leaving, attachmentsLoaded {
-                await deleteRow()
-            }
+        guard writesDraft, !finished, !blockedByCreate, let deps else { return }
+        // Only a KNOWN-empty draft is deleted (an attachment list that never
+        // loaded may still hold files), and the hold never blocks that delete.
+        switch IssueDraftPage.write(
+            needsRow: hasContent || ensureRequested,
+            leaving: leaving,
+            attachmentsKnown: attachmentsLoaded,
+            mayHaveRow: rowExists || mayHaveRow,
+            held: holdWrites
+        ) {
+        case .none:
             return
+        case .delete:
+            await deleteRow()
+            return
+        case .upsert:
+            break
         }
         guard let teamId = await resolveTeamId() else {
             lastWriteFailed = true
             return
         }
         let input = snapshot(teamId: teamId)
+        mayHaveRow = true
         do {
             let dto = try await deps.issueDraftsApi.upsert(accountId: accountId, input)
             // This page created the row: its attachment list is the truth.
@@ -682,6 +696,7 @@ final class IssueDraftViewModel {
 
     private func deleteLocalRow() async {
         rowExists = false
+        mayHaveRow = false
         // EXP-1231: this page's own delete is never "discarded elsewhere".
         rowSeen = false
         guard let deps, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
@@ -739,7 +754,7 @@ final class IssueDraftViewModel {
         let inFlight = saveLoopTask
         Task {
             await inFlight?.value
-            if self.rowExists { await self.deleteRow() }
+            if self.rowExists || self.mayHaveRow { await self.deleteRow() }
         }
     }
 

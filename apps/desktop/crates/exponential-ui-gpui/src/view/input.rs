@@ -51,6 +51,8 @@ impl FieldKind {
             (_, Some("NumberField")) => FieldKind::Number,
             (_, Some("ChipInput")) => FieldKind::Chips,
             (_, Some("Select")) => FieldKind::Search,
+            // EXP-1259: a SearchList's (or a searchable submenu's) field.
+            ("SearchList", _) => FieldKind::Search,
             _ => FieldKind::Input,
         }
     }
@@ -211,6 +213,8 @@ impl SurfaceView {
                         self.flush_field(id, Some("submit"), window, cx);
                         self.clear_field(id, window, cx);
                     }
+                    // EXP-1259: Enter in a search list picks its highlighted row.
+                    Some(FieldKind::Search) if self.cache.index_of(id).and_then(|i| self.cache.node(i)).is_some_and(|n| n.component == "SearchList") => self.search_key(id, "Enter", window, cx),
                     Some(_) => self.flush_field(id, Some("submit"), window, cx),
                 }
             }

@@ -4,38 +4,44 @@ import SwiftUI
 
 /// The Search tab: cross-board issue search over the active account's local
 /// data, augmented by a debounced server full-text search (description +
-/// comments). The glass field mirrors the inline search that used to live in
-/// the issue list. Pure search (EXP-58): the empty-query state is a hint —
-/// the "Assigned to you" list that used to live here moved to My Work.
+/// comments). Pure search (EXP-58): the empty-query state is a hint — the
+/// "Assigned to you" list that used to live here moved to My Work.
+///
+/// SLOP-28 (EXP-1259 D4): it is THE search list (`SearchListView`,
+/// search-list.json), the one the `#` typeahead and the composer's pickers
+/// draw: the input row on top (focused on open), the picker's own rows
+/// (status glyph, `IDENT Title`) under it, the result count once a query is
+/// typed; a row (or Return on the top one) opens the issue.
 struct SearchView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.pushRoute) private var pushRoute
     @State private var viewModel: SearchViewModel?
     @State private var query = ""
-    @FocusState private var searchFocused: Bool
 
     var body: some View {
         ZStack {
             AppBackground()
 
-            VStack(spacing: 0) {
-                searchField
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-
-                if let vm = viewModel {
-                    let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if trimmed.isEmpty {
-                        searchHint
-                    } else {
-                        let results = vm.results(for: trimmed)
-                        if results.isEmpty {
-                            noResults
-                        } else {
-                            resultsList(results)
-                        }
+            if let vm = viewModel {
+                let trimmed = query.trimmingCharacters(in: .whitespacesAndNewlines)
+                SearchListView(
+                    items: vm.results(for: trimmed).map(Self.item),
+                    query: $query,
+                    // EXP-922: the ×4 copy set — same words on web, desktop,
+                    // iOS and Android (web `lib/issue-search.ts`;
+                    // `issue-search-surfaces.test.ts` greps this file).
+                    placeholder: "Search issues",
+                    inputIdentifier: "search-field",
+                    autofocus: true,
+                    emptyText: trimmed.isEmpty ? nil : "No issues match",
+                    onPick: { issueId in
+                        pushRoute(.issue(accountId: accountId, id: issueId))
                     }
+                )
+                .padding(.top, 4)
+                .overlay {
+                    if trimmed.isEmpty { searchHint.allowsHitTesting(false) }
                 }
             }
         }
@@ -62,18 +68,18 @@ struct SearchView: View {
         }
     }
 
-    // Custom glass search field. NOT system .searchable — on iOS 26+ the
-    // navigationBarDrawer placement renders as a bottom-edge glass bar on
-    // iPhone, colliding with the floating tab bar.
-    private var searchField: some View {
-        GlassSheetSearchField(
-            // EXP-922: the ×4 copy set — same words on web, desktop, iOS and
-            // Android (web `lib/issue-search.ts`; `issue-search-surfaces.test.ts` greps this file).
-            placeholder: "Search issues",
-            text: $query,
-            accessibilityIdentifier: "search-field"
+    /// One result as THE picker row (EXP-922's flat list, SLOP-28's one row
+    /// type): the anchor status glyph (EXP-314: search spans teams, status
+    /// rows are team-scoped), `IDENT Title`. Keyed by the issue id.
+    static func item(_ result: SearchViewModel.Result) -> PickerItem<String> {
+        let issue = result.issue
+        let status = IssueStatus.from(issue.status)
+        return PickerItem(
+            value: issue.id,
+            label: "\(issue.identifier ?? "") \(issue.title)",
+            icon: status.iconName,
+            color: status.color
         )
-        .focused($searchFocused)
     }
 
     // MARK: - Empty-query state (search hint)
@@ -85,96 +91,5 @@ struct SearchView: View {
             icon: AppIcons.navSearch
         )
         .frame(maxHeight: .infinity)
-    }
-
-    // MARK: - Results
-
-    private var noResults: some View {
-        EmptyState(title: "No issues match", icon: AppIcons.uiEmptySearch)
-            .frame(maxHeight: .infinity)
-    }
-
-    /// EXP-922: ONE flat relevance-ordered list — the web sheet's and the
-    /// desktop palette's shape. The board moved onto each row's sub-line; the
-    /// per-board sections are gone, because banding fought the ranking (a
-    /// board's header jumped to wherever its best hit landed and pulled its
-    /// weaker hits up with it, so the same query read differently here than on
-    /// every other client).
-    @ViewBuilder
-    private func resultsList(_ results: [SearchViewModel.Result]) -> some View {
-        List {
-            ForEach(results) { result in
-                resultRow(result)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 1.5, leading: 16, bottom: 1.5, trailing: 16))
-            }
-        }
-        .listStyle(.plain)
-        // Same compact-list treatment as the board IssueListView (EXP-80):
-        // zero the List's own content margins, kill the implicit 44pt row
-        // floor, and flow sections without the inter-section band, so search
-        // results match the issue list's row rhythm.
-        .contentMargins(.horizontal, 0, for: .scrollContent)
-        .contentMargins(.top, 0, for: .scrollContent)
-        .environment(\.defaultMinListRowHeight, 0)
-        .listSectionSpacing(0)
-        .scrollContentBackground(.hidden)
-        .background(Color.clear)
-        // No tab-bar clearance: EXP-686 made Search a pushed detail, so the
-        // floating bar is hidden here and the full height is ours.
-    }
-
-    /// The ×4 search row (EXP-922): the issue's status glyph, its title, and a
-    /// sub-line carrying the board's own glyph, the board name and the
-    /// identifier — byte-for-byte the web `IssueSearchSheet` row and the
-    /// desktop palette's `render_issue_row`. Priority is deliberately absent:
-    /// no other client shows it here. P54: a plain Button + `pushRoute`, not
-    /// a `NavigationLink` — a link in a List row draws the system disclosure
-    /// chevron, which no other client's search row has (EXP-698 r5).
-    @ViewBuilder
-    private func resultRow(_ result: SearchViewModel.Result) -> some View {
-        let issue = result.issue
-        Button {
-            pushRoute(.issue(accountId: accountId, id: issue.id))
-        } label: {
-            HStack(spacing: 10) {
-                // Anchor glyph (EXP-314): search spans teams, and status rows
-                // are team-scoped — the anchor renders correctly for builtins
-                // and is the right neutral fallback for customs.
-                AppIcon(IssueStatus.from(issue.status).iconName, size: AppIcon.Size.small)
-                    .foregroundStyle(IssueStatus.from(issue.status).color)
-                    .frame(width: 16)
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(issue.title)
-                        .font(.subheadline)
-                        .foregroundStyle(.white)
-                        .lineLimit(1)
-
-                    HStack(spacing: 6) {
-                        if let board = result.board {
-                            AppIcon(BoardTypeDisplay.iconName(for: board), size: 11)
-                                .foregroundStyle(Color(hex: board.color ?? "#888888") ?? .gray)
-                            Text("\(board.name) · \(issue.identifier ?? "")")
-                                .lineLimit(1)
-                        } else {
-                            Text(issue.identifier ?? "")
-                                .lineLimit(1)
-                        }
-                    }
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Spacer(minLength: 0)
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .glassRow()
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
     }
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { LoaderCircle, Minus, Plus } from "lucide-react"
+import { Minus, Plus } from "lucide-react"
 import {
   Button,
   Dialog,
@@ -10,11 +10,13 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  FEEDBACK_WORDS,
   Input,
   Label,
   toast,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { invalidateBillingCache } from "@/hooks/use-billing"
 
 // Self-service seat adjustment on the team's EXISTING subscription
@@ -58,10 +60,7 @@ export function AdjustSeatsDialog({
   const handleSave = async () => {
     setSaving(true)
     try {
-      const result = await trpc.billing.updateSeats.mutate({
-        teamId,
-        seats,
-      })
+      const result = await trpc.billing.updateSeats.mutate({ teamId, seats }, SKIP_ERROR_TOAST)
       invalidateBillingCache()
       toast.success(
         `Team updated to ${result.seats} seat${result.seats === 1 ? `` : `s`}`
@@ -69,11 +68,7 @@ export function AdjustSeatsDialog({
       onOpenChange(false)
     } catch (err) {
       console.error(`[billing] seat update failed:`, err)
-      toast.error(
-        err instanceof Error && err.message
-          ? err.message
-          : `Couldn't update seats`
-      )
+      failedAction(`update`, `seats`, err)
     } finally {
       setSaving(false)
     }
@@ -146,15 +141,13 @@ export function AdjustSeatsDialog({
 
         <DialogFooter>
           <DialogCancel onClick={() => onOpenChange(false)} disabled={saving} />
-          <Button onClick={handleSave} disabled={!changed || saving}>
-            {saving && (
-              <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />
-            )}
-            {saving
-              ? `Saving...`
-              : changed
-                ? `Set to ${seats} seat${seats === 1 ? `` : `s`}`
-                : `No change`}
+          <Button
+            onClick={handleSave}
+            disabled={!changed}
+            pending={saving}
+            pendingLabel={FEEDBACK_WORDS.pending.save}
+          >
+            {changed ? `Set to ${seats} seat${seats === 1 ? `` : `s`}` : `No change`}
           </Button>
         </DialogFooter>
       </DialogContent>

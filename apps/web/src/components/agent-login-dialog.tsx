@@ -27,6 +27,7 @@ import {
 } from "@/lib/steer-devices"
 import {
   agentLoginBaseline,
+  agentLoginFailure,
   agentLoginLanding,
   alreadyAddedCopy,
   AgentLoginOutcome,
@@ -40,13 +41,14 @@ import {
   DialogHeader,
   DialogTitle,
   conceptIcon,
+  Spinner,
   toast,
 } from "@exp/ui"
+import { failedAction } from "@/lib/action-error"
 
 // Multi-client surface (iOS `AgentLoginSheet`, the IDE's login dialog) — a
 // CONCEPT, never a raw glyph.
 const CheckIcon = conceptIcon(`ui-check`)
-const LoadingIcon = conceptIcon(`ui-loading`)
 
 // EXP-940: the three lines the end of a sign-in can say, short and ×4.
 export const SIGNING_IN = `Signing in…`
@@ -181,8 +183,22 @@ export function AgentLoginDialog({
     login.queueLogin(agent, false, { profileId: target?.profileId })
   }
 
-  const failure = timedOut ? SIGN_IN_TIMED_OUT : state.codeError || state.error
+  const failure = timedOut
+    ? SIGN_IN_TIMED_OUT
+    : state.codeError || state.error || agentLoginFailure(state.result)
   const waiting = signing || state.codePending
+
+  // FEED-79: a failed sign-in is a toast (once per failure, Retry re-queues
+  // the login); the dialog keeps its status line and the Try again button.
+  const retryRef = useRef(retry)
+  retryRef.current = retry
+  useEffect(() => {
+    if (!open || !failure) return
+    failedAction(`sign in`, agentLabel(agent), failure, {
+      retry: () => retryRef.current(),
+    })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, failure])
 
   // The ONE status line, byte-identical ×4: who is signing in where, and what
   // is happening right now — never a paragraph.
@@ -203,9 +219,7 @@ export function AgentLoginDialog({
         <div className="flex flex-col gap-2">
           {/* Who is signing in where — it stays put through every phase. */}
           <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-            {state.pending && (
-              <LoadingIcon className="size-3 shrink-0 animate-spin" />
-            )}
+            {state.pending && <Spinner />}
             {statusText}
           </p>
           {signedIn ? (
@@ -214,22 +228,19 @@ export function AgentLoginDialog({
               {SIGNED_IN}
             </p>
           ) : failure ? (
-            <>
-              <p className="text-xs text-destructive">{failure}</p>
-              <Button
-                variant="glass"
-                size="sm"
-                className="w-fit"
-                onClick={retry}
-              >
-                Try again
-              </Button>
-            </>
+            <Button
+              variant="glass"
+              size="sm"
+              className="w-fit"
+              onClick={retry}
+            >
+              Try again
+            </Button>
           ) : waiting ? (
             // The code is in; the machine finishes on its own and reports the
             // login on its next heartbeat.
             <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <LoadingIcon className="size-3 shrink-0 animate-spin" />
+              <Spinner label={SIGNING_IN} />
               {SIGNING_IN}
             </p>
           ) : (

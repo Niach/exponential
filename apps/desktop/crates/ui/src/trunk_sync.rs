@@ -240,7 +240,10 @@ impl TrunkSync {
                     this.sync_error().is_some(),
                 );
                 if retry {
-                    this.refresh(window, cx);
+                    // A background retry: its failure is the sticky badge,
+                    // never a toast (no action of the user's failed).
+                    let mode = this.fetch_mode(window, cx);
+                    this.start_sync(mode, false, cx);
                 }
             }),
             // Scope follows the window's repo pick (EXP-1133) on the nav.
@@ -350,7 +353,7 @@ impl TrunkSync {
     /// exactly like the AutoSync one (never move the tree under Claude's
     /// feet).
     pub(crate) fn refresh(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        self.start_sync(self.fetch_mode(window, cx), cx);
+        self.start_sync(self.fetch_mode(window, cx), true, cx);
     }
 
     /// The freshness-pass mode under the live-task hold-off: [`SyncMode::Fetch`]
@@ -376,7 +379,7 @@ impl TrunkSync {
             cx.notify();
             return;
         }
-        self.start_sync(SyncMode::HardReset, cx);
+        self.start_sync(SyncMode::HardReset, true, cx);
     }
 
     /// EXP-509: commit-and-push the trunk's local work (the history pane's
@@ -410,7 +413,7 @@ impl TrunkSync {
                 });
             (name, account.email)
         });
-        self.start_sync(SyncMode::CommitPush { message, identity }, cx);
+        self.start_sync(SyncMode::CommitPush { message, identity }, true, cx);
     }
 
     /// The on-disk trunk state as of the last read (EXP-509 — the history
@@ -476,7 +479,7 @@ impl TrunkSync {
         // until a later edge re-raised it. A policy-less (not-ready) pass
         // keeps the prune trigger alive for the same reason.
         let carried_prune = policy.is_some();
-        if self.start_sync_with_prune(SyncMode::AutoSync, policy, cx) {
+        if self.start_sync_with_prune(SyncMode::AutoSync, policy, false, cx) {
             self.pending_merge_sync = false;
             if carried_prune {
                 self.pending_prune_sync = false;
@@ -849,13 +852,17 @@ impl TrunkSync {
                 // Auto-clone a missing trunk, else a freshness sync on
                 // repo open (fetch + ff when cleanly behind-only — the
                 // trunk must never open stale when it could be current;
-                // fetch-only under the live-task hold-off).
+                // fetch-only under the live-task hold-off). Automatic, so a
+                // failure is the sticky badge only (FEED-79: no toast on
+                // every launch or board switch, e.g. offline or a self-host
+                // without the GitHub App).
                 this.start_sync(
                     if clone_exists {
                         this.fetch_mode(window, cx)
                     } else {
                         SyncMode::Clone
                     },
+                    false,
                     cx,
                 );
                 cx.notify();
@@ -867,9 +874,12 @@ impl TrunkSync {
     /// Spawn a background git op: token via the cache, run it, and re-read
     /// the trunk. Progress marshals to the foreground through a [`flume`]
     /// channel drained here. No-op while another op is in flight (one trunk
-    /// op at a time) or off a resolved repo.
-    fn start_sync(&mut self, mode: SyncMode, cx: &mut gpui::Context<Self>) {
-        self.start_sync_with_prune(mode, None, cx);
+    /// op at a time) or off a resolved repo. `attended` = the user asked for
+    /// this op (refresh, Sync now, reset, commit-and-push): only then is its
+    /// failure a toast (FEED-79 `errors`); an automatic pass fails into the
+    /// sticky badge alone.
+    fn start_sync(&mut self, mode: SyncMode, attended: bool, cx: &mut gpui::Context<Self>) {
+        self.start_sync_with_prune(mode, None, attended, cx);
     }
 
     /// [`Self::start_sync`] with the auto-sync pass's worktree-prune policy
@@ -881,6 +891,7 @@ impl TrunkSync {
         &mut self,
         mode: SyncMode,
         prune_policy: Option<coding::PrunePolicy>,
+        attended: bool,
         cx: &mut gpui::Context<Self>,
     ) -> bool {
         if self.syncing {
@@ -921,7 +932,7 @@ impl TrunkSync {
         cx.spawn(async move |this, cx| {
             while let Ok(msg) = rx.recv_async().await {
                 if this
-                    .update(cx, |this, cx| this.apply_sync_msg(generation, msg, cx))
+                    .update(cx, |this, cx| this.apply_sync_msg(generation, attended, msg, cx))
                     .is_err()
                 {
                     break; // the engine was dropped (window closed)
@@ -940,8 +951,15 @@ impl TrunkSync {
     }
 
     /// Apply one marshaled [`SyncMsg`] on the foreground. Stale messages (a
-    /// superseded scope) are dropped by the generation guard.
-    fn apply_sync_msg(&mut self, generation: u64, msg: SyncMsg, cx: &mut gpui::Context<Self>) {
+    /// superseded scope) are dropped by the generation guard. `attended`
+    /// (see [`Self::start_sync`]) gates the failure toast.
+    fn apply_sync_msg(
+        &mut self,
+        generation: u64,
+        attended: bool,
+        msg: SyncMsg,
+        cx: &mut gpui::Context<Self>,
+    ) {
         if generation != self.generation {
             return; // superseded scope — ignore the old job's tail
         }
@@ -967,11 +985,29 @@ impl TrunkSync {
                 self.syncing = false;
                 self.clone_progress = None;
                 self.job_failed = true;
+                // FEED-79: a clone the user asked for fails as the error
+                // toast; the rail badge keeps the sticky state either way.
+                if attended {
+                    crate::action_error::failed_action(
+                        "clone",
+                        "the repository",
+                        Some(detail.clone()),
+                        cx,
+                    );
+                }
                 self.op_error = Some(detail.into());
             }
             SyncMsg::Failed(detail) => {
                 log::warn!("[ui] trunk sync: op failed: {detail}");
                 self.job_failed = true;
+                if attended {
+                    crate::action_error::failed_action(
+                        "sync",
+                        "the repository",
+                        Some(detail.clone()),
+                        cx,
+                    );
+                }
                 self.op_error = Some(detail.into());
             }
             SyncMsg::AutoSyncDone(Ok(_outcome)) => {

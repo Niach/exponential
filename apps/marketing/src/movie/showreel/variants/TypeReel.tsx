@@ -144,9 +144,9 @@ const StreamWorld: React.FC<{ l: number }> = ({ l }) => (
 
 const TRIGGERS: [string, string, string][] = [
   [`⏱`, `nightly · 02:00`, `Triage the feedback inbox`],
-  [`⚡`, `on feedback`, `File the issue · start a run`],
+  [`⚡`, `on feedback`, `File the issue · start a session`],
   [`⚡`, `on PR opened`, `Review the pull request`],
-  [`⏱`, `weekly · Mon`, `Plan the backlog · follow-up runs`],
+  [`⏱`, `weekly · Mon`, `Plan the backlog · follow-up sessions`],
 ]
 
 const AutoWorld: React.FC<{ l: number }> = ({ l }) => (

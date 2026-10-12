@@ -296,9 +296,9 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
     sessionResults: true,
   })
   expect(person).toContain(
-    `exponential_sessions_end ends this run; call it only when the person asks you to end the run.`
+    `exponential_sessions_end ends this session; call it only when the person asks you to end the session.`
   )
-  expect(person).not.toContain(`This run is unattended`)
+  expect(person).not.toContain(`This session is unattended`)
   expect(person).toContain(`exponential_sessions_ask_parent with to 'user'`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_end LAST`)
   expect(MCP_SERVER_INSTRUCTIONS).not.toContain(`only when the person asks`)

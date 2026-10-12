@@ -2,7 +2,8 @@ import * as React from "react"
 import { createFileRoute, Link } from "@tanstack/react-router"
 import { useState } from "react"
 import { authClient } from "@/lib/auth/client"
-import { Button, Input, Label, AuthFormShell } from "@exp/ui"
+import { Button, FEEDBACK_WORDS, Input, Label, AuthFormShell } from "@exp/ui"
+import { failedAction } from "@/lib/action-error"
 import { pageTitle } from "@/lib/page-title"
 
 export const Route = createFileRoute(`/auth/forgot-password`)({
@@ -15,28 +16,28 @@ function ForgotPasswordPage() {
   const [email, setEmail] = useState(``)
   const [isLoading, setIsLoading] = useState(false)
   const [sent, setSent] = useState(false)
-  const [error, setError] = useState(``)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
-    setError(``)
     try {
       // The auth client reports failures via the returned `error`, not by
       // throwing. The server answers unknown emails with the same success as
       // known ones (no account enumeration), so an error here means the
-      // request itself failed (rate limit, outage) — worth surfacing.
+      // request itself failed (rate limit, outage): a toast, not the field.
       const { error: requestError } = await authClient.requestPasswordReset({
         email,
         redirectTo: `${window.location.origin}/auth/reset-password`,
       })
       if (requestError) {
-        setError(`Couldn't send the reset email. Try again in a moment.`)
+        failedAction(`send`, `the reset email`, requestError, {
+          description: `Try again in a moment.`,
+        })
         return
       }
       setSent(true)
-    } catch {
-      setError(`Couldn't send the reset email. Try again in a moment.`)
+    } catch (err) {
+      failedAction(`send`, `the reset email`, err)
     } finally {
       setIsLoading(false)
     }
@@ -79,9 +80,13 @@ function ForgotPasswordPage() {
               placeholder="you@example.com"
             />
           </div>
-          {error && <p className="text-sm text-destructive">{error}</p>}
-          <Button type="submit" className="w-full" disabled={isLoading}>
-            {isLoading ? `Sending…` : `Send reset link`}
+          <Button
+            type="submit"
+            className="w-full"
+            pending={isLoading}
+            pendingLabel={FEEDBACK_WORDS.pending.send}
+          >
+            Send reset link
           </Button>
         </form>
       )}

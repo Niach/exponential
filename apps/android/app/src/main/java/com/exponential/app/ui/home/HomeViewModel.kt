@@ -20,6 +20,10 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+import com.exponential.app.domain.FeedbackStates
+import com.exponential.app.ui.components.Blocking
 
 // Powers the Issues tab root's board-switcher sheet (the old Boards home
 // collapsed into a bottom sheet): the cross-server team/board tree,
@@ -143,22 +147,43 @@ class HomeViewModel @Inject constructor(
     /// picks skip the explicit select — the account switch clears the
     /// selection and AppViewModel's default-team bootstrap re-resolves it
     /// from the just-written last-used board (the same team).
+    ///
+    /// EXP-1275 (D8.5): a switch to another ACCOUNT or TEAM runs behind the
+    /// blocking overlay (shown only once it outlasts the pending delay): an
+    /// account switch until that account's teams have synced in, a team
+    /// switch until the selection moved.
     fun selectBoard(accountId: String, boardId: String) {
         if (accountId != auth.activeAccountId.value) {
-            auth.switchAccount(accountId)
-            selection.rememberLastBoard(accountId, boardId)
+            val account = auth.accounts.value.firstOrNull { it.id == accountId }
+            viewModelScope.launch {
+                Blocking.whileBlocking(FeedbackStates.switchingAccount(account?.displayName.orEmpty())) {
+                    auth.switchAccount(accountId)
+                    selection.rememberLastBoard(accountId, boardId)
+                    withTimeoutOrNull(ACCOUNT_SWITCH_SETTLE_MS) {
+                        holder.database(forAccountId = accountId).teamDao().observeAll().first { it.isNotEmpty() }
+                    }
+                }
+            }
             return
         }
         selection.rememberLastBoard(accountId, boardId)
         viewModelScope.launch {
-            val board = holder.database(forAccountId = accountId).boardDao().getActiveById(boardId)
+            val db = holder.database(forAccountId = accountId)
+            val board = db.boardDao().getActiveById(boardId)
             // The account guard closes the tail of the switch race (same rule as
             // AppViewModel's default-team resolve): this lookup can land after a
             // concurrent account switch, and a team id from the previous
             // account's database must never win.
             if (board != null && auth.activeAccountId.value == accountId) {
-                selection.select(board.teamId)
+                if (board.teamId == selection.selectedId.value) return@launch
+                val team = db.teamDao().observeById(board.teamId).first()
+                Blocking.whileBlocking(FeedbackStates.switchingTeam(team?.name.orEmpty())) {
+                    selection.select(board.teamId)
+                }
             }
         }
     }
 }
+
+/** How long an account switch may hold the blocking overlay waiting for its teams. */
+private const val ACCOUNT_SWITCH_SETTLE_MS = 10_000L

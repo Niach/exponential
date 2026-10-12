@@ -1,4 +1,5 @@
 import ExpCore
+import ExpUI
 import Foundation
 import GRDB
 
@@ -34,8 +35,6 @@ final class ActionDetailViewModel {
     /// The trigger with an in-flight write (`newTriggerKey` for an add) —
     /// one write at a time, since each replaces the whole array.
     var busyTriggerId: String?
-    /// The server's refusal of the last trigger write, in its own words.
-    var triggerError: String?
 
     /// What the last trigger write returned — the busy flag clears when tRPC
     /// answers, BEFORE the row echoes, so a write in that gap must build on
@@ -150,11 +149,12 @@ final class ActionDetailViewModel {
 
     /// Owner-only delete. The element leaves via Electric.
     func delete(_ trigger: ActionTrigger) {
-        write(triggers.removing(id: trigger.id), busy: trigger.id)
+        write(triggers.removing(id: trigger.id), busy: trigger.id, verb: "delete")
     }
 
     /// Add (`editing` nil) or change a trigger from the form sheet. The sheet
-    /// dismisses on submit; a refusal surfaces as `triggerError` on the tab.
+    /// dismisses on submit; a refusal is a toast in the server's words
+    /// (FEED-79).
     func save(_ input: ActionTriggerInput, editing: ActionTrigger?) {
         if let editing {
             write(triggers.replacing(id: editing.id, with: input), busy: editing.id)
@@ -163,10 +163,9 @@ final class ActionDetailViewModel {
         }
     }
 
-    private func write(_ triggers: [ActionTriggerInput], busy key: String) {
+    private func write(_ triggers: [ActionTriggerInput], busy key: String, verb: String = "save") {
         guard let action, busyTriggerId == nil else { return }
         busyTriggerId = key
-        triggerError = nil
         Task {
             do {
                 writtenAction = try await actionsApi.update(
@@ -175,7 +174,10 @@ final class ActionDetailViewModel {
                     patch: ActionPatch(triggers: triggers)
                 )
             } catch {
-                triggerError = error.userFacingMessage
+                Toaster.shared.error(
+                    FeedbackStates.Errors.title(verb: verb, thing: "the trigger"),
+                    description: error.userFacingMessage
+                )
             }
             busyTriggerId = nil
         }

@@ -12,6 +12,7 @@ struct WidgetSubmissionCard: View {
     let source: String?
 
     @State private var expanded = false
+    @Environment(\.motion) private var motion
 
     private var isAgent: Bool { source == DomainContract.issueSourceAgent }
 
@@ -50,7 +51,7 @@ struct WidgetSubmissionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { expanded.toggle() }
+                withAnimation(motion.standard) { expanded.toggle() }
             } label: {
                 HStack(spacing: 8) {
                     AppIcon(isAgent ? AppIcons.uiAgentSource : AppIcons.uiWidget, size: 12)

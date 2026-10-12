@@ -3,6 +3,7 @@ package com.exponential.app.ui.actions
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.ActionsApi
 import com.exponential.app.data.api.SteerDevice
@@ -146,8 +147,9 @@ class ActionDetailViewModel @Inject constructor(
     private val _triggerBusy = MutableStateFlow(false)
     val triggerBusy: StateFlow<Boolean> = _triggerBusy
 
-    private val _triggerError = MutableStateFlow<String?>(null)
-    val triggerError: StateFlow<String?> = _triggerError
+    // FEED-79: a refused trigger write, raised once as an error toast.
+    private val _triggerError = MutableStateFlow<FailedAction?>(null)
+    val triggerError: StateFlow<FailedAction?> = _triggerError
 
     fun clearTriggerError() {
         _triggerError.value = null
@@ -155,7 +157,7 @@ class ActionDetailViewModel @Inject constructor(
 
     /** Flip one trigger's paused flag; the rest of the array rides unchanged. */
     fun setTriggerEnabled(triggerId: String, enabled: Boolean) {
-        writeTriggers("The trigger could not be updated") { existing ->
+        writeTriggers("update", "the trigger") { existing ->
             existing.map { trigger ->
                 (if (trigger.id == triggerId) trigger.copy(enabled = enabled) else trigger)
                     .toWireJson()
@@ -180,12 +182,7 @@ class ActionDetailViewModel @Inject constructor(
             effort = result.effort,
             whenPart = result.whenPart,
         )
-        val fallback = if (editing == null) {
-            "The trigger could not be added"
-        } else {
-            "The trigger could not be updated"
-        }
-        writeTriggers(fallback, onDone) { existing ->
+        writeTriggers(if (editing == null) "add" else "save", "the trigger", onDone) { existing ->
             if (editing == null) {
                 existing.map { it.toWireJson() } + written
             } else {
@@ -196,7 +193,7 @@ class ActionDetailViewModel @Inject constructor(
 
     /** Owner-only, permanent — the row vanishes when Electric echoes it. */
     fun deleteTrigger(triggerId: String) {
-        writeTriggers("The trigger could not be deleted") { existing ->
+        writeTriggers("delete", "the trigger") { existing ->
             existing.filter { it.id != triggerId }.map { it.toWireJson() }
         }
     }
@@ -207,7 +204,8 @@ class ActionDetailViewModel @Inject constructor(
     // synced row's, or the last write's while its echo is pending) into the
     // array that replaces them.
     private fun writeTriggers(
-        fallback: String,
+        verb: String,
+        thing: String,
         onDone: () -> Unit = {},
         build: (List<ActionTrigger>) -> List<JsonObject>,
     ) {
@@ -228,7 +226,7 @@ class ActionDetailViewModel @Inject constructor(
                 onDone()
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                _triggerError.value = trpcErrorMessage(t, fallback)
+                _triggerError.value = FailedAction(verb, thing, trpcErrorMessage(t, ""))
             }
             _triggerBusy.value = false
         }

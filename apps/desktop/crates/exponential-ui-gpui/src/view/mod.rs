@@ -228,8 +228,9 @@ pub(crate) struct GhostWorld {
     chart_hover: HashMap<u32, usize>,
 }
 
-/// A layer that just closed: painted from its last state, fading (and
-/// sinking back) out over the theme's `motion.fast`, never interactive.
+/// A layer that just closed: painted from its last state, fading out
+/// (opacity only, accelerate) over the theme's `motion.fast`, never
+/// interactive.
 /// `layer` is renumbered into `world`'s slots.
 pub(crate) struct ExitingLayer {
     layer: Layer,
@@ -930,7 +931,11 @@ impl SurfaceView {
         // before the caches below move on); a reopened one drops its ghost.
         self.exiting.retain(|g| !out.layers.iter().any(|l| l.owner == g.layer.owner && l.layer == g.layer.layer));
         if !self.surface.settings().reduced_motion {
-            let exit_ms = self.surface.theme().and_then(|t| t.tokens.motion.get("fast").copied()).unwrap_or(120.0) as f32;
+            let exit_ms = self
+                .surface
+                .theme()
+                .and_then(|t| t.tokens.motion.get("fast").copied())
+                .unwrap_or(motion::EXIT_FALLBACK_MS) as f32;
             let closed: Vec<Layer> = self.layers.iter().filter(|l| !out.layers.iter().any(|o| o.owner == l.owner && o.layer == l.layer)).cloned().collect();
             for layer in closed {
                 if let Some(ghost) = self.ghost_of(layer, &old_nodes, pre.as_ref(), exit_ms) {
@@ -1368,7 +1373,7 @@ impl SurfaceView {
         let now = self.now_or_instant();
         for (k, g) in ghosts.iter_mut().enumerate() {
             let t = now.saturating_duration_since(g.start).as_secs_f32() * 1000.0 / g.duration_ms;
-            let fade = 1.0 - crate::paint::cubic_bezier(motion::ENTER_EASING, t.clamp(0.0, 1.0));
+            let fade = 1.0 - crate::paint::cubic_bezier(motion::EXIT_EASING, t.clamp(0.0, 1.0));
             self.swap_world(&mut g.world);
             self.ghosting.set(true);
             let el = self.paint_layer_at(k, &g.layer, Some(fade), window, cx);

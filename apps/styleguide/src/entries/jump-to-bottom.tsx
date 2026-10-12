@@ -10,7 +10,7 @@ export const entry: StyleguideEntry = {
   section: `general`,
   owner: `EXP-1191`,
   title: `Jump to bottom`,
-  blurb: `The one control that returns a bottom-anchored feed (the run transcript) to its newest row, identical on all four clients: a 32 px circle in the floating glass (the popover fill, the card hairline, no shadow) holding only the down arrow (ui-arrow-down, 16 px, the secondary foreground). It sits centred over the feed, 12 px above the composer, fades and scales in while the reader is scrolled up and out once they are back at the tail. Click scrolls to the end and re-arms follow; the label "Jump to bottom" is its tooltip and accessible name.`,
+  blurb: `The one control that returns a bottom-anchored feed (the session transcript) to its newest row, identical on all four clients: a 32 px circle in the floating glass (the popover fill, the card hairline, no shadow) holding only the down arrow (ui-arrow-down, 16 px, the secondary foreground). It sits centred over the feed, 12 px above the composer, fades and scales in while the reader is scrolled up and out once they are back at the tail. Click scrolls to the end and re-arms follow; the label "Jump to bottom" is its tooltip and accessible name.`,
   status: {
     web: {
       state: `ok`,

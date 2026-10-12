@@ -84,16 +84,24 @@ public struct AgentToolUpdate: Equatable, Sendable {
     /// and already redacted and tail-cut by the publisher.
     public let output: String?
     public let preview: AgentToolPreview?
+    /// EXP-1279 wire §1b: a code-mode call's log, only on a `script` row's
+    /// settle; decoded tolerantly (`AgentScriptLog.parse`).
+    public let script: AgentScriptLog?
+    /// The event's own stamp (unix ms) — EXP-1241: when the call settled.
+    public let at: Int?
 
     public init(
         id: String, status: String? = nil, diff: String? = nil,
-        output: String? = nil, preview: AgentToolPreview? = nil
+        output: String? = nil, preview: AgentToolPreview? = nil,
+        script: AgentScriptLog? = nil, at: Int? = nil
     ) {
         self.id = id
         self.status = status
         self.diff = diff
         self.output = output
         self.preview = preview
+        self.script = script
+        self.at = at
     }
 
     public var settles: Bool { status == "completed" || status == "failed" }
@@ -309,7 +317,12 @@ public enum AgentActivityDecoder {
             status: event["status"] as? String,
             diff: string(event["diff"]),
             output: string(event["output"]),
-            preview: AgentFeed.toolPreview(event["preview"])
+            preview: AgentFeed.toolPreview(event["preview"]),
+            script: AgentScriptLog.parse(event["script"]),
+            at: (event["at"] as? NSNumber).flatMap { number in
+                let value = number.doubleValue
+                return value.isFinite && value > 0 && value < 1e15 ? Int(value) : nil
+            }
         )
     }
 

@@ -433,7 +433,6 @@ pub(crate) struct PopoverFacts {
     pub subject: ReadinessSubject,
     pub picker_open: bool,
     pub linking: bool,
-    pub link_error: Option<SharedString>,
     /// The GitHub facts behind the GitHub step's fix (SLOP-7); `None` while
     /// loading.
     pub github: Option<GithubFacts>,
@@ -623,9 +622,6 @@ fn render_step(
                         );
                     }
                 }
-                if let Some(error) = facts.link_error.clone() {
-                    column = column.child(div().pt_1().text_xs().text_color(theme.danger).child(error));
-                }
             }
             row = row.child(column);
         }
@@ -780,30 +776,37 @@ fn render_picker(
             .child(div().h(px(1.)).w_full().bg(theme.border.opacity(0.5)));
     }
     match &facts.repos {
+        // First load: the picker's rows as placeholders (EXP-1259 D8).
         None => {
-            list = list.child(
-                div().px_2().py_1p5().text_xs().text_color(muted).child("Loading repositories\u{2026}"),
-            );
+            list = list.child(crate::feedback::skeleton_rows(
+                "readiness-picker-skeleton",
+                crate::feedback::SKELETON_ROWS,
+                crate::controls::MENU_ROW_H,
+                cx,
+            ));
         }
+        // A failed load is quiet (FEED-79): the empty list + Retry.
         Some(None) => {
-            let control = control.clone();
-            list = list
-                .child(
-                    div()
-                        .px_2()
-                        .py_1p5()
-                        .text_xs()
-                        .text_color(theme.danger)
-                        .child("Couldn\u{2019}t load repositories."),
-                )
-                .child(
-                    crate::pickers::picker_row("readiness-picker-retry", cx)
-                        .text_xs()
-                        .child("Retry")
+            let retry_control = control.clone();
+            list = list.child(
+                h_flex()
+                    .px_2()
+                    .py_1p5()
+                    .gap_2()
+                    .items_center()
+                    .child(div().text_xs().text_color(muted).child(copy::PICKER_EMPTY))
+                    .child(
+                        crate::controls::text_button(
+                            "readiness-picker-retry",
+                            crate::feedback::RETRY,
+                            crate::controls::TextButtonVariant::Link,
+                            cx,
+                        )
                         .on_click(move |_, _, cx| {
-                            control.update(cx, |this, cx| this.refresh_github(cx));
+                            retry_control.update(cx, |this, cx| this.retry_github(cx));
                         }),
-                );
+                    ),
+            );
         }
         Some(Some(repos)) => {
             let rows = picker_rows(

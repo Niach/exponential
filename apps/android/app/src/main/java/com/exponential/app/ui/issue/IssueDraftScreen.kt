@@ -47,6 +47,7 @@ import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.domain.IssueRelationsView
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.navigation.LocalLeaveGuard
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
@@ -132,12 +133,7 @@ fun IssueDraftScreen(
     }
 
     val message by viewModel.message.collectAsStateWithLifecycle()
-    LaunchedEffect(message) {
-        message?.let {
-            toaster.error(it)
-            viewModel.consumeMessage()
-        }
-    }
+    FailedActionToast(message, onShown = viewModel::consumeMessage)
     LaunchedEffect(state.loadFailed) {
         if (state.loadFailed) onBack()
     }
@@ -423,7 +419,6 @@ fun IssueDraftScreen(
                                 }
                             },
                             onRetry = viewModel::retryFileUpload,
-                            onDismissPending = viewModel::dismissFileUpload,
                             modifier = Modifier.padding(top = 20.dp),
                         )
 

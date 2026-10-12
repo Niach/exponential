@@ -14,8 +14,9 @@ import org.junit.Test
 /**
  * EXP-850 (S7): the workflow caption, locked ×4 (TS
  * `workflow-caption.test.ts`, Rust `steer::workflow`, iOS
- * `WorkflowCaptionTests`) against the ONE contract fixture — same cases, same
- * expectations, byte for byte.
+ * `WorkflowCaptionTests`) against the ONE contract fixture, `work-card.json`
+ * `caption.cases` (D12 moved them there) — same cases, same expectations,
+ * byte for byte.
  *
  * The fixture speaks the caption's INPUT (name / status / phases / agents with
  * a state), not the full wire `workflow` frame — no id, no summary, no
@@ -31,7 +32,9 @@ class WorkflowCaptionTest {
     )
 
     private fun cases(): List<FixtureCase> =
-        Json.parseToJsonElement(fixtureJson()).jsonArray.map { element ->
+        Json.parseToJsonElement(fixtureJson()).jsonObject
+            .getValue("caption").jsonObject
+            .getValue("cases").jsonArray.map { element ->
             val case = element.jsonObject
             val workflow = case.getValue("workflow").jsonObject
             FixtureCase(
@@ -144,11 +147,11 @@ class WorkflowCaptionTest {
  */
 private fun fixtureJson(): String {
     val candidates = listOf(
-        "../../../packages/domain-contract/fixtures/workflow-caption.json",
-        "../../packages/domain-contract/fixtures/workflow-caption.json",
-        "packages/domain-contract/fixtures/workflow-caption.json",
+        "../../../packages/domain-contract/fixtures/work-card.json",
+        "../../packages/domain-contract/fixtures/work-card.json",
+        "packages/domain-contract/fixtures/work-card.json",
     )
     val file = candidates.map(::File).firstOrNull { it.isFile }
-        ?: error("workflow-caption.json not found from ${File(".").absolutePath}")
+        ?: error("work-card.json not found from ${File(".").absolutePath}")
     return file.readText()
 }

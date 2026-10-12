@@ -704,7 +704,8 @@ impl SessionScreenView {
                 (
                     right,
                     Some(header.chip_row(&issue, actions, cx)),
-                    header.agent_row(&issue, cx),
+                    // FEED-79: a merge refusal is a toast now, not a row.
+                    None,
                 )
             });
             return crate::work_header::render_work_header(
@@ -744,7 +745,7 @@ impl SessionScreenView {
                     compact
                 }
             }
-            None => crate::work_header::collapsed_title(None, "Loading…", None, cx),
+            None => crate::work_header::collapsed_title_placeholder("session-title-placeholder", cx),
         };
         let mut right: Vec<AnyElement> = Vec::with_capacity(4);
         // EXP-897 §4: the same badge an issue-bound header carries (a batch
@@ -777,10 +778,8 @@ impl SessionScreenView {
         // ONE merge control lives in the header on every face. EXP-917: the
         // shared pill, so a batch run's conflict opens the fix-conflicts
         // composer (EXP-1233) exactly like the issue tray's, and any other
-        // refusal captions the header (`extra`) instead of dying in the log.
-        let extra = merge_target
-            .as_ref()
-            .and_then(|target| crate::work_header::merge_error_caption(target, cx));
+        // refusal is a toast (FEED-79) instead of dying in the log.
+        let extra = None;
         if let Some(target) = merge_target {
             // EXP-926: this cluster stands beside the face toggle, so it
             // wears the TOGGLE's height, not a chip's.
@@ -891,16 +890,42 @@ fn resume_remote_inner(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let Some(trpc) = crate::queries::trpc_client(cx) else {
-        crate::toast::error("Sign in and wait for sync before resuming.", window, cx);
-        return;
-    };
-    let input = api::steer::StartSessionInput {
+    // EXP-1259: the press is ONE intent: one startId, reused by its Retry.
+    let intent = crate::coding_flow::RemoteStartIntent::press(api::steer::StartSessionInput {
         resume_session_id: Some(session_id),
-        device_id: device_id.clone(),
+        device_id,
         account,
         ..Default::default()
+    });
+    send_resume(intent, device_label, window, cx);
+}
+
+/// Send (or, from the failure toast's Retry, re-send) a resume intent. A
+/// failure that may have reached the machine (no answer, or the server's
+/// relay timeout: `coding_flow::may_have_reached_device`) is still followed,
+/// quietly for `starting.watchMs`; a definite one is only the toast. The
+/// Retry repeats the startId, so the machine resumes once.
+fn send_resume(
+    intent: crate::coding_flow::RemoteStartIntent,
+    device_label: String,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        crate::toast::show(
+            crate::action_error::failed_toast(
+                "resume",
+                "the session",
+                Some("Sign in and wait for sync before resuming.".into()),
+            ),
+            window,
+            cx,
+        );
+        return;
     };
+    let input = intent.input().clone();
+    let device_id = input.device_id.clone();
+    let start_id = intent.start_id().to_string();
     let subject = crate::coding_flow::RemoteRunSubject::of(&input);
     let handle = window.window_handle();
     cx.spawn(async move |cx| {
@@ -908,17 +933,41 @@ fn resume_remote_inner(
             .background_executor()
             .spawn(async move { api::steer::start_session(&trpc, &input) })
             .await;
-        let sent = result.is_ok();
-        let note = match result {
-            Ok(()) => Toast::success(format!(
-                "Resume sent to {device_label}."
-            )),
-            Err(err) => Toast::error(err.user_message()),
-        };
         let _ = handle.update(cx, |_, window, cx| {
-            crate::toast::show(note, window, cx);
-            if sent {
-                crate::coding_flow::follow_remote_start(device_id, subject, window, cx);
+            // (follow, late): recheck R3, a failure of unknown fate is
+            // followed quietly for the long watch, a definite one never.
+            let (follow, late) = match result {
+                Ok(()) => {
+                    crate::toast::show(
+                        Toast::success(format!("Resume sent to {device_label}.")),
+                        window,
+                        cx,
+                    );
+                    (true, false)
+                }
+                Err(err) => {
+                    let retry_label = device_label.clone();
+                    let toast = crate::action_error::failed_toast(
+                        "resume",
+                        "the session",
+                        crate::action_error::action_error_description(&err),
+                    )
+                    .action(crate::feedback::RETRY, move |window, cx| {
+                        send_resume(intent.clone(), retry_label.clone(), window, cx)
+                    });
+                    crate::toast::show(toast, window, cx);
+                    (crate::coding_flow::may_have_reached_device(&err), true)
+                }
+            };
+            if follow {
+                crate::coding_flow::follow_remote_start(
+                    device_id,
+                    subject,
+                    Some(start_id),
+                    late,
+                    window,
+                    cx,
+                );
             }
         });
     })
@@ -949,6 +998,7 @@ impl Render for SessionScreenView {
             .child(crate::work_header::work_body(
                 div().flex_1().min_h_0().child(self.inner.clone()).into_any_element(),
                 false,
+                self.inner.read(cx).body_scrolled(cx),
             ))
     }
 }

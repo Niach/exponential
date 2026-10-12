@@ -73,7 +73,7 @@ describe(`findLiveRunForIssues`, () => {
     expect(ownerQuery.sql).toContain(`"id" =`)
     expect(ownerQuery.params).toEqual([`u-1`])
     expect(liveRunConflictMessage(live!)).toBe(
-      `EXP-2 already has a live run on studio (session run-1, started by a person, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
+      `EXP-2 already has a live session on studio (session run-1, started by a person, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
     )
   })
 
@@ -99,13 +99,13 @@ describe(`liveRunConflictMessage`, () => {
 
   it(`tells the owner to stop it`, () => {
     expect(liveRunConflictMessage(live, `u-1`)).toBe(
-      `EXP-2 already has a live run on studio (session run-1, started by agent, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
+      `EXP-2 already has a live session on studio (session run-1, started by agent, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
     )
   })
 
   it(`tells anyone else who owns it`, () => {
     expect(liveRunConflictMessage(live, `u-2`)).toBe(
-      `EXP-2 already has a live run on studio (session run-1, started by agent, branch exp/batch-1a2b3c4d). Dana (dana@example.com) owns it: only they can stop it, or let it end before starting another.`
+      `EXP-2 already has a live session on studio (session run-1, started by agent, branch exp/batch-1a2b3c4d). Dana (dana@example.com) owns it: only they can stop it, or let it end before starting another.`
     )
   })
 
@@ -114,7 +114,7 @@ describe(`liveRunConflictMessage`, () => {
       ` dana@example.com owns it:`
     )
     expect(liveRunConflictMessage({ ...live, owner: null, deviceLabel: null, branch: null }, `u-2`)).toBe(
-      `EXP-2 already has a live run (session run-1, started by agent). another member owns it: only they can stop it, or let it end before starting another.`
+      `EXP-2 already has a live session (session run-1, started by agent). another member owns it: only they can stop it, or let it end before starting another.`
     )
   })
 })

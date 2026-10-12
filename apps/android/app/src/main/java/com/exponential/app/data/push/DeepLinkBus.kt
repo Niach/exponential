@@ -16,7 +16,8 @@ class DeepLinkBus @Inject constructor() {
     sealed interface Target {
         // EXP-933: [face] = the Work screen face to open on (`results` for an
         // agent message's report); null = the default Issue face.
-        data class Issue(val id: String, val face: String? = null) : Target
+        // EXP-1241: [comment] = scroll to that comment and highlight it.
+        data class Issue(val id: String, val face: String? = null, val comment: String? = null) : Target
         data class Invite(val token: String) : Target
 
         // exponential://inbox — an agent_message push tap (EXP-801). The row
@@ -75,8 +76,8 @@ class DeepLinkBus @Inject constructor() {
     private val _githubConnected = MutableStateFlow(GithubConnected())
     val githubConnected: StateFlow<GithubConnected> = _githubConnected.asStateFlow()
 
-    fun openIssue(id: String, face: String? = null) {
-        _target.value = Target.Issue(id, face)
+    fun openIssue(id: String, face: String? = null, comment: String? = null) {
+        _target.value = Target.Issue(id, face, comment)
     }
 
     fun openInvite(token: String) {

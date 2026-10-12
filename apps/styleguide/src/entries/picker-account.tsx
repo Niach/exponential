@@ -7,7 +7,7 @@ const noop = (): void => {}
 
 /* Fractions 0..1, the way a device reports them: the tone ladder is EXP-909's
    (≥0.75 warning, ≥0.95 danger), so a login near its weekly cap says so
-   before the run that would hit it is started. */
+   before the session that would hit it is started. */
 const LIMITS = {
   fiveHour: 0.42,
   week: 0.81,

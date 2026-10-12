@@ -53,6 +53,8 @@ fun LeafContent(context: LeafContext) {
             n.isInlineField -> InlineFieldLeaf(cx)
         }
         "NumberField", "ChipInput" -> if (n.isInlineField) InlineFieldLeaf(cx)
+        // EXP-1259: a SearchList's (or a searchable submenu's) field.
+        "SearchList" -> if (n.isInlineField) InlineFieldLeaf(cx)
         "Checkbox" -> if (n.part == "box") CheckboxBox(cx)
         "Radio" -> if (n.part == "dot") RadioDot(cx)
         "Switch" -> if (n.part == "track") SwitchTrack(cx)

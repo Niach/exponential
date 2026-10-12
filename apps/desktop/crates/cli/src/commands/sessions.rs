@@ -34,7 +34,7 @@ Usage: exponential sessions [<command>]
   [list] [--device <label|id>] [--status running|in_review|ended] [--all] [--limit n]
                          Coding sessions, newest first (yours; --all adds teammates')
   show <id>              One session: status, device, branch, PR, screenshots
-  log <id> [--follow]    Print the transcript (--follow keeps streaming a live run)
+  log <id> [--follow]    Print the transcript (--follow keeps streaming a live session)
   message <id> <text…>   Send a message to a live session (`-` reads stdin)
   kill <id>              Stop a live session
 
@@ -178,7 +178,7 @@ pub fn subject(row: &RemoteSession) -> String {
             _ => identifier.clone(),
         },
         (None, Some(action)) => action.clone(),
-        (None, None) if row.issue_id.is_none() => "batch run".to_string(),
+        (None, None) if row.issue_id.is_none() => "batch session".to_string(),
         _ => "issue".to_string(),
     }
 }
@@ -427,7 +427,7 @@ pub fn stream_transcript(ctx: &Ctx, row: &RemoteSession, follow: bool) -> Comman
     let outcome = loop {
         if !follow && started.elapsed() > REPLAY_BUDGET {
             break Err(anyhow!(
-                "no transcript arrived within {}s — the run's device may be offline",
+                "no transcript arrived within {}s — the session's device may be offline",
                 REPLAY_BUDGET.as_secs()
             ));
         }
@@ -458,15 +458,15 @@ pub fn stream_transcript(ctx: &Ctx, row: &RemoteSession, follow: bool) -> Comman
                 steer::ViewerPhase::Live => live = true,
                 steer::ViewerPhase::Starting if !said_waiting => {
                     said_waiting = true;
-                    eprintln!("(waiting for the run's device to publish...)");
+                    eprintln!("(waiting for the session's device to publish...)");
                 }
                 steer::ViewerPhase::Ended { outcome } => {
                     break match outcome.as_deref() {
                         Some("device_offline") => Err(anyhow!(
-                            "the device that holds this transcript is offline — transcripts live only on the run's device"
+                            "the device that holds this transcript is offline — transcripts live only on the session's device"
                         )),
                         Some("history_unavailable") => {
-                            Err(anyhow!("the run's device had no transcript to send"))
+                            Err(anyhow!("the session's device had no transcript to send"))
                         }
                         _ => {
                             if follow && !ended {
@@ -478,9 +478,9 @@ pub fn stream_transcript(ctx: &Ctx, row: &RemoteSession, follow: bool) -> Comman
                 }
                 steer::ViewerPhase::Unauthorized { detail } => {
                     break Err(match detail {
-                        Some(detail) => anyhow!("can't show this run's transcript: {detail}"),
+                        Some(detail) => anyhow!("can't show this session's transcript: {detail}"),
                         None => anyhow!(
-                            "the relay refused to show this run — a live run is visible only to its owner"
+                            "the relay refused to show this session: a live session is visible only to its owner"
                         ),
                     });
                 }
@@ -573,7 +573,7 @@ mod tests {
         assert_eq!(subject(&action), "Chat");
         assert_eq!(status_cell(&action), "running (usage wall)");
 
-        assert_eq!(subject(&row("s3")), "batch run");
+        assert_eq!(subject(&row("s3")), "batch session");
     }
 
     #[test]

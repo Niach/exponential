@@ -10,8 +10,8 @@
 //!
 //! [`workflow_caption`] is the Rust mirror of
 //! `packages/domain-contract/src/workflow-caption.ts`, byte-locked by
-//! `packages/domain-contract/fixtures/workflow-caption.json` — the same file
-//! the web, iOS and Android mirrors replay. The caption is what a session row
+//! `packages/domain-contract/fixtures/work-card.json` `caption.cases` — the
+//! same cases the web, iOS and Android mirrors replay. The caption is what a session row
 //! renders as its second line (`coding_sessions.agent_caption`, §8) and what
 //! the steer view's working strip says while a workflow runs.
 
@@ -259,10 +259,22 @@ pub fn workflow_caption(workflow: &WorkflowState) -> String {
 mod tests {
     use super::*;
 
-    /// The contract fixture, byte-locked ×4 (web `workflow-caption.test.ts`,
-    /// iOS `WorkflowCaptionTests`, Android `WorkflowCaptionTest`).
+    /// The contract fixture's `caption.cases`, byte-locked ×4 (web
+    /// `workflow-caption.test.ts`, iOS `WorkflowCaptionTests`, Android
+    /// `WorkflowCaptionTest`). EXP-1259 D12: they moved from the deleted
+    /// `workflow-caption.json` into `work-card.json`.
     const FIXTURE: &str =
-        include_str!("../../../../../packages/domain-contract/fixtures/workflow-caption.json");
+        include_str!("../../../../../packages/domain-contract/fixtures/work-card.json");
+
+    #[derive(Deserialize)]
+    struct Fixture {
+        caption: CaptionFixture,
+    }
+
+    #[derive(Deserialize)]
+    struct CaptionFixture {
+        cases: Vec<Case>,
+    }
 
     /// The fixture speaks the CAPTION's input (the TS `WorkflowCaptionInput`),
     /// which is deliberately narrower than the wire state: no id, no summary,
@@ -329,7 +341,10 @@ mod tests {
 
     #[test]
     fn the_caption_matches_the_contract_fixture() {
-        let cases: Vec<Case> = serde_json::from_str(FIXTURE).expect("the fixture parses");
+        let cases = serde_json::from_str::<Fixture>(FIXTURE)
+            .expect("the fixture parses")
+            .caption
+            .cases;
         assert!(cases.len() >= 8, "the fixture must cover every status");
         for case in cases {
             let name = case.name;

@@ -6,6 +6,8 @@ package com.exponential.app.domain
 // which rows show for the picked agent / device / subject, in what order,
 // with which concept glyph and copy. Phones open it as a bottom sheet of the
 // same rows, submenus as pushed pages (`AgentComposer.kt` binds the ids).
+// EXP-1259: the suggestion rows and the brand-mark watermark are gone
+// (`composer-home.json` owns the page around the card).
 
 enum class ComposerMenuRowId(val wire: String) {
     ImplementIssue("implement-issue"),
@@ -61,13 +63,17 @@ object ComposerMenu {
     const val PLUS_TEST_ID = "agent-composer-plus-button"
     const val MENU_TEST_ID = "agent-composer-menu"
     const val IMPLEMENT_SUBMIT_TEST_ID = "agent-composer-implement"
-    const val SUGGESTION_TEST_ID = "agent-composer-suggestion"
-    const val BRAND_MARK_TEST_ID = "agent-page-brand-mark"
+    const val SUBMENU_SEARCH_TEST_ID = "agent-composer-submenu-search"
     const val PLUS_LABEL = "Add"
 
-    /** How many chat suggestions the quiet rows under the composer show. */
-    const val SUGGESTION_COUNT = 3
-    const val SUGGESTION_ICON = "action-default"
+    /**
+     * SLOP-28 (EXP-1259 D5): Implement issue and Run action are the SAME
+     * search list (`search-list.json`) — one row height, at most this many
+     * rows visible before the list scrolls. Phones push them as pages of
+     * 44dp rows ([SearchList.ROW_HEIGHT_PHONE]).
+     */
+    const val SUBMENU_ROW_HEIGHT = 32
+    const val SUBMENU_MAX_ROWS = 8
 
     /** The per-run payload key and the device cap that reads it. */
     const val COMPUTER_USE_PAYLOAD_KEY = "computerUse"

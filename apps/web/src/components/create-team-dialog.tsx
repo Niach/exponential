@@ -15,6 +15,7 @@ import {
   Label,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 
 export function CreateTeamDialog({
   open,
@@ -26,13 +27,11 @@ export function CreateTeamDialog({
   const navigate = useNavigate()
   const [name, setName] = useState(``)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   // Plan-cap failures (free-tier owned-team cap) render as a softer nudge.
   const [limitError, setLimitError] = useState<string | null>(null)
 
   const reset = () => {
     setName(``)
-    setError(null)
     setLimitError(null)
   }
 
@@ -40,14 +39,13 @@ export function CreateTeamDialog({
     e.preventDefault()
     if (!name.trim()) return
     setSubmitting(true)
-    setError(null)
     setLimitError(null)
     try {
       const result = await trpc.teams.create.mutate(
         { name: name.trim() },
-        // Both error cases render inline — the global mutation-error toast
-        // would be redundant noise on top of them.
-        { context: { skipErrorToast: true } }
+        // The cap renders inline, anything else is this site's own toast:
+        // the global mutation-error toast would double it.
+        SKIP_ERROR_TOAST
       )
       const newSlug = result.team?.slug
       reset()
@@ -61,7 +59,7 @@ export function CreateTeamDialog({
       if (isPlanLimitError(e)) {
         setLimitError(e instanceof Error ? e.message : `Plan limit reached`)
       } else {
-        setError(e instanceof Error ? e.message : `Failed to create team`)
+        failedAction(`create`, `the team`, e)
       }
     } finally {
       setSubmitting(false)
@@ -95,7 +93,6 @@ export function CreateTeamDialog({
                 autoFocus
               />
             </div>
-            {error && <p className="text-sm text-destructive">{error}</p>}
             {limitError && (
               <div className="flex items-start gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
                 <Sparkles className="mt-0.5 h-3.5 w-3.5 shrink-0 text-primary" />
@@ -108,8 +105,8 @@ export function CreateTeamDialog({
               variant="outline"
               onClick={() => onOpenChange(false)}
             />
-            <Button type="submit" disabled={!name.trim() || submitting}>
-              {submitting ? `Creating...` : `Create team`}
+            <Button type="submit" pending={submitting} disabled={!name.trim()}>
+              Create team
             </Button>
           </DialogFooter>
         </form>

@@ -12,8 +12,8 @@ import {
   Menu,
   Prompt,
   Switch,
-  toast,
 } from "@exp/ui"
+import { failedAction } from "@/lib/action-error"
 import { parseActionTriggers, triggerSummary } from "@/lib/action-triggers"
 import { actionCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
@@ -116,7 +116,7 @@ function useTriggerWrites(action: TeamAction): {
         triggerWriteBase(syncedSnapshot(current.action), current.last)
       )
       if (base.unreadable) {
-        if (!options?.quiet) toast.error(UNREADABLE_TRIGGER_MESSAGE)
+        if (!options?.quiet) failedAction(`update`, `the triggers`, UNREADABLE_TRIGGER_MESSAGE)
         throw new Error(UNREADABLE_TRIGGER_MESSAGE)
       }
       const actionId = current.action.id

@@ -185,7 +185,7 @@ describe(`TeamMcpServersSection`, () => {
     fireEvent.click(screen.getByRole(`button`, { name: /Connect/ }))
     await waitFor(() =>
       expect(mockState.toastError).toHaveBeenCalledWith(
-        `Could not connect to sentry`,
+        `Couldn't connect to sentry`,
         expect.objectContaining({ description: expect.stringMatching(/http\(s\)/) })
       )
     )
@@ -376,7 +376,7 @@ describe(`TeamMcpServersSection`, () => {
       expect(mockState.toastSuccess).toHaveBeenCalled()
     )
     expect(mockState.toastSuccess).toHaveBeenCalledWith(
-      `Shared sentry with the team: action runs on teammates' machines use your connection`
+      `Shared sentry with the team: action sessions on teammates' machines use your connection`
     )
 
     fireEvent.pointerDown(screen.getByLabelText(`Connected to sentry`), {

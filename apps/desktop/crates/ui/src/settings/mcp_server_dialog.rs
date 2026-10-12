@@ -374,9 +374,9 @@ impl McpServerDialogView {
         if validate(&draft).is_some() {
             return;
         }
+        let verb = if self.editing.is_some() { "save" } else { "add" };
         let Some(trpc) = queries::trpc_client(cx) else {
-            self.error = Some("Not signed in.".into());
-            cx.notify();
+            crate::action_error::failed_action(verb, "the server", Some("Not signed in.".into()), cx);
             return;
         };
         self.busy = true;
@@ -407,12 +407,20 @@ impl McpServerDialogView {
                         let _ = pane.update(cx, |pane, cx| pane.refetch(cx));
                     });
                 }
-                Err(err) => {
+                // FEED-79: what the server refused about the INPUT (a bad
+                // URL or header, BAD_REQUEST) stays under the form; anything
+                // else is the error toast (an add can duplicate: no Retry).
+                Err(err @ api::ApiError::Http { status: 400, .. }) => {
                     this.busy = false;
                     this.error = Some(
                         super::form_error(&err, "That didn\u{2019}t go through. Try again.")
                             .into(),
                     );
+                    cx.notify();
+                }
+                Err(err) => {
+                    this.busy = false;
+                    crate::action_error::failed_action_err(verb, "the server", &err, cx);
                     cx.notify();
                 }
             });
@@ -606,13 +614,7 @@ impl Render for McpServerDialogView {
             .clone()
             .or_else(|| validation.clone().map(SharedString::from))
         {
-            body = body.child(
-                div()
-                    .px_1()
-                    .text_xs()
-                    .text_color(cx.theme().danger)
-                    .child(message),
-            );
+            body = body.child(crate::action_error::field_error(message, cx).px_1());
         }
 
         let body_scroll = self.body_scroll.clone();

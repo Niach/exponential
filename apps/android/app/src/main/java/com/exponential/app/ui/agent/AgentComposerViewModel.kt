@@ -36,6 +36,7 @@ import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ComposerMenu
+import com.exponential.app.domain.DraftStart
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.FixConflictsPr
 import com.exponential.app.domain.resolveFixConflictsPr
@@ -49,6 +50,7 @@ import com.exponential.app.domain.uploadedImageIds
 import com.exponential.app.domain.uploadedSteerFiles
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.RunResumeTarget
+import com.exponential.app.domain.StartedRunMatch
 import com.exponential.app.domain.batchRunIssueIds
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.isInlineImage
@@ -77,6 +79,10 @@ import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import com.exponential.app.domain.AgentHome
+import com.exponential.app.domain.FeedbackStates
 
 // EXP-825: the ONE launcher's state — the Agent page composer. It replaced the
 // three-tab Start-coding sheet (Issues | Actions | Chat, EXP-257/EXP-615) and
@@ -103,12 +109,20 @@ import kotlinx.coroutines.launch
  * for what is optional next to it. [selectedAction] is the PICKED action's
  * row (null while it has not synced); issue chips never read a hint.
  */
-internal fun composerPlaceholder(subject: ComposerSubject?, selectedAction: ActionDto?): String {
-    if (subject == null) return DomainContract.composerUiChatPlaceholder
+internal fun composerPlaceholder(
+    subject: ComposerSubject?,
+    selectedAction: ActionDto?,
+    /** EXP-1253: the Agent HOME asks composer-home.json's question instead. */
+    home: Boolean = false,
+): String {
+    if (subject == null) return if (home) AgentHome.PLACEHOLDER else DomainContract.composerUiChatPlaceholder
     val hint = selectedAction?.promptPlaceholder?.trim().orEmpty()
     if (subject is ComposerSubject.Action && hint.isNotEmpty()) return hint
     return DomainContract.composerUiInstructionsPlaceholder
 }
+
+/** EXP-1271: what the composer's starting row says — where, and since when. */
+data class ComposerStarting(val deviceLabel: String, val sinceMs: Long)
 
 /** The Fix merge conflicts builtin's one input key (`builtinFixConflictsAction`). */
 internal const val FIX_CONFLICTS_PR_KEY = "pr"
@@ -199,10 +213,18 @@ class AgentComposerViewModel @Inject constructor(
     // ── The shared launch rails ─────────────────────────────────────────────
     val steerEnabled: StateFlow<Boolean?> get() = steerLaunch.enabled
     val runState: StateFlow<ActionRunState> get() = steerLaunch.runState
-    val startedSessionId: StateFlow<String?> get() = steerLaunch.startedSessionId
+    /**
+     * The session the screen opens, consumed once: a resume's row, or a
+     * composer start's row when the draft was unchanged since its send (a
+     * draft changed after the timeout stays and nothing navigates).
+     */
+    private val _openSessionId = MutableStateFlow<String?>(null)
+    val startedSessionId: StateFlow<String?> = _openSessionId
     val startCandidates: StateFlow<List<IssueOption>> get() = steerLaunch.startCandidates
 
-    fun consumeStartedSession() = steerLaunch.consumeStartedSession()
+    fun consumeStartedSession() {
+        _openSessionId.value = null
+    }
 
     /** EXP-773: Resume an ended run from the Recent list — the same rails. */
     fun resumeRun(target: RunResumeTarget) = steerLaunch.resumeRun(target)
@@ -308,6 +330,22 @@ class AgentComposerViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList<BoardEntity>()) { it.boardDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.Eagerly, emptyList())
 
+    // ── Home (EXP-1253, composer-home.json) ─────────────────────────────────
+    /** The caller's user-row name: the greeting's `{name}` (null = none synced). */
+    val userName: StateFlow<String?> = combine(dbFlow, auth.userId) { db, userId -> db to userId }
+        .flatMapLatest { (db, userId) ->
+            if (db == null || userId == null) flowOf(null) else db.userDao().observeById(userId).map { it?.name }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
+    /**
+     * Whether THIS team has a live board; null until the boards have synced.
+     * The home shows Getting started under the composer until it does.
+     */
+    val teamHasBoard: StateFlow<Boolean?> = combine(dbFlow, allBoards, teamId) { db, boards, team ->
+        if (db == null || team == null) null else boards.any { it.teamId == team && it.deletedAt == null }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
+
     /**
      * SLOP-3: the issues with a LIVE coding session (own or a batch's
      * covered set), what marks a stacked line member as already running.
@@ -381,8 +419,17 @@ class AgentComposerViewModel @Inject constructor(
     private val _images = MutableStateFlow<List<PendingAttachment>>(emptyList())
     val images: StateFlow<List<PendingAttachment>> = _images
 
+    /** A refused pick (count / size caps): invalid input, under the composer. */
     private val _imageError = MutableStateFlow<String?>(null)
     val imageError: StateFlow<String?> = _imageError
+
+    /** FEED-79: a start's attachment upload failed (the server's message); a toast. */
+    private val _uploadFailure = MutableStateFlow<String?>(null)
+    val uploadFailure: StateFlow<String?> = _uploadFailure
+
+    fun clearUploadFailure() {
+        _uploadFailure.value = null
+    }
 
     /**
      * EXP-615/739: the chat's OPTIONAL repository — "" = none, and the run
@@ -401,6 +448,148 @@ class AgentComposerViewModel @Inject constructor(
     private val _sending = MutableStateFlow(false)
     /** The upload + send phase is in flight. */
     val sending: StateFlow<Boolean> = _sending
+
+    /**
+     * EXP-1271 (feedback-states.json `starting`): from the Start press until
+     * the run's synced row lands. The card shows "Starting on <device>" with
+     * the mark; the draft stays put so a timeout leaves it ready to retry.
+     */
+    private val _starting = MutableStateFlow<ComposerStarting?>(null)
+    val starting: StateFlow<ComposerStarting?> = _starting
+
+    /**
+     * The device a start gave up on after `starting.timeoutMs` — the page
+     * raises the timeout toast (Retry re-submits) and consumes it.
+     */
+    private val _startTimedOut = MutableStateFlow<String?>(null)
+    val startTimedOut: StateFlow<String?> = _startTimedOut
+    private var startingDeadline: Job? = null
+
+    /**
+     * Final review (feedback-states.json `starting`): the pending draft
+     * start, its `startId` carried by `steer.startSession`. Every Retry and
+     * every later Start of the SAME draft on the SAME device reuses it (the
+     * server and the device start an id once); a landing or a changed draft
+     * or device retires it ([DraftStart]).
+     */
+    private var draftStart: DraftStart? = null
+
+    /** When [draftStart] was FIRST sent: the watch of a re-send cuts off there. */
+    private var draftStartSentAtMs: Long? = null
+
+    /** The timeout toast on screen, dismissed when the late row lands. */
+    private var timeoutToastId: String? = null
+    private val _dismissToast = MutableStateFlow<String?>(null)
+    val dismissToast: StateFlow<String?> = _dismissToast
+
+    fun consumeStartTimedOut(toastId: String? = null) {
+        _startTimedOut.value = null
+        timeoutToastId = toastId
+    }
+
+    fun consumeDismissToast() {
+        _dismissToast.value = null
+    }
+
+    /**
+     * Drop the delegate's refused-send state once the page has toasted it.
+     * [toastId] = that failure toast: a start of unknown fate is still
+     * followed (recheck R3), and its late row takes the toast down.
+     */
+    fun clearRunFailure(toastId: String? = null) {
+        steerLaunch.clearFailure()
+        if (toastId != null) timeoutToastId = toastId
+    }
+
+    /**
+     * A row landed. A resume's (no startId) just opens. A composer start's
+     * ends the starting state and takes the error down; the draft clears and
+     * the session opens only when the draft is unchanged since its send.
+     * Review #3: a row landing AFTER the timeout lands the same way.
+     */
+    private fun landed(sessionId: String, startId: String?) {
+        if (startId == null) {
+            _openSessionId.value = sessionId
+            return
+        }
+        val start = draftStart?.takeIf { it.startId == startId } ?: return
+        startingDeadline?.cancel()
+        _starting.value = null
+        draftStart = null
+        draftStartSentAtMs = null
+        _startTimedOut.value = null
+        timeoutToastId?.let { _dismissToast.value = it }
+        timeoutToastId = null
+        if (!start.landsInto(draftFingerprint())) return
+        clearSentDraft()
+        _openSessionId.value = sessionId
+    }
+
+    /**
+     * The draft as a start is bound to it (recheck R2,
+     * `starting.fingerprint.fields`): the machine, the text, the subject
+     * (issues, or the action + its filled inputs, or the chat's repository),
+     * the attachments and every launch option in the form the start sends.
+     * Null without a machine to start on.
+     */
+    private fun draftFingerprint(): DraftStart.Fingerprint? {
+        val target = device.value ?: return null
+        val subject = _subject.value
+        // The Resume toggle rides single-issue starts only (`dispatch`).
+        val resume = resumeOffered && _resume.value && (subject as? ComposerSubject.Issues)?.ids?.size == 1
+        val options = buildOptions(resume)
+        return DraftStart.Fingerprint(
+            deviceId = target.deviceId,
+            text = _draft.value,
+            issueIds = (subject as? ComposerSubject.Issues)?.ids.orEmpty().toSet(),
+            actionId = (subject as? ComposerSubject.Action)?.id,
+            // "" = a cleared pick, which the wire drops too.
+            actionInputs = (subject as? ComposerSubject.Action)?.inputs.orEmpty()
+                .filterValues { it.isNotBlank() },
+            repositoryId = _chatRepoId.value.takeIf { subject == null && it.isNotEmpty() },
+            attachments = _images.value.map { it.uri.toString() }.toSet(),
+            agent = options.agent,
+            model = options.model,
+            effort = options.effort,
+            planMode = options.planMode,
+            account = options.account,
+            mcpServerIds = options.mcpServerIds.orEmpty().toSet(),
+            computerUse = options.computerUse,
+            ultracode = options.ultracode,
+            subagentModel = options.subagentModel,
+            resume = resume,
+        )
+    }
+
+    /** Whether the last Start found a resumable worktree (the fingerprint's
+     *  Resume reads the toggle only where it is offered). */
+    private var resumeOffered = false
+
+    init {
+        // Review #4: the pending start ends HERE, the moment the delegate
+        // hands over the row, not when the screen consumes it: a landing
+        // while the Agent screen is off-screen is never a false timeout.
+        viewModelScope.launch {
+            steerLaunch.startedSessionId.collect { id ->
+                if (id == null) return@collect
+                val startId = steerLaunch.landedStartId
+                steerLaunch.consumeStartedSession()
+                landed(id, startId)
+            }
+        }
+    }
+
+    private fun clearSentDraft() {
+        _images.value = emptyList()
+        _draft.value = ""
+        _subject.value = null
+        _pendingPrIssueId.value = null
+        // The subject is gone, so its repo-seed latch goes too: re-picking
+        // the SAME action must pre-fill `repo` again (a required repo
+        // otherwise leaves submit disabled).
+        seededRepoActionId = null
+        reseedPlanMode()
+    }
 
     // ── Launch options (EXP-437 seeding) ────────────────────────────────────
     private val _launch = MutableStateFlow(LaunchDraft())
@@ -882,9 +1071,17 @@ class AgentComposerViewModel @Inject constructor(
      * [action] is the resolved row for an action subject (null while its
      * synced row is missing — the gate already blocks that); [resumeOffered]
      * whether the single issue's worktree exists on the picked machine.
+     * A Start press and the error toast's Retry alike: the same draft on the
+     * same device re-sends under the SAME `startId`, anything else mints one.
      */
     fun submit(action: ActionDto?, resumeOffered: Boolean) {
         if (_sending.value) return
+        this.resumeOffered = resumeOffered
+        draftFingerprint()?.let { fingerprint ->
+            val resolved = DraftStart.resolve(draftStart, fingerprint)
+            if (resolved.startId != draftStart?.startId) draftStartSentAtMs = null
+            draftStart = resolved
+        }
         // EXP-980: a blocked start asks first — start anyway, or cancel. A
         // RESUME re-enters a run that already has its branch, so there is
         // nothing to ask (desktop parity).
@@ -987,8 +1184,18 @@ class AgentComposerViewModel @Inject constructor(
         val teamId = teamId.value ?: return
         val accountId = auth.activeAccountId.value ?: return
         val subject = _subject.value
+        val label = target.deviceLabel.ifBlank { target.deviceId }
+        val sendStartId = draftStart?.startId
+        // B6: a DIFFERENT start supersedes the quiet watch of the previous one
+        // BEFORE its uploads, so that start's late row can never clear this
+        // draft mid-send; a re-send of the same start keeps watching.
+        steerLaunch.supersede(sendStartId)
         viewModelScope.launch {
             _sending.value = true
+            timeoutToastId?.let { _dismissToast.value = it }
+            timeoutToastId = null
+            _starting.value = ComposerStarting(label, System.currentTimeMillis())
+            var accepted = false
             try {
                 try {
                     var current = _images.value
@@ -1009,9 +1216,13 @@ class AgentComposerViewModel @Inject constructor(
                     }
                 } catch (t: Throwable) {
                     if (t is CancellationException) throw t
-                    _imageError.value = trpcErrorMessage(t, "Couldn't upload attachment")
+                    _uploadFailure.value = trpcErrorMessage(t, "")
                     return@launch
                 }
+                // The original row of a re-sent start landed during the
+                // uploads: it already cleared what it had to, send nothing.
+                if (sendStartId != null && draftStart?.startId != sendStartId) return@launch
+                val sentAtMs = draftStartSentAtMs ?: System.currentTimeMillis()
                 val text = stacked?.let { BlockedStart.stackedStartPrompt(it.plan, _draft.value) }
                     ?: _draft.value
                 val uploadedSet = _images.value
@@ -1024,7 +1235,7 @@ class AgentComposerViewModel @Inject constructor(
                 val resume = stacked == null && resumeOffered && _resume.value &&
                     (subject as? ComposerSubject.Issues)?.ids?.size == 1
                 val options = buildOptions(resume)
-                val accepted = when (subject) {
+                accepted = when (subject) {
                     null -> {
                         // The hidden builtin has no DB row: constructed here,
                         // its one optional input riding only when picked
@@ -1039,6 +1250,9 @@ class AgentComposerViewModel @Inject constructor(
                                 mapOf("repo" to _chatRepoId.value),
                             ),
                             prompt,
+                            sendStartId,
+                            sentAtMs,
+                            StartedRunMatch.WATCH_MS,
                         )
                     }
                     is ComposerSubject.Issues ->
@@ -1047,6 +1261,9 @@ class AgentComposerViewModel @Inject constructor(
                             stacked?.let { listOf(it.issueId) } ?: subject.ids,
                             options,
                             prompt,
+                            sendStartId,
+                            sentAtMs,
+                            StartedRunMatch.WATCH_MS,
                         )
                     is ComposerSubject.Action -> {
                         val row = action ?: return@launch
@@ -1056,22 +1273,38 @@ class AgentComposerViewModel @Inject constructor(
                             options,
                             ActionInputValues.wireValues(row.inputs.orEmpty(), subject.inputs),
                             prompt,
+                            sendStartId,
+                            sentAtMs,
+                            StartedRunMatch.WATCH_MS,
                         )
                     }
                 }
+                // Recheck R3: a refused send of unknown fate is still followed
+                // (the delegate's quiet watch): its first send is the cutoff.
+                if ((accepted || steerLaunch.isFollowing(sendStartId)) &&
+                    draftStartSentAtMs == null && draftStart?.startId == sendStartId
+                ) {
+                    draftStartSentAtMs = sentAtMs
+                }
                 if (accepted) {
-                    _images.value = emptyList()
-                    _draft.value = ""
-                    _subject.value = null
-                    _pendingPrIssueId.value = null
-                    // The subject is gone, so its repo-seed latch goes too:
-                    // re-picking the SAME action must pre-fill `repo` again
-                    // (a required repo otherwise leaves submit disabled).
-                    seededRepoActionId = null
-                    reseedPlanMode()
+                    // EXP-1271: the draft stays until the row lands (a
+                    // timeout keeps it to retry). Review #3: the deadline
+                    // counts from HERE, the request SENT (uploads done); on
+                    // timeout the composer goes idle and toasts, but nothing
+                    // is aborted: the watch goes on and a late row lands.
+                    startingDeadline?.cancel()
+                    startingDeadline = viewModelScope.launch {
+                        delay(FeedbackStates.STARTING_TIMEOUT_MS)
+                        if (_starting.value != null) {
+                            steerLaunch.quietWatch()
+                            _starting.value = null
+                            _startTimedOut.value = label
+                        }
+                    }
                 }
             } finally {
                 _sending.value = false
+                if (!accepted) _starting.value = null
             }
         }
     }

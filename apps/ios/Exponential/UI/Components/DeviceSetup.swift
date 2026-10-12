@@ -47,7 +47,10 @@ struct DeviceSetup: View {
     @State private var commandCopied = false
     @State private var userCode = ""
     @State private var codeBusy = false
+    /// FEED-79: a rejected code (used/expired/invalid/other account) is
+    /// INPUT, inline under the field; a plain failure (`.failed`) toasts.
     @State private var codeError: DeviceCodeError?
+    @Environment(\.toaster) private var toaster
     @State private var codeApproved = false
 
     /// The sheet's target is the ID only: the sheet reads the LIVE row itself
@@ -232,6 +235,12 @@ struct DeviceSetup: View {
                 .textInputAutocapitalization(.characters)
                 .autocorrectionDisabled()
                 .onSubmit { approveCode() }
+                .overlay {
+                    if codeError != nil {
+                        RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
+                            .strokeBorder(DesignTokens.Semantic.red, lineWidth: 1)
+                    }
+                }
 
                 GlassPill(
                     DeviceSetupCopy.approve,
@@ -242,8 +251,8 @@ struct DeviceSetup: View {
 
             if let codeError {
                 Text(DeviceSetupCopy.message(codeError))
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Palette.destructive)
+                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .foregroundStyle(DesignTokens.Semantic.red)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }
@@ -416,7 +425,9 @@ struct DeviceSetup: View {
         Task {
             let error = await deps.authApi.approveDeviceCode(accountId: accountId, userCode: code)
             codeBusy = false
-            if let error {
+            if error == .failed {
+                toaster.error(FeedbackStates.Errors.title(verb: "approve", thing: "the code"))
+            } else if let error {
                 codeError = error
             } else {
                 codeApproved = true

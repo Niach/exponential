@@ -1,0 +1,158 @@
+{
+  "$comment": "EXP-1253 (EXP-1259 D1): the Agent page is HOME on every client. The app opens on it (web: the team index redirects to /t/$teamSlug/agent; desktop already starts on Agent; iOS + Android land on the Agent tab) and the IDE/web New session tab (EXP-1255) hosts the same column. Top to bottom, centred on the composer column: the HEADLINE row = the disc mark (`mark` px, the brand logo in the foreground colour) + `gap` + ONE line of Inter semibold at `headline` px (phones `headlinePhone`), never a serif, never a subtitle; then `headlineToCard` px; then the composer card (placeholder `placeholder`, no subject chip) and its options line. NOTHING renders beneath the options line (Danny 2026-10-12: no Recent list, the history button and the Agent › Recent sidebar stay the one place for recent sessions; no suggestion rows either). Phones, which have no sidebar Running section, keep their existing Running list (live own sessions) under the column, as before the home change (draft 2); that list is not Recent. While the team has NO board the Getting started block (getting-started.json) follows the composer, `composerToGettingStarted` px below the options line. The brand-mark watermark and the three suggestion rows are GONE (composer-menu.json). Greeting = pure `homeGreeting(local, name)` (TS reference packages/domain-contract/src/home-greeting.ts, mirrored by desktop crates/ui home_greeting, iOS ExpCore HomeGreeting.swift, Android domain/HomeGreeting.kt; every mirror replays `cases`): `local` = the device's local wall-clock time as `YYYY-MM-DDTHH:mm`; the BUCKET comes from the hour (`from`..`to` inclusive, night wraps midnight); the VARIANT = dayIndex mod the bucket's length, where dayIndex = whole days from 1970-01-01 to the local date of (`local` minus `dayStartsAtHour` hours), so one night keeps one greeting across midnight and a new one starts at 05:00; `{name}` = the first whitespace-separated token of the user row's name, and with no name the `, {name}` segment is dropped (`Back at it`, `What's next?`). The greeting is computed once per page mount (it never flips while you type). Review #16: `{name}` is replaced literally (no replacement patterns).",
+  "testIds": {
+    "home": "agent-home",
+    "greeting": "agent-home-greeting",
+    "mark": "agent-home-mark"
+  },
+  "placeholder": "What do you want to build?",
+  "geometry": {
+    "mark": 32,
+    "markPhone": 26,
+    "gap": 12,
+    "headline": 30,
+    "headlinePhone": 24,
+    "headlineWeight": 600,
+    "headlineToCard": 24,
+    "composerToGettingStarted": 32
+  },
+  "dayStartsAtHour": 5,
+  "buckets": [
+    {
+      "id": "morning",
+      "from": 5,
+      "to": 11,
+      "variants": [
+        "Good morning, {name}",
+        "Coffee and code, {name}?",
+        "Morning, {name}",
+        "Back at it, {name}"
+      ]
+    },
+    {
+      "id": "afternoon",
+      "from": 12,
+      "to": 17,
+      "variants": [
+        "Good afternoon, {name}",
+        "What's next, {name}?",
+        "Afternoon, {name}",
+        "Back at it, {name}"
+      ]
+    },
+    {
+      "id": "evening",
+      "from": 18,
+      "to": 22,
+      "variants": [
+        "Good evening, {name}",
+        "How was your day, {name}?",
+        "Evening, {name}",
+        "Back at it, {name}"
+      ]
+    },
+    {
+      "id": "night",
+      "from": 23,
+      "to": 4,
+      "variants": [
+        "Hello, night owl",
+        "Burning the midnight oil, {name}?",
+        "Night owl, {name}?",
+        "Still up, {name}?"
+      ]
+    }
+  ],
+  "cases": [
+    {
+      "name": "an evening picks the day's variant",
+      "local": "2026-10-12T19:30",
+      "user": "Danny Straehhuber",
+      "expected": "Evening, Danny"
+    },
+    {
+      "name": "the same day in the morning uses the same index in its own bucket",
+      "local": "2026-10-12T08:00",
+      "user": "Danny Straehhuber",
+      "expected": "Morning, Danny"
+    },
+    {
+      "name": "the next day moves one variant on",
+      "local": "2026-10-13T12:00",
+      "user": "Danny Straehhuber",
+      "expected": "Back at it, Danny"
+    },
+    {
+      "name": "before 05:00 still belongs to the previous day's night",
+      "local": "2026-10-13T01:30",
+      "user": "Danny Straehhuber",
+      "expected": "Night owl, Danny?"
+    },
+    {
+      "name": "the night starts at 23:00 with the same greeting it ends with",
+      "local": "2026-10-12T23:10",
+      "user": "Danny Straehhuber",
+      "expected": "Night owl, Danny?"
+    },
+    {
+      "name": "04:59 is the last minute of the night",
+      "local": "2026-10-14T04:59",
+      "user": "Danny Straehhuber",
+      "expected": "Still up, Danny?"
+    },
+    {
+      "name": "05:00 starts the morning and a new day",
+      "local": "2026-10-14T05:00",
+      "user": "Danny Straehhuber",
+      "expected": "Good morning, Danny"
+    },
+    {
+      "name": "11:59 is still morning",
+      "local": "2026-10-14T11:59",
+      "user": "Danny Straehhuber",
+      "expected": "Good morning, Danny"
+    },
+    {
+      "name": "17:59 is still afternoon",
+      "local": "2026-10-14T17:59",
+      "user": "Danny Straehhuber",
+      "expected": "Good afternoon, Danny"
+    },
+    {
+      "name": "22:59 is still evening",
+      "local": "2026-10-14T22:59",
+      "user": "Danny Straehhuber",
+      "expected": "Good evening, Danny"
+    },
+    {
+      "name": "a nameless user drops the name segment",
+      "local": "2026-10-13T20:00",
+      "user": "",
+      "expected": "Back at it"
+    },
+    {
+      "name": "a missing name drops the segment before a question mark",
+      "local": "2026-10-15T15:00",
+      "user": null,
+      "expected": "What's next?"
+    },
+    {
+      "name": "the first token of a padded name, case kept",
+      "local": "2026-10-15T09:00",
+      "user": "  danny  s ",
+      "expected": "Coffee and code, danny?"
+    },
+    {
+      "name": "a variant without a name reads the same either way",
+      "local": "2026-10-14T23:30",
+      "user": "Danny Straehhuber",
+      "expected": "Hello, night owl"
+    },
+    {
+      "name": "a name with replacement-pattern characters is inserted literally",
+      "local": "2026-10-12T19:30",
+      "user": "$&x Smith",
+      "expected": "Evening, $&x"
+    }
+  ]
+}

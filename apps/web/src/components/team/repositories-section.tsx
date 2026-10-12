@@ -6,7 +6,6 @@ import {
   Building2,
   ExternalLink,
   Github,
-  LoaderCircle,
   Lock,
   Plus,
   RefreshCw,
@@ -23,6 +22,7 @@ import {
 import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { trpcErrorCode } from "@/lib/trpc-error"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   GH_ACCOUNTS_HEADER,
   GH_ADD_FORBIDDEN,
@@ -74,7 +74,11 @@ import {
   LiveDot,
   BoardGlyph,
   BranchPicker,
+  SkeletonRows,
+  Spinner,
+  actionErrorTitle,
   conceptIcon,
+  toast,
 } from "@exp/ui"
 import { useTeamBoards } from "@/hooks/use-team-data"
 import {
@@ -124,16 +128,17 @@ export function TeamRepositoriesSection({
   // Disconnecting GitHub (unlinking the viewer's account) confirms first.
   const [disconnectOpen, setDisconnectOpen] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  // Set when the last failure was a plan cap (PRECONDITION_FAILED from
-  // lib/billing.ts) — renders the inline upgrade nudge instead of a bare error.
+  // FEED-79: a failed load/add/remove/disconnect is a toast. Set when the last
+  // failure was a plan cap (PRECONDITION_FAILED from lib/billing.ts) — that
+  // renders the inline upgrade nudge (an upsell, not an error) instead.
   const [limitError, setLimitError] = useState<string | null>(null)
+  // A failed first load = the empty state + the toast, never a skeleton
+  // spinning forever.
+  const [loadFailed, setLoadFailed] = useState(false)
   // The Add-repository dialog's own state (EXP-365, FEED-42): picking a row
-  // (or a successful by-name lookup) adds it at once; failures render inside
-  // the still-open dialog instead of a card-level box behind it. A FORBIDDEN
-  // grant failure gets its own arm with a Reconnect GitHub action.
-  const [connectError, setConnectError] = useState<string | null>(null)
-  const [connectForbidden, setConnectForbidden] = useState(false)
+  // (or a successful by-name lookup) adds it at once; a failure keeps the
+  // dialog open and toasts (a stale GitHub grant's toast offers Reconnect
+  // GitHub); a plan cap renders the upgrade nudge inside it.
   const [connectLimitError, setConnectLimitError] = useState<string | null>(
     null
   )
@@ -151,12 +156,15 @@ export function TeamRepositoriesSection({
   // EXP-1274: a refetch over an already-shown list (after a write, on window
   // focus) spins the band's glyph; the rows stay.
   const [reloading, setReloading] = useState(false)
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<void> => {
     setReloading(true)
     try {
       setRepos(await trpc.repositories.list.query({ teamId }))
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      setLoadFailed(false)
+    } catch {
+      // FEED-79: the list loads on open, on focus and after a write, so a
+      // failed load is quiet: the empty state (or the rows it last had).
+      setLoadFailed(true)
     } finally {
       setReloading(false)
     }
@@ -198,28 +206,36 @@ export function TeamRepositoriesSection({
   // further account. openGithubPopup re-focuses an already-open popup and
   // reports a popup-blocked null so the button never silently does nothing.
   const openConnect = () => {
-    setError(openGithubConnect({ teamId }) ? null : POPUP_BLOCKED_MESSAGE)
+    if (!openGithubConnect({ teamId })) {
+      failedAction(`connect`, `GitHub`, POPUP_BLOCKED_MESSAGE, { retry: openConnect })
+    }
   }
   const openInstall = () => {
     const url = githubStatus?.installUrl
     if (!url) return
-    setError(openGithubPopup(url) ? null : POPUP_BLOCKED_MESSAGE)
+    if (!openGithubPopup(url)) {
+      failedAction(`open`, `GitHub`, POPUP_BLOCKED_MESSAGE, { retry: openInstall })
+    }
   }
 
-  const run = async (fn: () => Promise<unknown>) => {
+  // `failure` names the toast; `retry` only for the idempotent writes.
+  const run = async (
+    fn: () => Promise<unknown>,
+    failure: { verb: string; thing: string; retry?: boolean }
+  ) => {
     setBusy(true)
-    setError(null)
     setLimitError(null)
     try {
       await fn()
       await refresh()
       await refreshGithubStatus()
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
       if (isPlanLimitError(err)) {
-        setLimitError(message)
+        setLimitError(err instanceof Error ? err.message : String(err))
       } else {
-        setError(message)
+        failedAction(failure.verb, failure.thing, err, {
+          retry: failure.retry ? () => void run(fn, failure) : undefined,
+        })
       }
     } finally {
       setBusy(false)
@@ -228,18 +244,12 @@ export function TeamRepositoriesSection({
 
   const handleConnectOpenChange = (open: boolean) => {
     setConnectOpen(open)
-    if (!open) {
-      setConnectError(null)
-      setConnectForbidden(false)
-      setConnectLimitError(null)
-    }
+    if (!open) setConnectLimitError(null)
   }
 
   const handleAdd = async (repo: PickerRepo) => {
     if (busy) return
     setBusy(true)
-    setConnectError(null)
-    setConnectForbidden(false)
     setConnectLimitError(null)
     try {
       await trpc.repositories.add.mutate(
@@ -249,12 +259,11 @@ export function TeamRepositoriesSection({
           defaultBranch: repo.defaultBranch,
           private: repo.private,
         },
-        // Failures render inline in the dialog; the global mutation-error
-        // toast would be redundant noise.
-        { context: { skipErrorToast: true } }
+        // This site toasts its own failure (or the plan-cap nudge).
+        SKIP_ERROR_TOAST
       )
-      // Close ONLY on success — a failure keeps the dialog (and its error)
-      // in front of the user instead of silently vanishing (EXP-365).
+      // Close ONLY on success — a failure keeps the dialog in front of the
+      // user instead of silently vanishing (EXP-365).
       handleConnectOpenChange(false)
       await refresh()
       await refreshGithubStatus()
@@ -266,11 +275,14 @@ export function TeamRepositoriesSection({
         trpcErrorCode(err) === `FORBIDDEN` &&
         message.toLowerCase().includes(`reconnect github`)
       ) {
-        setConnectForbidden(true)
+        toast.error(actionErrorTitle(`add`, `the repository`), {
+          description: GH_ADD_FORBIDDEN,
+          action: { label: GH_RECONNECT_GITHUB, onClick: openConnect },
+        })
       } else if (isPlanLimitError(err)) {
         setConnectLimitError(message)
       } else {
-        setConnectError(message)
+        failedAction(`add`, `the repository`, err)
       }
     } finally {
       setBusy(false)
@@ -278,11 +290,10 @@ export function TeamRepositoriesSection({
   }
 
   const handleDisconnect = () =>
-    run(() =>
-      trpc.integrations.github.disconnect.mutate(undefined, {
-        context: { skipErrorToast: true },
-      })
-    )
+    run(() => trpc.integrations.github.disconnect.mutate(undefined, SKIP_ERROR_TOAST), {
+      verb: `disconnect`,
+      thing: `GitHub`,
+    })
 
   const count = repos?.length ?? 0
   const installations = githubStatus?.installations ?? []
@@ -323,12 +334,6 @@ export function TeamRepositoriesSection({
             onDisconnect={() => setDisconnectOpen(true)}
           />
 
-          {error && (
-            <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
-            </div>
-          )}
-
           {limitError && (
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
               <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
@@ -350,7 +355,10 @@ export function TeamRepositoriesSection({
           {/* EXP-1076: the ONE settings ladder — the section band over
               gapless flat rows with a hairline between each pair. */}
           <div className={SETTINGS_LIST_CLASS}>
-            {count === 0 ? (
+            {repos === null && !loadFailed ? (
+              // The repo row: name line over the "Used by" line.
+              <SkeletonRows rowHeight={60} />
+            ) : count === 0 ? (
               // EXP-1274: the shared list empty state; the copy stays the
               // GitHub contract's (`GithubCopy` ×4).
               <EmptyState
@@ -374,11 +382,13 @@ export function TeamRepositoriesSection({
                   installationSuspended={suspendedForRepo(repo)}
                   onRemove={() => setRemoveTarget(repo)}
                   onSetDefaultBranch={(branch) =>
-                    run(() =>
-                      trpc.repositories.setDefaultBranch.mutate(
-                        { repositoryId: repo.id, branch },
-                        { context: { skipErrorToast: true } }
-                      )
+                    run(
+                      () =>
+                        trpc.repositories.setDefaultBranch.mutate(
+                          { repositoryId: repo.id, branch },
+                          SKIP_ERROR_TOAST
+                        ),
+                      { verb: `set`, thing: `the default branch`, retry: true }
                     )
                   }
                 />
@@ -405,20 +415,6 @@ export function TeamRepositoriesSection({
             listClassName="max-h-[min(20rem,40dvh)] max-sm:max-h-[50dvh]"
             variant="plain"
           />
-          {connectError && (
-            <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {connectError}
-            </div>
-          )}
-          {connectForbidden && (
-            <div className="flex flex-wrap items-center gap-2 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              <span className="min-w-0 flex-1">{GH_ADD_FORBIDDEN}</span>
-              <Pill mode="action" onClick={openConnect}>
-                <RefreshCw />
-                {GH_RECONNECT_GITHUB}
-              </Pill>
-            </div>
-          )}
           {connectLimitError && (
             <div className="flex flex-wrap items-center gap-2 rounded-md border border-primary/40 bg-primary/5 px-3 py-2 text-sm">
               <Sparkles className="h-3.5 w-3.5 shrink-0 text-primary" />
@@ -438,7 +434,7 @@ export function TeamRepositoriesSection({
           )}
           {busy && (
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
-              <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              <Spinner />
             </div>
           )}
         </DialogContent>
@@ -457,11 +453,13 @@ export function TeamRepositoriesSection({
               const target = removeTarget
               setRemoveTarget(null)
               if (!target) return
-              void run(() =>
-                trpc.repositories.remove.mutate(
-                  { repositoryId: target.id },
-                  { context: { skipErrorToast: true } }
-                )
+              void run(
+                () =>
+                  trpc.repositories.remove.mutate(
+                    { repositoryId: target.id },
+                    SKIP_ERROR_TOAST
+                  ),
+                { verb: `remove`, thing: `the repository` }
               )
             },
           },

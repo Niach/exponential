@@ -1310,7 +1310,7 @@ pub type LiveAccounts = [(CodingAgent, String)];
 
 /// The sentence both bodies refuse with when a live run holds the login.
 pub const LIVE_RUN_USES_ACCOUNT: &str =
-    "A live run on this machine still uses that account. End it first.";
+    "A live session on this machine still uses that account. End it first.";
 
 fn refuse_if_live(live: &LiveAccounts, agent: CodingAgent, profile: &str) -> Result<(), String> {
     if live

@@ -132,13 +132,19 @@ private struct AgentImportFlow: ViewModifier {
                     guard !command.isPending else { continue }
                     if command.isFailed {
                         pending[target.id] = nil
-                        toaster.error(command.result ?? "The device refused the command.")
+                        toaster.error(
+                            FeedbackStates.Errors.title(verb: "import", thing: "the login"),
+                            description: command.result ?? "The device refused the command."
+                        )
                     }
                     break
                 }
             } catch {
                 pending[target.id] = nil
-                toaster.error(error.userFacingMessage)
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "import", thing: "the login"),
+                    description: error.userFacingMessage
+                )
             }
         }
     }

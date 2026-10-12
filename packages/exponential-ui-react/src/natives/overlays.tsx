@@ -22,6 +22,7 @@ import type { NativeProps } from "../node-view"
 import { CloseOnSubmitContext } from "../form"
 import { useBoundState } from "./bound"
 import { bool, BuiltinIcon, num, str, useParts, type PartFn, objects } from "./shared"
+import { SearchBody, searchMatches } from "./search"
 
 /** An overlay's `open`: local mirror, bound path written, `change {open}`. */
 function useOpenState(node: NativeProps[`node`], scope: string, external: boolean, emit: NativeProps[`emit`]) {
@@ -296,6 +297,65 @@ interface MenuItem {
   disabled?: boolean
   separator?: boolean
   items?: MenuItem[]
+  /** EXP-1259: the submenu is a search list of its entries. */
+  searchable?: boolean
+  placeholder?: string
+}
+
+/** EXP-1259: a searchable submenu = the search list (head, the entries that
+ *  match as menu rows, the highlighted one `selected`, the fade): its field
+ *  takes the focus when it opens (and when the pointer enters), ↑/↓ move,
+ *  Enter or Tab pick (the menu closes), ← at the caret's start returns to
+ *  the parent row. */
+function MenuSearch({ item, i, part, emit, close }: { item: MenuItem; i: string; part: PartFn; emit: NativeProps[`emit`]; close: () => void }) {
+  const ctx = useSurfaceContext()
+  const [query, setQuery] = useState(``)
+  const box = useRef<HTMLDivElement | null>(null)
+  // The field takes the focus once Radix has focused the opened content.
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => box.current?.querySelector<HTMLInputElement>(`input`)?.focus({ preventScroll: true }))
+    return () => cancelAnimationFrame(frame)
+  }, [])
+  const rows = objects<MenuItem>(item.items)
+    .map((entry, index) => ({ index, entry }))
+    .filter(({ entry }) => entry.kind !== `separator` && entry.kind !== `label` && !entry.separator && searchMatches({ label: str(entry.label) }, query))
+    .map(({ index, entry }) => ({ index, item: { label: str(entry.label), value: str(entry.value ?? entry.label), icon: entry.icon, disabled: bool(entry.disabled) } }))
+  return (
+    <div
+      ref={box}
+      className="xui-menu-search"
+      onPointerEnter={(e) => {
+        const input = e.currentTarget.querySelector<HTMLInputElement>(`input`)
+        if (input && !e.currentTarget.contains(document.activeElement)) input.focus({ preventScroll: true })
+      }}
+    >
+      <SearchBody
+        part={part}
+        owner="Menu"
+        suffix={`.${i}`}
+        rows={rows}
+        query={query}
+        onQuery={setQuery}
+        placeholder={str(item.placeholder) || ctx.t(`search`)}
+        emptyText={ctx.t(`noResults`)}
+        maxRows={8}
+        showCount
+        autoFocus
+        leaveBubbles
+        onPick={(picked) => {
+          void emit(`select`, { value: picked.value })
+          close()
+        }}
+        rowPart={(_, __, active) => part(`item`, active && `selected`) as Record<string, string>}
+        renderRow={(row) => (
+          <>
+            {row.icon ? <IconGlyph icons={ctx.host.icons} name={row.icon} /> : null}
+            <span className="xui-menu-label">{row.label}</span>
+          </>
+        )}
+      />
+    </div>
+  )
 }
 
 type MenuNs = typeof MenuPrimitive | typeof ContextPrimitive
@@ -303,7 +363,7 @@ type MenuNs = typeof MenuPrimitive | typeof ContextPrimitive
 /** The entries, shared by both openings. A submenu's `items` may be a
  *  binding (`{path}` to rows a host source feeds): the bind pass resolved it
  *  already, so it renders like a literal one. */
-function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, path }: { ns: MenuNs; items: MenuItem[]; rawItems: unknown; part: PartFn; overlay: string; emit: NativeProps[`emit`]; scope: string; path: string }) {
+function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, path, close }: { ns: MenuNs; items: MenuItem[]; rawItems: unknown; part: PartFn; overlay: string; emit: NativeProps[`emit`]; scope: string; path: string; close: () => void }) {
   const ctx = useSurfaceContext()
   const raws = objects<Record<string, unknown>>(rawItems)
   const N = ns as typeof MenuPrimitive
@@ -327,8 +387,18 @@ function MenuItems({ ns, items, rawItems, part, overlay, emit, scope, path }: { 
                 </span>
               </N.SubTrigger>
               <N.Portal container={ctx.portal ?? undefined}>
-                <N.SubContent {...(part(`content`) as Record<string, string>)} sideOffset={2} collisionPadding={OVERLAY_PADDING} data-xui-overlay={`${overlay}.sub`}>
-                  <MenuItems ns={ns} items={objects<MenuItem>(item.items)} rawItems={raws[i]?.items} part={part} overlay={overlay} emit={emit} scope={scope} path={`${key}.`} />
+                <N.SubContent
+                  {...(part(`content`) as Record<string, string>)}
+                  sideOffset={2}
+                  collisionPadding={OVERLAY_PADDING}
+                  data-xui-overlay={`${overlay}.sub`}
+                  data-searchable={item.searchable ? `true` : undefined}
+                >
+                  {item.searchable ? (
+                    <MenuSearch item={item} i={key} part={part} emit={emit} close={close} />
+                  ) : (
+                    <MenuItems ns={ns} items={objects<MenuItem>(item.items)} rawItems={raws[i]?.items} part={part} overlay={overlay} emit={emit} scope={scope} path={`${key}.`} close={close} />
+                  )}
                 </N.SubContent>
               </N.Portal>
             </N.Sub>
@@ -407,11 +477,16 @@ function PressMenuOpening({ node, props, rootProps, emit, children, scope }: Nat
       </div>
       <MenuPrimitive.Portal container={ctx.portal ?? undefined}>
         <MenuPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} align="start" sideOffset={OVERLAY_OFFSET} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="press">
-          <MenuItems ns={MenuPrimitive} items={items} rawItems={node.props.items} part={part} overlay="Menu" emit={emit} scope={scope} path="" />
+          <MenuItems ns={MenuPrimitive} items={items} rawItems={node.props.items} part={part} overlay="Menu" emit={emit} scope={scope} path="" close={() => setOpen(false)} />
         </MenuPrimitive.Content>
       </MenuPrimitive.Portal>
     </MenuPrimitive.Root>
   )
+}
+
+/** A context menu is uncontrolled (Radix): close it the way Escape does. */
+function closeContextMenu() {
+  document.dispatchEvent(new KeyboardEvent(`keydown`, { key: `Escape`, bubbles: true }))
 }
 
 function ContextMenuOpening({ node, props, rootProps, emit, children, scope }: NativeProps) {
@@ -438,7 +513,7 @@ function ContextMenuOpening({ node, props, rootProps, emit, children, scope }: N
       </ContextPrimitive.Trigger>
       <ContextPrimitive.Portal container={ctx.portal ?? undefined}>
         <ContextPrimitive.Content {...(part(`content`, open && `open`) as Record<string, string>)} collisionPadding={OVERLAY_PADDING} data-xui-overlay="Menu" data-open-on="contextmenu">
-          <MenuItems ns={ContextPrimitive} items={items} rawItems={node.props.items} part={part} overlay="Menu" emit={emit} scope={scope} path="" />
+          <MenuItems ns={ContextPrimitive} items={items} rawItems={node.props.items} part={part} overlay="Menu" emit={emit} scope={scope} path="" close={closeContextMenu} />
         </ContextPrimitive.Content>
       </ContextPrimitive.Portal>
     </ContextPrimitive.Root>

@@ -173,7 +173,7 @@ object Prompts {
     }
 
     object StopRun {
-        val spec = destructiveSpec("stop-run", mapOf("title" to "Stop this run?"), emptyList(), "stop", "Stop")
+        val spec = destructiveSpec("stop-run", mapOf("title" to "Stop this session?"), emptyList(), "stop", "Stop")
         fun prompt() = spec.render("title", null)
     }
 
@@ -181,8 +181,8 @@ object Prompts {
         val spec = primarySpec(
             "resume-run",
             mapOf(
-                "title" to "Resume this run on {device}?",
-                "titleNoDevice" to "Resume this run?",
+                "title" to "Resume this session on {device}?",
+                "titleNoDevice" to "Resume this session?",
                 "body" to "The agent continues where it stopped, in the same worktree.",
             ),
             listOf("device"),
@@ -197,7 +197,7 @@ object Prompts {
     object DeleteTrigger {
         val spec = destructiveSpec(
             "delete-trigger",
-            mapOf("title" to "Delete this trigger?", "body" to "Past runs stay in Runs."),
+            mapOf("title" to "Delete this trigger?", "body" to "Past sessions stay in Sessions."),
             emptyList(),
             "delete",
             "Delete",
@@ -210,7 +210,7 @@ object Prompts {
             "delete-action",
             mapOf(
                 "title" to "Delete \"{name}\"?",
-                "body" to "Its triggers are deleted with it. Its runs stay and live ones keep going.",
+                "body" to "Its triggers are deleted with it. Its sessions stay and live ones keep going.",
             ),
             listOf("name"),
             "delete",

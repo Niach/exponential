@@ -559,12 +559,15 @@ pub(crate) fn render_sections(
     block
 }
 
-/// The block's loading shape (no report yet): two skeleton rungs.
-pub(crate) fn render_loading() -> Div {
-    v_flex()
-        .gap_2()
-        .child(crate::controls::skeleton().h_4().w_64())
-        .child(crate::controls::skeleton().h_4().w_56())
+/// The block's loading shape (no report yet): its rows as placeholders
+/// (EXP-1259 D8).
+pub(crate) fn render_loading(cx: &App) -> Div {
+    v_flex().child(crate::feedback::skeleton_rows(
+        "device-readiness-skeleton",
+        crate::feedback::SKELETON_ROWS,
+        crate::settings::SETTINGS_ROW_H,
+        cx,
+    ))
 }
 
 /// The ONE row under the composer (single-row mode): the failing row with
@@ -691,7 +694,7 @@ pub(crate) fn run_local_update(agent: CodingAgent, cx: &mut App) {
             cx.default_global::<LocalUpdates>().0.remove(&key);
             let toast = match result {
                 Ok(outcome) => crate::toast::Toast::success(outcome.message()),
-                Err(message) => crate::toast::Toast::error(message),
+                Err(message) => crate::action_error::failed_toast("update", agent.label(), Some(message)),
             };
             crate::toast::show_in_active_window(toast, cx);
             crate::coding_flow::CodingHub::refresh_doctor(&hub, cx);
@@ -731,7 +734,11 @@ pub(crate) fn run_remote_action(
                             "Updating {} on {device_label}…",
                             agent.label()
                         )),
-                        Err(err) => crate::toast::Toast::error(err.user_message()),
+                        Err(err) => crate::action_error::failed_toast(
+                            "update",
+                            agent.label(),
+                            crate::action_error::action_error_description(&err),
+                        ),
                     };
                     crate::toast::show_in_active_window(toast, cx);
                 });
@@ -833,10 +840,7 @@ fn queue_remote_import(device_id: String, device_label: SharedString, agent: Cod
             Ok(created) => created.id,
             Err(err) => {
                 let _ = cx.update(|cx| {
-                    crate::toast::show_in_active_window(
-                        crate::toast::Toast::error(err.user_message()),
-                        cx,
-                    )
+                    crate::action_error::failed_action_err("import", "the login", &err, cx)
                 });
                 return;
             }
@@ -858,7 +862,7 @@ fn queue_remote_import(device_id: String, device_label: SharedString, agent: Cod
             }
             let text = row.result.clone().unwrap_or_default();
             let toast = if row.status == "failed" {
-                crate::toast::Toast::error(text)
+                crate::action_error::failed_toast("import", "the login", Some(text))
             } else if text.ends_with("was already added. Refreshed it.") {
                 crate::toast::Toast::warning(text)
             } else {

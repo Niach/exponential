@@ -51,10 +51,14 @@ import {
   uploadedWireParts,
 } from "@/lib/pending-images"
 import { cn } from "@/lib/utils"
+import { failedAction } from "@/lib/action-error"
 import {
   MentionTextarea,
   type MentionTextareaHandle,
 } from "@/components/mention-textarea"
+
+/** A failed send's description: the relay socket is gone. */
+const SESSION_GONE = `The session is no longer connected`
 
 // EXP-698/EXP-724/EXP-790: the STEERING COMPOSER — the field a live run is
 // driven from, lifted out of `agent-session.tsx` by EXP-877 so the session
@@ -266,13 +270,15 @@ export function SteerComposer({
       }
       const { imageIds, files } = uploadedWireParts(current)
       if (!onSend(buildSteerMessage(text, imageIds, files))) {
-        toast.error(`The session is no longer connected`)
+        failedAction(`send`, `the message`, SESSION_GONE)
         return
       }
       store.clearDraftAfterSend()
     } catch (error) {
-      toast.error(`Couldn't upload attachment`, {
-        description: error instanceof Error ? error.message : undefined,
+      // FEED-79: nothing was sent and landed uploads are kept, so Retry
+      // uploads the rest and sends once.
+      failedAction(`upload`, `the attachment`, error, {
+        retry: () => void send(confirmed),
       })
     } finally {
       setSending(false)
@@ -363,7 +369,7 @@ export function SteerComposer({
               disabled={!live}
               onClick={() => {
                 if (!store.interrupt()) {
-                  toast.error(`The session is no longer connected`)
+                  failedAction(`stop`, `the session`, SESSION_GONE)
                 }
               }}
             />
@@ -484,7 +490,7 @@ export function SteerComposer({
                   // otherwise the value silently snaps back.
                   if (!live || value === model) return
                   if (!onSend(`/model ${value}`)) {
-                    toast.error(`The session is no longer connected`)
+                    failedAction(`switch`, `the model`, SESSION_GONE)
                   }
                 }}
               />

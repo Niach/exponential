@@ -62,19 +62,8 @@ struct DeviceLogins: View {
                 addAccountRow
             }
             // The MATERIAL outcome of a menu action lands by SYNC (the machine
-            // re-reports its accounts), but a refusal would otherwise be
-            // silent — including the honest one the server answers for a
-            // machine too old to know the command. It belongs HERE, under the
-            // rows that fired it: a caption at the bottom of the page is
-            // off-screen from this machine.
-            if let error = viewModel.accountActionError(deviceId: device.deviceId) {
-                Text(error)
-                    .font(.caption2)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .accessibilityIdentifier("device-account-error-\(device.deviceId)")
-            }
+            // re-reports its accounts); a refusal is the error toast
+            // (FEED-79, `AgentsViewModel.queueAccountCommand`).
         }
     }
 

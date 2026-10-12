@@ -10,7 +10,10 @@ struct InviteAcceptView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var loading = true
     @State private var accepted = false
-    @State private var error: String?
+    // FEED-79: a failed accept = the "Invalid invite" state card plus a
+    // toast carrying the server's message, never a rose sentence.
+    @State private var failed = false
+    @Environment(\.toaster) private var toaster
     /// EXP-1169: accepted, and the caller owns no machine, so the join step
     /// replaces the welcome card until its advance.
     @State private var showDevicesStep = false
@@ -61,8 +64,12 @@ struct InviteAcceptView: View {
                     showDevicesStep = true
                 }
             } catch {
-                self.error = error.trpcUserMessage
+                failed = true
                 loading = false
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "accept", thing: "the invite"),
+                    description: error.trpcUserMessage
+                )
             }
         }
     }
@@ -88,14 +95,10 @@ struct InviteAcceptView: View {
                 Text("Redirecting…")
                     .font(.body)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            } else if let error {
+            } else if failed {
                 Text("Invalid invite")
                     .font(.title2.weight(.bold))
                     .foregroundStyle(.white)
-                Text(error)
-                    .font(.body)
-                    .foregroundStyle(.red)
-                    .multilineTextAlignment(.center)
             }
         }
         .padding(32)

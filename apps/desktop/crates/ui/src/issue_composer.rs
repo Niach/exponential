@@ -298,8 +298,14 @@ impl IssueComposer {
                         cx.emit(IssueComposerEvent::Created);
                         cx.notify();
                     }
+                    // FEED-79: a failed create is the error toast (a create
+                    // can duplicate, so no Retry); the form stays filled.
                     Err(message) => {
-                        this.error = Some(message);
+                        crate::toast::show(
+                            crate::action_error::failed_toast("create", "the sub-issue", Some(message.to_string())),
+                            window,
+                            cx,
+                        );
                         this.submitting = false;
                         cx.notify();
                     }
@@ -397,13 +403,9 @@ impl IssueComposer {
     /// there is nothing to render at all.
     fn status_line(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         match &self.error {
-            Some(error) => Some(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().danger)
-                    .child(error.clone())
-                    .into_any_element(),
-            ),
+            // A pick the composer refuses (unreadable, over the cap) is
+            // about the INPUT: the field's own line (FEED-79).
+            Some(error) => Some(crate::action_error::field_error(error.clone(), cx).into_any_element()),
             None if !self.staged_files.is_empty() => {
                 Some(self.attachment_rail(cx).into_any_element())
             }

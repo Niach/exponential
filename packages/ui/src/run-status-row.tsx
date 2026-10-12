@@ -1,6 +1,8 @@
 import { AgentRunMark, type RunMarkState } from "./agent-brand-mark"
 import { Button } from "./button"
 import { cn } from "./cn"
+import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
+import { FeedbackMark } from "./feedback"
 
 // EXP-1175: the Run face's ONE status row, over the results thread or the
 // full transcript — the run mark as the spinner, the caption in its tone,
@@ -9,7 +11,9 @@ import { cn } from "./cn"
 // (`runRowCaption`, `lastToolLine`, `showWorkLabel` in apps/web; fixture
 // `run-row.json` ×4); this component only draws them. EXP-1245: the owner's
 // thread draws one per TURN (`turnRowCaption`); a row without `onToggle`
-// carries no Show work button.
+// carries no Show work button. EXP-1271 (EXP-1259 D8): before the run's first
+// turn the row is `starting`: THE mark (`FeedbackMark`) in the run mark's
+// slot over "Starting on <device>" (feedback-states.json `starting.label`).
 
 export type RunStatusRowTone = `muted` | `amber` | `emerald` | `sky`
 
@@ -23,6 +27,7 @@ export const RUN_STATUS_ROW_TONE_CLASS: Record<RunStatusRowTone, string> = {
 export function RunStatusRow({
   agent,
   markState,
+  starting = false,
   caption,
   tone,
   toolLine,
@@ -33,6 +38,8 @@ export function RunStatusRow({
 }: {
   agent: string | null | undefined
   markState?: RunMarkState
+  /** Before the first turn: the mark sweeps in the run mark's slot. */
+  starting?: boolean
   caption: string
   tone: RunStatusRowTone
   /** The newest tool call's line; null = no second line. */
@@ -48,13 +55,18 @@ export function RunStatusRow({
     <div
       data-testid="run-status-row"
       data-show-work={showWork}
+      data-starting={starting || undefined}
       className={cn(`flex items-center gap-2.5 py-1.5`, className)}
     >
-      <AgentRunMark
-        agent={agent}
-        state={markState}
-        ringClassName="ring-background"
-      />
+      {starting ? (
+        <FeedbackMark size={FEEDBACK_STATES.mark.sizes.status} />
+      ) : (
+        <AgentRunMark
+          agent={agent}
+          state={markState}
+          ringClassName="ring-background"
+        />
+      )}
       <div className="min-w-0 flex-1">
         <div
           data-slot="run-status-caption"

@@ -35,8 +35,8 @@ import kotlinx.coroutines.launch
  * installations are server-only (never a synced shape); it is re-read whenever
  * the account or the team changes.
  *
- * The state rules themselves live in `GettingStartedModel.kt`, ported from web
- * and unit tested there.
+ * The state rules themselves live in `GettingStartedModel.kt`, locked to
+ * `getting-started.json` (EXP-1270).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
@@ -73,9 +73,6 @@ class GettingStartedViewModel @Inject constructor(
     private val codingSessions = teamScoped(emptyList()) { db, teamId ->
         db.codingSessionDao().observeByTeam(teamId)
     }
-    private val actions = teamScoped(emptyList()) { db, teamId ->
-        db.actionDao().observeByTeam(teamId)
-    }
     private val members = teamScoped(emptyList()) { db, teamId ->
         db.teamMemberDao().observeByTeam(teamId)
     }
@@ -84,9 +81,9 @@ class GettingStartedViewModel @Inject constructor(
     }
 
     /**
-     * The two owner-gated entries (invite, action) need the caller's role in
-     * the SELECTED team — the same resolution `TeamPermissions` performs, off
-     * the same member rows.
+     * The owner-gated step (invite) needs the caller's role in the SELECTED
+     * team — the same resolution `TeamPermissions` performs, off the same
+     * member rows.
      */
     private val isOwner = combine(members, auth.userId) { rows, userId ->
         userId != null && rows.firstOrNull { it.userId == userId }?.role == "owner"
@@ -96,23 +93,31 @@ class GettingStartedViewModel @Inject constructor(
         ownDevices,
         boards,
         codingSessions,
-        actions,
         // "Any open invite" = pending (unaccepted AND unexpired): a revoked or
         // lapsed link must not tick the step (EXP-630 keeps revoked rows).
         combine(members, invites) { memberRows, inviteRows ->
             memberRows.size > 1 || pendingInvites(inviteRows).isNotEmpty()
         },
-    ) { devices, boardRows, sessions, actionRows, invitedTeam ->
+    ) { devices, boardRows, sessions, invitedTeam ->
+        // The MCP and widget steps never render on phones (`phones: false`),
+        // so their signals stay false here.
         GettingStartedSignals(
+            hasBoard = boardRows.isNotEmpty(),
+            // A repo-backed board proves a teammate connected GitHub for the
+            // team: the step is done for everyone, not only for whoever
+            // linked it (OR'd with the status read below).
+            githubInstalled = boardRows.any { it.repositoryId != null },
             hasDesktopDevice = devices.any { it.kind == "desktop" },
             hasServerDevice = devices.any { it.kind == "server" },
-            hasInvitedTeam = invitedTeam,
-            hasBoard = boardRows.isNotEmpty(),
-            hasRepoBoard = boardRows.any { it.repositoryId != null },
             hasCodingSession = sessions.isNotEmpty(),
-            hasAction = actionRows.isNotEmpty(),
+            hasInvitedTeam = invitedTeam,
         )
     }
+
+    /** Whether the team has a board yet — the Agent home shows the block until it does. */
+    val hasBoard: StateFlow<Boolean?> = boards
+        .map<List<*>, Boolean?> { it.isNotEmpty() }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), null)
 
     val state: StateFlow<GettingStartedState> = combine(
         signals,
@@ -130,9 +135,10 @@ class GettingStartedViewModel @Inject constructor(
             GettingStartedState(loading = true)
         } else {
             GettingStartedState(
-                entries = deriveGettingStartedEntries(
-                    base.copy(githubInstalled = github),
-                    isOwner = owner,
+                model = GettingStarted.derive(
+                    base.copy(githubInstalled = github || base.githubInstalled),
+                    GettingStartedPermissions(canManageMembers = owner, canManageWidgets = owner),
+                    GettingStartedPlatform.Phone,
                 ),
                 loading = false,
             )

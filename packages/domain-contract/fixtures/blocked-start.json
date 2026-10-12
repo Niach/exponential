@@ -29,7 +29,7 @@
   },
   "planNoteTemplate": "Starts #{first} first, then #{rest}.",
   "baseTemplate": "Stacked on #{ident}. Before any edit: `git fetch origin {branch}`; if this branch has no commits of its own, `git reset --hard origin/{branch}`, else `git rebase origin/{branch}`. Open your PR with `exponential_pr_open({issueId, base: \"{branch}\"})`.",
-  "lineTemplate": "This is the bottom of a stacked line: {line}. After your PR is open and your branch is pushed, start #{next} as a follow-up run on your branch (playbook: Follow-ups and follow-up runs), even under `no follow-up runs`. If more issues follow it, give it this paragraph with your own issue dropped from the line. Do not wait for it.",
+  "lineTemplate": "This is the bottom of a stacked line: {line}. After your PR is open and your branch is pushed, start #{next} as a follow-up session on your branch (playbook: Follow-ups and follow-up runs), even under `no follow-up runs`. If more issues follow it, give it this paragraph with your own issue dropped from the line. Do not wait for it.",
   "textTemplate": "Instructions for #{subject}, pass them along unchanged:\n{text}",
   "planCases": [
     {
@@ -725,7 +725,7 @@
         "APP-20"
       ],
       "text": "",
-      "prompt": "This is the bottom of a stacked line: #APP-10, then #APP-11, then #APP-20. After your PR is open and your branch is pushed, start #APP-11 as a follow-up run on your branch (playbook: Follow-ups and follow-up runs), even under `no follow-up runs`. If more issues follow it, give it this paragraph with your own issue dropped from the line. Do not wait for it."
+      "prompt": "This is the bottom of a stacked line: #APP-10, then #APP-11, then #APP-20. After your PR is open and your branch is pushed, start #APP-11 as a follow-up session on your branch (playbook: Follow-ups and follow-up runs), even under `no follow-up runs`. If more issues follow it, give it this paragraph with your own issue dropped from the line. Do not wait for it."
     },
     {
       "name": "a line on a base with typed text for the subject",
@@ -738,7 +738,7 @@
         "APP-20"
       ],
       "text": "keep the diff small",
-      "prompt": "Stacked on #APP-9. Before any edit: `git fetch origin exp/APP-9`; if this branch has no commits of its own, `git reset --hard origin/exp/APP-9`, else `git rebase origin/exp/APP-9`. Open your PR with `exponential_pr_open({issueId, base: \"exp/APP-9\"})`.\n\nThis is the bottom of a stacked line: #APP-11, then #APP-20. After your PR is open and your branch is pushed, start #APP-20 as a follow-up run on your branch (playbook: Follow-ups and follow-up runs), even under `no follow-up runs`. If more issues follow it, give it this paragraph with your own issue dropped from the line. Do not wait for it.\n\nInstructions for #APP-20, pass them along unchanged:\nkeep the diff small"
+      "prompt": "Stacked on #APP-9. Before any edit: `git fetch origin exp/APP-9`; if this branch has no commits of its own, `git reset --hard origin/exp/APP-9`, else `git rebase origin/exp/APP-9`. Open your PR with `exponential_pr_open({issueId, base: \"exp/APP-9\"})`.\n\nThis is the bottom of a stacked line: #APP-11, then #APP-20. After your PR is open and your branch is pushed, start #APP-20 as a follow-up session on your branch (playbook: Follow-ups and follow-up runs), even under `no follow-up runs`. If more issues follow it, give it this paragraph with your own issue dropped from the line. Do not wait for it.\n\nInstructions for #APP-20, pass them along unchanged:\nkeep the diff small"
     }
   ]
 }

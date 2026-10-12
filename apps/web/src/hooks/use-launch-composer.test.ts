@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { TRPCClientError } from "@trpc/client"
 import type { SteerDevice } from "@/lib/steer-devices"
 import {
   BUILTIN_CHAT_ID,
@@ -30,6 +31,7 @@ const mockState = vi.hoisted(() => ({
   mcpServers: null as unknown[] | null,
   upload: vi.fn(),
   toastError: vi.fn(),
+  toastDismiss: vi.fn(),
 }))
 
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
@@ -77,10 +79,14 @@ vi.mock(`@/lib/storage/issue-image-upload`, () => ({
 }))
 vi.mock(`sonner`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("sonner")>()),
-  toast: { error: mockState.toastError },
+  toast: { error: mockState.toastError, dismiss: mockState.toastDismiss },
 }))
 
-import { useLaunchComposer, type LaunchSeed } from "@/hooks/use-launch-composer"
+import {
+  draftStartFingerprint,
+  useLaunchComposer,
+  type LaunchSeed,
+} from "@/hooks/use-launch-composer"
 import type { RemoteStart } from "@/hooks/use-remote-start"
 import { stackedStartPrompt } from "@/lib/blocked-start"
 
@@ -136,6 +142,9 @@ function makeRemote(overrides: Partial<RemoteStart> = {}): RemoteStart {
     sentTo: null,
     startIssues: vi.fn().mockResolvedValue(undefined),
     runAction: vi.fn().mockResolvedValue(undefined),
+    supersede: vi.fn(),
+    quietWatch: vi.fn(),
+    openedId: null,
     refresh: vi.fn(),
     latestVersions: null,
     ...overrides,
@@ -144,12 +153,24 @@ function makeRemote(overrides: Partial<RemoteStart> = {}): RemoteStart {
 
 function mount(seed: LaunchSeed | null = null, remote = makeRemote()) {
   const onSeedConsumed = vi.fn()
+  const onLanded = vi.fn()
   const hook = renderHook(
-    ({ seed: current }) =>
-      useLaunchComposer({ teamId: `t1`, remote, seed: current, onSeedConsumed }),
-    { initialProps: { seed } }
+    ({ seed: current, remote: currentRemote }: { seed: LaunchSeed | null; remote?: RemoteStart }) =>
+      useLaunchComposer({
+        teamId: `t1`,
+        remote: currentRemote ?? remote,
+        seed: current,
+        onSeedConsumed,
+        onLanded,
+      }),
+    { initialProps: { seed, remote } as { seed: LaunchSeed | null; remote?: RemoteStart } }
   )
-  return { ...hook, remote, onSeedConsumed }
+  // EXP-1271: the remote watch opened the started run (a newer `openedId`):
+  // the run landed.
+  const land = (openedId = `run-1`) => {
+    hook.rerender({ seed, remote: { ...remote, openedId } })
+  }
+  return { ...hook, remote, onSeedConsumed, onLanded, land }
 }
 
 beforeEach(() => {
@@ -166,6 +187,7 @@ beforeEach(() => {
   mockState.mcpServers = null
   mockState.upload.mockReset()
   mockState.toastError.mockReset()
+  mockState.toastDismiss.mockReset()
   vi.stubGlobal(`URL`, {
     ...URL,
     createObjectURL: vi.fn((file: File) => `blob:${file.name}`),
@@ -347,7 +369,7 @@ describe(`useLaunchComposer images`, () => {
 
 describe(`useLaunchComposer submit`, () => {
   it(`starts a chat on the hidden builtin with the text as the prompt`, async () => {
-    const { result, remote } = mount()
+    const { result, remote, land, onLanded } = mount()
     act(() => result.current.setText(`  Explain #I1  `))
     await act(() => result.current.submit())
     expect(remote.runAction).toHaveBeenCalledWith(
@@ -356,14 +378,24 @@ describe(`useLaunchComposer submit`, () => {
       expect.objectContaining({ agent: `claude`, planMode: false }),
       // The only repo pre-picks itself (EXP-822) and rides as the `repo` input.
       { repo: `repo-1` },
-      `Explain #I1`
+      `Explain #I1`,
+      expect.any(Function),
+      expect.any(String)
     )
+    // EXP-1271: the draft stays while the run starts; it clears once the
+    // run's row lands.
+    expect(result.current.starting?.deviceLabel).toBe(`buildbox`)
+    expect(result.current.busy).toBe(true)
+    expect(result.current.text).toBe(`  Explain #I1  `)
+    land()
+    expect(result.current.starting).toBeNull()
     expect(result.current.text).toBe(``)
     expect(result.current.subject).toBeNull()
+    expect(onLanded).toHaveBeenCalledTimes(1)
   })
 
   it(`starts issues with the text as additional instructions`, async () => {
-    const { result, remote } = mount()
+    const { result, remote, land } = mount()
     act(() => result.current.toggleIssue(`i1`))
     act(() => result.current.toggleIssue(`i2`))
     act(() => result.current.setText(`Keep the API stable`))
@@ -372,8 +404,11 @@ describe(`useLaunchComposer submit`, () => {
       device,
       expect.objectContaining({ agent: `claude`, planMode: true }),
       [`i1`, `i2`],
-      `Keep the API stable`
+      `Keep the API stable`,
+      expect.any(Function),
+      expect.any(String)
     )
+    land()
     expect(result.current.subject).toBeNull()
   })
 
@@ -387,7 +422,9 @@ describe(`useLaunchComposer submit`, () => {
       { id: BUILTIN_FIX_CONFLICTS_ID, name: `Fix merge conflicts`, teamId: `t1` },
       expect.objectContaining({ agent: `claude` }),
       { pr: `i1` },
-      undefined
+      undefined,
+      expect.any(Function),
+      expect.any(String)
     )
   })
 
@@ -395,7 +432,7 @@ describe(`useLaunchComposer submit`, () => {
     mockState.upload
       .mockResolvedValueOnce({ id: `att-1` })
       .mockResolvedValueOnce({ id: `att-2` })
-    const { result, remote } = mount()
+    const { result, remote, land } = mount()
     act(() => result.current.setText(`see`))
     act(() => {
       result.current.addFiles(
@@ -414,8 +451,11 @@ describe(`useLaunchComposer submit`, () => {
       expect.anything(),
       expect.anything(),
       { repo: `repo-1` },
-      `see [Image #1] [Image #2]\n\n![image](/api/attachments/att-1)\n![image](/api/attachments/att-2)`
+      `see [Image #1] [Image #2]\n\n![image](/api/attachments/att-1)\n![image](/api/attachments/att-2)`,
+      expect.any(Function),
+      expect.any(String)
     )
+    land()
     expect(result.current.images).toEqual([])
   })
 
@@ -445,7 +485,9 @@ describe(`useLaunchComposer submit`, () => {
       expect.anything(),
       expect.anything(),
       { repo: `repo-1` },
-      `see [Image #1]\n\n![image](/api/attachments/att-1)\n[notes [v2\\].pdf](/api/attachments/att-2)`
+      `see [Image #1]\n\n![image](/api/attachments/att-1)\n[notes [v2\\].pdf](/api/attachments/att-2)`,
+      expect.any(Function),
+      expect.any(String)
     )
   })
 
@@ -489,8 +531,8 @@ describe(`useLaunchComposer submit`, () => {
     await act(() => result.current.submit())
     expect(remote.runAction).not.toHaveBeenCalled()
     expect(mockState.toastError).toHaveBeenCalledWith(
-      `Couldn't upload attachment`,
-      expect.anything()
+      `Couldn't upload the attachment`,
+      expect.objectContaining({ action: expect.objectContaining({ label: `Retry` }) })
     )
     expect(result.current.images[0]!.uploadedId).toBe(`att-1`)
     expect(result.current.images).toHaveLength(2)
@@ -509,6 +551,399 @@ describe(`useLaunchComposer submit`, () => {
     act(() => result.current.setText(`hi`))
     await act(() => result.current.submit())
     expect(result.current.text).toBe(`hi`)
+    expect(result.current.starting).toBeNull()
+  })
+
+  // EXP-1271 + review #3: the deadline counts from the SENT request (after
+  // the uploads); a timeout toasts with Retry, the composer goes idle, the
+  // watch keeps looking quietly, the draft stays.
+  it(`gives up 30 s after the request was sent and keeps the draft for Retry`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { result, remote } = mount()
+      act(() => result.current.setText(`hi`))
+      await act(() => result.current.submit())
+      expect(result.current.starting).not.toBeNull()
+      act(() => vi.advanceTimersByTime(29_999))
+      expect(result.current.starting).not.toBeNull()
+      act(() => vi.advanceTimersByTime(1))
+      expect(remote.quietWatch).toHaveBeenCalled()
+      expect(result.current.starting).toBeNull()
+      expect(result.current.busy).toBe(false)
+      expect(result.current.text).toBe(`hi`)
+      expect(mockState.toastError).toHaveBeenCalledWith(`The session did not start`, {
+        description: `buildbox did not answer.`,
+        action: { label: `Retry`, onClick: expect.any(Function) },
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`never counts the uploads against the deadline`, async () => {
+    vi.useFakeTimers()
+    try {
+      let finishUpload: (value: { id: string }) => void = () => {}
+      mockState.upload.mockImplementationOnce(
+        () => new Promise((resolve) => (finishUpload = resolve))
+      )
+      const { result, remote } = mount()
+      act(() => {
+        result.current.addFiles([new File([`x`], `a.png`, { type: `image/png` })], 0)
+      })
+      let submitted: Promise<void> = Promise.resolve()
+      act(() => {
+        submitted = result.current.submit()
+      })
+      // A 40 s upload: no give-up toast while it runs.
+      act(() => vi.advanceTimersByTime(40_000))
+      expect(mockState.toastError).not.toHaveBeenCalled()
+      expect(result.current.starting).not.toBeNull()
+      await act(async () => {
+        finishUpload({ id: `att-1` })
+        await submitted
+      })
+      expect(remote.runAction).toHaveBeenCalledTimes(1)
+      act(() => vi.advanceTimersByTime(29_000))
+      expect(mockState.toastError).not.toHaveBeenCalled()
+      act(() => vi.advanceTimersByTime(1_000))
+      expect(mockState.toastError).toHaveBeenCalledWith(
+        `The session did not start`,
+        expect.anything()
+      )
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Final review B1/B4: ONE startId per draft start. Retry AND a later
+  // Start press of the unchanged draft reuse it; an edited draft is a
+  // fresh start.
+  it(`reuses the startId for Retry and a later Start of the same draft`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { result, remote } = mount()
+      act(() => result.current.setText(`hi`))
+      await act(() => result.current.submit())
+      const first = vi.mocked(remote.runAction).mock.calls[0]![6]
+      expect(first).toMatch(/^[0-9a-f-]{36}$/)
+      act(() => vi.advanceTimersByTime(30_000))
+      const retry = mockState.toastError.mock.calls.at(-1)![1].action.onClick
+      await act(async () => retry())
+      expect(remote.runAction).toHaveBeenCalledTimes(2)
+      expect(vi.mocked(remote.runAction).mock.calls[1]![6]).toBe(first)
+      act(() => vi.advanceTimersByTime(30_000))
+      // The obvious move after a timeout: Start again, same draft.
+      await act(() => result.current.submit())
+      expect(vi.mocked(remote.runAction).mock.calls[2]![6]).toBe(first)
+      act(() => vi.advanceTimersByTime(30_000))
+      // An edited draft is another start, Retry included.
+      act(() => result.current.setText(`hi there`))
+      const staleRetry = mockState.toastError.mock.calls.at(-1)![1].action.onClick
+      await act(async () => staleRetry())
+      const fourth = vi.mocked(remote.runAction).mock.calls[3]![6]
+      expect(fourth).toMatch(/^[0-9a-f-]{36}$/)
+      expect(fourth).not.toBe(first)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`a landing ends the draft start: the next Start mints a fresh id`, async () => {
+    const remote = makeRemote()
+    const { result, rerender } = mount(null, remote)
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    const first = vi.mocked(remote.runAction).mock.calls[0]![6]
+    rerender({ seed: null, remote: { ...remote, openedId: `run-1` } })
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    expect(vi.mocked(remote.runAction).mock.calls[1]![6]).not.toBe(first)
+  })
+
+  it(`a refused start's Retry reuses the startId too`, async () => {
+    const runAction = vi.fn().mockRejectedValueOnce(new Error(`refused`))
+    runAction.mockResolvedValue(undefined)
+    const { result } = mount(null, makeRemote({ runAction }))
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    const retry = runAction.mock.calls[0]![5] as () => void
+    await act(async () => retry())
+    expect(runAction).toHaveBeenCalledTimes(2)
+    expect(runAction.mock.calls[1]![6]).toBe(runAction.mock.calls[0]![6])
+  })
+
+  // Recheck R2: the launch options are part of the draft start.
+  it(`a changed launch option after a timeout is a fresh start`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { result, remote } = mount()
+      act(() => result.current.setText(`hi`))
+      await act(() => result.current.submit())
+      const first = vi.mocked(remote.runAction).mock.calls[0]![6]
+      act(() => vi.advanceTimersByTime(30_000))
+      act(() => result.current.launch.setEffortValue(`low`))
+      await act(() => result.current.submit())
+      const second = vi.mocked(remote.runAction).mock.calls[1]![6]
+      expect(second).toMatch(/^[0-9a-f-]{36}$/)
+      expect(second).not.toBe(first)
+      expect(vi.mocked(remote.runAction).mock.calls[1]![2]).toMatchObject({ effort: `low` })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Recheck R3 (feedback-states.json `starting.maybeDelivered`): an unknown
+  // fate keeps the landing armed behind a quiet follow; a definite error
+  // does not.
+  it(`a maybe-delivered failure follows quietly and a late row lands the unchanged draft`, async () => {
+    const runAction = vi
+      .fn()
+      .mockRejectedValue(
+        new TRPCClientError(`Failed to fetch`, { cause: new TypeError(`Failed to fetch`) })
+      )
+    const { result, land, onLanded, remote } = mount(null, makeRemote({ runAction }))
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    expect(result.current.starting).toBeNull()
+    expect(result.current.text).toBe(`hi`)
+    const canOpen = vi.mocked(remote.quietWatch).mock.calls[0]![0]!
+    expect(canOpen()).toBe(true)
+    land()
+    expect(result.current.text).toBe(``)
+    expect(onLanded).toHaveBeenCalledTimes(1)
+  })
+
+  it(`a maybe-delivered failure's late row keeps a changed draft`, async () => {
+    const relayTimeout = new TRPCClientError(`Steer relay error (504)`)
+    ;(relayTimeout as { data?: unknown }).data = { code: `GATEWAY_TIMEOUT`, httpStatus: 504 }
+    const runAction = vi.fn().mockRejectedValue(relayTimeout)
+    const { result, land, onLanded, remote } = mount(null, makeRemote({ runAction }))
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    const canOpen = vi.mocked(remote.quietWatch).mock.calls[0]![0]!
+    act(() => result.current.setText(`something else`))
+    expect(canOpen()).toBe(false)
+    land()
+    expect(result.current.text).toBe(`something else`)
+    expect(onLanded).not.toHaveBeenCalled()
+  })
+
+  it(`a definite failure follows nothing`, async () => {
+    const refused = new TRPCClientError(`buildbox is offline`)
+    ;(refused as { data?: unknown }).data = { code: `PRECONDITION_FAILED`, httpStatus: 412 }
+    const runAction = vi.fn().mockRejectedValue(refused)
+    const { result, land, onLanded, remote } = mount(null, makeRemote({ runAction }))
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    expect(remote.quietWatch).not.toHaveBeenCalled()
+    land()
+    expect(result.current.text).toBe(`hi`)
+    expect(onLanded).not.toHaveBeenCalled()
+  })
+
+  it(`a row landing after the timeout dismisses the error, clears the draft and lands`, async () => {
+    vi.useFakeTimers()
+    try {
+      mockState.toastError.mockReturnValue(`toast-7`)
+      const { result, land, onLanded } = mount()
+      act(() => result.current.setText(`hi`))
+      await act(() => result.current.submit())
+      act(() => vi.advanceTimersByTime(30_000))
+      expect(result.current.text).toBe(`hi`)
+      land()
+      expect(mockState.toastDismiss).toHaveBeenCalledWith(`toast-7`)
+      expect(result.current.text).toBe(``)
+      expect(result.current.starting).toBeNull()
+      expect(onLanded).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Final review B2: the person typed a new prompt after the timeout; the
+  // first start's late row clears the error only, the field stays and the
+  // watch is told not to navigate.
+  it(`a late row after the draft changed keeps the field and does not land`, async () => {
+    vi.useFakeTimers()
+    try {
+      mockState.toastError.mockReturnValue(`toast-8`)
+      const { result, land, onLanded, remote } = mount()
+      act(() => result.current.setText(`hi`))
+      await act(() => result.current.submit())
+      act(() => vi.advanceTimersByTime(30_000))
+      const canOpen = vi.mocked(remote.quietWatch).mock.calls[0]![0]!
+      expect(canOpen()).toBe(true)
+      act(() => result.current.setText(`something else`))
+      expect(canOpen()).toBe(false)
+      land()
+      expect(mockState.toastDismiss).toHaveBeenCalledWith(`toast-8`)
+      expect(result.current.text).toBe(`something else`)
+      expect(onLanded).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Final review B6: an EDITED draft started after the timeout supersedes
+  // the first start's watch before its uploads: the first run's late row
+  // never ends the new start nor touches its draft.
+  it(`a different start supersedes the previous watch before its uploads`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { result, remote, land, onLanded } = mount()
+      act(() => result.current.setText(`hi`))
+      await act(() => result.current.submit())
+      const first = vi.mocked(remote.runAction).mock.calls[0]![6]
+      expect(remote.supersede).toHaveBeenLastCalledWith(first)
+      act(() => vi.advanceTimersByTime(30_000))
+      act(() => result.current.setText(`something else`))
+      let finishUpload: (value: { id: string }) => void = () => {}
+      mockState.upload.mockImplementationOnce(
+        () => new Promise((resolve) => (finishUpload = resolve))
+      )
+      act(() => {
+        result.current.addFiles([new File([`x`], `a.png`, { type: `image/png` })], 0)
+      })
+      const draft = result.current.text
+      let submitted: Promise<void> = Promise.resolve()
+      act(() => {
+        submitted = result.current.submit()
+      })
+      const second = vi.mocked(remote.supersede).mock.calls.at(-1)![0]
+      expect(second).toMatch(/^[0-9a-f-]{36}$/)
+      expect(second).not.toBe(first)
+      expect(remote.runAction).toHaveBeenCalledTimes(1)
+      // The first start's row lands while the new start uploads.
+      land()
+      expect(result.current.text).toBe(draft)
+      expect(result.current.starting).not.toBeNull()
+      expect(onLanded).not.toHaveBeenCalled()
+      await act(async () => {
+        finishUpload({ id: `att-1` })
+        await submitted
+      })
+      expect(remote.runAction).toHaveBeenCalledTimes(2)
+      expect(vi.mocked(remote.runAction).mock.calls[1]![6]).toBe(second)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`a re-send of the same draft keeps the watch: the original row lands it`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { result, remote, land, onLanded } = mount()
+      act(() => result.current.setText(`hi`))
+      await act(() => result.current.submit())
+      const first = vi.mocked(remote.runAction).mock.calls[0]![6]
+      act(() => vi.advanceTimersByTime(30_000))
+      let resolve: () => void = () => {}
+      vi.mocked(remote.runAction).mockImplementationOnce(
+        () => new Promise<void>((done) => (resolve = done))
+      )
+      let submitted: Promise<void> = Promise.resolve()
+      act(() => {
+        submitted = result.current.submit()
+      })
+      expect(remote.supersede).toHaveBeenCalledTimes(2)
+      expect(remote.supersede).toHaveBeenLastCalledWith(first)
+      // The FIRST send's row lands while the re-send is in flight.
+      land()
+      expect(result.current.text).toBe(``)
+      expect(result.current.starting).toBeNull()
+      expect(onLanded).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        resolve()
+        await submitted
+      })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`a run the watch had opened before the start is not its landing`, async () => {
+    const remote = makeRemote({ openedId: `old-run` })
+    const { result, rerender, onLanded } = mount(null, remote)
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    rerender({ seed: null, remote: { ...remote, sentTo: null } })
+    expect(result.current.text).toBe(`hi`)
+    expect(onLanded).not.toHaveBeenCalled()
+    rerender({ seed: null, remote: { ...remote, openedId: `new-run` } })
+    expect(result.current.text).toBe(``)
+    expect(onLanded).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe(`draftStartFingerprint`, () => {
+  const base = {
+    deviceId: `dev-1`,
+    text: `hi`,
+    subject: { kind: `issues` as const, ids: [`i1`, `i2`] },
+    repoId: ``,
+    attachments: [`blob:a.png`],
+    options: {
+      agent: `claude`,
+      model: `opus`,
+      effort: `high`,
+      ultracode: false,
+      planMode: false,
+      mcpServerIds: [`m1`, `m2`],
+      account: `acc1`,
+    },
+  }
+  it(`is one start for the same draft on the same device`, () => {
+    expect(
+      draftStartFingerprint({
+        ...base,
+        subject: { kind: `issues`, ids: [`i2`, `i1`] },
+        options: { ...base.options, mcpServerIds: [`m2`, `m1`] },
+      })
+    ).toBe(draftStartFingerprint(base))
+    const action = (inputs: Record<string, string>) =>
+      draftStartFingerprint({
+        ...base,
+        subject: { kind: `action`, id: `act-1`, inputs },
+      })
+    expect(action({ a: `1`, b: `2` })).toBe(action({ b: `2`, a: `1` }))
+  })
+  it(`changes with the device, text, subject, attachments or stacked line`, () => {
+    const fp = draftStartFingerprint(base)
+    for (const change of [
+      { deviceId: `dev-2` },
+      { text: `hi!` },
+      { subject: { kind: `issues` as const, ids: [`i1`] } },
+      { subject: null },
+      { attachments: [] },
+      { stackedIssueId: `i3` },
+    ]) {
+      expect(draftStartFingerprint({ ...base, ...change })).not.toBe(fp)
+    }
+    expect(
+      draftStartFingerprint({ ...base, subject: null, repoId: `r1` })
+    ).not.toBe(draftStartFingerprint({ ...base, subject: null, repoId: `r2` }))
+  })
+  // Recheck R2: every launch option the start sends.
+  it(`changes with every launch option`, () => {
+    const fp = draftStartFingerprint(base)
+    for (const change of [
+      { agent: `codex` },
+      { model: `sonnet` },
+      { effort: `low` },
+      { planMode: true },
+      { account: `acc2` },
+      { account: undefined },
+      { mcpServerIds: [`m1`] },
+      { computerUse: true },
+      { computerUse: false },
+      { ultracode: true },
+      { subagentModel: `haiku` },
+    ]) {
+      expect(
+        draftStartFingerprint({ ...base, options: { ...base.options, ...change } })
+      ).not.toBe(fp)
+    }
   })
 })
 
@@ -788,7 +1223,9 @@ describe(`useLaunchComposer blocked start`, () => {
       device,
       expect.anything(),
       [`i1`],
-      undefined
+      undefined,
+      expect.any(Function),
+      expect.any(String)
     )
   })
 
@@ -806,7 +1243,9 @@ describe(`useLaunchComposer blocked start`, () => {
       device,
       expect.anything(),
       [`i1`, `i3`],
-      undefined
+      undefined,
+      expect.any(Function),
+      expect.any(String)
     )
   })
 
@@ -869,7 +1308,9 @@ describe(`useLaunchComposer blocked start`, () => {
       stackedStartPrompt(
         { base: { identifier: `I2`, branch: `exp/I2` }, run: [`I1`] },
         `keep it small`
-      )
+      ),
+      expect.any(Function),
+      expect.any(String)
     )
   })
 
@@ -894,7 +1335,9 @@ describe(`useLaunchComposer blocked start`, () => {
       device,
       expect.anything(),
       [`i3`],
-      stackedStartPrompt({ base: null, run: [`I3`, `I2`, `I1`] }, ``)
+      stackedStartPrompt({ base: null, run: [`I3`, `I2`, `I1`] }, ``),
+      expect.any(Function),
+      expect.any(String)
     )
   })
 

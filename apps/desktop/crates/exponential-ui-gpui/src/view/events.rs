@@ -541,6 +541,14 @@ impl SurfaceView {
         let focused = self.focused.and_then(|i| self.cache.node(i)).cloned();
         let in_field = focused.as_ref().is_some_and(is_text_field);
         let rtl = self.rtl;
+        // EXP-1259: Tab in a search list's field picks its highlighted row.
+        if key == "tab" && !shift {
+            if let Some(n) = focused.as_ref().filter(|n| n.component == "SearchList") {
+                let id = n.id.clone();
+                self.search_key(&id, "Tab", window, cx);
+                return true;
+            }
+        }
         match key {
             "tab" => {
                 self.focus_next(shift, window, cx);
@@ -761,6 +769,25 @@ impl SurfaceView {
     /// Keys inside a host text field: NumberField steps, ChipInput chips.
     fn field_key(&mut self, n: &exponential_ui::surface::PlacedNode, key: &str, shift: bool, window: &mut Window, cx: &mut Context<Self>) -> bool {
         let owner = n.owner_component.as_deref().unwrap_or("");
+        // EXP-1259: a search list's field keeps the focus; the arrows move
+        // the highlighted row (the core's), ← at the caret's start leaves a
+        // searchable submenu.
+        if n.component == "SearchList" {
+            let caret_at_start = self.fields.get(&n.id).is_some_and(|f| match &f.input {
+                super::input::FieldInput::Line(s) => s.read(cx).cursor() == 0,
+                super::input::FieldInput::Multi(_) => false,
+            });
+            let dom = match key {
+                "down" => "ArrowDown",
+                "up" => "ArrowUp",
+                "left" if owner == "Menu" && caret_at_start && !self.rtl => "ArrowLeft",
+                "right" if owner == "Menu" && caret_at_start && self.rtl => "ArrowLeft",
+                _ => return false,
+            };
+            let id = n.id.clone();
+            self.search_key(&id, dom, window, cx);
+            return true;
+        }
         match (owner, key) {
             ("NumberField", "up" | "down" | "pageup" | "pagedown") => {
                 let Some(owner_index) = n.owner.as_deref().and_then(|o| self.cache.index_of(o)) else { return false };
@@ -791,6 +818,18 @@ impl SurfaceView {
                 false
             }
             _ => false,
+        }
+    }
+
+    /// EXP-1259: a key for a search list's field (`ArrowDown`, `ArrowUp`,
+    /// `Enter`, `Tab`, `ArrowLeft` = leave a searchable submenu): the
+    /// outstanding text is flushed first (the filter is current), then the
+    /// core moves or picks the highlighted row. Public for automation and
+    /// tests (it never focuses the field).
+    pub fn search_key(&mut self, id: &str, key: &str, window: &mut Window, cx: &mut Context<Self>) {
+        self.flush_field(id, None, window, cx);
+        if let Some(i) = self.cache.index_of(id) {
+            self.fire(i, "key", Some(json!({"key": key})), cx);
         }
     }
 
@@ -915,7 +954,12 @@ impl SurfaceView {
     /// one closes.
     pub(crate) fn layers_changed(&mut self, layers: &[Layer], now: Instant, window: &mut Window, cx: &mut Context<Self>) {
         let reduced = self.surface.settings().reduced_motion;
-        let enter_ms = self.surface.theme().and_then(|t| t.tokens.motion.get("fast").copied()).unwrap_or(120.0) as f32;
+        // EXP-1243: enters take `motion.standard` (exits the faster `fast`).
+        let enter_ms = self
+            .surface
+            .theme()
+            .and_then(|t| t.tokens.motion.get("standard").copied())
+            .unwrap_or(super::motion::ENTER_FALLBACK_MS) as f32;
         for l in layers {
             if !self.layers.iter().any(|o| o.owner == l.owner && o.layer == l.layer) && !reduced {
                 self.motion.layer_opened(&l.owner, enter_ms, now);
@@ -943,7 +987,9 @@ impl SurfaceView {
             let candidates = focus_order(&self.cache.nodes, &order, top.layer);
             let selected = candidates.iter().copied().find(|i| self.cache.node(*i).is_some_and(|n| NodeFlags::of(n).selected && !is_text_field(n)));
             let first = candidates.iter().copied().find(|i| self.cache.node(*i).is_some_and(|n| !is_text_field(n)));
-            target = selected.or(first).and_then(|i| self.cache.node(i)).map(|n| n.id.clone());
+            // EXP-1259: a searchable submenu opens with its field focused.
+            let search = candidates.iter().copied().find(|i| self.cache.node(*i).is_some_and(|n| n.component == "SearchList" && n.part.as_deref() == Some("search")));
+            target = search.or(selected).or(first).and_then(|i| self.cache.node(i)).map(|n| n.id.clone());
             let _ = k;
         } else if let Some(o) = closed.last() {
             let inside = self.focused.and_then(|i| self.cache.node(i)).is_none_or(|n| n.layer > 0) || self.focused.is_none();

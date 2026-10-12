@@ -45,7 +45,10 @@ struct OnboardingView: View {
     @State private var page = OnboardingView.teamPage
     @State private var teamId: String?
     @State private var resolvingTeam = true
-    @State private var teamError: String?
+    /// FEED-79: the team lookup runs on appear, so a failure is quiet (the
+    /// step's Retry); only a failed Retry tap toasts.
+    @State private var teamLoadFailed = false
+    @Environment(\.toaster) private var toaster
     /// Step 3: a link was minted, so the trailing button reads "Continue".
     @State private var invitedSomeone = false
     /// EXP-1169: the user JOINED a team and owns no machine, so step 4 is
@@ -122,14 +125,10 @@ struct OnboardingView: View {
                         .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 }
                 .padding(.vertical, 32)
-            } else if let teamError {
+            } else if teamLoadFailed {
                 VStack(spacing: 12) {
-                    Text(teamError)
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                        .multilineTextAlignment(.center)
                     GlassSubmitButton(OnboardingCopy.retry) {
-                        Task { await resolveTeam() }
+                        Task { await resolveTeam(retried: true) }
                     }
                 }
             } else {
@@ -262,8 +261,11 @@ struct OnboardingView: View {
     private func signOut() {
         guard let accountId = deps.auth.activeAccountId else { return }
         Task {
-            await deps.syncManager.signOut(accountId: accountId)
-            deps.auth.signOutLocally(accountId: accountId)
+            // EXP-1275 (D8 BLOCKING): signing out covers the window.
+            await BlockingFeedback.shared.run(FeedbackStates.Blocking.signOut) {
+                await deps.syncManager.signOut(accountId: accountId)
+                deps.auth.signOutLocally(accountId: accountId)
+            }
         }
     }
 
@@ -284,20 +286,26 @@ struct OnboardingView: View {
     /// EXP-188). A user who already has a membership (e.g. re-running a
     /// half-finished wizard) skips straight to the board step; a fresh signup
     /// gets the create-or-join choice.
-    private func resolveTeam() async {
+    private func resolveTeam(retried: Bool = false) async {
         guard teamId == nil, let accountId = deps.auth.activeAccountId else {
             resolvingTeam = false
             return
         }
         resolvingTeam = true
-        teamError = nil
+        teamLoadFailed = false
         do {
             if let team = try await deps.teamsApi.getDefault(accountId: accountId) {
                 teamId = team.id
                 withAnimation(motion.standard) { page = capturePage() ?? Self.boardPage }
             }
         } catch {
-            teamError = error.trpcUserMessage
+            teamLoadFailed = true
+            if retried {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "load", thing: "your teams"),
+                    description: error.trpcUserMessage
+                )
+            }
         }
         resolvingTeam = false
     }

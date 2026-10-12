@@ -70,9 +70,11 @@ struct MarkdownEditor: View {
     /// focus back to once it dismisses.
     @State private var showEmojiPicker = false
     @State private var emojiRefocusTarget: UUID?
-    /// EXP-824: the last media-pick failure (export/read/cap), shown under
-    /// the blocks; cleared by the next pick.
+    /// EXP-824: the last clip pick over the byte cap, shown under the
+    /// blocks; cleared by the next pick. FEED-79: a pick that fails to
+    /// read/process is a toast; only the cap (INPUT) stays inline.
     @State private var mediaError: String?
+    @Environment(\.toaster) private var toaster
     private let emojiPreferences = EmojiPreferences()
 
     // NOTE: deliberately no internal ScrollView. Every usage embeds this
@@ -125,6 +127,8 @@ struct MarkdownEditor: View {
                 .onChange(of: onAttachFile == nil) { _, isNil in
                     toolbar?.onFilePick = isNil ? nil : { showFileImporter = true }
                 }
+                // SLOP-28: `#` opens THE search list in a bottom sheet.
+                .issueRefSearchSheet(model)
         }
     }
 
@@ -138,6 +142,7 @@ struct MarkdownEditor: View {
         } else {
             toolbar.onFilePick = nil
         }
+        toolbar.onIssueRef = { model.armExplicitIssueRef() }
         toolbar.onEmoji = {
             // Captured while the text view is still first responder.
             emojiRefocusTarget = model.insertionTargetBlockId
@@ -226,12 +231,12 @@ struct MarkdownEditor: View {
                         }
                     }
 
-                    // EXP-824: a media pick that could not be normalised has
-                    // no block to report on (nothing was inserted), so the
-                    // editor says so itself, once, until the next pick.
+                    // EXP-824: a clip over the byte cap has no block to report
+                    // on (nothing was inserted), so the editor says so itself,
+                    // once, until the next pick (FEED-79: input, 13pt rose).
                     if let mediaError, !isReadOnly {
                         Text(mediaError)
-                            .font(.caption2)
+                            .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                             .foregroundStyle(DesignTokens.Semantic.red)
                             .padding(.top, 4)
                     }
@@ -304,7 +309,10 @@ struct MarkdownEditor: View {
         let ext = type?.preferredFilenameExtension ?? "mov"
         let filename = "clip-\(Int(Date().timeIntervalSince1970)).\(ext)"
         guard let picked = try? await item.loadTransferable(type: PickedMediaFile.self) else {
-            mediaError = MediaUploadPrep.PrepError.unreadable.localizedDescription
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "attach", thing: "the clip"),
+                description: MediaUploadPrep.PrepError.unreadable.errorDescription
+            )
             return
         }
         await prepareAndInsertMedia(fileURL: picked.url, filename: filename, contentType: contentType, atEnd: false)
@@ -329,8 +337,16 @@ struct MarkdownEditor: View {
             if atEnd { editorModel.appendMedia(media) } else { editorModel.insertMedia(media) }
         case .failure(let error):
             log.error("Media pick failed: \(error.localizedDescription, privacy: .public)")
-            mediaError = (error as? MediaUploadPrep.PrepError)?.errorDescription
-                ?? MediaUploadPrep.PrepError.exportFailed.errorDescription
+            let prepError = error as? MediaUploadPrep.PrepError
+            if prepError == .tooLarge {
+                mediaError = prepError?.errorDescription
+            } else {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "attach", thing: "the clip"),
+                    description: prepError?.errorDescription
+                        ?? MediaUploadPrep.PrepError.exportFailed.errorDescription
+                )
+            }
         }
     }
 
@@ -1428,6 +1444,8 @@ private struct BlockImageView: View {
         return 4.0 / 3.0
     }
 
+    @Environment(\.motion) private var motion
+
     var body: some View {
         VStack(spacing: 0) {
             ZStack(alignment: .topTrailing) {
@@ -1436,7 +1454,7 @@ private struct BlockImageView: View {
                     .aspectRatio(aspectRatio, contentMode: .fit)
                     .frame(maxHeight: maxHeight ?? .infinity, alignment: .leading)
                     .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .animation(.easeInOut(duration: 0.15), value: aspectRatio)
+                    .animation(motion.fast, value: aspectRatio)
 
                 if !isReadOnly {
                     Button(action: onDelete) {

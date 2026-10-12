@@ -275,8 +275,10 @@ public struct BranchPicker<Trigger: View>: View {
     public let value: String
     public let repoDefault: String
     public let onChange: (String?) -> Void
-    /// A failed listing: shown under the (empty) rows with a Retry.
+    /// A failed listing's words, muted under the (empty) rows (FEED-79: no
+    /// rose line in a picker).
     public let errorText: String?
+    /// A failed listing's Retry, under the rows; nil = none.
     public let onRetry: (() -> Void)?
     public let disabled: Bool
     public let open: Binding<Bool>?
@@ -304,6 +306,30 @@ public struct BranchPicker<Trigger: View>: View {
         self.trigger = trigger
     }
 
+    /// The failed listing's footer: its muted words and the Retry.
+    private var failureFooter: (() -> AnyView)? {
+        guard errorText != nil || onRetry != nil else { return nil }
+        let errorText = errorText
+        let onRetry = onRetry
+        return {
+            AnyView(
+                VStack(alignment: .leading, spacing: 8) {
+                    if let errorText, !errorText.isEmpty {
+                        Text(errorText)
+                            .font(.caption)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    }
+                    if let onRetry {
+                        GlassPill("Retry", icon: AppIcons.uiRefresh, mode: .action(onRetry))
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, GlassPickerTokens.rowHPadding)
+                .padding(.vertical, 8)
+            )
+        }
+    }
+
     public var body: some View {
         let names = branches.map { BranchPickerRules.names(branches: $0, value: value) } ?? []
         GlassPicker(
@@ -328,21 +354,7 @@ public struct BranchPicker<Trigger: View>: View {
             searchPlaceholder: "Search branches…",
             loading: branches == nil && errorText == nil,
             open: open,
-            footer: errorText.map { message in
-                {
-                    AnyView(
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(message).font(.caption).foregroundStyle(.red.opacity(0.8))
-                            if let onRetry {
-                                GlassPill("Retry", icon: AppIcons.uiRefresh, mode: .action(onRetry))
-                            }
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, GlassPickerTokens.rowHPadding)
-                        .padding(.vertical, 8)
-                    )
-                }
-            },
+            footer: failureFooter,
             renderItem: { item in
                 AnyView(
                     HStack(spacing: 8) {

@@ -144,7 +144,7 @@
       "params": [
         {
           "name": "number",
-          "meaning": "the GitHub pull request number of a run's own, issue-less pull request"
+          "meaning": "the GitHub pull request number of a session's own, issue-less pull request"
         }
       ],
       "actions": [
@@ -162,7 +162,7 @@
       "focus": "merge"
     },
     "stop-run": {
-      "title": "Stop this run?",
+      "title": "Stop this session?",
       "params": [],
       "actions": [
         {
@@ -179,14 +179,14 @@
       "focus": "cancel"
     },
     "resume-run": {
-      "title": "Resume this run on {device}?",
-      "titleNoDevice": "Resume this run?",
+      "title": "Resume this session on {device}?",
+      "titleNoDevice": "Resume this session?",
       "body": "The agent continues where it stopped, in the same worktree.",
       "variants": "titleNoDevice when the device that ran it has no known label.",
       "params": [
         {
           "name": "device",
-          "meaning": "the label of the device that ran the run, unquoted"
+          "meaning": "the label of the device that ran the session, unquoted"
         }
       ],
       "actions": [
@@ -205,7 +205,7 @@
     },
     "delete-trigger": {
       "title": "Delete this trigger?",
-      "body": "Past runs stay in Runs.",
+      "body": "Past sessions stay in Sessions.",
       "params": [],
       "actions": [
         {
@@ -223,7 +223,7 @@
     },
     "delete-action": {
       "title": "Delete \"{name}\"?",
-      "body": "Its triggers are deleted with it. Its runs stay and live ones keep going.",
+      "body": "Its triggers are deleted with it. Its sessions stay and live ones keep going.",
       "params": [
         {
           "name": "name",

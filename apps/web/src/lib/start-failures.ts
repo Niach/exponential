@@ -13,6 +13,8 @@
 // `integrations/pr-actor-claims.ts`): a miss (restart, another replica)
 // degrades to the old timeout message, never a crash.
 
+import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
+
 interface StartEntry {
   // Who may report a failure for this start: the device owner (the daemon
   // authenticates as them). Equal to `requesterId` on an own-device start.
@@ -34,25 +36,43 @@ function prune(now: number): void {
   }
 }
 
-/** Registers a fresh start id. `userId` = the device owner (the only one a
+/** Registers a start id. `userId` = the device owner (the only one a
  *  failure report is accepted from); `requesterId` = who reads the failure
- *  back (defaults to the owner; differs on a shared-device start). */
-export function mintStartId(userId: string, requesterId: string = userId): string {
+ *  back (defaults to the owner; differs on a shared-device start).
+ *  Review #3: a client-minted `startId` (one per Start press, REUSED by
+ *  Retry so the device can drop a start it already ran) is registered as is;
+ *  re-registering it for the same owner + requester refreshes its expiry and
+ *  clears an old failure, while an id already held by anyone else gets a
+ *  fresh one instead (never a takeover). Returns the id the frame carries. */
+export function mintStartId(
+  userId: string,
+  requesterId: string = userId,
+  startId?: string
+): string {
   const now = Date.now()
   prune(now)
+  let id = startId ?? crypto.randomUUID()
+  const existing = starts.get(id)
+  if (existing) {
+    if (existing.reporterId === userId && existing.requesterId === requesterId) {
+      // Re-insert so the refreshed id is the newest for the eviction order.
+      starts.delete(id)
+    } else {
+      id = crypto.randomUUID()
+    }
+  }
   while (starts.size >= MAX_STARTS) {
     const oldest = starts.keys().next().value
     if (oldest === undefined) break
     starts.delete(oldest)
   }
-  const startId = crypto.randomUUID()
-  starts.set(startId, {
+  starts.set(id, {
     reporterId: userId,
     requesterId,
     failure: null,
     expiresAt: now + START_TTL_MS,
   })
-  return startId
+  return id
 }
 
 /** Records the device's failure reason. False (never a throw) when the id is
@@ -70,6 +90,11 @@ export function recordStartFailure(input: {
   }
   if (entry.reporterId !== input.userId) return false
   entry.failure = { reason: input.reason, at: new Date() }
+  // Recheck R1: the device took the frame and could not launch it (a
+  // refused checkout, a failed doctor, a signed-out agent...), so the
+  // remembered forward is no answer any more: the next Start or Retry of
+  // the unchanged draft forwards again.
+  forgetForwarded(input.startId, entry.requesterId)
   return true
 }
 
@@ -91,7 +116,94 @@ export function takeStartFailure(
   return entry.failure
 }
 
+// Final review B8: the server's start dedupe (feedback-states.json
+// `starting.dedupeMs`, 30 min). A client re-sends ONE draft start under the
+// same `startId` (Retry, a later Start of the same draft); a start already
+// forwarded for that (requester, device, startId) is not forwarded again and
+// answers what the first one answered. Devices below the startId build
+// ignore the id, so this is what keeps a Retry from starting a second run
+// there. Only a SUCCESSFUL forward is remembered (a refusal or relay error
+// re-forwards on Retry: the device's own dedupe covers a frame that did
+// arrive), and only until the device reports that start as failed
+// (`recordStartFailure`, recheck R1); a repeat while the first is still in
+// flight awaits it.
+// Per-process like the registry above: another replica or a restart
+// forwards again, and the device dedupe is the backstop.
+
+const DEDUPE_MS = FEEDBACK_STATES.starting.dedupeMs
+
+interface ForwardedStart {
+  answer: Promise<unknown>
+  // Null while in flight; set once the first forward succeeded.
+  expiresAt: number | null
+  requesterId: string
+  // The client's id plus the one the frame carried, when `mintStartId`
+  // handed out another (a device reports a failure under the latter).
+  startIds: Set<string>
+}
+
+const forwarded = new Map<string, ForwardedStart>()
+
+function pruneForwarded(now: number): void {
+  for (const [key, entry] of forwarded) {
+    if (entry.expiresAt !== null && entry.expiresAt <= now) {
+      forwarded.delete(key)
+    }
+  }
+}
+
+/** Drops every remembered forward of `startId` for `requesterId` (any
+ *  device): a device reported that start as failed. */
+function forgetForwarded(startId: string, requesterId: string): void {
+  for (const [key, entry] of forwarded) {
+    if (entry.requesterId === requesterId && entry.startIds.has(startId)) {
+      forwarded.delete(key)
+    }
+  }
+}
+
+/** Runs `forward` once per (requesterId, deviceId, startId) within
+ *  `starting.dedupeMs`; a start without a client `startId` always runs. */
+export function forwardStartOnce<T>(
+  key: { requesterId: string; deviceId: string; startId?: string },
+  forward: () => Promise<T>
+): Promise<T> {
+  if (!key.startId) return forward()
+  const now = Date.now()
+  pruneForwarded(now)
+  const id = JSON.stringify([key.requesterId, key.deviceId, key.startId])
+  const prior = forwarded.get(id)
+  if (prior) return prior.answer as Promise<T>
+  while (forwarded.size >= MAX_STARTS) {
+    const oldest = forwarded.keys().next().value
+    if (oldest === undefined) break
+    forwarded.delete(oldest)
+  }
+  const entry: ForwardedStart = {
+    answer: Promise.resolve(),
+    expiresAt: null,
+    requesterId: key.requesterId,
+    startIds: new Set([key.startId]),
+  }
+  const answer = forward().then(
+    (result) => {
+      entry.expiresAt = Date.now() + DEDUPE_MS
+      const sent = (result as { startId?: unknown } | null)?.startId
+      if (typeof sent === `string`) entry.startIds.add(sent)
+      return result
+    },
+    (error: unknown) => {
+      if (forwarded.get(id) === entry) forwarded.delete(id)
+      throw error
+    }
+  )
+  entry.answer = answer
+  forwarded.set(id, entry)
+  return answer
+}
+
 // Test hook.
 export function _clearStartFailures(): void {
   starts.clear()
+  forwarded.clear()
 }

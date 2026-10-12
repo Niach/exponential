@@ -66,13 +66,11 @@ struct IssuesHomeView: View {
                     // selected board (it captures boardId at creation).
                     .id(current)
             } else if syncing || !boardsSynced {
-                VStack(spacing: 12) {
-                    ProgressView()
-                        .tint(.white)
-                    Text("Syncing...")
-                        .font(.subheadline)
-                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                }
+                // EXP-1275: the first load is a placeholder, not "Syncing...".
+                SkeletonRows()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else {
                 emptyStateHint
             }
@@ -285,7 +283,7 @@ struct IssuesHomeView: View {
                     })
 
                     if let accountId = deps.auth.activeAccountId, let teamId = checklistTeamId {
-                        GettingStartedCards(
+                        GettingStartedList(
                             progress: gettingStarted,
                             accountId: accountId,
                             teamId: teamId,

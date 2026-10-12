@@ -145,8 +145,10 @@ struct BeatingAgentMark: View {
             mark
                 .opacity(dimmed ? 0.4 : 1)
                 .onAppear {
-                    guard beating, !motion.reduceMotion else { return }
-                    withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
+                    // EXP-1243: an ambient loop rides `motion.pulse` (nil under
+                    // Reduce Motion: the mark stays still).
+                    guard beating, let beat = motion.pulse(duration: 1.4) else { return }
+                    withAnimation(beat) {
                         dimmed = true
                     }
                 }

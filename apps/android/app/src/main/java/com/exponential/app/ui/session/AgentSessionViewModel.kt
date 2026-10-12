@@ -792,9 +792,14 @@ class AgentSessionViewModel @AssistedInject constructor(
         }
     }
 
-    /** A failed [killSession] call's message (EXP-268) — rendered as a banner. */
+    /** A failed [killSession] call's message (EXP-268) — FEED-79: raised as
+     *  the error toast once, then [clearKillError]ed. */
     private val _killError = MutableStateFlow<String?>(null)
     val killError: StateFlow<String?> = _killError
+
+    fun clearKillError() {
+        _killError.value = null
+    }
 
     /** Revive the connection on attach (EXP-625). A no-op when the socket is
      *  healthy (which, since EXP-621, is the common case on a return visit),
@@ -878,7 +883,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                 steerApi.killSession(accountId, codingSessionId)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                _killError.value = trpcErrorMessage(t, "Couldn't stop the run")
+                _killError.value = trpcErrorMessage(t, "Couldn't stop the session")
             }
         }
     }
@@ -897,6 +902,10 @@ class AgentSessionViewModel @AssistedInject constructor(
      *  same rails a remote start does — the desktop's new row lands in
      *  [startedSessionId] and the screen opens it. */
     fun resumeRun(target: RunResumeTarget) = steerLaunch.resumeRun(target)
+
+    /** EXP-1259: the failed Resume / switch toast's Retry — the same press
+     *  again under its `startId`, so the machine resumes it once. */
+    fun retryResume() = steerLaunch.retryResume()
 
     /**
      * EXP-849 phase 3: continue THIS run under another login — a resume that

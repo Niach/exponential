@@ -43,7 +43,13 @@ struct ActionPromptTab: View {
     @State private var savedRow: ActionDto?
     @State private var loading = true
     @State private var saving = false
-    @State private var errorText: String?
+    /// FEED-79: a name already taken (CONFLICT) is INPUT, inline under the
+    /// name; a failed save is a toast. The body loads on appear, so a failed
+    /// load is quiet: the prompt's empty state + Retry (a failed Retry tap
+    /// toasts).
+    @State private var nameError: String?
+    @State private var loadFailed = false
+    @Environment(\.toaster) private var toaster
 
     private var loaded: Bool { loadedBody != nil }
 
@@ -112,14 +118,6 @@ struct ActionPromptTab: View {
             descriptionSection
             repositorySection
             promptSection
-            if let errorText {
-                Section {
-                    Text(errorText)
-                        .font(.caption)
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                }
-                .listRowBackground(glassFormRowFill)
-            }
         }
         // EXP-603: the page's own background shows through the grouped list;
         // rows carry the glass fill.
@@ -138,6 +136,12 @@ struct ActionPromptTab: View {
                 TextField("Name", text: $name)
                     .disabled(!canEdit)
                     .accessibilityIdentifier("edit-action-name")
+                    .onChange(of: name) { _, _ in nameError = nil }
+            }
+            if let nameError {
+                Text(nameError)
+                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .foregroundStyle(DesignTokens.Semantic.red)
             }
         }
         .listRowBackground(glassFormRowFill)
@@ -197,13 +201,19 @@ struct ActionPromptTab: View {
     private var promptSection: some View {
         Section {
             if loading {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small).tint(.white)
-                    Text("Loading prompt…")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    Spacer(minLength: 0)
+                // EXP-1275 (D8): the prompt's placeholder, not "Loading…".
+                SkeletonRows(rows: 3, rowHeight: 22, dot: false, dividers: false)
+            } else if loadFailed {
+                VStack(spacing: 12) {
+                    Text("Prompt unavailable")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    GlassPill(FeedbackStates.Errors.retry, icon: AppIcons.uiRefresh, mode: .action {
+                        Task { await retryLoad() }
+                    })
                 }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
             } else {
                 GlassTextField(
                     "Prompt",
@@ -236,21 +246,42 @@ struct ActionPromptTab: View {
         repos = (try? await deps.repositoriesApi.list(
             accountId: accountId, teamId: action.teamId
         )) ?? []
+        await loadBody(accountId: accountId, retried: false)
+        loading = false
+    }
+
+    /// The Retry tap: the body fetch again (the rest of the form keeps what
+    /// was typed), and a toast only if it fails again.
+    @MainActor
+    private func retryLoad() async {
+        loading = true
+        await loadBody(accountId: accountId, retried: true)
+        loading = false
+    }
+
+    @MainActor
+    private func loadBody(accountId: String, retried: Bool) async {
         do {
             let fetched = try await deps.actionsApi.get(accountId: accountId, id: action.id)
             prompt = fetched.body
             loadedBody = fetched.body
+            loadFailed = false
         } catch {
-            errorText = error.userFacingMessage
+            loadFailed = true
+            if retried {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "load", thing: "the prompt"),
+                    description: error.userFacingMessage
+                )
+            }
         }
-        loading = false
     }
 
     private func save() {
         guard canSave else { return }
         let payload = patch
         saving = true
-        errorText = nil
+        nameError = nil
         Task {
             do {
                 let saved = try await deps.actionsApi.update(
@@ -262,7 +293,14 @@ struct ActionPromptTab: View {
                 if let body = payload.body { loadedBody = body }
                 saving = false
             } catch {
-                errorText = error.userFacingMessage
+                if error.trpcErrorCode == "CONFLICT" {
+                    nameError = error.userFacingMessage
+                } else {
+                    toaster.error(
+                        FeedbackStates.Errors.title(verb: "save", thing: "the action"),
+                        description: error.userFacingMessage
+                    )
+                }
                 saving = false
             }
         }

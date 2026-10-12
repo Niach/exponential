@@ -2,7 +2,7 @@
    Browser-like tabs on the bare ground above the card, in a 44px band. The
    LIVE runs come first, GROUPED BY AGENT: the brand mark, its chips, then a
    `<` that folds the group down to the mark alone. A live chip leads with the
-   run's state dot and has no close button at all; the ordinary tabs follow
+   session's state dot and has no close button at all; the ordinary tabs follow
    in open order, lead with the issue's status glyph and carry a ×. The
    ACTIVE chip is derived from what the card shows, never stored. */
 import { getIssue } from "../ide/data"

@@ -334,13 +334,13 @@ class ActionTriggersTest {
 
     @Test
     fun aRunInItsActionsRunsListIsTitledByWhatStartedIt() {
-        assertEquals("Scheduled run", actionRunTitle("schedule"))
-        assertEquals("Event run", actionRunTitle("event"))
+        assertEquals("Scheduled session", actionRunTitle("schedule"))
+        assertEquals("Event session", actionRunTitle("event"))
         // Another run started it — today's reasons and any added later.
-        assertEquals("Agent run", actionRunTitle("agent"))
-        assertEquals("Agent run", actionRunTitle("workflow"))
-        assertEquals("Manual run", actionRunTitle(null))
-        assertEquals("Manual run", actionRunTitle(""))
+        assertEquals("Agent session", actionRunTitle("agent"))
+        assertEquals("Agent session", actionRunTitle("workflow"))
+        assertEquals("Manual session", actionRunTitle(null))
+        assertEquals("Manual session", actionRunTitle(""))
     }
 
     // ── The trigger block (byte-locked ×4, web formatTriggerBlock) ───────────
@@ -352,7 +352,7 @@ class ActionTriggersTest {
                 "with its id and `triggers` set to exactly this array: " +
                 "`[{\"kind\":\"schedule\",\"interval\":\"daily\",\"minuteOfDay\":540," +
                 "\"deviceId\":\"d-1\"}]`. " +
-                "A triggered run fills no inputs, so declare none as required.",
+                "A triggered session fills no inputs, so declare none as required.",
             formatTriggerBlock(
                 TriggerWhen.Schedule(interval = "daily", minuteOfDay = 540),
                 deviceId = "d-1",
@@ -367,7 +367,7 @@ class ActionTriggersTest {
                 "with its id and `triggers` set to exactly this array: " +
                 "`[{\"kind\":\"event\",\"event\":\"created\",\"deviceId\":\"d\"," +
                 "\"agent\":\"codex\",\"effort\":\"high\"}]`. " +
-                "A triggered run fills no inputs, so declare none as required.",
+                "A triggered session fills no inputs, so declare none as required.",
             formatTriggerBlock(
                 TriggerWhen.Event(event = "created"),
                 deviceId = "d",

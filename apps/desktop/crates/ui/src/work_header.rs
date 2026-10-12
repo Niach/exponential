@@ -157,8 +157,8 @@ pub(crate) struct RunEntry {
 }
 
 /// Byte-identical with the web (`RUN_FACE_LABEL` / `RUNS_FACE_LABEL`).
-pub(crate) const RUN_FACE_LABEL: &str = "Run";
-pub(crate) const RUNS_FACE_LABEL: &str = "Runs";
+pub(crate) const RUN_FACE_LABEL: &str = "Session";
+pub(crate) const RUNS_FACE_LABEL: &str = "Sessions";
 /// EXP-1251: the Guide face's ONE name (contract `diffUi.guideFace`, ×4).
 pub(crate) const GUIDE_FACE_LABEL: &str = domain::contract::DIFF_UI_GUIDE_FACE;
 
@@ -491,7 +491,7 @@ fn run_menu(spec: &FaceToggle, on_pick_run: OnPickRun, cx: &App) -> AnyElement {
                 .with_size(px(12.))
                 .text_color(muted),
         )
-        .tooltip("Switch run")
+        .tooltip("Switch session")
         .dropdown_menu(move |mut menu, _window, _cx| {
             for (entry, agent, mark) in entries.clone() {
                 let is_checked = checked.as_deref() == Some(entry.id.as_str());
@@ -844,7 +844,7 @@ pub(crate) fn coding_action_button(
                         crate::action_run::resume_run(
                             session_id.clone(),
                             Some(window.window_handle()),
-                            false,
+                            crate::coding_flow::RunLanding::ThisWindow,
                             coding::LaunchOrigin::Local,
                             cx,
                         );
@@ -905,7 +905,7 @@ pub(crate) fn resume_pill(id: impl Into<gpui::ElementId>, size: PillSize, cx: &A
                 .text_color(cx.theme().muted_foreground),
         )
         .label("Resume")
-        .tooltip("Resume this run")
+        .tooltip("Resume this session")
 }
 
 // ---------------------------------------------------------------------------
@@ -924,8 +924,8 @@ pub(crate) fn resume_pill(id: impl Into<gpui::ElementId>, size: PillSize, cx: &A
 /// composer on the Fix merge conflicts builtin at once, the pull request
 /// picked and the refusal flagged ([`conflict_recovery`]); the pill stays
 /// plain Merge, so a conflict resolved elsewhere is one click away. A SESSION
-/// target (a run's own chore PR, EXP-734) and every other refusal caption
-/// instead ([`merge_error_caption`]).
+/// target (a run's own chore PR, EXP-734) and every other refusal is the
+/// error toast (FEED-79, `pr_merge`).
 pub(crate) fn merge_pill(
     id: impl Into<gpui::ElementId>,
     target: &MergeTarget,
@@ -1079,32 +1079,6 @@ pub(crate) fn conflict_recovery(
     })
 }
 
-/// EXP-917: the refusal caption for a merge target, for a header that has no
-/// property tray to carry it (an issue-less run's — the issue tray's
-/// `agent_row` renders the same line). A merge that fails for a reason no run
-/// can fix (offline, stale base, no GitHub App, a run's own chore PR) still
-/// gets a visible message under the pill, never only a log line. A CONFLICT
-/// the composer took ([`conflict_recovery`]) left no failure behind to
-/// caption.
-pub(crate) fn merge_error_caption(target: &MergeTarget, cx: &mut App) -> Option<AnyElement> {
-    let state = crate::pr_merge::MergeState::global(cx);
-    let error = state.read(cx).error(&target.key())?;
-    Some(
-        v_flex()
-            .w_full()
-            .px(px(WORK_GUTTER))
-            .pb_2()
-            .child(
-                div()
-                    .min_w_0()
-                    .text_xs()
-                    .text_color(cx.theme().danger)
-                    .child(error),
-            )
-            .into_any_element(),
-    )
-}
-
 // ---------------------------------------------------------------------------
 // The header frame
 // ---------------------------------------------------------------------------
@@ -1138,6 +1112,17 @@ const COLLAPSED_TITLE_LINE: f32 = 20.;
 /// fades in over `collapseMs` while rising `collapseRise`, keyed by the id so
 /// it replays each time the title breaks again. Faces that are ALWAYS
 /// collapsed (Run, Changes, Results) pass `None` and never animate.
+/// D8 — [`collapsed_title`] while its subject has not synced: the title
+/// line's placeholder bar (never "Loading…"), the line's own height.
+pub(crate) fn collapsed_title_placeholder(id: impl Into<gpui::ElementId>, cx: &App) -> AnyElement {
+    h_flex()
+        .w_full()
+        .h(px(COLLAPSED_TITLE_LINE))
+        .items_center()
+        .child(crate::feedback::skeleton_value(id, 160., cx))
+        .into_any_element()
+}
+
 pub(crate) fn collapsed_title(
     identifier: Option<SharedString>,
     title: impl Into<SharedString>,
@@ -1297,15 +1282,21 @@ pub(crate) fn render_floating_bar(
     let pinned = below.is_some();
     let ground = collapsed.then(|| {
         use gpui::AnimationExt as _;
-        div()
+        // EXP-1256: the band starts at the card's top edge — inside its
+        // hairlines, its top corners on the card's inner radius.
+        crate::surface::scrim_band(true)
             .absolute()
             .top_0()
             .left_0()
             .right_0()
             .h(px(BAR_H))
-            .bg(crate::surface::scrim_ground())
             .when(!pinned, |ground| {
-                ground.child(crate::surface::edge_fade_top_scrim().top(px(BAR_H)))
+                ground.child(
+                    crate::surface::edge_fade_top_scrim()
+                        .top(px(BAR_H))
+                        .left_0()
+                        .right_0(),
+                )
             })
             .with_animation(
                 "work-bar-ground",
@@ -1330,13 +1321,14 @@ pub(crate) fn render_floating_bar(
         ));
     // EXP-1191: the pinned tray, on the same ground, the fade under it.
     let below = below.map(|below| {
-        div()
+        crate::surface::scrim_band(false)
             .relative()
             .pb(px(12.))
-            .bg(crate::surface::scrim_ground())
             .child(
                 crate::surface::edge_fade_top_scrim()
-                    .top(gpui::relative(1.)),
+                    .top(gpui::relative(1.))
+                    .left_0()
+                    .right_0(),
             )
             .child(centered_column(div().child(below)))
     });
@@ -1353,7 +1345,14 @@ pub(crate) fn render_floating_bar(
 /// EXP-1162 — the area under the work header: `body` (a scroll container or
 /// a pane with its own) with the TOP edge strip overlaid on it, and the
 /// bottom one when `bottom_edge` (the body runs to the pane's end).
-pub(crate) fn work_body(body: AnyElement, bottom_edge: bool) -> AnyElement {
+///
+/// EXP-1261: the top strip only once the body has SCROLLED (`scrolled`, the
+/// caller's read of its scroll offset: [`scrolled`], [`list_scrolled`]). At
+/// rest nothing has slid under the header, so a strip there only veiled the
+/// body's first row. Reading the offset at render is enough: a scroll
+/// notifies the scrolling view, and gpui re-renders every ancestor view of
+/// a dirty one, so the host's frame sees the new offset.
+pub(crate) fn work_body(body: AnyElement, bottom_edge: bool, scrolled: bool) -> AnyElement {
     div()
         .relative()
         .flex()
@@ -1363,9 +1362,21 @@ pub(crate) fn work_body(body: AnyElement, bottom_edge: bool) -> AnyElement {
         .min_w_0()
         .w_full()
         .child(body)
-        .child(crate::surface::edge_fade_top())
+        .when(scrolled, |body| body.child(crate::surface::edge_fade_top()))
         .when(bottom_edge, |body| body.child(crate::surface::edge_fade_bottom()))
         .into_any_element()
+}
+
+/// EXP-1261 — has a scroll container left its top? (gpui offsets are ≤ 0.)
+pub(crate) fn scrolled(handle: &gpui::ScrollHandle) -> bool {
+    handle.offset().y < px(0.)
+}
+
+/// EXP-1261 — [`scrolled`] for a `gpui::list`: past its first item, or into
+/// it.
+pub(crate) fn list_scrolled(list: &gpui::ListState) -> bool {
+    let top = list.logical_scroll_top();
+    top.item_ix > 0 || top.offset_in_item > px(0.)
 }
 
 // ---------------------------------------------------------------------------
@@ -2458,12 +2469,12 @@ mod tests {
             state: FaceState::default(),
         };
         assert!(!spec.multiple_runs());
-        assert_eq!(run_face_label(spec.multiple_runs()), "Run");
+        assert_eq!(run_face_label(spec.multiple_runs()), "Session");
         // The row it continues joins the menu (newest first, the viewed
         // one checked).
         spec.runs.push(entry("original"));
         assert!(spec.multiple_runs());
-        assert_eq!(run_face_label(spec.multiple_runs()), "Runs");
+        assert_eq!(run_face_label(spec.multiple_runs()), "Sessions");
         assert!(spec.is_shown());
         assert_eq!(spec.items(), vec![Face::Run, Face::Guide]);
         assert_eq!(spec.checked_run.as_deref(), Some("resume-1"));
@@ -2471,9 +2482,9 @@ mod tests {
 
     #[test]
     fn the_run_face_reads_runs_with_several_runs() {
-        assert_eq!(run_face_label(false), "Run");
-        assert_eq!(run_face_label(true), "Runs");
-        assert_eq!(RUN_FACE_LABEL, "Run");
-        assert_eq!(RUNS_FACE_LABEL, "Runs");
+        assert_eq!(run_face_label(false), "Session");
+        assert_eq!(run_face_label(true), "Sessions");
+        assert_eq!(RUN_FACE_LABEL, "Session");
+        assert_eq!(RUNS_FACE_LABEL, "Sessions");
     }
 }

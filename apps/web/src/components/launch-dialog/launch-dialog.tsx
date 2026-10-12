@@ -41,9 +41,10 @@ import type { LaunchSeed } from "@/lib/launch-seed"
 // plumbing and the per-subject submit label cannot drift between the two
 // surfaces. What the dialog adds is a shell: a title, a scroll body and the
 // rule that a started run shuts it — and, until then, that nothing ELSE
-// shuts it: the body owns the `useRemoteStart` whose run watch and deadline
-// toast would die with it, so a dismissal while a start is pending is
-// refused rather than dropping "Waiting for buildbox…" on the floor.
+// shuts it: the body owns the `useRemoteStart` whose run watch and the
+// composer's starting deadline (EXP-1271) would die with it, so a dismissal
+// while a start is pending is refused rather than dropping "Starting on
+// buildbox" on the floor.
 
 /**
  * Mounted ONCE in the team layout. Renders nothing until something asks for
@@ -116,7 +117,7 @@ function LaunchDialogBody({
 }: {
   team: Team
   request: LaunchDialogRequest
-  /** `true` from send until the run's row lands or the deadline passes. */
+  /** `true` from Start until the run's row lands or the deadline passes. */
   onPendingStartChange: (pending: boolean) => void
 }) {
   const { data: authSession } = useSession()
@@ -141,29 +142,22 @@ function LaunchDialogBody({
   const onSeedConsumed = useCallback(() => {
     seededRef.current = null
   }, [])
+  // The launcher gets out of the way once its run is under way — but not a
+  // frame earlier: the WATCH that navigates to the run lives in this
+  // `useRemoteStart` and the starting deadline in this composer, so
+  // unmounting at send time would drop both and leave "Starting on
+  // buildbox" nowhere. EXP-1271: the run LANDING closes the dialog; a
+  // timeout returns the composer to idle (draft kept) and the dialog stays.
   const model = useLaunchComposer({
     teamId: team.id,
     remote,
     seed: seededRef.current,
     onSeedConsumed,
+    onLanded: closeLaunchDialog,
   })
-
-  // The launcher gets out of the way once its run is under way — but not a
-  // frame earlier: the WATCH that navigates to the run (and the deadline that
-  // says the machine refused it) lives in this `useRemoteStart`, so unmounting
-  // at send time would drop both and leave "Waiting for buildbox…" nowhere.
-  // `sentTo` is set on send and cleared when the run's row lands (the
-  // navigation) or the deadline passes (the toast) — the FALLING edge is the
-  // moment the dialog is done.
-  const sent = remote.sentTo !== null
-  const wasSentRef = useRef(false)
+  const sent = model.starting !== null
   useEffect(() => {
     onPendingStartChange(sent)
-    if (sent) {
-      wasSentRef.current = true
-      return
-    }
-    if (wasSentRef.current) closeLaunchDialog()
   }, [sent, onPendingStartChange])
   // A remount on a new seed must not leave the host thinking a start is
   // still pending.

@@ -68,7 +68,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1183`,
   title: `MCP App views`,
-  blurb: `Exponential inside an MCP Apps host. \`exponential_issues_show\` mounts the issue list (status group bands over the board's flat rows; a row opens the issue in place: pills, GFM description, comments), \`exponential_sessions_list\` the run list (Running / In review / Ended bands; a row opens the run), \`exponential_sessions_get\` the run's report as the Results Guide, \`exponential_notifications_list\` the inbox (a row opens its issue), \`exponential_devices_list\` the Devices page (an own online machine offers Sign in on a dead login and Add account, both through \`exponential_devices_account_login\`). One self-contained document served as \`ui://exponential/*\`, themed by the host's light/dark.`,
+  blurb: `Exponential inside an MCP Apps host. \`exponential_issues_show\` mounts the issue list (status group bands over the board's flat rows; a row opens the issue in place: pills, GFM description, comments), \`exponential_sessions_list\` the session list (Running / In review / Ended bands; a row opens the session), \`exponential_sessions_get\` the session's report as the Results Guide, \`exponential_notifications_list\` the inbox (a row opens its issue), \`exponential_devices_list\` the Devices page (an own online machine offers Sign in on a dead login and Add account, both through \`exponential_devices_account_login\`). One self-contained document served as \`ui://exponential/*\`, themed by the host's light/dark.`,
   status: {
     web: {
       state: `ok`,

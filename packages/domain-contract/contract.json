@@ -300,7 +300,7 @@
     "chatHeadline": "Ask the agent",
     "chatPlaceholder": "Ask the agent…",
     "instructionsPlaceholder": "Additional instructions (optional)…",
-    "dialogTitle": "Start a run",
+    "dialogTitle": "Start a session",
     "fixConflictsHeadline": "Fix merge conflicts",
     "fixConflictsSubmit": "Fix conflicts",
     "prPlaceholder": "Select a pull request…",
@@ -319,6 +319,7 @@
       "fetch",
       "switch_mode",
       "wait",
+      "script",
       "other"
     ],
     "editKinds": ["edit", "delete", "move"]
@@ -618,7 +619,7 @@
       {
         "name": "boards_set_repository",
         "title": "Link repository to board",
-        "blurb": "Points a board at a repository so its issues can start coding runs.",
+        "blurb": "Points a board at a repository so its issues can start coding sessions.",
         "progressive": "Linking repository to board",
         "done": "Linked repository to board",
         "progressiveMany": "Linking repository to {n} boards",
@@ -948,7 +949,7 @@
       {
         "name": "mcp_servers_add",
         "title": "Add MCP server",
-        "blurb": "Adds a remote MCP server to the team's registry for coding runs.",
+        "blurb": "Adds a remote MCP server to the team's registry for coding sessions.",
         "progressive": "Adding MCP server",
         "done": "Added MCP server",
         "progressiveMany": "Adding {n} MCP servers",
@@ -1112,8 +1113,8 @@
       },
       {
         "name": "sessions_ask_parent",
-        "title": "Ask the parent run",
-        "blurb": "Asks the run that started this one a question, without blocking on it.",
+        "title": "Ask the parent session",
+        "blurb": "Asks the session that started this one a question, without blocking on it.",
         "progressive": "Asking parent session",
         "done": "Asked parent session",
         "progressiveMany": "Asking parent session {n} times",
@@ -1124,7 +1125,7 @@
       {
         "name": "sessions_compact",
         "title": "Compact context",
-        "blurb": "Asks the host to compact this run's context at the next turn boundary.",
+        "blurb": "Asks the host to compact this session's context at the next turn boundary.",
         "progressive": "Requesting compaction",
         "done": "Requested compaction",
         "progressiveMany": "Requesting compaction {n} times",
@@ -1134,8 +1135,8 @@
       },
       {
         "name": "sessions_end",
-        "title": "End this run",
-        "blurb": "Closes out this coding run and reports back to whoever started it.",
+        "title": "End this session",
+        "blurb": "Closes out this coding session and reports back to whoever started it.",
         "progressive": "Ending session",
         "done": "Ended session",
         "progressiveMany": "Ending {n} sessions",
@@ -1157,7 +1158,7 @@
       {
         "name": "sessions_guide",
         "title": "Write the Guide",
-        "blurb": "Writes the run's Guide on the issue: GFM sections with the files they cover and screenshots, which is also the PR body.",
+        "blurb": "Writes the session's Guide on the issue: GFM sections with their files and screenshots, which is also the PR body.",
         "progressive": "Writing the Guide",
         "done": "Wrote the Guide",
         "progressiveMany": "Writing the Guide {n} times",
@@ -1212,7 +1213,7 @@
       {
         "name": "sessions_show",
         "title": "Show picture",
-        "blurb": "Shows a screenshot in the run's transcript while it works, filed under its Guide.",
+        "blurb": "Shows a screenshot in the session's transcript while it works, filed under its Guide.",
         "progressive": "Showing picture",
         "done": "Showed picture",
         "progressiveMany": "Showing {n} pictures",
@@ -1223,7 +1224,7 @@
       {
         "name": "sessions_start",
         "title": "Start coding session",
-        "blurb": "Starts a coding run on one of your devices for an issue or an action.",
+        "blurb": "Starts a coding session on one of your devices for an issue or an action.",
         "progressive": "Starting session",
         "done": "Started session",
         "progressiveMany": "Starting {n} sessions",

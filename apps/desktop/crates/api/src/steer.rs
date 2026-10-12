@@ -186,6 +186,18 @@ pub struct StartSessionInput {
     /// `computer-use-run`, and LAST on the wire like every option before it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer_use: Option<bool>,
+    /// EXP-1259 (feedback-states.json `starting.startIdKey`): the client's id
+    /// for this Start PRESS (a uuid), reused by its Retry. The server forwards
+    /// it as the relay frame's `startId` and the device ignores a startId it
+    /// already started, so a late start never duplicates. LAST on the wire
+    /// like every option before it; absent = the server mints its own.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_id: Option<String>,
+}
+
+/// EXP-1259: a fresh [`StartSessionInput::start_id`] — one per Start press.
+pub fn new_start_id() -> String {
+    uuid::Uuid::new_v4().to_string()
 }
 
 #[derive(Deserialize)]

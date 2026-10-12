@@ -120,6 +120,7 @@ pub(crate) fn row_fingerprint(
                 failed,
                 diff,
                 preview,
+                script,
                 ..
             } => {
                 name.len().hash(&mut hasher);
@@ -136,6 +137,11 @@ pub(crate) fn row_fingerprint(
                 // EXP-920: an Exponential tool's settle lands its entity
                 // chips (a wrapping row of unknown height) under the row.
                 preview.as_ref().map(|preview| preview.refs.len()).hash(&mut hasher);
+                // EXP-1279: a script's log is its card's grouped rows.
+                script
+                    .as_ref()
+                    .map(|log| (log.calls.len(), log.source.as_ref().map(String::len)))
+                    .hash(&mut hasher);
             }
             FeedKind::Permission { tool, detail } => {
                 tool.len().hash(&mut hasher);
@@ -665,6 +671,9 @@ mod tests {
                 diff: None,
                 output: None,
                 preview: None,
+                script: None,
+                settled_at: None,
+                started_at: None,
             },
             seq: None,
         }

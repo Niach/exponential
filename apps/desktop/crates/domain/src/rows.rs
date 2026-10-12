@@ -1713,9 +1713,9 @@ mod tests {
             "id": "w-1",
             "name": "Acme",
             "pr_opened_status_id": "s-1",
-            "pr_opened_trigger": "t",
+            "pr_opened_automation": "t",
             "pr_merged_status_id": null,
-            "pr_merged_trigger": "f",
+            "pr_merged_automation": "f",
             "end_sessions_on_merge": "f"
         }))
         .unwrap();

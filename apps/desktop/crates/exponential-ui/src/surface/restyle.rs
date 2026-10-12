@@ -46,6 +46,7 @@ impl Surface {
                 out.insert(k, v);
             }
         }
+        fade_to_gradient(n, &mut out);
         out
     }
 
@@ -318,4 +319,17 @@ impl Surface {
         }
         visual
     }
+}
+
+/// EXP-1259: a search list's bottom `fade` paints its ground colour as a
+/// gradient from transparent (top) to opaque (bottom), so rows fade out
+/// under it: the resolved `backgroundColor` (the recipe's, the list's
+/// ground) becomes `backgroundGradient`, which every painter draws.
+pub(crate) fn fade_to_gradient(n: &LNode, out: &mut Map<String, Value>) {
+    if n.part.as_deref() != Some("fade") || !matches!(n.owner_component.as_deref(), Some("SearchList" | "Menu")) {
+        return;
+    }
+    let Some(color) = out.get("backgroundColor").and_then(Value::as_str).filter(|c| c.starts_with('#') && (c.len() == 7 || c.len() == 9)).map(|c| c[..7].to_string()) else { return };
+    out.remove("backgroundColor");
+    out.insert("backgroundGradient".into(), json!({"angle": 180, "stops": [{"color": format!("{color}00"), "offset": 0}, {"color": color, "offset": 1}]}));
 }

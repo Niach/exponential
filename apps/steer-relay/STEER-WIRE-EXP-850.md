@@ -4,7 +4,7 @@ Pinned before implementation (2026-09-12). Every lane implements exactly this;
 `apps/steer-relay/src/protocol.ts` (zod) and `crates/steer/src/frames.rs` are
 the schemas of record and must agree byte-for-byte with the shapes below.
 Raw CLI captures: `apps/desktop/crates/engine/tests/fixtures/claude/wire-captures/`.
-Contract vocabulary (already generated): `toolKind` += `wait`; new
+Contract vocabulary (already generated): `toolKind` += `wait` (and `script`, §1b); new
 `subagentStatus`, `workflowAgentState`, `workflowStatus`, `backgroundTaskKind`,
 `steerWorking { verbs[24], tokenTickMs: 2000, previewMax: 160 }`.
 
@@ -17,6 +17,44 @@ latest `background_tasks` (fallback: the id), for `Monitor` its `description`
 input. `toolGroupSummary` treats `wait` exactly like `other` (no fixture change).
 An unsettled `wait` row is rendered at the bottom strip (section 2) as
 `Waiting on {detail}`; in the transcript it stays an ordinary tool row.
+
+## 1b. `toolKind: "script"` and `tool_update.script` (EXP-1279)
+
+A code-mode call (`exec` on the `codemode` server: claude titles it
+`mcp__codemode__exec`, codex `mcp.codemode.exec`) is a `tool` row with
+`toolKind: "script"` (contract `toolKind` += `script`, before `other`).
+Clients key the "Ran a script" card on the kind, not the name. Its settle
+carries what the script did:
+
+```
+{ kind: "tool_update", id, status,
+  script: { count?, elapsedMs?, calls?: [ { tool, subject?, ok, ms? } ], source? },
+  at }
+```
+`count` = every call the script made, `elapsedMs` its wall time, `calls` the
+log in the order the script MADE the calls, at most `script-card.json`
+`logCap` (200; `count` keeps counting past it, and the card names the cut).
+`tool` = `<server>.<tool>` (≤ 128); `subject` = an Exponential tool's contract
+`expToolDisplay` subject argument, else the call's first string argument,
+trimmed to 80 chars (≤ `expToolPreview.textMax` on the wire); `ok` = the call
+answered; `ms` = its upstream time, absent for a call that never ran.
+`source` = the exec's `script` input, redacted and cut to `toolOutputMaxBytes`
+(a cut source ends in `[truncated]`). Without a log (an older code mode, a
+script refused before it ran, a replayed native transcript) the settle
+carries `{ source }` alone; `count`/`elapsedMs` then stay absent and the card
+reads "Ran a script" with no meta. Only a `script` row's settle carries it.
+
+The log's path: the code-mode server returns it in the CallToolResult
+`_meta` (`exponential/calls`, `exponential/callCount`,
+`exponential/elapsedMs`), never in the text the model reads. Claude's
+stream-json does not forward an MCP result's `_meta` whole, so the engine
+does not read it off the result: the server runs in the same host process and
+files each finished exec's log under the run and the exact script
+(`codemode::take_report`); the mapper takes it off when the exec settles.
+Journal + history replay keep it like any other `tool_update` field. A field
+past a cap fails the parse and the relay drops the WHOLE frame; the engine
+clamps first (`ScriptLog::clamp`). An older relay strips `script` (non-strict
+zod) but REJECTS `toolKind: "script"`, so the relay deploys first.
 
 ## 2. `background_tasks` (latest-wins slot)
 
@@ -276,7 +314,7 @@ respects reduced motion) instead of the generic assistant glyph.
   highest-index agent; the ` · {phase}` segment is omitted without a title.
 - completed → `Workflow {name} · done · {total} agents`;
   failed → `Workflow {name} · failed`; stopped → `Workflow {name} · stopped`.
-Byte-locked by `packages/domain-contract/fixtures/workflow-caption.json`
+Byte-locked by `packages/domain-contract/fixtures/work-card.json` `caption.cases`
 (TS implementation `packages/domain-contract/src/workflow-caption.ts`,
 mirrors: `crates/steer/src/workflow.rs`, web `lib/agent-feed.ts`, iOS
 `ExpCore/Sources/Domain/WorkflowCaption.swift`, Android
@@ -347,3 +385,17 @@ The steer composers (session composer + the Agent page composer) use the
 editors keep `editor-image`. Ask/plan option rows use the row radius
 (design token `radius.md` = 10 px) ×4, never a capsule; the number-key chip
 uses `radius.sm`.
+
+## 14. `start_session.startId` is the client's, and starts are idempotent (EXP-1259)
+
+`startId` (FEED-63, optional on every `start_session` subject incl. a resume,
+a non-empty string ≤128 chars, absent stays absent) is now minted by the
+CLIENT: every Start press mints a uuid, `steer.startSession({startId})` forwards
+it verbatim (the server mints one only when the client sent none), and the
+composer's timeout Retry REUSES it (`feedback-states.json` `starting`). The
+relay never dedupes: it forwards every frame as is. The DEVICE does: both
+hosts (the desktop IDE and the headless `exponential` daemon) read starts
+through `crates/steer` `control_channel`, which ignores a `start_session`
+whose `startId` it already started (in-memory, the last 256 ids within 30 min;
+a restart forgets them). A start that failed (`steer.reportStartFailure`)
+gives its id back, so its Retry may run.

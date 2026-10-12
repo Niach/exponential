@@ -2,7 +2,11 @@ import { fireEvent, render, screen } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { Comment, Issue, IssueEvent, User } from "@/db/schema"
 import { forgetTabMemory, issueMemoryOwner } from "@/lib/work-tab-memory"
-import { IssueTimeline } from "@/components/issue-timeline"
+import {
+  COMMENT_FOCUS_MS,
+  focusComment,
+  IssueTimeline,
+} from "@/components/issue-timeline"
 
 // EXP-900/EXP-468: the timeline folds its events at read time and the header
 // grows a "Show all" toggle only when the fold actually hid something. The
@@ -23,8 +27,15 @@ vi.mock(`@/components/comment-composer`, () => ({
 }))
 vi.mock(`@/components/comment-rows/regular`, () => ({
   RegularCommentRow: ({ comment }: { comment: Comment }) => (
-    <div data-testid="comment-row">{comment.id}</div>
+    <div data-testid="comment-row" data-comment-id={comment.id}>
+      {comment.id}
+    </div>
   ),
+}))
+// EXP-1241: the `?comment=` param the timeline focuses.
+const search = vi.hoisted(() => ({ value: {} as { comment?: string } }))
+vi.mock(`@tanstack/react-router`, () => ({
+  useSearch: () => search.value,
 }))
 vi.mock(`@/components/comment-rows/event`, () => ({
   EventRow: ({ event }: { event: IssueEvent }) => (
@@ -35,6 +46,7 @@ vi.mock(`@/components/comment-rows/event`, () => ({
 // One fake live query per collection: the builder records the `.from()` alias
 // and hands back whatever the test staged for it.
 const staged = vi.hoisted(() => ({ rows: new Map<string, unknown[]>() }))
+
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {
   const actual = await importOriginal<typeof import("@tanstack/react-db")>()
   return {
@@ -177,5 +189,51 @@ describe(`IssueTimeline activity fold`, () => {
     renderTimeline()
     expect(screen.getAllByTestId(`event-row`)).toHaveLength(2)
     expect(screen.queryByTestId(`activity-show-all`)).toBeNull()
+  })
+})
+
+describe(`?comment= focus (EXP-1241)`, () => {
+  beforeEach(() => {
+    staged.rows.clear()
+    search.value = {}
+    forgetTabMemory(issueMemoryOwner(`i1`))
+  })
+
+  it(`scrolls the named comment into view and washes it once`, () => {
+    const scrolled: Element[] = []
+    const animated: { element: Element; duration: number }[] = []
+    // jsdom has neither: the test supplies both.
+    HTMLElement.prototype.scrollIntoView = function (this: HTMLElement) {
+      scrolled.push(this)
+    }
+    HTMLElement.prototype.animate = function (
+      this: HTMLElement,
+      _frames: unknown,
+      options?: number | KeyframeAnimationOptions
+    ) {
+      animated.push({
+        element: this,
+        duration: typeof options === `number` ? options : Number(options?.duration),
+      })
+      return {} as Animation
+    }
+    staged.rows.set(`comments`, [comment(`c1`, `B`, 1), comment(`c2`, `A`, 2)])
+    search.value = { comment: `c2` }
+    const view = renderTimeline()
+    expect(scrolled.map((node) => node.getAttribute(`data-comment-id`))).toEqual([`c2`])
+    expect(animated).toHaveLength(1)
+    expect(animated[0].duration).toBe(COMMENT_FOCUS_MS)
+    // A re-render with the same param never scrolls again.
+    view.rerender(
+      <IssueTimeline issue={issue} currentUserId="A" users={users} hideComposer />
+    )
+    expect(scrolled).toHaveLength(1)
+    delete (HTMLElement.prototype as Partial<HTMLElement>).scrollIntoView
+    delete (HTMLElement.prototype as Partial<HTMLElement>).animate
+  })
+
+  it(`waits for the comment to sync, and reports an absent one`, () => {
+    const root = document.createElement(`div`)
+    expect(focusComment(root, `missing`)).toBe(false)
   })
 })

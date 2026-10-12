@@ -204,7 +204,7 @@ private fun TeamBlockView(
                             else DesignTokens.Semantic.Green,
                             CircleShape,
                         )
-                        .semantics { contentDescription = "Live runs" },
+                        .semantics { contentDescription = "Live sessions" },
                 )
             }
         }

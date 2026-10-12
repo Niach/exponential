@@ -141,9 +141,9 @@ final class PromptsTests: XCTestCase {
     }
 
     func testDeviceAndServerVariants() {
-        XCTAssertEqual(Prompts.ResumeRun.copy(device: "Studio").title, "Resume this run on Studio?")
-        XCTAssertEqual(Prompts.ResumeRun.copy(device: nil).title, "Resume this run?")
-        XCTAssertEqual(Prompts.ResumeRun.copy(device: "").title, "Resume this run?")
+        XCTAssertEqual(Prompts.ResumeRun.copy(device: "Studio").title, "Resume this session on Studio?")
+        XCTAssertEqual(Prompts.ResumeRun.copy(device: nil).title, "Resume this session?")
+        XCTAssertEqual(Prompts.ResumeRun.copy(device: "").title, "Resume this session?")
         XCTAssertEqual(
             Prompts.DeleteAccount.copy(server: "Cloud").title, "Delete your account on Cloud?"
         )

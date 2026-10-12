@@ -78,11 +78,15 @@ const PINNED_RECIPES = [
   `openMachineSettings`,
   `expandFirstDevice`,
   `openAddServer`,
-  `openSuggestionsTab`,
   `openWidgetEditor`,
   `expandFirstDiffFile`,
   `openTriggerEditor`,
   `openGettingStarted`,
+  `typeIssueRef`,
+  `openComposerMenuImplement`,
+  `showWorkCards`,
+  `showScriptCard`,
+  `showCommentCard`,
 ]
 
 // ---------------------------------------------------------------- 1. shape

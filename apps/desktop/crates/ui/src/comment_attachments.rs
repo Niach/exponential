@@ -481,7 +481,11 @@ pub(crate) fn open_attachment_file(
             Ok(path) => cx.open_with_system(&path),
             Err(error) => {
                 log::warn!("[ui] comment attachment open failed for {attachment_id}: {error}");
-                crate::toast::error(format!("Could not open {label}: {error}"), window, cx);
+                crate::toast::show(
+                    crate::action_error::failed_toast("open", &label, Some(error.to_string())),
+                    window,
+                    cx,
+                );
             }
         });
     })
@@ -527,7 +531,7 @@ pub(crate) fn save_attachment_as(
             )),
             Err(error) => {
                 log::warn!("[ui] attachment download failed for {attachment_id}: {error}");
-                Toast::error(format!("Download failed: {error}"))
+                crate::action_error::failed_toast("download", "the file", Some(error.to_string()))
             }
         };
         let _ = handle.update(cx, |_, window, cx| {
@@ -575,33 +579,18 @@ fn pending_chip(
         icon_for_content_type(Some(item.content_type.as_str()))
     };
     let key = item.key;
+    // FEED-79: a failed upload was a toast; the chip only marks WHICH file
+    // (its glyph in the rose foreground), never a sentence of its own.
     let has_error = item.error.is_some();
-    let mut body = v_flex().gap_0p5().child(
-        div()
-            .max_w(px(160.))
-            .text_xs()
-            .whitespace_nowrap()
-            .overflow_hidden()
-            .text_ellipsis()
-            .child(SharedString::from(item.filename.clone())),
-    );
-    if let Some(error) = item.error.clone() {
-        body = body.child(
-            div()
-                .max_w(px(160.))
-                .text_xs()
-                .whitespace_nowrap()
-                .overflow_hidden()
-                .text_ellipsis()
-                .text_color(cx.theme().danger)
-                .child(error),
-        );
-    }
+    let body = div()
+        .max_w(px(160.))
+        .text_xs()
+        .whitespace_nowrap()
+        .overflow_hidden()
+        .text_ellipsis()
+        .child(SharedString::from(item.filename.clone()));
 
-    // EXP-698: the ONE small readonly pill. The height yields to `h_auto`
-    // only while an upload ERROR is showing — that chip carries a second
-    // line, and clipping the reason to 24px would hide the only explanation
-    // the user gets.
+    // EXP-698: the ONE small readonly pill.
     crate::surface::glass_pill(
         SharedString::from(format!(
             "comment-pending-attachment-{}-{key}",
@@ -611,8 +600,11 @@ fn pending_chip(
         crate::surface::PillMode::Readonly,
         cx,
     )
-        .when(has_error, |chip| chip.h_auto().py_1())
-        .child(Icon::from(glyph).with_size(px(crate::surface::PillSize::Sm.glyph())))
+        .child(
+            Icon::from(glyph)
+                .with_size(px(crate::surface::PillSize::Sm.glyph()))
+                .when(has_error, |icon| icon.text_color(cx.theme().danger)),
+        )
         .child(body)
         .pr_1()
         .child(

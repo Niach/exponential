@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   openGithubPopup,
   POPUP_BLOCKED_MESSAGE,
@@ -100,9 +101,6 @@ export function GithubConnectFlow({
   const [data, setData] = useState<ReposResult | null>(null)
   const [failed, setFailed] = useState(false)
   const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string | null>(
-    linkError ? GH_LINK_FAILED : null
-  )
   const [added, setAdded] = useState<string | null>(null)
 
   // Without a team the page cannot list (every integrations query is
@@ -121,6 +119,7 @@ export function GithubConnectFlow({
         if (live) setResolvedTeamId(team?.id ?? null)
       })
       .catch(() => {
+        // FEED-79: a load on open never toasts; the steps stay as they are.
         if (live) setFailed(true)
       })
     return () => {
@@ -128,6 +127,8 @@ export function GithubConnectFlow({
     }
   }, [teamId])
 
+  // FEED-79: the list runs on open and on every window focus, so a failure
+  // stays quiet (no toast): the steps keep their last known state.
   const refresh = useCallback(
     async (force = false) => {
       if (!resolvedTeamId) return
@@ -160,17 +161,26 @@ export function GithubConnectFlow({
 
   const connect = async () => {
     setBusy(true)
-    setError(null)
     const message = await startGithubLink(
       callbackURL,
       `${callbackURL}${callbackURL.includes(`?`) ? `&` : `?`}link_error=1`
     )
     if (message) {
-      setError(message)
+      failedAction(`connect`, `GitHub`, message, { retry: () => void connect() })
       setBusy(false)
     }
     // On success the browser is navigating to GitHub.
   }
+
+  // Back from GitHub's error callback (`link_error=1`): the connect failed.
+  // Toast it once on arrival; Retry starts the link again.
+  const linkErrorShown = useRef(false)
+  useEffect(() => {
+    if (!linkError || linkErrorShown.current) return
+    linkErrorShown.current = true
+    failedAction(`connect`, `GitHub`, GH_LINK_FAILED, { retry: () => void connect() })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkError])
 
   // Same window: GitHub's setup URL brings the person back to this page.
   const install = () => {
@@ -178,14 +188,15 @@ export function GithubConnectFlow({
     window.location.assign(data.installUrl)
   }
 
+  // A blocked popup: the toast's Retry re-opens it (a fresh user gesture).
   const installAnother = () => {
-    if (!openGithubPopup(data?.installUrl)) setError(POPUP_BLOCKED_MESSAGE)
+    if (openGithubPopup(data?.installUrl)) return
+    failedAction(`install`, `the GitHub app`, POPUP_BLOCKED_MESSAGE, { retry: installAnother })
   }
 
   const pick = async (repo: PickerRepo) => {
     if (!resolvedTeamId || busy) return
     setBusy(true)
-    setError(null)
     try {
       const { repository } = await trpc.repositories.add.mutate(
         {
@@ -194,17 +205,19 @@ export function GithubConnectFlow({
           defaultBranch: repo.defaultBranch,
           private: repo.private,
         },
-        { context: { skipErrorToast: true } }
+        SKIP_ERROR_TOAST
       )
       if (board && repository) {
         await trpc.boards.setRepository.mutate(
           { boardId: board.id, repositoryId: repository.id },
-          { context: { skipErrorToast: true } }
+          SKIP_ERROR_TOAST
         )
       }
       setAdded(repo.fullName)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      // Both writes are idempotent (add registers once, the board points
+      // at the same row), so Retry is safe.
+      failedAction(`add`, repo.fullName, err, { retry: () => void pick(repo) })
     } finally {
       setBusy(false)
     }
@@ -346,12 +359,6 @@ export function GithubConnectFlow({
             )}
           </ReadinessRow>
         </ReadinessRows>
-      )}
-
-      {(error || failed) && (
-        <div className="mx-6 mb-4 rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error ?? `Couldn’t reach GitHub connect state.`}
-        </div>
       )}
 
       {done && <div className="flex justify-center p-6">{doneAction}</div>}

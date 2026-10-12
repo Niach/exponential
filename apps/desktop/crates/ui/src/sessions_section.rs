@@ -526,6 +526,6 @@ mod tests {
     #[test]
     fn the_empty_running_band_copy_is_locked() {
         assert_eq!(NO_RUNNING_COPY, "No agents running");
-        assert_eq!(NO_RECENT_COPY, "No recent runs");
+        assert_eq!(NO_RECENT_COPY, "No recent sessions");
     }
 }

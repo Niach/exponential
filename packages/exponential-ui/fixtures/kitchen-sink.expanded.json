@@ -8836,6 +8836,35 @@
         "style": {
           "height": 160
         }
+      },
+      {
+        "id": "search-list",
+        "component": "SearchList",
+        "props": {
+          "placeholder": "Search issues",
+          "value": "exp-12",
+          "items": [
+            {
+              "label": "Ship the search list",
+              "value": "exp-12",
+              "identifier": "EXP-12",
+              "icon": "status-in-progress"
+            },
+            {
+              "label": "Spinner sizes",
+              "value": "exp-14",
+              "identifier": "EXP-14",
+              "icon": "status-backlog"
+            },
+            {
+              "label": "Close tabs on hover",
+              "value": "exp-15",
+              "identifier": "EXP-15",
+              "icon": "status-done"
+            }
+          ]
+        },
+        "children": []
       }
     ],
     "style": {

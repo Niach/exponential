@@ -22,6 +22,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -56,7 +57,7 @@ internal val MENTION_AT_CARET = Regex("(?:^|\\s)@([A-Za-z0-9._%+-]*)$")
 
 // In-progress issue reference `#query` at the caret — same shape as the web
 // ISSUE_REF_AT_CARET (mention-textarea.tsx / editor-autocomplete.ts).
-internal val ISSUE_REF_AT_CARET = Regex("(?:^|\\s)#([A-Za-z0-9-]*)$")
+internal val ISSUE_REF_AT_CARET = Regex("(?:^|[\\s(])#([A-Za-z0-9-]*)$")
 
 /**
  * One editable text RUN — every '\n'-separated paragraph between two images in
@@ -100,6 +101,9 @@ fun BlockTextField(
     // the caret into an existing `#EXP-238` popped the menu and nothing could
     // dismiss it (EXP-322).
     var armed by remember(row.id) { mutableStateOf(false) }
+    // Where a toolbar `#` tap just put its `#`: an explicit request opens the
+    // issue search even at a line start (review #5; typed, it waits).
+    var explicitHashAt by remember(row.id) { mutableStateOf<Int?>(null) }
 
     // Re-seed from the model only on structural/external change (revision bump).
     LaunchedEffect(revision) {
@@ -109,7 +113,11 @@ fun BlockTextField(
         }
         // A toolbar `@`/`#` tap arrives here as a plain revision bump,
         // indistinguishable from any other reseed — hence the explicit signal.
-        if (model.consumeAutocompleteArm(row.id)) armed = true
+        if (model.consumeAutocompleteArm(row.id)) {
+            armed = true
+            val caret = value.selection.start
+            explicitHashAt = (caret - 1).takeIf { value.text.getOrNull(it) == '#' }
+        }
     }
 
     val focusRequester = remember { FocusRequester() }
@@ -157,10 +165,10 @@ fun BlockTextField(
         refsEnabled = issueRefs != null,
     )
     val mentionCandidates = mentionCandidatesFor(mentionMembers, triggers.mentionQuery)
-    val refQuery = triggers.issueRefQuery
-    // EXP-892: ranked by the shared engine, with the server's full-text hits
-    // spliced in behind them where the host handler can reach the network.
-    val refCandidates = rememberIssueRefCandidates(issueRefs, refQuery)
+    // SLOP-28 (EXP-1259 D4): `#` no longer lists issues inline — it opens THE
+    // search list in a bottom sheet ([IssueTypeaheadSheetHost] below), so the
+    // inline menu only ever carries members and emoji.
+    val refCandidates = emptyList<IssueRefTarget>()
     val emojiMatch: EmojiTokenMatch? = triggers.emoji
     val emojiData = rememberEmojiData(enabled = emojiMatch != null)
     val emojiPrefs = rememberEmojiPrefs()
@@ -215,6 +223,32 @@ fun BlockTextField(
         kind = caretAttrs.kind,
         caretInInlineCode = caretInInlineCode(marks, value.selection.start),
         hasCandidates = true,
+    )
+    // SLOP-28: the `#` sheet. It takes the token over (disarming the inline
+    // menu) and hands focus back to this field however it closes.
+    var refocusTick by remember(row.id) { mutableIntStateOf(0) }
+    val keyboard = LocalSoftwareKeyboardController.current
+    LaunchedEffect(refocusTick) {
+        if (refocusTick == 0) return@LaunchedEffect
+        var attempts = 0
+        while (attempts < 8 && !hasOsFocus) {
+            runCatching { focusRequester.requestFocus() }
+            withFrameNanos { }
+            attempts++
+        }
+        keyboard?.show()
+    }
+    IssueTypeaheadSheetHost(
+        handler = issueRefs,
+        field = value,
+        armed = autocompleteEligible && triggers.issueRef != null,
+        onDisarm = {
+            armed = false
+            explicitHashAt = null
+        },
+        onCommit = { next -> commitToken(next) },
+        onRefocus = { refocusTick++ },
+        explicitHashAt = explicitHashAt,
     )
     val menuOpen = autocompleteEligible &&
         (mentionCandidates.isNotEmpty() || refCandidates.isNotEmpty() || emojiCandidates.isNotEmpty())

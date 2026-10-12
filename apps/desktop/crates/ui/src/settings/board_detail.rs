@@ -36,7 +36,7 @@ use crate::repo_resolver::links_snapshot;
 use crate::sidebar::RailShared;
 
 use super::repositories::{fetch_repositories, RepoRow};
-use super::{error_notice, section, spawn_trpc, SettingsSection};
+use super::{section, spawn_trpc, SettingsSection};
 use crate::icons::registry;
 
 /// Server fetch state for the per-board repository picker.
@@ -44,7 +44,8 @@ enum RepoLoad {
     Idle,
     Loading,
     Ready(Vec<RepoRow>),
-    Failed(SharedString),
+    /// The list failed to load (a toast said so, FEED-79).
+    Failed,
 }
 
 pub struct BoardDetailPane {
@@ -63,15 +64,15 @@ pub struct BoardDetailPane {
     /// fetched under (EXP-139) — a link to a repo this cache doesn't know yet
     /// (connected on another client) re-fetches exactly once per change.
     loaded_links: Option<Vec<(String, String)>>,
+    /// FEED-79: the repo-list load in flight is the person's Retry press
+    /// (its failure toasts); the load on open and every live re-list (a link
+    /// change, the FEED-42 re-list) fail quietly into the empty picker.
+    retry_pressed: bool,
     /// FEED-42: the linked repository id this pane already re-listed ONCE
     /// for — a load that came back without the board's repo (a server cache
     /// that lagged a connect on another client) gets one retry before the
     /// label settles on "Repository unavailable", never a fetch loop.
     relisted_unknown: Option<String>,
-    /// The last `boards.setRepository` rejection, rendered inline (web
-    /// parity: the ChangeRepositoryDialog error). Cleared on the next
-    /// attempt / team switch.
-    link_error: Option<SharedString>,
     /// EXP-712: `repositories.listBranches` for the board's repo, fetched
     /// when the Branch menu first opens and keyed by repository id so a
     /// retarget can never show the old repo's branches.
@@ -113,8 +114,8 @@ impl BoardDetailPane {
             loaded_team: None,
             account_id: None,
             loaded_links: None,
+            retry_pressed: false,
             relisted_unknown: None,
-            link_error: None,
             branches: None,
             generation: 0,
             _subscriptions: subscriptions,
@@ -145,7 +146,6 @@ impl BoardDetailPane {
             self.commit_rename(cx);
         }
         self.loaded_board = Some(board.id.clone());
-        self.link_error = None;
         let name = board.name.clone();
         self.name_input
             .update(cx, |input, cx| input.set_value(name, window, cx));
@@ -199,9 +199,6 @@ impl BoardDetailPane {
             return;
         };
 
-        if !same_team {
-            self.link_error = None;
-        }
         self.repos = RepoLoad::Loading;
         self.loaded_team = Some(team_id.to_string());
         self.loaded_links = Some(links_snapshot(team_id, cx));
@@ -213,16 +210,25 @@ impl BoardDetailPane {
             let result = cx
                 .background_executor()
                 .spawn(async move {
-                    fetch_repositories(&trpc, &team_id).map_err(|err| err.to_string())
+                    fetch_repositories(&trpc, &team_id).map_err(|err| err.user_message())
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation {
                     return; // superseded by a newer fetch
                 }
+                let attended = std::mem::take(&mut this.retry_pressed);
                 this.repos = match result {
                     Ok(repos) => RepoLoad::Ready(repos),
-                    Err(message) => RepoLoad::Failed(message.into()),
+                    Err(message) => {
+                        crate::action_error::failed_load(
+                            "the repositories",
+                            attended,
+                            Some(message),
+                            cx,
+                        );
+                        RepoLoad::Failed
+                    }
                 };
                 cx.notify();
                 // A link that changed while this fetch was in flight still
@@ -250,7 +256,7 @@ impl BoardDetailPane {
             // Idle refetches on the next render; Loading re-checks on
             // completion (which restores the loaded_links comparison base).
             RepoLoad::Idle | RepoLoad::Loading => return,
-            RepoLoad::Failed(_) => true,
+            RepoLoad::Failed => true,
             RepoLoad::Ready(repos) => links
                 .iter()
                 .any(|(_, repo_id)| !repos.iter().any(|repo| &repo.id == repo_id)),
@@ -264,7 +270,7 @@ impl BoardDetailPane {
 
     /// FEED-42: the board's linked repository is missing from the FIRST load
     /// (the link snapshot matched, so [`Self::refresh_if_links_changed`]
-    /// never fires) — re-list once, reading "Loading repository…" meanwhile,
+    /// never fires) — re-list once, the placeholder bar meanwhile,
     /// before showing "Repository unavailable".
     fn relist_if_unknown(
         &mut self,
@@ -339,8 +345,9 @@ impl BoardDetailPane {
 
     /// `boards.setRepository` off the foreground; success needs nothing
     /// (the synced board row's Electric echo re-labels every surface, incl.
-    /// the trunk resolver), a rejection surfaces inline (web parity — a
-    /// silently-dropped retarget would leave the user coding on the old repo).
+    /// the trunk resolver), a rejection is the error toast with Retry
+    /// (FEED-79 — a silently-dropped retarget would leave the user coding on
+    /// the old repo).
     fn set_repository(
         &mut self,
         board_id: String,
@@ -350,7 +357,7 @@ impl BoardDetailPane {
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
         };
-        self.link_error = None;
+        let retry = (board_id.clone(), repository_id.clone());
         // EXP-712: the server resets the board's branch pin on a retarget (it
         // belonged to the old repo) — drop the cached branch list with it.
         self.branches = None;
@@ -369,9 +376,20 @@ impl BoardDetailPane {
                 .await;
             if let Err(err) = result {
                 log::warn!("[ui] boards.setRepository failed: {err}");
-                let _ = this.update(cx, |this, cx| {
-                    this.link_error = Some(err.user_message().into());
-                    cx.notify();
+                let _ = this.update(cx, |_, cx| {
+                    let pane = cx.entity().downgrade();
+                    crate::action_error::failed_action_with_retry(
+                        "change",
+                        "the board's repository",
+                        crate::action_error::action_error_description(&err),
+                        move |_, cx| {
+                            let (board_id, repository_id) = retry.clone();
+                            let _ = pane.update(cx, |this, cx| {
+                                this.set_repository(board_id, repository_id, cx)
+                            });
+                        },
+                        cx,
+                    );
                 });
             }
         })
@@ -403,7 +421,10 @@ impl BoardDetailPane {
             .icon(registry::UI_GITHUB)
             // EXP-697: NOT `.label()` — upstream draws that in a `flex_none`
             // box, so a long `owner/repo` wraps onto a second line.
-            .child(crate::surface::picker_value_label(label))
+            .child(match label {
+                Some(label) => crate::surface::picker_value_label(label).into_any_element(),
+                None => crate::feedback::skeleton_value("board-repo-placeholder", 120., cx),
+            })
             // A grouped picker row ends in chevron-right ×4.
             .child(crate::surface::picker_row_chevron(cx));
 
@@ -437,13 +458,24 @@ impl BoardDetailPane {
                 }
                 let mut has_repos = false;
                 match &pane.read(cx).repos {
+                    // First load: the rows as placeholders (EXP-1259 D8).
                     RepoLoad::Idle | RepoLoad::Loading => {
-                        menu = menu.label("Loading repositories\u{2026}");
+                        menu = crate::feedback::menu_skeleton(menu, "board-repo-skeleton");
                     }
-                    RepoLoad::Failed(message) => {
-                        menu = menu.label(SharedString::from(format!(
-                            "Couldn't load repositories: {message}"
-                        )));
+                    // A failed load is quiet (FEED-79): the picker's Retry.
+                    RepoLoad::Failed => {
+                        let pane = pane.clone();
+                        menu = menu.item(
+                            crate::controls::pointer_label_item(crate::feedback::RETRY, false)
+                                .icon(Icon::new(registry::UI_REFRESH))
+                                .on_click(move |_, _, cx| {
+                                    pane.update(cx, |this, cx| {
+                                        this.retry_pressed = true;
+                                        this.repos = RepoLoad::Idle;
+                                        cx.notify();
+                                    });
+                                }),
+                        );
                     }
                     RepoLoad::Ready(repos) => {
                         has_repos = !repos.is_empty();
@@ -545,11 +577,7 @@ impl BoardDetailPane {
     /// Lazy `repositories.listBranches` for the board's repo (EXP-712),
     /// kicked when the Branch menu opens and cached until the repo changes.
     fn ensure_branches(&mut self, repository_id: String, cx: &mut gpui::Context<Self>) {
-        if self
-            .branches
-            .as_ref()
-            .is_some_and(|(id, _)| id == &repository_id)
-        {
+        if crate::board_form::branches_settled_for(self.branches.as_ref(), &repository_id) {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
@@ -569,7 +597,7 @@ impl BoardDetailPane {
             let _ = this.update(cx, |this, cx| {
                 let load = match result {
                     Ok(out) => crate::board_form::BranchLoad::Ready(out.branches),
-                    Err(err) => crate::board_form::BranchLoad::Failed(err.to_string().into()),
+                    Err(err) => crate::board_form::branches_failed(&err),
                 };
                 this.branches = Some((repository_id, load));
                 cx.notify();
@@ -690,10 +718,6 @@ impl Render for BoardDetailPane {
             .child(crate::surface::glass_group_rows(rows))
             .child(crate::board_form::board_repo_note(cx));
 
-        if let Some(error) = &self.link_error {
-            body = body.child(error_notice(error.clone(), cx));
-        }
-
         // Archive + trash (owner-only pane already; both dialogs confirm
         // before they fire). Archive is deliberately NOT a danger button — it
         // hides, it does not destroy.
@@ -746,20 +770,22 @@ fn row_id(kind: &str, id: &str) -> ElementId {
 
 /// FEED-32 (web `board-repo-field.tsx` `triggerLabel`): the Repository
 /// select's label is NEVER blank and never claims "No repository" for a
-/// linked board. A linked repo the list doesn't know reads "Loading
-/// repository…" while the list is (re)fetching — `refresh_if_links_changed`
-/// re-lists once per unknown id — and "Repository unavailable" once the list
-/// came back (or failed) without it.
-fn repo_picker_label(repository_id: Option<&str>, repos: &RepoLoad) -> SharedString {
+/// linked board. A linked repo the list doesn't know is `None` (the value's
+/// placeholder bar, D8) while the list is (re)fetching —
+/// `refresh_if_links_changed` re-lists once per unknown id — and
+/// "Repository unavailable" once the list came back (or failed) without it.
+fn repo_picker_label(repository_id: Option<&str>, repos: &RepoLoad) -> Option<SharedString> {
     match (repository_id, repos) {
-        (None, _) => crate::board_form::NO_REPOSITORY.into(),
-        (Some(repo_id), RepoLoad::Ready(repos)) => repos
-            .iter()
-            .find(|repo| repo.id == repo_id)
-            .map(|repo| SharedString::from(repo.full_name.clone()))
-            .unwrap_or_else(|| "Repository unavailable".into()),
-        (Some(_), RepoLoad::Failed(_)) => "Repository unavailable".into(),
-        (Some(_), RepoLoad::Idle | RepoLoad::Loading) => "Loading repository\u{2026}".into(),
+        (None, _) => Some(crate::board_form::NO_REPOSITORY.into()),
+        (Some(repo_id), RepoLoad::Ready(repos)) => Some(
+            repos
+                .iter()
+                .find(|repo| repo.id == repo_id)
+                .map(|repo| SharedString::from(repo.full_name.clone()))
+                .unwrap_or_else(|| "Repository unavailable".into()),
+        ),
+        (Some(_), RepoLoad::Failed) => Some("Repository unavailable".into()),
+        (Some(_), RepoLoad::Idle | RepoLoad::Loading) => None,
     }
 }
 
@@ -788,7 +814,7 @@ mod tests {
         assert!(should_relist("repo-2", &empty, Some("repo-1")));
         assert!(!should_relist("repo-1", &RepoLoad::Loading, None));
         assert!(!should_relist("repo-1", &RepoLoad::Idle, None));
-        assert!(!should_relist("repo-1", &RepoLoad::Failed("boom".into()), None));
+        assert!(!should_relist("repo-1", &RepoLoad::Failed, None));
     }
 
     #[test]
@@ -797,11 +823,11 @@ mod tests {
             RepoLoad::Idle,
             RepoLoad::Loading,
             RepoLoad::Ready(Vec::new()),
-            RepoLoad::Failed("boom".into()),
+            RepoLoad::Failed,
         ] {
             assert_eq!(
-                repo_picker_label(None, &load).as_ref(),
-                crate::board_form::NO_REPOSITORY
+                repo_picker_label(None, &load).as_deref(),
+                Some(crate::board_form::NO_REPOSITORY)
             );
         }
     }
@@ -811,21 +837,15 @@ mod tests {
     /// (or failed) without the id.
     #[test]
     fn unknown_linked_repo_never_renders_blank() {
+        assert_eq!(repo_picker_label(Some("repo-1"), &RepoLoad::Idle), None);
+        assert_eq!(repo_picker_label(Some("repo-1"), &RepoLoad::Loading), None);
         assert_eq!(
-            repo_picker_label(Some("repo-1"), &RepoLoad::Idle).as_ref(),
-            "Loading repository\u{2026}"
+            repo_picker_label(Some("repo-1"), &RepoLoad::Ready(Vec::new())).as_deref(),
+            Some("Repository unavailable")
         );
         assert_eq!(
-            repo_picker_label(Some("repo-1"), &RepoLoad::Loading).as_ref(),
-            "Loading repository\u{2026}"
-        );
-        assert_eq!(
-            repo_picker_label(Some("repo-1"), &RepoLoad::Ready(Vec::new())).as_ref(),
-            "Repository unavailable"
-        );
-        assert_eq!(
-            repo_picker_label(Some("repo-1"), &RepoLoad::Failed("boom".into())).as_ref(),
-            "Repository unavailable"
+            repo_picker_label(Some("repo-1"), &RepoLoad::Failed).as_deref(),
+            Some("Repository unavailable")
         );
     }
 }

@@ -213,5 +213,10 @@ public enum DesignTokens {
             public static let decelerate = BezierCurve(x1: 0.0, y1: 0.0, x2: 0.2, y2: 1.0)
             public static let accelerate = BezierCurve(x1: 0.3, y1: 0.0, x2: 1.0, y2: 1.0)
         }
+
+        public enum Scale {
+            public static let press: CGFloat = 0.97
+            public static let popoverFrom: CGFloat = 0.96
+        }
     }
 }

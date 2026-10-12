@@ -213,12 +213,13 @@ impl Render for DraftsView {
         // an empty collection before that is "still syncing", never "no
         // drafts".
         let column = if !is_ready {
-            v_flex()
-                .min_w_0()
-                .gap_2()
-                .child(crate::controls::skeleton().h_3p5().w_40())
-                .child(crate::controls::skeleton().h_3p5().w_48())
-                .child(crate::controls::skeleton().h_3p5().w_32())
+            // EXP-1259 D8: the list's rows as placeholders.
+            v_flex().min_w_0().child(crate::feedback::skeleton_rows(
+                "drafts-skeleton",
+                crate::feedback::SKELETON_ROWS,
+                crate::settings::SETTINGS_ROW_H,
+                cx,
+            ))
         } else if drafts.is_empty() {
             v_flex().min_w_0().child(crate::controls::empty_state(
                 Icon::from(registry::NAV_DRAFTS),

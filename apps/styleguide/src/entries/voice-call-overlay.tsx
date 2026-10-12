@@ -74,7 +74,7 @@ export const entry: StyleguideEntry = {
         <div className="flex flex-col items-center gap-1">
           <span className="text-sm font-medium text-foreground">Listening</span>
           <span className="text-sm text-muted-foreground">
-            “stop the EXP-1242 run and show me the diff”
+            “stop the EXP-1242 session and show me the diff”
           </span>
         </div>
         <div className="flex items-center gap-2">
@@ -90,7 +90,7 @@ export const entry: StyleguideEntry = {
       <div className={`${SURFACE} w-[18rem]`}>
         <VoiceWave size={96} />
         <div className="flex flex-col items-center gap-1">
-          <span className="text-sm font-medium text-foreground">Stop the run on EXP-1242?</span>
+          <span className="text-sm font-medium text-foreground">Stop the session on EXP-1242?</span>
           <span className="text-xs text-muted-foreground">Say yes, or tap</span>
         </div>
         <div className="flex items-center gap-2">

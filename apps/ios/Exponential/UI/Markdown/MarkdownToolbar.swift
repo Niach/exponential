@@ -42,6 +42,9 @@ final class MarkdownToolbar: UIInputView {
     /// EXP-551 — tapped emoji button. The host presents the picker sheet (the
     /// toolbar is UIKit chrome and owns no presentation context).
     var onEmoji: (() -> Void)?
+    /// Review #5: tapped `#` button, right before it inserts the `#` (the
+    /// host marks it explicit, so it opens the search even at a line start).
+    var onIssueRef: (() -> Void)?
     /// EXP-327: non-nil turns the image button into a "Photo library / Files"
     /// menu — the ONE attach affordance on the screen, which is why the Files
     /// section no longer carries a paperclip of its own. Nil keeps the plain
@@ -467,6 +470,7 @@ final class MarkdownToolbar: UIInputView {
     // existing # autocomplete bar pops with an empty query.
 
     @objc private func insertIssueRef() {
+        onIssueRef?()
         textView?.insertText("#")
     }
 

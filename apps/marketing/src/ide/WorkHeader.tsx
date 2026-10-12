@@ -4,7 +4,7 @@
    the `Issue | Run | +N −M` face toggle (hidden below two items), then, for
    an issue, its pin and `…` menu. Row 2 (issue-bound only): the glass
    property tray, trailing `[Merge PR] [the ONE coding action]` — Stop for
-   my live run, else Start coding. An issue-less run (a batch) has no tray;
+   my live session, else Start coding. An issue-less run (a batch) has no tray;
    its Merge PR and Stop ride the right cluster instead. ─── */
 import { useState, type ReactNode } from "react"
 import {
@@ -162,7 +162,7 @@ function FaceToggle({ tabKey, hasIssue, run }: { tabKey: string; hasIssue: boole
           {item === `issue` ? (
             `Issue`
           ) : item === `run` ? (
-            `Run`
+            `Session`
           ) : (
             <span className="ide-seg-diff">
               <span className="ide-c-green">{`+${diff?.add ?? 0}`}</span>

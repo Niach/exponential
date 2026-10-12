@@ -36,6 +36,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.db.NotificationEntity
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.IssueRowContent
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
@@ -71,7 +72,10 @@ fun InboxListContent(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
 
-    if (state.entries.isEmpty()) {
+    if (!state.loaded) {
+        // EXP-1275: the first load = skeleton rows in the inbox row's geometry.
+        SkeletonRows(modifier = modifier.padding(horizontal = 16.dp).padding(top = 4.dp), rowHeight = 56.dp)
+    } else if (state.entries.isEmpty()) {
         EmptyState(EmptyStateCopy.inbox, modifier = modifier)
     } else {
         LazyColumn(

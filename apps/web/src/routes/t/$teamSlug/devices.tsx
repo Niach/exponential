@@ -1,4 +1,5 @@
 import { createFileRoute, redirect } from "@tanstack/react-router"
+import { SkeletonRows } from "@exp/ui"
 import { MyMachines } from "@/components/my-machines"
 import { useSteerConfig } from "@/components/agent-session"
 import { useRemoteStart } from "@/hooks/use-remote-start"
@@ -59,7 +60,13 @@ function DevicesPage() {
   })
 
   if (!team) {
-    return <div className="text-muted-foreground text-sm p-6">Loading…</div>
+    // D8 first load: the device row geometry (MyMachines' two-line ListRow,
+    // 12px padding around a 20px name + 16px state line = 60px).
+    return (
+      <div className="mx-auto w-full max-w-3xl px-4 py-4 md:max-w-5xl">
+        <SkeletonRows rowHeight={60} />
+      </div>
+    )
   }
 
   return (

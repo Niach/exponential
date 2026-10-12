@@ -49,7 +49,7 @@ export function mcpServerInstructions(gates: {
     // EXP-700: only a run another run started can ask its starter — the
     // exception rides the same paragraph.
     paragraphs.push(
-      `This run is unattended (a trigger or another agent started it). Finish with exponential_sessions_end LAST: a one-paragraph summary (finished, stopped for a human, or changed nothing), worktree clean. It ends the run; nobody is watching, so never wait for replies.` +
+      `This session is unattended (a trigger or another agent started it). Finish with exponential_sessions_end LAST: a one-paragraph summary (finished, stopped for a human, or changed nothing), worktree clean. It ends the session; nobody is watching, so never wait for replies.` +
         (gates.askParent
           ? ` Blocked on something only your starter knows: call exponential_sessions_ask_parent, then stop and wait for the answer (a user message).`
           : ``)
@@ -59,7 +59,7 @@ export function mcpServerInstructions(gates: {
   // run" — never as a sign-off of its own.
   if (gates.sessionsEnd && !gates.unattended) {
     paragraphs.push(
-      `exponential_sessions_end ends this run; call it only when the person asks you to end the run.`
+      `exponential_sessions_end ends this session; call it only when the person asks you to end the session.`
     )
   }
   // EXP-1089: an attended run (a person's chat) may ask its owner too — the
@@ -67,7 +67,7 @@ export function mcpServerInstructions(gates: {
   // unattended close-out.
   if (gates.askParent && !gates.unattended) {
     paragraphs.push(
-      `A question only the person who owns this run can answer: exponential_sessions_ask_parent with to 'user' notifies them and parks this run as needing input; stop and wait, the answer arrives as a user message.`
+      `A question only the person who owns this session can answer: exponential_sessions_ask_parent with to 'user' notifies them and parks this session as needing input; stop and wait, the answer arrives as a user message.`
     )
   }
   // EXP-1216: a caller with no run of its own (a person's MCP client) is
@@ -76,7 +76,7 @@ export function mcpServerInstructions(gates: {
   // close-out, which also keeps it out of the full-surface budget.
   if (!gates.sessionResults) {
     paragraphs.push(
-      `Runs you start (exponential_sessions_start): read what one says with exponential_sessions_messages, wait for its reply with exponential_sessions_get waitForIdle, and answer its parked question (pendingQuestion) with exponential_sessions_message.`
+      `Sessions you start (exponential_sessions_start): read what one says with exponential_sessions_messages, wait for its reply with exponential_sessions_get waitForIdle, and answer its parked question (pendingQuestion) with exponential_sessions_message.`
     )
   }
   // EXP-879: LAST, so it is the thing a truncating client keeps least — but

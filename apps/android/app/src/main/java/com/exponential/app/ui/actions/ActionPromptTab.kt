@@ -17,6 +17,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,7 +31,10 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.data.api.ActionDto
+import com.exponential.app.ui.components.SkeletonRows
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassSubmitButton
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
@@ -72,6 +76,7 @@ fun ActionPromptTab(
     // One fetch per page visit: the model is scoped to the page's nav entry,
     // so a fresh open always re-reads a body a teammate may have changed.
     LaunchedEffect(actionId) { viewModel.load(actionId) }
+    FailedActionToast(state.failure, onShown = viewModel::clearFailure)
 
     var name by remember { mutableStateOf("") }
     var description by remember { mutableStateOf("") }
@@ -216,34 +221,41 @@ fun ActionPromptTab(
         // The prompt: monospace, tall, and parked while `actions.get` is
         // still in flight (the body is the one field sync can't hand us).
         OptionGroup {
-            GlassTextField(
-                value = body,
-                onValueChange = { body = it.take(MAX_ACTION_BODY) },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = if (state.loading) {
-                    "Loading prompt…"
-                } else {
-                    "Prompt"
-                },
-                minLines = 8,
-                enabled = editable,
-                bordered = false,
-                textStyle = MaterialTheme.typography.bodySmall.copy(
-                    fontFamily = FontFamily.Monospace,
-                ),
-            )
+            // EXP-1275: the fetch = skeleton rows, never "Loading prompt…".
+            if (state.loading) {
+                SkeletonRows(dot = false, modifier = Modifier.padding(vertical = 4.dp))
+            } else if (state.loadFailed) {
+                // FEED-79: the fetch ran on open, so no toast: the prompt's
+                // empty state + Retry (a failed Retry tap toasts).
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                ) {
+                    Text(
+                        "Prompt unavailable",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(onClick = { viewModel.load(actionId, retried = true) }) {
+                        Text(FeedbackStates.RETRY)
+                    }
+                }
+            } else {
+                GlassTextField(
+                    value = body,
+                    onValueChange = { body = it.take(MAX_ACTION_BODY) },
+                    modifier = Modifier.fillMaxWidth(),
+                    placeholder = "Prompt",
+                    minLines = 8,
+                    enabled = editable,
+                    bordered = false,
+                    textStyle = MaterialTheme.typography.bodySmall.copy(
+                        fontFamily = FontFamily.Monospace,
+                    ),
+                )
+            }
         }
 
-        val error = state.error
-        if (error != null) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                error,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(horizontal = 32.dp),
-            )
-        }
         // A member can read the prompt but not change it: no Save at all
         // instead of a button that could only refuse (web parity).
         if (isOwner) {

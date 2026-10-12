@@ -123,7 +123,7 @@ enum IssueRefLookup {
         scope: Scope,
         db: DatabaseManager,
         accountId: String,
-        limit: Int = 8
+        limit: Int = IssueSearch.defaultLimit
     ) -> [IssueRefCandidate] {
         guard let pool = try? db.pool(forAccountId: accountId) else { return [] }
         let selfIssueId: String? = {

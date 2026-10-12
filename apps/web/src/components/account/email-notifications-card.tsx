@@ -62,8 +62,8 @@ const TYPE_ROWS: Array<{ type: NotificationType; label: string; hint: string }> 
     // EXP-980: a walled run reads `running`; this is how its owner hears.
     {
       type: `session_blocked`,
-      label: `Blocked runs`,
-      hint: `One of your coding runs hits a rate limit.`,
+      label: `Blocked sessions`,
+      hint: `One of your coding sessions hits a rate limit.`,
     },
   ]
 

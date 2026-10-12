@@ -1,165 +1,109 @@
 package com.exponential.app.ui.gettingstarted
 
+import com.exponential.app.domain.contractFixtureJson
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.boolean
+import kotlinx.serialization.json.int
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
+import kotlinx.serialization.json.jsonPrimitive
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
-import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// Mirrors web's `getting-started-model.test.ts` for the seven entries mobile
-// shows — same order, same owner gating, same lock chain (EXP-698 r5).
+// EXP-1270 (EXP-1259 D6): `deriveGettingStarted`, replayed off
+// `getting-started.json` — every case, both platforms, the WHOLE expected
+// object (web `getting-started-model.test.ts`, same case names).
 class GettingStartedModelTest {
+    private val fixture: JsonObject =
+        Json.parseToJsonElement(contractFixtureJson("getting-started.json")).jsonObject
 
-    private fun keys(entries: List<GettingStartedEntry>) = entries.map { it.key }
-
-    private fun stateOf(entries: List<GettingStartedEntry>, key: GettingStartedEntryKey) =
-        entries.first { it.key == key }
+    private fun JsonObject.bool(key: String): Boolean = getValue(key).jsonPrimitive.boolean
+    private fun JsonObject.string(key: String): String = getValue(key).jsonPrimitive.content
 
     @Test
-    fun aFreshOwnerSeesSevenStepsInOrderAndNoneDone() {
-        val entries = deriveGettingStartedEntries(GettingStartedSignals(), isOwner = true)
-        assertEquals(
-            listOf(
-                GettingStartedEntryKey.Desktop,
-                GettingStartedEntryKey.Github,
-                GettingStartedEntryKey.Invite,
-                GettingStartedEntryKey.Board,
-                GettingStartedEntryKey.Coding,
-                GettingStartedEntryKey.Action,
-                GettingStartedEntryKey.Server,
-            ),
-            keys(entries),
-        )
-        assertEquals(0, GettingStartedState(entries, loading = false).done)
+    fun `deriveGettingStarted replays every case`() {
+        val cases = fixture.getValue("cases").jsonArray
+        assertTrue(cases.isNotEmpty())
+        val platforms = mutableSetOf<GettingStartedPlatform>()
+        for (element in cases) {
+            val case = element.jsonObject
+            val s = case.getValue("signals").jsonObject
+            val p = case.getValue("permissions").jsonObject
+            val platform = GettingStartedPlatform.entries.first { it.wire == case.string("platform") }
+            platforms += platform
+            val got = GettingStarted.derive(
+                GettingStartedSignals(
+                    hasBoard = s.bool("hasBoard"),
+                    githubInstalled = s.bool("githubInstalled"),
+                    hasDesktopDevice = s.bool("hasDesktopDevice"),
+                    hasServerDevice = s.bool("hasServerDevice"),
+                    hasCodingSession = s.bool("hasCodingSession"),
+                    hasInvitedTeam = s.bool("hasInvitedTeam"),
+                    mcpConnected = s.bool("mcpConnected"),
+                    hasWidget = s.bool("hasWidget"),
+                ),
+                GettingStartedPermissions(
+                    canManageMembers = p.bool("canManageMembers"),
+                    canManageWidgets = p.bool("canManageWidgets"),
+                ),
+                platform,
+            )
+            val e = case.getValue("expected").jsonObject
+            val want = GettingStartedModel(
+                entries = e.getValue("entries").jsonArray.map { it.jsonObject }.map { entry ->
+                    GettingStartedEntry(
+                        key = GettingStartedStepKey.entries.first { it.wire == entry.string("key") },
+                        done = entry.bool("done"),
+                        target = GettingStartedTarget.entries.first { it.wire == entry.string("target") },
+                        next = entry.bool("next"),
+                    )
+                },
+                done = e.getValue("done").jsonPrimitive.int,
+                total = e.getValue("total").jsonPrimitive.int,
+                progress = e.string("progress"),
+                complete = e.bool("complete"),
+            )
+            assertEquals(case.string("name"), want, got)
+        }
+        // The model takes every platform; the fixture exercises both.
+        assertEquals(GettingStartedPlatform.entries.toSet(), platforms)
     }
 
     @Test
-    fun aMemberNeitherSeesNorCountsTheOwnerOnlySteps() {
-        val entries = deriveGettingStartedEntries(GettingStartedSignals(), isOwner = false)
-        assertEquals(
-            listOf(
-                GettingStartedEntryKey.Desktop,
-                GettingStartedEntryKey.Github,
-                GettingStartedEntryKey.Board,
-                GettingStartedEntryKey.Coding,
-                GettingStartedEntryKey.Server,
-            ),
-            keys(entries),
-        )
-        assertEquals(5, GettingStartedState(entries, loading = false).total)
+    fun `the steps are the fixture's`() {
+        val steps = fixture.getValue("steps").jsonArray.map { it.jsonObject }
+        assertEquals(steps.size, GettingStarted.STEPS.size)
+        steps.zip(GettingStarted.STEPS).forEach { (want, got) ->
+            assertEquals(want.string("key"), got.key.wire)
+            assertEquals(want.string("title"), got.title)
+            assertEquals(want.string("icon"), got.icon)
+            assertEquals(want.string("target"), got.target.wire)
+            assertEquals(want["needsDevice"]?.jsonPrimitive?.boolean ?: false, got.needsDevice)
+            assertEquals(want.bool("phones"), got.phones)
+            assertEquals(want["visibleWhen"]?.jsonPrimitive?.content, got.visibleWhen)
+        }
     }
 
     @Test
-    fun codingLocksOnTheMissingFeederInDisplayOrder() {
-        // No machine at all: the desktop step is what to do first, even
-        // though GitHub is missing too.
-        val noMachine = deriveGettingStartedEntries(
-            GettingStartedSignals(githubInstalled = false, hasBoard = true),
-            isOwner = true,
+    fun `the block hides while loading and once complete`() {
+        assertEquals(false, GettingStartedState().visible)
+        val fresh = GettingStarted.derive(
+            GettingStartedSignals(),
+            GettingStartedPermissions(canManageMembers = true),
+            GettingStartedPlatform.Phone,
         )
-        assertEquals(
-            GettingStartedEntryState.Locked,
-            stateOf(noMachine, GettingStartedEntryKey.Coding).state,
-        )
-        assertEquals(
-            GettingStartedEntryKey.Desktop,
-            stateOf(noMachine, GettingStartedEntryKey.Coding).lockedBy,
-        )
-
-        // A machine but no GitHub: GitHub is the feeder, since the board step
-        // cannot attach a repo without it.
-        val noGithub = deriveGettingStartedEntries(
-            GettingStartedSignals(hasDesktopDevice = true, hasBoard = true),
-            isOwner = true,
-        )
-        assertEquals(
-            GettingStartedEntryKey.Github,
-            stateOf(noGithub, GettingStartedEntryKey.Coding).lockedBy,
-        )
-
-        // GitHub connected but no repo-backed board: the board step is next.
-        val noRepoBoard = deriveGettingStartedEntries(
+        assertEquals(true, GettingStartedState(fresh, loading = false).visible)
+        val all = GettingStarted.derive(
             GettingStartedSignals(
-                hasDesktopDevice = true,
-                githubInstalled = true,
-                hasBoard = true,
+                hasBoard = true, githubInstalled = true, hasDesktopDevice = true, hasServerDevice = true,
+                hasCodingSession = true, hasInvitedTeam = true,
             ),
-            isOwner = true,
+            GettingStartedPermissions(canManageMembers = true),
+            GettingStartedPlatform.Phone,
         )
-        assertEquals(
-            GettingStartedEntryKey.Board,
-            stateOf(noRepoBoard, GettingStartedEntryKey.Coding).lockedBy,
-        )
-    }
-
-    @Test
-    fun aServerAloneUnlocksCodingAndActions() {
-        // A registered CLI daemon is a machine — the desktop app is not the
-        // only way to run something.
-        val entries = deriveGettingStartedEntries(
-            GettingStartedSignals(
-                hasServerDevice = true,
-                githubInstalled = true,
-                hasBoard = true,
-                hasRepoBoard = true,
-            ),
-            isOwner = true,
-        )
-        assertEquals(
-            GettingStartedEntryState.Available,
-            stateOf(entries, GettingStartedEntryKey.Coding).state,
-        )
-        assertEquals(
-            GettingStartedEntryState.Available,
-            stateOf(entries, GettingStartedEntryKey.Action).state,
-        )
-        assertEquals(
-            GettingStartedEntryState.Done,
-            stateOf(entries, GettingStartedEntryKey.Server).state,
-        )
-        assertNull(stateOf(entries, GettingStartedEntryKey.Coding).lockedBy)
-    }
-
-    @Test
-    fun completionWinsOverLocking() {
-        // A coding session exists even though nothing else does — the signal
-        // proves the prerequisites were satisfiable at some point.
-        val entries = deriveGettingStartedEntries(
-            GettingStartedSignals(hasCodingSession = true, hasAction = true),
-            isOwner = true,
-        )
-        assertEquals(
-            GettingStartedEntryState.Done,
-            stateOf(entries, GettingStartedEntryKey.Coding).state,
-        )
-        assertEquals(
-            GettingStartedEntryState.Done,
-            stateOf(entries, GettingStartedEntryKey.Action).state,
-        )
-    }
-
-    @Test
-    fun theChecklistDisappearsOnlyWhenEverySeenStepIsDone() {
-        val signals = GettingStartedSignals(
-            hasDesktopDevice = true,
-            hasServerDevice = true,
-            githubInstalled = true,
-            hasInvitedTeam = true,
-            hasBoard = true,
-            hasRepoBoard = true,
-            hasCodingSession = true,
-            hasAction = true,
-        )
-        val complete = GettingStartedState(
-            deriveGettingStartedEntries(signals, isOwner = true),
-            loading = false,
-        )
-        assertEquals(complete.total, complete.done)
-        assertTrue(complete.complete)
-
-        // Still loading is incomplete-unknown, never complete.
-        assertFalse(complete.copy(loading = true).complete)
-        // And an empty (unresolved) checklist is not "all done".
-        assertFalse(GettingStartedState(emptyList(), loading = false).complete)
+        assertEquals(false, GettingStartedState(all, loading = false).visible)
+        assertEquals(true, GettingStartedState(all, loading = false).complete)
     }
 }

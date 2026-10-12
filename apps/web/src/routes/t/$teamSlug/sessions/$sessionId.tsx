@@ -19,6 +19,7 @@ import {
   CollapsedTitle,
   PrGithubButton,
   parseSessionResultGroups,
+  SkeletonRows,
   useIsMobile,
   WORK_COLUMN_CLASS,
 } from "@exp/ui"
@@ -155,7 +156,10 @@ function SessionPage() {
   if (!team || !currentUserId || !isReady) {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="p-6 text-sm text-muted-foreground">Loading…</div>
+        {/* D8 first load: the detail page's placeholder (3 list rows). */}
+        <div className="p-6">
+          <SkeletonRows />
+        </div>
       </div>
     )
   }
@@ -716,7 +720,7 @@ function EscalationBand({
             className="min-w-0 justify-start truncate text-left text-current"
             onClick={() => openSession(child)}
           >
-            {`Run ${name} asks: ${child.agentCaption ?? ``}`.trimEnd()}
+            {`Session ${name} asks: ${child.agentCaption ?? ``}`.trimEnd()}
           </Button>
         )
       })}

@@ -105,12 +105,12 @@ pub fn render_action_prompt_with_trigger(
 /// clone of the real checkout is the worst case: six weeks stale and every
 /// conclusion drawn from it reads authoritative. Ask instead.
 pub const SCRATCH_CWD_NOTE: &str = "You have no repository checked out: your working directory \
-is a scratch folder that is deleted, with everything in it, the moment this run ends. Leave \
+is a scratch folder that is deleted, with everything in it, the moment this session ends. Leave \
 nothing there you want to keep; put results into issue comments or attachments \
-(`exponential_attachments_upload`). No repository is attached to this run either, so never go \
+(`exponential_attachments_upload`). No repository is attached to this session either, so never go \
 looking for one on this machine: any clone you find is someone else's checkout, and a stale one \
 reads exactly like the real one. If the work needs a repository, say so and ask which one, so the \
-user can start a run with that repository picked.";
+user can start a session with that repository picked.";
 
 pub fn render_action_prompt_full(
     name: &str,
@@ -146,7 +146,7 @@ them where the instructions reference them:\n\n");
         Some(TriggerNote {
             kind: TriggerNoteKind::Schedule { phrase },
         }) => format!(
-            "## Trigger\n\nThis run was started automatically by the action's schedule \
+            "## Trigger\n\nThis session was started automatically by the action's schedule \
 ({}, device time).\n\n",
             single_line(phrase)
         ),
@@ -154,7 +154,7 @@ them where the instructions reference them:\n\n");
             kind: TriggerNoteKind::Event { lines, omitted },
         }) => {
             let mut section = String::from(
-                "## Trigger\n\nThis run was started automatically because these issues \
+                "## Trigger\n\nThis session was started automatically because these issues \
 changed:\n\n",
             );
             for line in lines {
@@ -225,7 +225,7 @@ worktree dirty; never force-push; do not use `gh`.\n",
     }
     preamble.push_str(if unattended {
         "When you are done, report with the `exponential_sessions_end` MCP tool (a one-paragraph \
-summary of what you did); that call ends this run, and nobody is watching it.\n"
+summary of what you did); that call ends this session, and nobody is watching it.\n"
     } else {
         "When you are done, summarize what you did here; the session stays open afterwards, so \
 keep answering follow-ups.\n"
@@ -277,7 +277,7 @@ access (then pick the right repo id from `exponential_repositories_list`)."
     // tool (an attended one has it, but only for the person's "end the run").
     let report_rule = if unattended {
         "After the action is created, report with `exponential_sessions_end` (a one-paragraph \
-summary); that call ends this run."
+summary); that call ends this session."
     } else {
         "After the action is created, report what you created here; the session stays open \
 afterwards, so keep answering follow-ups."
@@ -286,7 +286,7 @@ afterwards, so keep answering follow-ups."
         "Please create ONE new action for the Exponential team with id `{team_id}`. An \
 action is a reusable markdown prompt that a team member later runs as an interactive \
 agent session on their own desktop (the exponential MCP tools are available to that \
-run). The user requested the action as:\n\n\"{request}\"\n\n\
+session). The user requested the action as:\n\n\"{request}\"\n\n\
 Derive a short name from the request (if it states a name, use that verbatim). \
 Write a clear, focused markdown body for it: state the goal, the concrete steps, \
 which exponential MCP tools to use (e.g. exponential_issues_list / \
@@ -295,11 +295,11 @@ Call `exponential_actions_list` for the team first so the name doesn't collide. 
 {repo_rule}{icon_rule} Create the action with `exponential_actions_create` (teamId, the \
 name, a one-line description, the markdown body). `exponential_actions_create` also \
 accepts an optional `inputs` array ({{key, label, type: repo|board|pr|icon, required?, \
-placeholder?}}) declaring pick inputs the runner fills before the run and the run \
+placeholder?}}) declaring pick inputs the runner fills before the session and the session \
 receives as an \"## Inputs\" prompt section — declare them when the described action \
-naturally varies per run (a target repository or board); otherwise omit the field. \
+naturally varies per session (a target repository or board); otherwise omit the field. \
 Never declare free-text inputs: whatever the requester types when running the action \
-reaches the run as an Additional instructions section. `exponential_actions_create` \
+reaches the session as an Additional instructions section. `exponential_actions_create` \
 also accepts an optional `promptPlaceholder` (≤200 chars): a short hint for what the \
 requester should type there (e.g. \"Scope: which platforms, which version\"), shown as \
 the composer's field placeholder while the action is picked — set one when the action \
@@ -467,7 +467,7 @@ pub fn render_run_resume_prompt(
     // batch's `EXP-42 +1`.
     let name = single_line(&record.display_name());
     let mut prompt = format!(
-        "You are RESUMING the run \"{name}\" — an earlier session already worked here and its \
+        "You are RESUMING the session \"{name}\" — an earlier session already worked here and its \
 conversation could not be recovered, so start by INSPECTING what it left behind."
     );
     match (&record.branch, &record.base_branch) {
@@ -480,12 +480,12 @@ conversation could not be recovered, so start by INSPECTING what it left behind.
         // `git status` errors with "not a git repository" as the resumed
         // session's very first instruction.
         _ if record.clone.is_none() => prompt.push_str(
-            " This run has no repository checked out: its working directory holds only the tracker's MCP configuration, so there are no files and no git history to inspect. It is a conversation with the tracker over the `exponential_*` MCP tools — read back what it touched through those instead.",
+            " This session has no repository checked out: its working directory holds only the tracker's MCP configuration, so there are no files and no git history to inspect. It is a conversation with the tracker over the `exponential_*` MCP tools — read back what it touched through those instead.",
         ),
         _ => prompt.push_str(" Run `git status` to see what was already done."),
     }
     if !record.inputs.is_empty() {
-        prompt.push_str("\n\n## Inputs\n\nThe original run received these values:\n\n");
+        prompt.push_str("\n\n## Inputs\n\nThe original session received these values:\n\n");
         for input in &record.inputs {
             let value = single_line(input.display.as_deref().unwrap_or(&input.value));
             prompt.push_str(&format!("- {}: {value}\n", single_line(&input.key)));
@@ -604,7 +604,7 @@ mod tests {
     #[test]
     fn run_resume_prompt_skips_git_without_a_checkout() {
         let repo_less = render_run_resume_prompt(&resume_record(true), false);
-        assert!(repo_less.contains("RESUMING the run \"Chat\""), "{repo_less}");
+        assert!(repo_less.contains("RESUMING the session \"Chat\""), "{repo_less}");
         assert!(!repo_less.contains("git status"), "{repo_less}");
         assert!(!repo_less.contains("git log"), "{repo_less}");
         assert!(
@@ -630,8 +630,8 @@ mod tests {
         // EXP-637: the preamble's last sentence IS the shared close-out —
         // EXP-1222: a person-started run ends itself only when asked.
         assert!(prompt.contains("leave the worktree clean"));
-        assert!(prompt.contains("only when the person asks you to end the run"));
-        assert!(!prompt.contains("That call ends this run"));
+        assert!(prompt.contains("only when the person asks you to end the session"));
+        assert!(!prompt.contains("That call ends this session"));
         // EXP-764: no repo means the scratch note, never a branch.
         assert!(prompt.contains(SCRATCH_CWD_NOTE), "{prompt}");
         assert!(!prompt.contains("You work on branch"));
@@ -678,8 +678,8 @@ board, label, and comment operations. {}\n\n## Workspace\n\n{SCRATCH_CWD_NOTE}\n
     #[test]
     fn only_an_unattended_action_run_is_told_to_call_the_close_out_tool() {
         let attended = render_action_prompt_full("Code review", "# Review", &[], None, None, false, None);
-        assert!(attended.contains("only when the person asks you to end the run"));
-        assert!(!attended.contains("That call ends this run"));
+        assert!(attended.contains("only when the person asks you to end the session"));
+        assert!(!attended.contains("That call ends this session"));
         assert!(attended.contains("This session stays open after you finish"));
 
         let unattended = render_action_prompt_full("Code review", "# Review", &[], None, None, true, None);
@@ -789,7 +789,7 @@ stays open afterwards, so keep answering follow-ups.\n\n---\n\nhi"
         // through the tool that ends it.
         let unattended = chat_prompt("hi", None, true);
         assert!(unattended.contains("`exponential_sessions_end`"));
-        assert!(unattended.contains("that call ends this run"));
+        assert!(unattended.contains("that call ends this session"));
     }
 
     /// EXP-822: a repo-less run once resolved its subject by scanning the
@@ -832,7 +832,7 @@ stays open afterwards, so keep answering follow-ups.\n\n---\n\nhi"
         let prompt = render_action_prompt_with_trigger("Groom", "do it", &[], Some(&note));
         // EXP-764: the repo-less workspace note follows the trigger section.
         assert!(prompt.contains(
-            "## Trigger\n\nThis run was started automatically by the action's schedule \
+            "## Trigger\n\nThis session was started automatically by the action's schedule \
 (daily at 07:00, device time).\n\n## Workspace"
         ));
         assert!(prompt.ends_with("---\n\ndo it"));
@@ -852,7 +852,7 @@ stays open afterwards, so keep answering follow-ups.\n\n---\n\nhi"
         };
         let prompt = render_action_prompt_with_trigger("Triage", "triage them", &[], Some(&note));
         assert!(prompt
-            .contains("## Trigger\n\nThis run was started automatically because these issues \
+            .contains("## Trigger\n\nThis session was started automatically because these issues \
 changed:\n\n"));
         assert!(prompt.contains("- EXP-142 \"Fix the flaky test\" status In Progress → In Review\n"));
         // The host capped the lines — the overflow renders as ONE closing
@@ -1015,7 +1015,7 @@ changed:\n\n"));
             "Please create ONE new action for the Exponential team with id `team-123`. An \
 action is a reusable markdown prompt that a team member later runs as an interactive \
 agent session on their own desktop (the exponential MCP tools are available to that \
-run). The user requested the action as:\n\n\"review the backlog weekly\"\n\n\
+session). The user requested the action as:\n\n\"review the backlog weekly\"\n\n\
 Derive a short name from the request (if it states a name, use that verbatim). \
 Write a clear, focused markdown body for it: state the goal, the concrete steps, \
 which exponential MCP tools to use (e.g. exponential_issues_list / \
@@ -1028,10 +1028,10 @@ e.g. `bug`, `rocket`, `database`, `chart-line`). Create the action with \
 `exponential_actions_create` (teamId, the name, a one-line description, the \
 markdown body). `exponential_actions_create` also accepts an optional `inputs` array \
 ({key, label, type: repo|board|pr|icon, required?, placeholder?}) declaring pick \
-inputs the runner fills before the run and the run receives as an \"## Inputs\" \
-prompt section — declare them when the described action naturally varies per run (a \
+inputs the runner fills before the session and the session receives as an \"## Inputs\" \
+prompt section — declare them when the described action naturally varies per session (a \
 target repository or board); otherwise omit the field. Never declare free-text \
-inputs: whatever the requester types when running the action reaches the run as an \
+inputs: whatever the requester types when running the action reaches the session as an \
 Additional instructions section. `exponential_actions_create` also accepts an \
 optional `promptPlaceholder` (≤200 chars): a short hint for what the requester \
 should type there (e.g. \"Scope: which platforms, which version\"), shown as the \
@@ -1061,7 +1061,7 @@ afterwards, so keep answering follow-ups."
         let unattended =
             create_action_prompt("team-123", "review the backlog weekly", None, None, true);
         assert!(unattended.contains("report with `exponential_sessions_end` (a one-paragraph"));
-        assert!(unattended.contains("that call ends this run."));
+        assert!(unattended.contains("that call ends this session."));
     }
 
     /// EXP-273: a picked icon is pinned verbatim; an unpicked one delegates
@@ -1207,11 +1207,11 @@ why you stopped)."
         assert!(!prompt.contains("## Inputs"));
         // (The program itself names the `## Trigger` section, so check the
         // rendered section's sentence instead.)
-        assert!(!prompt.contains("This run was started automatically"));
+        assert!(!prompt.contains("This session was started automatically"));
         assert!(!prompt.contains(crate::prompt::ADDITIONAL_INSTRUCTIONS_HEADING));
         assert!(prompt.contains("This session stays open after you finish"));
-        assert!(prompt.contains("only when the person asks you to end the run"));
-        assert!(!prompt.contains("That call ends this run"));
+        assert!(prompt.contains("only when the person asks you to end the session"));
+        assert!(!prompt.contains("That call ends this session"));
         assert!(prompt.ends_with(&format!("---\n\nTeam: `team-1`\n\n{TIDY_UP_PROGRAM}")));
         // The hard rules survive verbatim.
         assert!(TIDY_UP_PROGRAM.contains("do not call `exponential_issues_update`"));

@@ -1,5 +1,7 @@
 package com.exponential.app.ui.settings
 
+import com.exponential.app.domain.FeedbackStates
+import com.exponential.app.ui.components.Blocking
 import com.exponential.app.ui.components.PickerRow
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -40,6 +42,7 @@ import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.AuthWire
 import com.exponential.app.data.api.SignInMethodsDto
 import com.exponential.app.data.api.UsersApi
+import com.exponential.app.data.api.OFFLINE_MESSAGE
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.auth.ServerAccount
@@ -48,7 +51,8 @@ import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.electric.SyncManager
 import com.exponential.app.data.push.PushTokenManager
 import com.exponential.app.ui.components.GroupDivider
-import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.FailedAction
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.icons.ExpIcons
@@ -143,7 +147,7 @@ class ServerDetailViewModel @Inject constructor(
             try {
                 usersApi.deleteAccount(accountId)
             } catch (e: Exception) {
-                deleteAccountError = trpcErrorMessage(e, "Account deletion failed")
+                deleteAccountError = trpcErrorMessage(e, "")
                 deletingAccount = false
                 return@launch
             }
@@ -158,7 +162,8 @@ class ServerDetailViewModel @Inject constructor(
     }
 
     fun signOut(accountId: String) {
-        teardownScope.launch {
+        // EXP-1275 (D8.5): signing out runs behind the blocking overlay.
+        teardownScope.launch { Blocking.whileBlocking(FeedbackStates.BLOCKING_SIGN_OUT) {
             // Capture URL + token BEFORE removeAccount drops the row.
             val account = auth.accounts.value.firstOrNull { it.id == accountId }
             val instanceUrl = account?.instanceUrl
@@ -175,7 +180,7 @@ class ServerDetailViewModel @Inject constructor(
             // without re-typing it — `setInstanceUrl` re-adds the entry with
             // a fresh `token == null` row.
             if (instanceUrl != null) auth.setInstanceUrl(instanceUrl)
-        }
+        } }
     }
 
     // ---- EXP-1126: sign-in methods ------------------------------------------
@@ -189,13 +194,15 @@ class ServerDetailViewModel @Inject constructor(
     var linkingProvider by mutableStateOf<String?>(null)
         private set
 
-    /** One line under the section: a link/unlink outcome or a failure. */
-    var methodsNotice by mutableStateOf<MethodsNotice?>(null)
+    /** A link outcome or email change, raised once as a success toast. */
+    var methodsNotice by mutableStateOf<String?>(null)
 
-    /** A removal in flight (unlink or passkey) and the refusal it hit, shown in its dialog. */
+    /** FEED-79: the section's failed action (load, link, remove, email change), raised once as a toast. */
+    var failure by mutableStateOf<FailedAction?>(null)
+
+    /** A removal in flight (unlink or passkey); the pill spins in its dialog. */
     var removing by mutableStateOf(false)
         private set
-    var removeError by mutableStateOf<String?>(null)
 
     var changeEmail by mutableStateOf<ChangeEmailState?>(null)
         private set
@@ -210,12 +217,12 @@ class ServerDetailViewModel @Inject constructor(
                 val id = methodsAccountId ?: return@collect
                 if (result.accountId != null && result.accountId != id) return@collect
                 linkingProvider = null
-                methodsNotice = if (result.error != null) {
-                    MethodsNotice(result.error, isError = true)
+                val name = (methods as? SignInMethodsState.Ready)?.methods?.providers
+                    ?.firstOrNull { it.id == result.providerId }?.name ?: result.providerId
+                if (result.error != null) {
+                    failure = FailedAction("link", name ?: "the sign-in method", result.error)
                 } else {
-                    val name = (methods as? SignInMethodsState.Ready)?.methods?.providers
-                        ?.firstOrNull { it.id == result.providerId }?.name ?: result.providerId
-                    MethodsNotice("$name is now linked.", isError = false)
+                    methodsNotice = "$name is now linked."
                 }
                 loadMethods(id)
             }
@@ -228,10 +235,10 @@ class ServerDetailViewModel @Inject constructor(
             try {
                 methods = SignInMethodsState.Ready(usersApi.signInMethods(accountId))
             } catch (e: Exception) {
-                // Keep a loaded list on a failed refresh; only a first load shows the error.
-                if (methods !is SignInMethodsState.Ready) {
-                    methods = SignInMethodsState.Error(trpcErrorMessage(e, "Couldn't load your sign-in methods."))
-                }
+                // Keep a loaded list on a failed refresh; a failed first load
+                // draws nothing in the section. FEED-79: the list loads on its
+                // own (on open, after a change), so no toast.
+                if (methods !is SignInMethodsState.Ready) methods = SignInMethodsState.Error
             }
         }
     }
@@ -245,14 +252,17 @@ class ServerDetailViewModel @Inject constructor(
         if (linkingProvider != null) return
         val baseUrl = auth.accounts.value.firstOrNull { it.id == accountId }?.instanceUrl ?: return
         linkingProvider = providerId
-        methodsNotice = null
         viewModelScope.launch {
             try {
                 val ticket = usersApi.mintSignInLinkTicket(accountId, providerId)
                 val challenge = auth.beginLinkAttempt(accountId, providerId)
                 open(AuthWire.linkStartUrl(baseUrl, ticket.ticket, providerId, challenge))
             } catch (e: Exception) {
-                methodsNotice = MethodsNotice(trpcErrorMessage(e, "Couldn't start linking. Try again."), isError = true)
+                val name = (methods as? SignInMethodsState.Ready)?.methods?.providers
+                    ?.firstOrNull { it.id == providerId }?.name ?: providerId
+                failure = FailedAction("link", name, trpcErrorMessage(e, "")) {
+                    startLink(accountId, providerId, open)
+                }
             } finally {
                 // The Custom Tab owns the flow now; a user who closes it without
                 // finishing must not be left with a stuck "Redirecting…" row.
@@ -262,29 +272,35 @@ class ServerDetailViewModel @Inject constructor(
     }
 
     fun unlink(accountId: String, providerId: String, onDone: () -> Unit) =
-        remove(onDone, fallback = "Couldn't remove that sign-in method.") {
+        remove(onDone, unlinkFailure(providerId)) {
             usersApi.unlinkSignInMethod(accountId, providerId)
             loadMethods(accountId)
         }
 
     fun deletePasskey(accountId: String, id: String, onDone: () -> Unit) =
-        remove(onDone, fallback = "Couldn't remove the passkey.") {
+        remove(onDone, "remove" to "the passkey") {
             usersApi.deletePasskey(accountId, id)
             loadMethods(accountId)
         }
 
+    /** Web parity: the password row is "removed", a provider "unlinked". */
+    private fun unlinkFailure(providerId: String): Pair<String, String> {
+        val provider = (methods as? SignInMethodsState.Ready)?.methods?.providers?.firstOrNull { it.id == providerId }
+        return if (provider?.kind == "password") "remove" to "the password" else "unlink" to (provider?.name ?: providerId)
+    }
+
     // A refusal (PRECONDITION_FAILED: the last way in) carries the server's
-    // own message, which the dialog shows as-is.
-    private fun remove(onDone: () -> Unit, fallback: String, call: suspend () -> Unit) {
+    // own message: the toast's description (FEED-79); the dialog closes.
+    private fun remove(onDone: () -> Unit, failed: Pair<String, String>, call: suspend () -> Unit) {
         if (removing) return
         removing = true
-        removeError = null
         viewModelScope.launch {
             try {
                 call()
                 onDone()
             } catch (e: Exception) {
-                removeError = trpcErrorMessage(e, fallback)
+                failure = FailedAction(failed.first, failed.second, trpcErrorMessage(e, ""))
+                onDone()
             } finally {
                 removing = false
             }
@@ -318,7 +334,17 @@ class ServerDetailViewModel @Inject constructor(
             val latest = changeEmail ?: return@launch
             changeEmail = result.fold(
                 onSuccess = { latest.copy(step = ChangeEmailStep.Code, newEmail = email, sending = false, error = null) },
-                onFailure = { latest.copy(sending = false, error = it.message ?: "Couldn't send the code.") },
+                onFailure = { failed ->
+                    // A refused address stays under its field; a call that never
+                    // reached the server is a toast (FEED-79).
+                    val message = failed.message
+                    if (isTransportFailure(message)) {
+                        failure = FailedAction("send", "the code", message) { sendEmailChangeCode(accountId, email) }
+                        latest.copy(sending = false)
+                    } else {
+                        latest.copy(sending = false, error = message ?: "Couldn't send the code.")
+                    }
+                },
             )
         }
     }
@@ -333,19 +359,26 @@ class ServerDetailViewModel @Inject constructor(
         viewModelScope.launch {
             val result = authApi.changeEmail(account.instanceUrl, token, state.newEmail, code.trim())
             if (result.isFailure) {
-                changeEmail = changeEmail?.copy(
-                    verifying = false,
-                    error = result.exceptionOrNull()?.message ?: "Couldn't change the email.",
-                )
+                val message = result.exceptionOrNull()?.message
+                if (isTransportFailure(message)) {
+                    changeEmail = changeEmail?.copy(verifying = false)
+                    failure = FailedAction("change", "the email", message)
+                } else {
+                    changeEmail = changeEmail?.copy(verifying = false, error = message ?: "Couldn't change the email.")
+                }
                 return@launch
             }
             val info = authApi.fetchSession(accountId)
             auth.updateIdentity(accountId, info?.email ?: state.newEmail, info?.name)
             changeEmail = null
-            methodsNotice = MethodsNotice("Your email is now ${info?.email ?: state.newEmail}.", isError = false)
+            methodsNotice = "Your email is now ${info?.email ?: state.newEmail}."
             loadMethods(accountId)
         }
     }
+
+    /** [AuthApi]'s email-change calls answer a transport failure with these. */
+    private fun isTransportFailure(message: String?): Boolean =
+        message == OFFLINE_MESSAGE || message == "Network error"
 
     /** "Use a different email": back to the address step. */
     fun backToEmailAddress() {
@@ -377,10 +410,9 @@ class ServerDetailViewModel @Inject constructor(
 sealed interface SignInMethodsState {
     data object Loading : SignInMethodsState
     data class Ready(val methods: SignInMethodsDto) : SignInMethodsState
-    data class Error(val message: String) : SignInMethodsState
+    /** A failed first load: the section stays empty (the toast says why). */
+    data object Error : SignInMethodsState
 }
-
-data class MethodsNotice(val message: String, val isError: Boolean)
 
 enum class ChangeEmailStep { Address, Code }
 
@@ -587,14 +619,9 @@ fun ServerDetailScreen(
         )
     }
 
-    // EXP-1031: a failed delete is an error toast, consumed at once.
-    val toaster = LocalToaster.current
-    LaunchedEffect(viewModel.deleteAccountError) {
-        viewModel.deleteAccountError?.let { error ->
-            toaster.error("Couldn't delete account", description = error)
-            viewModel.deleteAccountError = null
-        }
-    }
+    // EXP-1031 / FEED-79: a failed delete is an error toast, consumed at once.
+    FailedActionToast(viewModel.deleteAccountError, "delete", "the account", onShown = { viewModel.deleteAccountError = null })
+    FailedActionToast(viewModel.failure, onShown = { viewModel.failure = null })
 
     if (showRemoveConfirm) {
         PromptAlert(

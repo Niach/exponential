@@ -42,6 +42,13 @@ public enum StartedRunMatch {
     /// it would spin forever.
     public static let deadline: TimeInterval = 180
 
+    /// The Agent composer's QUIET watch (feedback-states.json
+    /// `starting.watchMs`): past its own 30 s timeout toast it keeps looking
+    /// for a late row this long after the send, the same 30 minutes the
+    /// server and the device dedupe a `startId` for, so a Retry the device
+    /// ignores can still land the original row.
+    public static let watchWindow = TimeInterval(FeedbackStates.Starting.watchMs) / 1000
+
     public static func matches(
         _ session: CodingSessionEntity,
         key: StartedRunKey,

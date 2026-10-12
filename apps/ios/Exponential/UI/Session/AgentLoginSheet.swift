@@ -54,7 +54,6 @@ struct AgentLoginSheet: View {
     /// The sign-in payload the finished command carried (the machine completes
     /// it EARLY, the moment the link is on its own screen).
     @State private var loginResult: String?
-    @State private var errorText: String?
     /// EXP-765: the code typed back from the browser, and what the machine said
     /// about it.
     @State private var codeDraft = ""
@@ -74,12 +73,6 @@ struct AgentLoginSheet: View {
                     Text(codeResult)
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-                if let errorText {
-                    Text(errorText)
-                        .font(.caption)
-                        .foregroundStyle(DesignTokens.Semantic.red)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -230,7 +223,6 @@ struct AgentLoginSheet: View {
     }
 
     private func queueLogin() {
-        errorText = nil
         loginResult = nil
         codeResult = nil
         codeDraft = ""
@@ -241,7 +233,12 @@ struct AgentLoginSheet: View {
             pendingLogin = false
             switch outcome {
             case let .done(result): loginResult = result
-            case let .failed(message): errorText = message
+            // FEED-79: a refusal is the error toast, never a red line.
+            case let .failed(message):
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "start", thing: "the sign-in"),
+                    description: message
+                )
             case .unanswered: break
             }
         }
@@ -250,7 +247,6 @@ struct AgentLoginSheet: View {
     private func submitCode() {
         let code = codeDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !code.isEmpty, !pendingCode else { return }
-        errorText = nil
         codeResult = nil
         pendingCode = true
         Task {
@@ -263,7 +259,11 @@ struct AgentLoginSheet: View {
                 loginResult = nil
                 codeDraft = ""
                 codeResult = result
-            case let .failed(message): errorText = message
+            case let .failed(message):
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "send", thing: "the code"),
+                    description: message
+                )
             case .unanswered: break
             }
         }

@@ -1,13 +1,15 @@
-import { useMemo, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, type ReactNode } from "react"
 import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import type { DiffFile } from "@exp/domain-contract/diff"
 import {
   conceptIcon,
+  FEEDBACK_ERRORS,
   GlassSectionHeader,
   MOBILE_WORK_BAR_CLEARANCE,
   MobileWorkBar,
   Pill,
   SessionResultsView,
+  SkeletonRows,
   StackRail,
   type GuideChangesTarget,
   type SessionResultGroup,
@@ -27,6 +29,7 @@ import {
   FACE_BODY_TOUCH_CLASS,
   type FaceSwipeHandlers,
 } from "@/components/work-faces"
+import { failedAction } from "@/lib/action-error"
 import { cn } from "@/lib/utils"
 
 // EXP-1251: the GUIDE face — Changes + Results merged into one face on every
@@ -40,9 +43,8 @@ import { cn } from "@/lib/utils"
 // in as one unnumbered group (`prDescriptionGroups`); with neither, the diff
 // alone is one `Changes` section.
 
-const UiLoadingIcon = conceptIcon(`ui-loading`)
-const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const PrStackIcon = conceptIcon(`pr-stack`)
+const UiRefreshIcon = conceptIcon(`ui-refresh`)
 
 /** The fallback's band label without a PR title. */
 export const PR_DESCRIPTION_FALLBACK_TOPIC = `Pull request`
@@ -214,33 +216,43 @@ export function GuideBody({
 }) {
   const hasDiff = (files?.length ?? 0) > 0
   const showView = groups.length > 0 || hasDiff
-  const waiting =
-    !showView && (loading || filesState?.kind === `loading`) && !error
+  const filesError = filesState?.kind === `error` ? filesState.message : null
+  const waiting = !showView && (loading || filesState?.kind === `loading`) && !error
+  // FEED-79: both fetches run on open, so a failed one is the empty state,
+  // never a toast; the diff keeps its Retry, and only a failed Retry tap
+  // (the person's own action) toasts.
+  const filesLoading = filesState?.kind === `loading`
+  const retried = useRef(false)
+  const retryFiles = onRetry
+    ? () => {
+        retried.current = true
+        onRetry()
+      }
+    : undefined
+  const retryRef = useRef(retryFiles)
+  retryRef.current = retryFiles
+  useEffect(() => {
+    if (filesLoading) return
+    const tapped = retried.current
+    retried.current = false
+    if (!tapped || !filesError) return
+    const again = retryRef.current
+    failedAction(`load`, `the changes`, filesError, {
+      retry: again ? () => again() : undefined,
+    })
+  }, [filesLoading, filesError])
   return (
     <div data-testid="guide-body">
       {stack && <div className="px-7 pt-5 md:px-5">{stack}</div>}
-      {waiting && (
-        <div className="flex items-center gap-2 px-7 py-6 text-sm text-muted-foreground md:px-5">
-          <UiLoadingIcon className="size-4 animate-spin" />
-          Loading the pull request…
+      {waiting && <SkeletonRows dot={false} className="px-4 py-3 md:px-2" />}
+      {!showView && !waiting && <ListEmpty>{GUIDE_NO_CHANGES}</ListEmpty>}
+      {!showView && !waiting && filesError && retryFiles && (
+        <div className="flex justify-center pb-6">
+          <Pill mode="action" onClick={retryFiles}>
+            <UiRefreshIcon className="size-3" />
+            {FEEDBACK_ERRORS.retry}
+          </Pill>
         </div>
-      )}
-      {!showView && error && (
-        <p className="px-7 py-6 text-sm text-destructive md:px-5">{error}</p>
-      )}
-      {!showView && filesState?.kind === `error` && (
-        <div className="flex flex-wrap items-center gap-2 px-7 py-6 text-sm text-destructive md:px-5">
-          {`Couldn’t load changes: ${filesState.message}`}
-          {onRetry && (
-            <Pill mode="action" onClick={onRetry}>
-              <UiRefreshIcon className="size-3" />
-              Retry
-            </Pill>
-          )}
-        </div>
-      )}
-      {!showView && !waiting && !error && filesState?.kind !== `error` && (
-        <ListEmpty>{GUIDE_NO_CHANGES}</ListEmpty>
       )}
       {showView && (
         <SessionResultsView

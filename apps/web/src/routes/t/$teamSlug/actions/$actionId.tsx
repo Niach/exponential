@@ -1,4 +1,5 @@
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
+import { SkeletonRows } from "@exp/ui"
 import {
   ActionPage,
   parseActionPageTab,
@@ -62,7 +63,10 @@ function ActionDetailPage() {
             }
           />
         ) : (
-          <div className="p-6 text-sm text-muted-foreground">Loading…</div>
+          // D8 first load: the same placeholder ActionPage draws.
+          <div className="p-6">
+            <SkeletonRows />
+          </div>
         )}
       </div>
     </div>

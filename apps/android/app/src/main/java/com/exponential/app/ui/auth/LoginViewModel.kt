@@ -128,6 +128,11 @@ class LoginViewModel @Inject constructor(
         }
     }
 
+    /** The screen raised [LoginState.error] as a toast (a transport failure, FEED-79). */
+    fun clearError() {
+        _state.value = _state.value.copy(error = null)
+    }
+
     fun loadConfig() {
         val instanceUrl = auth.instanceUrl.value
         if (instanceUrl == null) {
@@ -143,7 +148,7 @@ class LoginViewModel @Inject constructor(
                 onFailure = { err ->
                     _state.value = _state.value.copy(
                         configLoading = false,
-                        configError = trpcErrorMessage(err, "Failed to load auth config"),
+                        configError = trpcErrorMessage(err, ""),
                     )
                 },
             )

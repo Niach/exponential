@@ -134,11 +134,20 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`mcp-app-views`]: `Lists & rows`,
   [`run-status-row`]: `Lists & rows`,
   [`session-thread`]: `Lists & rows`,
+  [`work-card`]: `Surfaces`,
+  [`script-card`]: `Surfaces`,
+  [`comment-call-card`]: `Surfaces`,
   [`pr-graph-badge`]: `Buttons & chips`,
   [`jump-to-bottom`]: `Buttons & chips`,
   [`team-agents-settings`]: `Surfaces`,
   [`your-agent-settings`]: `Surfaces`,
   [`voice-call-overlay`]: `Surfaces`,
+  [`feedback-states`]: `Feedback`,
+  [`agent-home`]: `Surfaces`,
+  [`work-tabs-strip`]: `Surfaces`,
+  [`search-list`]: `Inputs & pickers`,
+  [`menu-submenu`]: `Inputs & pickers`,
+  [`getting-started`]: `Surfaces`,
 }
 
 /** The band an unregistered entry falls back to, so the page always draws it. */

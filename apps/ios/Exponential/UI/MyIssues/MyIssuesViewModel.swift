@@ -40,6 +40,11 @@ final class MyIssuesViewModel {
     private var statusTask: Task<Void, Never>?
     private var labelTask: Task<Void, Never>?
     private var issueLabelTask: Task<Void, Never>?
+    /// EXP-1275 (D8): the issues shape's "up-to-date seen" flag
+    /// (`IssueListViewModel.issuesSynced`) — an empty list before it is the
+    /// skeleton placeholder, never the empty state.
+    private(set) var issuesSynced = false
+    private var syncedTask: Task<Void, Never>?
 
     init(accountId: String, db: DatabaseManager, auth: AuthRepository) {
         self.accountId = accountId
@@ -51,6 +56,18 @@ final class MyIssuesViewModel {
         stopObserving() // restartable: the view re-arms on every appear
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         guard let userId = auth.userId else { return }
+
+        let syncedObservation = ValueObservation.tracking { db in
+            try ElectricOffset.fetchOne(db, key: "issues")?.isLive ?? false
+        }
+        syncedTask = Task { [weak self] in
+            do {
+                for try await live in syncedObservation.values(in: pool) {
+                    guard let self else { return }
+                    self.issuesSynced = live
+                }
+            } catch {}
+        }
 
         let issueObservation = ValueObservation.tracking { db in
             try IssueEntity
@@ -147,6 +164,8 @@ final class MyIssuesViewModel {
     }
 
     func stopObserving() {
+        syncedTask?.cancel()
+        syncedTask = nil
         issueTask?.cancel()
         issueTask = nil
         boardTask?.cancel()

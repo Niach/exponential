@@ -68,8 +68,10 @@ final class ComposerMenuTests: XCTestCase {
         XCTAssertEqual(ComposerMenu.plusTestId, ids["plus"])
         XCTAssertEqual(ComposerMenu.menuTestId, ids["menu"])
         XCTAssertEqual(ComposerMenu.implementSubmitTestId, ids["implementSubmit"])
-        XCTAssertEqual(ComposerMenu.suggestionTestId, ids["suggestion"])
-        XCTAssertEqual(ComposerMenu.brandMarkTestId, ids["brandMark"])
+        XCTAssertEqual(ComposerMenu.submenuSearchTestId, ids["submenuSearch"])
+        // EXP-1253/EXP-1270: the suggestion rows and the watermark are gone.
+        XCTAssertNil(ids["suggestion"])
+        XCTAssertNil(ids["brandMark"])
         for id in ComposerMenu.RowId.allCases {
             XCTAssertEqual(
                 ComposerMenu.rowTestId(id),
@@ -77,9 +79,9 @@ final class ComposerMenuTests: XCTestCase {
             )
         }
         XCTAssertEqual(ComposerMenu.plusLabel, try fixture()["plusLabel"] as? String)
-        let suggestions = try XCTUnwrap(try fixture()["suggestions"] as? [String: Any])
-        XCTAssertEqual(ComposerMenu.suggestionCount, suggestions["count"] as? Int)
-        XCTAssertEqual(ComposerMenu.suggestionIcon, suggestions["icon"] as? String)
+        XCTAssertNil(try fixture()["suggestions"])
+        XCTAssertEqual(ComposerMenu.submenuRowHeight, (try fixture()["submenuRowHeight"] as? NSNumber)?.doubleValue)
+        XCTAssertEqual(ComposerMenu.submenuMaxRows, try fixture()["submenuMaxRows"] as? Int)
     }
 
     func testImplementButtonLabel() throws {

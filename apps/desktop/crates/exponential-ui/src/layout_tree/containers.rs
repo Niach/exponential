@@ -23,6 +23,7 @@ impl Builder<'_, '_> {
             .unwrap_or_default();
         self.style_default(index, &[("display", json!("flex")), ("flexDirection", json!("column"))]);
         let fill = bool_prop(&owner.props, "fill");
+        let closable = matches!(str_prop(&owner.props, "closable"), Some("hover" | "always"));
         let list = self.part(&owner, "list", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "row", "alignItems": "stretch", "alignSelf": if fill { "stretch" } else { "flex-start" }}), json!({}));
         for (i, tab) in tabs.iter().enumerate() {
             let label = tab.get("label").map(js).unwrap_or_default();
@@ -45,6 +46,21 @@ impl Builder<'_, '_> {
                 self.add_state(t, "selected");
             }
             self.nodes[t as usize].pressable = true;
+            // EXP-1259: the close glyph after the title (`closable`); a
+            // `hover` one shows while its tab (or itself) is hovered or
+            // focused: the surface lends it the tab's states.
+            if closable {
+                let name = tab.get("label").map(js).unwrap_or_default();
+                let label = self.string_with("closeTab", &[("name", &name)]);
+                let c = self.part_in(list, &owner, "close", "Button", NodeKind::Leaf, json!({"flexShrink": 0, "alignSelf": "center"}), json!({"icon": super::builtin_icon("Tabs.close"), "label": label, "variant": "ghost", "size": "icon", "value": values[i]}), &format!(".{i}"));
+                self.nodes[c as usize].pressable = true;
+            }
+        }
+        // EXP-1259: the + after the last tab (`addable`, fires `new`).
+        if bool_prop(&owner.props, "addable") {
+            let label = self.string("newTab");
+            let n = self.part_in(list, &owner, "new", "Button", NodeKind::Leaf, json!({"flexShrink": 0, "alignSelf": "center"}), json!({"icon": super::builtin_icon("Tabs.new"), "label": label, "variant": "ghost", "size": "icon"}), "");
+            self.nodes[n as usize].pressable = true;
         }
         let content = self.part(&owner, "content", "Box", NodeKind::Container, json!({"display": "flex", "flexDirection": "column"}), json!({}));
         let count = self.child_keys(node, scope).len();

@@ -741,7 +741,7 @@ describe(`openStackMember (EXP-1248)`, () => {
       [link(2)],
       [],
       [link(3)], // B's children: C (issue rows)
-      [{ prUrl: `https://github.com/owner/repo/pull/300`, branch: `exp/chat-1a2b3c4d` }], // a run PR
+      [{ prUrl: `https://github.com/owner/repo/pull/300`, branch: `exp/chat-1a2b3c4d` }], // a session PR
     ])
     await expect(
       openStackMember(fake, { issueId: ID(1), teamId: `ws-1` })

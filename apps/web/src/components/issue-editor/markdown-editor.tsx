@@ -39,13 +39,10 @@ import {
   useIssueRefs,
   type ResolvedIssueRef,
 } from "@/components/issue-ref-provider"
-import { useIssueSearchResults } from "@/hooks/use-issue-search-results"
-
-const NO_ISSUE_ROWS: ResolvedIssueRef[] = []
+import { IssueRefSearch } from "@/components/issue-ref-search"
 import { useMentions } from "@/components/mention-provider"
 import {
   EmojiCandidateRow,
-  IssueCandidateRow,
   UserCandidateRow,
 } from "@/components/autocomplete-rows"
 import { EditorSelectionRail } from "@/components/issue-editor/selection-rail"
@@ -274,10 +271,36 @@ export const MarkdownEditor = forwardRef<
     const mentionsRef = useRef(mentions)
     mentionsRef.current = mentions
 
-    // In-progress `@`/`#` token at the caret (reported by the autocomplete
+    // In-progress `@`/`:` token at the caret (reported by the autocomplete
     // extension) driving the floating candidate menu below.
     const [autocomplete, setAutocomplete] =
       useState<EditorAutocompleteActive | null>(null)
+    // SLOP-28: a `#` token opens THE search list instead (`IssueRefSearch`,
+    // its own focused input), latched here because the editor's blur — the
+    // input taking focus — reports "no token" while it is open. The `#` an
+    // Escape dismissed stays dismissed while typing continues in its token.
+    const [issueSearch, setIssueSearch] = useState<{
+      from: number
+      to: number
+      query: string
+    } | null>(null)
+    const dismissedHashRef = useRef<number | null>(null)
+    const onAutocompleteRef = useRef<
+      (active: EditorAutocompleteActive | null) => void
+    >(() => {})
+    onAutocompleteRef.current = (active) => {
+      if (active?.kind === `issueRef`) {
+        setAutocomplete(null)
+        if (issueRefsRef.current === null) return
+        if (dismissedHashRef.current === active.from) return
+        setIssueSearch({ from: active.from, to: active.to, query: active.query })
+        return
+      }
+      // The blur the input's focus causes reports null too: only a token
+      // that is gone while the editor still has the caret ends a dismissal.
+      if (active !== null || editor?.view.hasFocus()) dismissedHashRef.current = null
+      setAutocomplete(active)
+    }
     const keyHandlerRef = useRef<(event: KeyboardEvent) => boolean>(() => false)
     // The positioning origin for the table hover overlay (EXP-726).
     const wrapperRef = useRef<HTMLDivElement | null>(null)
@@ -375,7 +398,7 @@ export const MarkdownEditor = forwardRef<
         ArrowInputRules,
         EditorAutocompleteExtension.configure({
           // The active row resets itself: a new token is a new `resetKey`.
-          onStateChange: (active) => setAutocomplete(active),
+          onStateChange: (active) => onAutocompleteRef.current(active),
           onKeyDown: (event) => keyHandlerRef.current(event),
         }),
         Placeholder.configure({
@@ -605,17 +628,6 @@ export const MarkdownEditor = forwardRef<
       autocomplete?.kind === `mention` && mentions
         ? mentions.search(autocomplete.query)
         : []
-    // EXP-892: the shared engine — local ranking now, the server's full-text
-    // hits spliced in behind once they answer.
-    const issueMenuOpen = autocomplete?.kind === `issueRef` && issueRefs !== null
-    const { results: issueCandidates } = useIssueSearchResults({
-      teamId: issueRefs?.teamId,
-      query: issueMenuOpen ? autocomplete.query : ``,
-      rows: issueMenuOpen ? issueRefs.rows : NO_ISSUE_ROWS,
-      limit: 6,
-      resolveHit: (hit) => issueRefs?.fromHit(hit) ?? null,
-      server: issueMenuOpen,
-    })
     // EXP-551: `:shortcode` candidates from the lazily loaded emoji dataset
     // (the chunk starts loading the first time a `:xx` token appears).
     const emojiData = useEmojiData(autocomplete?.kind === `emoji`)
@@ -628,11 +640,9 @@ export const MarkdownEditor = forwardRef<
     const candidates =
       autocomplete?.kind === `mention`
         ? mentionCandidates
-        : autocomplete?.kind === `issueRef`
-          ? issueCandidates
-          : autocomplete?.kind === `emoji`
-            ? emojiCandidates
-            : []
+        : autocomplete?.kind === `emoji`
+          ? emojiCandidates
+          : []
     const candidateCount = candidates.length
 
     // EXP-941: the arrows, the wrap, the plain-Enter/Tab accept and the
@@ -683,8 +693,6 @@ export const MarkdownEditor = forwardRef<
     const insertActive = (index: number) => {
       if (autocomplete?.kind === `mention` && mentionCandidates[index]) {
         insertToken(`@${mentionCandidates[index].email}`)
-      } else if (autocomplete?.kind === `issueRef` && issueCandidates[index]) {
-        insertToken(`#${issueCandidates[index].identifier}`)
       } else if (autocomplete?.kind === `emoji` && emojiCandidates[index]) {
         insertEmoji(emojiCandidates[index], true)
       }
@@ -749,6 +757,42 @@ export const MarkdownEditor = forwardRef<
     })()
     const closeMenu = useCallback(() => setAutocomplete(null), [])
 
+    // The `#` search's three ways out (SLOP-28): a pick writes `#IDENT `, an
+    // Escape leaves the token as typed, a Backspace in its empty input
+    // deletes it; the caret lands where the text now ends.
+    const pickIssueRef = (issue: ResolvedIssueRef) => {
+      const range = issueSearch
+      setIssueSearch(null)
+      if (!range || !editor) return
+      editor
+        .chain()
+        .focus()
+        .command(({ tr }) => {
+          tr.insertText(`#${issue.identifier} `, range.from, range.to)
+          return true
+        })
+        .run()
+    }
+    const dismissIssueSearch = () => {
+      if (issueSearch) dismissedHashRef.current = issueSearch.from
+      setIssueSearch(null)
+    }
+    const deleteIssueHash = () => {
+      const range = issueSearch
+      setIssueSearch(null)
+      if (!range || !editor) return
+      editor.chain().focus().deleteRange({ from: range.from, to: range.to }).run()
+    }
+    const issueSearchAnchor = ((): TypeaheadAnchor | null => {
+      if (!editor || !issueSearch) return null
+      try {
+        const coords = editor.view.coordsAtPos(issueSearch.from)
+        return { top: coords.top, bottom: coords.bottom, left: coords.left }
+      } catch {
+        return null
+      }
+    })()
+
     return (
       <div
         ref={wrapperRef}
@@ -808,16 +852,6 @@ export const MarkdownEditor = forwardRef<
                   onHover={() => typeahead.setActive(i)}
                 />
               ))}
-            {autocomplete.kind === `issueRef` &&
-              issueCandidates.map((issue, i) => (
-                <IssueCandidateRow
-                  key={issue.id}
-                  issue={issue}
-                  active={i === activeIndex}
-                  onSelect={() => insertActive(i)}
-                  onHover={() => typeahead.setActive(i)}
-                />
-              ))}
             {autocomplete.kind === `emoji` &&
               emojiCandidates.map((emoji, i) => (
                 <EmojiCandidateRow
@@ -831,6 +865,23 @@ export const MarkdownEditor = forwardRef<
                 />
               ))}
           </TypeaheadMenu>
+        ) : null}
+        {editable ? (
+          <IssueRefSearch
+            request={
+              issueSearch
+                ? {
+                    start: issueSearch.from,
+                    query: issueSearch.query,
+                    anchor: issueSearchAnchor,
+                  }
+                : null
+            }
+            onPick={pickIssueRef}
+            onDismiss={dismissIssueSearch}
+            onBackspaceEmpty={deleteIssueHash}
+            onReturnFocus={() => editor?.commands.focus()}
+          />
         ) : null}
       </div>
     )

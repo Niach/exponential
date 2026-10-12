@@ -3,8 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import { TeamRepositoriesSection } from "@/components/team/repositories-section"
 
 // EXP-365/FEED-42/SLOP-7 regressions under test: picking a repo row adds it
-// at once (tap adds, ×4) and closes the dialog, a failed add must stay
-// visible inside the open dialog, and the connection block renders the
+// at once (tap adds, ×4) and closes the dialog, a failed add keeps the
+// dialog open and toasts (FEED-79), and the connection block renders the
 // viewer's own GitHub connection (not linked → Connect GitHub opens the
 // guided page; linked → the login, the installed accounts with Configure
 // links, Install on another account; expired → Reconnect) with a
@@ -20,6 +20,12 @@ const mockState = vi.hoisted(() => ({
   setDefaultBranchMutate: vi.fn(),
   openGithubConnect: vi.fn(() => true),
   openGithubPopup: vi.fn(() => true),
+  toastError: vi.fn(),
+}))
+
+vi.mock(`sonner`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("sonner")>()),
+  toast: { success: vi.fn(), error: mockState.toastError },
 }))
 
 vi.mock(`@/lib/trpc-client`, () => ({
@@ -149,6 +155,7 @@ describe(`TeamRepositoriesSection`, () => {
       .mockResolvedValue({ repository: {} })
     mockState.openGithubConnect.mockClear()
     mockState.openGithubPopup.mockClear()
+    mockState.toastError.mockClear()
   })
 
   it(`tapping a row adds it immediately and closes the dialog`, async () => {
@@ -168,7 +175,7 @@ describe(`TeamRepositoriesSection`, () => {
     )
   })
 
-  it(`a failed add keeps the dialog open with the error inside it`, async () => {
+  it(`a failed add keeps the dialog open and toasts the error`, async () => {
     mockState.addMutate.mockRejectedValue(
       new Error(`You don't have access to siteviewer-app/app on GitHub.`)
     )
@@ -179,8 +186,15 @@ describe(`TeamRepositoriesSection`, () => {
 
     fireEvent.click(await screen.findByText(`siteviewer-app/app`))
 
-    // Error renders, and the dialog (its search input) is still up.
-    await screen.findByText(/You don't have access/)
+    // The failure toasts, and the dialog (its search input) is still up.
+    await waitFor(() =>
+      expect(mockState.toastError).toHaveBeenCalledWith(
+        `Couldn't add the repository`,
+        expect.objectContaining({
+          description: `You don't have access to siteviewer-app/app on GitHub.`,
+        })
+      )
+    )
     expect(screen.getByPlaceholderText(`Search repositories…`)).toBeTruthy()
   })
 
@@ -221,7 +235,7 @@ describe(`TeamRepositoriesSection`, () => {
     )
   })
 
-  it(`a GitHub-grant FORBIDDEN add shows the reconnect arm inline`, async () => {
+  it(`a GitHub-grant FORBIDDEN add toasts with a Reconnect GitHub action`, async () => {
     const { TRPCClientError } = await import(`@trpc/client`)
     const err = new TRPCClientError(
       `You need push access to siteviewer-app/app on GitHub to connect it. Reconnect GitHub in team settings.`
@@ -234,12 +248,18 @@ describe(`TeamRepositoriesSection`, () => {
     )
     fireEvent.click(await screen.findByText(`siteviewer-app/app`))
 
-    await screen.findByText(
+    await waitFor(() => expect(mockState.toastError).toHaveBeenCalledTimes(1))
+    const [title, options] = mockState.toastError.mock.calls[0] as [
+      string,
+      { description: string; action: { label: string; onClick: () => void } },
+    ]
+    expect(title).toBe(`Couldn't add the repository`)
+    expect(options.description).toBe(
       `GitHub says you can’t push to this repository, or your connection expired. Reconnect GitHub and try again.`
     )
-    expect(
-      screen.getAllByRole(`button`, { name: `Reconnect GitHub` }).length
-    ).toBeGreaterThan(0)
+    expect(options.action.label).toBe(`Reconnect GitHub`)
+    options.action.onClick()
+    expect(mockState.openGithubConnect).toHaveBeenCalledWith({ teamId: `team-1` })
   })
 
   // EXP-462: the row's branch badge is a picker — branches load on open, a

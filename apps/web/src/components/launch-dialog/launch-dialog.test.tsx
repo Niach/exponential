@@ -7,12 +7,16 @@ import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
 // EXP-1019: the launcher's SHELL. The composer inside it has its own suite
 // (`launch-composer.test.tsx`) — this only proves the things the shell owns:
 // it opens on a request, it hands the seed to the composer once, it gets out
-// of the way when the run it started is under way — and NOT before: while a
-// start is pending the watch and the deadline live in its `useRemoteStart`,
-// so a dismissal is refused. EXP-870: the request's origin reaches that hook.
+// of the way when the run it started LANDS — and NOT before: while a start is
+// pending (the composer's `starting`, EXP-1271) the watch and the deadline
+// live in its hooks, so a dismissal is refused; a timeout leaves it open.
+// EXP-870: the request's origin reaches the watch.
 
 const steerEnabled = vi.hoisted(() => ({ value: true }))
-const remoteState = vi.hoisted(() => ({ sentTo: null as string | null }))
+const composerState = vi.hoisted(() => ({
+  starting: null as { deviceLabel: string; since: number } | null,
+  onLanded: undefined as (() => void) | undefined,
+}))
 const remoteCalls = vi.hoisted(() => [] as Record<string, unknown>[])
 const composerCalls = vi.hoisted(
   () => [] as { teamId: string; seed: unknown }[]
@@ -33,13 +37,15 @@ vi.mock(`@/hooks/use-team-data`, () => ({
 vi.mock(`@/hooks/use-remote-start`, () => ({
   useRemoteStart: (options: Record<string, unknown>) => {
     remoteCalls.push(options)
-    return { sentTo: remoteState.sentTo, starting: false }
+    return { sentTo: null, starting: false }
   },
 }))
 vi.mock(`@/hooks/use-launch-composer`, () => ({
-  useLaunchComposer: (args: { teamId: string; seed: unknown }) => {
+  useLaunchComposer: (args: { teamId: string; seed: unknown; onLanded?: () => void }) => {
     composerCalls.push({ teamId: args.teamId, seed: args.seed })
+    composerState.onLanded = args.onLanded
     return {
+      starting: composerState.starting,
       subject: { kind: `action`, id: `a1`, inputs: {} },
       selectedAction: { id: `a1`, name: `Release train` },
       checkedIssues: [],
@@ -66,7 +72,8 @@ beforeEach(() => {
   closeLaunchDialog()
   composerCalls.length = 0
   remoteCalls.length = 0
-  remoteState.sentTo = null
+  composerState.starting = null
+  composerState.onLanded = undefined
   steerEnabled.value = true
 })
 
@@ -87,26 +94,26 @@ describe(`LaunchDialogHost`, () => {
     expect(composerCalls[0]?.seed).toEqual({ issueIds: [], actionId: `a1` })
   })
 
-  it(`shuts once the started run is under way, not at send time`, () => {
+  it(`shuts once the started run lands, not at send time`, () => {
     const { rerender } = render(<LaunchDialogHost team={team} />)
     act(() => requestLaunchDialog({ issueIds: [`i1`] }))
-    // Sent: the watch that opens the run lives in the dialog, so it stays.
-    remoteState.sentTo = `buildbox`
+    // Starting: the watch that opens the run lives in the dialog, so it stays.
+    composerState.starting = { deviceLabel: `buildbox`, since: 0 }
     rerender(<LaunchDialogHost team={team} />)
     expect(screen.getByTestId(`launch-dialog`)).toBeTruthy()
-    // Cleared: the run's row landed (or the deadline passed) — done here.
+    // The run's row landed: done here.
     act(() => {
-      remoteState.sentTo = null
-      rerender(<LaunchDialogHost team={team} />)
+      composerState.starting = null
+      composerState.onLanded?.()
     })
     expect(screen.queryByTestId(`launch-dialog`)).toBeNull()
   })
 
-  it(`refuses a dismissal while a start is pending, and shuts once it lands`, () => {
+  it(`refuses a dismissal while a start is pending, and stays after a timeout`, () => {
     const { rerender } = render(<LaunchDialogHost team={team} />)
     act(() => requestLaunchDialog({ issueIds: [`i1`] }))
     act(() => {
-      remoteState.sentTo = `buildbox`
+      composerState.starting = { deviceLabel: `buildbox`, since: 0 }
       rerender(<LaunchDialogHost team={team} />)
     })
     // Escape at the layer, and the close paths that funnel through
@@ -115,11 +122,14 @@ describe(`LaunchDialogHost`, () => {
     expect(screen.getByTestId(`launch-dialog`)).toBeTruthy()
     fireEvent.click(screen.getByRole(`button`, { name: `Close` }))
     expect(screen.getByTestId(`launch-dialog`)).toBeTruthy()
-    // The watch and the deadline stayed mounted: the falling edge shuts it.
+    // A timeout (no landing) returns the composer to idle: the dialog stays,
+    // and dismisses freely again.
     act(() => {
-      remoteState.sentTo = null
+      composerState.starting = null
       rerender(<LaunchDialogHost team={team} />)
     })
+    expect(screen.getByTestId(`launch-dialog`)).toBeTruthy()
+    fireEvent.click(screen.getByRole(`button`, { name: `Close` }))
     expect(screen.queryByTestId(`launch-dialog`)).toBeNull()
   })
 

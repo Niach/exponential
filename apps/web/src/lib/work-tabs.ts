@@ -16,6 +16,10 @@
 //   * A run that ends because its PR MERGED takes its tab with it
 //     (`closeMergedRunTabs`); every other ending leaves the tab standing.
 //   * The ACTIVE tab is derived from the URL, never stored.
+//   * EXP-1255: the strip's "+" (and Alt/Option+T) opens ONE "New run" tab
+//     (`kind: 'new'`) hosting the home column (the Agent page). It turns
+//     INTO the run it starts once that run lands (`landNewRun`); runs
+//     started anywhere else still only show in the sidebar's Running.
 //
 // Pure: no React, no storage, no router — every rule is a test
 // (`work-tabs.test.ts`). The store is `hooks/use-work-tabs.ts`, the URL→tab
@@ -40,6 +44,23 @@ export type WorkTab =
       from: string | null
       live: boolean
     }
+  | {
+      /** EXP-1255: the New run tab — the home composer, no work item yet
+       *  (never bound: `runId` stays null, `live` false). */
+      kind: `new`
+      runId: string | null
+      from: string | null
+      live: boolean
+    }
+
+/** EXP-1255: the one New run tab. */
+export const NEW_RUN_TAB: Extract<WorkTab, { kind: `new` }> = {
+  kind: `new`,
+  runId: null,
+  from: null,
+  live: false,
+}
+export const NEW_RUN_TAB_KEY = `new`
 
 export interface WorkTabsState {
   tabs: WorkTab[]
@@ -54,6 +75,8 @@ export function tabKey(tab: WorkTab): string {
       return `issue:${tab.issueId}`
     case `run`:
       return `run:${tab.runId}`
+    case `new`:
+      return NEW_RUN_TAB_KEY
   }
 }
 
@@ -339,6 +362,7 @@ export function reconcileLive(
   let changed = false
 
   const tabs: WorkTab[] = state.tabs.map((tab) => {
+    if (tab.kind === `new`) return tab
     if (tab.kind === `run`) {
       const live = liveById.has(tab.runId)
       if (live) bound.add(tab.runId)
@@ -364,6 +388,53 @@ export function reconcileLive(
   })
 
   return changed ? { tabs } : state
+}
+
+// ── The New run tab (EXP-1255) ───────────────────────────────────────────────
+
+/** "+" / Alt+T: open the New run tab at the end — or keep the one that is
+ * already open (there is only ever one). */
+export function openNewRunTab(state: WorkTabsState): WorkTabsState {
+  if (state.tabs.some((tab) => tab.kind === `new`)) return state
+  return { ...state, tabs: [...state.tabs, NEW_RUN_TAB] }
+}
+
+/** Whether the URL is the New run tab's page (the Agent page). */
+export function isNewRunPath(pathname: string): boolean {
+  return /^\/t\/[^/]+\/agent\/?$/.test(pathname)
+}
+
+/**
+ * The run started from the New run tab LANDED: the tab turns into that run's
+ * tab in place (an issue run = its issue's tab on the Run face, else a
+ * run-only tab). A run whose work item already has a tab elsewhere takes the
+ * New run tab's place, and the duplicate goes. No New run tab = nothing.
+ */
+export function landNewRun(state: WorkTabsState, run: LiveRun): WorkTabsState {
+  const at = state.tabs.findIndex((tab) => tab.kind === `new`)
+  if (at < 0) return state
+  const existing = state.tabs.findIndex((tab) =>
+    run.issueId
+      ? tab.kind === `issue` && tab.issueId === run.issueId
+      : tab.kind === `run` && tab.runId === run.runId
+  )
+  const next: WorkTab =
+    existing >= 0
+      ? state.tabs[existing]!
+      : run.issueId
+        ? {
+            kind: `issue`,
+            issueId: run.issueId,
+            face: `run`,
+            runId: run.runId,
+            from: null,
+            live: false,
+          }
+        : { kind: `run`, runId: run.runId, from: null, live: false }
+  const tabs = state.tabs.flatMap((tab, index) =>
+    index === at ? [next] : index === existing ? [] : [tab]
+  )
+  return { ...state, tabs }
 }
 
 /** Close tabs. EXP-923: EVERY tab closes again — the live exception went with
@@ -431,6 +502,8 @@ export function tabHref(
 ): { to: string; params: Record<string, string>; search: { from?: string } } | null {
   const search = tab.from ? { from: tab.from } : {}
   switch (tab.kind) {
+    case `new`:
+      return { to: `/t/$teamSlug/agent`, params: { teamSlug }, search: {} }
     case `run`:
       return {
         to: `/t/$teamSlug/sessions/$sessionId`,
@@ -540,6 +613,8 @@ function parseTab(value: unknown): WorkTab | null {
         from: optStr(raw.from),
         live: raw.live === true,
       }
+    case `new`:
+      return NEW_RUN_TAB
     // A `support` tab from an older build (helpdesk, gone in SLOP-4) is
     // simply dropped.
     default:

@@ -79,19 +79,19 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "controls::rows::disclosure_header",
         "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/rows.rs",
-        "note": "EXP-963: the steer feed's tool groups, Exponential runs, subagent lanes and workflow agents fold on it"
+        "note": "EXP-963: the steer feed's tool groups and Exponential runs fold on it (EXP-1240: lanes moved into the Work card)"
       },
       "ios": {
         "status": "leftover",
-        "symbol": "ToolGroupRow / ExpToolGroupRow / SubagentGroupRow",
+        "symbol": "ToolGroupRow / ExpToolGroupRow",
         "file": "apps/ios/Exponential/UI/Session/AgentSessionView.swift",
-        "note": "three private structs repeat the 11pt chevron row, each with its own @State expanded"
+        "note": "two private structs repeat the 11pt chevron row, each with its own @State expanded"
       },
       "android": {
         "status": "leftover",
-        "symbol": "ToolGroupRow / ExpToolGroupRow / SubagentGroupRow",
+        "symbol": "ToolGroupRow / ExpToolGroupRow",
         "file": "apps/android/app/src/main/java/com/exponential/app/ui/session/AgentSessionScreen.kt",
-        "note": "the same three private composables, each rebuilding the chevron row"
+        "note": "the same two private composables, each rebuilding the chevron row"
       }
     }
   },
@@ -227,7 +227,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "list-item",
     "title": "List item",
-    "blurb": "EXP-1248 (fixture `list-item.json`, ×4): THE anatomy every entity row derives from, on a flat list row: [tree guides][lead glyph in a 14px box at x = 12 + 14·depth][mono identifier][title][caption, two-line rows only][trailing meta], which is the catalog `Row` (`depth`, `icon`, `identifier`, `title`, `subtitle`, `meta`). The lead box sits at the same x on every row of a depth, so glyphs and titles align and a child's elbow ends at its own lead. No fold chevron, no trailing chevron, no buttons: a row opens, its menu is a context menu / long-press. Two densities: `compact` (one line, 28-32px: the sidebar's Running, pinned rows) and `list` (36px one-liners, 52px with a caption). Derivations differ only in lead and meta: SessionRow = the run mark + the host device's glyph; an issue row = the status glyph + the assignee; PrRow = the PR ring (a stack swaps the guides for its 1px rail).",
+    "blurb": "EXP-1248 (fixture `list-item.json`, ×4): THE anatomy every entity row derives from, on a flat list row: [tree guides][lead glyph in a 14px box at x = 12 + 14·depth][mono identifier][title][caption, two-line rows only][trailing meta], which is the catalog `Row` (`depth`, `icon`, `identifier`, `title`, `subtitle`, `meta`). The lead box sits at the same x on every row of a depth, so glyphs and titles align and a child's elbow ends at its own lead. No fold chevron, no trailing chevron, no buttons: a row opens, its menu is a context menu / long-press. Two densities: `compact` (one line, 28-32px: the sidebar's Running, pinned rows) and `list` (36px one-liners, 52px with a caption). Derivations differ only in lead and meta: SessionRow = the session mark + the host device's glyph; an issue row = the status glyph + the assignee; PrRow = the PR ring (a stack swaps the guides for its 1px rail).",
     "components": [
       "Row"
     ],
@@ -261,7 +261,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "tree-guides",
     "title": "Tree guides",
-    "blurb": "EXP-965: the connector every NESTED list draws instead of bare indentation. A row used to hang under its parent by left padding alone, so three levels of runs read as three arbitrary margins. The indent stays 14px per level; on top of it a row at depth d draws, in its PARENT's 14px gutter, a 1px vertical from its top edge to its vertical centre, a rounded elbow (radius 5) and a stub out to the gutter's right edge — and the vertical carries on to the bottom edge when a sibling follows (a tee). Every ancestor level whose subtree continues below draws a straight full-height line, so a deep child stays attached to every level above it. One hairline weight throughout (the strong glass stroke); a parent draws nothing of its own. The RULE is pure and shared ×4 — it reads nothing but the visible rows' depths — so only the painting is per-platform. In the catalog the guides are a PART of `Row` (its `depth`, inside a `Section tree`), filled by the core's post-expansion pass and never authored on their own.",
+    "blurb": "EXP-965: the connector every NESTED list draws instead of bare indentation. A row used to hang under its parent by left padding alone, so three levels of sessions read as three arbitrary margins. The indent stays 14px per level; on top of it a row at depth d draws, in its PARENT's 14px gutter, a 1px vertical from its top edge to its vertical centre, a rounded elbow (radius 5) and a stub out to the gutter's right edge — and the vertical carries on to the bottom edge when a sibling follows (a tee). Every ancestor level whose subtree continues below draws a straight full-height line, so a deep child stays attached to every level above it. One hairline weight throughout (the strong glass stroke); a parent draws nothing of its own. The RULE is pure and shared ×4 — it reads nothing but the visible rows' depths — so only the painting is per-platform. In the catalog the guides are a PART of `Row` (its `depth`, inside a `Section tree`), filled by the core's post-expansion pass and never authored on their own.",
     "components": [
       "Row"
     ],
@@ -572,7 +572,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "text-button",
     "title": "Text button",
-    "blurb": "EXP-962: a control made of WORDS — `size=\"inline\"`, 12px, no box, no height of its own, sitting in the run of muted text around it. Two variants, and the difference is what happens when it is pressed: `text` is muted, brightens under the pointer and never underlines, because it toggles something IN PLACE (a fold's Show more / Show less, \"Back to the current step\"); `link` takes the primary colour and underlines on hover, because it GOES somewhere (a session band's \"Continues in a newer run\", a stack band's `↓ #APP-14`). Anything that wants a box is the pill or the primary submit — four call sites hand-drew one of these two shapes before.",
+    "blurb": "EXP-962: a control made of WORDS — `size=\"inline\"`, 12px, no box, no height of its own, sitting in the run of muted text around it. Two variants, and the difference is what happens when it is pressed: `text` is muted, brightens under the pointer and never underlines, because it toggles something IN PLACE (a fold's Show more / Show less, \"Back to the current step\"); `link` takes the primary colour and underlines on hover, because it GOES somewhere (a session band's \"Continues in a newer session\", a stack band's `↓ #APP-14`). Anything that wants a box is the pill or the primary submit — four call sites hand-drew one of these two shapes before.",
     "components": [
       "Button"
     ],
@@ -667,7 +667,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "entity-chip",
     "title": "Entity chip",
-    "blurb": "The issue chip's box, opened to every kind an Exponential MCP answer can name (EXP-920): a settled tool row in a run transcript draws ONE chip per entity it touched — board, action, comment, run, label, status, workflow, device, member… — as a glyph and a short label in the SAME rounded rect the issue chip owns (the issue chip now renders THROUGH it, so the two cannot drift by a pixel). An issue keeps its three parts (status glyph · mono identifier · title); every other kind draws its icon CONCEPT (`entityRefIcon`) and its name; a LIST answer folds into one chip that counts its members in the product noun (`3 issues`, `1 run`) and never navigates — its card lists them. Label, detail and grouping are the contract's (`@exp/domain-contract/entity-preview`, fixture-locked ×4). A row the viewer has not synced draws the same chip muted with no target and no card.",
+    "blurb": "The issue chip's box, opened to every kind an Exponential MCP answer can name (EXP-920): a settled tool row in a session transcript draws ONE chip per entity it touched — board, action, comment, session, label, status, workflow, device, member… — as a glyph and a short label in the SAME rounded rect the issue chip owns (the issue chip now renders THROUGH it, so the two cannot drift by a pixel). An issue keeps its three parts (status glyph · mono identifier · title); every other kind draws its icon CONCEPT (`entityRefIcon`) and its name; a LIST answer folds into one chip that counts its members in the product noun (`3 issues`, `1 session`) and never navigates — its card lists them. Label, detail and grouping are the contract's (`@exp/domain-contract/entity-preview`, fixture-locked ×4). A row the viewer has not synced draws the same chip muted with no target and no card.",
     "components": [
       "Chip"
     ],
@@ -880,7 +880,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "meter",
     "title": "Meter",
-    "blurb": "The ONE bar every usage surface draws — the rate-limit windows, the run's context, the mini line. A capsule track in the strong stroke with a capsule fill, and exactly three tones: foreground at 30% normally, the yellow semantic from 75%, the destructive from 95%. The height is the caller's (6px full, 4px mini); the tone is the only decision. Before EXP-909 there were two bars two rows apart — a bare Progress with the primary fill, and a hand-rolled span with its own tone map — reading the same percent in different colours.",
+    "blurb": "The ONE bar every usage surface draws — the rate-limit windows, the session's context, the mini line. A capsule track in the strong stroke with a capsule fill, and exactly three tones: foreground at 30% normally, the yellow semantic from 75%, the destructive from 95%. The height is the caller's (6px full, 4px mini); the tone is the only decision. Before EXP-909 there were two bars two rows apart — a bare Progress with the primary fill, and a hand-rolled span with its own tone map — reading the same percent in different colours.",
     "components": [
       "Meter"
     ],
@@ -910,7 +910,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "segmented-bar",
     "title": "Segmented bar",
-    "blurb": "EXP-1051: the context window's breakdown — the Meter's track, filled left to right by one slice per layer the run's context_layout named (base, tools, playbook, team prompt, project, task) and the derived conversation, in the contract's tones, clipped at 100% and never rescaled; free space is the bare track. Three hairline ticks mark the compaction floor (50%) and the two usage thresholds (75%, 95%). The legend swatch beside each row reuses the slice's tone, so a square and its slice cannot disagree.",
+    "blurb": "EXP-1051: the context window's breakdown — the Meter's track, filled left to right by one slice per layer the session's context_layout named (base, tools, playbook, team prompt, project, task) and the derived conversation, in the contract's tones, clipped at 100% and never rescaled; free space is the bare track. Three hairline ticks mark the compaction floor (50%) and the two usage thresholds (75%, 95%). The legend swatch beside each row reuses the slice's tone, so a square and its slice cannot disagree.",
     "components": [
       "Meter"
     ],
@@ -1136,11 +1136,11 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "ok",
         "symbol": "ActionsView::render_nudge",
         "file": "apps/desktop/crates/ui/src/actions_view.rs",
-        "note": "the same dashed strip under the actions list, opening the creator run"
+        "note": "the same dashed strip under the actions list, opening the creator session"
       },
       "ios": {
         "status": "n/a",
-        "note": "the creator run needs a device: ActionsListView.emptyState is a read-only page empty instead"
+        "note": "the creator session needs a device: ActionsListView.emptyState is a read-only page empty instead"
       },
       "android": {
         "status": "n/a",
@@ -1151,29 +1151,150 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "skeleton",
     "title": "Skeleton",
-    "blurb": "A pulsing block standing in for text that is still loading, at the SHAPE of what will arrive — a row's worth of bars, never a spinner in a list. It is a web and desktop affordance only: both natives answer a pending screen with a centred spinner, because a phone list is short enough that a skeleton flashes before it reads.",
+    "blurb": "EXP-1259 (feedback-states.json `placeholder`): skeleton ROWS in the real row geometry stand in for a list that is loading: the row's height, a dot where its glyph sits, bars where its text sits, hairlines between rows, one slow opacity pulse (0.45 to 0.9 over 1.6 s), static under reduce motion. It replaces every Loading text and the phones' centred first-load spinners. The catalog's `Skeleton rows` is the same piece.",
     "components": [
       "Skeleton"
     ],
     "status": {
       "web": {
         "status": "ok",
-        "symbol": "Skeleton",
+        "symbol": "SkeletonRows",
         "file": "packages/ui/src/skeleton.tsx"
       },
       "desktop": {
         "status": "ok",
-        "symbol": "controls::feedback::skeleton",
-        "file": "apps/desktop/crates/exponential-ui-gpui/src/controls/feedback.rs",
-        "note": "radius MD on the theme skeleton fill, breathing 100% to 50% over the web 2s pulse on the standard curve"
+        "symbol": "feedback::skeleton_rows",
+        "file": "apps/desktop/crates/ui/src/feedback.rs"
+      },
+      "ios": {
+        "status": "ok",
+        "symbol": "SkeletonRows",
+        "file": "apps/ios/ExpUI/Sources/Feedback/Spinner.swift"
+      },
+      "android": {
+        "status": "ok",
+        "symbol": "SkeletonRows",
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/Feedback.kt"
+      }
+    }
+  },
+  {
+    "id": "feedback-inline",
+    "title": "Inline spinner",
+    "blurb": "EXP-1259 (feedback-states.json `inline`): a 10 px spinner and a progressive word in a band, header or caption (Saving, then Saved). The list-head spinner of a refetching band is this primitive. The catalog's `Spinner size xs`.",
+    "components": [
+      "Spinner",
+      "Section"
+    ],
+    "status": {
+      "web": {
+        "status": "ok",
+        "symbol": "Spinner",
+        "file": "packages/ui/src/feedback.tsx"
+      },
+      "desktop": {
+        "status": "ok",
+        "symbol": "feedback::spinner",
+        "file": "apps/desktop/crates/ui/src/feedback.rs"
+      },
+      "ios": {
+        "status": "ok",
+        "symbol": "InlineSpinner",
+        "file": "apps/ios/ExpUI/Sources/Feedback/Spinner.swift"
+      },
+      "android": {
+        "status": "ok",
+        "symbol": "InlineSpinner",
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/Feedback.kt"
+      }
+    }
+  },
+  {
+    "id": "feedback-pending",
+    "title": "Pending button",
+    "blurb": "EXP-1259 (feedback-states.json `pending`): a button that started something refuses presses at once, then after 150 ms swaps its icon slot for the spinner and its label for the progressive word (Starting), never narrower than it was. The catalog's `Button loading` + `pendingLabel`.",
+    "components": [
+      "Button"
+    ],
+    "status": {
+      "web": {
+        "status": "ok",
+        "symbol": "Button pending + pendingLabel",
+        "file": "packages/ui/src/button.tsx"
+      },
+      "desktop": {
+        "status": "ok",
+        "symbol": "feedback::pending (the 150 ms gate)",
+        "file": "apps/desktop/crates/ui/src/feedback.rs"
+      },
+      "ios": {
+        "status": "ok",
+        "symbol": "PendingLabel",
+        "file": "apps/ios/ExpUI/Sources/Feedback/Spinner.swift"
+      },
+      "android": {
+        "status": "ok",
+        "symbol": "PendingPill",
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/Feedback.kt"
+      }
+    }
+  },
+  {
+    "id": "searchable-list",
+    "title": "Search list",
+    "blurb": "EXP-1259 (search-list.json): THE search list. An input row (40 px, the search glyph, the result count once a query is typed) over the picker rows, at most eight visible, the rest scrolling under a 24 px bottom fade. The top row is highlighted, arrows move it, Enter or Tab pick it. It is the `#` typeahead, the issue pickers, the global search and the composer menu's searchable submenus. The catalog's `SearchList` and `menuItem.searchable`.",
+    "components": [
+      "SearchList",
+      "Menu"
+    ],
+    "status": {
+      "web": {
+        "status": "ok",
+        "symbol": "SearchList / SearchListPopover",
+        "file": "packages/ui/src/search-list.tsx"
+      },
+      "desktop": {
+        "status": "ok",
+        "symbol": "picker::search_list::SearchList",
+        "file": "apps/desktop/crates/ui/src/picker/search_list.rs"
+      },
+      "ios": {
+        "status": "ok",
+        "symbol": "SearchListView / SearchListSheet",
+        "file": "apps/ios/ExpUI/Sources/Picker/SearchList.swift"
+      },
+      "android": {
+        "status": "ok",
+        "symbol": "SearchList",
+        "file": "apps/android/app/src/main/java/com/exponential/app/ui/components/SearchList.kt"
+      }
+    }
+  },
+  {
+    "id": "tab-strip",
+    "title": "Tab strip",
+    "blurb": "EXP-1259 (EXP-1255): the work tabs. The close glyph shows only while its tab is hovered or keyboard-focused (the active one too); a ghost + after the last tab opens a New session tab. The catalog's `Tabs closable: hover` + `addable`.",
+    "components": [
+      "Tabs"
+    ],
+    "status": {
+      "web": {
+        "status": "ok",
+        "symbol": "WorkTabsStrip",
+        "file": "apps/web/src/components/team/work-tabs-strip.tsx"
+      },
+      "desktop": {
+        "status": "ok",
+        "symbol": "render_tab_strip",
+        "file": "apps/desktop/crates/ui/src/screens.rs"
       },
       "ios": {
         "status": "n/a",
-        "note": "no skeleton or shimmer anywhere: a loading screen is a centred spinner"
+        "note": "phones have no tab strip: one Work screen with pager tabs"
       },
       "android": {
         "status": "n/a",
-        "note": "same — LoadingState (Scaffolding.kt) centres a spinner instead"
+        "note": "same: one Work screen with pager tabs"
       }
     }
   },
@@ -1369,7 +1490,7 @@ export const APP_PARITY: readonly AppParity[] = [
   {
     "id": "context-ring",
     "title": "Context ring",
-    "blurb": "EXP-877: how full the agent's context window is, as a 16px radial where the context pill used to be — and the trigger of the usage overlay the session already had. The arc is a stroked circle rotated a quarter turn, the track the same circle at 20% opacity, and the tone is the session's, not the ring's: the app maps its own thresholds onto normal / warning / danger and passes one in. A run nothing has measured renders NOTHING unless `showEmpty` says the run has other usage worth opening.",
+    "blurb": "EXP-877: how full the agent's context window is, as a 16px radial where the context pill used to be — and the trigger of the usage overlay the session already had. The arc is a stroked circle rotated a quarter turn, the track the same circle at 20% opacity, and the tone is the session's, not the ring's: the app maps its own thresholds onto normal / warning / danger and passes one in. A session nothing has measured renders NOTHING unless `showEmpty` says the session has other usage worth opening.",
     "components": [
       "Ring"
     ],
@@ -1634,7 +1755,7 @@ export const APP_PARITY: readonly AppParity[] = [
         "status": "leftover",
         "symbol": "PopupMenu + controls::PointerMenu / pointer_label_item",
         "file": "apps/desktop/crates/ui/src/controls.rs",
-        "note": "issue, tab, file and run menus point; settings, actions and team menus still plain crate rows"
+        "note": "issue, tab, file and session menus point; settings, actions and team menus still plain crate rows"
       },
       "ios": {
         "status": "ok",

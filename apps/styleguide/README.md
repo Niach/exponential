@@ -112,9 +112,9 @@ connect pair) and the **token** swatch tables. `PORTAL_ONLY_IDS` would name an
 entry whose `packages/ui` symbol is a closed Radix portal (renders nothing
 statically) and so keeps a demo; it is empty since its two members, sheet and
 dialog, moved to the site. The **issue context menu** and the composer's "+"
-(in **composer-dialog**, rows off `composer-menu.json`) draw the menu at rest
-through `MenuPanel`: the same entries and row classes the live `Menu` renders,
-picker bodies as `PickerMenuRows`.
+(in **composer-dialog** and **menu-submenu**, rows off `composer-menu.json`)
+draw the menu at rest through `MenuPanel`: the same entries and row classes
+the live `Menu` renders, picker bodies as `PickerMenuRows`.
 
 Two rules the entries carry rather than restate (EXP-771, EXP-862): **shape
 says what a control does** — a circle marks the PRIMARY action only, every

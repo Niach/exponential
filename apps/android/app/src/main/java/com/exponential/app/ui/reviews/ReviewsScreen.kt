@@ -30,7 +30,7 @@ import com.exponential.app.domain.ReviewsQueue
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
-import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.PrList
 import com.exponential.app.ui.components.PrListRow
 import com.exponential.app.ui.components.SectionHeader
@@ -92,7 +92,8 @@ private fun ReviewsListContent(
     LaunchedEffect(viewModel) { viewModel.onScreenEntered() }
 
     when {
-        !state.loaded -> LoadingState(modifier = modifier)
+        // EXP-1275: the first load = skeleton rows in the PR row's geometry.
+        !state.loaded -> SkeletonRows(modifier = modifier.padding(horizontal = 16.dp).padding(top = 4.dp), rowHeight = 52.dp)
         state.isEmpty -> EmptyState(EmptyStateCopy.reviews, modifier = modifier)
         else -> LazyColumn(
             modifier = modifier.fillMaxSize().testTag("reviews-list"),
@@ -229,7 +230,7 @@ private fun BandTeamName(name: String) {
 @Composable
 private fun RunsHeader(teamName: String?) {
     SectionHeader(
-        "Agent runs",
+        "Agent sessions",
         trailing = { BandTeamName(teamName ?: ReviewsQueue.RUN_BAND_CAPTION) },
         leading = {
             Icon(

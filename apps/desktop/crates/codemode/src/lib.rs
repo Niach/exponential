@@ -24,12 +24,15 @@
 
 mod catalog;
 mod client;
+mod reports;
 mod runtime;
 mod server;
 
 use std::sync::{Arc, OnceLock};
 
-pub use server::SERVER_NAME;
+pub use reports::{publish as file_report, take_report, ScriptReport};
+pub use runtime::{CallRecord, LOG_CAP};
+pub use server::{META_CALLS_KEY, META_COUNT_KEY, META_ELAPSED_KEY, SERVER_NAME};
 
 /// The env var the run's token rides in; the MCP config only ever says
 /// `Bearer ${EXP_CODEMODE_TOKEN}`.
@@ -94,9 +97,11 @@ pub fn grant(session_id: &str, label: &str, upstreams: Vec<Upstream>, direct_onl
     Ok(Grant { url: host.url.clone(), token: host.hub.grant(session_id, label, upstreams, direct_only) })
 }
 
-/// The run ended: its token is dead and a script still running is cancelled.
+/// The run ended: its token is dead, a script still running is cancelled
+/// and the call logs its feed never claimed are dropped.
 pub fn revoke(session_id: &str) {
     if let Some(Ok(host)) = HOST.get() {
         host.hub.revoke(session_id);
     }
+    reports::forget(session_id);
 }

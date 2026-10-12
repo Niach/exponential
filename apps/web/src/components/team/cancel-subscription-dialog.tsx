@@ -2,6 +2,7 @@ import { useState } from "react"
 import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { Prompt, toast } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { invalidateBillingCache } from "@/hooks/use-billing"
 
 // Self-service cancellation of the TEAM's subscription (REV2-55: the
@@ -35,7 +36,7 @@ export function CancelSubscriptionDialog({
   const handleCancel = async () => {
     setSaving(true)
     try {
-      await trpc.billing.cancelSubscription.mutate({ teamId })
+      await trpc.billing.cancelSubscription.mutate({ teamId }, SKIP_ERROR_TOAST)
       invalidateBillingCache()
       toast.success(
         endDate
@@ -45,11 +46,7 @@ export function CancelSubscriptionDialog({
       onOpenChange(false)
     } catch (err) {
       console.error(`[billing] cancel failed:`, err)
-      toast.error(
-        err instanceof Error && err.message
-          ? err.message
-          : `Couldn't cancel the subscription`
-      )
+      failedAction(`cancel`, `the subscription`, err)
     } finally {
       setSaving(false)
     }

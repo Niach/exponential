@@ -501,11 +501,11 @@ pub(crate) struct RunRowSpec {
 /// instead of repeating the action's name.
 pub(crate) fn action_run_title(started_reason: Option<&str>) -> &'static str {
     match started_reason {
-        Some("schedule") => "Scheduled run",
-        Some("event") => "Event run",
+        Some("schedule") => "Scheduled session",
+        Some("event") => "Event session",
         // Another run started it (`agent`, or a reason added later).
-        Some(reason) if !reason.is_empty() => "Agent run",
-        _ => "Manual run",
+        Some(reason) if !reason.is_empty() => "Agent session",
+        _ => "Manual session",
     }
 }
 
@@ -559,6 +559,7 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         RunStatusMark::Live(state) => {
             crate::coding_selects::run_lead(agent, RUN_MARK_PX, RUN_BADGE_PX, state)
         }
+        RunStatusMark::Starting => crate::coding_selects::run_lead(agent, RUN_MARK_PX, RUN_BADGE_PX, None),
         RunStatusMark::Ended => crate::coding_selects::ended_run_lead(agent, RUN_MARK_PX),
     };
     let title_line = div()
@@ -659,11 +660,15 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
 
 
 /// EXP-1175 — the status row's lead: a live run's mark state (`None` = the
-/// bare mark) or the ended run's dimmed mark.
+/// bare mark) or the ended run's dimmed mark. EXP-1271 (EXP-1259 D8): before
+/// the run's first turn, `Starting` = THE feedback mark sweeping in the run
+/// mark's slot (feedback-states.json `starting`; a list row reads it as the
+/// bare mark).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RunStatusMark {
     Live(Option<CodingSessionDisplay>),
     Ended,
+    Starting,
 }
 
 /// EXP-1175 — what the Run face's status row draws.
@@ -691,6 +696,12 @@ pub(crate) fn run_status_row(spec: RunStatusRowSpec, cx: &App) -> gpui::AnyEleme
         RunStatusMark::Live(state) => {
             crate::coding_selects::run_lead(spec.agent, RUN_MARK_PX, RUN_BADGE_PX, state)
         }
+        RunStatusMark::Starting => div().flex_shrink_0().child(crate::feedback::mark(
+            SharedString::from(format!("{}-starting", spec.id)),
+            crate::feedback::MARK_STATUS_PX,
+            cx.theme().background,
+            cx,
+        )),
         RunStatusMark::Ended => crate::coding_selects::ended_run_lead(spec.agent, RUN_MARK_PX),
     };
     let body = gpui_component::v_flex()
@@ -1101,6 +1112,7 @@ pub(crate) fn run_entry_row(
         RunStatusMark::Live(state) => {
             crate::coding_selects::run_lead(agent, RUN_MARK_PX, RUN_BADGE_PX, state)
         }
+        RunStatusMark::Starting => crate::coding_selects::run_lead(agent, RUN_MARK_PX, RUN_BADGE_PX, None),
         RunStatusMark::Ended => crate::coding_selects::ended_run_lead(agent, RUN_MARK_PX),
     };
     div()
@@ -1152,13 +1164,13 @@ mod tests {
     /// SLOP-2: the four cases, byte-identical ×4 (web `actionRunTitle`).
     #[test]
     fn action_run_title_names_what_started_the_run() {
-        assert_eq!(action_run_title(Some("schedule")), "Scheduled run");
-        assert_eq!(action_run_title(Some("event")), "Event run");
+        assert_eq!(action_run_title(Some("schedule")), "Scheduled session");
+        assert_eq!(action_run_title(Some("event")), "Event session");
         for reason in ["agent", "something-new"] {
-            assert_eq!(action_run_title(Some(reason)), "Agent run", "{reason}");
+            assert_eq!(action_run_title(Some(reason)), "Agent session", "{reason}");
         }
-        assert_eq!(action_run_title(None), "Manual run");
-        assert_eq!(action_run_title(Some("")), "Manual run");
+        assert_eq!(action_run_title(None), "Manual session");
+        assert_eq!(action_run_title(Some("")), "Manual session");
     }
 
     /// EXP-1175 — fixture `run-row.json` ×4: the captions and the labels.
@@ -1414,7 +1426,7 @@ mod tests {
             SharedString::from("Untitled issue")
         );
         let batch = row(serde_json::json!({ "id": "s-1" }));
-        assert_eq!(run_title(&batch, None, &[]), SharedString::from("Batch run"));
+        assert_eq!(run_title(&batch, None, &[]), SharedString::from("Batch session"));
         let action = row(serde_json::json!({ "id": "s-2", "action_name": "Release train" }));
         assert_eq!(
             run_title(&action, None, &[]),
@@ -1480,7 +1492,7 @@ mod tests {
         assert_eq!(run_identifier(&unknown, None, &issues), None);
         assert_eq!(
             run_title(&unknown, None, &issues),
-            SharedString::from("Batch run")
+            SharedString::from("Batch session")
         );
         // An action run never grows one.
         let action = row(serde_json::json!({ "id": "s-3", "action_name": "Chat" }));

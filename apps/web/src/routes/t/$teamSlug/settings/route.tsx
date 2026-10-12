@@ -92,12 +92,15 @@ function SettingsLayout() {
             hidden here); the strip still scrolls horizontally, with the
             scrollbar itself hidden so the capsule edge stays clean.
             EXP-698: `px-1` keeps the first and last pill off the capsule's
-            rounded edge — flush against it they read as clipped. */}
+            rounded edge — flush against it they read as clipped.
+            `justify-start` overrides the segmented list's `justify-center`:
+            centred, an overflowing row spills off BOTH edges and the left
+            spill (General … Statuses) can never be scrolled to. */}
         <nav
           ref={navRef}
           className={cn(
             SEGMENTED_LIST,
-            `max-w-full gap-1 self-start overflow-x-auto px-1 scrollbar-none md:hidden`
+            `max-w-full justify-start gap-1 self-start overflow-x-auto px-1 scrollbar-none md:hidden`
           )}
         >
           {SETTINGS_NAV.map((group) => (

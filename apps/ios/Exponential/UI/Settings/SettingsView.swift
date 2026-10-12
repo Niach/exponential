@@ -9,6 +9,11 @@ private struct TeamNavTarget: Hashable {
 
 struct SettingsView: View {
     @Environment(AppDependencies.self) private var deps
+    @Environment(TeamState.self) private var teamState
+    /// EXP-1270: Getting started for the ACTIVE team, behind the General
+    /// section's row (the phones' entry; web's sidebar entry).
+    @State private var gettingStarted = GettingStartedProgress()
+    @State private var showGettingStarted = false
     @State private var teamLoader: MultiAccountTeamLoader?
     @State private var pendingTeam: TeamNavTarget?
     @State private var showAddServer = false
@@ -36,6 +41,18 @@ struct SettingsView: View {
         .navigationDestination(item: $pendingTeam) { target in
             TeamSettingsView(teamId: target.teamId)
                 .environment(\.accountId, target.accountId)
+        }
+        .task(id: "\(deps.auth.activeAccountId ?? "")/\(teamState.activeTeamId ?? "")") {
+            if let accountId = deps.auth.activeAccountId, let teamId = teamState.activeTeamId {
+                gettingStarted.bind(accountId: accountId, teamId: teamId, deps: deps)
+            } else {
+                gettingStarted.stop()
+            }
+        }
+        .sheet(isPresented: $showGettingStarted) {
+            if let accountId = deps.auth.activeAccountId, let teamId = teamState.activeTeamId {
+                GettingStartedSheet(progress: gettingStarted, accountId: accountId, teamId: teamId)
+            }
         }
         .onAppear {
             if teamLoader == nil {
@@ -200,6 +217,17 @@ struct SettingsView: View {
     private var generalSection: some View {
         sectionStack(title: "General") {
             VStack(spacing: 0) {
+                // EXP-1270: the block's entry, gone once every step is done.
+                if !gettingStarted.loading, !gettingStarted.complete, !gettingStarted.entries.isEmpty {
+                    Button {
+                        showGettingStarted = true
+                    } label: {
+                        settingsRow(icon: AppIcons.navGettingStarted, title: GettingStarted.title)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(GettingStarted.TestId.entry)
+                    GlassDivider()
+                }
                 // EXP-232: staging-only — exposes live shape status and a
                 // "Resync now" data-wipe hatch, not for store builds.
                 if AppConstants.isStaging {

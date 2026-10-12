@@ -242,7 +242,7 @@ pub fn connect(args: &[String]) -> CommandResult {
             config.name,
             config.name
         ),
-        _ => bail!("{} needs no sign-in; every run can use it as is", config.name),
+        _ => bail!("{} needs no sign-in; every session can use it as is", config.name),
     }
     if server.entry.connection.status == "connected" {
         println!(

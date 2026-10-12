@@ -343,6 +343,8 @@ function tokenBlock(theme: ResolvedTheme): string {
     }
   }
   for (const [name, px] of Object.entries(theme.tokens.blur ?? {})) decls.push([`--xui-blur-${name}`, `${px}px`])
+  // EXP-1259: the press / popover-enter scale (unitless).
+  for (const [name, value] of Object.entries(theme.tokens.scale ?? {})) decls.push([`--xui-scale-${name}`, String(value)])
   for (const [name, curve] of Object.entries(theme.tokens.ease ?? {})) decls.push([`--xui-ease-${name}`, easingCss(curve as Easing)])
   for (const [name, px] of Object.entries(theme.tokens.breakpoint ?? {})) decls.push([`--xui-breakpoint-${name}`, `${px}px`])
   for (const [name, value] of Object.entries(theme.tokens.type.size)) decls.push([`--xui-type-size-${name}`, `${value}px`])

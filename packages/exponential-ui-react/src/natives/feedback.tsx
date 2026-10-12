@@ -46,7 +46,39 @@ export function SpinnerNative({ props, rootProps }: NativeProps) {
   )
 }
 
-export function SkeletonNative({ props, rootProps }: NativeProps) {
+/** The bars' widths per placeholder row (lead, title): the core's
+ *  `SKELETON_BARS`, so a stack never reads as one ruled block. */
+const SKELETON_BARS: readonly [number, number][] = [
+  [56, 168],
+  [56, 120],
+  [56, 192],
+]
+
+/** Skeleton: one pulsing block, or (EXP-1259, feedback-states.json
+ *  `placeholder`) `rows` placeholder rows in the row geometry: each a `dot`
+ *  (unless `dot: false`) and two `bar`s, hairline-divided; the root paints
+ *  nothing itself, the pieces pulse (base CSS). */
+export function SkeletonNative({ node, props, rootProps }: NativeProps) {
+  const part = useParts(node, props)
+  const rows = Math.min(50, Math.floor(num(props.rows, 0)))
+  if (rows >= 1) {
+    const dot = props.dot === undefined ? true : bool(props.dot)
+    const height = props.rowHeight === undefined ? `var(--xui-control-row)` : `${num(props.rowHeight)}px`
+    return (
+      <div {...(rootProps as Record<string, unknown>)} data-rows="" aria-hidden="true">
+        {Array.from({ length: rows }, (_, r) => {
+          const [lead, title] = SKELETON_BARS[r % SKELETON_BARS.length]
+          return (
+            <div key={r} {...(part.at(`row`, r) as Record<string, string>)} style={{ height }}>
+              {dot ? <span {...(part.at(`dot`, r) as Record<string, string>)} /> : null}
+              <span {...(part.at(`bar`, `${r}.0`) as Record<string, string>)} style={{ width: lead }} />
+              <span {...(part.at(`bar`, `${r}.1`) as Record<string, string>)} data-title="" style={{ width: title }} />
+            </div>
+          )
+        })}
+      </div>
+    )
+  }
   const width = str(props.width, `100%`)
   const height = str(props.height, `16px`)
   return <div {...(rootProps as Record<string, unknown>)} aria-hidden="true" style={mergeStyle(rootProps, { width, height, borderRadius: bool(props.rounded) ? 9999 : undefined })} />

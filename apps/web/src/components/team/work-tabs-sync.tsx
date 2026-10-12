@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react"
-import { useRouterState } from "@tanstack/react-router"
+import { useNavigate, useParams, useRouterState } from "@tanstack/react-router"
 import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import type { Board, CodingSession, Issue } from "@/db/schema"
 import { codingSessionCollection, issueCollection } from "@/lib/collections"
@@ -14,7 +14,11 @@ import {
   type RouteTab,
 } from "@/lib/work-tabs"
 import { useMyLiveRuns } from "@/hooks/use-my-live-runs"
-import { updateWorkTabs, useWorkTabs } from "@/hooks/use-work-tabs"
+import {
+  openNewRunPage,
+  updateWorkTabs,
+  useWorkTabs,
+} from "@/hooks/use-work-tabs"
 
 // EXP-870: the ONE writer of the work tabs, mounted once in the team layout
 // (md+ only — the strip is hidden on phones). Three jobs:
@@ -33,7 +37,30 @@ import { updateWorkTabs, useWorkTabs } from "@/hooks/use-work-tabs"
 //      Only the TRANSITION closes, so reopening the issue afterwards works.
 //   4. Prune: a tab whose issue or run is gone from its (READY) collection is
 //      dropped — never while a collection is still syncing, so a cold load
-//      cannot wipe the strip.
+//      cannot wipe the strip. The New run tab (EXP-1255) has nothing to lose.
+//   5. EXP-1255: Alt/Option+T opens the New run tab (the strip's "+"), even
+//      with no strip up yet. Browsers keep Cmd/Ctrl+T (and Cmd/Ctrl+W) for
+//      their own tabs and never hand them to a page, so the web's chord is
+//      Alt/Option+T. Never while typing (a field, an IME composition) or
+//      behind a dialog: Option+T there is the person's keystroke.
+
+/** Alt/Option+T outside a field, a composition and any open dialog. */
+export function isNewTabChord(event: KeyboardEvent): boolean {
+  // `code`, not `key`: Option+T types "†" on a Mac keyboard.
+  if (event.code !== `KeyT` || !event.altKey) return false
+  if (event.metaKey || event.ctrlKey || event.shiftKey) return false
+  if (event.isComposing) return false
+  const target = event.target
+  if (
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      target.closest(`input, textarea, select, [contenteditable=""], [contenteditable="true"]`) !==
+        null)
+  ) {
+    return false
+  }
+  return document.querySelector(`[role="dialog"], [role="alertdialog"]`) === null
+}
 
 export function WorkTabsSync({
   teamId,
@@ -157,11 +184,25 @@ export function WorkTabsSync({
     () => new Set((boards ?? []).map((board) => board.id)),
     [boards]
   )
+  const navigate = useNavigate()
+  const { teamSlug } = useParams({ strict: false })
+  useEffect(() => {
+    if (!teamSlug) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isNewTabChord(event)) return
+      event.preventDefault()
+      openNewRunPage(teamId, teamSlug, navigate)
+    }
+    window.addEventListener(`keydown`, onKeyDown)
+    return () => window.removeEventListener(`keydown`, onKeyDown)
+  }, [teamId, teamSlug, navigate])
+
   useEffect(() => {
     if (!issueCollection.isReady() || !codingSessionCollection.isReady()) return
     if (boardIds.size === 0) return
     updateWorkTabs(teamId, (state) =>
       pruneTabs(state, (tab) => {
+        if (tab.kind === `new`) return true
         if (tab.kind === `issue`) {
           const issue = issueCollection.get(tab.issueId)
           return issue !== undefined && boardIds.has(issue.boardId)

@@ -128,8 +128,12 @@ struct WorkScreen: View {
     @State private var titleEdges = TitleCollapseTracker()
     /// `initialFace` opens an issue subject on that face (a deep link's
     /// Guide); unavailable faces fall back as usual.
-    init(subject: WorkSubject, initialFace: WorkFaceKind = .issue) {
+    /// EXP-1241: the comment the Issue face opens scrolled to (and flashes).
+    private let focusCommentId: String?
+
+    init(subject: WorkSubject, initialFace: WorkFaceKind = .issue, focusCommentId: String? = nil) {
         self.subject = subject
+        self.focusCommentId = focusCommentId
         changesRequested = initialFace == .guide
         switch subject {
         case .issue:
@@ -533,7 +537,7 @@ struct WorkScreen: View {
                 .workHeaderBand(onBottom: { bottom in
                     titleEdges.headerBottom = bottom
                     titleEdgesChanged()
-                }) { faceTabs }
+                }, ground: face == .run) { faceTabs }
                 .onPreferenceChange(IssueTitleRowBottomKey.self) { bottom in
                     titleEdges.titleBottom = bottom
                     titleEdgesChanged()
@@ -641,7 +645,11 @@ struct WorkScreen: View {
             if let shownSession {
                 sessionView(shownSession)
             } else {
-                ProgressView().tint(.white)
+                // EXP-1275 (D8): a first load is skeleton rows.
+                SkeletonRows()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         case .guide:
             guideFace
@@ -657,12 +665,17 @@ struct WorkScreen: View {
                 barTrailing: issueBarTrailing,
                 onStartCoding: startCodingTapped,
                 onOpenChanges: { selectFace(.guide) },
-                mergeCircle: mergeCircle(on: .issue)
+                mergeCircle: mergeCircle(on: .issue),
+                focusCommentId: focusCommentId
             )
         } else if let vm = issueVM, vm.loadTimedOut {
             unavailableState(vm: vm)
         } else {
-            ProgressView().tint(.white)
+            // EXP-1275 (D8): a first load is skeleton rows.
+            SkeletonRows()
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 
@@ -901,7 +914,7 @@ struct WorkScreen: View {
                 Text("Stop").fontWeight(.medium)
             }
             .tint(DesignTokens.Semantic.red)
-            .accessibilityLabel("Stop the agent and end the run")
+            .accessibilityLabel("Stop the agent and end the session")
             .accessibilityIdentifier("session-stop")
         case .resume:
             Button { showResumeConfirm = true } label: {
@@ -1216,6 +1229,11 @@ struct WorkScreen: View {
             .onChange(of: continuation.watcher.startedSession) { _, started in
                 if let started {
                     continuation.watcher.startedSession = nil
+                    // A late landing (EXP-1259): its failure toast goes.
+                    if let toastId = continuation.failureToastId {
+                        continuation.failureToastId = nil
+                        toaster.dismiss(toastId)
+                    }
                     continuation.landed(started.sessionId)
                     swapIn(started.sessionId)
                 }
@@ -1472,17 +1490,28 @@ struct WorkScreen: View {
     /// `steer.startSession({resumeSessionId})` the list rows used to send.
     /// A start is a COMMAND, so the watcher waits for the row the desktop
     /// inserts and the screen swaps that session in.
-    private func resumeRun() {
+    ///
+    /// EXP-1259: the press mints a `startId`; the failure toast's Retry
+    /// (`retry` true) re-sends the same one, so the device resumes it once.
+    private func resumeRun(retry: Bool = false) {
         guard let shownSession, let device = resumeDevice, !resuming else { return }
         resuming = true
-        continuation.sending(.resume)
         let sessionId = shownSession.id
+        let startId = continuation.sending(
+            .resume,
+            target: StartIntent.resumeTarget(
+                sessionId: sessionId, deviceId: device.deviceId, account: nil
+            ),
+            retry: retry,
+            onRetry: { resumeRun(retry: true) }
+        )
         Task {
             do {
                 try await deps.steerApi.resumeSession(
                     accountId: accountId,
                     sessionId: sessionId,
-                    deviceId: device.deviceId
+                    deviceId: device.deviceId,
+                    startId: startId
                 )
                 continuation.sent(
                     key: .resumed(fromId: sessionId),
@@ -1492,7 +1521,13 @@ struct WorkScreen: View {
                     accountId: accountId
                 )
             } catch {
-                continuation.failed(error.userFacingMessage)
+                continuation.failed(
+                    error,
+                    key: .resumed(fromId: sessionId),
+                    userId: deps.auth.userId,
+                    db: deps.db,
+                    accountId: accountId
+                )
             }
             resuming = false
         }
@@ -1517,7 +1552,10 @@ struct WorkScreen: View {
             do {
                 try await deps.issuesApi.closePr(accountId: accountId, issueId: issueId)
             } catch {
-                toaster.error(MergeFailure(error: error).message)
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "close", thing: "the pull request"),
+                    description: MergeFailure(error: error).message
+                )
             }
             closingPr = false
         }

@@ -26,7 +26,7 @@ export function IssuePickerDialog({
   onPick,
   excludeIssueIds,
   title = `Select issue`,
-  placeholder = `Search issues…`,
+  placeholder = `Search issues`,
 }: IssuePickerDialogProps) {
   const issueRefs = useIssueRefs()
   return (
@@ -47,8 +47,6 @@ export function IssuePickerDialog({
       emptyText={(query) =>
         query.trim() ? `No issues match "${query}"` : `No issues to pick from`
       }
-      className="min-h-0 bg-transparent **:data-[slot=command-input-wrapper]:border-border/50"
-      listClassName="max-h-none flex-1 overflow-y-auto"
     />
   )
 }

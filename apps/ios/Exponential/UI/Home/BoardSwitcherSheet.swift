@@ -128,7 +128,7 @@ struct BoardSwitcherSheet: View {
             Circle()
                 .fill(SessionStateDot.color(runs.needsInput ? .needsInput : .running))
                 .frame(width: 6, height: 6)
-                .accessibilityLabel("Live runs")
+                .accessibilityLabel("Live sessions")
         }
     }
 

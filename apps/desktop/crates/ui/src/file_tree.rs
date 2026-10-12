@@ -759,7 +759,17 @@ impl Render for FileTreeView {
             if let Some(notice) = crate::repo_scope::no_team_notice(&self.nav, cx) {
                 self.render_placeholder(notice, cx)
             } else if still_resolving {
-                self.render_placeholder("Loading files…", cx)
+                // EXP-1259 D8: the tree's rows as placeholders.
+                v_flex()
+                    .size_full()
+                    .py_1()
+                    .child(crate::feedback::skeleton_rows(
+                        "file-tree-skeleton",
+                        crate::feedback::SKELETON_ROWS,
+                        exponential_ui_gpui::controls::FLAT_ROW_COMPACT_H,
+                        cx,
+                    ))
+                    .into_any_element()
             } else {
                 self.render_placeholder(crate::source_control::NO_REPOSITORY_NOTICE, cx)
             }

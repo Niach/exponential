@@ -2,13 +2,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { and, eq, inArray, or, useLiveQuery } from "@tanstack/react-db"
 import { contract } from "@exp/domain-contract"
 import { toast } from "@exp/ui"
+import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
 import type { Board, CodingSession, Issue, SyncedDeviceWorktree } from "@/db/schema"
 import { isCodingSessionStale } from "@exp/db-schema/domain"
 import { useNow } from "@/hooks/use-now"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { useTeamBoards, useTeamById } from "@/hooks/use-team-data"
 import { useTeamRepos } from "@/hooks/use-team-repos"
-import type { RemoteStart } from "@/hooks/use-remote-start"
+import type { RemoteStart, StartCodingOptions } from "@/hooks/use-remote-start"
 import {
   actionCollection,
   codingSessionCollection,
@@ -63,6 +64,8 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { uploadTeamSessionImageFile } from "@/lib/storage/issue-image-upload"
+import { failedAction } from "@/lib/action-error"
+import { draftStartKey, startMaybeDelivered } from "@/lib/start-intent"
 import {
   useLaunchOptions,
   type LaunchOptions,
@@ -272,11 +275,93 @@ export interface LaunchComposerModel {
   spansRepos: boolean
   spansBranches: boolean
   costHint: boolean
-  /** Uploading or the start is in flight. */
+  /** Uploading, the start is in flight, or a started run has not landed. */
   busy: boolean
   /** The device label a start was just delivered to (the run opens itself). */
   sentTo: string | null
+  /** EXP-1271 (feedback-states.json `starting`): from the Start press until
+   * the run's synced row lands (or `starting.timeoutMs` after the request
+   * was SENT gives up on it). The card shows "Starting on <device>" with the
+   * mark; the draft stays put so a timeout leaves it ready to retry, and a
+   * row landing after the timeout still clears it. */
+  starting: ComposerStarting | null
   submit: () => Promise<void>
+}
+
+/** What the composer's starting row says: where, and since when. */
+export interface ComposerStarting {
+  deviceLabel: string
+  /** `Date.now()` at the Start press. */
+  since: number
+}
+
+const STARTING = FEEDBACK_STATES.starting
+
+/** "Starting on buildbox" (feedback-states.json `starting.label`). */
+export function startingLabel(deviceLabel: string): string {
+  return STARTING.label.replace(`{device}`, () => deviceLabel)
+}
+
+/** The starting row's clock: tenths of a second, "1.4 s". */
+export function startingElapsed(ms: number): string {
+  return `${(Math.max(ms, 0) / 1000).toFixed(1)} s`
+}
+
+/** The 30 s give-up toast: title, "<device> did not answer.", Retry.
+ *  Returns the toast id (a late landing dismisses it). */
+export function startingTimeoutToast(
+  deviceLabel: string,
+  retry: () => void
+): string | number {
+  const copy = STARTING.timeoutToast
+  return toast.error(copy.title, {
+    description: copy.description.replace(`{device}`, () => deviceLabel),
+    action: { label: copy.action, onClick: retry },
+  })
+}
+
+/** Final review + recheck R2 (feedback-states.json `starting.fingerprint`):
+ *  what binds a startId to ONE draft start, every field the start sends:
+ *  the target device, the text, the subject (issue ids, or the action + its
+ *  picks, or the chat's repo), the attachments and the launch options as
+ *  `buildOptions` resolves them (agent, model, effort, plan, account, MCP
+ *  picks, computer use, ultracode, subagent model). A stacked start keys
+ *  the line issue it launches and its wrapped prompt. Equal fingerprints =
+ *  the same start (`draftStartKey`). */
+export function draftStartFingerprint(draft: {
+  deviceId: string
+  text: string
+  subject: LaunchSubject
+  repoId: string
+  attachments: readonly string[]
+  options: StartCodingOptions
+  stackedIssueId?: string
+}): string {
+  const { subject, options } = draft
+  return draftStartKey({
+    deviceId: draft.deviceId,
+    text: draft.text,
+    issueIds:
+      subject?.kind === `issues`
+        ? draft.stackedIssueId
+          ? [draft.stackedIssueId]
+          : subject.ids
+        : [],
+    actionId: subject?.kind === `action` ? subject.id : null,
+    actionInputs: subject?.kind === `action` ? subject.inputs : {},
+    repositoryId: subject === null ? draft.repoId || null : null,
+    attachments: draft.attachments,
+    agent: options.agent,
+    model: options.model,
+    effort: options.effort,
+    planMode: options.planMode,
+    account: options.account,
+    mcpServerIds: options.mcpServerIds,
+    computerUse: options.computerUse,
+    ultracode: options.ultracode,
+    subagentModel: options.subagentModel,
+    resume: options.resume,
+  })
 }
 
 export function useLaunchComposer({
@@ -284,12 +369,15 @@ export function useLaunchComposer({
   remote,
   seed,
   onSeedConsumed,
+  onLanded,
 }: {
   teamId: string
   remote: RemoteStart
   /** The route's one-shot preselection; consumed once, then reported. */
   seed: LaunchSeed | null
   onSeedConsumed: () => void
+  /** EXP-1271: the started run's row landed (the watch opened it). */
+  onLanded?: () => void
 }): LaunchComposerModel {
   const [subject, setSubject] = useState<LaunchSubject>(null)
   const [text, setText] = useState(``)
@@ -303,6 +391,27 @@ export function useLaunchComposer({
   // the subject (a different pick is a different story).
   const [conflictSeeded, setConflictSeeded] = useState(false)
   const [sending, setSending] = useState(false)
+  const [starting, setStarting] = useState<ComposerStarting | null>(null)
+  // Review #3: `Date.now()` when the start request went out (after the
+  // uploads): the starting deadline counts from here, not from the press.
+  const [sentAt, setSentAt] = useState<number | null>(null)
+  // Final review: ONE startId per draft start, bound to its fingerprint
+  // (`draftStartFingerprint`): every Retry and every later Start of the
+  // same draft on the same device reuses it, so a device (and the server)
+  // that already took the first one drops the repeat; a landing or a
+  // changed draft/device mints a fresh one.
+  const startIdRef = useRef<{ id: string; fingerprint: string } | null>(null)
+  // The delivered start whose run's landing clears the draft, the id of the
+  // run the watch had opened before it (a landing = a newer one), the
+  // draft's fingerprint at the send and whether its deadline gave up.
+  const awaitingLandRef = useRef<{
+    run: ComposerStarting
+    openedBefore: string | null
+    fingerprint: string
+    timedOut: boolean
+  } | null>(null)
+  const currentStartRef = useRef<ComposerStarting | null>(null)
+  const timeoutToastRef = useRef<string | number | null>(null)
   // Last action id whose repo inputs were seeded (EXP-349) — the latch keeps
   // a manual re-pick (including clearing to "None") from being re-seeded when
   // the Electric actions rows update.
@@ -821,7 +930,7 @@ export function useLaunchComposer({
       ? missingRequiredInputs(inputDefs, subject.inputs)
       : []
   const hasText = text.trim().length > 0
-  const busy = sending || remote.starting
+  const busy = sending || remote.starting || starting !== null
   const subjectBlocked =
     subject === null
       ? // A chat needs SOMETHING to say — text or an image (EXP-739: the
@@ -843,12 +952,56 @@ export function useLaunchComposer({
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
+  const fingerprintFor = (stacked?: { plan: StackPlan; issueId: string }) =>
+    draftStartFingerprint({
+      deviceId: device?.deviceId ?? ``,
+      text: stacked ? stackedStartPrompt(stacked.plan, text) : text,
+      subject,
+      repoId,
+      attachments: images.map((image) => image.url),
+      // The options exactly as `start` sends them.
+      options: launch.buildOptions({
+        resume: stacked ? false : resumeActive,
+        omitMcp: subjectOwnsMcpServers(subject),
+      }),
+      stackedIssueId: stacked?.issueId,
+    })
+  // The draft as it stands now (a plain start's fingerprint): what a late
+  // landing compares against the draft it sent.
+  const fingerprintRef = useRef(``)
+  fingerprintRef.current = fingerprintFor()
+
   /** The actual start. `stacked` = a stacked start (SLOP-3): the line's
    *  first issue, the typed text wrapped by `stackedStartPrompt`. */
   const start = async (stacked?: { plan: StackPlan; issueId: string }) => {
     if (blocked || !device) return
     setBlockedOpen(false)
     setSending(true)
+    const fingerprint = fingerprintFor(stacked)
+    // A stacked start's line issue binds the id, not the draft a late
+    // landing compares against.
+    const sentDraft = stacked ? fingerprintFor() : fingerprint
+    const startId =
+      startIdRef.current?.fingerprint === fingerprint
+        ? startIdRef.current.id
+        : crypto.randomUUID()
+    // Final review (B6): a DIFFERENT start supersedes the previous one's
+    // watch here, before the uploads: its late row only shows in Running and
+    // never touches this draft. The SAME startId keeps it (the device drops
+    // the re-send; the original row is this start's landing).
+    if (startIdRef.current?.id !== startId) awaitingLandRef.current = null
+    remote.supersede(startId)
+    startIdRef.current = { id: startId, fingerprint }
+    const startedRun: ComposerStarting = {
+      deviceLabel: device.deviceLabel || device.deviceId,
+      since: Date.now(),
+    }
+    currentStartRef.current = startedRun
+    setStarting(startedRun)
+    setSentAt(null)
+    let delivered = false
+    // Recheck R3: a maybe-delivered failure keeps the landing armed.
+    let followed = false
     try {
       // Upload sequentially, persisting each id as it lands — a mid-batch
       // failure keeps the composer intact and a retry only uploads the rest.
@@ -866,8 +1019,10 @@ export function useLaunchComposer({
           setImages(current)
         }
       } catch (error) {
-        toast.error(`Couldn't upload attachment`, {
-          description: error instanceof Error ? error.message : undefined,
+        // FEED-79: landed uploads are kept, so Retry uploads the rest and
+        // starts (the kept draft, through the same gates as a click).
+        failedAction(`upload`, `the attachment`, error, {
+          retry: () => void submitRef.current(),
         })
         return
       }
@@ -886,7 +1041,18 @@ export function useLaunchComposer({
         omitMcp: subjectOwnsMcpServers(subject),
       })
       // The remote hook toasts its own failures and rethrows; a refused start
-      // keeps the draft so it can be retried.
+      // keeps the draft, and the toast's Retry re-submits it (FEED-79)
+      // under the same startId while the draft is unchanged.
+      const retry = () => void submitRef.current()
+      // Review #3: SENT. The deadline arms now, and from here on the run
+      // landing (even after the deadline) is this start's landing.
+      setSentAt(Date.now())
+      awaitingLandRef.current = {
+        run: startedRun,
+        openedBefore: remote.openedId,
+        fingerprint: sentDraft,
+        timedOut: false,
+      }
       if (subject === null) {
         await remote.runAction(
           device,
@@ -895,14 +1061,18 @@ export function useLaunchComposer({
           { id: BUILTIN_CHAT_ID, name: BUILTIN_CHAT_NAME, teamId },
           options,
           chatStartInputs(repoId),
-          prompt
+          prompt,
+          retry,
+          startId
         )
       } else if (subject.kind === `issues`) {
         await remote.startIssues(
           device,
           options,
           stacked ? [stacked.issueId] : subject.ids,
-          prompt || undefined
+          prompt || undefined,
+          retry,
+          startId
         )
       } else if (selectedAction) {
         await remote.runAction(
@@ -914,26 +1084,110 @@ export function useLaunchComposer({
           },
           options,
           buildInputsPayload(inputDefs, subject.inputs),
-          prompt || undefined
+          prompt || undefined,
+          retry,
+          startId
         )
       }
-      for (const image of current) URL.revokeObjectURL(image.url)
-      setImages([])
-      setText(``)
-      setSubject(null)
-      setSeedPrIssueId(undefined)
-    } catch {
-      // Already toasted by the remote hook.
+      // EXP-1271: delivered. The draft stays until the run's row lands
+      // (`clearDraft` below) or the starting deadline gives up on it.
+      delivered = true
+    } catch (error) {
+      // Already toasted by the remote hook. Recheck R3: a start whose fate
+      // is unknown may still land; the remote hook follows it quietly and
+      // its late row lands here like a timed-out one (cleared draft only
+      // while the draft is unchanged since the send).
+      const awaiting = awaitingLandRef.current
+      if (awaiting?.run === startedRun && startMaybeDelivered(error)) {
+        awaiting.timedOut = true
+        followed = true
+        quietWatchRef.current(
+          () => fingerprintRef.current === awaiting.fingerprint
+        )
+      }
     } finally {
       setSending(false)
+      if (!delivered && currentStartRef.current === startedRun) {
+        if (!followed && awaitingLandRef.current?.run === startedRun) {
+          awaitingLandRef.current = null
+        }
+        setStarting(null)
+        setSentAt(null)
+      }
     }
   }
+
+  const clearDraft = () => {
+    for (const image of imagesRef.current) URL.revokeObjectURL(image.url)
+    setImages([])
+    setText(``)
+    setSubject(null)
+    setSeedPrIssueId(undefined)
+  }
+
+  // EXP-1271: the starting state ends when the run's row lands (the remote
+  // watch matched a run since the request was sent) or, `starting.timeoutMs`
+  // after it was SENT, with the error toast (Retry re-submits the kept draft
+  // under the same startId). Review #3: the timeout aborts nothing: the
+  // watch keeps looking quietly for `starting.watchMs`. Final review: a late
+  // row always dismisses the error; it clears the draft and lands only when
+  // the draft is unchanged since its send, otherwise the field stays as the
+  // person left it and the remote watch does not navigate (`quietWatch`'s
+  // gate below asks the same question).
+  const landedRef = useRef<(() => void) | undefined>(onLanded)
+  landedRef.current = onLanded
+  useEffect(() => {
+    const awaiting = awaitingLandRef.current
+    if (!awaiting || remote.openedId === null) return
+    if (remote.openedId === awaiting.openedBefore) return
+    awaitingLandRef.current = null
+    startIdRef.current = null
+    if (timeoutToastRef.current !== null) {
+      toast.dismiss(timeoutToastRef.current)
+      timeoutToastRef.current = null
+    }
+    setStarting(null)
+    setSentAt(null)
+    if (awaiting.timedOut && fingerprintRef.current !== awaiting.fingerprint) {
+      return
+    }
+    clearDraft()
+    landedRef.current?.()
+    // `clearDraft` only touches setters and a ref.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [remote.openedId])
+
+  const submitRef = useRef<() => Promise<void>>(async () => {})
+  const quietWatchRef = useRef(remote.quietWatch)
+  quietWatchRef.current = remote.quietWatch
+  useEffect(() => {
+    if (!starting || sentAt === null) return
+    const left = sentAt + STARTING.timeoutMs - Date.now()
+    const timer = setTimeout(() => {
+      const awaiting = awaitingLandRef.current
+      if (awaiting?.run === starting) {
+        awaiting.timedOut = true
+        quietWatchRef.current(
+          () => fingerprintRef.current === awaiting.fingerprint
+        )
+      } else {
+        quietWatchRef.current()
+      }
+      setStarting(null)
+      setSentAt(null)
+      timeoutToastRef.current = startingTimeoutToast(
+        starting.deviceLabel,
+        () => void submitRef.current()
+      )
+    }, Math.max(left, 0))
+    return () => clearTimeout(timer)
+  }, [starting, sentAt])
 
   // EXP-980: a BLOCKED start asks first (Cancel, Start anyway or Stacked PR); a batch
   // asks about blockers outside it. An action or a chat never asks, and
   // neither does a RESUME: it re-enters a worktree whose base was decided
   // when the run first started.
-  const submit = async () => {
+  const submitWith = async () => {
     if (blocked || !device) return
     if (blockedStart.length > 0 && subject?.kind === `issues` && !resumeActive) {
       setBlockedOpen(true)
@@ -941,6 +1195,8 @@ export function useLaunchComposer({
     }
     await start()
   }
+  const submit = () => submitWith()
+  submitRef.current = submitWith
 
   return {
     teamId,
@@ -993,6 +1249,7 @@ export function useLaunchComposer({
     costHint: !overCap && !spansRepos && count > BATCH_COST_HINT_THRESHOLD,
     busy,
     sentTo: remote.sentTo,
+    starting,
     submit,
   }
 }

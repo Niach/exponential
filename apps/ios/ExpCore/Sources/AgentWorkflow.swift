@@ -180,23 +180,6 @@ public struct AgentWorkflowAgent: Equatable, Sendable, Identifiable {
     }
 }
 
-/// How many agents of one phase sit in each state — the phase strip's counts.
-public struct AgentWorkflowPhaseCounts: Equatable, Sendable {
-    public let queued: Int
-    public let running: Int
-    public let done: Int
-    public let error: Int
-
-    public init(queued: Int = 0, running: Int = 0, done: Int = 0, error: Int = 0) {
-        self.queued = queued
-        self.running = running
-        self.done = done
-        self.error = error
-    }
-
-    public var total: Int { queued + running + done + error }
-}
-
 /// EXP-850 §3: a claude `Workflow` tool call's progress, published as a
 /// latest-wins `workflow` event keyed by the call's own id — so the card
 /// renders IN PLACE of that tool row, never as a second row.
@@ -248,15 +231,50 @@ public struct AgentWorkflow: Equatable, Sendable, Identifiable {
         agents.filter { $0.phaseIndex == index }
     }
 
-    /// The phase strip's per-state counts.
-    public func counts(inPhase index: Int) -> AgentWorkflowPhaseCounts {
-        let rows = agents(inPhase: index)
-        return AgentWorkflowPhaseCounts(
-            queued: rows.filter { $0.state == .queued }.count,
-            running: rows.filter { $0.state == .running }.count,
-            done: rows.filter { $0.state == .done }.count,
-            error: rows.filter { $0.state == .error }.count
-        )
+    // MARK: - The Work card (EXP-1240, EXP-1259 D12)
+
+    /// The card's phases, as the shared model reads them.
+    private var workCardPhases: [WorkflowCaptionPhase] {
+        phases.map { WorkflowCaptionPhase(index: $0.index, title: $0.title) }
+    }
+
+    /// The card's agents, as the shared model reads them — no tokens, no
+    /// report text (the card shows neither).
+    private var workCardAgents: [WorkCardWorkflowAgent] {
+        agents.map {
+            WorkCardWorkflowAgent(
+                index: $0.index, label: $0.label, phaseIndex: $0.phaseIndex,
+                model: $0.model, state: $0.state.rawValue, durationMs: $0.durationMs
+            )
+        }
+    }
+
+    /// THE Work card this workflow draws. The wire carries no start, so the
+    /// elapsed time is the sum of its phases' spans (web `workflowWorkCard`).
+    public var workCard: WorkCard {
+        WorkCards.card(.workflow(
+            name: name,
+            status: status.rawValue,
+            phases: workCardPhases,
+            agents: workCardAgents,
+            elapsedMs: WorkCards.workflowElapsedMs(phases: workCardPhases, agents: workCardAgents)
+        ))
+    }
+
+    /// The phases the card's leading folded row stands for, for its in-place
+    /// expansion. Empty when nothing folded.
+    public func workCardFoldedPhases(_ card: WorkCard) -> [WorkCardFoldedPhase] {
+        WorkCards.foldedPhases(phases: workCardPhases, agents: workCardAgents, card: card)
+    }
+
+    /// The subagent id behind a lane the card named (phase POSITION, lane
+    /// position) — the tab a lane tap opens. Nil when that agent published
+    /// no id.
+    public func workCardLaneAgentId(phase: Int, lane: Int) -> String? {
+        guard let picked = WorkCards.laneAgent(
+            phases: workCardPhases, agents: workCardAgents, phase: phase, lane: lane
+        ) else { return nil }
+        return agents.first { $0.index == picked.index }?.agentId
     }
 
     /// Every agent id this card owns — the subagent runs it nests (and the
@@ -368,7 +386,7 @@ extension AgentFeed {
         }
         var seen = Set(lines.map(\.text))
         for item in feed {
-            guard case let .tool(id, name, detail, _, callId, kind, settled, _, _, _, _) = item,
+            guard case let .tool(id, name, detail, _, callId, kind, settled, _, _, _, _, _, _) = item,
                   kind == toolKindWait, !settled else { continue }
             let label = (detail?.isEmpty == false) ? detail! : name
             let text = "\(waitingOnPrefix)\(label)"
@@ -379,34 +397,25 @@ extension AgentFeed {
         return lines
     }
 
-    // MARK: - The workflow card's captions (§3)
+    // MARK: - The task list and subagents as Work cards (EXP-1240)
 
-    /// One phase chip's counts: `2 done · 1 running · 1 queued · 1 failed`.
-    /// Zero segments are omitted and the order is fixed, so two phases always
-    /// read the same way round.
-    public static func workflowPhaseCaption(_ counts: AgentWorkflowPhaseCounts) -> String {
-        var segments: [String] = []
-        if counts.done > 0 { segments.append("\(counts.done) done") }
-        if counts.running > 0 { segments.append("\(counts.running) running") }
-        if counts.queued > 0 { segments.append("\(counts.queued) queued") }
-        if counts.error > 0 { segments.append("\(counts.error) failed") }
-        return segments.joined(separator: WorkflowCaption.separator)
+    /// The agent's own task list as THE Work card (web `taskListWorkCard`).
+    public static func taskListWorkCard(_ entries: [AgentTaskListEntry]) -> WorkCard {
+        WorkCards.card(.tasks(entries.map {
+            WorkCardTask(content: $0.content, status: $0.status.rawValue)
+        }))
     }
 
-    /// One agent row's trailing telemetry: `12.4k tokens · 7 tools · 1m 05s`,
-    /// with whatever the agent did not report left out. Nil = nothing to draw.
-    public static func workflowAgentTelemetry(_ agent: AgentWorkflowAgent) -> String? {
-        var segments: [String] = []
-        if let tokens = agent.tokens, tokens > 0 {
-            segments.append("\(workingTokens(tokens)) tokens")
-        }
-        if let calls = agent.toolCalls, calls > 0 {
-            segments.append("\(calls) tool\(calls == 1 ? "" : "s")")
-        }
-        if let duration = agent.durationMs, duration > 0 {
-            segments.append(workingDuration(ms: duration))
-        }
-        return segments.isEmpty ? nil : segments.joined(separator: WorkflowCaption.separator)
+    /// A subagent's run as THE Work card (web `subagentWorkCard`): its label,
+    /// the calls it made (EXP-748: the reported count when it is higher),
+    /// done or running.
+    public static func subagentWorkCard(_ run: AgentSubagentRun) -> WorkCard {
+        WorkCards.card(.subagent(
+            title: run.label,
+            state: run.done ? "done" : "running",
+            toolCalls: run.toolCount,
+            elapsedMs: nil
+        ))
     }
 
     // MARK: - The working caption (§5)

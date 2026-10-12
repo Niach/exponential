@@ -3,6 +3,7 @@ package com.exponential.app.ui.actions
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.routeTeamIdFlow
 import com.exponential.app.data.api.ActionDto
@@ -40,7 +41,10 @@ data class ActionEditState(
     /** The fetched row, body included; null until it lands. */
     val action: ActionDto? = null,
     val saving: Boolean = false,
-    val error: String? = null,
+    /** FEED-79: a failed save (or a failed Retry tap), raised once as an error toast. */
+    val failure: FailedAction? = null,
+    /** The fetch failed: the prompt shows its empty state + Retry (no toast on open). */
+    val loadFailed: Boolean = false,
 )
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -85,7 +89,12 @@ class ActionEditViewModel @Inject constructor(
      * body edited elsewhere meanwhile is re-read and a failed first fetch
      * retries on the next open.
      */
-    fun load(actionId: String) {
+    fun clearFailure() {
+        _state.value = _state.value.copy(failure = null)
+    }
+
+    /** [retried] = the person tapped Retry: only then does a failure toast (FEED-79). */
+    fun load(actionId: String, retried: Boolean = false) {
         _state.value = ActionEditState(loading = true)
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value
@@ -99,7 +108,10 @@ class ActionEditViewModel @Inject constructor(
                 if (t is CancellationException) throw t
                 _state.value = ActionEditState(
                     loading = false,
-                    error = trpcErrorMessage(t, "The action could not be loaded"),
+                    loadFailed = true,
+                    failure = if (!retried) null else FailedAction("load", "the prompt", trpcErrorMessage(t, "")) {
+                        load(actionId, retried = true)
+                    },
                 )
             }
         }
@@ -108,7 +120,7 @@ class ActionEditViewModel @Inject constructor(
     /**
      * Save the edited row. Blank [description]/[icon]/[repositoryId]/
      * [promptPlaceholder] clear those fields (explicit nulls on the wire); a
-     * refusal surfaces as the state's error under the fields.
+     * refusal is the state's [ActionEditState.failure] (a toast with Retry).
      */
     fun save(
         actionId: String,
@@ -120,7 +132,7 @@ class ActionEditViewModel @Inject constructor(
         promptPlaceholder: String,
     ) {
         if (_state.value.saving) return
-        _state.value = _state.value.copy(saving = true, error = null)
+        _state.value = _state.value.copy(saving = true, failure = null)
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value
             if (accountId == null) {
@@ -143,7 +155,9 @@ class ActionEditViewModel @Inject constructor(
                 if (t is CancellationException) throw t
                 _state.value = _state.value.copy(
                     saving = false,
-                    error = trpcErrorMessage(t, "The action could not be saved"),
+                    failure = FailedAction("save", "the action", trpcErrorMessage(t, "")) {
+                        save(actionId, name, description, icon, repositoryId, body, promptPlaceholder)
+                    },
                 )
             }
         }

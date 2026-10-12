@@ -26,12 +26,18 @@ import {
   MobilePopoverTrigger,
 } from "./mobile-popover"
 import { PickerItemBody, pickerItemKeywords, type PickerItem } from "./picker/picker-item"
+import { SkeletonRows } from "./skeleton"
+import { useIsMobile } from "./use-mobile"
 import {
   PICKER_INLINE_WORD,
   PickerTrigger,
   pickerSummary,
   type PickerTriggerVariant,
 } from "./picker/picker-trigger"
+
+/** `--menu-touch-item-height` / `--menu-pointer-item-height` (styles.css):
+ *  a `CommandItem` row's height per density, for the loading placeholder. */
+const MENU_ROW_HEIGHT = { touch: 48, pointer: 36 } as const
 
 // EXP-941 — the picker SURFACE, internal to `Picker` since the UI cleanup
 // batch (not exported for app code; `@exp/ui` keeps a transitional export for
@@ -93,7 +99,7 @@ interface ComboboxListBaseProps<TValue extends string> {
   /** `false` hands ranking to the caller: the options are rendered in the
    *  order given, verbatim (`useIssueSearchResults` pins checked rows first). */
   shouldFilter?: boolean
-  /** A muted "Loading…" row instead of the list. */
+  /** D8: skeleton rows in the list's own row geometry instead of the list. */
   loading?: boolean
   /** A muted row instead of the list (a retry button belongs here). */
   error?: React.ReactNode
@@ -175,6 +181,9 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
     className,
     listClassName,
   } = props
+  // The rows' height = `--menu-item-height` (styles.css: touch 48px below
+  // md, pointer 36px from md up), so the placeholder matches it.
+  const isMobile = useIsMobile()
 
   if (panel !== undefined && panel !== null) {
     return (
@@ -214,9 +223,7 @@ function ComboboxList<TValue extends string>(props: ComboboxListProps<TValue>) {
       )}
       <CommandList className={cn(`min-h-0 flex-1`, listClassName)}>
         {loading ? (
-          <div className="flex items-center gap-2 px-3 py-2 text-sm text-muted-foreground">
-            Loading…
-          </div>
+          <SkeletonRows rowHeight={isMobile ? MENU_ROW_HEIGHT.touch : MENU_ROW_HEIGHT.pointer} />
         ) : null}
         {!loading && error ? (
           <div

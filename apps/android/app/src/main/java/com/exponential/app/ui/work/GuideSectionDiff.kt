@@ -19,10 +19,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -39,6 +39,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.GUIDE_FACE_LABEL
 import com.exponential.app.domain.GuideSectionPage
@@ -46,6 +47,9 @@ import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.FloatingBarCluster
 import com.exponential.app.ui.components.FloatingBarEdge
+import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.SkeletonRows
+import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.components.detailHazeSource
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DiffCounts
@@ -72,9 +76,27 @@ fun GuideSectionDiff(
     load: ChangesLoadState?,
     merge: ChangesMergeControl?,
     onBack: () -> Unit,
+    /** Re-runs the diff load: the failed load's Retry under its empty state. */
+    onRetry: (() -> Unit)? = null,
 ) {
     BackHandler(onBack = onBack)
     val files = page?.files.orEmpty()
+    // FEED-79: the diff loads on open, so a failure is quiet: the empty state
+    // + Retry. Only a failed Retry tap (the person's action) toasts.
+    val toaster = LocalToaster.current
+    var retried by remember { mutableStateOf(false) }
+    val retry = onRetry?.let { reload ->
+        {
+            retried = true
+            reload()
+        }
+    }
+    LaunchedEffect(load) {
+        if (load is ChangesLoadState.Failed && files.isEmpty() && retried) {
+            retried = false
+            toaster.failedAction("load", "the changes", load.message, retry)
+        }
+    }
     var sheetOpen by remember { mutableStateOf(false) }
     val expanded = remember(files) { mutableStateMapOf<String, Boolean>() }
     val listState = rememberLazyListState()
@@ -107,7 +129,12 @@ fun GuideSectionDiff(
                 item(key = "__state__") {
                     when (load) {
                         is ChangesLoadState.Loading -> ChangesLoadingRow()
-                        is ChangesLoadState.Failed -> ChangesFailureRow(load.message)
+                        is ChangesLoadState.Failed -> Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            ChangesEmptyRow()
+                            if (retry != null) {
+                                TextButton(onClick = retry) { Text(FeedbackStates.RETRY) }
+                            }
+                        }
                         else -> ChangesEmptyRow()
                     }
                 }
@@ -215,30 +242,10 @@ internal fun FileListCircle(count: Int, onClick: () -> Unit) {
     }
 }
 
+/** EXP-1275: the diff's first load = skeleton rows in the file card's geometry. */
 @Composable
 internal fun ChangesLoadingRow() {
-    Row(
-        modifier = Modifier.padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-        Text(
-            "Loading changes…",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-    }
-}
-
-@Composable
-internal fun ChangesFailureRow(message: String) {
-    Text(
-        "Couldn’t load changes: $message",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.error,
-        modifier = Modifier.padding(vertical = 12.dp),
-    )
+    SkeletonRows(dot = false)
 }
 
 @Composable

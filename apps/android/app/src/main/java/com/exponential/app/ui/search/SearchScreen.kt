@@ -41,7 +41,10 @@ import com.exponential.app.ui.components.IssueRowContent
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
-import com.exponential.app.ui.components.GlassTextField
+import com.exponential.app.ui.components.SearchListInput
+import com.exponential.app.ui.components.SearchListRows
+import com.exponential.app.ui.components.picker.PickerItem
+import com.exponential.app.ui.markdown.IssueSearchRowBody
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
@@ -89,13 +92,18 @@ fun SearchScreen(
                     color = MaterialTheme.colorScheme.onSurface,
                 )
             }
-            SearchField(
-                query = query,
-                onQueryChange = {
+            // SLOP-28 (EXP-1259 D4): THE search list — its input row (focused
+            // on open, the result count trailing) over the picker's issue rows.
+            SearchListInput(
+                value = query,
+                onValueChange = {
                     query = it
                     viewModel.setQuery(it)
                 },
-                modifier = Modifier.padding(horizontal = 16.dp),
+                placeholder = "Search issues",
+                count = state.results.size.takeIf { state.query.isNotEmpty() },
+                autoFocus = true,
+                onSubmit = { state.results.firstOrNull()?.let { onOpenIssue(it.issue.id) } },
             )
 
             // EXP-922: the ×4 copy set — same words on web, desktop, iOS and
@@ -110,95 +118,26 @@ fun SearchScreen(
                     title = "No issues match",
                     icon = ExpIcons.navSearch,
                 )
-                else -> LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 24.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    items(state.results, key = { it.issue.id }) { result ->
-                        SearchResultRow(result = result, onClick = { onOpenIssue(result.issue.id) })
-                    }
+                else -> {
+                    val byId = state.results.associateBy { it.issue.id }
+                    SearchListRows(
+                        items = state.results.map { result ->
+                            PickerItem(value = result.issue.id, label = result.issue.title)
+                        },
+                        onPick = { item -> onOpenIssue(item.value) },
+                        // A whole screen: the rows fill it, the page ground fades.
+                        capHeight = false,
+                        fadeColor = GlassTokens.BackgroundBottom,
+                        modifier = Modifier.weight(1f).padding(top = 4.dp, bottom = 8.dp),
+                        renderItem = { item ->
+                            byId[item.value]?.let { result ->
+                                IssueSearchRowBody(result.issue.identifier, result.issue.title, result.status)
+                            }
+                        },
+                    )
                 }
             }
         }
     }
 }
 
-/**
- * The ×4 search row (EXP-922): the issue's status glyph, its title, and a
- * sub-line carrying the board's own glyph, the board name and the identifier —
- * the web `IssueSearchSheet` row, the desktop palette's `render_issue_row` and
- * the iOS `resultRow`. Priority is deliberately absent: no other client shows
- * it here. P53: the glyph is the issue's resolved TEAM status row, the one
- * the board list draws for the same issue.
- */
-@Composable
-private fun SearchResultRow(result: SearchResult, onClick: () -> Unit) {
-    val issue = result.issue
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("issue-row-${issue.identifier}")
-            .glassRow()
-            .clickable(onClick = onClick)
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        IssueRowContent(
-            title = issue.title,
-            leading = { StatusIcon(result.status, size = 16.dp) },
-            leadingGap = 10.dp,
-            subLine = {
-                Spacer(Modifier.height(2.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (result.board != null) {
-                        BoardIcon(result.board, size = 12.dp)
-                        Spacer(Modifier.width(6.dp))
-                    }
-                    Text(
-                        if (result.board != null) {
-                            "${result.board.name} · ${issue.identifier}"
-                        } else {
-                            issue.identifier
-                        },
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                }
-            },
-        )
-    }
-}
-
-// Rounded glass search field — the styling the issue list's inline search used
-// before search moved to this tab.
-@Composable
-private fun SearchField(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    GlassTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        modifier = modifier.fillMaxWidth(),
-        placeholder = "Search issues",
-        leadingIcon = {
-            Icon(
-                ExpIcons.navSearch,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            )
-        },
-        trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = { onQueryChange("") }) {
-                    Icon(ExpIcons.uiClose, contentDescription = "Clear search")
-                }
-            }
-        },
-        singleLine = true,
-    )
-}

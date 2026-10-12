@@ -9,7 +9,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
  * rather than a lambda per kind.
  */
 sealed interface EntityTarget {
-    data class Issue(val id: String) : EntityTarget
+    /** EXP-1241: [commentId] = open the issue scrolled to that comment. */
+    data class Issue(val id: String, val commentId: String? = null) : EntityTarget
     data class Board(val id: String) : EntityTarget
     data class Session(val id: String) : EntityTarget
     /** SLOP-2: an action's own page (Prompt | Triggers | Runs). */

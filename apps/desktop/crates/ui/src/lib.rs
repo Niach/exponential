@@ -21,13 +21,13 @@
 //! stays reachable behind `EXP_DEV_BOARD=1`.
 
 mod account_switch;
+mod action_error;
 mod action_prompt_form;
 mod action_view;
 mod action_inputs;
 mod agent_login;
 mod agent_login_outcome;
 mod action_run;
-mod action_suggestions;
 mod actions;
 mod actions_view;
 mod trigger_host;
@@ -78,10 +78,12 @@ mod diff_pane;
 // EXP-862: the dragged-chrome prefs file ({data_dir}/ui-prefs.json).
 mod ui_prefs;
 mod file_picker;
+mod feedback;
 mod file_tree;
 mod file_viewer;
 mod getting_started;
 mod github_connect;
+mod home_greeting;
 mod icons;
 mod image_preview;
 mod inbox;
@@ -166,7 +168,8 @@ mod steer_viewer;
 mod transcript_rows;
 // EXP-965: the nested lists' connector lines.
 mod tree_guides;
-mod workflow_card;
+mod work_card;
+mod script_card;
 // EXP-1005: the account-rotation wall beat.
 mod account_rotation_host;
 pub mod steer_wiring;

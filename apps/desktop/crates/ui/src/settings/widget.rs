@@ -15,7 +15,8 @@
 //! `widget_configs` is server-only (never an Electric shape), so this is a
 //! fetch-on-open tRPC read; `widgets.list` is owner-gated, and the nav only
 //! shows the section to owners, so a FORBIDDEN here means the role changed
-//! under us and the error notice says so.
+//! under us: the empty state + Retry, quiet like every load on entry
+//! (FEED-79).
 
 use gpui::{
     div, App, Entity, IntoElement, ParentElement, Render, SharedString, Styled,
@@ -28,7 +29,7 @@ use crate::icons::registry;
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
-use super::{error_notice, open_url, section};
+use super::{open_url, section, settings_skeleton};
 
 enum Load {
     Idle,
@@ -48,6 +49,9 @@ pub struct WidgetPane {
     /// `reloading` is the fetch in flight); only the FIRST load is a skeleton.
     reload_requested: bool,
     reloading: bool,
+    /// FEED-79: the load in flight is the person's Retry press (its failure
+    /// toasts); a load on entry fails quietly into the empty state.
+    retry_pressed: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -61,6 +65,7 @@ impl WidgetPane {
             generation: 0,
             reload_requested: false,
             reloading: false,
+            retry_pressed: false,
             _subscriptions: subscriptions,
         }
     }
@@ -71,7 +76,8 @@ impl WidgetPane {
     /// team switch. Every entry into the section drops the cache; the next
     /// render refetches (EXP-1274: a list already showing keeps its rows
     /// and the band spins; a failed load starts over at the skeleton — the
-    /// way back from an error is re-entering the section, no Refresh pill).
+    /// way back from an error is re-entering the section or the empty
+    /// state's Retry, no Refresh pill).
     pub fn mark_stale(&mut self, cx: &mut gpui::Context<Self>) {
         match self.load {
             Load::Ready(Ok(_)) => self.reload_requested = true,
@@ -122,12 +128,29 @@ impl WidgetPane {
                 if this.generation != generation {
                     return;
                 }
+                // FEED-79: a failed load = the empty state + Retry; only a
+                // Retry press that fails again toasts.
+                let attended = std::mem::take(&mut this.retry_pressed);
+                if let Err(message) = &result {
+                    crate::action_error::failed_load(
+                        "the widgets",
+                        attended,
+                        Some(message.clone()),
+                        cx,
+                    );
+                }
                 this.load = Load::Ready(result);
                 this.reloading = false;
                 cx.notify();
             });
         })
         .detach();
+    }
+
+    /// The failed list's Retry: the same load, attended.
+    fn retry_load(&mut self, cx: &mut gpui::Context<Self>) {
+        self.retry_pressed = true;
+        self.mark_stale(cx);
     }
 
     /// One config row: the name, then "{n} submissions" with a "disabled"
@@ -214,18 +237,19 @@ impl Render for WidgetPane {
 
         match &self.load {
             Load::Idle | Load::Loading => {
-                body = body.child(
-                    v_flex()
-                        .gap_2()
-                        .child(crate::controls::skeleton().h_4().w_full())
-                        .child(crate::controls::skeleton().h_4().w_full())
-                        .child(crate::controls::skeleton().h_4().w_64()),
-                );
+                body = body.child(settings_skeleton("widgets-skeleton", cx));
             }
-            Load::Ready(Err(message)) => {
-                body = body.child(error_notice(SharedString::from(message.clone()), cx));
+            // A failed load (FEED-79): the empty state + Retry, no toast.
+            Load::Ready(Err(_)) => {
+                body = body.child(crate::action_error::load_failed_state(
+                    "widgets-retry",
+                    gpui_component::Icon::new(registry::SETTINGS_WIDGET),
+                    crate::empty_state_copy::WIDGETS,
+                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
+                    cx,
+                ));
             }
-            Load::Ready(Ok(widgets)) if widgets.is_empty() => {
+            Load::Ready(Ok(rows)) if rows.is_empty() => {
                 body = body.child(crate::controls::empty_state_list(
                     gpui_component::Icon::new(registry::SETTINGS_WIDGET),
                     crate::empty_state_copy::WIDGETS,

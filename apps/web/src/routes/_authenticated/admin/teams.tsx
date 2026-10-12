@@ -3,9 +3,8 @@ import { deleteTeamPrompt, promptActions } from "@/lib/prompts"
 import { createFileRoute, Link, useRouter } from "@tanstack/react-router"
 import { Ellipsis, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
-  Alert,
-  AlertDescription,
   Pill,
   Button,
   Input,
@@ -37,7 +36,6 @@ function AdminTeams() {
   const router = useRouter()
   const { teams } = Route.useLoaderData()
   const [search, setSearch] = useState(``)
-  const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
   const [confirmDelete, setConfirmDelete] = useState<AdminTeam | null>(
     null
@@ -51,16 +49,16 @@ function AdminTeams() {
 
   const handleDelete = async () => {
     if (!confirmDelete) return
-    setError(null)
     setBusy(confirmDelete.id)
     try {
-      await trpc.admin.deleteTeam.mutate({
-        teamId: confirmDelete.id,
-      })
+      await trpc.admin.deleteTeam.mutate(
+        { teamId: confirmDelete.id },
+        SKIP_ERROR_TOAST
+      )
       setConfirmDelete(null)
       await router.invalidate()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      failedAction(`delete`, `the team`, err)
     } finally {
       setBusy(null)
     }
@@ -85,12 +83,6 @@ function AdminTeams() {
         onChange={(e) => setSearch(e.target.value)}
         className="max-w-sm"
       />
-
-      {error && (
-        <Alert variant="destructive">
-          <AlertDescription>{error}</AlertDescription>
-        </Alert>
-      )}
 
       <div className="rounded-md border">
         <div className="hidden md:grid grid-cols-[1fr_110px_1fr_70px_70px_70px_80px_40px] items-center gap-3 border-b px-4 py-2 text-xs font-medium text-muted-foreground">

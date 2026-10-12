@@ -334,9 +334,9 @@ final class PastRunsTests: XCTestCase {
         )
         XCTAssertEqual(
             PastRuns.title(session(id: "a", issueId: nil, actionName: "  "), issue: nil),
-            "Batch run"
+            "Batch session"
         )
-        XCTAssertEqual(PastRuns.title(session(id: "a", issueId: nil), issue: nil), "Batch run")
+        XCTAssertEqual(PastRuns.title(session(id: "a", issueId: nil), issue: nil), "Batch session")
     }
 
     // EXP-905 — a chat run reads the agent CLI's auto-title, trimmed, else
@@ -412,7 +412,7 @@ final class PastRunsTests: XCTestCase {
         )
         // Nothing to name it by — the generic label, and no lead-in.
         XCTAssertNil(PastRuns.identifier(session(id: "e", issueId: nil), issue: nil))
-        XCTAssertEqual(PastRuns.title(session(id: "e", issueId: nil), issue: nil), "Batch run")
+        XCTAssertEqual(PastRuns.title(session(id: "e", issueId: nil), issue: nil), "Batch session")
         // An issue run keeps ITS identifier; an action run has none.
         XCTAssertEqual(
             PastRuns.identifier(session(id: "f"), issue: issue()),

@@ -442,6 +442,155 @@ describe(`steer.startSession — routed body shape`, () => {
 // FEED-57/46/47: a fresh issue or batch start on an issue a live run holds
 // (its own, or a batch covering it) is refused here, never posted for the
 // device to drop silently.
+describe(`steer.startSession — client startId (EXP-1259 review #3)`, () => {
+  it(`carries the caller's startId on the frame and returns it`, async () => {
+    const startId = crypto.randomUUID()
+    queueOwnDevice()
+    const result = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    expect(result).toEqual({ ok: true, startId })
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  // Final review B8: the server dedupes (device, startId) within
+  // `starting.dedupeMs`: a repeat is not forwarded and answers the same.
+  it(`a repeat of a forwarded startId is not forwarded again`, async () => {
+    const startId = crypto.randomUUID()
+    queueOwnDevice()
+    const first = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    const again = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    expect(again).toEqual(first)
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  it(`a repeat while the first is in flight waits for its answer`, async () => {
+    const startId = crypto.randomUUID()
+    let answer: (value: { ok: true }) => void = () => {}
+    h.relayPostStart.mockImplementationOnce(
+      () => new Promise((resolve) => (answer = resolve))
+    )
+    queueOwnDevice()
+    const first = caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+    const again = caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+    await vi.waitFor(() => expect(h.relayPostStart).toHaveBeenCalledTimes(1))
+    answer({ ok: true })
+    expect(await again).toEqual(await first)
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+  })
+
+  it(`a refused or failed forward is forwarded again on Retry`, async () => {
+    const startId = crypto.randomUUID()
+    h.relayPostStart.mockResolvedValueOnce({ ok: false, status: 504, reason: `relay_timeout` })
+    queueOwnDevice()
+    await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+    )
+    queueOwnDevice()
+    const again = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    expect(again).toEqual({ ok: true, startId })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(2)
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  // Recheck R1: the device took the frame, then reported it could not
+  // launch it: the remembered forward is dropped, so Retry forwards again.
+  it(`accept, then a device failure: Retry forwards again`, async () => {
+    const startId = crypto.randomUUID()
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+    await expect(
+      caller.reportStartFailure({ startId, reason: `git checkout refused` })
+    ).resolves.toEqual({ recorded: true })
+    queueOwnDevice()
+    const again = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    expect(again).toEqual({ ok: true, startId })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(2)
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  // Recheck R3: the relay timeout (the frame may have arrived) answers 504
+  // GATEWAY_TIMEOUT; any other relay error stays a definite 500.
+  it(`a relay timeout is GATEWAY_TIMEOUT, another relay error INTERNAL_SERVER_ERROR`, async () => {
+    h.relayPostStart.mockResolvedValueOnce({ ok: false, status: 504, reason: `relay_timeout` })
+    queueOwnDevice()
+    const timeout = (await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    )) as TRPCError
+    expect(timeout).toBeInstanceOf(TRPCError)
+    expect(timeout.code).toBe(`GATEWAY_TIMEOUT`)
+    expect(timeout.message).toBe(`Steer relay error (504)`)
+    h.relayPostStart.mockResolvedValueOnce({ ok: false, status: 500, reason: `relay_error` })
+    queueOwnDevice()
+    const broken = (await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    )) as TRPCError
+    expect(broken.code).toBe(`INTERNAL_SERVER_ERROR`)
+  })
+
+  it(`forwards the same startId to another device, and again after 30 minutes`, async () => {
+    vi.useFakeTimers({ toFake: [`Date`] })
+    try {
+      const startId = crypto.randomUUID()
+      queueOwnDevice()
+      await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+      queueOwnDevice({ deviceId: `dev-2` })
+      await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-2`, startId })
+      expect(h.relayPostStart).toHaveBeenCalledTimes(2)
+      vi.setSystemTime(Date.now() + 30 * 60 * 1000 + 1)
+      queueOwnDevice({ lastSeenAt: new Date() })
+      await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+      expect(h.relayPostStart).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`carries it on an action start too`, async () => {
+    const startId = crypto.randomUUID()
+    queueAction({ name: `Code review` })
+    queueOwnDevice({ caps: [`actions`, `action-inputs`] })
+    await caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1`, startId })
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  it(`rejects a startId that is not a uuid`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId: `x` })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+  })
+
+  it(`mints one when the caller sends none`, async () => {
+    queueOwnDevice()
+    const result = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+    })
+    expect(lastStartBody().startId).toBe(result.startId)
+    expect(result.startId).toMatch(/^[0-9a-f-]{36}$/)
+  })
+})
+
 describe(`steer.startSession — live run on a target issue`, () => {
   const live = {
     id: `99999999-9999-4999-8999-999999999999`,
@@ -460,7 +609,7 @@ describe(`steer.startSession — live run on a target issue`, () => {
     )) as TRPCError
     expect(error.code).toBe(`CONFLICT`)
     expect(error.message).toBe(
-      `EXP-1 already has a live run on studio (session ${live.id}, started by a person). Stop it or let it end before starting another.`
+      `EXP-1 already has a live session on studio (session ${live.id}, started by a person). Stop it or let it end before starting another.`
     )
     expect(h.findLiveRunForIssues).toHaveBeenCalledWith(expect.anything(), [ISSUE_A])
     expect(h.relayPostStart).not.toHaveBeenCalled()
@@ -474,7 +623,7 @@ describe(`steer.startSession — live run on a target issue`, () => {
     )) as TRPCError
     expect(error.code).toBe(`CONFLICT`)
     expect(error.message).toBe(
-      `EXP-2 already has a live run on studio (session ${live.id}, started by agent, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
+      `EXP-2 already has a live session on studio (session ${live.id}, started by agent, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
     )
     expect(h.findLiveRunForIssues).toHaveBeenCalledWith(expect.anything(), [ISSUE_A, ISSUE_B])
     expect(h.relayPostStart).not.toHaveBeenCalled()
@@ -2066,7 +2215,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
 
     expect((error as TRPCError).code).toBe(`CONFLICT`)
     expect((error as TRPCError).message).toBe(
-      `EXP-1 already has a live run on studio (session ${uuid(9)}, started by a person). Stop it or let it end before starting another.`
+      `EXP-1 already has a live session on studio (session ${uuid(9)}, started by a person). Stop it or let it end before starting another.`
     )
     expect(h.findLiveRunForIssues).toHaveBeenCalledWith(expect.anything(), [ISSUE_A])
     expect(h.relayPostStart).not.toHaveBeenCalled()
@@ -2095,7 +2244,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
 
     expect((error as TRPCError).code).toBe(`CONFLICT`)
     expect((error as TRPCError).message).toBe(
-      `EXP-1 already has a live run on studio (session ${uuid(9)}, started by agent, branch exp/batch-1a2b3c4d). Dana (dana@example.com) owns it: only they can stop it, or let it end before starting another.`
+      `EXP-1 already has a live session on studio (session ${uuid(9)}, started by agent, branch exp/batch-1a2b3c4d). Dana (dana@example.com) owns it: only they can stop it, or let it end before starting another.`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
@@ -2167,7 +2316,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
       caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
     )
     expect((error as TRPCError).message).toBe(
-      `That run is still live — stop it first, or name an account to continue it on`
+      `That session is still live — stop it first, or name an account to continue it on`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
@@ -2216,7 +2365,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
 
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
     expect((error as TRPCError).message).toBe(
-      `Only claude runs can change account while live — stop this codex run and start a new one on the other account`
+      `Only claude sessions can change account while live — stop this codex session and start a new one on the other account`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
@@ -2238,7 +2387,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
 
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
     expect((error as TRPCError).message).toContain(
-      `cannot switch account mid-run`
+      `cannot switch account mid-session`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
