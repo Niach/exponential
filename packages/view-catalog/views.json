@@ -2072,11 +2072,8 @@
       },
       "desktop": {
         "drive": {
-          "kind": "tool",
-          "value": "board"
-        },
-        "env": {
-          "EXP_DEV_BOARD_ID": "$emptyBoard"
+          "kind": "dialog",
+          "value": "getting-started"
         }
       },
       "notes": {
@@ -2084,7 +2081,7 @@
         "web-mobile": "The phone sidebar keeps the same entry and dialog; the inline block is `board-empty`’s web-mobile capture.",
         "ios": "Settings’ Getting started row opens the block in a bottom sheet (a horizontal strip of the same cards).",
         "android": "See ios: the Settings row’s bottom sheet.",
-        "desktop": "The rail entry opens the block in its own dialog window (`getting_started::open_dialog`) and no `EXP_DEV_DIALOG` value reaches it yet, so the drive photographs the same block inline under the seeded empty board. The old `getting-started` screen and its tabs are gone."
+        "desktop": "The rail entry opens the block in its own dialog window (`getting_started::open_dialog`); `EXP_DEV_DIALOG=getting-started` opens it on the active team. The old `getting-started` screen and its tabs are gone."
       },
       "ios": {
         "shot": "sg_getting-started",

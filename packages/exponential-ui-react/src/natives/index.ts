@@ -19,6 +19,7 @@ import { BoxNative, ListNative, UnknownNative } from "./layout"
 import { AudioPlayerNative, AvatarNative, CarouselNative, ImageNative, VideoNative } from "./media"
 import { AccordionNative, SegmentedNative, TabsNative } from "./nav"
 import { DialogNative, DrawerNative, MenuNative, PopoverNative, ToastNative, TooltipNative } from "./overlays"
+import { SearchListNative } from "./search"
 import { SelectNative } from "./select"
 import { TableNative } from "./table"
 import { IconNative, MarkdownNative, TextNative } from "./text"
@@ -63,6 +64,7 @@ export const NATIVES: Record<string, ComponentType<NativeProps>> = {
   Switch: SwitchNative,
   Slider: SliderNative,
   Select: SelectNative,
+  SearchList: SearchListNative,
   ChipInput: ChipInputNative,
   DatePicker: DatePickerNative,
   DateRangePicker: DateRangePickerNative,

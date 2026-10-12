@@ -189,10 +189,14 @@ pub struct ThemeTokens {
     /// Round 2: backdrop blur radii in px (`backdropBlur: $blur.md`).
     #[serde(default, serialize_with = "ser_nums")]
     pub blur: IndexMap<String, f64>,
+    /// EXP-1259: the motion scale multipliers painters read (`press` = a
+    /// pressed button, `popoverFrom` = a popover's enter scale).
+    #[serde(default, serialize_with = "ser_nums")]
+    pub scale: IndexMap<String, f64>,
 }
 
 /// The numeric groups directly under `tokens`, in overlay order.
-const NUMBER_GROUPS: [&str; 9] = ["spacing", "radius", "control", "opacity", "border", "motion", "breakpoint", "density", "blur"];
+const NUMBER_GROUPS: [&str; 10] = ["spacing", "radius", "control", "opacity", "border", "motion", "breakpoint", "density", "blur", "scale"];
 /// Token groups whose values are cubic-bezier tuples.
 const TUPLE_GROUPS: [&str; 1] = ["ease"];
 const TYPE_SUBS: [&str; 4] = ["size", "lineHeight", "weight", "family"];
@@ -210,6 +214,7 @@ impl ThemeTokens {
             "breakpoint" => Some(&self.breakpoint),
             "density" => Some(&self.density),
             "blur" => Some(&self.blur),
+            "scale" => Some(&self.scale),
             g => g.strip_prefix("type.").and_then(|sub| self.r#type.numbers(sub)),
         }
     }
@@ -224,6 +229,7 @@ impl ThemeTokens {
             "breakpoint" => Some(&mut self.breakpoint),
             "density" => Some(&mut self.density),
             "blur" => Some(&mut self.blur),
+            "scale" => Some(&mut self.scale),
             g => g.strip_prefix("type.").and_then(|sub| self.r#type.numbers_mut(sub)),
         }
     }
@@ -606,6 +612,7 @@ fn check_tokens(value: &Value, path: &str, issues: &mut Vec<ThemeIssue>) {
         let range = match group.as_str() {
             "opacity" => Some((0.0, 1.0)),
             "density" => Some((0.5, 2.0)),
+            "scale" => Some((0.5, 1.5)),
             _ => None,
         };
         check_number_map(entries, &at, names, issues, range);

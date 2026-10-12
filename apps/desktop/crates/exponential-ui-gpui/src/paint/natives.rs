@@ -388,10 +388,29 @@ pub fn spinner_glyph(id: impl Into<gpui::ElementId>, size: f32, color: Hsla) -> 
 }
 
 /// Button / Toggle content: spinner or icon, then the label (mirrored in RTL).
+///
+/// EXP-1259 (feedback-states.json `pending`): a `loading` Button refuses
+/// presses at once (the core) but LOOKS idle for `pendingDelayMs`, so a
+/// fast action never flashes; then its icon slot is the spinner and its
+/// label `pendingLabel`. Both faces are laid in the box the measurer sized
+/// for the wider one; two one-shot animations swap them at the delay.
 pub fn button(cx: &LeafCx, component: &str, window: &Window) -> AnyElement {
-    let label = cx.str("label");
-    let icon = cx.str("icon");
     let loading = cx.bool("loading");
+    if !loading {
+        return button_face(cx, component, window, false);
+    }
+    let delay = Duration::from_millis(exponential_ui::layout::PENDING_DELAY_MS as u64);
+    let idle = div().absolute().size_full().child(button_face(cx, component, window, false)).with_animation(SharedString::from(format!("{}.idle", cx.node.id)), Animation::new(delay), |d, t| d.opacity(if t >= 1.0 { 0.0 } else { 1.0 }));
+    let pending = div().absolute().size_full().child(button_face(cx, component, window, true)).with_animation(SharedString::from(format!("{}.pending", cx.node.id)), Animation::new(delay), |d, t| d.opacity(if t >= 1.0 { 1.0 } else { 0.0 }));
+    div().absolute().size_full().child(idle).child(pending).into_any_element()
+}
+
+/// One face of a Button: idle (its icon + label) or pending (the spinner +
+/// `pendingLabel`, else the label).
+fn button_face(cx: &LeafCx, component: &str, window: &Window, loading: bool) -> AnyElement {
+    let pending = cx.str("pendingLabel");
+    let label = if loading && !pending.is_empty() { pending } else { cx.str("label") };
+    let icon = cx.str("icon");
     let icon_only = cx.str("size") == "icon";
     // The icon recipe for the BUTTON's own props (as the measurer reads
     // it): a part button (a FileUpload remove) is not sized by its owner's.
@@ -1023,19 +1042,23 @@ pub fn slider(cx: &LeafCx, fraction: f32) -> AnyElement {
         .into_any_element()
 }
 
-/// `Skeleton`: the box (background + radius) pulses like the web's
-/// `xui-pulse` (opacity 1 → .5 → 1 over 2 s); static under reduced motion.
+/// `Skeleton` (and a Skeleton row's `dot` / `bar`): the fill (the box paints
+/// none of its own) pulses ONE slow opacity wave, `skeletonOpacityLow` →
+/// `High` → `Low` over `skeletonPulseMs`, ease-in-out (EXP-1259,
+/// feedback-states.json `placeholder`); static at `skeletonReducedOpacity`
+/// under reduced motion.
 pub fn skeleton(cx: &LeafCx) -> AnyElement {
-    if cx.reduced_motion {
-        return div().into_any_element();
-    }
+    use exponential_ui::layout::{SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY};
     let bg = cx.style.bg.unwrap_or(cx.ink.opacity(0.1));
-    let r = cx.radii;
-    rounded(div().absolute().size_full().bg(bg), r)
-        .with_animation(SharedString::from(format!("{}.pulse", cx.node.id)), Animation::new(Duration::from_millis(2000)).repeat(), |d, t| {
-            // 0 → .5 → 1 maps to opacity 1 → .5 → 1 (eased like CSS).
+    let block = rounded(div().absolute().size_full().bg(bg), cx.radii);
+    if cx.reduced_motion {
+        return block.opacity(SKELETON_REDUCED_OPACITY as f32).into_any_element();
+    }
+    let (low, high) = (SKELETON_OPACITY_LOW as f32, SKELETON_OPACITY_HIGH as f32);
+    block
+        .with_animation(SharedString::from(format!("{}.pulse", cx.node.id)), Animation::new(Duration::from_millis(SKELETON_PULSE_MS as u64)).repeat(), move |d, t| {
             let phase = if t < 0.5 { t * 2.0 } else { (1.0 - t) * 2.0 };
-            d.opacity(1.0 - 0.5 * super::cubic_bezier([0.4, 0.0, 0.6, 1.0], phase))
+            d.opacity(low + (high - low) * super::cubic_bezier([0.42, 0.0, 0.58, 1.0], phase))
         })
         .into_any_element()
 }

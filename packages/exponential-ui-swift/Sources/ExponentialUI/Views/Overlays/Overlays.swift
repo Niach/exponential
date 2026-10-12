@@ -22,8 +22,10 @@ struct LayerView: View {
 /// `dismissible`; a press outside the non-modal overlays (menus, popups,
 /// popovers; never a tooltip or a toast) dismisses them, a press inside
 /// any layer does not (a submenu keeps its parent open). Drawers and
-/// sheets drag toward their edge to dismiss. A layer enters with a short
-/// fade + rise on the theme's `fast` motion (none under reduced motion).
+/// sheets drag toward their edge to dismiss. An overlay enters scaling from
+/// the theme's `scale.popoverFrom` (anchored at its trigger's side) while
+/// it fades in on `motion.standard`, and leaves with a faster fade; a toast
+/// fades and rises in (none of it under reduced motion).
 struct PaintedLayers: View {
     let model: SurfaceModel
 
@@ -31,7 +33,13 @@ struct PaintedLayers: View {
         let ordered = PaintedLayers.stacked(model.layers)
         let lastModal = ordered.lastIndex(where: \.modal) ?? -1
         let outside = ordered.indices.filter { $0 > lastModal && PaintedLayers.dismissesOnOutsidePress(ordered[$0]) }
-        let enter = model.reducedMotion ? nil : Animation.timingCurve(0, 0, 0.2, 1, duration: (model.theme?.motion("fast") ?? 120) / 1000)
+        // EXP-1259 (the EXP-1243 rules): enters `decelerate` at `standard`,
+        // scaling from `scale.popoverFrom` toward the trigger's side while
+        // they fade in; exits are opacity only, faster (`accelerate` at
+        // `fast`); reduced motion = none.
+        let enter = model.reducedMotion ? nil : Animation.timingCurve(0, 0, 0.2, 1, duration: (model.theme?.motion("standard") ?? 180) / 1000)
+        let exit = model.reducedMotion ? nil : Animation.timingCurve(0.3, 0, 1, 1, duration: (model.theme?.motion("fast") ?? 120) / 1000)
+        let from = CGFloat(model.theme?.scale("popoverFrom") ?? 0.96)
         let cover = CGSize(width: max(model.surfaceSize.width, model.width), height: max(model.surfaceSize.height, model.viewportHeight))
         ZStack(alignment: .topLeading) {
             ForEach(Array(ordered.enumerated()), id: \.element.id) { i, layer in
@@ -50,7 +58,7 @@ struct PaintedLayers: View {
                         .accessibilityHidden(true)
                 }
                 PaintedLayer(layer: layer, model: model)
-                    .transition(enter.map { .asymmetric(insertion: AnyTransition.opacity.combined(with: .offset(y: layer.position == "top" ? -8 : 8)).animation($0), removal: .identity) } ?? .identity)
+                    .transition(enter.map { .asymmetric(insertion: (layer.layerClass == "toast" ? AnyTransition.opacity.combined(with: .offset(y: 8)) : AnyTransition.opacity.combined(with: .scale(scale: from, anchor: layer.position == "top" ? .bottom : .top))).animation($0), removal: exit.map { AnyTransition.opacity.animation($0) } ?? .identity) } ?? .identity)
             }
         }
     }

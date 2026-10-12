@@ -51,7 +51,7 @@ const STRING_GROUPS = new Set([`type.family`])
 /** Token groups whose values are cubic-bezier tuples. */
 const TUPLE_GROUPS = new Set([`ease`])
 /** The mode-less NUMBER groups under `tokens`, in file order. */
-const NUMBER_GROUPS = [`spacing`, `radius`, `control`, `opacity`, `border`, `motion`, `breakpoint`, `density`, `blur`] as const
+const NUMBER_GROUPS = [`spacing`, `radius`, `control`, `opacity`, `border`, `motion`, `breakpoint`, `density`, `blur`, `scale`] as const
 const TYPE_SUBGROUPS = [`size`, `lineHeight`, `weight`, `family`] as const
 /** Which token groups each recipe key accepts. */
 const KEY_GROUPS: Record<string, readonly string[]> = {
@@ -219,7 +219,7 @@ function checkTokens(value: unknown, path: string, issues: ThemeIssue[]): void {
       continue
     }
     if (TUPLE_GROUPS.has(group)) checkEasingMap(entries, at, TOKEN_GROUPS[group], issues)
-    else checkNumberMap(entries, at, TOKEN_GROUPS[group], issues, group === `opacity` ? [0, 1] : group === `density` ? [0.5, 2] : undefined)
+    else checkNumberMap(entries, at, TOKEN_GROUPS[group], issues, group === `opacity` ? [0, 1] : group === `density` ? [0.5, 2] : group === `scale` ? [0.5, 1.5] : undefined)
   }
 }
 
@@ -369,7 +369,7 @@ function emptyTheme(source: ThemeSource): ResolvedTheme {
     chain: [],
     modes: { light: emptyMode(), dark: emptyMode() },
     contrast: { light: emptyMode(), dark: emptyMode() },
-    tokens: { spacing: {}, radius: {}, type: { size: {}, lineHeight: {}, weight: {}, family: {} }, control: {}, opacity: {}, border: {}, motion: {}, breakpoint: {}, ease: {}, density: {}, blur: {} },
+    tokens: { spacing: {}, radius: {}, type: { size: {}, lineHeight: {}, weight: {}, family: {} }, control: {}, opacity: {}, border: {}, motion: {}, breakpoint: {}, ease: {}, density: {}, blur: {}, scale: {} },
     fonts: {},
     recipes: {},
   }

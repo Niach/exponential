@@ -50,7 +50,7 @@ interface DesignTokens {
   glass: Record<string, string>
   radius: Record<string, number>
   size: Record<string, number>
-  motion: { duration: Record<string, number>; ease: Record<string, [number, number, number, number]> }
+  motion: { duration: Record<string, number>; ease: Record<string, [number, number, number, number]>; scale: Record<string, number> }
   spacing: Record<string, number>
   type: { fontFamily: string; size: Record<string, number>; lineHeight: Record<string, number>; weight: Record<string, number>; emphasis: Record<string, number> }
 }
@@ -141,6 +141,8 @@ export function composeExponential(): ThemeSource {
       // Round 1: the app's easing curves (design-tokens `motion.ease`, the
       // same names) back `$ease.*`; breakpoints and density inherit neutral's.
       ease: Object.fromEntries(Object.entries(design.motion.ease).filter(([k]) => !k.startsWith(`$`))) as Record<string, [number, number, number, number]>,
+      // EXP-1259: the press / popover-enter scale (design-tokens `motion.scale`).
+      scale: numbers(design.motion.scale),
     },
     fonts: {
       [design.type.fontFamily]: { fallback: `ui-sans-serif, system-ui, sans-serif`, weights: [400, 500, 600, 700], source: `host` },
@@ -286,6 +288,7 @@ export function themeSchema(): Record<string, unknown> {
           ease: { type: `object`, additionalProperties: false, properties: Object.fromEntries(TOKEN_GROUPS.ease.map((n) => [n, { type: `array`, items: { type: `number` }, minItems: 4, maxItems: 4 }])) },
           density: numberMap(TOKEN_GROUPS.density),
           blur: numberMap(TOKEN_GROUPS.blur),
+          scale: numberMap(TOKEN_GROUPS.scale),
         },
       },
       fonts: {

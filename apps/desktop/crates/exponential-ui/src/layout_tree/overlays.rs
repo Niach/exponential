@@ -229,9 +229,23 @@ impl Builder<'_, '_> {
                         if open_sub == Some(i) {
                             self.add_state(row, "open");
                             let sub_items = item.get("items").and_then(Value::as_array).cloned().unwrap_or_default();
-                            let (layer, root) = self.layer_root_suffixed(owner, "content", &suffix, json!({"display": "flex", "flexDirection": "column", "padding": "$spacing.xs", "borderRadius": "$radius.md", "minWidth": 160}));
-                            self.menu_items(root, owner, &sub_items, &suffix, false);
-                            self.push_layer(layer, root, owner, LayerPlacement::Anchored { anchor: row, side: OverlaySide::Right, align: OverlayAlign::Start }, false, true, false, Some(root));
+                            // EXP-1259: a searchable submenu = the search list
+                            // (head, filtered rows, fade), its list scrolls.
+                            let searchable = item.get("searchable").and_then(Value::as_bool) == Some(true);
+                            let style = if searchable {
+                                json!({"display": "flex", "flexDirection": "column", "padding": "$spacing.xs", "borderRadius": "$radius.md", "minWidth": 240})
+                            } else {
+                                json!({"display": "flex", "flexDirection": "column", "padding": "$spacing.xs", "borderRadius": "$radius.md", "minWidth": 160})
+                            };
+                            let (layer, root) = self.layer_root_suffixed(owner, "content", &suffix, style);
+                            let scroll = if searchable {
+                                self.menu_search(root, owner, item, &suffix);
+                                self.slot_of_id(&format!("{}.list{suffix}", owner.id))
+                            } else {
+                                self.menu_items(root, owner, &sub_items, &suffix, false);
+                                Some(root)
+                            };
+                            self.push_layer(layer, root, owner, LayerPlacement::Anchored { anchor: row, side: OverlaySide::Right, align: OverlayAlign::Start }, false, true, false, scroll);
                             if let Some(spec) = self.layers.last_mut() {
                                 spec.mirror = true;
                             }

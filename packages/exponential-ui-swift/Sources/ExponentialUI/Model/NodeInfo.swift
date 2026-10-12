@@ -97,7 +97,7 @@ public struct NodeInfo: Identifiable, Sendable {
     /// `Composer`, the NumberField / ChipInput `input`, the Select `search`)?
     public var isTextField: Bool {
         switch (component, part) {
-        case ("Input", "field"), ("Textarea", "field"), ("Composer", nil), ("NumberField", "input"), ("ChipInput", "input"), ("Select", "search"): true
+        case ("Input", "field"), ("Textarea", "field"), ("Composer", nil), ("NumberField", "input"), ("ChipInput", "input"), ("Select", "search"), ("SearchList", "search"): true
         default: false
         }
     }

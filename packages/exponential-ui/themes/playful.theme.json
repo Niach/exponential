@@ -100,6 +100,7 @@
     "control": { "buttonSm": 32, "buttonMd": 40, "buttonLg": 48, "buttonIcon": 40, "input": 44, "pill": 28, "badge": 22, "chip": 32, "toggle": 40, "switch": 24, "checkbox": 20, "row": 44 },
     "border": { "hairline": 2, "thick": 3 },
     "motion": { "fast": 160, "standard": 240, "slow": 360 },
+    "scale": { "press": 0.94, "popoverFrom": 0.9 },
     "ease": { "standard": [0.34, 1.56, 0.64, 1] },
     "density": { "compact": 0.9, "comfortable": 1.2 }
   },

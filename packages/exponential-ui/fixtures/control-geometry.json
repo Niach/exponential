@@ -805,6 +805,15 @@
               "height": 20
             }
           },
+          "size=xs": {
+            "props": {
+              "size": "xs"
+            },
+            "geometry": {
+              "width": 10,
+              "height": 10
+            }
+          },
           "size=sm": {
             "props": {
               "size": "sm"
@@ -944,7 +953,45 @@
         "cases": {
           "default": {
             "props": {
-              "fill": false
+              "fill": false,
+              "closable": "none",
+              "addable": false
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 12,
+              "borderRadius": 6
+            }
+          },
+          "closable=none": {
+            "props": {
+              "fill": false,
+              "closable": "none",
+              "addable": false
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 12,
+              "borderRadius": 6
+            }
+          },
+          "closable=hover": {
+            "props": {
+              "fill": false,
+              "closable": "hover",
+              "addable": false
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 12,
+              "borderRadius": 6
+            }
+          },
+          "closable=always": {
+            "props": {
+              "fill": false,
+              "closable": "always",
+              "addable": false
             },
             "geometry": {
               "height": 32,
@@ -1801,6 +1848,15 @@
               "height": 20
             }
           },
+          "size=xs": {
+            "props": {
+              "size": "xs"
+            },
+            "geometry": {
+              "width": 10,
+              "height": 10
+            }
+          },
           "size=sm": {
             "props": {
               "size": "sm"
@@ -1940,7 +1996,45 @@
         "cases": {
           "default": {
             "props": {
-              "fill": false
+              "fill": false,
+              "closable": "none",
+              "addable": false
+            },
+            "geometry": {
+              "height": 24,
+              "paddingHorizontal": 12,
+              "borderRadius": 8
+            }
+          },
+          "closable=none": {
+            "props": {
+              "fill": false,
+              "closable": "none",
+              "addable": false
+            },
+            "geometry": {
+              "height": 24,
+              "paddingHorizontal": 12,
+              "borderRadius": 8
+            }
+          },
+          "closable=hover": {
+            "props": {
+              "fill": false,
+              "closable": "hover",
+              "addable": false
+            },
+            "geometry": {
+              "height": 24,
+              "paddingHorizontal": 12,
+              "borderRadius": 8
+            }
+          },
+          "closable=always": {
+            "props": {
+              "fill": false,
+              "closable": "always",
+              "addable": false
             },
             "geometry": {
               "height": 24,
@@ -2798,6 +2892,15 @@
               "height": 20
             }
           },
+          "size=xs": {
+            "props": {
+              "size": "xs"
+            },
+            "geometry": {
+              "width": 10,
+              "height": 10
+            }
+          },
           "size=sm": {
             "props": {
               "size": "sm"
@@ -2937,7 +3040,45 @@
         "cases": {
           "default": {
             "props": {
-              "fill": false
+              "fill": false,
+              "closable": "none",
+              "addable": false
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 0,
+              "borderRadius": 0
+            }
+          },
+          "closable=none": {
+            "props": {
+              "fill": false,
+              "closable": "none",
+              "addable": false
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 0,
+              "borderRadius": 0
+            }
+          },
+          "closable=hover": {
+            "props": {
+              "fill": false,
+              "closable": "hover",
+              "addable": false
+            },
+            "geometry": {
+              "height": 32,
+              "paddingHorizontal": 0,
+              "borderRadius": 0
+            }
+          },
+          "closable=always": {
+            "props": {
+              "fill": false,
+              "closable": "always",
+              "addable": false
             },
             "geometry": {
               "height": 32,

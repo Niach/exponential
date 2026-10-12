@@ -20,6 +20,7 @@ pub mod fields;
 mod misc;
 mod overlays;
 pub use overlays::is_context_menu;
+pub mod search;
 mod table;
 
 use std::collections::HashMap;
@@ -229,6 +230,10 @@ pub struct LocalState {
     pub range_anchor: HashMap<String, String>,
     /// The open submenu of a menu (item index).
     pub submenu: HashMap<String, usize>,
+    /// EXP-1259: the highlighted row of a SearchList (by its id) or of a
+    /// searchable submenu (by its `search` part's id), a position in the
+    /// FILTERED rows.
+    pub active: HashMap<String, usize>,
     /// Where a context Menu was opened (surface coordinates).
     pub context_point: HashMap<String, (f32, f32)>,
     /// The host's latest value of a field (text inputs are host-owned).
@@ -278,6 +283,9 @@ pub struct BuildContext<'a> {
     /// `$control.row` (the extent of an unmeasured list item).
     pub hairline: f32,
     pub row_extent: f32,
+    /// EXP-1259: `$control.buttonSm`, a menu row's height (a searchable
+    /// submenu's list window).
+    pub menu_row: f32,
     /// The theme's default gap for `List` items per `gap` enum, in px.
     pub gap_px: &'a dyn Fn(&str) -> f32,
     /// Expand form controls into label/field/description parts (a themed
@@ -738,6 +746,8 @@ impl<'a, 'b> Builder<'a, 'b> {
             "Checkbox" | "Switch" if expand => self.check(index),
             "Radio" if expand => self.radio(index),
             "Slider" if expand => self.slider(index),
+            "SearchList" if expand => self.search_list(index),
+            "Skeleton" => self.skeleton_rows(index),
             "Chart" => self.chart(index),
             _ => {
                 if let Some(slots) = &node.slots {

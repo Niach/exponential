@@ -308,8 +308,6 @@ export function WorkTabsStrip({
 
   const openNewRun = () => openNewRunPage(teamId, teamSlug, navigate)
 
-  if (chips.length === 0) return null
-
   const allKeys = chips.map((chip) => chip.key)
   const renderChip = (chip: ChipModel, interactive: boolean) => {
     const active = chip.key === activeKey

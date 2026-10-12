@@ -3749,7 +3749,9 @@ impl Focusable for ScreensPanel {
 /// page, so it navigates to `EXP_DEV_SCREEN=action:<uuid>`) | `create-board` |
 /// `create-team` | `join-team[:<invite-token>]` (a token prefills the paste
 /// field and previews the invite) | `add-server` | `device-settings:<uuid>` |
-/// `duplicate-picker:<issue-uuid>` (anything else = no dialog, logged once).
+/// `duplicate-picker:<issue-uuid>` | `getting-started` (EXP-1259: the rail
+/// entry's Getting started dialog on the active team) (anything else = no
+/// dialog, logged once).
 /// Each opens EXACTLY ONCE, 1500ms after the state it needs has resolved, so
 /// a capture run lands on the overlay without synthetic input. Never document
 /// for users.
@@ -3773,6 +3775,8 @@ enum DevDialog {
     TidyUp,
     /// EXP-1155: the composer dialog on these issues (2+ = a batch).
     Run(Vec<String>),
+    /// EXP-1259: the Getting started dialog (the rail entry) on the active team.
+    GettingStarted,
 }
 
 /// The accepted [`DevDialog`] spellings, for the parse-failure log — a typo
@@ -3782,7 +3786,7 @@ const DEV_DIALOG_SPECS: &str = "search | \
     trigger-edit:<action-uuid>:<trigger-id> | \
     create-board | create-team | join-team[:<invite-token>] | add-server | \
     device-settings:<uuid> | duplicate-picker:<issue-uuid> | tidy-up | \
-    run:<issue-uuid>[,<issue-uuid>…]";
+    run:<issue-uuid>[,<issue-uuid>…] | getting-started";
 
 fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
     match spec {
@@ -3792,6 +3796,7 @@ fn parse_dev_dialog(spec: &str) -> Option<DevDialog> {
         "join-team" => Some(DevDialog::JoinTeam(None)),
         "add-server" => Some(DevDialog::AddServer),
         "tidy-up" => Some(DevDialog::TidyUp),
+        "getting-started" => Some(DevDialog::GettingStarted),
         _ => {
             if let Some(ids) = spec.strip_prefix("run:") {
                 let ids: Vec<String> = ids
@@ -3844,6 +3849,7 @@ enum DevDialogTarget {
     DeviceSettings { device_id: String },
     DuplicatePicker { issue_id: String },
     Composer { seed: crate::navigation::ChatSeed },
+    GettingStarted,
 }
 
 fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
@@ -3874,6 +3880,7 @@ fn open_dev_dialog(target: DevDialogTarget, window: &mut Window, cx: &mut App) {
             crate::issue_detail::open_duplicate_picker(issue_id, window, cx)
         }
         DevDialogTarget::Composer { seed } => crate::composer_dialog::open(window, cx, seed),
+        DevDialogTarget::GettingStarted => crate::getting_started::open_dialog(window, cx),
     }
 }
 
@@ -3975,6 +3982,15 @@ impl ScreensPanel {
             DevDialog::TidyUp => DevDialogTarget::Composer {
                 seed: crate::navigation::ChatSeed::tidy_up(active_board_id(&self.nav, cx)?),
             },
+            DevDialog::GettingStarted => {
+                // `open_dialog` self-guards on the active team: gate here so
+                // the one-shot latch is never spent on a silent no-op.
+                if !signed_in {
+                    return None;
+                }
+                active_team_id(&self.nav, cx)?;
+                DevDialogTarget::GettingStarted
+            }
             DevDialog::Run(issue_ids) => {
                 let issues = store.collections().issues.read(cx);
                 if !issue_ids.iter().all(|id| issues.get(id).is_some()) {
@@ -4290,6 +4306,14 @@ mod tests {
         assert_eq!(parse_dev_dialog("create-issue"), None);
         assert_eq!(parse_dev_dialog("search"), Some(DevDialog::Search));
         assert!(!DEV_DIALOG_SPECS.contains("create-issue"));
+    }
+
+    /// EXP-1259 (dev): `EXP_DEV_DIALOG=getting-started` = the rail entry's
+    /// Getting started dialog (the view catalog's desktop drive).
+    #[test]
+    fn the_getting_started_dev_dialog_parses() {
+        assert_eq!(parse_dev_dialog("getting-started"), Some(DevDialog::GettingStarted));
+        assert!(DEV_DIALOG_SPECS.contains("getting-started"));
     }
 
     /// EXP-895/EXP-879/EXP-1251 (dev): `EXP_DEV_RUN_FACE` opens a run on its

@@ -354,12 +354,17 @@ class SurfaceMeasurer(
         val props = leaf.props
         val ts = ts(leaf)
         val label = shown(props.shownText("label"), leaf)
-        val hasIcon = props.str("icon").isNotEmpty() || props.flag("loading")
+        val loading = props.flag("loading")
+        val hasIcon = props.str("icon").isNotEmpty() || loading
         val iconOnly = props.str("size") == "icon"
         val icon = if (hasIcon || iconOnly) (part(leaf.component, "icon", props).width ?: control("iconSm", 16f)) else 0f
         val labelW = if (iconOnly || label.isEmpty()) 0f else line(label, ts)
         val gap = if (hasIcon && labelW > 0f) leaf.control.gap else 0f
-        val w = (if (hasIcon || iconOnly) icon else 0f) + gap + labelW
+        var w = (if (hasIcon || iconOnly) icon else 0f) + gap + labelW
+        // EXP-1259: the pending face (the spinner + `pendingLabel`) never
+        // narrows the button below its idle width, nor clips the word.
+        val pending = shown(props.shownText("pendingLabel"), leaf)
+        if (loading && !iconOnly && pending.isNotEmpty()) w = max(w, icon + leaf.control.gap + line(pending, ts))
         val h = max(ts.lineHeight, if (hasIcon) icon else 0f)
         return Content(w, h, if (labelW > 0f) (h - ts.lineHeight) / 2f + baseline(ts) else null)
     }
@@ -533,7 +538,7 @@ class SurfaceMeasurer(
 
         /** Is a leaf a host-owned one-line field (`search`, NumberField / ChipInput `input`)? */
         fun isInlineField(component: String, part: String?): Boolean =
-            (component == "Select" && part == "search") || (component == "NumberField" && part == "input") || (component == "ChipInput" && part == "input")
+            ((component == "Select" || component == "SearchList") && part == "search") || (component == "NumberField" && part == "input") || (component == "ChipInput" && part == "input")
 
         /**
          * The leading / trailing chrome (dp) a one-line text part carries

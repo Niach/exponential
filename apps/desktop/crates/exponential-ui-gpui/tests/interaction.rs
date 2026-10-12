@@ -859,3 +859,54 @@ fn markdown_text_selects_with_a_drag_and_copies(cx: &mut TestAppContext) {
     assert!(view.update(cx, |v, cx| v.select_all_markdown("md", cx)));
     assert!(view.read_with(cx, |v, _| v.selected_text()).starts_with("Hello"));
 }
+
+/// EXP-1259: the search list keeps the focus in its field: typing filters,
+/// the arrows move the highlighted row, Enter (and Tab) pick it.
+#[gpui::test]
+fn a_search_list_filters_and_picks_from_its_field(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "children": [
+        {"id": "sl", "component": "SearchList", "props": {"items": [
+            {"label": "Ship the search list", "value": "a", "identifier": "EXP-12"},
+            {"label": "Spinner sizes", "value": "b", "identifier": "EXP-14"},
+            {"label": "Spin the mark", "value": "c", "identifier": "EXP-15"}
+        ]}, "on": {"select": {"event": {"name": "pick"}}}}
+    ]});
+    let (view, log, cx) = surface(cx, tree, false);
+    // (The field is never focused here: a focused gpui-component Input asks
+    // the test window for its native view on macOS.)
+    cx.update(|window, cx| view.update(cx, |v, cx| {
+        v.type_into("sl.search", "spin", window, cx);
+    }));
+    cx.executor().advance_clock(Duration::from_millis(200));
+    cx.run_until_parked();
+    draw(cx);
+    assert!(view.read_with(cx, |v, _| v.index_of("sl.item.0").is_none()), "filtered");
+    assert!(states(&view, cx, "sl.item.1").iter().any(|s| s == "selected"), "the top row is highlighted");
+    let press = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext, k: &str| {
+        let k = k.to_string();
+        cx.update(|window, cx| view.update(cx, |v, cx| v.search_key("sl.search", &k, window, cx)));
+        draw(cx);
+    };
+    press(&view, cx, "ArrowDown");
+    assert!(states(&view, cx, "sl.item.2").iter().any(|s| s == "selected"));
+    press(&view, cx, "Enter");
+    let picked = log.0.borrow().actions.iter().find(|a| a.name == "pick").map(|a| a.context["value"].clone());
+    assert_eq!(picked, Some(json!("c")));
+}
+
+/// EXP-1259: a loading Button keeps (at least) its idle width and grows to
+/// fit its `pendingLabel`.
+#[gpui::test]
+fn a_pending_button_never_narrows(cx: &mut TestAppContext) {
+    let tree = json!({"id": "root", "component": "Box", "style": {"display": "flex", "flexDirection": "column", "alignItems": "flex-start", "gap": 8}, "children": [
+        {"id": "idle", "component": "Button", "props": {"label": "Start run", "icon": "ui-add"}},
+        {"id": "busy", "component": "Button", "props": {"label": "Start run", "icon": "ui-add", "loading": true, "pendingLabel": "Starting"}},
+        {"id": "long", "component": "Button", "props": {"label": "Go", "loading": true, "pendingLabel": "Starting the run"}}
+    ]});
+    let (view, _log, cx) = surface(cx, tree, false);
+    let w = |view: &Entity<SurfaceView>, cx: &mut VisualTestContext, id: &str| view.read_with(cx, |v, _| v.surface().last_frame(v.index_of(id).unwrap()).unwrap().w);
+    let (idle, busy, long) = (w(&view, cx, "idle"), w(&view, cx, "busy"), w(&view, cx, "long"));
+    assert!(busy >= idle - 0.5, "{busy} < {idle}");
+    let go = view.read_with(cx, |v, _| v.surface().last_frame(v.index_of("long").unwrap()).unwrap().h);
+    assert!(long > go * 2.0, "the pending word fits: {long}");
+}

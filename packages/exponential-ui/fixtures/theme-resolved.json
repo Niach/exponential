@@ -362,6 +362,10 @@
           "md": 12,
           "lg": 16,
           "xl": 24
+        },
+        "scale": {
+          "press": 1,
+          "popoverFrom": 0.95
         }
       },
       "fonts": {
@@ -1312,6 +1316,76 @@
                 "paddingVertical": "$spacing.md"
               }
             }
+          ],
+          "close": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "borderRadius": "$radius.sm",
+                "color": "$color.mutedForeground",
+                "backgroundColor": "#00000000",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "closable": "hover"
+              },
+              "style": {
+                "opacity": 0
+              }
+            },
+            {
+              "when": {
+                "closable": "hover",
+                "state": "hover"
+              },
+              "style": {
+                "opacity": 1
+              }
+            },
+            {
+              "when": {
+                "closable": "hover",
+                "state": "focus"
+              },
+              "style": {
+                "opacity": 1
+              }
+            }
+          ],
+          "new": [
+            {
+              "style": {
+                "width": "$control.buttonSm",
+                "height": "$control.buttonSm",
+                "borderRadius": "$radius.sm",
+                "color": "$color.mutedForeground",
+                "backgroundColor": "#00000000",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            }
           ]
         },
         "Accordion": {
@@ -1677,6 +1751,61 @@
                 "color": "$color.mutedForeground"
               }
             }
+          ],
+          "head": [
+            {
+              "style": {
+                "height": 36,
+                "gap": "$spacing.sm",
+                "paddingHorizontal": "$spacing.sm",
+                "borderBottomWidth": "$border.hairline",
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "search": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontFamily": "$type.family.sans",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "list": [
+            {
+              "style": {
+                "paddingVertical": "$spacing.xs"
+              }
+            }
+          ],
+          "empty": [
+            {
+              "style": {
+                "padding": "$spacing.md",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "fade": [
+            {
+              "style": {
+                "height": 24,
+                "backgroundColor": "$color.popover"
+              }
+            }
           ]
         },
         "Ring": {
@@ -1806,6 +1935,15 @@
                 "width": "$control.iconLg",
                 "height": "$control.iconLg"
               }
+            },
+            {
+              "when": {
+                "size": "xs"
+              },
+              "style": {
+                "width": 10,
+                "height": 10
+              }
             }
           ]
         },
@@ -1823,6 +1961,33 @@
               },
               "style": {
                 "borderRadius": "$radius.full"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "gap": "$spacing.md",
+                "paddingHorizontal": "$spacing.md"
+              }
+            }
+          ],
+          "dot": [
+            {
+              "style": {
+                "width": 12,
+                "height": 12,
+                "borderRadius": "$radius.full",
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "bar": [
+            {
+              "style": {
+                "height": 8,
+                "borderRadius": 4,
+                "backgroundColor": "$color.accent"
               }
             }
           ]
@@ -2402,6 +2567,149 @@
                 "padding": "$spacing.sm",
                 "fontSize": "$type.size.sm",
                 "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "SearchList": {
+          "root": [
+            {
+              "style": {
+                "backgroundColor": "$color.popover",
+                "color": "$color.popoverForeground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.md"
+              }
+            }
+          ],
+          "head": [
+            {
+              "style": {
+                "height": 40,
+                "gap": "$spacing.sm",
+                "paddingHorizontal": "$spacing.md",
+                "borderBottomWidth": "$border.hairline",
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "search": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontFamily": "$type.family.sans",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "list": [
+            {
+              "style": {
+                "padding": "$spacing.xs"
+              }
+            }
+          ],
+          "item": [
+            {
+              "style": {
+                "height": "$control.row",
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderRadius": "$radius.sm",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.popoverForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": "$opacity.disabled"
+              }
+            }
+          ],
+          "icon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "identifier": [
+            {
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm"
+              }
+            }
+          ],
+          "check": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "empty": [
+            {
+              "style": {
+                "padding": "$spacing.md",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "fade": [
+            {
+              "style": {
+                "height": 24,
+                "backgroundColor": "$color.popover"
               }
             }
           ]
@@ -5375,6 +5683,10 @@
           "md": 12,
           "lg": 16,
           "xl": 24
+        },
+        "scale": {
+          "press": 0.97,
+          "popoverFrom": 0.96
         }
       },
       "fonts": {
@@ -6404,6 +6716,76 @@
                 "paddingVertical": "$spacing.md"
               }
             }
+          ],
+          "close": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "borderRadius": "$radius.sm",
+                "color": "$color.mutedForeground",
+                "backgroundColor": "#00000000",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "closable": "hover"
+              },
+              "style": {
+                "opacity": 0
+              }
+            },
+            {
+              "when": {
+                "closable": "hover",
+                "state": "hover"
+              },
+              "style": {
+                "opacity": 1
+              }
+            },
+            {
+              "when": {
+                "closable": "hover",
+                "state": "focus"
+              },
+              "style": {
+                "opacity": 1
+              }
+            }
+          ],
+          "new": [
+            {
+              "style": {
+                "width": "$control.buttonSm",
+                "height": "$control.buttonSm",
+                "borderRadius": "$radius.sm",
+                "color": "$color.mutedForeground",
+                "backgroundColor": "#00000000",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            }
           ]
         },
         "Accordion": {
@@ -6797,6 +7179,61 @@
                 "color": "$color.mutedForeground"
               }
             }
+          ],
+          "head": [
+            {
+              "style": {
+                "height": 36,
+                "gap": "$spacing.sm",
+                "paddingHorizontal": "$spacing.sm",
+                "borderBottomWidth": "$border.hairline",
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "search": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontFamily": "$type.family.sans",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "list": [
+            {
+              "style": {
+                "paddingVertical": "$spacing.xs"
+              }
+            }
+          ],
+          "empty": [
+            {
+              "style": {
+                "padding": "$spacing.md",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "fade": [
+            {
+              "style": {
+                "height": 24,
+                "backgroundColor": "$color.popover"
+              }
+            }
           ]
         },
         "Ring": {
@@ -6926,6 +7363,15 @@
                 "width": "$control.iconLg",
                 "height": "$control.iconLg"
               }
+            },
+            {
+              "when": {
+                "size": "xs"
+              },
+              "style": {
+                "width": 10,
+                "height": 10
+              }
             }
           ]
         },
@@ -6948,6 +7394,33 @@
             {
               "style": {
                 "backgroundColor": "$color.secondary"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "gap": "$spacing.md",
+                "paddingHorizontal": "$spacing.md"
+              }
+            }
+          ],
+          "dot": [
+            {
+              "style": {
+                "width": 12,
+                "height": 12,
+                "borderRadius": "$radius.full",
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "bar": [
+            {
+              "style": {
+                "height": 8,
+                "borderRadius": 4,
+                "backgroundColor": "$color.accent"
               }
             }
           ]
@@ -7570,6 +8043,149 @@
                 "padding": "$spacing.sm",
                 "fontSize": "$type.size.sm",
                 "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "SearchList": {
+          "root": [
+            {
+              "style": {
+                "backgroundColor": "$color.popover",
+                "color": "$color.popoverForeground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.md"
+              }
+            }
+          ],
+          "head": [
+            {
+              "style": {
+                "height": 40,
+                "gap": "$spacing.sm",
+                "paddingHorizontal": "$spacing.md",
+                "borderBottomWidth": "$border.hairline",
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "search": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontFamily": "$type.family.sans",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "list": [
+            {
+              "style": {
+                "padding": "$spacing.xs"
+              }
+            }
+          ],
+          "item": [
+            {
+              "style": {
+                "height": "$control.row",
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderRadius": "$radius.sm",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.popoverForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": "$opacity.disabled"
+              }
+            }
+          ],
+          "icon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "identifier": [
+            {
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm"
+              }
+            }
+          ],
+          "check": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "empty": [
+            {
+              "style": {
+                "padding": "$spacing.md",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "fade": [
+            {
+              "style": {
+                "height": 24,
+                "backgroundColor": "$color.popover"
               }
             }
           ]
@@ -10707,6 +11323,10 @@
           "md": 12,
           "lg": 16,
           "xl": 24
+        },
+        "scale": {
+          "press": 0.94,
+          "popoverFrom": 0.9
         }
       },
       "fonts": {
@@ -11869,6 +12489,76 @@
                 "paddingVertical": "$spacing.md"
               }
             }
+          ],
+          "close": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "borderRadius": "$radius.sm",
+                "color": "$color.mutedForeground",
+                "backgroundColor": "#00000000",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "closable": "hover"
+              },
+              "style": {
+                "opacity": 0
+              }
+            },
+            {
+              "when": {
+                "closable": "hover",
+                "state": "hover"
+              },
+              "style": {
+                "opacity": 1
+              }
+            },
+            {
+              "when": {
+                "closable": "hover",
+                "state": "focus"
+              },
+              "style": {
+                "opacity": 1
+              }
+            }
+          ],
+          "new": [
+            {
+              "style": {
+                "width": "$control.buttonSm",
+                "height": "$control.buttonSm",
+                "borderRadius": "$radius.sm",
+                "color": "$color.mutedForeground",
+                "backgroundColor": "#00000000",
+                "transition": "$motion.fast",
+                "transitionEasing": "$ease.standard"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            }
           ]
         },
         "Accordion": {
@@ -12271,6 +12961,61 @@
                 "color": "$color.mutedForeground"
               }
             }
+          ],
+          "head": [
+            {
+              "style": {
+                "height": 36,
+                "gap": "$spacing.sm",
+                "paddingHorizontal": "$spacing.sm",
+                "borderBottomWidth": "$border.hairline",
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "search": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontFamily": "$type.family.sans",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "list": [
+            {
+              "style": {
+                "paddingVertical": "$spacing.xs"
+              }
+            }
+          ],
+          "empty": [
+            {
+              "style": {
+                "padding": "$spacing.md",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "fade": [
+            {
+              "style": {
+                "height": 24,
+                "backgroundColor": "$color.popover"
+              }
+            }
           ]
         },
         "Ring": {
@@ -12400,6 +13145,15 @@
                 "width": "$control.iconLg",
                 "height": "$control.iconLg"
               }
+            },
+            {
+              "when": {
+                "size": "xs"
+              },
+              "style": {
+                "width": 10,
+                "height": 10
+              }
             }
           ]
         },
@@ -12423,6 +13177,33 @@
               "style": {
                 "backgroundColor": "$color.muted",
                 "borderRadius": "$radius.lg"
+              }
+            }
+          ],
+          "row": [
+            {
+              "style": {
+                "gap": "$spacing.md",
+                "paddingHorizontal": "$spacing.md"
+              }
+            }
+          ],
+          "dot": [
+            {
+              "style": {
+                "width": 12,
+                "height": 12,
+                "borderRadius": "$radius.full",
+                "backgroundColor": "$color.accent"
+              }
+            }
+          ],
+          "bar": [
+            {
+              "style": {
+                "height": 8,
+                "borderRadius": 4,
+                "backgroundColor": "$color.accent"
               }
             }
           ]
@@ -13086,6 +13867,149 @@
                 "padding": "$spacing.sm",
                 "fontSize": "$type.size.sm",
                 "color": "$color.mutedForeground"
+              }
+            }
+          ]
+        },
+        "SearchList": {
+          "root": [
+            {
+              "style": {
+                "backgroundColor": "$color.popover",
+                "color": "$color.popoverForeground",
+                "borderWidth": "$border.hairline",
+                "borderColor": "$color.border",
+                "borderRadius": "$radius.md"
+              }
+            }
+          ],
+          "head": [
+            {
+              "style": {
+                "height": 40,
+                "gap": "$spacing.sm",
+                "paddingHorizontal": "$spacing.md",
+                "borderBottomWidth": "$border.hairline",
+                "borderColor": "$color.border"
+              }
+            }
+          ],
+          "search": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "fontFamily": "$type.family.sans",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "count": [
+            {
+              "style": {
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.xs",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "list": [
+            {
+              "style": {
+                "padding": "$spacing.xs"
+              }
+            }
+          ],
+          "item": [
+            {
+              "style": {
+                "height": "$control.row",
+                "paddingHorizontal": "$spacing.sm",
+                "gap": "$spacing.sm",
+                "borderRadius": "$radius.sm",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.popoverForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "hover"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "selected"
+              },
+              "style": {
+                "backgroundColor": "$color.accent",
+                "color": "$color.accentForeground"
+              }
+            },
+            {
+              "when": {
+                "state": "disabled"
+              },
+              "style": {
+                "opacity": "$opacity.disabled"
+              }
+            }
+          ],
+          "icon": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "identifier": [
+            {
+              "style": {
+                "fontFamily": "$type.family.mono",
+                "fontSize": "$type.size.xs",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "label": [
+            {
+              "style": {
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm"
+              }
+            }
+          ],
+          "check": [
+            {
+              "style": {
+                "width": "$control.iconSm",
+                "height": "$control.iconSm",
+                "color": "$color.foreground"
+              }
+            }
+          ],
+          "empty": [
+            {
+              "style": {
+                "padding": "$spacing.md",
+                "fontSize": "$type.size.sm",
+                "lineHeight": "$type.lineHeight.sm",
+                "color": "$color.mutedForeground"
+              }
+            }
+          ],
+          "fade": [
+            {
+              "style": {
+                "height": 24,
+                "backgroundColor": "$color.popover"
               }
             }
           ]

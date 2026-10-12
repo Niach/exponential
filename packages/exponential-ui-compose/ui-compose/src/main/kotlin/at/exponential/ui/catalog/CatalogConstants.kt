@@ -27,6 +27,13 @@ object CatalogConstants {
     val TREE_GUIDE_RADIUS: Float = named("treeGuideRadius")
     /** How far every guide vertical overshoots the row's top (paint only, round 3: bridges a Section divider). */
     val TREE_GUIDE_BRIDGE: Float = named("treeGuideBridge")
+    /** EXP-1259: how long a `loading` Button looks idle (ms). */
+    val PENDING_DELAY_MS: Long = named("pendingDelayMs").toLong()
+    /** EXP-1259: the Skeleton's ONE pulse (ms, low → high → low) and its opacities. */
+    val SKELETON_PULSE_MS: Int = named("skeletonPulseMs").toInt()
+    val SKELETON_OPACITY_LOW: Float = named("skeletonOpacityLow")
+    val SKELETON_OPACITY_HIGH: Float = named("skeletonOpacityHigh")
+    val SKELETON_REDUCED_OPACITY: Float = named("skeletonReducedOpacity")
 
     /** `locale.json` `rtlMirroredIcons`: the directional glyphs mirrored under rtl (round 1 §4). */
     val rtlMirroredIcons: List<String> = ExponentialUICatalog.rtlMirroredIcons

@@ -3,13 +3,18 @@ package at.exponential.ui.compose
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -25,6 +30,7 @@ import at.exponential.ui.json.str
 import at.exponential.ui.model.segmentedSelect
 import at.exponential.ui.model.segmentedValues
 import at.exponential.ui.theme.ResolvedTextStyle
+import kotlinx.coroutines.delay
 
 /**
  * Button / Toggle content: the spinner (`loading`) or the icon (host icon,
@@ -33,9 +39,23 @@ import at.exponential.ui.theme.ResolvedTextStyle
  */
 @Composable
 internal fun ButtonLeaf(cx: LeafContext) {
-    val label = cx.props.shownText("label")
+    // EXP-1259 (feedback-states.json `pending`): a `loading` Button refuses
+    // presses at once (the core) but LOOKS idle for `PENDING_DELAY_MS`; then
+    // the icon slot is the spinner and the label `pendingLabel`, in the box
+    // the measurer sized for the wider face.
+    val busy = cx.props.flag("loading")
+    var shown by remember(cx.node.id) { mutableStateOf(false) }
+    LaunchedEffect(busy) {
+        shown = false
+        if (busy) {
+            delay(FeedbackTiming.PENDING_DELAY_MS)
+            shown = true
+        }
+    }
+    val loading = busy && shown
+    val pendingLabel = cx.props.shownText("pendingLabel")
+    val label = if (loading && pendingLabel.isNotEmpty()) pendingLabel else cx.props.shownText("label")
     val icon = cx.props.str("icon")
-    val loading = cx.props.flag("loading")
     val iconOnly = cx.props.str("size") == "icon"
     val iconSize = cx.part(cx.node.component, "icon").width ?: cx.control("iconSm", 16f)
     InnerBox(cx, Alignment.Center) {

@@ -172,7 +172,9 @@ impl SurfaceView {
         // `native: true`: the platform control paints the part itself.
         let native = style.native && leaf && matches!((n.component.as_str(), n.part.as_deref()), ("Switch", Some("track")) | ("Checkbox", Some("box" | "checkbox")));
         let style = if native { PaintStyle { bg: None, border: [0.0; 4], shadows: Vec::new(), gradient: None, ..style } } else { style };
-        el = el.when_some(style.bg, |d, bg| d.bg(bg));
+        // A Skeleton leaf's fill is its pulse (`natives::skeleton`), not the box's.
+        let pulses = leaf && n.component == "Skeleton";
+        el = el.when_some(style.bg.filter(|_| !pulses), |d, bg| d.bg(bg));
         el = rounded(el, radii);
         if !style.shadows.is_empty() {
             el = el.shadow(style.shadows.clone());
