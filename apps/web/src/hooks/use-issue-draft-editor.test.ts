@@ -153,7 +153,32 @@ describe(`useIssueDraftEditor autosave`, () => {
       assigneeId: null,
       labelIds: [],
       dueDate: null,
+      threadId: null,
     })
+  })
+
+  // EXP-1284: "New issue in this thread" — the thread rides every write, so
+  // a draft reopened from Drafts still files into it.
+  it(`persists the page's thread in the row and keeps a reopened draft's own`, async () => {
+    const fresh = renderHook(() =>
+      useIssueDraftEditor(options({ threadId: `thread-1` }))
+    )
+    act(() => fresh.result.current.setTitle(`In the thread`))
+    await advance(ISSUE_DRAFT_AUTOSAVE_MS)
+    expect(mocks.upsert.mock.calls[0][0]).toMatchObject({ threadId: `thread-1` })
+    fresh.unmount()
+    await settle()
+
+    mocks.upsert.mockClear()
+    const reopened = renderHook(() =>
+      useIssueDraftEditor(
+        options({ draft: existingDraft({ threadId: `thread-2` } as Partial<IssueDraft>) })
+      )
+    )
+    expect(reopened.result.current.threadId).toBe(`thread-2`)
+    act(() => reopened.result.current.setTitle(`Edited`))
+    await advance(ISSUE_DRAFT_AUTOSAVE_MS)
+    expect(mocks.upsert.mock.calls[0][0]).toMatchObject({ threadId: `thread-2` })
   })
 
   it(`never creates a row for a chip alone`, async () => {

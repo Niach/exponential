@@ -103,6 +103,8 @@ interface Contract {
   issueEventType: Section
   issueRelationType: Section & { forwardLabels: string[]; inverseLabels: string[] }
   issueRelationSource: Section
+  threadItemKind: Section
+  threadItemSource: Section
   codingAgent: Section
   codingModel: Section
   codingEffort: Section
@@ -489,6 +491,8 @@ ${swiftStringArray("issueRelationTypeValues", contract.issueRelationType.values)
 ${swiftStringArray("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
 ${swiftStringArray("issueRelationTypeInverseLabels", contract.issueRelationType.inverseLabels)}
 ${swiftStringArray("issueRelationSourceValues", contract.issueRelationSource.values)}
+${swiftStringArray("threadItemKindValues", contract.threadItemKind.values)}
+${swiftStringArray("threadItemSourceValues", contract.threadItemSource.values)}
 ${swiftStringArray("codingAgentValues", contract.codingAgent.values)}
 ${swiftStringArray("codingModelValues", contract.codingModel.values)}
 ${swiftStringArray("codingEffortValues", contract.codingEffort.values)}
@@ -597,6 +601,8 @@ ${swiftNamedValues("pinKind", contract.pinKind.values)}
 ${swiftNamedValues("issueEventType", contract.issueEventType.values)}
 ${swiftNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${swiftNamedValues("issueRelationSource", contract.issueRelationSource.values)}
+${swiftNamedValues("threadItemKind", contract.threadItemKind.values)}
+${swiftNamedValues("threadItemSource", contract.threadItemSource.values)}
 }
 `
 
@@ -637,6 +643,8 @@ ${kotlinStringArray("issueRelationTypeValues", contract.issueRelationType.values
 ${kotlinStringArray("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
 ${kotlinStringArray("issueRelationTypeInverseLabels", contract.issueRelationType.inverseLabels)}
 ${kotlinStringArray("issueRelationSourceValues", contract.issueRelationSource.values)}
+${kotlinStringArray("threadItemKindValues", contract.threadItemKind.values)}
+${kotlinStringArray("threadItemSourceValues", contract.threadItemSource.values)}
 ${kotlinStringArray("codingAgentValues", contract.codingAgent.values)}
 ${kotlinStringArray("codingModelValues", contract.codingModel.values)}
 ${kotlinStringArray("codingEffortValues", contract.codingEffort.values)}
@@ -745,6 +753,8 @@ ${kotlinNamedValues("pinKind", contract.pinKind.values)}
 ${kotlinNamedValues("issueEventType", contract.issueEventType.values)}
 ${kotlinNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${kotlinNamedValues("issueRelationSource", contract.issueRelationSource.values)}
+${kotlinNamedValues("threadItemKind", contract.threadItemKind.values)}
+${kotlinNamedValues("threadItemSource", contract.threadItemSource.values)}
 }
 `
 
@@ -787,6 +797,8 @@ ${rustStrSlice("issueRelationTypeValues", contract.issueRelationType.values)}
 ${rustStrSlice("issueRelationTypeForwardLabels", contract.issueRelationType.forwardLabels)}
 ${rustStrSlice("issueRelationTypeInverseLabels", contract.issueRelationType.inverseLabels)}
 ${rustStrSlice("issueRelationSourceValues", contract.issueRelationSource.values)}
+${rustStrSlice("threadItemKindValues", contract.threadItemKind.values)}
+${rustStrSlice("threadItemSourceValues", contract.threadItemSource.values)}
 ${rustStrSlice("codingAgentValues", contract.codingAgent.values)}
 ${rustStrSlice("codingModelValues", contract.codingModel.values)}
 ${rustStrSlice("codingEffortValues", contract.codingEffort.values)}
@@ -898,6 +910,8 @@ ${rustNamedValues("pinKind", contract.pinKind.values)}
 ${rustNamedValues("issueEventType", contract.issueEventType.values)}
 ${rustNamedValues("issueRelationType", contract.issueRelationType.values)}
 ${rustNamedValues("issueRelationSource", contract.issueRelationSource.values)}
+${rustNamedValues("threadItemKind", contract.threadItemKind.values)}
+${rustNamedValues("threadItemSource", contract.threadItemSource.values)}
 `
 
 const swiftPath = join(

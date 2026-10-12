@@ -21,6 +21,7 @@ vi.mock(`@tanstack/react-router`, async (importOriginal) => ({
   createFileRoute: () => (options: Record<string, unknown>) => options,
   redirect: vi.fn(),
   useNavigate: () => vi.fn(),
+  useParams: () => ({ teamSlug: `acme` }),
 }))
 // The composer's own synced queries (membership, readiness) read nothing.
 vi.mock(`@tanstack/react-db`, async (importOriginal) => {

@@ -870,6 +870,10 @@ struct StartSessionInput: Encodable {
     // as on every client.
     var mcpServerIds: [String]? = nil
     var computerUse: Bool? = nil
+    // EXP-1284: start INTO this thread (same team; the server refuses it
+    // next to `resumeSessionId`, which this input never carries). Omitted
+    // when nil.
+    var threadId: String? = nil
     // Review #3 (feedback-states.json `starting.startIdKey`): the client's
     // uuid for THIS Start press, reused by Retry; the device starts an id
     // once. Omitted when nil.
@@ -894,6 +898,10 @@ struct StartBatchSessionInput: Encodable {
     let prompt: String?
     var mcpServerIds: [String]? = nil
     var computerUse: Bool? = nil
+    // EXP-1284: start INTO this thread (same team; the server refuses it
+    // next to `resumeSessionId`, which this input never carries). Omitted
+    // when nil.
+    var threadId: String? = nil
     // Review #3 (feedback-states.json `starting.startIdKey`): the client's
     // uuid for THIS Start press, reused by Retry; the device starts an id
     // once. Omitted when nil.
@@ -926,6 +934,10 @@ struct StartActionSessionInput: Encodable {
     let prompt: String?
     var mcpServerIds: [String]? = nil
     var computerUse: Bool? = nil
+    // EXP-1284: start INTO this thread (same team; the server refuses it
+    // next to `resumeSessionId`, which this input never carries). Omitted
+    // when nil.
+    var threadId: String? = nil
     // Review #3 (feedback-states.json `starting.startIdKey`): the client's
     // uuid for THIS Start press, reused by Retry; the device starts an id
     // once. Omitted when nil.
@@ -990,6 +1002,7 @@ public final class SteerApi: Sendable {
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
         prompt: String? = nil,
+        threadId: String? = nil,
         startId: String? = nil
     ) async throws {
         do {
@@ -1010,6 +1023,7 @@ public final class SteerApi: Sendable {
                     prompt: prompt,
                     mcpServerIds: options.mcpServerIds,
                     computerUse: options.computerUse,
+                    threadId: threadId,
                     startId: startId
                 )
             )
@@ -1029,6 +1043,7 @@ public final class SteerApi: Sendable {
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
         prompt: String? = nil,
+        threadId: String? = nil,
         startId: String? = nil
     ) async throws {
         do {
@@ -1048,6 +1063,7 @@ public final class SteerApi: Sendable {
                     prompt: prompt,
                     mcpServerIds: options.mcpServerIds,
                     computerUse: options.computerUse,
+                    threadId: threadId,
                     startId: startId
                 )
             )
@@ -1075,6 +1091,7 @@ public final class SteerApi: Sendable {
         options: SteerStartOptions = SteerStartOptions(),
         inputs: [String: String]? = nil,
         prompt: String? = nil,
+        threadId: String? = nil,
         startId: String? = nil
     ) async throws {
         do {
@@ -1096,6 +1113,7 @@ public final class SteerApi: Sendable {
                     prompt: prompt,
                     mcpServerIds: options.mcpServerIds,
                     computerUse: options.computerUse,
+                    threadId: threadId,
                     startId: startId
                 )
             )

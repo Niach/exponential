@@ -77,7 +77,10 @@
 //!   label, `list` grouping), byte-locked ×4 by `fixtures/entity-chip.json`;
 //! * [`app_link`] — EXP-1188: what a clicked markdown link in agent prose
 //!   opens (issue | run in-app, another instance page, external, ignored),
-//!   byte-locked ×4 by `fixtures/app-link.json`.
+//!   byte-locked ×4 by `fixtures/app-link.json`;
+//! * [`thread_view`] — EXP-1284: a THREAD's title, child strip, captions and
+//!   conversation blocks + the Running/Recent list split, byte-locked ×4 by
+//!   `fixtures/thread-view.json`.
 //!
 //! gpui-free — headless-testable.
 
@@ -131,6 +134,8 @@ pub mod session_results;
 pub mod session_row;
 pub mod session_tree;
 pub mod statuses;
+// EXP-1284: the thread view model (title, strip, captions, conversation), fixture-locked ×4.
+pub mod thread_view;
 pub mod tree_guides;
 
 pub use enums::{IssuePriority, IssueStatus};

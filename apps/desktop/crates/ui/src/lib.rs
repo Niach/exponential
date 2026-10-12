@@ -168,6 +168,9 @@ mod steer_viewer;
 mod transcript_rows;
 // EXP-965: the nested lists' connector lines.
 mod tree_guides;
+// EXP-1284: threads — the read side and the thread screen.
+mod threads;
+mod thread_screen;
 mod work_card;
 mod script_card;
 // EXP-1005: the account-rotation wall beat.

@@ -29,7 +29,7 @@
  *   bun run seed:screenshots
  *   bun run screenshots:desktop   # second shell, stays up during the capture
  */
-import { eq, inArray, or, sql } from "drizzle-orm"
+import { and, eq, inArray, or, sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { storeOauthTokens } from "@/lib/mcp-oauth/credentials"
 import {
@@ -56,17 +56,20 @@ import {
   users,
   teamMembers,
   teams,
+  threadItems,
+  threads,
   widgetConfigs,
   widgetSubmissions,
 } from "@/db/schema"
-import type { ActionTrigger } from "@exp/db-schema/domain"
+import type { ActionTrigger, CodingSessionResult } from "@exp/db-schema/domain"
 import { auth } from "@/lib/auth"
 import {
   buildAttachmentStorageKey,
   buildAttachmentUrl,
 } from "@/lib/storage/issue-attachments"
 import { generateWidgetKey } from "@/lib/widget/key"
-import { assertDemoLiveSessions } from "./lib/demo-live-sessions"
+import { BUILTIN_CHAT_NAME } from "@/lib/builtin-actions"
+import { assertDemoLiveSessions, DEMO_LIVE_SESSIONS } from "./lib/demo-live-sessions"
 import { DEMO_CLOCK_ANCHOR } from "./lib/demo-reclock"
 import { parseFreezeNow } from "./lib/freeze-now"
 import { assertLocalDatabase } from "./lib/local-db-guard"
@@ -94,6 +97,10 @@ import {
   DEMO_TIMEZONE,
   DEMO_USER_ID,
   DEMO_BLOCKS,
+  DEMO_STEERED_SESSION_ID,
+  DEMO_THREAD_ID,
+  DEMO_THREAD_RUNS_ID,
+  DEMO_THREAD_RUNS_TITLE,
   EMPTY_BOARD_SLUG,
   NEWCOMER_EMAIL,
   NEWCOMER_NAME,
@@ -368,6 +375,448 @@ async function teardown() {
   await db.delete(users).where(inArray(users.id, ids))
 }
 
+/** EXP-1284: Jonas's laptop, the machine `thread-runs` Run 3 runs on. */
+const JONAS_LAPTOP_DEVICE_ID = `screenshot-demo-jonas-laptop`
+const JONAS_LAPTOP_LABEL = `Jonas's ThinkPad`
+const SERVER_LABEL = `Acme build server`
+
+/** A Guide text entry (EXP-933/1154), stamped like a `sessions_guide` write. */
+function guideText(
+  topic: string,
+  text: string,
+  at: Date,
+  files?: string[],
+  /** EXP-1284 (review): the session that wrote the entry — stamped
+   *  server-side on every real write; a session block shows only its own. */
+  sessionId?: string
+): CodingSessionResult {
+  return {
+    topic,
+    label: null,
+    attachmentId: null,
+    width: null,
+    height: null,
+    text,
+    ...(files ? { files } : {}),
+    at: at.getTime(),
+    ...(sessionId ? { sessionId } : {}),
+  }
+}
+
+/**
+ * EXP-1284: the demo THREADS. Lists show threads, not bare runs, so every
+ * seeded run must sit in one; two are planted by hand under pinned ids for the
+ * `thread` and `thread-runs` views (see DEMO_THREAD_ID), and every other run
+ * is placed afterwards exactly the way the migration backfill
+ * (0166_threads.sql) placed existing runs.
+ *
+ * The threads' NEW issues go on Product Feedback, never Mobile App: a new
+ * APP-* row would land on every board, search, my-issues and switcher shot,
+ * while Product Feedback is the live board no view photographs. A filed issue
+ * cannot be an old one restamped either: "Filed and linked" means the issue
+ * was created at most `THREAD_FILED_WINDOW_MS` before the link, and every
+ * seeded APP-* issue is days older than the showcase run. None of their
+ * titles says "cold start" (the `search` view types it).
+ *
+ * Item `team_id`/`board_id` are trigger-derived for issue items; they are
+ * written anyway, like `linkIssueToThread` does.
+ */
+async function seedThreads(ctx: {
+  teamId: string
+  demoId: string
+  jonas: string
+  sofia: string
+  feedbackBoardId: string
+  labelIds: Record<string, string>
+  showcase: typeof issues.$inferSelect
+  linkedByShowcase: typeof issues.$inferSelect
+  linkedByServerChild: typeof issues.$inferSelect
+}) {
+  const { teamId, demoId, jonas, sofia, feedbackBoardId } = ctx
+  const minutesAgo = (m: number) => new Date(now - m * 60_000)
+  const ids = DEMO_SESSION_IDS
+
+  // Thread 2's person-linked issue, Run 1's filed one, then thread 1's filed
+  // one: inserted in this order so they number FB-1, FB-2, FB-3.
+  const feedbackIssue = async (spec: {
+    title: string
+    description: string
+    creatorId: string
+    assigneeId?: string
+    label: string
+    createdAt: Date
+    sortOrder: number
+  }) => {
+    const [row] = await db
+      .insert(issues)
+      .values({
+        boardId: feedbackBoardId,
+        teamId,
+        title: spec.title,
+        description: spec.description,
+        status: `backlog`,
+        priority: `medium`,
+        creatorId: spec.creatorId,
+        assigneeId: spec.assigneeId,
+        sortOrder: spec.sortOrder,
+        createdAt: spec.createdAt,
+      })
+      .returning()
+    await db.insert(issueLabels).values({
+      issueId: row.id,
+      labelId: ctx.labelIds[spec.label],
+      teamId,
+      boardId: feedbackBoardId,
+    })
+    return row
+  }
+
+  // ── Thread 2 (`thread-runs`): Jonas's "Offline sync plan" ──────────────
+  // Timeline: he opens the thread on a customer report (FB-1) and starts a
+  // chat (Run 1), whose agent files FB-2; hours later he resumes it (Run 2),
+  // and its agent starts one child per issue on two machines (Runs 3 and 4,
+  // still live); Run 4's agent links the older APP-9 it builds on.
+  const t0 = minutesAgo(300)
+  const offlineReport = await feedbackIssue({
+    title: `Edits made offline disappear after reconnecting`,
+    description: `Changed an issue's status on the train, the app showed it saved, and once I was back online the old status came back.`,
+    creatorId: sofia,
+    assigneeId: jonas,
+    label: `Bug`,
+    createdAt: daysAgo(4),
+    sortOrder: 0,
+  })
+  const conflictRules = await feedbackIssue({
+    title: `Conflict rules for replaying queued offline edits`,
+    description: `When a queued edit replays onto an issue somebody else changed meanwhile, keep their value per field and tell the user which of their edits lost.`,
+    creatorId: jonas,
+    assigneeId: jonas,
+    label: `Feature`,
+    createdAt: minutesAgo(278),
+    sortOrder: 10,
+  })
+  const runsGuide = [
+    guideText(
+      `Summary`,
+      `Planned offline sync for issue edits: edits queue on the device and replay in order once sync resumes, and a field somebody else changed meanwhile keeps their value. Filed #${conflictRules.identifier} for the conflict rules and split the build into two parallel runs.`,
+      minutesAgo(46),
+      undefined,
+      ids.threadRunsResume
+    ),
+    guideText(
+      `Edit queue`,
+      `A persistent queue in the sync layer records every edit with the value it was based on. Replay drops an edit whose base no longer matches and raises a toast instead of overwriting the newer value.`,
+      minutesAgo(45),
+      [`src/sync/edit-queue.ts`, `src/sync/replay.ts`, `src/sync/replay.test.ts`],
+      ids.threadRunsResume
+    ),
+  ]
+  const chatBranch = `exp/chat-${ids.threadRunsChat.slice(0, 8)}`
+  await db.insert(codingSessions).values([
+    // Run 1: the ended chat that started it all (a person's start, so no
+    // `started_reason`; the reserved `Chat` snapshot + agent title).
+    {
+      id: ids.threadRunsChat,
+      teamId,
+      userId: jonas,
+      actionName: BUILTIN_CHAT_NAME,
+      agentTitle: `Plan offline sync for issue edits`,
+      deviceId: JONAS_LAPTOP_DEVICE_ID,
+      deviceLabel: JONAS_LAPTOP_LABEL,
+      agent: `claude`,
+      status: `ended`,
+      endedBy: `user`,
+      branch: chatBranch,
+      createdAt: minutesAgo(299),
+      startedAt: minutesAgo(299),
+      endedAt: minutesAgo(265),
+      updatedAt: minutesAgo(265),
+    },
+    // Run 2: its RESUME (same worktree and branch), ended once it had
+    // started the two children. Holds the Guide's compat mirror (EXP-1258):
+    // it is the run that wrote it.
+    {
+      id: ids.threadRunsResume,
+      teamId,
+      userId: jonas,
+      actionName: BUILTIN_CHAT_NAME,
+      agentTitle: `Plan offline sync for issue edits`,
+      resumedFromId: ids.threadRunsChat,
+      deviceId: JONAS_LAPTOP_DEVICE_ID,
+      deviceLabel: JONAS_LAPTOP_LABEL,
+      agent: `claude`,
+      status: `ended`,
+      endedBy: `user`,
+      branch: chatBranch,
+      results: runsGuide,
+      createdAt: minutesAgo(90),
+      startedAt: minutesAgo(90),
+      endedAt: minutesAgo(40),
+      updatedAt: minutesAgo(40),
+    },
+    // Runs 3 and 4: LIVE agent-started children of Run 2 (`sessions_start`),
+    // one per issue, on two machines. Fresh `updated_at` like every seeded
+    // live row (clients hide a row past contract `staleHours`). Both hosts
+    // have a devices row without `stale-end`, so the server sweep neither
+    // flips nor deletes them (lib/coding-session-sweep.ts).
+    {
+      id: ids.threadRunsLaptopChild,
+      teamId,
+      userId: jonas,
+      issueId: conflictRules.id,
+      parentSessionId: ids.threadRunsResume,
+      startedReason: `agent`,
+      deviceId: JONAS_LAPTOP_DEVICE_ID,
+      deviceLabel: JONAS_LAPTOP_LABEL,
+      agent: `claude`,
+      status: `running`,
+      branch: `exp/${conflictRules.identifier}`,
+      createdAt: minutesAgo(52),
+      startedAt: minutesAgo(52),
+      updatedAt: new Date(now),
+    },
+    {
+      id: ids.threadRunsServerChild,
+      teamId,
+      userId: jonas,
+      issueId: offlineReport.id,
+      parentSessionId: ids.threadRunsResume,
+      startedReason: `agent`,
+      deviceId: DEMO_SERVER_DEVICE_ID,
+      deviceLabel: SERVER_LABEL,
+      agent: `claude`,
+      status: `running`,
+      branch: `exp/${offlineReport.identifier}`,
+      createdAt: minutesAgo(51),
+      startedAt: minutesAgo(51),
+      updatedAt: new Date(now),
+    },
+  ])
+  // Run 3's host. Not shared with the team, so no demo-user view lists it;
+  // it exists so the sweep has a devices row to consult (see above).
+  await db.insert(devices).values({
+    userId: jonas,
+    deviceId: JONAS_LAPTOP_DEVICE_ID,
+    label: JONAS_LAPTOP_LABEL,
+    kind: `desktop`,
+    platform: `linux`,
+    version: DEMO_DEVICE_VERSION,
+    agents: [`claude`],
+    lastSeenAt: new Date(now),
+    createdAt: daysAgo(40),
+  })
+  await db.insert(threads).values({
+    id: DEMO_THREAD_RUNS_ID,
+    teamId,
+    title: DEMO_THREAD_RUNS_TITLE,
+    createdBy: jonas,
+    results: runsGuide,
+    createdAt: t0,
+    updatedAt: minutesAgo(30),
+  })
+  const issueItem = (
+    issue: typeof issues.$inferSelect,
+    extra: {
+      addedBy: string
+      addedBySessionId?: string
+      source: `user` | `agent`
+      sortOrder: number
+      at: Date
+    }
+  ) => ({
+    kind: `issue` as const,
+    issueId: issue.id,
+    teamId,
+    boardId: issue.boardId,
+    addedBy: extra.addedBy,
+    addedBySessionId: extra.addedBySessionId,
+    source: extra.source,
+    sortOrder: extra.sortOrder,
+    createdAt: extra.at,
+    updatedAt: extra.at,
+  })
+  const runItem = (sessionId: string, addedBy: string, sortOrder: number, at: Date) => ({
+    kind: `run` as const,
+    sessionId,
+    teamId,
+    addedBy,
+    source: `user` as const,
+    sortOrder,
+    createdAt: at,
+    updatedAt: at,
+  })
+  await db.insert(threadItems).values(
+    [
+      issueItem(offlineReport, { addedBy: jonas, source: `user`, sortOrder: 1, at: t0 }),
+      runItem(ids.threadRunsChat, jonas, 2, minutesAgo(299)),
+      // Filed by Run 1's agent 40 s after it created the issue.
+      issueItem(conflictRules, {
+        addedBy: jonas,
+        addedBySessionId: ids.threadRunsChat,
+        source: `agent`,
+        sortOrder: 3,
+        at: new Date(conflictRules.createdAt.getTime() + 40_000),
+      }),
+      runItem(ids.threadRunsResume, jonas, 4, minutesAgo(90)),
+      runItem(ids.threadRunsLaptopChild, jonas, 5, minutesAgo(52)),
+      runItem(ids.threadRunsServerChild, jonas, 6, minutesAgo(51)),
+      // An older issue Run 4's agent LINKED (days old, so `Linked`).
+      issueItem(ctx.linkedByServerChild, {
+        addedBy: jonas,
+        addedBySessionId: ids.threadRunsServerChild,
+        source: `agent`,
+        sortOrder: 7,
+        at: minutesAgo(30),
+      }),
+    ].map((item) => ({ threadId: DEMO_THREAD_RUNS_ID, ...item }))
+  )
+
+  // ── Thread 1 (`thread`): the showcase run on APP-5 ─────────────────────
+  // Untitled (derived: Run 1's name, the APP-5 title). Its agent linked the
+  // older image-cache issue a few minutes in, then filed FB-3 and linked it.
+  const showcaseStartMinutes = DEMO_LIVE_SESSIONS.find(
+    (spec) => spec.id === DEMO_STEERED_SESSION_ID
+  )!.startedMinutesAgo
+  const showcaseStart = minutesAgo(showcaseStartMinutes)
+  const editorBundle = await feedbackIssue({
+    title: `Syntax highlighting ships every language in the editor bundle`,
+    description: `The markdown editor imports the full highlighter, so its chunk carries grammars for every language. Load only the common ones and fetch the rest on demand.`,
+    creatorId: demoId,
+    label: `Performance`,
+    createdAt: minutesAgo(showcaseStartMinutes - 22),
+    sortOrder: 20,
+  })
+  // The Guide so far (the run is still live). Written to the THREAD only:
+  // mirroring it onto the showcase row would also put it on the `steering`
+  // shot for every client that still reads `coding_sessions.results`.
+  await db.insert(threads).values({
+    id: DEMO_THREAD_ID,
+    teamId,
+    title: null,
+    createdBy: demoId,
+    results: [
+      guideText(
+        `Summary`,
+        `Deferred the shape subscribe until after the first frame and added a board snapshot cache that paints the last board before sync finishes: 740 ms on the CI device, under the 800 ms target. Filed #${editorBundle.identifier} for the editor's highlighting bundle.`,
+        minutesAgo(12),
+        undefined,
+        DEMO_STEERED_SESSION_ID
+      ),
+      guideText(
+        `Board snapshot cache`,
+        `The last rendered board is written to disk on every sync and painted on launch, then replaced in place once the shape catches up.`,
+        minutesAgo(11),
+        [`src/board/snapshot-cache.ts`, `src/sync/bootstrap.ts`],
+        DEMO_STEERED_SESSION_ID
+      ),
+    ],
+    createdAt: showcaseStart,
+    updatedAt: minutesAgo(showcaseStartMinutes - 22.5),
+  })
+  await db.insert(threadItems).values(
+    [
+      runItem(DEMO_STEERED_SESSION_ID, demoId, 1, showcaseStart),
+      // The run's subject, linked by the start itself.
+      issueItem(ctx.showcase, { addedBy: demoId, source: `user`, sortOrder: 2, at: showcaseStart }),
+      issueItem(ctx.linkedByShowcase, {
+        addedBy: demoId,
+        addedBySessionId: DEMO_STEERED_SESSION_ID,
+        source: `agent`,
+        sortOrder: 3,
+        at: minutesAgo(showcaseStartMinutes - 6),
+      }),
+      issueItem(editorBundle, {
+        addedBy: demoId,
+        addedBySessionId: DEMO_STEERED_SESSION_ID,
+        source: `agent`,
+        sortOrder: 4,
+        at: minutesAgo(showcaseStartMinutes - 22.5),
+      }),
+    ].map((item) => ({ threadId: DEMO_THREAD_ID, ...item }))
+  )
+
+  // ── Every other run: one thread per resume chain, as the backfill did ──
+  // (0166_threads.sql, scoped to this team and to runs still unplaced): id =
+  // the chain's earliest run, its issues from issue_id + batch_issue_ids, the
+  // Guide copied from the newest member holding one. One statement; the
+  // sibling inserts' FK checks run at its end. One deviation, for the demo's
+  // sake: a run's stamps are its START and its last ACTIVITY (ended_at, else
+  // the heartbeat), because the seed leaves `created_at`/`updated_at` at the
+  // insert instant on most rows, which would sort every backfilled thread
+  // above the two pinned ones as "just now".
+  await db.execute(sql`
+    WITH RECURSIVE chain AS (
+      SELECT id, id AS root FROM coding_sessions
+        WHERE resumed_from_id IS NULL AND team_id = ${teamId}
+      UNION ALL
+      SELECT c.id, chain.root FROM coding_sessions c JOIN chain ON c.resumed_from_id = chain.id
+    ),
+    m AS (
+      SELECT cs.id AS session_id, cs.team_id, cs.user_id, cs.issue_id, cs.batch_issue_ids,
+        cs.results,
+        least(cs.created_at, cs.started_at) AS created_at,
+        coalesce(cs.ended_at, cs.updated_at) AS updated_at,
+        first_value(cs.id) OVER w AS thread_id,
+        row_number() OVER w AS ord
+      FROM chain JOIN coding_sessions cs ON cs.id = chain.id
+      WHERE cs.team_id = ${teamId}
+        AND NOT EXISTS (SELECT 1 FROM thread_items ti WHERE ti.session_id = cs.id)
+      WINDOW w AS (PARTITION BY chain.root ORDER BY least(cs.created_at, cs.started_at), cs.id)
+    ),
+    new_threads AS (
+      INSERT INTO threads (id, team_id, title, created_by, results, created_at, updated_at)
+      SELECT
+        m.thread_id,
+        m.team_id,
+        NULL,
+        (SELECT f.user_id FROM m f WHERE f.thread_id = m.thread_id AND f.ord = 1),
+        (SELECT r.results FROM m r
+           WHERE r.thread_id = m.thread_id AND jsonb_typeof(r.results) = 'array'
+             AND jsonb_array_length(r.results) > 0
+           ORDER BY r.created_at DESC, r.session_id DESC LIMIT 1),
+        min(m.created_at),
+        max(m.updated_at)
+      FROM m
+      GROUP BY m.thread_id, m.team_id
+      RETURNING id
+    ),
+    run_items AS (
+      INSERT INTO thread_items (thread_id, kind, session_id, team_id, added_by, source, sort_order, created_at, updated_at)
+      SELECT m.thread_id, 'run', m.session_id, m.team_id, m.user_id, 'user', m.ord, m.created_at, m.created_at
+      FROM m
+      RETURNING id
+    )
+    INSERT INTO thread_items (thread_id, kind, issue_id, team_id, board_id, board_deleted_at, board_archived_at, added_by, source, sort_order, created_at, updated_at)
+    SELECT DISTINCT ON (covered.thread_id, i.id)
+      covered.thread_id, 'issue', i.id, b.team_id, i.board_id, b.deleted_at, b.archived_at,
+      covered.user_id, 'user', covered.ord * 100 + covered.pos, covered.created_at, covered.created_at
+    FROM (
+      SELECT m.thread_id, m.team_id, m.user_id, m.ord, m.created_at, m.issue_id::text AS issue_ref, 0::bigint AS pos
+      FROM m WHERE m.issue_id IS NOT NULL
+      UNION ALL
+      SELECT m.thread_id, m.team_id, m.user_id, m.ord, m.created_at, e.value, e.pos
+      FROM m,
+        LATERAL jsonb_array_elements_text(CASE WHEN jsonb_typeof(m.batch_issue_ids) = 'array' THEN m.batch_issue_ids ELSE '[]'::jsonb END)
+          WITH ORDINALITY AS e(value, pos)
+    ) covered
+    JOIN issues i ON i.id::text = covered.issue_ref
+    JOIN boards b ON b.id = i.board_id AND b.team_id = covered.team_id
+    ORDER BY covered.thread_id, i.id, covered.ord, covered.pos
+  `)
+  const [{ unplaced }] = await db
+    .select({ unplaced: sql<number>`count(*)::int` })
+    .from(codingSessions)
+    .where(
+      and(
+        eq(codingSessions.teamId, teamId),
+        sql`NOT EXISTS (SELECT 1 FROM thread_items ti WHERE ti.session_id = ${codingSessions.id})`
+      )
+    )
+  if (unplaced > 0) {
+    throw new Error(`${unplaced} demo coding session(s) sit in no thread`)
+  }
+}
+
 async function main() {
   assertLocalDatabase(SEED_CONSEQUENCE)
   await teardown()
@@ -466,8 +915,10 @@ async function main() {
   // Two more boards so the board-switcher screenshot shows several
   // glyphs side by side. Issue-less on purpose — only the switcher sheet
   // captures them; sortOrder keeps Mobile App the default board (the loader
-  // picks the first board by sortOrder).
-  await db.insert(boards).values([
+  // picks the first board by sortOrder). EXP-1284: Product Feedback holds the
+  // demo threads' NEW issues (see the threads block below) — it is the one
+  // live board no view photographs, so they cost no board shot.
+  const [, feedbackBoard] = await db.insert(boards).values([
     {
       teamId: ws.id,
       name: `Launch Marketing`,
@@ -486,7 +937,7 @@ async function main() {
       icon: `megaphone`,
       sortOrder: 20,
     },
-  ])
+  ]).returning()
 
   // One archived + one trashed board for the `settings-boards` view: both of
   // its cards ("Archived boards", "Pending deletion") hide when empty, so
@@ -1170,7 +1621,8 @@ async function main() {
   // APP-4, APP-14) are one re-assertable spec in lib/demo-live-sessions.ts,
   // because the staleness sweep reaps them mid-wave and screenshots:desktop
   // puts them back.
-  const live = await assertDemoLiveSessions(now)
+  // The threads are planted below (`seedThreads`), so no re-link here.
+  const live = await assertDemoLiveSessions(now, { relinkThreads: false })
   if (live !== 3) throw new Error(`expected 3 live demo sessions, wrote ${live}`)
   await db.insert(codingSessions).values([
     // EXP-739: one FINISHED chat, so the `chat` view photographs its start
@@ -1426,6 +1878,18 @@ async function main() {
       },
     })
 
+  await seedThreads({
+    teamId: ws.id,
+    demoId,
+    jonas,
+    sofia,
+    feedbackBoardId: feedbackBoard!.id,
+    labelIds: label,
+    showcase,
+    linkedByShowcase: byTitle(`Migrate image cache to on-disk LRU`),
+    linkedByServerChild: byTitle(`Offline queue for issue edits`),
+  })
+
   // MCP servers (EXP-792) for the `settings-mcp-servers` view — one row per
   // state the page draws: Linear (OAuth) CONNECTED for the demo user (a
   // server-held credential, stored the way the OAuth callback stores one, so
@@ -1653,6 +2117,7 @@ Seeded screenshot demo data:
   showcase    ${showcase.identifier ?? `APP-5`} (markdown + ${4} comments incl. @mention + #issue ref)
   inbox       5 notifications (3 unread)
   agents      3 coding sessions (2 running + 1 in review)
+  threads     ${DEMO_THREAD_ID} (showcase run + a linked and a filed issue), ${DEMO_THREAD_RUNS_ID} ("${DEMO_THREAD_RUNS_TITLE}": Jonas's 4 runs, 2 live) + one per other run
   machines    demo desktop (offline until screenshots:desktop beats) + 1 shared team server (offline)
   reviews     4 open pull requests
   review shot APP-14 → ${REVIEW_PR_URL} (real diff, fetched from GitHub)

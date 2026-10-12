@@ -49,6 +49,9 @@ vi.mock(`@/components/agent-session`, () => ({
   AgentSessionView: () => <div data-testid="agent-session-view" />,
   renderResultText: (text: string) => <div data-testid="report-markdown">{text}</div>,
 }))
+// EXP-1284: the run's thread (its link band, its Guide) is synced state.
+vi.mock(`@/hooks/use-threads`, () => ({ useThreadOfRun: () => null }))
+vi.mock(`@/components/thread/run-thread-link`, () => ({ RunThreadLink: () => null }))
 vi.mock(`@/components/issue-coding-rows`, () => ({
   SessionStatusBadge: () => <span data-testid="status-badge" />,
 }))

@@ -45,6 +45,11 @@ vi.mock(`@/lib/trpc-client`, () => ({
     devices: { latestVersions: { query: () => Promise.resolve(null) } },
   },
 }))
+// EXP-1284 (review T11): an unhandled start lands through
+// `useOpenStartedSession` (its thread, else the session page).
+vi.mock(`@/hooks/use-open-started-session`, () => ({
+  useOpenStartedSession: () => h.openSession,
+}))
 vi.mock(`@/hooks/use-open-session`, () => ({
   useOpenSession: () => h.openSession,
 }))
@@ -326,6 +331,50 @@ describe(`useRemoteStart startId (EXP-1259)`, () => {
     await act(async () => retry!())
     expect(sentIds()).toHaveLength(2)
     expect(sentIds()[1]).not.toBe(sentIds()[0])
+  })
+})
+
+// EXP-1284: a start into a THREAD carries `threadId` beside the batch's
+// startId; the delivered id reaches `onSent` (the New session tab waits on
+// THAT start) and `onOpened`, whose `true` means it landed the session
+// itself (as the thread's tab), so the hook navigates nowhere.
+describe(`useRemoteStart thread starts (EXP-1284)`, () => {
+  it(`sends threadId + startId and hands the delivered id to onSent and onOpened`, async () => {
+    h.mutate.mockImplementation(async (input: { startId: string }) => ({
+      ok: true,
+      startId: input.startId,
+    }))
+    const onSent = vi.fn()
+    const onOpened = vi.fn(() => true)
+    const hook = renderHook(() =>
+      useRemoteStart({ currentUserId: `me`, teamId: `t1`, threadId: `th1`, onSent, onOpened })
+    )
+    await act(() => hook.result.current.runAction(device, action, {} as never))
+    const sent = h.mutate.mock.calls[0]![0] as { threadId: string; startId: string }
+    expect(sent.threadId).toBe(`th1`)
+    expect(sent.startId).toEqual(expect.any(String))
+    expect(onSent).toHaveBeenCalledWith({ startId: sent.startId })
+
+    h.sessions = [row(`run-1`)]
+    hook.rerender()
+    expect(onOpened).toHaveBeenCalledWith(expect.objectContaining({ id: `run-1` }), {
+      startId: sent.startId,
+    })
+    expect(h.openSession).not.toHaveBeenCalled()
+  })
+
+  it(`lands an unhandled start through the thread landing, naming the thread`, async () => {
+    h.mutate.mockResolvedValue({ ok: true })
+    const hook = renderHook(() =>
+      useRemoteStart({ currentUserId: `me`, teamId: `t1`, threadId: `th1` })
+    )
+    await act(() => hook.result.current.startIssues(device, {} as never, [`i1`]))
+    h.sessions = [{ ...row(`run-2`), issueId: `i1`, actionName: null }]
+    hook.rerender()
+    expect(h.openSession).toHaveBeenCalledWith(
+      expect.objectContaining({ id: `run-2` }),
+      expect.objectContaining({ knownThreadId: `th1` })
+    )
   })
 })
 

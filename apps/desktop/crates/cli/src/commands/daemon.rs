@@ -1773,6 +1773,12 @@ fn handle_remote_start(
         // EXP-679: `agent` — another coding session asked for this start, so
         // the run is unattended and its close-out ends it.
         started_reason: start.started_reason.clone(),
+        // EXP-1284: the thread the requester asked this start to join
+        // (dropped on a resume frame), echoed into `codingSessions.start`.
+        thread_id: start.thread_id.clone(),
+        // EXP-1284 (T16): the frame's startId, echoed into the start so the
+        // server matches the landing session to its pending start.
+        start_id: start.start_id.clone(),
     };
 
     // Success is observed purely via the synced `coding_sessions` row
@@ -2927,7 +2933,7 @@ fn report_worktrees(
 /// (`actions` — SLOP-2 folded the old `automations` shape into it), the
 /// event feed (`issue_events`), and the rows the prompt lines and board
 /// filters read (`issues`, `boards`, `labels`, `issue_statuses`).
-/// Deliberately NOT the desktop's 21 — a headless daemon has no views to
+/// Deliberately NOT the desktop's 23 — a headless daemon has no views to
 /// hydrate.
 const TRIGGER_SHAPES: &[&str] = &[
     "actions",

@@ -11,10 +11,12 @@ import SwiftUI
 /// want to build?", the starting row after Start); the `@`/`:` candidate
 /// menu under it (`#` opens THE search list in a sheet, SLOP-28); the options
 /// line (`AgentOptionsRow`); then Getting started while the team has no
-/// board, and the caller's Running sessions (`AgentSessionsList`, the
-/// phones' list under the composer). No Recent band and no suggestion rows
-/// (Danny 2026-10-12): the toolbar's history sheet is the one place for
-/// recent sessions. The brand-mark watermark is gone ×4.
+/// board, and (EXP-1284) the caller's Running THREADS (`AgentThreadLists`:
+/// a live session of mine, every team, banded, plus my live sessions no
+/// thread names yet; a row opens the thread). No Recent band and no
+/// suggestion rows (Danny 2026-10-12): the toolbar's history sheet (threads,
+/// banded per team) is the one place for recent work. The brand-mark
+/// watermark is gone ×4.
 ///
 /// Two shapes: the Agent ROOT (`isTabRoot`, an empty seed as the stack's
 /// root — EXP-1210: a tab root like its siblings, no back — the app's
@@ -36,6 +38,9 @@ struct AgentPageView: View {
     @Environment(\.accountId) private var accountId
     @Environment(TeamState.self) private var teamState
     @State private var sessions: AgentsViewModel?
+    /// EXP-1284: the page lists THREADS, not bare runs (Running / Recent,
+    /// `partitionThreadList`).
+    @State private var threads: ThreadListModel?
     @State private var composer: AgentComposerModel?
     /// nil until the relay config resolves — the composer waits for it
     /// rather than flashing the relay-off note.
@@ -46,7 +51,7 @@ struct AgentPageView: View {
     @State private var visible = false
     /// EXP-923: the history sheet — the finished runs, off the toolbar glyph.
     @State private var showRecent = false
-    /// The run picked in that sheet, pushed once the sheet is gone (a push
+    /// The thread picked in that sheet, pushed once the sheet is gone (a push
     /// racing its own dismissal lands on nothing).
     @State private var pendingRecent: String?
     /// The seed's team has been made the active one (once per push).
@@ -65,6 +70,7 @@ struct AgentPageView: View {
     /// EXP-1196: the not-ready row's Update while `agent_update` is out.
     @State private var updatingAgent: String?
     @Environment(\.toaster) private var toaster
+    @Environment(\.pushRoute) private var pushRoute
 
     private var reservesTabBar: Bool { isTabRoot && !keyboardVisible }
 
@@ -72,7 +78,7 @@ struct AgentPageView: View {
         ZStack {
             AppBackground()
 
-            if let sessions, let composer {
+            if sessions != nil, let composer {
                 // EXP-862: with nothing running, the
                 // composer column is CENTRED in the page (×4: web's
                 // `justify-center`, the IDE's `min_h_full`) — a lone prompt box
@@ -81,7 +87,7 @@ struct AgentPageView: View {
                 // EXP-923: only the RUNNING rows count now — history moved
                 // into its own sheet, so an empty Running band is an empty
                 // page.
-                let centred = sessions.rows.isEmpty
+                let centred = (threads?.running.isEmpty ?? true) && (threads?.orphans.isEmpty ?? true)
                 GeometryReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
@@ -123,11 +129,22 @@ struct AgentPageView: View {
 
                         homeGettingStarted
 
-                        AgentSessionsList(
-                            vm: sessions,
-                            steerEnabled: steerEnabled == true
-                        )
-                        .padding(.top, 8)
+                        // EXP-1284 (draft 3; T4/T6): the Running THREADS —
+                        // every team, banded; my live sessions no thread
+                        // names yet as plain session rows. A row opens the
+                        // thread.
+                        if let threads {
+                            AgentThreadLists(
+                                model: threads,
+                                onOpen: { threadId in
+                                    pushRoute(.thread(accountId: accountId, threadId: threadId))
+                                },
+                                onOpenSession: { sessionId in
+                                    pushRoute(.runThread(accountId: accountId, sessionId: sessionId))
+                                }
+                            )
+                            .padding(.top, 8)
+                        }
                     }
                     .padding()
                     .frame(
@@ -184,12 +201,14 @@ struct AgentPageView: View {
             }
         }
         .agentImportFlow($importTarget, devices: sessions?.devices ?? [])
+        // T-N1: the history sheet lists THREADS (banded per team); a row
+        // opens the thread once the sheet has closed.
         .sheet(isPresented: $showRecent, onDismiss: pushPendingRecent) {
-            if let sessions {
-                RecentRunsSheet(
-                    vm: sessions,
-                    onOpen: { sessionId in
-                        pendingRecent = sessionId
+            if let threads {
+                RecentThreadsSheet(
+                    model: threads,
+                    onOpen: { threadId in
+                        pendingRecent = threadId
                         showRecent = false
                     }
                 )
@@ -215,7 +234,7 @@ struct AgentPageView: View {
             // hands it over; pushed a beat later so it never races the pop.
             if let landed = composer?.landedSession {
                 composer?.landedSession = nil
-                Task { @MainActor in sessionTarget = landed }
+                Task { @MainActor in land(landed) }
             }
             if greeting == nil {
                 greeting = HomeGreeting.greeting(name: deps.auth.userName)
@@ -226,6 +245,7 @@ struct AgentPageView: View {
             // follows the team once there is nothing left to lose.
             rebindComposer(to: teamState.activeTeam?.id)
             sessions?.activeTeamId = teamState.activeTeam?.id
+            threads?.start()
             // Re-arm on every appear: pushing the session stops the
             // observation (onDisappear), popping back must resume it.
             sessions?.startObserving()
@@ -245,6 +265,7 @@ struct AgentPageView: View {
         .onDisappear {
             visible = false
             sessions?.stopObserving()
+            threads?.stop()
             // B5: the start watch is NOT stopped here: it lives on the
             // composer model, bounded by its own window, so a session that
             // lands while the page is off-screen still clears the error and
@@ -263,11 +284,13 @@ struct AgentPageView: View {
         .onChange(of: composer?.landedSession) { _, started in
             if let started, visible {
                 composer?.landedSession = nil
-                sessionTarget = started
+                land(started)
             }
         }
+        // EXP-1284: the started run opens as its THREAD once the run's item
+        // synced (the New run becomes the thread), else its Work screen.
         .navigationDestination(item: $sessionTarget) { target in
-            WorkScreen(subject: .session(id: target.sessionId))
+            RunThreadScreen(sessionId: target.sessionId)
                 .environment(\.accountId, accountId)
         }
         // EXP-897/EXP-980/SLOP-3: starting on BLOCKED work asks first: an
@@ -291,12 +314,24 @@ struct AgentPageView: View {
         }
     }
 
-    /// EXP-923: the sheet's pick, pushed once it has actually closed — the
-    /// same destination its rows had while they lived on the page.
+    /// T11/T-N7/T-N9: where a landed start opens. A start INTO a thread
+    /// lands back on that thread's page (the navigator pops to it when it is
+    /// below, never a duplicate) on its Conversation; any other start opens
+    /// the session's thread once it synced (`RunThreadScreen`, Work fallback).
+    private func land(_ started: StartedRunWatcher.StartedSession) {
+        if let threadId = composer?.threadId {
+            pushRoute(.thread(accountId: accountId, threadId: threadId, child: .conversation))
+        } else {
+            sessionTarget = started
+        }
+    }
+
+    /// EXP-923: the sheet's pick, pushed once it has actually closed.
+    /// T-N1: a thread now.
     private func pushPendingRecent() {
-        guard let sessionId = pendingRecent else { return }
+        guard let threadId = pendingRecent else { return }
         pendingRecent = nil
-        sessionTarget = .init(sessionId: sessionId)
+        pushRoute(.thread(accountId: accountId, threadId: threadId))
     }
 
     /// EXP-825: the subject may sit on a NON-active team (an issue opened
@@ -320,6 +355,9 @@ struct AgentPageView: View {
         }
         if composer == nil, let sessions {
             composer = makeComposer(sessions: sessions, seed: seed)
+        }
+        if threads == nil {
+            threads = ThreadListModel(accountId: accountId, userId: deps.auth.userId, db: deps.db)
         }
     }
 

@@ -78,6 +78,12 @@ import com.exponential.app.ui.session.AgentSessionViewModel
 import com.exponential.app.ui.session.RunFace
 import com.exponential.app.ui.session.sessionRowTitle
 import com.exponential.app.ui.steer.ActionRunState
+import com.exponential.app.domain.ThreadPage
+import com.exponential.app.ui.icons.ExpIcons
+import com.exponential.app.ui.thread.ThreadCopy
+import com.exponential.app.ui.thread.ThreadsViewModel
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import dev.chrisbanes.haze.rememberHazeState
 import kotlinx.coroutines.flow.MutableStateFlow
 import com.exponential.app.ui.components.PromptAlert
@@ -131,6 +137,9 @@ fun WorkScreen(
     /** EXP-1241: the comment the Issue face scrolls to and briefly
      *  highlights (`issue/{id}?comment=`, a comment call's card). */
     focusCommentId: String? = null,
+    /** EXP-1284: the thread page — the issue's `Threads` row and a run's
+     *  header link to its thread. Null hides both. */
+    onOpenThread: ((String) -> Unit)? = null,
 ) {
     // ── Screen state (survives rotation and process death) ─────────────────
     var faceName by rememberSaveable { mutableStateOf(initialFace?.name) }
@@ -357,13 +366,19 @@ fun WorkScreen(
     // issue sees the report too. An issue-less run keeps its own results.
     // EXP-1251: an issue reads only its OWN PR's topics (plus the untagged
     // ones) — a run that stacked a second PR keeps each issue to its sections.
+    // EXP-1284 (rule 8): every reader shows the run's THREAD's Guide once
+    // the thread has one (`thread.results ?? run.results`).
+    val threadsVm: ThreadsViewModel = hiltViewModel()
+    val threadBySession by threadsVm.threadBySession.collectAsStateWithLifecycle()
     val resultsSource: String? = if (issueId != null) {
         issueResultsRun(issueSessions, issueId, shownSessionId, currentUserId, liveClock, issue?.prUrl)
-            ?.results
+            ?.let { run -> ThreadPage.guideResults(run.results, threadBySession[run.id]?.results) }
             ?.let { raw -> sessionResultsForPr(raw, issue?.prUrl) }
     } else {
-        shownSession?.results
+        shownSession?.let { ThreadPage.guideResults(it.results, threadBySession[it.id]?.results) }
     }
+    // EXP-1284: the shown run's thread — the header's link to it.
+    val shownThreadId = shownSessionId?.let { threadBySession[it]?.id }
     val resultGroups = remember(resultsSource) { parseSessionResultGroups(resultsSource) }
     // EXP-1154: an issue with an OPEN PR always has Results — the run's
     // report when one exists (the Guide), else the PR's GitHub body.
@@ -763,6 +778,21 @@ fun WorkScreen(
                     // SLOP-16: a quiet icon button beside the `…` whose glyph
                     // names the shape (stack, batch, blockers).
                     badge = {
+                        // EXP-1284: a run screen offers its thread (deep
+                        // links and pushes still land here).
+                        val openThread = onOpenThread
+                        if (openThread != null && shownThreadId != null && face == WorkFaceKind.Run) {
+                            IconButton(
+                                onClick = { openThread(shownThreadId) },
+                                modifier = Modifier.testTag("work-open-thread"),
+                            ) {
+                                Icon(
+                                    ExpIcons.actionChat,
+                                    contentDescription = ThreadCopy.OPEN_THREAD,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
                         PrGraphBadge(graph = graph) { graphSheetOpen = true }
                     },
                     // EXP-934: the `…` belongs to the ISSUE, so it shows on the
@@ -837,6 +867,7 @@ fun WorkScreen(
                             onAddSubIssue = onCreateSubIssue?.let { create ->
                                 issue?.let { parent -> { create(parent.boardId, parent.id) } }
                             },
+                            onOpenThread = onOpenThread,
                         )
                     }
                     WorkFaceKind.Run -> key(shownSessionId) {

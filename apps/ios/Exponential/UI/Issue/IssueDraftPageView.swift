@@ -29,6 +29,7 @@ struct IssueDraftPageView: View {
         boardId: String,
         statusId: String? = nil,
         parentId: String? = nil,
+        threadId: String? = nil,
         onCreated: @escaping (String) -> Void,
         onClose: @escaping () -> Void
     ) {
@@ -36,7 +37,8 @@ struct IssueDraftPageView: View {
         self.onClose = onClose
         self.draftId = draftId
         _vm = State(initialValue: IssueDraftViewModel(
-            draftId: draftId, boardId: boardId, statusId: statusId, parentId: parentId
+            draftId: draftId, boardId: boardId, statusId: statusId, parentId: parentId,
+            threadId: threadId
         ))
     }
 
@@ -348,6 +350,23 @@ struct IssueDraftPageView: View {
                             status: IssueStatusResolver.resolve(parent, team: vm.teamStatuses),
                             onOpen: nil
                         )
+                    }
+
+                    // EXP-1284: a "New issue in this thread" draft names
+                    // its thread (kept across leave + reopen from Drafts).
+                    if let threadTitle = vm.threadTitle {
+                        HStack(spacing: 6) {
+                            Text(ThreadViews.inThreadPrefix)
+                                .font(.footnote)
+                                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                                .fixedSize()
+                            ThreadChip(title: threadTitle, live: false) {}
+                                .allowsHitTesting(false)
+                            Spacer(minLength: 0)
+                        }
+                        .accessibilityElement(children: .combine)
+                        .accessibilityLabel(ThreadViews.inThreadLabel(threadTitle))
+                        .accessibilityIdentifier("issue-draft-thread")
                     }
 
                     IssueTitleField(

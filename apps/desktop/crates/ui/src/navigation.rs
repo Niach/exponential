@@ -127,6 +127,12 @@ pub enum Screen {
     /// navigating here directly. EXP-870: it is the Run face of its issue's
     /// top tab, or a Run-only top tab for an issue-less run.
     Session { session_id: String },
+    /// EXP-1284: one THREAD — the unit of work holding n issues and m runs
+    /// ([`crate::thread_screen`]): its header, the child strip (Conversation ·
+    /// each issue · "+" · Guide) and the child on show. A detail tab like a
+    /// run; keyed by the `threads` row id, so a resume (which stays in its
+    /// predecessor's thread) never moves it. The dev drive is `thread:<uuid>`.
+    Thread { thread_id: String },
     /// One PTY terminal of this window's `TerminalManager` (EXP-769): a plain
     /// shell or an agent login, never a coding run (EXP-773). The
     /// terminal used to live in a sliding bottom dock; it renders FULLSCREEN
@@ -202,6 +208,7 @@ impl Screen {
             self,
             Screen::IssueDetail { .. }
                 | Screen::Session { .. }
+                | Screen::Thread { .. }
                 | Screen::Terminal { .. }
                 | Screen::NewRun { .. }
         )
@@ -214,7 +221,12 @@ impl Screen {
     /// content card ([`second_sidebar_for`]). The Agent page and the New
     /// issue page carry nothing any more; a terminal never did (EXP-791/870).
     pub(crate) fn carries_list(&self) -> bool {
-        matches!(self, Screen::IssueDetail { .. } | Screen::Session { .. })
+        // EXP-1284: a thread opened from Agent › Recent keeps that list
+        // beside it, like the runs it replaced there.
+        matches!(
+            self,
+            Screen::IssueDetail { .. } | Screen::Session { .. } | Screen::Thread { .. }
+        )
     }
 
     /// EXP-851: which LIST this screen IS, expressed as the [`TabOrigin`] a
@@ -392,6 +404,8 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .unwrap_or_else(|| "Issue".into()),
         Screen::Settings => "Settings".into(),
         Screen::Session { session_id } => session_tab_title(session_id, cx),
+        // EXP-1284: the thread's view title (`Thread` while it syncs).
+        Screen::Thread { thread_id } => crate::threads::thread_title(thread_id, cx),
         // EXP-769: the manager's live tab title (OSC-updated), looked up
         // across this process's windows — a tab id is process-unique.
         Screen::Terminal { tab } => crate::session_bar::terminal_tab_title(*tab, cx)
@@ -913,7 +927,8 @@ impl Navigation {
 /// `issue:<uuid>` | `issue:<uuid>?face=changes|diff|results`
 /// (EXP-1154: the issue tab on that face — the review of its PR is the
 /// Changes face, [`parse_dev_issue_face`]) | `session:<uuid>` (a coding session, keyed by
-/// its `coding_sessions` ROW id — EXP-746) | `styleguide:<entry id>` (EXP-1259:
+/// its `coding_sessions` ROW id — EXP-746) | `thread:<uuid>` (EXP-1284: one
+/// thread, keyed by its `threads` row id) | `styleguide:<entry id>` (EXP-1259:
 /// one IDE styleguide entry, full-window) (anything else = no pre-route).
 fn parse_dev_screen(spec: &str) -> Option<Screen> {
     // EXP-825: the seeded composer route — the query is parsed separately
@@ -976,6 +991,12 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
             if let Some(id) = spec.strip_prefix("session:") {
                 return Some(Screen::Session {
                     session_id: id.to_string(),
+                });
+            }
+            // EXP-1284: one thread (views `thread` / `thread-runs`).
+            if let Some(id) = spec.strip_prefix("thread:") {
+                return Some(Screen::Thread {
+                    thread_id: id.to_string(),
                 });
             }
             // EXP-1259: one IDE styleguide entry, full-window.
@@ -2605,6 +2626,21 @@ mod tests {
                 session_id: String::new()
             })
         );
+    }
+
+    /// EXP-1284: the capture lane's `thread:<uuid>` drive (views `thread`,
+    /// `thread-runs`) opens that thread's tab; a thread is a detail tab that
+    /// can carry Agent › Recent beside it.
+    #[test]
+    fn dev_screen_parses_a_thread_id() {
+        let thread = Screen::Thread {
+            thread_id: "5d7a".into(),
+        };
+        assert_eq!(parse_dev_screen("thread:5d7a"), Some(thread.clone()));
+        assert_eq!(parse_dev_screen("thread"), None);
+        assert!(thread.is_detail());
+        assert!(thread.carries_list());
+        assert!(!thread.undockable());
     }
 
     /// EXP-746: a session gets a tab chip (several runs are open at once, and

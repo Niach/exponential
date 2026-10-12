@@ -5,6 +5,7 @@ import {
   ISSUE_DRAFT_DISCARDED_GRACE_MS,
   canCreateDraft,
   draftExitPrompt,
+  draftLandingNavigation,
   draftOriginFrom,
   newDraftNavigation,
   parseIssueDraftSearch,
@@ -109,5 +110,41 @@ describe(`draftOriginFrom`, () => {
       draftOriginFrom(`/t/acme/boards/web/issues/WEB-1`, `board:api`)
     ).toBe(`board:api`)
     expect(draftOriginFrom(`/t/acme/devices`, undefined)).toBeUndefined()
+  })
+})
+
+// EXP-1284 (review T11): a thread draft lands back on its thread with the new
+// issue's tab selected; any other draft lands on the issue, keeping ?from=.
+describe(`draftLandingNavigation`, () => {
+  it(`lands a thread draft on the thread, the new issue selected`, () => {
+    expect(
+      draftLandingNavigation({
+        teamSlug: `acme`,
+        threadId: `th1`,
+        boardSlug: `web`,
+        identifier: `APP-9`,
+        from: `inbox`,
+      })
+    ).toEqual({
+      to: `/t/$teamSlug/threads/$threadId`,
+      params: { teamSlug: `acme`, threadId: `th1` },
+      search: { child: `APP-9` },
+    })
+  })
+
+  it(`lands any other draft on the issue page`, () => {
+    expect(
+      draftLandingNavigation({
+        teamSlug: `acme`,
+        threadId: null,
+        boardSlug: `web`,
+        identifier: `APP-9`,
+        from: `inbox`,
+      })
+    ).toEqual({
+      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
+      params: { teamSlug: `acme`, boardSlug: `web`, issueIdentifier: `APP-9` },
+      search: { from: `inbox` },
+    })
   })
 })

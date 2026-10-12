@@ -37,6 +37,11 @@ public struct AgentComposerSeed: Hashable, Sendable {
     /// is up ("Merge refused: the branch has conflicts."). Read only with
     /// that builtin seeded (web `?conflict=1`).
     public var conflict: Bool = false
+    /// EXP-1284: start INTO this thread — the thread's "Start a session here" and
+    /// its reply box (no live or resumable run of mine there). Rides
+    /// `steer.startSession({threadId})` on whatever subject the composer
+    /// sends; nil = the server's own placement.
+    public var threadId: String?
 
     public init(
         issueIds: [String] = [],
@@ -46,7 +51,8 @@ public struct AgentComposerSeed: Hashable, Sendable {
         text: String? = nil,
         icon: String? = nil,
         teamId: String? = nil,
-        conflict: Bool = false
+        conflict: Bool = false,
+        threadId: String? = nil
     ) {
         self.issueIds = issueIds
         self.actionId = actionId
@@ -56,6 +62,7 @@ public struct AgentComposerSeed: Hashable, Sendable {
         self.icon = icon
         self.teamId = teamId
         self.conflict = conflict
+        self.threadId = threadId
     }
 
     /// The Chat FAB's seed: nothing preselected.

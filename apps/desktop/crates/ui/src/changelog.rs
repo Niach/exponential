@@ -46,19 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-10-12-home-and-feedback",
+    id: "2026-10-12-threads",
     date: "2026-10-12",
-    title: "The Agent page is home, one issue search, Getting started as a checklist, one way to wait and fail, and sessions",
-    summary: "Every app opens on the Agent page with a greeting over the composer, # opens a real issue search with every match, Getting started is one short checklist, sessions started elsewhere no longer take over the desktop app, and loading and errors look the same everywhere.",
-    body: r#"- **Home**: web, desktop, iOS and Android open on the Agent page. It greets you by time of day and asks what you want to build; nothing else sits under the composer. The suggestion rows are gone.
-- **Tabs**: on the web and the desktop app the close button shows on hover, and a plus button after the last tab opens a New session tab that becomes the session's tab once it starts.
-- **Issue search**: typing # opens a search box at the cursor (a bottom sheet on phones) that takes spaces and lists every match, not six. The plus menu's Implement issue and Run action open the same list beside the menu.
-- **Getting started**: one checklist of eight steps in the order you need them, with a Docs button. The next step opens with one sentence on why and a button to do it. It shows on an empty board and on the Agent page of a team without boards; done steps stay clickable. Action suggestions are gone.
-- **Starting a session**: after Start the composer shows the Exponential mark and where the session is starting until it lands. A session started from another device, a teammate or an agent no longer takes over the desktop app; it appears in Running with a toast to open it.
-- **Loading and errors**: skeleton rows replace loading text, buttons show a spinner while they work, and a failed action is a toast with Retry. Mistakes in a form still show under the field. The team prompt saves as you type.
-- **Session threads**: workflows, task lists and subagents share one Work card, a code-mode script shows the tools it called, and a comment the agent posted shows the real comment and opens it on the issue.
-- **Polish**: the session thread's fades no longer tint or blur the card border, the desktop diff page scrolls as one page, and menus, popovers and buttons follow one set of motion rules.
-- **Sessions**: what used to be called a run is a session everywhere: tabs, menus, toasts and the docs."#,
+    title: "Threads: one place for a piece of work, its issues and its sessions",
+    summary: "A thread holds the issues and sessions of one piece of work. The agent links the issues it files or picks up, the thread shows every session and link as one conversation, and lists show threads instead of single sessions.",
+    body: r#"- **Threads**: every session starts in a thread. A session on an issue joins that issue's thread, a resume continues its thread, and anything else opens a new one.
+- **The agent links its work**: the agent files new issues into its thread, links existing ones and detaches what does not belong. Each link shows as a row in the conversation.
+- **One page**: the tabs across the top read Conversation, each linked issue, a plus button and Guide. On phones they are the pager.
+- **Many sessions**: resumes continue the conversation, ended sessions fold to one line with Show work, and sessions one session started side by side share one card.
+- **One PR, one Guide**: a thread's PR covers every issue in it by default, and its Guide is the PR body.
+- **Menus**: link an issue, file a new issue into the thread, start a session in it or unlink an issue from the plus button or an issue's menu.
+- **Lists**: Running and Recent show threads with their issue and session counts, and an issue names the threads it sits in."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

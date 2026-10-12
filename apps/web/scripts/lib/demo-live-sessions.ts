@@ -20,12 +20,14 @@
  */
 import { and, eq, inArray } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { boards, codingSessions, issues, teams } from "@/db/schema"
+import { boards, codingSessions, issues, teams, threadItems } from "@/db/schema"
+import { getThread, joinThreadForStart, linkRunToThread } from "@/lib/threads"
 import {
   DEMO_DEVICE_ID,
   DEMO_DEVICE_LABEL,
   DEMO_SESSION_IDS,
   DEMO_STEERED_SESSION_ID,
+  DEMO_THREAD_ID,
   DEMO_USER_ID,
   TEAM_SLUG,
 } from "../screenshot-demo"
@@ -42,6 +44,8 @@ interface LiveSessionSpec {
   deviceId: string | null
   deviceLabel: string
   agent: `claude` | `codex` | null
+  /** EXP-1284: the pinned thread the run sits in (absent = its issue's). */
+  threadId?: string
   /** The stub's feed for this row ends on an unanswered question
    *  (screenshot-desktop.ts), so the row says so the way a real device
    *  stamps it: `needs_input`, the ×4 list state (session-display.json). */
@@ -60,6 +64,7 @@ export const DEMO_LIVE_SESSIONS: readonly LiveSessionSpec[] = [
     deviceId: DEMO_DEVICE_ID,
     deviceLabel: DEMO_DEVICE_LABEL,
     agent: `claude`,
+    threadId: DEMO_THREAD_ID,
     asks: true,
   },
   // Mira's row stays bare: her machine never registers.
@@ -90,7 +95,12 @@ export const DEMO_LIVE_SESSIONS: readonly LiveSessionSpec[] = [
  * 0 means the demo team (or its issues) is not seeded, which the caller
  * reports rather than this module guessing at a fix.
  */
-export async function assertDemoLiveSessions(now: number = Date.now()): Promise<number> {
+export async function assertDemoLiveSessions(
+  now: number = Date.now(),
+  /** EXP-1284: put a run whose thread item is gone back into its thread.
+   *  The seed passes false: it places every run itself, afterwards. */
+  options: { relinkThreads?: boolean } = {}
+): Promise<number> {
   const [team] = await db
     .select({ id: teams.id })
     .from(teams)
@@ -137,7 +147,43 @@ export async function assertDemoLiveSessions(now: number = Date.now()): Promise<
       .insert(codingSessions)
       .values({ id: spec.id, ...values })
       .onConflictDoUpdate({ target: codingSessions.id, set: values })
+    if (options.relinkThreads !== false) {
+      await assertThreadItem(spec, { teamId: team.id, issueId })
+    }
     written += 1
   }
   return written
+}
+
+/**
+ * EXP-1284: a run sits in exactly one thread, and its item CASCADES away with
+ * a row the sweep deleted — so a re-inserted row goes back into its pinned
+ * thread (else its issue's, the way a start joins one). A row that kept its
+ * item is left alone.
+ */
+async function assertThreadItem(
+  spec: LiveSessionSpec,
+  ctx: { teamId: string; issueId: string }
+): Promise<void> {
+  const [item] = await db
+    .select({ id: threadItems.id })
+    .from(threadItems)
+    .where(eq(threadItems.sessionId, spec.id))
+    .limit(1)
+  if (item) return
+  const run = { id: spec.id, teamId: ctx.teamId }
+  const pinned = spec.threadId ? await getThread(db, spec.threadId) : null
+  if (pinned) {
+    await linkRunToThread(
+      db,
+      { id: pinned.id, teamId: pinned.teamId },
+      run,
+      { userId: spec.userId, source: `user` }
+    )
+    return
+  }
+  await joinThreadForStart(db, {
+    session: { id: spec.id, teamId: ctx.teamId, userId: spec.userId },
+    subject: { kind: `issue`, issueId: ctx.issueId },
+  })
 }

@@ -1342,6 +1342,9 @@ pub fn spawn_into_window(
     let action_id = prepared.action_id.clone();
     let started_reason = prepared.heartbeat_scope.started_reason.clone();
     let started_by_id = prepared.heartbeat_scope.started_by_id.clone();
+    // EXP-1284: the thread the start placed the run in (`codingSessions.start`
+    // answers it) — where a composer's start lands.
+    let thread_id = prepared.heartbeat_scope.thread_id.clone();
     // EXP-1271: what the remote-start toast names (the run's subject).
     let announce = RemoteStartNotice {
         session_id: session_id.clone(),
@@ -1476,7 +1479,7 @@ pub fn spawn_into_window(
             RunLanding::Composer(handoff) => handoff,
             _ => None,
         };
-        open_landed_session(&session_id, handoff, window, cx);
+        open_landed_session(&session_id, thread_id, handoff, window, cx);
     } else {
         announce_remote_start(announce, landing == RunLanding::Rotation, window, cx);
     }
@@ -1571,28 +1574,98 @@ pub(crate) fn take_back_new_run_tab(handoff: StartHandoff, cx: &mut App) {
 /// Open a run that landed in `window`: a composer's start in place of the
 /// New session tab ITS start handed off ([`hand_off_new_run_tab`]), else as
 /// an ordinary open (a Resume never takes a New session tab).
+///
+/// EXP-1284: a session lands in its THREAD. `thread_id` is the placement the
+/// start answered (else the synced `thread_items` row, else — a resume
+/// before its own item syncs — its predecessor's): the handed-off New
+/// session tab becomes the THREAD's tab (keyed by the start's handoff, never
+/// per window; an already open thread tab goes active and the New session
+/// tab closes, `screens::sync_tabs`' review-#12 rule), and a session started
+/// or resumed FROM the thread on show (its reply) stays there — the thread
+/// draws it as its next block.
 pub(crate) fn open_landed_session(
     session_id: &str,
+    thread_id: Option<String>,
     handoff: Option<StartHandoff>,
     window: &mut Window,
     cx: &mut App,
 ) {
+    let thread_id = thread_id
+        .or_else(|| crate::threads::thread_of_session(session_id, cx))
+        .or_else(|| {
+            let store = Store::try_global(cx)?;
+            let resumed_from = store
+                .collections()
+                .coding_sessions
+                .read(cx)
+                .get(session_id)?
+                .resumed_from_id
+                .clone()?;
+            crate::threads::thread_of_session(&resumed_from, cx)
+        });
     let window_id = window.window_handle().window_id();
     let new_run = handoff
         .filter(|handoff| handoff_open(*handoff, cx))
         .and_then(|handoff| cx.global_mut::<NewRunHandoffs>().tabs.remove(&handoff))
         .filter(|(owner, _)| *owner == window_id)
         .map(|(_, id)| id);
-    match new_run {
-        Some(id) => crate::navigation::navigate_replacing_tab(
+    let nav = crate::navigation::nav_for_window(window, cx);
+    let shown = crate::navigation::resolved_screen(&nav, cx);
+    match landing_plan(session_id, thread_id, new_run, shown.as_ref()) {
+        LandingPlan::Stay => {}
+        LandingPlan::ReplaceTab { target, new_run } => crate::navigation::navigate_replacing_tab(
             window,
             cx,
-            crate::navigation::Screen::Session {
+            target,
+            crate::navigation::Screen::NewRun { id: new_run },
+        ),
+        LandingPlan::Open => crate::session_screen::open_session(session_id, window, cx),
+    }
+}
+
+/// EXP-1284 — where a landed session goes ([`open_landed_session`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum LandingPlan {
+    /// The window shows the session's thread: it draws the session itself.
+    Stay,
+    /// The handed-off New session tab `new_run` becomes `target`'s tab (the
+    /// thread's, else the session's own).
+    ReplaceTab {
+        target: crate::navigation::Screen,
+        new_run: String,
+    },
+    /// An ordinary open of the session.
+    Open,
+}
+
+/// [`open_landed_session`]'s rule, pure: a start that handed off its New
+/// session tab lands IN that tab — as the session's THREAD when the
+/// placement is known, else as the session; without a handoff a session of
+/// the thread on show stays in the thread, anything else opens.
+pub(crate) fn landing_plan(
+    session_id: &str,
+    thread_id: Option<String>,
+    new_run: Option<String>,
+    shown: Option<&crate::navigation::Screen>,
+) -> LandingPlan {
+    use crate::navigation::Screen;
+    match (new_run, thread_id) {
+        (Some(new_run), Some(thread_id)) => LandingPlan::ReplaceTab {
+            target: Screen::Thread { thread_id },
+            new_run,
+        },
+        (Some(new_run), None) => LandingPlan::ReplaceTab {
+            target: Screen::Session {
                 session_id: session_id.to_string(),
             },
-            crate::navigation::Screen::NewRun { id },
-        ),
-        None => crate::session_screen::open_session(session_id, window, cx),
+            new_run,
+        },
+        (None, Some(thread_id))
+            if matches!(shown, Some(Screen::Thread { thread_id: on_show }) if *on_show == thread_id) =>
+        {
+            LandingPlan::Stay
+        }
+        (None, _) => LandingPlan::Open,
     }
 }
 
@@ -1872,7 +1945,7 @@ pub(crate) fn follow_remote_start(
                 // else to do with the run then (its tab opens on the next
                 // visit to the Agent page).
                 let _ = handle.update(cx, |_, window, cx| {
-                    open_landed_session(&session_id, None, window, cx);
+                    open_landed_session(&session_id, None, None, window, cx);
                 });
                 return;
             }
@@ -1906,8 +1979,16 @@ impl gpui::Global for FollowedStarts {}
 pub(crate) struct ComposerStartWatch {
     pub(crate) start_id: String,
     pub(crate) handoff: Option<StartHandoff>,
+    /// EXP-1284: the thread the start asked to join (a thread's composer);
+    /// `None` = wait briefly for the session's own `thread_items` row.
+    pub(crate) thread_id: Option<String>,
     pub(crate) landed: Box<dyn FnOnce(String, &mut Window, &mut App) -> bool>,
 }
+
+/// EXP-1284 — how long a landed remote start waits for its session's
+/// `thread_items` row (a separate shape) before it opens as the session:
+/// every start lands on its THREAD when the placement shows up in time.
+const THREAD_ITEM_WAIT: std::time::Duration = std::time::Duration::from_secs(6);
 
 /// [`follow_remote_start`] for the composer's own start (review #3): it
 /// follows until the row lands — past the composer's 30 s deadline, up to
@@ -1934,7 +2015,7 @@ pub(crate) fn follow_composer_start(
     let handle = crate::navigation::deferred_open_window(window, cx);
     cx.spawn(async move |cx| {
         let deadline = std::time::Instant::now() + REMOTE_LATE_WAIT;
-        let ComposerStartWatch { start_id, handoff, landed } = watch;
+        let ComposerStartWatch { start_id, handoff, thread_id, landed } = watch;
         let done = |cx: &mut App| {
             cx.default_global::<FollowedStarts>().0.remove(&start_id);
         };
@@ -1944,10 +2025,20 @@ pub(crate) fn follow_composer_start(
                 cx.update(|cx| fresh_remote_run(&known, &device_id, &subject, team.as_deref(), cx))
             {
                 let _ = cx.update(|cx| done(cx));
+                // EXP-1284: the placement rides its own shape: give it a
+                // moment, so the start lands on its THREAD.
+                let mut thread_id = thread_id.clone();
+                let item_deadline = std::time::Instant::now() + THREAD_ITEM_WAIT;
+                while thread_id.is_none() && std::time::Instant::now() < item_deadline {
+                    thread_id = cx.update(|cx| crate::threads::thread_of_session(&session_id, cx));
+                    if thread_id.is_none() {
+                        cx.background_executor().timer(REMOTE_OPEN_TICK).await;
+                    }
+                }
                 let opened = handle.update(cx, |_, window, cx| {
                     let open = landed(session_id.clone(), window, cx);
                     if open {
-                        open_landed_session(&session_id, handoff, window, cx);
+                        open_landed_session(&session_id, thread_id, handoff, window, cx);
                     }
                     open
                 });
@@ -2806,6 +2897,40 @@ mod tests {
         assert!(should_open_session(RunLanding::ThisWindow));
         assert!(!should_open_session(RunLanding::Background));
         assert!(!should_open_session(RunLanding::Rotation));
+    }
+
+    /// EXP-1284: a start that handed off its New session tab lands IN that
+    /// tab — as its THREAD once the placement is known (the start's handoff
+    /// picks the tab, never the window), else as the session; without a
+    /// handoff (a resume from the thread's reply) a session of the thread on
+    /// show stays there, and anything else is an ordinary open.
+    #[test]
+    fn a_landing_session_takes_its_thread_s_tab() {
+        use crate::navigation::Screen;
+        let thread = Screen::Thread { thread_id: "t1".into() };
+        assert_eq!(
+            landing_plan("s1", Some("t1".into()), Some("nr-1".into()), None),
+            LandingPlan::ReplaceTab { target: thread.clone(), new_run: "nr-1".into() }
+        );
+        // Even while the thread itself is on show: the handed-off tab goes
+        // (sync_tabs then keeps the thread's existing tab and closes it).
+        assert_eq!(
+            landing_plan("s1", Some("t1".into()), Some("nr-1".into()), Some(&thread)),
+            LandingPlan::ReplaceTab { target: thread.clone(), new_run: "nr-1".into() }
+        );
+        assert_eq!(
+            landing_plan("s1", None, Some("nr-1".into()), None),
+            LandingPlan::ReplaceTab {
+                target: Screen::Session { session_id: "s1".into() },
+                new_run: "nr-1".into()
+            }
+        );
+        assert_eq!(landing_plan("s1", Some("t1".into()), None, Some(&thread)), LandingPlan::Stay);
+        assert_eq!(
+            landing_plan("s1", Some("t1".into()), None, Some(&Screen::Thread { thread_id: "t2".into() })),
+            LandingPlan::Open
+        );
+        assert_eq!(landing_plan("s1", None, None, Some(&thread)), LandingPlan::Open);
     }
 
     /// EXP-1271: the toast names the chat builtin "Chat" and anything else

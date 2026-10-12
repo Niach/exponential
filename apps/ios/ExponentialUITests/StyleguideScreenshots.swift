@@ -26,7 +26,16 @@ import XCTest
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices · sg_agent-home · sg_search-list ·
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
-///   sg_script-card · sg_comment-call-card
+///   sg_script-card · sg_comment-call-card · sg_thread · sg_thread-runs
+///
+/// EXP-1284 added the last two: the THREAD screen (the unit of work, n
+/// issues and m runs) — its child strip as the pager tabs, the conversation
+/// and the reply box — drawn by its real pieces over fake rows matching the
+/// approved drafts (`ThreadStyleguideScreen`, `-uiTestingStyleguide
+/// thread|thread-runs`, the run-thread cards' seam): one live run whose agent
+/// linked and filed an issue, and four sessions (an ended one, its resume, two
+/// live children of it as one card) with an issue tab's menu SHEET open
+/// (the bottom sheet Android's shot shows).
 ///
 /// EXP-1259 added the last four: the Agent HOME the app lands on (the
 /// greeting over the composer, nothing beneath it), the `#` typeahead's
@@ -464,16 +473,17 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_chat", settle: 2)
 
         // ── sg_session-row: THE session row, big (EXP-1248) ─────────────────
-        // The Recent sheet behind the page's history glyph draws every run as
-        // the big SessionRow (mark at 12 + 14·depth, caption, device glyph,
-        // children nested, no fold). A detour no later shot needs, so it is
-        // skipped whole when a scoped run did not ask for it.
+        // The Recent sheet behind the page's history glyph draws every row as
+        // the big SessionRow (mark, caption, device glyph). EXP-1284 (T-N1):
+        // its rows are THREADS now (title + list caption), banded per team.
+        // A detour no later shot needs, so it is skipped whole when a scoped
+        // run did not ask for it.
         if ScreenshotShots.isWanted("sg_session-row") {
             anyElement(app, identified: "agent-history-button").tap()
-            let recentSheet = anyElement(app, identified: "recent-runs-sheet")
+            let recentSheet = anyElement(app, identified: "recent-threads-sheet")
             expect(recentSheet, within: Wait.nav, "The Recent sheet did not open")
-            if !anyElement(app, identified: "past-run-row").waitForExistence(timeout: Wait.sync) {
-                print("EXP-1248 sg_session-row: no finished runs — reseed with `bun run seed:screenshots`")
+            if !anyElement(app, identified: "agent-thread-row").waitForExistence(timeout: Wait.sync) {
+                print("EXP-1248 sg_session-row: no recent threads — reseed with `bun run seed:screenshots`")
             }
             snapshot("sg_session-row", settle: 2)
             dismissSheet(app, whileVisible: recentSheet)
@@ -983,6 +993,22 @@ final class StyleguideScreenshots: XCTestCase {
         openThreadCards(app, "comment-call-card")
         snapshot("sg_comment-call-card", settle: 2)
 
+        // ── sg_thread · sg_thread-runs: the Thread screen (EXP-1284) ─────────
+        // Capture-only specimens over the real Thread pieces, one relaunch
+        // each (the shot names stay literal for views.test.ts).
+        openThreadSpecimen(app, "thread")
+        expect(
+            anyElement(app, identified: "thread-link-row"),
+            within: Wait.nav,
+            "The thread specimen drew no agent link rows"
+        )
+        snapshot("sg_thread", settle: 2)
+        // EXP-1284: the child menu is a BOTTOM SHEET ×phones (Android's
+        // shot); a presented sheet hides the screen beneath it from the
+        // accessibility tree, so the relaunch waits on the sheet itself.
+        openThreadSpecimen(app, "thread-runs", awaiting: "thread-menu-sheet")
+        snapshot("sg_thread-runs", settle: 2)
+
         finished = true
     }
 
@@ -996,6 +1022,19 @@ final class StyleguideScreenshots: XCTestCase {
             anyElement(app, identified: "thread-cards-screen"),
             within: Wait.launch,
             "The \(card) screen never opened — is -uiTestingStyleguide wired?"
+        )
+    }
+
+    /// EXP-1284: relaunch signed out onto one Thread screen specimen.
+    @MainActor
+    private func openThreadSpecimen(
+        _ app: XCUIApplication, _ kind: String, awaiting identifier: String = "thread-styleguide-screen"
+    ) {
+        launchSignedOut(app, extraArguments: ["-uiTestingStyleguide", kind])
+        expect(
+            anyElement(app, identified: identifier),
+            within: Wait.launch,
+            "The \(kind) specimen never opened — is -uiTestingStyleguide wired?"
         )
     }
 

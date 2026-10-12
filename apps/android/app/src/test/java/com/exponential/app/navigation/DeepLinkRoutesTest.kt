@@ -95,7 +95,7 @@ class DeepLinkRoutesTest {
     @Test
     fun `fills the agent pattern with the conflict flag`() {
         assertEquals(
-            "agent?issues=&action=builtin:fix-conflicts&device=&pr=p-1&text=&icon=&conflict=1",
+            "agent?issues=&action=builtin:fix-conflicts&device=&pr=p-1&text=&icon=&conflict=1&thread=",
             DeepLinkRoutes.concreteRoute(
                 AGENT_ROUTE_PATTERN,
                 args(
@@ -106,6 +106,7 @@ class DeepLinkRoutesTest {
                     "text" to "",
                     "icon" to "",
                     "conflict" to "1",
+                    "thread" to "",
                 ),
             ),
         )

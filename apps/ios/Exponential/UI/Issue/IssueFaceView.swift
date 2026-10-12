@@ -105,6 +105,8 @@ struct IssueFaceView: View {
     @Environment(\.accountId) private var accountId
     @Environment(\.toaster) private var toaster
     @Environment(\.pushRoute) private var pushRoute
+    /// EXP-1284 (T-N9): the thread page hosting this face, if any.
+    @Environment(\.currentThreadId) private var currentThreadId
     @Environment(\.motion) private var motion
     @State private var activeSheet: IssueDetailSheet?
     /// A property picker opened straight from the chip box (no Properties
@@ -132,6 +134,8 @@ struct IssueFaceView: View {
     /// thread's "Leave a reply…" row, cleared by the bar.
     @State private var commentReplyTarget: CommentReplyTarget?
     @FocusState private var titleFocused: Bool
+    /// EXP-1284: the threads holding the issue (the `Threads` row).
+    @State private var threadsModel: IssueThreadsModel?
 
     // Shown while team membership is still syncing, so a signed-in viewer
     // sees "we're catching up" instead of a silently read-only issue.
@@ -236,6 +240,15 @@ struct IssueFaceView: View {
                     onTapProperty: { directChild = $0 },
                     onOpenProperties: { activeSheet = .properties }
                 )
+
+                // EXP-1284: the issue names its THREADS — one chip per thread
+                // holding it (the live mark while one of its runs is live),
+                // each opening the thread. Nothing while it sits in none.
+                // T-N9: embedded in a thread page, that thread is left out.
+                if let threads = threadsModel?.threads.filter({ $0.id != currentThreadId }),
+                   !threads.isEmpty {
+                    IssueThreadsRow(threads: threads)
+                }
 
                 // EXP-893: no "Coding now" row any more — the run is the
                 // screen's Run face, one switch away, and its state rides
@@ -404,6 +417,15 @@ struct IssueFaceView: View {
         .task(id: "widget-submission-\(issue.id)") {
             await vm.loadWidgetSubmission()
         }
+        // EXP-1284: the Threads row's observation, re-armed on every appear
+        // (the face is re-mounted as screen state) and stopped on leave.
+        .task(id: "threads-\(accountId)|\(issue.id)") {
+            if threadsModel?.issueId != issue.id {
+                threadsModel?.stop()
+                threadsModel = IssueThreadsModel(accountId: accountId, issueId: issue.id, db: deps.db)
+            }
+            threadsModel?.start()
+        }
         // EXP-1031: a failed save/action is the shared error toast; the
         // view model's `error` is a one-shot hand-off, cleared once shown.
         .onChange(of: vm.error) { _, message in
@@ -460,6 +482,7 @@ struct IssueFaceView: View {
             // first responder may outlive this face (EXP-246). The screen
             // keeps observing; a face switch only has to SAVE.
             UIApplication.endEditing()
+            threadsModel?.stop()
             Task {
                 await vm.saveTitle()
                 await vm.commitDescription()

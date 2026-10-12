@@ -80,6 +80,19 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON coding_sessions FOR
     AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
     AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
+-- EXP-1284: thread_items carries the board context of its issue (issue
+-- items) or its session (run items), guarded like every issue-child table.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON thread_items FOR EACH ROW
+  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
+    AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
+  EXECUTE FUNCTION update_updated_at();
+-- EXP-1284: has_visible_items is kept by refresh_thread_visibility (#7b)
+-- off item changes (a board trash/archive fan-out among them) — bookkeeping,
+-- not activity, so its flip never bumps the thread up the lists.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON threads FOR EACH ROW
+  WHEN (NEW.has_visible_items IS NOT DISTINCT FROM OLD.has_visible_items)
+  EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON repositories FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON actions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON user_notification_prefs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -266,6 +279,13 @@ CREATE OR REPLACE TRIGGER populate_issue_relation_team_id
   BEFORE INSERT ON issue_relations
   FOR EACH ROW EXECUTE FUNCTION populate_issue_child_team_id();
 
+-- thread_items (EXP-1284): an ISSUE item takes its team from the issue (the
+-- writer refuses a thread of another team); a RUN item (issue_id NULL)
+-- keeps the explicitly-written thread team.
+CREATE OR REPLACE TRIGGER populate_thread_item_team_id
+  BEFORE INSERT ON thread_items
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_team_id();
+
 -- 6. coding_sessions (the live "coding now" record, the 14th synced shape):
 --    team_id denormalized from issue→board via the shared
 --    populate_issue_child_team_id, so its Electric shape filter stays
@@ -354,6 +374,120 @@ CREATE OR REPLACE TRIGGER populate_notification_board_id
   BEFORE INSERT OR UPDATE OF board_id ON notifications
   FOR EACH ROW EXECUTE FUNCTION populate_issue_child_board_id();
 
+-- EXP-1284: an ISSUE item takes the issue's board context (the shared
+-- issue-child derivation above, same FOR KEY SHARE); a RUN item mirrors its
+-- SESSION's (board_id + both mirrors; a batch/chat/action run's are NULL and
+-- always sync), so a session on a trashed or archived board drops out of the
+-- thread-items shape with the session itself, and a thread holding only
+-- such items hides (#7b). The session side keeps a run item current
+-- (propagate_session_board_to_thread_items below: issues.move re-points the
+-- issue's sessions, the board fan-outs flip their mirrors).
+CREATE OR REPLACE FUNCTION populate_thread_item_board_id()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF NEW.issue_id IS NOT NULL THEN
+    SELECT i.board_id, b.deleted_at, b.archived_at
+      INTO NEW.board_id, NEW.board_deleted_at, NEW.board_archived_at
+    FROM issues i JOIN boards b ON b.id = i.board_id
+    WHERE i.id = NEW.issue_id
+    FOR KEY SHARE OF i;
+  ELSIF NEW.session_id IS NOT NULL THEN
+    SELECT cs.board_id, cs.board_deleted_at, cs.board_archived_at
+      INTO NEW.board_id, NEW.board_deleted_at, NEW.board_archived_at
+    FROM coding_sessions cs
+    WHERE cs.id = NEW.session_id;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER populate_thread_item_board_id
+  BEFORE INSERT OR UPDATE OF board_id, session_id ON thread_items
+  FOR EACH ROW EXECUTE FUNCTION populate_thread_item_board_id();
+
+CREATE OR REPLACE FUNCTION propagate_session_board_to_thread_items()
+RETURNS TRIGGER AS $$
+BEGIN
+  UPDATE thread_items
+    SET board_id = NEW.board_id,
+      board_deleted_at = NEW.board_deleted_at,
+      board_archived_at = NEW.board_archived_at
+    WHERE session_id = NEW.id
+      AND (board_id IS DISTINCT FROM NEW.board_id
+        OR board_deleted_at IS DISTINCT FROM NEW.board_deleted_at
+        OR board_archived_at IS DISTINCT FROM NEW.board_archived_at);
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER propagate_session_board_to_thread_items
+  AFTER UPDATE ON coding_sessions
+  FOR EACH ROW
+  WHEN (OLD.board_id IS DISTINCT FROM NEW.board_id
+    OR OLD.board_deleted_at IS DISTINCT FROM NEW.board_deleted_at
+    OR OLD.board_archived_at IS DISTINCT FROM NEW.board_archived_at)
+  EXECUTE FUNCTION propagate_session_board_to_thread_items();
+
+-- 7b. EXP-1284: a thread's visibility follows its items, kept here — the ONE
+--     place every item change passes (links, unlinks, a session's move, the
+--     cascades of issue delete / session sweep / account delete / board
+--     purge, the trash and archive fan-outs). `threads.has_visible_items`
+--     (server-only; the threads shape and every read filter on it) = some
+--     item is on no trashed/archived board. A thread whose LAST item went is
+--     deleted unless its Guide (`results`) holds entries — those stay,
+--     hidden. The thread row lock serializes two concurrent removals (each
+--     would otherwise still see the other's item and leave an empty thread
+--     behind); a session's move pre-locks both threads in id order
+--     (lib/threads.ts), so the OLD-then-NEW order here never deadlocks.
+CREATE OR REPLACE FUNCTION refresh_thread_visibility_of(target uuid)
+RETURNS void AS $$
+BEGIN
+  IF target IS NULL THEN
+    RETURN;
+  END IF;
+  PERFORM 1 FROM threads WHERE id = target FOR UPDATE;
+  IF NOT EXISTS (SELECT 1 FROM thread_items WHERE thread_id = target) THEN
+    DELETE FROM threads
+      WHERE id = target
+        AND (results IS NULL OR jsonb_typeof(results) <> 'array' OR jsonb_array_length(results) = 0);
+  END IF;
+  UPDATE threads t
+    SET has_visible_items = v.visible
+    FROM (
+      SELECT EXISTS (
+        SELECT 1 FROM thread_items
+        WHERE thread_id = target AND board_deleted_at IS NULL AND board_archived_at IS NULL
+      ) AS visible
+    ) v
+    WHERE t.id = target AND t.has_visible_items IS DISTINCT FROM v.visible;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE FUNCTION refresh_thread_visibility()
+RETURNS TRIGGER AS $$
+BEGIN
+  IF TG_OP <> 'INSERT' THEN
+    PERFORM refresh_thread_visibility_of(OLD.thread_id);
+  END IF;
+  IF TG_OP = 'INSERT' OR (TG_OP = 'UPDATE' AND NEW.thread_id IS DISTINCT FROM OLD.thread_id) THEN
+    PERFORM refresh_thread_visibility_of(NEW.thread_id);
+  END IF;
+  RETURN NULL;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE OR REPLACE TRIGGER refresh_thread_visibility
+  AFTER INSERT OR DELETE ON thread_items
+  FOR EACH ROW EXECUTE FUNCTION refresh_thread_visibility();
+
+CREATE OR REPLACE TRIGGER refresh_thread_visibility_on_update
+  AFTER UPDATE ON thread_items
+  FOR EACH ROW
+  WHEN (OLD.thread_id IS DISTINCT FROM NEW.thread_id
+    OR OLD.board_deleted_at IS DISTINCT FROM NEW.board_deleted_at
+    OR OLD.board_archived_at IS DISTINCT FROM NEW.board_archived_at)
+  EXECUTE FUNCTION refresh_thread_visibility();
+
 -- 8. Auto-populate team_id + board_deleted_at + board_archived_at on issues
 --    from the parent board (REV2-5, EXP-500). team_id makes the issues shape
 --    TEAM-scoped (stable across board create/trash/archive); the two mirrors
@@ -419,6 +553,8 @@ BEGIN
     WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
   UPDATE notifications SET board_deleted_at = NEW.deleted_at
     WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
+  UPDATE thread_items SET board_deleted_at = NEW.deleted_at
+    WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
   RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
@@ -457,6 +593,8 @@ BEGIN
   UPDATE coding_sessions SET board_archived_at = NEW.archived_at
     WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
   UPDATE notifications SET board_archived_at = NEW.archived_at
+    WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
+  UPDATE thread_items SET board_archived_at = NEW.archived_at
     WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
   RETURN NULL;
 END;

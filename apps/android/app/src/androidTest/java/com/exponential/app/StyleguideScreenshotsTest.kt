@@ -31,6 +31,8 @@ import com.exponential.app.ui.styleguide.FeedbackStatesScreen
 import com.exponential.app.ui.styleguide.FeedbackStatesScreenTestId
 import com.exponential.app.ui.styleguide.ThreadCardsKind
 import com.exponential.app.ui.styleguide.ThreadCardsScreen
+import com.exponential.app.ui.styleguide.ThreadScreenKind
+import com.exponential.app.ui.styleguide.ThreadScreensScreen
 import com.exponential.app.ui.theme.ExponentialTheme
 import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.ui.onboarding.OnboardingTestHooks
@@ -69,7 +71,11 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
  *   sg_getting-started · sg_feedback-states · sg_work-card ·
- *   sg_script-card · sg_comment-call-card
+ *   sg_script-card · sg_comment-call-card · sg_thread · sg_thread-runs
+ *
+ * EXP-1284 added the last two (the thread screen, drafts 1/3 and 2) as
+ * capture-only screens at the end of the walk, and moved sg_session-row
+ * there too: the Recent sheet it photographed lists threads now.
  *
  * EXP-1259 added the last four (iOS parity): the Agent HOME the app lands on
  * (the greeting, the composer, Recent), the `#` typeahead's search-list
@@ -436,26 +442,8 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_chat")
 
-        // --- sg_session-row: THE session row, big (EXP-1248). The Recent
-        // sheet behind the page's history glyph draws every run as the big
-        // SessionRow (mark at 12 + 14·depth, caption, device glyph, children
-        // nested, no fold). A detour no later shot needs, so a scoped run that
-        // did not ask for it skips it whole (iOS parity).
-        if (ScreenshotFlow.isShotWanted("sg_session-row")) {
-            composeRule.onNode(hasTestTag("agent-history-button")).performClick()
-            flow.waitFor(hasTestTag("recent-runs-sheet"), NAV_TIMEOUT)
-            if (!flow.waitForOptional(hasTestTag("session-row"), SYNC_TIMEOUT)) {
-                android.util.Log.w(
-                    "EXP-1248",
-                    "sg_session-row: no finished runs — reseed with `bun run seed:screenshots`",
-                )
-            }
-            flow.settle()
-            flow.screenshot("sg_session-row")
-            Espresso.pressBack()
-            flow.waitForGone(hasTestTag("recent-runs-sheet"), NAV_TIMEOUT)
-            flow.settle()
-        }
+        // (sg_session-row moved to the capture-only screens at the end: the
+        // Recent sheet behind the history glyph lists THREADS since EXP-1284.)
 
         // EXP-1249: the "+" is the composer's ONE tool — its sheet of the
         // composer-menu.json rows is sg_composer-menu (iOS parity). SLOP-28:
@@ -683,22 +671,27 @@ class StyleguideScreenshotsTest {
         // actual files to show. EXP-1251: the screen opens on the Guide (no
         // report = ONE Changes row); that row opens the section page, where
         // the file cards draw. Back twice: the section, then the screen.
-        flow.waitFor(hasText(RUN_CHANGES_TITLE, substring = true), SYNC_TIMEOUT)
-        composeRule.onAllNodes(hasTestTag("review-run-row")).onFirst().performClick()
-        flow.waitFor(hasTestTag("guide-changes-row"), NETWORK_TIMEOUT)
-        composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
-        flow.settle()
-        composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
-        flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
-        flow.waitFor(hasTestTag("changes-file-row"), NETWORK_TIMEOUT)
-        flow.waitFor(hasText("unchanged line", substring = true), NETWORK_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_run-changes")
-        composeRule.onNode(hasTestTag("guide-section-back")).performClick()
-        flow.waitFor(hasTestTag("guide-changes-row"), NAV_TIMEOUT)
-        composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
-        flow.settle()
+        // A detour no later shot needs (it pops back to Reviews), so a scoped
+        // run that did not ask for it skips it whole, like the Guide pair —
+        // its GitHub fetch is the walk's one network dependency.
+        if (ScreenshotFlow.isShotWanted("sg_run-changes")) {
+            flow.waitFor(hasText(RUN_CHANGES_TITLE, substring = true), SYNC_TIMEOUT)
+            composeRule.onAllNodes(hasTestTag("review-run-row")).onFirst().performClick()
+            flow.waitFor(hasTestTag("guide-changes-row"), NETWORK_TIMEOUT)
+            composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
+            flow.settle()
+            composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
+            flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag("changes-file-row"), NETWORK_TIMEOUT)
+            flow.waitFor(hasText("unchanged line", substring = true), NETWORK_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_run-changes")
+            composeRule.onNode(hasTestTag("guide-section-back")).performClick()
+            flow.waitFor(hasTestTag("guide-changes-row"), NAV_TIMEOUT)
+            composeRule.onNode(hasContentDescription("Back")).performClick()
+            flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
+            flow.settle()
+        }
 
         // --- Settings root: the gear lives on the board root, not on a profile
         // menu. Header matches keep ignoreCase so they hold whichever case
@@ -890,6 +883,30 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_script-card")
         showThreadCards(ThreadCardsKind.Comment)
         flow.screenshot("sg_comment-call-card")
+
+        // --- sg_session-row · sg_thread · sg_thread-runs (EXP-1284): THE
+        // session row in both sizes (EXP-1248), and the THREAD screen — the
+        // child strip as pager tabs, Run blocks, the agent's link rows, the
+        // parallel card, the reply box and (thread-runs) a child's menu —
+        // each drawn by the real composables over the shared model fed the
+        // drafts' rows ([ThreadScreensScreen]).
+        fun showThreadScreen(kind: ThreadScreenKind) {
+            composeRule.runOnUiThread {
+                composeRule.activity.setContent {
+                    ExponentialTheme { ThreadScreensScreen(kind) }
+                }
+            }
+            flow.waitFor(hasTestTag(kind.testId), NAV_TIMEOUT)
+            flow.settle()
+        }
+        showThreadScreen(ThreadScreenKind.SessionRows)
+        flow.screenshot("sg_session-row")
+        showThreadScreen(ThreadScreenKind.Thread)
+        flow.screenshot("sg_thread")
+        showThreadScreen(ThreadScreenKind.ThreadRuns)
+        flow.waitFor(hasTestTag("thread-menu"), NAV_TIMEOUT)
+        flow.settle()
+        flow.screenshot("sg_thread-runs")
 
         finished = true
     }

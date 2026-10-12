@@ -1700,6 +1700,9 @@ pub(crate) fn remote_session_rows<'a>(
 /// EXP-746 — how many Recent runs the Agent page lists (×4 parity: web
 /// `PAST_RUN_CAP`, iOS/Android the same). The section is a recent-history
 /// glance, not an archive.
+// EXP-1284: Recent lists THREADS now (`threads::team_thread_lists`); the
+// run rule stays, locked by its tests, for the run-level reads.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) const PAST_RUNS_CAP: usize = 20;
 
 /// EXP-746 — "Recent" (EXP-886; formerly "Past"): the caller's own
@@ -1722,6 +1725,7 @@ pub(crate) const PAST_RUNS_CAP: usize = 20;
 /// Sorted by `ended_at`, falling back to `updated_at` for a row the server
 /// swept without stamping one; ISO-8601 sorts lexicographically. The id is
 /// the tiebreak so the order never flickers between renders. Pure.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn own_ended_runs<'a>(
     rows: impl Iterator<Item = &'a domain::rows::CodingSession>,
     me: &str,
@@ -1749,7 +1753,7 @@ pub(crate) fn own_ended_runs<'a>(
 /// The rail's Running section lists only the ACTIVE team's runs now (one
 /// team's board, one team's runs), so this is how the other teams stay
 /// visible: the team switcher wears a dot for them. It is therefore
-/// deliberately BYTE-EQUAL with what [`crate::sessions_section::rail_running_rows`]
+/// deliberately BYTE-EQUAL with what the rail's Running section (EXP-923, threads since EXP-1284)
 /// would draw after switching to that team — the same remote ∪ local union,
 /// the same relay gate, the same liveness rule — only folded by `team_id`
 /// instead of nested into a tree.

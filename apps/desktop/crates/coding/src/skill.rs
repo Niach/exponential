@@ -289,6 +289,10 @@ run `bun test`.\n"
             "exponential_sessions_guide",
             // EXP-1172: and shows each visible change while it works.
             "exponential_sessions_show",
+            // EXP-1284: the run's thread, and what the agent links into it.
+            "exponential_threads_get",
+            "exponential_threads_link",
+            "exponential_threads_unlink",
         ] {
             assert!(tools.contains(&name), "playbook never names {name}");
         }

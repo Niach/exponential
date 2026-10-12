@@ -1,6 +1,12 @@
 import { createCollection } from "@tanstack/react-db"
 import { electricCollectionOptions } from "@tanstack/electric-db-collection"
 import { snakeCamelMapper } from "@electric-sql/client"
+import { createSchemaFactory } from "drizzle-zod"
+import { z } from "zod"
+import {
+  threadItemKindSchema,
+  threadItemSourceSchema,
+} from "@exp/db-schema/domain"
 import { shapeParser } from "@/lib/shape-parser"
 import {
   reportTransportFailure,
@@ -28,6 +34,8 @@ import {
   selectTeamInviteSchema,
   selectTeamMemberSchema,
   selectTeamSchema,
+  threadItems,
+  threads,
 } from "@/db/schema"
 
 const baseUrl =
@@ -69,7 +77,7 @@ const shapeFetch = async (
   }
 }
 
-// The per-collection shape wiring, identical for all 22 of them: the proxy URL,
+// The per-collection shape wiring, identical for all 23 of them: the proxy URL,
 // the timestamp parser and the snake→camel mapper `useLiveQuery` where clauses
 // depend on.
 function shapeOptions(path: string) {
@@ -300,3 +308,34 @@ export const deviceWorktreeCollection = createCollection(
   })
 )
 
+// EXP-1284: the synced projections of the two thread tables. thread_items
+// drops the server-only board mirrors (the shape filters on them, never
+// streams them).
+const { createSelectSchema } = createSchemaFactory({ zodInstance: z })
+const selectThreadSchema = createSelectSchema(threads)
+const selectSyncedThreadItemSchema = createSelectSchema(threadItems, {
+  kind: threadItemKindSchema,
+  source: threadItemSourceSchema,
+}).omit({ boardDeletedAt: true, boardArchivedAt: true })
+
+// EXP-1284: thread shells (title + the ONE Guide), team-scoped, member-visible.
+export const threadsCollection = createCollection(
+  electricCollectionOptions({
+    id: `threads`,
+    shapeOptions: shapeOptions(`/api/shapes/threads`),
+    schema: selectThreadSchema,
+    getKey: (item) => item.id,
+  })
+)
+
+// EXP-1284: a thread's children — issue items (trash/archive-scoped like
+// every issue child) and run items (always synced; resolve the run from
+// `codingSessionCollection`).
+export const threadItemsCollection = createCollection(
+  electricCollectionOptions({
+    id: `thread_items`,
+    shapeOptions: shapeOptions(`/api/shapes/thread-items`),
+    schema: selectSyncedThreadItemSchema,
+    getKey: (item) => item.id,
+  })
+)

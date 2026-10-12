@@ -56,6 +56,8 @@ import {
   pinKindSchema,
   pinKindValues,
   subscriberSourceSchema,
+  threadItemKindValues,
+  threadItemSourceValues,
   subscriberSourceValues,
   teamRoleSchema,
   teamRoleValues,
@@ -137,6 +139,13 @@ export const issueRelationTypeEnum = pgEnum(
 export const issueRelationSourceEnum = pgEnum(
   `issue_relation_source`,
   issueRelationSourceValues
+)
+
+// EXP-1284: what a thread child is, and who linked it.
+export const threadItemKindEnum = pgEnum(`thread_item_kind`, threadItemKindValues)
+export const threadItemSourceEnum = pgEnum(
+  `thread_item_source`,
+  threadItemSourceValues
 )
 
 // EXP-741: who posted a comment (a person, or an agent over MCP).
@@ -1973,6 +1982,113 @@ export const pins = pgTable(
   ]
 )
 
+// EXP-1284 threads: the unit of work. A thread holds n issues and m runs
+// (`thread_items`) and the AGENT decides what belongs in it, linking over MCP.
+// Every start opens or joins one (`lib/threads.ts`): a composer start opens a
+// new thread, an issue start joins the issue's newest thread (else opens one
+// holding it), a batch opens one with its n issues, a resume stays in its
+// predecessor's thread. Team-scoped, member-visible (the shell and its
+// issues; a live run's CONTENT stays owner-only, EXP-312). Synced: the
+// `threads` shape is `team_id IN (member teams) AND has_visible_items`.
+export const threads = pgTable(
+  `threads`,
+  {
+    id: uuidPk(),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // Agent-editable (`exponential_threads_update`). NULL = derived for
+    // display: the first issue's title, else the first run's name.
+    title: varchar({ length: 255 }),
+    // SET NULL: the thread outlives its creator's account deletion.
+    createdBy: text(`created_by`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    // The thread's Guide (ONE per thread): `sessions_guide`/`sessions_show`
+    // write here under `FOR UPDATE` and the PR body renders it. Same shape
+    // and caps as `coding_sessions.results`, which keeps a mirror for
+    // clients that predate threads (EXP-1258).
+    results: jsonb(`results`).$type<CodingSessionResult[]>(),
+    // SERVER-ONLY (never in the shape allowlist; the shape and every read
+    // FILTER on it): false once the thread has items and none of them is
+    // visible (all on trashed/archived boards). Kept by the
+    // `refresh_thread_visibility` trigger on thread_items, which also deletes
+    // a thread whose last item went and whose Guide is empty. A thread that
+    // never had an item (just created) stays visible.
+    hasVisibleItems: boolean(`has_visible_items`).notNull().default(true),
+    ...timestamps,
+  },
+  (table) => [index(`idx_threads_team`).on(table.teamId)]
+)
+
+// EXP-1284: a thread's children. `kind` names the target column that is set
+// (issue_id / session_id), each an FK cascade so an item dies with its
+// target. An issue may sit in several threads (one row per thread); a run in
+// exactly ONE (unique session_id; linking it elsewhere MOVES it). Issue items
+// carry the shared issue-child board context (populate_thread_item_board_id
+// + the board trash/archive fan-outs), so the shape's static predicates hide
+// an issue whose board is trashed or archived; run items mirror their
+// SESSION's board context (a batch/chat/action run's is NULL: always synced).
+export const threadItems = pgTable(
+  `thread_items`,
+  {
+    id: uuidPk(),
+    threadId: uuid(`thread_id`)
+      .notNull()
+      .references(() => threads.id, { onDelete: `cascade` }),
+    kind: threadItemKindEnum().notNull(),
+    issueId: uuid(`issue_id`).references(() => issues.id, {
+      onDelete: `cascade`,
+    }),
+    sessionId: uuid(`session_id`).references(() => codingSessions.id, {
+      onDelete: `cascade`,
+    }),
+    teamId: uuid(`team_id`)
+      .notNull()
+      .references(() => teams.id, { onDelete: `cascade` }),
+    // The issue's (issue items) or the session's (run items) board and its
+    // trash/archive mirrors (populate_thread_item_board_id). Server-only
+    // mirrors, shape-excluded.
+    boardId: uuid(`board_id`).references(() => boards.id, {
+      onDelete: `cascade`,
+    }),
+    boardDeletedAt: timestamp(`board_deleted_at`, { withTimezone: true }),
+    boardArchivedAt: timestamp(`board_archived_at`, { withTimezone: true }),
+    // Who linked it: the person, and the run when an agent did (source
+    // `agent`). Both SET NULL: the link outlives either.
+    addedBy: text(`added_by`).references(() => users.id, {
+      onDelete: `set null`,
+    }),
+    addedBySessionId: uuid(`added_by_session_id`).references(
+      (): AnyPgColumn => codingSessions.id,
+      { onDelete: `set null` }
+    ),
+    source: threadItemSourceEnum().notNull().default(`user`),
+    sortOrder: doublePrecision(`sort_order`).notNull().default(0),
+    ...timestamps,
+  },
+  (table) => [
+    check(
+      `thread_items_kind_target_check`,
+      sql`(kind = 'issue' AND issue_id IS NOT NULL AND session_id IS NULL) OR (kind = 'run' AND session_id IS NOT NULL AND issue_id IS NULL)`
+    ),
+    uniqueIndex(`uniq_thread_items_thread_issue`)
+      .on(table.threadId, table.issueId)
+      .where(sql`issue_id IS NOT NULL`),
+    uniqueIndex(`uniq_thread_items_session`)
+      .on(table.sessionId)
+      .where(sql`session_id IS NOT NULL`),
+    index(`idx_thread_items_thread`).on(table.threadId),
+    // Plain indexes on the FKs: the RI cascades' unconditional deletes
+    // can't use the partial uniques above.
+    index(`idx_thread_items_issue`).on(table.issueId),
+    index(`idx_thread_items_session`).on(table.sessionId),
+    index(`idx_thread_items_team`).on(table.teamId),
+    index(`idx_thread_items_board`).on(table.boardId),
+    index(`idx_thread_items_added_by_session`).on(table.addedBySessionId),
+  ]
+)
+
 // EXP-878: issue drafts — what the create-issue dialog keeps when it is
 // closed with content in it, on every client. Per USER like pins (the shape
 // is the static `user_id = me`, never team- or trash-scoped; a row renders
@@ -2011,6 +2127,12 @@ export const issueDrafts = pgTable(
       .notNull()
       .default(sql`'{}'::uuid[]`),
     dueDate: date(`due_date`),
+    // EXP-1284: the thread a "New issue in this thread" draft files into
+    // (`issues.create` consuming the draft links the issue there). SET NULL:
+    // a deleted thread leaves a plain draft.
+    threadId: uuid(`thread_id`).references(() => threads.id, {
+      onDelete: `set null`,
+    }),
     ...timestamps,
   },
   (table) => [
@@ -2930,6 +3052,8 @@ export type User = InferSelectModel<typeof users>
 export type Notification = InferSelectModel<typeof notifications>
 export type Pin = InferSelectModel<typeof pins>
 export type IssueDraft = InferSelectModel<typeof issueDrafts>
+export type Thread = InferSelectModel<typeof threads>
+export type ThreadItem = InferSelectModel<typeof threadItems>
 export type IssueSubscriber = InferSelectModel<typeof issueSubscribers>
 export type IssueEvent = InferSelectModel<typeof issueEvents>
 export type CodingSession = InferSelectModel<typeof codingSessions>

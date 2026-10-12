@@ -149,6 +149,38 @@ val MIGRATION_83_84: Migration = object : Migration(83, 84) {
     }
 }
 
+/**
+ * v85 (EXP-1284): threads — the unit of work. Two NEW tables (`threads`,
+ * `thread_items`) for two new shapes; nothing existing changes, so every row
+ * and every other shape's offset survives. The new shapes have no offset row
+ * yet and snapshot from scratch. The DDL is verbatim from the generated
+ * ExponentialDatabase_Impl (Room validates the tables against the entities).
+ */
+val MIGRATION_84_85: Migration = object : Migration(84, 85) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL(THREADS_V85)
+        for (index in THREAD_INDICES_V85) db.execSQL(index)
+        db.execSQL(THREAD_ITEMS_V85)
+        for (index in THREAD_ITEM_INDICES_V85) db.execSQL(index)
+    }
+}
+
+/**
+ * v86 (EXP-1284): `issue_drafts.thread_id`, the thread a "New issue in this
+ * thread" draft files into. The nullable column lands empty, so the
+ * issue-drafts shape refetches (its offset resets) and already-synced drafts
+ * re-arrive carrying it.
+ */
+val MIGRATION_85_86: Migration = object : Migration(85, 86) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        db.execSQL("ALTER TABLE `issue_drafts` ADD COLUMN `thread_id` TEXT")
+        db.execSQL(
+            "UPDATE `electric_offsets` SET `handle` = '', `offset` = '-1', `is_live` = 0, " +
+                "`needs_refetch` = 1 WHERE `shape` = 'issue_drafts'",
+        )
+    }
+}
+
 private fun rebuild(
     db: SupportSQLiteDatabase,
     table: String,
@@ -232,4 +264,29 @@ private const val TEAMS_V80 =
 
 private val TEAM_COLUMNS_V80 = listOf(
     "id", "name", "slug", "icon_url", "yolo_mode", "estimation_type", "created_at", "updated_at",
+)
+
+// ── v85 schema, verbatim from the generated ExponentialDatabase_Impl ────────
+
+private const val THREADS_V85 =
+    "CREATE TABLE IF NOT EXISTS `threads` (`id` TEXT NOT NULL, `team_id` TEXT NOT NULL, " +
+        "`title` TEXT, `created_by` TEXT, `results` TEXT, `created_at` TEXT NOT NULL, " +
+        "`updated_at` TEXT NOT NULL, PRIMARY KEY(`id`))"
+
+private val THREAD_INDICES_V85 = listOf(
+    "CREATE INDEX IF NOT EXISTS `index_threads_team_id` ON `threads` (`team_id`)",
+)
+
+private const val THREAD_ITEMS_V85 =
+    "CREATE TABLE IF NOT EXISTS `thread_items` (`id` TEXT NOT NULL, `thread_id` TEXT NOT NULL, " +
+        "`kind` TEXT NOT NULL, `issue_id` TEXT, `session_id` TEXT, `team_id` TEXT NOT NULL, " +
+        "`board_id` TEXT, `added_by` TEXT, `added_by_session_id` TEXT, `source` TEXT NOT NULL, " +
+        "`sort_order` REAL NOT NULL, `created_at` TEXT NOT NULL, `updated_at` TEXT NOT NULL, " +
+        "PRIMARY KEY(`id`))"
+
+private val THREAD_ITEM_INDICES_V85 = listOf(
+    "CREATE INDEX IF NOT EXISTS `index_thread_items_thread_id` ON `thread_items` (`thread_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_thread_items_issue_id` ON `thread_items` (`issue_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_thread_items_session_id` ON `thread_items` (`session_id`)",
+    "CREATE INDEX IF NOT EXISTS `index_thread_items_team_id` ON `thread_items` (`team_id`)",
 )

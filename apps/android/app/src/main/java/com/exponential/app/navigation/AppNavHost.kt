@@ -91,6 +91,7 @@ import com.exponential.app.ui.work.RunChangesScreen
 import com.exponential.app.ui.work.WorkScreen
 import com.exponential.app.domain.WorkFaceKind
 import com.exponential.app.ui.work.WorkSubject
+import com.exponential.app.ui.thread.ThreadScreen
 import com.exponential.app.ui.session.AgentsScreen
 import com.exponential.app.ui.settings.AboutScreen
 import com.exponential.app.ui.settings.ServerDetailScreen
@@ -175,6 +176,10 @@ fun AppNavHost() {
             // its id from SavedStateHandle once.
             is DeepLinkBus.Target.Session -> guarded {
                 navController.navigateDeepLink("steer/${target.id}")
+            }
+            // EXP-1284: a thread link opens the Thread screen.
+            is DeepLinkBus.Target.Thread -> guarded {
+                navController.navigateDeepLink(threadRoute(target.id))
             }
             // EXP-825: the web's `/t/{team}/agent` — the composer, empty,
             // which IS the Agent tab.
@@ -540,6 +545,8 @@ private fun AuthenticatedNav(
                 onBack = null,
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
+                // EXP-1284: the Running / Recent rows are THREADS.
+                onOpenThread = { id -> navController.navigate(threadRoute(id)) },
             )
         }
         composable("home") {
@@ -617,6 +624,9 @@ private fun AuthenticatedNav(
                 onBack = { navController.popBackStack() },
                 onOpenSteer = { sessionId -> navController.navigate("steer/$sessionId") },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onOpenThread = { id -> navController.navigate(threadRoute(id)) },
+                // T-N2: the seeded composer gives way to the thread it started in.
+                onLandInThread = { id -> navController.landOnThread(id, replaceCurrent = true) },
             )
         }
         composable("personal") {
@@ -769,11 +779,22 @@ private fun AuthenticatedNav(
                     nullable = true
                     defaultValue = null
                 },
+                // EXP-1284: "New issue in this thread" — the create links it.
+                navArgument("thread") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) {
             IssueDraftScreen(
                 onBack = { navController.popBackStack() },
                 onCreated = { issueId -> navController.openCreatedIssue(issueId) },
+                // T11: a thread draft (opened from the thread, or reopened
+                // from Drafts) lands on the thread with its new issue's tab.
+                onCreatedInThread = { issueId, threadId ->
+                    navController.landOnThread(threadId, child = issueId, replaceCurrent = true)
+                },
             )
         }
         composable(
@@ -808,6 +829,8 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenIssueChanges = { id -> navController.navigate("issue/$id?face=guide") },
                 onOpenAgent = openAgent,
+                // EXP-1284: the run's / issue's thread.
+                onOpenThread = { id -> navController.navigate(threadRoute(id)) },
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,
                 onCreateSubIssue = { boardId, parentId ->
@@ -826,12 +849,39 @@ private fun AuthenticatedNav(
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenIssueChanges = { id -> navController.navigate("issue/$id?face=guide") },
                 onOpenAgent = openAgent,
+                // EXP-1284: the run's / issue's thread.
+                onOpenThread = { id -> navController.navigate(threadRoute(id)) },
                 onOpenTeamSettings = openReadinessTeamSettings,
                 onOpenDevices = openReadinessDevices,
                 onCreateSubIssue = { boardId, parentId ->
                     // Single-top: a double-tap on `+` pushes ONE page.
                     navController.openIssueDraft(boardId, parentId = parentId, singleTop = true)
                 },
+            )
+        }
+        composable(
+            // EXP-1284: the THREAD screen — `?child=guide|<issue id>` opens
+            // on that child (absent = the Conversation).
+            THREAD_ROUTE,
+            arguments = listOf(
+                navArgument("child") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
+            ),
+        ) { entry ->
+            ThreadScreen(
+                onBack = { navController.popBackStack() },
+                onOpenIssue = { id -> navController.navigate("issue/$id") },
+                onOpenRun = { id -> navController.navigate("steer/$id") },
+                onOpenAgent = openAgent,
+                onNewIssue = { boardId, threadId ->
+                    navController.openIssueDraft(boardId, threadId = threadId, singleTop = true)
+                },
+                initialChild = entry.arguments?.getString("child"),
+                onOpenThread = { id -> navController.navigate(threadRoute(id)) },
+                onGoToAgent = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
             )
         }
         composable("invite/{token}") { entry ->
@@ -941,7 +991,35 @@ private fun AnimatedContentTransitionScope<NavBackStackEntry>.isTabSwap(
         tabSwitch.matches(initialState, targetState)
 
 /** EXP-1170: the New issue page — `drafts/{draftId}?board=&status=&parent=`. */
-private const val ISSUE_DRAFT_ROUTE = "drafts/{draftId}?board={board}&status={status}&parent={parent}"
+private const val ISSUE_DRAFT_ROUTE =
+    "drafts/{draftId}?board={board}&status={status}&parent={parent}&thread={thread}"
+
+/** EXP-1284: the Thread screen — `thread/{threadId}?child=`. */
+private const val THREAD_ROUTE = "thread/{threadId}?child={child}"
+
+/** The concrete thread route, on [child] (`guide` or an issue id) or the
+ *  Conversation. */
+internal fun threadRoute(threadId: String, child: String? = null): String =
+    if (child == null) "thread/$threadId" else "thread/$threadId?child=${Uri.encode(child)}"
+
+/**
+ * EXP-1284 (T-N2/T11): land on the THREAD with [child] on show (an issue id,
+ * or null = the Conversation). The page that started it is replaced when
+ * [replaceCurrent]; when that page sat on this very thread, the old thread
+ * entry goes too, so Back never returns to a stale copy of it.
+ */
+private fun NavHostController.landOnThread(threadId: String, child: String? = null, replaceCurrent: Boolean) {
+    val current = currentBackStackEntry
+    val previous = previousBackStackEntry
+    val overSameThread = previous?.destination?.route == THREAD_ROUTE &&
+        previous.arguments?.getString("threadId") == threadId
+    navigate(threadRoute(threadId, child)) {
+        when {
+            overSameThread && previous != null -> popUpTo(previous.destination.id) { inclusive = true }
+            replaceCurrent && current != null -> popUpTo(current.destination.id) { inclusive = true }
+        }
+    }
+}
 
 /**
  * Open the New issue page. The draft id is minted HERE, at tap time, so the
@@ -953,11 +1031,13 @@ private fun NavHostController.openIssueDraft(
     parentId: String? = null,
     draftId: String = java.util.UUID.randomUUID().toString(),
     singleTop: Boolean = false,
+    threadId: String? = null,
 ) {
     val query = listOfNotNull(
         "board=${Uri.encode(boardId)}",
         statusId?.let { "status=${Uri.encode(it)}" },
         parentId?.let { "parent=${Uri.encode(it)}" },
+        threadId?.let { "thread=${Uri.encode(it)}" },
     ).joinToString("&")
     navigate("drafts/$draftId?$query") {
         if (singleTop) launchSingleTop = true

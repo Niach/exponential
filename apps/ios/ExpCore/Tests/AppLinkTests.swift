@@ -34,6 +34,11 @@ final class AppLinkTests: XCTestCase {
                 teamSlug: try XCTUnwrap(raw["teamSlug"] as? String),
                 sessionId: try XCTUnwrap(raw["sessionId"] as? String)
             )
+        case "thread":
+            return .thread(
+                teamSlug: try XCTUnwrap(raw["teamSlug"] as? String),
+                threadId: try XCTUnwrap(raw["threadId"] as? String)
+            )
         case "app":
             return .app(path: try XCTUnwrap(raw["path"] as? String))
         case "external":

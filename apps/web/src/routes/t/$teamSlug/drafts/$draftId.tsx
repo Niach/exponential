@@ -109,6 +109,7 @@ function IssueDraftRoute() {
       initialBoardId={initialBoard.id}
       initialStatusId={search.status}
       from={search.from}
+      threadId={search.thread}
     />
   )
 }

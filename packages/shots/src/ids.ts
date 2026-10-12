@@ -4,7 +4,7 @@
  * The catalog is written against the seed but never hardcodes a uuid, because a
  * uuid only exists after `seed:screenshots` has run and changes on every reseed.
  * Desktop drives therefore carry PLACEHOLDERS — `issue:$APP-5`, `issue:$APP-14?face=changes`,
- * `session:$steeredSession`, `$emptyBoard`,
+ * `session:$steeredSession`, `thread:$thread`, `thread:$threadRuns`, `$emptyBoard`,
  * `chat?issues=$issueA,$issueB` — and this module
  * is the lookup that turns them into the `EXP_DEV_*` values the app actually
  * parses.
@@ -55,6 +55,14 @@ export interface DemoIds {
    * (a teammate's, so no relay is involved). Absent = the view skips.
    */
   runChangesSessionId?: string
+  /**
+   * EXP-1284: the two seeded threads — `$thread` (the `thread` view: the
+   * showcase run with a linked and a filed issue) and `$threadRuns` (the
+   * `thread-runs` view: four runs, two of them live children). Absent = the
+   * view skips.
+   */
+  threadId?: string
+  threadRunsId?: string
 }
 
 /**
@@ -66,6 +74,8 @@ const NAMED: Record<string, (ids: DemoIds) => string | undefined> = {
   device: (ids) => ids.deviceId,
   steeredSession: (ids) => ids.steeredSessionId,
   runChangesSession: (ids) => ids.runChangesSessionId,
+  thread: (ids) => ids.threadId,
+  threadRuns: (ids) => ids.threadRunsId,
   issueA: (ids) => ids.issueAId,
   issueB: (ids) => ids.issueBId,
   prIssue: (ids) => ids.prIssueId,
@@ -101,6 +111,8 @@ export function parseDemoIds(stdout: string): DemoIds {
     deviceId: parsed.deviceId,
     steeredSessionId: parsed.steeredSessionId,
     runChangesSessionId: parsed.runChangesSessionId,
+    threadId: parsed.threadId,
+    threadRunsId: parsed.threadRunsId,
   }
 }
 
@@ -122,7 +134,7 @@ export async function fetchDemoIds(): Promise<DemoIds> {
 /**
  * Substitute `$NAME` placeholders in a `DesktopDrive.value`.
  *
- * A handful of names (`$thread`, `$action`, `$device`, `$board`,
+ * A handful of names (`$thread`, `$threadRuns`, `$action`, `$device`, `$board`,
  * `$emptyBoard`, `$team`, `$steeredSession`, `$issueA`, `$issueB`, `$prIssue`)
  * point at one well-known seeded row;
  * anything else is looked up as an issue IDENTIFIER (`$APP-5`). The same

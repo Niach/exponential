@@ -1,32 +1,29 @@
-import { GlassSectionHeader, SkeletonRows } from "@exp/ui"
+import { ThreadListSection, useOpenThread } from "@/components/thread/thread-list"
+import { useThreadList, type ThreadBundle } from "@/hooks/use-threads"
+import { OrphanSessionRows } from "@/components/thread/orphan-session-rows"
 import { cn } from "@/lib/utils"
-import { SessionTree } from "@/components/session-tree"
-import { useAgentsData } from "@/hooks/use-agents-data"
-import { useOpenSession } from "@/hooks/use-open-session"
 import type { DetailOrigin } from "@/lib/detail-origin"
-import type { CodingSession, Team } from "@/db/schema"
+import type { Team } from "@/db/schema"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import { groupByTeam, TeamBandHeader } from "@/components/team/team-band"
 
-// EXP-818: the caller's sessions list — Running, nested by
-// `parent_session_id` (the ×4 rule) with the EXP-965 connector.
+// EXP-818: the caller's list on the phone Agent page, under the composer.
 //
-// EXP-996: and the nesting is the whole `sessionTree` now, resumes collapsed.
+// EXP-923: on md+ the whole list left the Agent page for the sidebar (the
+// Running section in the main menu, the Recent panel behind the page's
+// history button); the phone keeps it here.
 //
-// EXP-923: RUNNING ONLY. The Recent band is gone from here: on md+ the whole
-// list left the Agent page for the sidebar (the Running section in the main
-// menu, the Recent panel behind the page's history button), and on the phone
-// Recent moved into the topbar's history sheet. What is left is the phone
-// Agent page's own Running list under the composer.
+// EXP-1284: lists show THREADS, not bare runs (draft 3): RUNNING = the
+// threads holding a live run of mine (`partitionThreadList`), each row the
+// thread's title over its list caption, opening the thread page. Recent is
+// the home column's own band above it (`HomeRecent`, agent.tsx).
 
-/** The Running list — the Agent page's column on the phone. Every row hands
- *  the run it opens the `origin` this list stands for (EXP-851). */
 export function SessionsList({
   teamId,
   teams,
   grouped = false,
   currentUserId,
-  activeSessionId,
+  activeSessionId: _activeSessionId,
   className,
   origin = null,
   scroll = true,
@@ -50,17 +47,17 @@ export function SessionsList({
   showWhenEmpty?: boolean
 }) {
   const scopeIds = teams && teams.length > 0 ? teams.map((t) => t.id) : teamId
-  const { running, isLoading } = useAgentsData(scopeIds, currentUserId)
-  const openSession = useOpenSession()
-  if (!showWhenEmpty && running.length === 0) return null
+  const { running, orphans, isReady } = useThreadList(scopeIds, currentUserId)
+  const openThread = useOpenThread()
+  if (!showWhenEmpty && running.length === 0 && orphans.length === 0) return null
   const slugOf = (id: string) => teams?.find((team) => team.id === id)?.slug
-  const open = (session: CodingSession) => {
-    const teamSlug = slugOf(session.teamId)
-    openSession(session, { origin, ...(teamSlug ? { teamSlug } : {}) })
+  const open = (bundle: ThreadBundle) => {
+    const teamSlug = slugOf(bundle.thread.teamId)
+    openThread(bundle, { origin, ...(teamSlug ? { teamSlug } : {}) })
   }
   const groups =
-    grouped && teams && !isLoading
-      ? groupByTeam(teams, running, (row) => row.session.teamId)
+    grouped && teams && isReady
+      ? groupByTeam(teams, running, (bundle) => bundle.thread.teamId)
       : []
   return (
     <div
@@ -70,34 +67,32 @@ export function SessionsList({
         TAB_BAR_CLEARANCE,
         className
       )}
+      data-testid="agent-thread-list"
     >
       {groups.length > 0 ? (
         // EXP-1186: one band per team, in team order — the team mark
-        // leading, its own runs nested under it.
-        groups.map((group) => (
-          <div key={group.team.id} className="mb-4 last:mb-0">
-            <TeamBandHeader team={group.team} />
-            <SessionTree
-              rows={group.rows}
-              activeSessionId={activeSessionId}
-              onOpen={open}
-            />
-          </div>
-        ))
+        // leading, its running threads first.
+        <>
+          {groups.map((group) => (
+            <div key={group.team.id} className="mb-4 last:mb-0">
+              <TeamBandHeader team={group.team} />
+              <ThreadListSection threads={group.rows} onOpen={open} />
+            </div>
+          ))}
+          <OrphanSessionRows teamId={teamId} sessions={orphans} origin={origin} />
+        </>
       ) : (
         <>
-          <GlassSectionHeader label="Running" />
-          {isLoading ? (
-            // D8 first load: the big SessionRow geometry (52px, mark dot).
-            <SkeletonRows rowHeight={52} />
-          ) : (
-            <SessionTree
-              rows={running}
-              activeSessionId={activeSessionId}
-              onOpen={open}
-              empty="running-agents"
-            />
-          )}
+          <ThreadListSection
+            label="Running"
+            threads={running}
+            onOpen={open}
+            loading={!isReady}
+            empty={orphans.length === 0 ? `running-agents` : undefined}
+            testId="agent-running-threads"
+          />
+          {/* Review T4: my live sessions no thread holds yet. */}
+          <OrphanSessionRows teamId={teamId} sessions={orphans} origin={origin} />
         </>
       )}
     </div>

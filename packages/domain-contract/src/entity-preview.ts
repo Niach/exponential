@@ -59,6 +59,8 @@ export const ENTITY_REF_ICON: Readonly<Record<string, string>> = {
   notification: `nav-notifications`,
   attachment: `ui-attach`,
   list: `ui-checklist`,
+  // EXP-1284: a thread = a stack of issues and runs.
+  thread: `work-faces`,
 }
 
 const NOUNS: Readonly<Record<string, readonly [string, string]>> = {
@@ -77,6 +79,7 @@ const NOUNS: Readonly<Record<string, readonly [string, string]>> = {
   notification: [`notification`, `notifications`],
   attachment: [`attachment`, `attachments`],
   list: [`list`, `lists`],
+  thread: [`thread`, `threads`],
 }
 
 /** The product noun for a kind: singular for `count` 1, plural otherwise.

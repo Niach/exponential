@@ -52,6 +52,8 @@ import { Route as ApiSupportThreadRouteImport } from './routes/api/support/threa
 import { Route as ApiSupportReplyRouteImport } from './routes/api/support/reply'
 import { Route as ApiSupportAttachmentRouteImport } from './routes/api/support/attachment'
 import { Route as ApiShapesUsersRouteImport } from './routes/api/shapes/users'
+import { Route as ApiShapesThreadsRouteImport } from './routes/api/shapes/threads'
+import { Route as ApiShapesThreadItemsRouteImport } from './routes/api/shapes/thread-items'
 import { Route as ApiShapesTeamsRouteImport } from './routes/api/shapes/teams'
 import { Route as ApiShapesTeamMembersRouteImport } from './routes/api/shapes/team-members'
 import { Route as ApiShapesTeamInvitesRouteImport } from './routes/api/shapes/team-invites'
@@ -90,6 +92,7 @@ import { Route as TTeamSlugReviewsIndexRouteImport } from './routes/t/$teamSlug/
 import { Route as TTeamSlugInboxIndexRouteImport } from './routes/t/$teamSlug/inbox/index'
 import { Route as TTeamSlugDraftsIndexRouteImport } from './routes/t/$teamSlug/drafts/index'
 import { Route as TTeamSlugActionsIndexRouteImport } from './routes/t/$teamSlug/actions/index'
+import { Route as TTeamSlugThreadsThreadIdRouteImport } from './routes/t/$teamSlug/threads/$threadId'
 import { Route as TTeamSlugSettingsWidgetRouteImport } from './routes/t/$teamSlug/settings/widget'
 import { Route as TTeamSlugSettingsStorageRouteImport } from './routes/t/$teamSlug/settings/storage'
 import { Route as TTeamSlugSettingsStatusesRouteImport } from './routes/t/$teamSlug/settings/statuses'
@@ -340,6 +343,16 @@ const ApiShapesUsersRoute = ApiShapesUsersRouteImport.update({
   path: '/api/shapes/users',
   getParentRoute: () => rootRouteImport,
 } as any)
+const ApiShapesThreadsRoute = ApiShapesThreadsRouteImport.update({
+  id: '/api/shapes/threads',
+  path: '/api/shapes/threads',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiShapesThreadItemsRoute = ApiShapesThreadItemsRouteImport.update({
+  id: '/api/shapes/thread-items',
+  path: '/api/shapes/thread-items',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ApiShapesTeamsRoute = ApiShapesTeamsRouteImport.update({
   id: '/api/shapes/teams',
   path: '/api/shapes/teams',
@@ -537,6 +550,12 @@ const TTeamSlugActionsIndexRoute = TTeamSlugActionsIndexRouteImport.update({
   path: '/actions/',
   getParentRoute: () => TTeamSlugRouteRoute,
 } as any)
+const TTeamSlugThreadsThreadIdRoute =
+  TTeamSlugThreadsThreadIdRouteImport.update({
+    id: '/threads/$threadId',
+    path: '/threads/$threadId',
+    getParentRoute: () => TTeamSlugRouteRoute,
+  } as any)
 const TTeamSlugSettingsWidgetRoute = TTeamSlugSettingsWidgetRouteImport.update({
   id: '/widget',
   path: '/widget',
@@ -769,6 +788,8 @@ export interface FileRoutesByFullPath {
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
+  '/api/shapes/thread-items': typeof ApiShapesThreadItemsRoute
+  '/api/shapes/threads': typeof ApiShapesThreadsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
@@ -806,6 +827,7 @@ export interface FileRoutesByFullPath {
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
+  '/t/$teamSlug/threads/$threadId': typeof TTeamSlugThreadsThreadIdRoute
   '/t/$teamSlug/actions/': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts/': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
@@ -877,6 +899,8 @@ export interface FileRoutesByTo {
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
+  '/api/shapes/thread-items': typeof ApiShapesThreadItemsRoute
+  '/api/shapes/threads': typeof ApiShapesThreadsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
@@ -914,6 +938,7 @@ export interface FileRoutesByTo {
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
+  '/t/$teamSlug/threads/$threadId': typeof TTeamSlugThreadsThreadIdRoute
   '/t/$teamSlug/actions': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox': typeof TTeamSlugInboxIndexRoute
@@ -990,6 +1015,8 @@ export interface FileRoutesById {
   '/api/shapes/team-invites': typeof ApiShapesTeamInvitesRoute
   '/api/shapes/team-members': typeof ApiShapesTeamMembersRoute
   '/api/shapes/teams': typeof ApiShapesTeamsRoute
+  '/api/shapes/thread-items': typeof ApiShapesThreadItemsRoute
+  '/api/shapes/threads': typeof ApiShapesThreadsRoute
   '/api/shapes/users': typeof ApiShapesUsersRoute
   '/api/support/attachment': typeof ApiSupportAttachmentRoute
   '/api/support/reply': typeof ApiSupportReplyRoute
@@ -1027,6 +1054,7 @@ export interface FileRoutesById {
   '/t/$teamSlug/settings/statuses': typeof TTeamSlugSettingsStatusesRoute
   '/t/$teamSlug/settings/storage': typeof TTeamSlugSettingsStorageRoute
   '/t/$teamSlug/settings/widget': typeof TTeamSlugSettingsWidgetRoute
+  '/t/$teamSlug/threads/$threadId': typeof TTeamSlugThreadsThreadIdRoute
   '/t/$teamSlug/actions/': typeof TTeamSlugActionsIndexRoute
   '/t/$teamSlug/drafts/': typeof TTeamSlugDraftsIndexRoute
   '/t/$teamSlug/inbox/': typeof TTeamSlugInboxIndexRoute
@@ -1103,6 +1131,8 @@ export interface FileRouteTypes {
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
+    | '/api/shapes/thread-items'
+    | '/api/shapes/threads'
     | '/api/shapes/users'
     | '/api/support/attachment'
     | '/api/support/reply'
@@ -1140,6 +1170,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
+    | '/t/$teamSlug/threads/$threadId'
     | '/t/$teamSlug/actions/'
     | '/t/$teamSlug/drafts/'
     | '/t/$teamSlug/inbox/'
@@ -1211,6 +1242,8 @@ export interface FileRouteTypes {
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
+    | '/api/shapes/thread-items'
+    | '/api/shapes/threads'
     | '/api/shapes/users'
     | '/api/support/attachment'
     | '/api/support/reply'
@@ -1248,6 +1281,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
+    | '/t/$teamSlug/threads/$threadId'
     | '/t/$teamSlug/actions'
     | '/t/$teamSlug/drafts'
     | '/t/$teamSlug/inbox'
@@ -1323,6 +1357,8 @@ export interface FileRouteTypes {
     | '/api/shapes/team-invites'
     | '/api/shapes/team-members'
     | '/api/shapes/teams'
+    | '/api/shapes/thread-items'
+    | '/api/shapes/threads'
     | '/api/shapes/users'
     | '/api/support/attachment'
     | '/api/support/reply'
@@ -1360,6 +1396,7 @@ export interface FileRouteTypes {
     | '/t/$teamSlug/settings/statuses'
     | '/t/$teamSlug/settings/storage'
     | '/t/$teamSlug/settings/widget'
+    | '/t/$teamSlug/threads/$threadId'
     | '/t/$teamSlug/actions/'
     | '/t/$teamSlug/drafts/'
     | '/t/$teamSlug/inbox/'
@@ -1426,6 +1463,8 @@ export interface RootRouteChildren {
   ApiShapesTeamInvitesRoute: typeof ApiShapesTeamInvitesRoute
   ApiShapesTeamMembersRoute: typeof ApiShapesTeamMembersRoute
   ApiShapesTeamsRoute: typeof ApiShapesTeamsRoute
+  ApiShapesThreadItemsRoute: typeof ApiShapesThreadItemsRoute
+  ApiShapesThreadsRoute: typeof ApiShapesThreadsRoute
   ApiShapesUsersRoute: typeof ApiShapesUsersRoute
   ApiSupportAttachmentRoute: typeof ApiSupportAttachmentRoute
   ApiSupportReplyRoute: typeof ApiSupportReplyRoute
@@ -1745,6 +1784,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiShapesUsersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/api/shapes/threads': {
+      id: '/api/shapes/threads'
+      path: '/api/shapes/threads'
+      fullPath: '/api/shapes/threads'
+      preLoaderRoute: typeof ApiShapesThreadsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/shapes/thread-items': {
+      id: '/api/shapes/thread-items'
+      path: '/api/shapes/thread-items'
+      fullPath: '/api/shapes/thread-items'
+      preLoaderRoute: typeof ApiShapesThreadItemsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/api/shapes/teams': {
       id: '/api/shapes/teams'
       path: '/api/shapes/teams'
@@ -2009,6 +2062,13 @@ declare module '@tanstack/react-router' {
       path: '/actions'
       fullPath: '/t/$teamSlug/actions/'
       preLoaderRoute: typeof TTeamSlugActionsIndexRouteImport
+      parentRoute: typeof TTeamSlugRouteRoute
+    }
+    '/t/$teamSlug/threads/$threadId': {
+      id: '/t/$teamSlug/threads/$threadId'
+      path: '/threads/$threadId'
+      fullPath: '/t/$teamSlug/threads/$threadId'
+      preLoaderRoute: typeof TTeamSlugThreadsThreadIdRouteImport
       parentRoute: typeof TTeamSlugRouteRoute
     }
     '/t/$teamSlug/settings/widget': {
@@ -2321,6 +2381,7 @@ interface TTeamSlugRouteRouteChildren {
   TTeamSlugActionsActionIdRoute: typeof TTeamSlugActionsActionIdRoute
   TTeamSlugDraftsDraftIdRoute: typeof TTeamSlugDraftsDraftIdRoute
   TTeamSlugSessionsSessionIdRoute: typeof TTeamSlugSessionsSessionIdRoute
+  TTeamSlugThreadsThreadIdRoute: typeof TTeamSlugThreadsThreadIdRoute
   TTeamSlugActionsIndexRoute: typeof TTeamSlugActionsIndexRoute
   TTeamSlugDraftsIndexRoute: typeof TTeamSlugDraftsIndexRoute
   TTeamSlugInboxIndexRoute: typeof TTeamSlugInboxIndexRoute
@@ -2337,6 +2398,7 @@ const TTeamSlugRouteRouteChildren: TTeamSlugRouteRouteChildren = {
   TTeamSlugActionsActionIdRoute: TTeamSlugActionsActionIdRoute,
   TTeamSlugDraftsDraftIdRoute: TTeamSlugDraftsDraftIdRoute,
   TTeamSlugSessionsSessionIdRoute: TTeamSlugSessionsSessionIdRoute,
+  TTeamSlugThreadsThreadIdRoute: TTeamSlugThreadsThreadIdRoute,
   TTeamSlugActionsIndexRoute: TTeamSlugActionsIndexRoute,
   TTeamSlugDraftsIndexRoute: TTeamSlugDraftsIndexRoute,
   TTeamSlugInboxIndexRoute: TTeamSlugInboxIndexRoute,
@@ -2408,6 +2470,8 @@ const rootRouteChildren: RootRouteChildren = {
   ApiShapesTeamInvitesRoute: ApiShapesTeamInvitesRoute,
   ApiShapesTeamMembersRoute: ApiShapesTeamMembersRoute,
   ApiShapesTeamsRoute: ApiShapesTeamsRoute,
+  ApiShapesThreadItemsRoute: ApiShapesThreadItemsRoute,
+  ApiShapesThreadsRoute: ApiShapesThreadsRoute,
   ApiShapesUsersRoute: ApiShapesUsersRoute,
   ApiSupportAttachmentRoute: ApiSupportAttachmentRoute,
   ApiSupportReplyRoute: ApiSupportReplyRoute,

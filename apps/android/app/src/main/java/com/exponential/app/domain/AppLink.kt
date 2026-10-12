@@ -14,6 +14,8 @@ sealed interface AppLink {
 
     /** A run on this instance: `/t/{team}/sessions/{id}`. */
     data class Session(val teamSlug: String, val sessionId: String) : AppLink
+    /** EXP-1284: a thread on this instance. */
+    data class Thread(val teamSlug: String, val threadId: String) : AppLink
 
     /** Any other page on this instance, the path as written (query + hash kept). */
     data class App(val path: String) : AppLink
@@ -78,6 +80,9 @@ private fun inAppLink(path: String): AppLink {
     }
     if (segments.size == 4 && segments[0] == "t" && segments[2] == "sessions") {
         return AppLink.Session(teamSlug = segments[1], sessionId = segments[3])
+    }
+    if (segments.size == 4 && segments[0] == "t" && segments[2] == "threads") {
+        return AppLink.Thread(teamSlug = segments[1], threadId = segments[3])
     }
     return AppLink.App(path)
 }

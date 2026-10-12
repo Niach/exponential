@@ -15,6 +15,7 @@
     "actions": { "size": "page", "icon": "nav-actions", "title": "No actions yet", "description": "Create one on the web or desktop app." },
     "action-unavailable": { "size": "page", "icon": "action-default", "title": "Action unavailable", "description": "It may still be syncing, or it was deleted." },
     "run-not-found": { "size": "page", "icon": "action-run", "title": "Session not found", "action": "Go to Agent" },
+    "thread-not-found": { "size": "page", "icon": "work-faces", "title": "Thread not found", "description": "It may still be syncing, or it was deleted.", "action": "Go to Agent" },
     "no-selection-issue": { "size": "page", "icon": "ui-issue", "title": "No issue selected" },
     "no-selection-notification": { "size": "page", "icon": "nav-inbox", "title": "No notification selected" },
     "board-switcher": { "size": "list", "icon": "nav-boards", "title": "No boards yet" },

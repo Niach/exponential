@@ -282,6 +282,9 @@ struct AgentMarkdownText: View {
         case let .session(_, sessionId):
             let userId = deps.auth.accounts.first(where: { $0.id == accountId })?.userId
             return { deps.deepLinkBus.navigateToSession(sessionId, userId: userId) }
+        case let .thread(_, threadId):
+            // EXP-1284: a thread link opens the Thread screen.
+            return { deps.deepLinkBus.navigateToThread(threadId, accountId: accountId) }
         case let .issue(teamSlug, _, identifier):
             return {
                 if let issueId = IssueRefLookup.resolve(

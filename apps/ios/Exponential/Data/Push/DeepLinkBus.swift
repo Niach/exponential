@@ -33,6 +33,10 @@ final class DeepLinkBus: @unchecked Sendable {
     // multi-account device opens it under the account it was delivered to.
     var pendingSessionId: String?
     var pendingSessionUserId: String?
+    // EXP-1284: a tapped thread link in agent prose, under the account the
+    // prose belongs to.
+    var pendingThreadId: String?
+    var pendingThreadAccountId: String?
     // EXP-825: a `/t/{team}/agent` universal link — the team's Agent page,
     // under the signed-in account whose host matched the URL.
     var pendingAgentTeamSlug: String?
@@ -74,6 +78,20 @@ final class DeepLinkBus: @unchecked Sendable {
     func navigateToSession(_ sessionId: String, userId: String? = nil) {
         pendingSessionUserId = userId
         pendingSessionId = sessionId
+    }
+
+    func navigateToThread(_ threadId: String, accountId: String) {
+        pendingThreadAccountId = accountId
+        pendingThreadId = threadId
+    }
+
+    func consumeThread() -> (threadId: String, accountId: String)? {
+        defer {
+            pendingThreadId = nil
+            pendingThreadAccountId = nil
+        }
+        guard let threadId = pendingThreadId else { return nil }
+        return (threadId, pendingThreadAccountId ?? "")
     }
 
     func navigateToAgent(teamSlug: String, accountId: String) {

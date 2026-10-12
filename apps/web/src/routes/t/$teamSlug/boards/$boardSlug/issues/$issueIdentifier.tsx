@@ -80,6 +80,8 @@ import {
 } from "@/lib/work-faces"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { runFaceMark } from "@/lib/coding-session-display"
+import { useThreadsOfRuns } from "@/hooks/use-threads"
+import { threadGuideResults } from "@/lib/thread-page"
 
 type IssueSearch = { from?: string; comment?: string } & GuideSearch
 
@@ -257,13 +259,33 @@ function IssueDetailPage() {
   // (my target run when it has results, else the newest run on the issue by
   // ANY member, else a run that tagged a topic with this issue's PR), and the
   // issue shows only its own PR's topics (`sessionResultsForPr`).
+  // EXP-1284 (rule 8): a run's Guide is its THREAD's (`threads.results`)
+  // once the thread has one — the candidates read through it.
+  const candidateIds = useMemo(
+    () =>
+      [...((runRows ?? []) as CodingSession[]), ...((teamRunRows ?? []) as CodingSession[])].map(
+        (row) => row.id
+      ),
+    [runRows, teamRunRows]
+  )
+  const threadsOfRuns = useThreadsOfRuns(candidateIds)
+  const withThreadGuide = useCallback(
+    (rows: CodingSession[]) =>
+      rows.map((row) => {
+        const thread = threadsOfRuns.get(row.id)
+        return thread?.results != null
+          ? { ...row, results: threadGuideResults(row, thread) as CodingSession[`results`] }
+          : row
+      }),
+    [threadsOfRuns]
+  )
   const resultsRun = useMemo(
     () =>
       issue
         ? issueResultsRun(
             resultsCandidateRows(
-              (runRows ?? []) as CodingSession[],
-              (teamRunRows ?? []) as CodingSession[]
+              withThreadGuide((runRows ?? []) as CodingSession[]),
+              withThreadGuide((teamRunRows ?? []) as CodingSession[])
             ),
             issue.id,
             boundRunId?.kind === `issue` ? boundRunId.runId : undefined,
@@ -272,7 +294,7 @@ function IssueDetailPage() {
             issue.prUrl
           )
         : null,
-    [runRows, teamRunRows, issue, boundRunId, currentUserId, now]
+    [runRows, teamRunRows, issue, boundRunId, currentUserId, now, withThreadGuide]
   )
   const resultGroups = useMemo(
     () =>

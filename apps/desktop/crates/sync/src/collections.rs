@@ -3,7 +3,7 @@
 //!
 //! Design (§5.8, mirrored from §3.5's threading model):
 //!
-//! * **One `gpui::Entity<Collection<T>>` per shape** (21 entities), all held
+//! * **One `gpui::Entity<Collection<T>>` per shape** (23 entities), all held
 //!   by the global [`Store`]. Separate entities give fine-grained
 //!   `cx.notify()` — an issue update wakes only the issue-list views, not the
 //!   label chips.
@@ -47,7 +47,7 @@ use domain::rows::{
     ActionRow, Attachment, Board, CodingSession, Comment, DeviceRow,
     DeviceWorktreeRow, Issue, IssueDraftRow, IssueEvent, IssueLabel, IssueRelation,
     IssueStatusRow, IssueSubscriber, Label, Notification, Pin, Team, TeamInvite, TeamMember,
-    User,
+    ThreadItemRow, ThreadRow, User,
 };
 
 // ---------------------------------------------------------------------------
@@ -155,7 +155,7 @@ pub fn derive_active_health(
 // Per-shape reactive collections
 // ---------------------------------------------------------------------------
 
-/// A typed row hydratable from the store's snake_case JSON objects. The 21
+/// A typed row hydratable from the store's snake_case JSON objects. The 23
 /// impls below bind each `domain::rows` struct to its [`ShapeSpec`].
 pub trait ShapeRow: serde::de::DeserializeOwned + Send + 'static {
     fn spec() -> &'static ShapeSpec;
@@ -196,6 +196,8 @@ id_shape_row!(DeviceWorktreeRow, "device_worktrees");
 id_shape_row!(IssueRelation, "issue_relations");
 id_shape_row!(Pin, "pins");
 id_shape_row!(IssueDraftRow, "issue_drafts");
+id_shape_row!(ThreadRow, "threads");
+id_shape_row!(ThreadItemRow, "thread_items");
 
 impl ShapeRow for IssueLabel {
     fn spec() -> &'static ShapeSpec {
@@ -345,7 +347,7 @@ pub fn decode_rows<T: ShapeRow>(maps: Vec<Map<String, Value>>) -> Vec<(RowKey, T
         .collect()
 }
 
-/// The 21 collection entities (§5.8). Cloning is cheap — `Entity` handles.
+/// The 23 collection entities (§5.8). Cloning is cheap — `Entity` handles.
 #[derive(Clone)]
 pub struct Collections {
     pub teams: Entity<Collection<Team>>,
@@ -379,10 +381,16 @@ pub struct Collections {
     /// static like `pins`; the Drafts page filters to the active team and to
     /// rows whose board still resolves.
     pub issue_drafts: Entity<Collection<IssueDraftRow>>,
+    /// EXP-1284 thread shells — team-scoped, no board or
+    /// trash predicate; `results` is the thread's Guide.
+    pub threads: Entity<Collection<ThreadRow>>,
+    /// EXP-1284 thread members — issue | run items, issue
+    /// items board-scoped like every issue child.
+    pub thread_items: Entity<Collection<ThreadItemRow>>,
 }
 
 /// Run `$body` once per shape with `$entity` bound to that shape's collection
-/// entity — the single dispatch point that keeps the 21-way fan-out in one
+/// entity — the single dispatch point that keeps the 23-way fan-out in one
 /// place.
 macro_rules! for_each_collection {
     ($collections:expr, $entity:ident => $body:expr) => {{
@@ -428,6 +436,10 @@ macro_rules! for_each_collection {
         $body;
         let $entity = &$collections.issue_drafts;
         $body;
+        let $entity = &$collections.threads;
+        $body;
+        let $entity = &$collections.thread_items;
+        $body;
     }};
 }
 
@@ -455,6 +467,8 @@ impl Collections {
             issue_relations: cx.new(|_| Collection::new()),
             pins: cx.new(|_| Collection::new()),
             issue_drafts: cx.new(|_| Collection::new()),
+            threads: cx.new(|_| Collection::new()),
+            thread_items: cx.new(|_| Collection::new()),
         }
     }
 
@@ -498,11 +512,13 @@ impl Collections {
             }
             "pins" => apply_to(&self.pins, keys, full_replace, sqlite, cx),
             "issue_drafts" => apply_to(&self.issue_drafts, keys, full_replace, sqlite, cx),
+            "threads" => apply_to(&self.threads, keys, full_replace, sqlite, cx),
+            "thread_items" => apply_to(&self.thread_items, keys, full_replace, sqlite, cx),
             other => log::warn!("[sync] delta for unknown shape {other}"),
         }
     }
 
-    /// Full hydrate of all 21 collections from SQLite (§5.8 "hydrate typed
+    /// Full hydrate of all 23 collections from SQLite (§5.8 "hydrate typed
     /// in-memory collections from SQLite at startup"). Runs synchronously on
     /// the foreground — deliberately: every batch committed to SQLite has a
     /// matching [`ShapeDelta`] queued behind this call, so a snapshot read
@@ -521,13 +537,13 @@ impl Collections {
     }
 
     fn statuses(&self, cx: &App) -> Vec<ShapeStatus> {
-        let mut out = Vec::with_capacity(20);
+        let mut out = Vec::with_capacity(crate::shapes::SHAPES.len());
         for_each_collection!(self, entity => out.push(status_of(entity, cx)));
         out
     }
 
     fn observe_all<V: 'static>(&self, cx: &mut gpui::Context<V>) -> Vec<Subscription> {
-        let mut out = Vec::with_capacity(20);
+        let mut out = Vec::with_capacity(crate::shapes::SHAPES.len());
         for_each_collection!(self, entity => {
             out.push(cx.observe(entity, |_, _, cx| cx.notify()))
         });
@@ -812,7 +828,7 @@ pub struct Store {
 impl Global for Store {}
 
 impl Store {
-    /// Build the store: the shared-state entity, the 21 collection entities,
+    /// Build the store: the shared-state entity, the 23 collection entities,
     /// the [`SyncManager`], and the single foreground delta-drain task
     /// (§5.8). `on_unauthorized` is the §5.6b hook the app shell wires to
     /// `AuthStore::unauthorized_handler_fn()` — it deletes the dead token
@@ -880,7 +896,7 @@ impl Store {
         self.state.read(cx).session.clone()
     }
 
-    /// The 21 reactive collections.
+    /// The 23 reactive collections.
     pub fn collections(&self) -> &Collections {
         &self.collections
     }
@@ -1305,7 +1321,7 @@ mod tests {
 
     #[test]
     fn every_shape_has_a_typed_row_binding() {
-        // The 21 ShapeRow impls cover the registry exactly (a 22nd shape
+        // The 23 ShapeRow impls cover the registry exactly (a 24th shape
         // without a typed row would silently never reach the UI).
         let bound = [
             Team::spec().name,
@@ -1329,6 +1345,8 @@ mod tests {
             IssueRelation::spec().name,
             Pin::spec().name,
             IssueDraftRow::spec().name,
+            ThreadRow::spec().name,
+            ThreadItemRow::spec().name,
         ];
         let registry: Vec<&str> = crate::shapes::SHAPES.iter().map(|s| s.name).collect();
         assert_eq!(bound.len(), registry.len());

@@ -2337,6 +2337,89 @@ public final class DatabaseManager: @unchecked Sendable {
             }
         }
 
+        // v66 (EXP-1284 threads): the unit of work — `threads` (the 22nd
+        // shape, team-scoped; `results` = THE thread's Guide, raw jsonb TEXT
+        // like `coding_sessions.results`) and their children `thread_items`
+        // (the 23rd, team-scoped with the static board trash/archive
+        // predicates; exactly one of issue_id / session_id per `kind`). Two
+        // brand-new tables for two brand-new shapes — neither has an
+        // `electric_offsets` row yet, so NOTHING resets here (the v27/v39
+        // precedent).
+        migrator.registerMigration("v66_threads") { db in
+            try db.create(table: "threads", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("team_id", .text).notNull()
+                // NULL = derived for display (first issue's title, else the
+                // first run's name).
+                t.column("title", .text)
+                t.column("created_by", .text)
+                t.column("results", .text)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+            try db.create(
+                index: "threads_team_idx", on: "threads", columns: ["team_id"],
+                ifNotExists: true
+            )
+            try db.create(table: "thread_items", ifNotExists: true) { t in
+                t.primaryKey("id", .text)
+                t.column("thread_id", .text).notNull()
+                // issue | run (contract threadItemKind).
+                t.column("kind", .text).notNull()
+                // Exactly one of the two is set, by kind.
+                t.column("issue_id", .text)
+                t.column("session_id", .text)
+                t.column("team_id", .text).notNull()
+                // The issue's board — issue items only, NULL on run items.
+                t.column("board_id", .text)
+                t.column("added_by", .text)
+                t.column("added_by_session_id", .text)
+                // user | agent (contract threadItemSource).
+                t.column("source", .text).notNull().defaults(to: "user")
+                t.column("sort_order", .double).notNull().defaults(to: 0)
+                t.column("created_at", .text).notNull()
+                t.column("updated_at", .text).notNull()
+            }
+            try db.create(
+                index: "thread_items_thread_idx", on: "thread_items", columns: ["thread_id"],
+                ifNotExists: true
+            )
+            try db.create(
+                index: "thread_items_team_idx", on: "thread_items", columns: ["team_id"],
+                ifNotExists: true
+            )
+            try db.create(
+                index: "thread_items_issue_idx", on: "thread_items", columns: ["issue_id"],
+                ifNotExists: true
+            )
+            try db.create(
+                index: "thread_items_session_idx", on: "thread_items", columns: ["session_id"],
+                ifNotExists: true
+            )
+        }
+
+        // v67 (EXP-1284): `issue_drafts.thread_id`, the thread a "New issue
+        // in this thread" draft files into — synced (it joined the
+        // issue-drafts shape's columns), so a draft left and reopened from
+        // Drafts keeps its thread. The v63 pattern: a guarded additive ALTER,
+        // and the issue-drafts offset resets only when the column was added,
+        // so already-synced rows re-arrive carrying it.
+        migrator.registerMigration("v67_issue_draft_thread") { db in
+            guard try db.tableExists("issue_drafts") else { return }
+            let existing = Set(try db.columns(in: "issue_drafts").map(\.name))
+            guard !existing.contains("thread_id") else { return }
+            try db.alter(table: "issue_drafts") { t in
+                t.add(column: "thread_id", .text)
+            }
+            if try db.tableExists("electric_offsets") {
+                try db.execute(sql: """
+                    UPDATE "electric_offsets"
+                    SET "handle" = '', "offset" = '-1', "needs_refetch" = 1, "is_live" = 0
+                    WHERE "shape" = 'issue-drafts'
+                    """)
+            }
+        }
+
         return migrator
     }
 
@@ -2363,6 +2446,10 @@ public final class DatabaseManager: @unchecked Sendable {
             try db.execute(sql: "DELETE FROM pins")
             // EXP-878: drafts resolve a board — wiped with the rest.
             try db.execute(sql: "DELETE FROM issue_drafts")
+            // EXP-1284: thread items point at issues/sessions — child before
+            // its thread, both before the rows they reference.
+            try db.execute(sql: "DELETE FROM thread_items")
+            try db.execute(sql: "DELETE FROM threads")
             // EXP-481: child before parent, like the issue tables below.
             try db.execute(sql: "DELETE FROM device_worktrees")
             try db.execute(sql: "DELETE FROM devices")

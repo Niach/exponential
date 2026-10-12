@@ -54,6 +54,11 @@ pub struct IssueDraftUpsertInput {
     /// issue field (REV2-49).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub due_date: Option<String>,
+    /// EXP-1284: the thread a "New issue in this thread" draft files into
+    /// (`threadId`); omitted = none, so a thread-less draft's wire is
+    /// byte-identical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
 }
 
 impl IssueDraftUpsertInput {
@@ -73,6 +78,7 @@ impl IssueDraftUpsertInput {
             assignee_id: None,
             label_ids: Vec::new(),
             due_date: None,
+            thread_id: None,
         }
     }
 }
@@ -209,10 +215,12 @@ mod tests {
         input.assignee_id = Some("u-1".into());
         input.label_ids = vec!["l-1".into()];
         input.due_date = Some("2026-09-14".into());
+        // EXP-1284: the draft's thread rides last.
+        input.thread_id = Some("th-1".into());
         issue_drafts_upsert(&client(&base), &input).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(request.ends_with(
-            r#"{"id":"d-1","teamId":"t-1","boardId":"b-1","title":"Title","description":"Body","statusId":"s-1","priority":"high","assigneeId":"u-1","labelIds":["l-1"],"dueDate":"2026-09-14"}"#
+            r#"{"id":"d-1","teamId":"t-1","boardId":"b-1","title":"Title","description":"Body","statusId":"s-1","priority":"high","assigneeId":"u-1","labelIds":["l-1"],"dueDate":"2026-09-14","threadId":"th-1"}"#
         ));
     }
 

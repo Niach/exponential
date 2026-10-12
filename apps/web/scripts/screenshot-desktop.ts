@@ -41,6 +41,7 @@ import {
   comments,
   devices,
   issues,
+  threads,
   users,
 } from "@/db/schema"
 import {
@@ -60,6 +61,7 @@ import {
   DEMO_EMAIL,
   DEMO_FEED_QUESTION,
   DEMO_STEERED_SESSION_ID,
+  DEMO_THREAD_ID,
   demoAgentReport,
 } from "./screenshot-demo"
 
@@ -409,17 +411,59 @@ interface AgentComment {
   preview: Record<string, unknown>
 }
 
+// EXP-1284: the scripted feed is stamped on a timeline that ENDS at capture
+// time (`at`, epoch ms; without it every client stamps the whole feed on
+// receipt), and the demo thread's Guide entries are re-stamped into that
+// window just before the closing question, so the thread page reads in real
+// order: the prompt, the work, the sections the session filed, the question.
+const FEED_WINDOW_MS = 25 * 60_000
+const FEED_END_GAP_MS = 60_000
+const GUIDE_BEFORE_END_MS = [4 * 60_000, 3 * 60_000]
+
+function feedTimeline(count: number, now: number): (index: number) => number {
+  const start = now - FEED_WINDOW_MS
+  const span = FEED_WINDOW_MS - FEED_END_GAP_MS
+  return (index) => Math.round(start + (span * index) / Math.max(count - 1, 1))
+}
+
+/** Re-stamps the showcase session's Guide entries on DEMO_THREAD_ID inside
+ *  the feed's window (oldest first). Best-effort: a missing thread (an older
+ *  seed) leaves the capture as it was. */
+async function restampDemoGuide(now: number): Promise<void> {
+  try {
+    const [thread] = await db
+      .select({ results: threads.results })
+      .from(threads)
+      .where(eq(threads.id, DEMO_THREAD_ID))
+      .limit(1)
+    if (!Array.isArray(thread?.results) || thread.results.length === 0) return
+    let next = 0
+    const results = thread.results.map((entry) => {
+      if (entry.sessionId !== DEMO_STEERED_SESSION_ID) return entry
+      const before =
+        GUIDE_BEFORE_END_MS[Math.min(next++, GUIDE_BEFORE_END_MS.length - 1)]!
+      return { ...entry, at: now - FEED_END_GAP_MS - before }
+    })
+    await db.update(threads).set({ results }).where(eq(threads.id, DEMO_THREAD_ID))
+  } catch (err) {
+    console.warn(`[feed] could not re-stamp the demo thread's Guide:`, err)
+  }
+}
+
 function publishFeed(
   send: (frame: Record<string, unknown>) => void,
   agentComment: AgentComment | null
 ) {
   let seq = 0
   let toolIndex = 0
+  const now = Date.now()
+  const at = feedTimeline(FEED.length, now)
+  void restampDemoGuide(now)
   // EXP-877: a pending question hides the composer (EXP-820), so a capture of
   // the composer FOOTER (model picker, Plan mode, context ring) opts out of
   // the closing ask. Capture-only; the catalog's `steering` keeps the ask.
   const skipQuestion = process.env.SCREENSHOT_FEED_NO_QUESTION === `1`
-  for (const entry of FEED) {
+  for (const [index, entry] of FEED.entries()) {
     if (skipQuestion && entry.kind === `question`) continue
     // Without the seeded comment (an older seed) the call is left out rather
     // than published as a card naming a comment nobody can open.
@@ -430,7 +474,7 @@ function publishFeed(
         ? { ...rest, detail: agentComment.detail, preview: agentComment.preview }
         : rest
     if (raw.kind !== `tool`) {
-      send({ t: `activity`, event: raw, seq: seq++ })
+      send({ t: `activity`, event: { ...raw, at: at(index) }, seq: seq++ })
       continue
     }
     const id = typeof raw.id === `string` ? raw.id : `stub-tool-${++toolIndex}`
@@ -446,7 +490,7 @@ function publishFeed(
       preview?: unknown
       script?: unknown
     }
-    send({ t: `activity`, event: { ...call, id, toolKind }, seq: seq++ })
+    send({ t: `activity`, event: { ...call, id, toolKind, at: at(index) }, seq: seq++ })
     send({
       t: `activity`,
       event: {

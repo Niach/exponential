@@ -562,6 +562,10 @@ pub(crate) struct ChatScreenView {
     /// EXP-1255: the New run tab hosting this composer (`None` = the Agent
     /// page or a dialog); its run lands IN that tab.
     new_run_id: Option<String>,
+    /// EXP-1284: the thread every start from this composer JOINS ("Start a
+    /// run here", the thread's reply) — `LaunchOrigin::LocalThread` locally,
+    /// `threadId` on a remote start. `None` = the start's default thread.
+    thread_id: Option<String>,
     /// EXP-1253: the greeting, computed once per mount (re-read only while
     /// the draft is empty and the day's bucket moved, so it never flips
     /// while you type), keyed by the bucket it was computed in.
@@ -654,6 +658,8 @@ impl ChatScreenView {
         let synced_actions = collections.actions.clone();
         let synced_sessions = collections.coding_sessions.clone();
         let synced_worktrees = collections.device_worktrees.clone();
+        let synced_threads = collections.threads.clone();
+        let synced_thread_items = collections.thread_items.clone();
         let steer_config = queries::steer_config(cx);
         subscriptions.push(cx.observe_in(&steer_config, window, |this: &mut Self, _, window, cx| {
             this.settle_device(window, cx);
@@ -676,6 +682,9 @@ impl ChatScreenView {
         let local_sessions = coding_flow::LocalSessions::global(cx);
         subscriptions.push(cx.observe(&local_sessions, |_: &mut Self, _, cx| cx.notify()));
         subscriptions.push(cx.observe(&synced_sessions, |_: &mut Self, _, cx| cx.notify()));
+        // EXP-1284: Recent lists threads.
+        subscriptions.push(cx.observe(&synced_threads, |_: &mut Self, _, cx| cx.notify()));
+        subscriptions.push(cx.observe(&synced_thread_items, |_: &mut Self, _, cx| cx.notify()));
         // The doctor report lands after the window does — re-seed the agent
         // pick when it does, or the page would sit on "no agent" at first.
         if let Some(hub) = CodingHub::global_ref(cx) {
@@ -723,6 +732,7 @@ impl ChatScreenView {
             sending: false,
             launching: false,
             new_run_id: None,
+            thread_id: None,
             greeting: None,
             start_pending: crate::feedback::Pending::default(),
             starting: None,
@@ -778,6 +788,37 @@ impl ChatScreenView {
         let field = this.input.read(cx).focus_handle(cx);
         window.focus(&field, cx);
         this
+    }
+
+    /// EXP-1284 — "Start a session here": this composer's starts join
+    /// `thread_id`, and `text` (the thread's unsent reply) lands on an empty
+    /// draft.
+    pub(crate) fn set_thread(
+        &mut self,
+        thread_id: String,
+        text: Option<String>,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) {
+        self.thread_id = Some(thread_id);
+        if let Some(text) = text.filter(|text| !text.trim().is_empty()) {
+            if self.input.read(cx).value().trim().is_empty() {
+                self.mention
+                    .update(cx, |mention, cx| mention.insert_text(&text, window, cx));
+            }
+        }
+        cx.notify();
+    }
+
+    /// The origin a LOCAL start from this composer carries: a person's, in
+    /// its thread when it has one (EXP-1284).
+    fn launch_origin(&self) -> LaunchOrigin {
+        match &self.thread_id {
+            Some(thread_id) => LaunchOrigin::LocalThread {
+                thread_id: thread_id.clone(),
+            },
+            None => LaunchOrigin::Local,
+        }
     }
 
     /// Whether a start is in flight — the dialog's close gate (the view owns
@@ -2143,6 +2184,9 @@ impl ChatScreenView {
                     chat_launch::remote_start_input(&device_id, &options, subject.borrow(), prompt)
                 }
             };
+            // EXP-1284: a start from a thread's composer joins that thread.
+            let mut input = input;
+            input.thread_id = self.thread_id.clone();
             self.launch_remote(input, generation, window, cx);
             return true;
         }
@@ -2163,13 +2207,14 @@ impl ChatScreenView {
                     .as_ref()
                     .map(|repo| (repo.id.clone(), repo.full_name.clone()));
                 let settled = self.settled_hook(generation, window, cx);
+                let origin = self.launch_origin();
                 let handoff = self.start_handoff();
                 navigation::defer_in_result_window(window, cx, move |window, cx| {
                     let Some(host) = crate::session_bar::host_for_window(window, cx) else {
                         return;
                     };
                     host.update(cx, |host, cx| {
-                        host.launch_chat_run(options, repo, prompt, Some(settled), handoff, window, cx);
+                        host.launch_chat_run(options, repo, prompt, origin, Some(settled), handoff, window, cx);
                     });
                 });
                 self.after_started(window, cx);
@@ -2187,7 +2232,7 @@ impl ChatScreenView {
                         team_id,
                         repo: ActionRepo::Resolve,
                         options,
-                        origin: LaunchOrigin::Local,
+                        origin: self.launch_origin(),
                         inputs,
                         // EXP-1037: the run's tab lands in the window the ▶
                         // was pressed in — a dialog composer closes itself.
@@ -2261,7 +2306,7 @@ impl ChatScreenView {
                     }
                     let Some((request, deps)) = coding_flow::build_launch(
                         &issue_id,
-                        LaunchOrigin::Local,
+                        self.launch_origin(),
                         options,
                         false,
                         prompt,
@@ -2280,7 +2325,7 @@ impl ChatScreenView {
                     );
                     return true;
                 }
-                let Some(request) = chat_launch::batch_request(
+                let Some(mut request) = chat_launch::batch_request(
                     &team_id,
                     &issues.rows,
                     &issues.checked,
@@ -2290,6 +2335,7 @@ impl ChatScreenView {
                 ) else {
                     return false;
                 };
+                request.origin = self.launch_origin();
                 let batch_id = request.batch_id.clone();
                 let Some(deps) = coding_flow::build_batch_deps(cx) else {
                     self.start_failed("Sign in and wait for sync before starting a session.".into(), cx);
@@ -2438,6 +2484,8 @@ impl ChatScreenView {
             return;
         };
         input.start_id = Some(start_id.clone());
+        // EXP-1284: the thread the start joins — its landing opens there.
+        let thread_id = input.thread_id.clone();
         let device_id = input.device_id.clone();
         let subject = coding_flow::RemoteRunSubject::of(&input);
         self.launching = true;
@@ -2456,7 +2504,15 @@ impl ChatScreenView {
                         // deadline (from now) passes: the timeout toast
                         // then, while the follower keeps watching.
                         this.arm_deadline(generation, window, cx);
-                        this.follow_start(device_id, subject, start_id, handoff, window, cx);
+                        this.follow_start(
+                            device_id,
+                            subject,
+                            start_id,
+                            handoff,
+                            thread_id.clone(),
+                            window,
+                            cx,
+                        );
                     }
                     Err(err) if coding_flow::may_have_reached_device(&err) => {
                         // Final review B3: a relay timeout (REV-34) or a
@@ -2473,7 +2529,15 @@ impl ChatScreenView {
                         .action(crate::feedback::RETRY, this.retry_send(cx));
                         let toast = crate::toast::show_dismissible(toast, window, cx);
                         this.park_late(start_id.clone(), handoff, toast, cx);
-                        this.follow_start(device_id, subject, start_id, handoff, window, cx);
+                        this.follow_start(
+                            device_id,
+                            subject,
+                            start_id,
+                            handoff,
+                            thread_id.clone(),
+                            window,
+                            cx,
+                        );
                     }
                     Err(err) => {
                         this.end_starting(generation, true, window, cx);
@@ -2498,6 +2562,8 @@ impl ChatScreenView {
         subject: coding_flow::RemoteRunSubject,
         start_id: String,
         handoff: Option<coding_flow::StartHandoff>,
+        // EXP-1284: the thread the start joins — it lands there.
+        thread_id: Option<String>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
@@ -2525,6 +2591,7 @@ impl ChatScreenView {
             coding_flow::ComposerStartWatch {
                 start_id,
                 handoff,
+                thread_id,
                 landed,
             },
             window,
@@ -3367,6 +3434,20 @@ impl ChatScreenView {
         };
         let muted = cx.theme().muted_foreground;
         let mut notes = v_flex().w_full().min_w_0().gap_0p5().px_1().text_xs();
+        // EXP-1284: a composer that starts INTO a thread names it.
+        if let Some(thread_id) = &self.thread_id {
+            notes = notes.child(
+                h_flex()
+                    .gap_1()
+                    .items_center()
+                    .text_color(muted)
+                    .child(Icon::new(registry::ACTION_CHAT).xsmall())
+                    .child(SharedString::from(format!(
+                        "Starts in {}",
+                        crate::threads::thread_title(thread_id, cx)
+                    ))),
+            );
+        }
         if let Some(notice) = &self.notice {
             notes = notes.child(div().text_color(muted).child(notice.clone()));
         }

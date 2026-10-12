@@ -1057,6 +1057,9 @@ class AgentComposerViewModel @Inject constructor(
                 pick = _computerUsePick.value,
                 canToggle = device.value?.canToggleComputerUse == true,
             ),
+            // EXP-1284: a start from a thread page joins that thread (never
+            // with a resume — the server refuses the pair).
+            threadId = seed.threadId?.takeIf { !resume },
         )
     }
 

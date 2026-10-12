@@ -41,6 +41,13 @@ data class AgentComposerSeed(
      * route as `conflict=1` (web `?conflict=1`).
      */
     val conflict: Boolean = false,
+    /**
+     * EXP-1284: the THREAD the start joins (a thread page's "Start a run
+     * here" / reply). Rides `steer.startSession({threadId})`; the composer
+     * returns to that thread once the run lands. `thread=<uuid>` on the route
+     * (web `?thread=`).
+     */
+    val threadId: String? = null,
 ) {
     /** Whether the seed names a subject at all. */
     val hasSubject: Boolean get() = actionId != null || issueIds.isNotEmpty()
@@ -72,6 +79,7 @@ data class AgentComposerSeed(
             text = get(ARG_TEXT)?.takeIf { it.isNotEmpty() },
             icon = get(ARG_ICON)?.takeIf { it.isNotEmpty() },
             conflict = get(ARG_CONFLICT) == CONFLICT_FLAG,
+            threadId = get(ARG_THREAD)?.takeIf { UUID_RE.matches(it) },
         )
 
         /** The seed the `agent?…` route entry carries. */
@@ -86,7 +94,7 @@ data class AgentComposerSeed(
 /** The Agent page's route root — [agentRoute] appends the seed's query. */
 const val AGENT_ROUTE = "agent"
 
-// The route's seven optional query args, all nullable strings on the NavHost
+// The route's eight optional query args, all nullable strings on the NavHost
 // side (`AGENT_ROUTE_ARGS`). Named like the web search params so a link and a
 // push read the same.
 const val ARG_ISSUES = "issues"
@@ -96,13 +104,14 @@ const val ARG_PR = "pr"
 const val ARG_TEXT = "text"
 const val ARG_ICON = "icon"
 const val ARG_CONFLICT = "conflict"
+const val ARG_THREAD = "thread"
 
 /** The ONE value of [ARG_CONFLICT] that reads as true (web `conflict=1`). */
 const val CONFLICT_FLAG = "1"
 
 /** Every query arg the `agent` destination declares, in pattern order. */
 val AGENT_ROUTE_ARGS: List<String> =
-    listOf(ARG_ISSUES, ARG_ACTION, ARG_DEVICE, ARG_PR, ARG_TEXT, ARG_ICON, ARG_CONFLICT)
+    listOf(ARG_ISSUES, ARG_ACTION, ARG_DEVICE, ARG_PR, ARG_TEXT, ARG_ICON, ARG_CONFLICT, ARG_THREAD)
 
 /**
  * The NavHost pattern: every arg is a `{placeholder}` query value so an absent
@@ -127,6 +136,7 @@ fun agentRoute(seed: AgentComposerSeed): String {
         seed.text?.takeIf { it.isNotEmpty() }?.let { add(ARG_TEXT to it) }
         seed.icon?.takeIf { it.isNotEmpty() }?.let { add(ARG_ICON to it) }
         if (seed.conflict) add(ARG_CONFLICT to CONFLICT_FLAG)
+        seed.threadId?.takeIf { it.isNotEmpty() }?.let { add(ARG_THREAD to it) }
     }
     if (params.isEmpty()) return AGENT_ROUTE
     return AGENT_ROUTE + "?" + params.joinToString("&") { (key, value) -> "$key=${encodeRouteValue(value)}" }

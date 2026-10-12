@@ -49,6 +49,8 @@ import {
   DEMO_ACTION_ID,
   DEMO_SESSION_IDS,
   DEMO_STEERED_SESSION_ID,
+  DEMO_THREAD_ID,
+  DEMO_THREAD_RUNS_ID,
   NEWCOMER_EMAIL,
   NEWCOMER_PASSWORD,
   STARTER_EMAIL,
@@ -141,6 +143,9 @@ function resolveRoute(route: string, ctx: RecipeCtx, db: DbPlaceholders): string
     // EXP-1204: the run-changes view's row — a teammate's chat run with an
     // open PR of its own, pinned the same way.
     .replaceAll(`$runChangesSessionId`, DEMO_SESSION_IDS.runChanges)
+    // EXP-1284: the two demo threads, pinned the same way.
+    .replaceAll(`$threadRunsId`, DEMO_THREAD_RUNS_ID)
+    .replaceAll(`$threadId`, DEMO_THREAD_ID)
     // SLOP-2: an action is a page too, and the seed pins its id the same way.
     .replaceAll(`$actionId`, DEMO_ACTION_ID)
     .replaceAll(`$inviteToken`, DEMO_INVITE_TOKEN)
@@ -284,6 +289,19 @@ function printSummary(results: Result[]): void {
   }
 }
 
+/** Forget the window's work tabs (`exp:work-tabs:v1:<team>`). The page is
+ *  still on the previous view's origin, which owns the storage; a fresh
+ *  context (about:blank) has none to clear. */
+async function clearWorkTabs(page: Page): Promise<void> {
+  await page
+    .evaluate(() => {
+      for (const key of Object.keys(window.sessionStorage)) {
+        if (key.startsWith(`exp:work-tabs:`)) window.sessionStorage.removeItem(key)
+      }
+    })
+    .catch(() => {})
+}
+
 /** Drive one view and press the shutter. Throws; the caller records it. */
 async function captureView(
   page: Page,
@@ -292,6 +310,10 @@ async function captureView(
   outPath: string,
   db: DbPlaceholders
 ): Promise<void> {
+  // EXP-1284: every view starts with an empty work-tab strip — the tabs the
+  // previous views opened (issues, sessions, threads) live in this window's
+  // sessionStorage and would otherwise pile up in every later shot.
+  await clearWorkTabs(page)
   await page.goto(`${ctx.baseUrl}${resolveRoute(capture.route, ctx, db)}`)
 
   // Recipe FIRST, anchor after: most recipe-driven views anchor on text the

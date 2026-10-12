@@ -292,6 +292,9 @@ function isDetailRest(rest: string): boolean {
   if (/^\/sessions\/[^/]+$/.test(rest)) return true
   // EXP-1170: the New issue page is the issue detail in draft mode.
   if (/^\/drafts\/[^/]+$/.test(rest)) return true
+  // EXP-1284 (review T12): a thread is a detail too — Agent › Recent stays
+  // beside the thread it opened.
+  if (/^\/threads\/[^/]+$/.test(rest)) return true
   return false
 }
 

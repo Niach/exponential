@@ -124,6 +124,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
                     tone,
                     tool_line: (!settled).then(|| SharedString::from("Bash grep")),
                     show_work: false,
+                    toggle: true,
                     on_toggle: None,
                 },
                 cx,

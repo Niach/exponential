@@ -4,6 +4,7 @@ import { TRPCError } from "@trpc/server"
 import { router, authedProcedure, generateTxId } from "@/lib/trpc"
 import { attachments, issueDrafts, issues, issueStatuses } from "@/db/schema"
 import { getBoardTeamId, resolveTeamAccess } from "@/lib/team-membership"
+import { getThread } from "@/lib/threads"
 import {
   dateOnlySchema,
   issueDescriptionSchema,
@@ -92,6 +93,10 @@ export const issueDraftsRouter = router({
         assigneeId: z.string().nullish(),
         labelIds: z.array(z.string().uuid()).max(50).default([]),
         dueDate: dateOnlySchema.nullish(),
+        // EXP-1284: "New issue in this thread" — the thread the issue files
+        // into when the draft is created. Absent = keep the row's; null
+        // clears it. Must be a thread of the board's team.
+        threadId: z.string().uuid().nullish(),
       })
     )
     .mutation(async ({ ctx, input }) => {
@@ -119,6 +124,16 @@ export const issueDraftsRouter = router({
           throw new TRPCError({
             code: `BAD_REQUEST`,
             message: `The status must belong to this team`,
+          })
+        }
+      }
+
+      if (input.threadId) {
+        const thread = await getThread(ctx.db, input.threadId)
+        if (!thread || thread.teamId !== board.teamId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `The thread must belong to this team`,
           })
         }
       }
@@ -191,6 +206,7 @@ export const issueDraftsRouter = router({
           assigneeId: input.assigneeId ?? null,
           labelIds: input.labelIds ?? [],
           dueDate: input.dueDate ?? null,
+          threadId: input.threadId ?? null,
         }
         const [draft] = await tx
           .insert(issueDrafts)
@@ -207,6 +223,8 @@ export const issueDraftsRouter = router({
               assigneeId: values.assigneeId,
               labelIds: values.labelIds,
               dueDate: values.dueDate,
+              // Absent keeps the row's thread; null clears it.
+              ...(input.threadId !== undefined ? { threadId: values.threadId } : {}),
             },
             // The id is client-minted, so a collision with SOMEBODY ELSE's
             // row is reachable (by guess or by malice). The setWhere makes

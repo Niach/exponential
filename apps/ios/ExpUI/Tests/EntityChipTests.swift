@@ -50,5 +50,6 @@ final class EntityChipTests: XCTestCase {
         XCTAssertEqual(EntityChipIcon.glyphs["nav-notifications"], AppIcons.navNotifications)
         XCTAssertEqual(EntityChipIcon.glyphs["ui-attach"], AppIcons.uiAttach)
         XCTAssertEqual(EntityChipIcon.glyphs["ui-checklist"], AppIcons.uiChecklist)
+        XCTAssertEqual(EntityChipIcon.glyphs["work-faces"], AppIcons.workFaces)
     }
 }

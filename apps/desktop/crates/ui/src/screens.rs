@@ -323,6 +323,24 @@ pub(crate) fn open_new_run_tab(window: &Window, cx: &mut App) {
     crate::navigation::navigate(window, cx, Screen::NewRun { id });
 }
 
+/// EXP-1284 — "Start a session here": a fresh New session tab whose
+/// composer starts INTO `thread_id`, `text` (the thread's unsent reply) on
+/// its draft. The session it starts lands back in the thread's tab.
+pub(crate) fn open_new_run_tab_in_thread(
+    thread_id: String,
+    text: Option<String>,
+    window: &Window,
+    cx: &mut App,
+) {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let id = format!(
+        "thread-{thread_id}-{}",
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    crate::thread_screen::seed_new_run_thread(id.clone(), thread_id, text, cx);
+    crate::navigation::navigate(window, cx, Screen::NewRun { id });
+}
+
 /// Build a FRESH content view for `screen` (EXP-65 undocked windows). The
 /// panel's own shared single-instance views (re-pointed on tab switch) must
 /// never be moved to another window; a fresh construction also binds the
@@ -364,6 +382,8 @@ pub(crate) fn build_screen_content(
         Screen::IssueDraft { .. } => cx.new(|_| NeverUndocked).into(),
         // EXP-1255: a New run tab is never undockable (only an issue is).
         Screen::NewRun { .. } => cx.new(|_| NeverUndocked).into(),
+        // EXP-1284: nor is a thread (its view owns run feeds, like a session).
+        Screen::Thread { .. } => cx.new(|_| NeverUndocked).into(),
         Screen::Actions => cx
             .new(|cx| crate::actions_view::ActionsView::new(window, cx))
             .into(),
@@ -587,16 +607,20 @@ fn live_tab_plan(
 struct TablessWork {
     issue_id: Option<String>,
     run_id: String,
+    /// EXP-1284: a THREAD the Running section opened (its rows are threads
+    /// now); `run_id` is then empty.
+    thread_id: Option<String>,
 }
 
 impl TablessWork {
     /// Whether `screen` is one of this work's two faces.
     fn holds(&self, screen: &Screen) -> bool {
         match screen {
-            Screen::Session { session_id } => self.run_id == *session_id,
+            Screen::Session { session_id } => !self.run_id.is_empty() && self.run_id == *session_id,
             Screen::IssueDetail { issue_id } => {
                 self.issue_id.as_deref() == Some(issue_id.as_str())
             }
+            Screen::Thread { thread_id } => self.thread_id.as_deref() == Some(thread_id.as_str()),
             _ => false,
         }
     }
@@ -1210,6 +1234,11 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
     if let Screen::Terminal { tab } = screen {
         return terminal_chip_content(*tab, cx);
     }
+    // EXP-1284: a thread chip — its title, led by its newest run's mark
+    // while one is live (the rail row's lead), else the thread glyph.
+    if let Screen::Thread { thread_id } = screen {
+        return thread_chip_content(thread_id, cx);
+    }
     // EXP-1255: the New run chip — the Agent glyph and its word (draft 1).
     if let Screen::NewRun { .. } = screen {
         return ChipContent {
@@ -1241,6 +1270,39 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
         }
     }
     ChipContent::plain(screen_title(screen, cx))
+}
+
+/// EXP-1284 — a thread tab's chip.
+fn thread_chip_content(thread_id: &str, cx: &App) -> ChipContent {
+    let Some(model) = crate::threads::thread_model(thread_id, cx) else {
+        // A thread still syncing: the placeholder bar, never "Loading…".
+        return ChipContent {
+            lead: ChipLead::Concept(registry::ACTION_CHAT),
+            identifier: None,
+            title: None,
+            badge: None,
+            placeholder: true,
+        };
+    };
+    let lead = if model.view.live {
+        let state = if model.view.needs_input {
+            Some(crate::queries::CodingSessionDisplay::NeedsInput)
+        } else if model.view.busy {
+            Some(crate::queries::CodingSessionDisplay::Working)
+        } else {
+            None
+        };
+        ChipLead::Run(Some(model.agent()), state)
+    } else {
+        ChipLead::Concept(registry::ACTION_CHAT)
+    };
+    ChipContent {
+        lead,
+        identifier: None,
+        title: Some(gpui::SharedString::from(model.view.title)),
+        badge: None,
+        placeholder: false,
+    }
 }
 
 /// EXP-746, THE rule of the resume swap: an open tab for `resumed_from`
@@ -1344,6 +1406,11 @@ pub struct ScreensPanel {
     /// drain), so it is created on first activation and lives exactly as long
     /// as its tab — every removal path shuts it down.
     sessions: HashMap<String, Entity<crate::session_screen::SessionScreenView>>,
+    /// EXP-1284: one thread screen per OPEN thread tab, keyed by the
+    /// `threads` row id. Each owns the feeds of the runs its conversation
+    /// unfolds, so — like a session view — it lives exactly as long as its
+    /// tab ([`Self::forget_tab`] drops it).
+    threads: HashMap<String, Entity<crate::thread_screen::ThreadScreenView>>,
     /// EXP-851: the board list screen's view, full width (EXP-1192: the
     /// Inbox moved into [`Self::side_list`]).
     list: Entity<ListPanel>,
@@ -1600,6 +1667,7 @@ impl ScreensPanel {
             exponential_ui_devices: None,
             exponential_ui_specimen: None,
             sessions: HashMap::new(),
+            threads: HashMap::new(),
             list,
             side_list,
             recent_runs,
@@ -1838,6 +1906,13 @@ impl ScreensPanel {
                     Screen::Session { session_id } => Some(TablessWork {
                         issue_id: issue_of_screen.clone(),
                         run_id: session_id.clone(),
+                        thread_id: None,
+                    }),
+                    // EXP-1284: the rail's Running rows are threads now.
+                    Screen::Thread { thread_id } => Some(TablessWork {
+                        issue_id: None,
+                        run_id: String::new(),
+                        thread_id: Some(thread_id.clone()),
                     }),
                     _ => None,
                 })
@@ -1955,6 +2030,13 @@ impl ScreensPanel {
             }
             // EXP-1255: the composer is built on first show (render).
             Screen::NewRun { .. } => {}
+            // EXP-1284: entry-or-insert like a session — the view owns the
+            // feeds of the runs its conversation unfolds.
+            Screen::Thread { thread_id } => {
+                self.threads.entry(thread_id.clone()).or_insert_with(|| {
+                    cx.new(|cx| crate::thread_screen::ThreadScreenView::new(thread_id, window, cx))
+                });
+            }
             Screen::BoardIssues { .. }
             | Screen::Inbox { .. }
             | Screen::Files
@@ -2633,7 +2715,15 @@ impl ScreensPanel {
             .entry(id.to_string())
             .or_insert_with(|| {
                 let id = id.to_string();
-                cx.new(|cx| crate::chat_screen::ChatScreenView::new_run_tab(id, window, cx))
+                // EXP-1284: "Start a session here" opened this tab for a thread.
+                let seed = crate::thread_screen::new_run_thread(&id, cx);
+                cx.new(|cx| {
+                    let mut view = crate::chat_screen::ChatScreenView::new_run_tab(id, window, cx);
+                    if let Some((thread_id, text)) = seed {
+                        view.set_thread(thread_id, text, window, cx);
+                    }
+                    view
+                })
             })
             .clone()
     }
@@ -2647,6 +2737,13 @@ impl ScreensPanel {
         // EXP-1255: a New run tab's composer (and its draft) goes with it.
         if let Screen::NewRun { id } = &tab.screen {
             self.new_runs.remove(id);
+            crate::thread_screen::forget_new_run_thread(id, cx);
+        }
+        // EXP-1284: a thread's view (and the run feeds it unfolded) goes too.
+        if let Screen::Thread { thread_id } = &tab.screen {
+            if let Some(view) = self.threads.remove(thread_id) {
+                view.update(cx, |view, cx| view.shutdown(cx));
+            }
         }
         // EXP-894: a closed tab's stashed drafts (`crate::tab_state`) go too.
         if let Some(issue_id) = &tab.issue_id {
@@ -2681,6 +2778,11 @@ impl ScreensPanel {
     fn shutdown_all_sessions(&mut self, cx: &mut gpui::Context<Self>) {
         let views: Vec<_> = self.sessions.drain().map(|(_, view)| view).collect();
         for view in views {
+            view.update(cx, |view, cx| view.shutdown(cx));
+        }
+        // EXP-1284: the thread views hold run feeds too.
+        let threads: Vec<_> = self.threads.drain().map(|(_, view)| view).collect();
+        for view in threads {
             view.update(cx, |view, cx| view.shutdown(cx));
         }
     }
@@ -4186,6 +4288,13 @@ impl Render for ScreensPanel {
             Some(Screen::Action { .. }) => self.action.clone().into_any_element(),
             Some(Screen::Chat) => self.chat.clone().into_any_element(),
             Some(Screen::NewRun { id }) => self.new_run_view(id, window, cx).into_any_element(),
+            // EXP-1284: built by `sync_tabs` on activation, like a session.
+            Some(Screen::Thread { thread_id }) => self
+                .threads
+                .get(thread_id)
+                .cloned()
+                .map(gpui::IntoElement::into_any_element)
+                .unwrap_or_else(|| self.render_syncing(cx)),
             Some(Screen::Reviews) => self.reviews.clone().into_any_element(),
             // VAPP-90: the Exponential UI kitchen sink (dev-only).
             Some(Screen::ExponentialUiKitchenSink) => self
@@ -4690,6 +4799,29 @@ mod tests {
     /// else. The last terminal tab closing leaves the center empty rather than
     /// pulling an issue tab into view (EXP-870: the bottom strip is terminals;
     /// `true` below marks a terminal).
+    /// EXP-1284: a thread-composer start's landing replaces ITS New session
+    /// tab with the THREAD (`ReplaceTab(NewRun)` → `Screen::Thread`), the
+    /// thread tab then holds only itself, and a bulk close spares a New
+    /// session tab whose start is still in flight (review #2) — the thread
+    /// landing included.
+    #[test]
+    fn a_thread_landing_takes_its_new_session_tab() {
+        let new_run = Screen::NewRun { id: "thread-t1-1".into() };
+        let thread = Screen::Thread { thread_id: "t1".into() };
+        let mut tabs = vec![issue_tab("i1", None), TabEntry::new(new_run.clone(), None, None)];
+        let pending = PendingOrigin::ReplaceTab(new_run.clone());
+        let ix = replaced_tab(&tabs, Some(&pending)).expect("the handed-off tab");
+        assert_eq!(ix, 1);
+        let replaced = rebind_tab(&mut tabs[ix], thread.clone(), None);
+        assert_eq!(replaced.screen, new_run);
+        assert!(tabs[1].holds(&thread));
+        assert!(!tabs[1].holds(&Screen::Thread { thread_id: "t2".into() }));
+        assert!(!tabs[0].holds(&thread));
+        let starting: std::collections::HashSet<String> = ["thread-t1-1".to_string()].into_iter().collect();
+        assert!(super::is_starting_new_run(&new_run, &starting));
+        assert!(!super::is_starting_new_run(&thread, &starting));
+    }
+
     #[test]
     fn a_close_never_activates_the_other_strip() {
         // [issue, issue, terminal] — the terminal closes, none is left.
@@ -4890,6 +5022,7 @@ mod tests {
         let work = TablessWork {
             issue_id: Some("i1".into()),
             run_id: "s1".into(),
+            thread_id: None,
         };
         assert!(work.holds(&Screen::Session {
             session_id: "s1".into()
@@ -4908,12 +5041,29 @@ mod tests {
         let chat = TablessWork {
             issue_id: None,
             run_id: "s3".into(),
+            thread_id: None,
         };
         assert!(chat.holds(&Screen::Session {
             session_id: "s3".into()
         }));
         assert!(!chat.holds(&Screen::IssueDetail {
             issue_id: "i1".into()
+        }));
+        // EXP-1284: a thread the Running section opened holds that thread
+        // only.
+        let thread = TablessWork {
+            issue_id: None,
+            run_id: String::new(),
+            thread_id: Some("t1".into()),
+        };
+        assert!(thread.holds(&Screen::Thread {
+            thread_id: "t1".into()
+        }));
+        assert!(!thread.holds(&Screen::Thread {
+            thread_id: "t2".into()
+        }));
+        assert!(!thread.holds(&Screen::Session {
+            session_id: String::new()
         }));
     }
 

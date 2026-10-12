@@ -6,6 +6,7 @@ import {
   ExponentialLogo,
   FeedbackStatesSpecimen,
   SkeletonRows,
+  THREAD_COPY,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -23,6 +24,12 @@ import { LaunchComposer } from "@/components/launch-composer"
 import { useAgentsData } from "@/hooks/use-agents-data"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
+import { useOpenSession } from "@/hooks/use-open-session"
+import {
+  threadIdOfRun,
+  useThreadBundle,
+  waitForThreadOfRun,
+} from "@/hooks/use-threads"
 import { useRemoteStart, type RemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import {
@@ -34,7 +41,7 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { updateWorkTabs } from "@/hooks/use-work-tabs"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import type { CodingSession, Team, User } from "@/db/schema"
-import { landNewRun } from "@/lib/work-tabs"
+import { landNewRun, markNewRunStarting } from "@/lib/work-tabs"
 import {
   seedFromSearch,
   type AgentSearch,
@@ -111,7 +118,7 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
   head: () => ({ meta: [{ title: pageTitle(`Agent`) }] }),
   validateSearch: (
     search: Record<string, unknown>
-  ): AgentSearch & { from?: string; dev?: DevView } => ({
+  ): AgentSearch & { from?: string; thread?: string; dev?: DevView } => ({
     issues: str(search.issues),
     action: str(search.action),
     pr: str(search.pr),
@@ -120,6 +127,9 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
     icon: str(search.icon),
     conflict: flag(search.conflict),
     from: str(search.from),
+    // EXP-1284: "Start a session here" — every start from this page goes INTO
+    // that thread. Sticky like `from` (never stripped with the seed).
+    thread: str(search.thread),
     dev: devView(search.dev),
   }),
   beforeLoad: async ({ context, location }) => {
@@ -161,23 +171,62 @@ function AgentPage() {
   // enforces both at mint time, this only decides what renders.
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
 
-  // EXP-1255: a run started here LANDS → the New run tab (when one is open)
-  // turns into that run's tab, in place.
+  // EXP-1255: a session started here LANDS → the New session tab waiting on
+  // THAT START (keyed by its start id, never by the window) turns into the
+  // session's tab, in place. EXP-1284: every start joins a THREAD, so it
+  // lands as that thread's tab and its page opens — the session's item
+  // usually syncs with its row; a start that names `?thread=` knows it up
+  // front.
   const teamIdForTabs = team?.id
-  const onOpened = useCallback(
-    (run: CodingSession) => {
+  const requestedThread = search.thread ?? null
+  const fromRef = useRef(search.from)
+  fromRef.current = search.from
+  const openSessionDirect = useOpenSession()
+  const onSent = useCallback(
+    ({ startId }: { startId: string }) => {
       if (!teamIdForTabs) return
-      updateWorkTabs(teamIdForTabs, (state) =>
-        landNewRun(state, { runId: run.id, issueId: run.issueId })
-      )
+      updateWorkTabs(teamIdForTabs, (state) => markNewRunStarting(state, startId))
     },
     [teamIdForTabs]
+  )
+  const onOpened = useCallback(
+    (run: CodingSession, start: { startId: string | null }): boolean => {
+      if (!teamIdForTabs) return false
+      const land = (threadId: string | null) => {
+        updateWorkTabs(teamIdForTabs, (state) =>
+          landNewRun(
+            state,
+            { runId: run.id, issueId: run.issueId, threadId },
+            start.startId
+          )
+        )
+        if (!threadId) {
+          openSessionDirect(run)
+          return
+        }
+        void navigate({
+          to: `/t/$teamSlug/threads/$threadId`,
+          params: { teamSlug, threadId },
+          search: fromRef.current ? { from: fromRef.current } : {},
+        })
+      }
+      const known = threadIdOfRun(run.id) ?? requestedThread
+      if (known) {
+        land(known)
+        return true
+      }
+      void waitForThreadOfRun(run.id).then(land)
+      return true
+    },
+    [teamIdForTabs, requestedThread, navigate, teamSlug, openSessionDirect]
   )
   const remote = useRemoteStart({
     enabled: steerEnabled,
     currentUserId,
     teamId: team?.id,
     onOpened,
+    onSent,
+    threadId: requestedThread,
   })
 
   // The one-shot seed: held here after the URL keys are stripped, handed to
@@ -228,6 +277,7 @@ function AgentPage() {
         params: { teamSlug },
         search: {
           ...(current.from ? { from: current.from } : {}),
+          ...(current.thread ? { thread: current.thread } : {}),
           ...(actionId ? { action: actionId } : {}),
         },
         replace: true,
@@ -270,10 +320,13 @@ function AgentPage() {
       params: { teamSlug },
       // EXP-851: the seed is one-shot, the ORIGIN is not — it decides where
       // the launched run lands and which list the sidebar keeps.
-      search: search.from ? { from: search.from } : {},
+      search: {
+        ...(search.from ? { from: search.from } : {}),
+        ...(search.thread ? { thread: search.thread } : {}),
+      },
       replace: true,
     })
-  }, [urlSeed, navigate, teamSlug, search.from])
+  }, [urlSeed, navigate, teamSlug, search.from, search.thread])
 
   // EXP-862: with nothing running, the composer is the whole page — it
   // centres in the column instead of hanging off the top edge (the desktop's
@@ -339,6 +392,21 @@ function AgentPage() {
             listEmpty ? `min-h-full justify-center` : ``
           } ${TAB_BAR_CLEARANCE}`}
         >
+          {search.thread && (
+            <StartInThreadLine
+              teamId={team.id}
+              currentUserId={currentUserId}
+              threadId={search.thread}
+              onClear={() =>
+                void navigate({
+                  to: `/t/$teamSlug/agent`,
+                  params: { teamSlug },
+                  search: search.from ? { from: search.from } : {},
+                  replace: true,
+                })
+              }
+            />
+          )}
           <HomeColumn
             team={team}
             userName={authSession?.user?.name ?? null}
@@ -374,6 +442,44 @@ function AgentPage() {
     </div>
   )
 }
+
+/** EXP-1284: "Start a session here" — the thread every start from this page
+ *  goes into, named above the composer, with the way out. */
+function StartInThreadLine({
+  teamId,
+  currentUserId,
+  threadId,
+  onClear,
+}: {
+  teamId: string
+  currentUserId: string
+  threadId: string
+  onClear: () => void
+}) {
+  const { bundle } = useThreadBundle(teamId, currentUserId, threadId)
+  if (!bundle) return null
+  return (
+    <div
+      data-testid="start-in-thread"
+      className="mb-4 flex min-w-0 items-center justify-center gap-1.5 text-xs text-muted-foreground"
+    >
+      <span className="shrink-0">Starting in</span>
+      <span className="min-w-0 truncate font-medium text-foreground">{bundle.view.title}</span>
+      <span className="shrink-0">{THREAD_COPY.word}</span>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        aria-label="Start outside the thread"
+        className="shrink-0"
+        onClick={onClear}
+      >
+        <ClearThreadIcon />
+      </Button>
+    </div>
+  )
+}
+
+const ClearThreadIcon = conceptIcon(`ui-close`)
 
 /** EXP-1253: the home column under the page chrome: the headline + composer
  *  (or the relay-less line), then Getting started while the team has no

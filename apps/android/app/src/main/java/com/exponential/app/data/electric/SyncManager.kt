@@ -28,6 +28,8 @@ import com.exponential.app.data.db.LabelEntity
 import com.exponential.app.data.db.NotificationEntity
 import com.exponential.app.data.db.IssueDraftEntity
 import com.exponential.app.data.db.PinEntity
+import com.exponential.app.data.db.ThreadEntity
+import com.exponential.app.data.db.ThreadItemEntity
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.UserEntity
 import com.exponential.app.data.db.TeamEntity
@@ -107,7 +109,7 @@ class SyncManager @Inject constructor(
     @Volatile private var backgroundedAtMs: Long? = null
 
     // Debounce gate for unforced kicks: foreground + network-available +
-    // several pushes can land within the same second, and 21 shapes each
+    // several pushes can land within the same second, and 23 shapes each
     // dropping a live connection per trigger is a real cost.
     private val lastKickGate = AtomicLong(0L)
 
@@ -337,7 +339,7 @@ class SyncManager @Inject constructor(
             for (accountId in signedIn - running) {
                 val db = databaseHolder.database(forAccountId = accountId)
                 pipelines[accountId] = launchPipeline(accountId, db)
-                android.util.Log.i("SyncManager", "Launched shape pipeline (21 shapes) for $accountId")
+                android.util.Log.i("SyncManager", "Launched shape pipeline (23 shapes) for $accountId")
             }
         }
     }
@@ -412,6 +414,8 @@ class SyncManager @Inject constructor(
         val deviceWorktreeDao = db.deviceWorktreeDao()
         val pinDao = db.pinDao()
         val issueDraftDao = db.issueDraftDao()
+        val threadDao = db.threadDao()
+        val threadItemDao = db.threadItemDao()
 
         val shapes = listOf(
             launchShape(
@@ -606,6 +610,29 @@ class SyncManager @Inject constructor(
                 onInsert = { issueDraftDao.upsert(it) },
                 onDelete = { issueDraftDao.deleteById(it.id) },
                 onRefetch = { issueDraftDao.clear() },
+            ),
+            // EXP-1284: threads (the unit of work) — team-scoped, no board and
+            // no trash predicate; the Guide (`results`) rides the row.
+            launchShape(
+                shape = "threads", path = "/api/shapes/threads", tableName = "threads",
+                serializer = ThreadEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("threads"),
+                onInsert = { threadDao.upsert(it) },
+                onDelete = { threadDao.deleteById(it.id) },
+                onRefetch = { threadDao.clear() },
+            ),
+            // EXP-1284: a thread's issue | run items — team-scoped with the
+            // static board trash/archive predicates (issue items of a hidden
+            // board never arrive; run items always do).
+            launchShape(
+                shape = "thread_items", path = "/api/shapes/thread-items", tableName = "thread_items",
+                serializer = ThreadItemEntity.serializer(),
+                offsetDao = offsetDao, db = db, baseUrl = baseUrl, token = token,
+                reporter = reporter("thread_items"),
+                onInsert = { threadItemDao.upsert(it) },
+                onDelete = { threadItemDao.deleteById(it.id) },
+                onRefetch = { threadItemDao.clear() },
             ),
         )
         return Pipeline(jobs = shapes.map { it.first }, clients = shapes.map { it.second })

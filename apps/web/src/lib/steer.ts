@@ -299,7 +299,11 @@ const RELAY_START_TIMEOUT_MS = 3_000
  * bucket holds the socket). Absent on every own-device start.
  * `startedReason` (EXP-679): `agent` when another coding session asked for
  * this start — the device writes it onto `coding_sessions.started_reason` so
- * the run is unattended (its close-out ends it). Absent otherwise. */
+ * the run is unattended (its close-out ends it). Absent otherwise.
+ * `threadId` (EXP-1284): the thread the run starts into, validated against
+ * the subject's team in steer.startSession; the device echoes it into
+ * `codingSessions.start({ threadId })`. Never on a resume (a resume stays in
+ * its predecessor's thread). */
 export async function relayPostStart(
   config: SteerRelayConfig,
   body: {
@@ -310,6 +314,7 @@ export async function relayPostStart(
     startId?: string
     startedBy?: string
     startedReason?: `agent`
+    threadId?: string
   } &
     SteerStartSubject &
     SteerStartOptions,

@@ -40,6 +40,7 @@ pub(crate) mod run_status_row;
 pub(crate) mod session_thread;
 pub(crate) mod composer_options;
 pub(crate) mod work_card;
+pub(crate) mod thread_parts;
 pub(crate) mod script_card;
 pub(crate) mod comment_card;
 pub(crate) mod team_agents_settings;
@@ -117,6 +118,7 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: session_thread::ID, owner: session_thread::OWNER, render: session_thread::render },
     Entry { id: composer_options::ID, owner: composer_options::OWNER, render: composer_options::render },
     Entry { id: work_card::ID, owner: work_card::OWNER, render: work_card::render },
+    Entry { id: thread_parts::ID, owner: thread_parts::OWNER, render: thread_parts::render },
     Entry { id: script_card::ID, owner: script_card::OWNER, render: script_card::render },
     Entry { id: comment_card::ID, owner: comment_card::OWNER, render: comment_card::render },
     Entry { id: team_agents_settings::ID, owner: team_agents_settings::OWNER, render: team_agents_settings::render },

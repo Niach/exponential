@@ -33,6 +33,8 @@ export interface IssueDraftSearch {
   board?: string
   status?: string
   from?: string
+  /** EXP-1284: `New issue in this thread` — the created issue joins it. */
+  thread?: string
 }
 
 export function parseIssueDraftSearch(
@@ -44,6 +46,7 @@ export function parseIssueDraftSearch(
     board: pick(search.board),
     status: pick(search.status),
     from: pick(search.from),
+    thread: pick(search.thread),
   }
 }
 
@@ -59,18 +62,22 @@ export function newDraftNavigation({
   boardId,
   status,
   from,
+  threadId,
   draftId = crypto.randomUUID(),
 }: {
   teamSlug: string
   boardId?: string
   status?: StatusRowOption
   from?: string
+  /** EXP-1284: file the issue into this thread. */
+  threadId?: string
   draftId?: string
 }) {
   const search: IssueDraftSearch = {}
   if (boardId) search.board = boardId
   if (status && !isFallbackStatusOption(status)) search.status = status.id
   if (from) search.from = from
+  if (threadId) search.thread = threadId
   return {
     to: `/t/$teamSlug/drafts/$draftId` as const,
     params: { teamSlug, draftId },
@@ -139,4 +146,37 @@ export function canCreateDraft({
   uploading: boolean
 }): boolean {
   return title.trim().length > 0 && !creating && !uploading
+}
+
+/**
+ * EXP-1284 (review T11): where a created draft lands. A "New issue in this
+ * thread" draft lands back on the THREAD with the new issue's tab selected
+ * (`?child=<IDENT>`, Back keeps the thread's own origin); every other draft
+ * lands on the issue's page, keeping `?from=`.
+ */
+export function draftLandingNavigation({
+  teamSlug,
+  threadId,
+  boardSlug,
+  identifier,
+  from,
+}: {
+  teamSlug: string
+  threadId: string | null
+  boardSlug: string
+  identifier: string
+  from?: string
+}) {
+  if (threadId) {
+    return {
+      to: `/t/$teamSlug/threads/$threadId` as const,
+      params: { teamSlug, threadId },
+      search: { child: identifier },
+    }
+  }
+  return {
+    to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier` as const,
+    params: { teamSlug, boardSlug, issueIdentifier: identifier },
+    search: from ? { from } : {},
+  }
 }

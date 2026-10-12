@@ -19,6 +19,8 @@ struct RunChangesView: View {
     @State private var focusPath: String?
     @State private var section: GuideSectionKey?
     @State private var mergeState = WorkMergeState()
+    /// EXP-1284: the run's THREAD — its Guide is the thread's (`guideOfRun`).
+    @State private var runThread: RunThreadLookup?
 
     private var session: CodingSessionEntity? { model?.session }
 
@@ -43,7 +45,9 @@ struct RunChangesView: View {
             AppBackground()
             if let model {
                 GuideFace(
-                    groups: parseSessionResultGroups(session?.results),
+                    groups: parseSessionResultGroups(ThreadViews.guideResults(
+                        threadResults: runThread?.thread?.results, runResults: session?.results
+                    )),
                     files: model.loadedFiles,
                     diffStatus: diffStatus(model),
                     teamId: session?.teamId,
@@ -106,9 +110,14 @@ struct RunChangesView: View {
                 )
             }
             model?.startObserving()
+            if runThread == nil {
+                runThread = RunThreadLookup(accountId: accountId, db: deps.db)
+            }
+            runThread?.follow(sessionId)
         }
         .onDisappear {
             model?.stopObserving()
+            runThread?.stop()
         }
     }
 

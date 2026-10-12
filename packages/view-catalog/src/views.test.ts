@@ -81,6 +81,7 @@ const PINNED_RECIPES = [
   `openWidgetEditor`,
   `expandFirstDiffFile`,
   `openTriggerEditor`,
+  `openThreadChildMenu`,
   `openGettingStarted`,
   `typeIssueRef`,
   `openComposerMenuImplement`,

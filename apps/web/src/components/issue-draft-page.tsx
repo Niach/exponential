@@ -19,7 +19,11 @@ import {
   type DraftConsumedElsewhere,
 } from "@/hooks/use-issue-draft-editor"
 import { originListNavigation, parseOrigin } from "@/lib/detail-origin"
-import { draftExitPrompt, ISSUE_DRAFT_COPY } from "@/lib/issue-draft-page"
+import {
+  draftExitPrompt,
+  draftLandingNavigation,
+  ISSUE_DRAFT_COPY,
+} from "@/lib/issue-draft-page"
 import { uploadDraftAttachment } from "@/lib/storage/issue-image-upload"
 import {
   mediaPlayabilityHint,
@@ -35,6 +39,7 @@ import { FilesSectionView } from "@/components/issue-files-section"
 import { IssuePropertiesPanel } from "@/components/issue-properties-panel"
 import { PropertiesTrayCard } from "@/components/issue-properties-tray"
 import { IssueTitleInput } from "@/components/issue-title-field"
+import { DraftThreadRow } from "@/components/thread/issue-threads-row"
 import {
   MOBILE_DETAIL_SCREEN_CLASS,
   MobileDetailHeader,
@@ -79,6 +84,8 @@ export interface IssueDraftPageProps {
   initialStatusId?: string
   /** The `?from=` origin — Back returns there, Create keeps it. */
   from?: string
+  /** EXP-1284: `New issue in this thread` — Create links the issue into it. */
+  threadId?: string
 }
 
 export function IssueDraftPage({
@@ -92,6 +99,7 @@ export function IssueDraftPage({
   initialBoardId,
   initialStatusId,
   from,
+  threadId,
 }: IssueDraftPageProps) {
   const isMobile = useIsMobile()
   const navigate = useNavigate()
@@ -99,21 +107,26 @@ export function IssueDraftPage({
   // Land on an issue — the page's own Create and a create elsewhere
   // (EXP-1231) both REPLACE the draft entry, keep `?from=`, and pass the
   // leave blocker (the draft is consumed; there is nothing to ask about).
+  // EXP-1284 (review T11): a thread draft lands back on its thread, the new
+  // issue's tab selected (`draftLandingNavigation`). The editor holds the
+  // thread (a reopened draft keeps its own), read through a ref because the
+  // editor is created below.
+  const threadIdRef = useRef<string | null>(threadId ?? null)
   const openIssue = (issue: Pick<Issue, `identifier` | `boardId`>) => {
     void navigate({
-      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
-      params: {
+      ...draftLandingNavigation({
         teamSlug,
+        threadId: threadIdRef.current,
         boardSlug:
           boards.find((row) => row.id === issue.boardId)?.slug ??
           boards[0]?.slug ??
           ``,
-        issueIdentifier: issue.identifier,
-      },
-      search: from ? { from } : {},
+        identifier: issue.identifier,
+        from,
+      }),
       replace: true,
       ignoreBlocker: true,
-    })
+    } as never)
   }
   const onConsumedElsewhere = (consumed: DraftConsumedElsewhere) => {
     if (consumed.kind === `created`) {
@@ -128,12 +141,14 @@ export function IssueDraftPage({
     teamId,
     initialBoardId,
     initialStatusId,
+    threadId,
     draft,
     boards,
     labels,
     users,
     onConsumedElsewhere,
   })
+  threadIdRef.current = editor.threadId
   const board =
     boards.find((row) => row.id === editor.boardId) ??
     boards.find((row) => row.id === initialBoardId) ??
@@ -182,16 +197,16 @@ export function IssueDraftPage({
     const created = await editor.create()
     if (!created) return
     void navigate({
-      to: `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`,
-      params: {
+      ...draftLandingNavigation({
         teamSlug,
+        threadId: editor.threadId,
         boardSlug: created.boardSlug ?? board?.slug ?? ``,
-        issueIdentifier: created.identifier,
-      },
-      search: from ? { from } : {},
+        identifier: created.identifier,
+        from,
+      }),
       replace: true,
       ignoreBlocker: true,
-    })
+    } as never)
   }
 
   // ── Leaving (EXP-1212): any in-app navigation to another path is HELD
@@ -417,6 +432,16 @@ export function IssueDraftPage({
     />
   )
 
+  // EXP-1284: where a "New issue in this thread" draft files.
+  const threadRow = (
+    <DraftThreadRow
+      threadId={editor.threadId}
+      teamId={teamId}
+      teamSlug={teamSlug}
+      className="px-5 pt-1 pb-2"
+    />
+  )
+
   const tray = (
     <PropertiesTrayCard>
       <div className="min-w-0 flex-1">
@@ -558,6 +583,7 @@ export function IssueDraftPage({
           style={{ paddingTop: mobileHeaderSize.height }}
         >
           <div ref={titleRef}>{titleInput}</div>
+          {threadRow}
           {tray}
           <div className="pt-2">{descriptionEditor}</div>
           {filesSection}
@@ -598,6 +624,7 @@ export function IssueDraftPage({
               >
                 {titleInput}
               </div>
+              {threadRow}
             </div>
             {/* EXP-1191: the tray stays in view, like the issue's. */}
             <WorkStickyTray ref={trayRef} collapsed={titleCollapsed}>

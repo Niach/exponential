@@ -21,7 +21,7 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
-import { useOpenSession } from "@/hooks/use-open-session"
+import { useOpenStartedSession } from "@/hooks/use-open-started-session"
 import type { DetailOrigin } from "@/lib/detail-origin"
 import {
   findStartedRun,
@@ -217,8 +217,20 @@ export function useRemoteStart(
      * `useOpenSession` verbatim; absent = derive it from the URL. */
     origin?: DetailOrigin | null
     /** EXP-1255: called with the started run as the watch opens it (the
-     *  New run tab turns into that run's tab). */
-    onOpened?: (session: CodingSession) => void
+     *  New run tab turns into that run's tab). EXP-1284: returning `true`
+     *  means the caller opened it itself (the run's THREAD page), so the
+     *  hook does not navigate to the run. */
+    onOpened?: (
+      session: CodingSession,
+      start: { startId: string | null }
+    ) => boolean | void
+    /** EXP-1284: a start was DELIVERED under this start id (the client's,
+     *  else the server-minted one) — the New session tab remembers it so the
+     *  landing is matched per start. */
+    onSent?: (start: { startId: string }) => void
+    /** EXP-1284: every start from this hook goes INTO this thread
+     *  (`steer.startSession({threadId})` — "Start a session here"). */
+    threadId?: string | null
   } = {}
 ): RemoteStart {
   const { enabled = true, currentUserId, teamId, listTeamIds } = options
@@ -242,6 +254,9 @@ export function useRemoteStart(
     send: WatchedSend
     /** Past `STARTED_RUN_DEADLINE_MS`: still followed, no longer "sent". */
     lapsed: boolean
+    /** EXP-1284: the delivered start's id, handed to `onOpened` (the New
+     *  session tab lands as the thread's tab by it). */
+    startId: string | null
   } | null>(null)
   const timersRef = useRef<ReturnType<typeof setTimeout>[]>([])
   // The latest send (in flight or watched): what `quietWatch` quiets.
@@ -249,9 +264,13 @@ export function useRemoteStart(
   const deadlineToastRef = useRef<string | number | null>(null)
   const mountedRef = useRef(true)
   const [openedId, setOpenedId] = useState<string | null>(null)
-  const openSession = useOpenSession()
+  const openStarted = useOpenStartedSession()
   const onOpenedRef = useRef(options.onOpened)
   onOpenedRef.current = options.onOpened
+  const onSentRef = useRef(options.onSent)
+  onSentRef.current = options.onSent
+  const threadIdRef = useRef(options.threadId ?? null)
+  threadIdRef.current = options.threadId ?? null
   // EXP-1259: the startId a failure toast's Retry hands to the caller's
   // re-submit (consumed by the next send of the same intent, dropped by any
   // other send).
@@ -367,9 +386,15 @@ export function useRemoteStart(
     const open = !canOpen || canOpen()
     setOpenedId(match.id)
     if (!open) return
-    onOpenedRef.current?.(match)
-    openSession(match, openOptions)
-  }, [sessionRows, pending, currentUserId, openSession, openOptions])
+    // EXP-1284: `onOpened` answers true when it opened the session itself
+    // (the New session tab landing as its THREAD's tab, by start id);
+    // otherwise (review T11) the start lands on its thread's page.
+    const handled =
+      onOpenedRef.current?.(match, { startId: pending.startId }) === true
+    if (!handled) {
+      openStarted(match, { ...openOptions, knownThreadId: threadIdRef.current })
+    }
+  }, [sessionRows, pending, currentUserId, openStarted, openOptions])
 
   // The desktop inserts the coding_sessions row when the launcher spins up.
   // The deadline is not a silent re-enable: a run the desktop REFUSED — a
@@ -404,7 +429,10 @@ export function useRemoteStart(
   const markSent = (
     deviceLabel: string,
     key: StartedRunKey,
-    send: WatchedSend
+    send: WatchedSend,
+    /** EXP-1284: the id the start was delivered under (the server echoes
+     *  it), so the New session tab can wait on THIS start. */
+    deliveredId: string | null
   ) => {
     // A later start superseded this one while its request was in flight.
     if (!mountedRef.current || sendRef.current !== send) return
@@ -419,7 +447,9 @@ export function useRemoteStart(
       key,
       send,
       lapsed: false,
+      startId: deliveredId,
     })
+    if (deliveredId) onSentRef.current?.({ startId: deliveredId })
     timersRef.current = [
       setTimeout(() => {
         setPending((current) =>
@@ -464,7 +494,10 @@ export function useRemoteStart(
       key,
       send,
       lapsed: true,
+      // EXP-1284: it may still land; the New session tab waits on THIS start.
+      startId: send.startId ?? null,
     })
+    if (send.startId) onSentRef.current?.({ startId: send.startId })
     timersRef.current = [
       setTimeout(() => {
         setPending((current) => (current?.send === send ? null : current))
@@ -492,13 +525,14 @@ export function useRemoteStart(
       const { resume, ...rest } = options
       const base = {
         deviceId: device.deviceId,
+        ...threadIdPayload(threadIdRef.current),
         ...rest,
         // A blank prompt is OMITTED — the server drops whitespace-only
         // anyway, and older relays never see the key.
         ...(prompt && prompt.trim() ? { prompt } : {}),
         startId: id,
       }
-      await trpc.steer.startSession.mutate(
+      const sent = await trpc.steer.startSession.mutate(
         // 1 issue → plain single-issue session; 2+ → one batch session on a
         // single pushed branch (the server contract owns the fan-out).
         issueIds.length === 1
@@ -510,7 +544,7 @@ export function useRemoteStart(
           : { issueIds, ...base },
         SKIP_ERROR_TOAST
       )
-      markSent(device.deviceLabel, key, send)
+      markSent(device.deviceLabel, key, send, sent?.startId ?? id)
     } catch (error) {
       const errorToast = startFailureToast(
         error,
@@ -542,7 +576,7 @@ export function useRemoteStart(
     try {
       // Action runs never resume an issue worktree (EXP-481).
       const { resume: _resume, ...rest } = options
-      await trpc.steer.startSession.mutate(
+      const sent = await trpc.steer.startSession.mutate(
         {
           actionId: action.id,
           deviceId: device.deviceId,
@@ -551,12 +585,13 @@ export function useRemoteStart(
           ...(isBuiltinActionId(action.id) ? { teamId: action.teamId } : {}),
           ...(inputs ? { inputs } : {}),
           ...(prompt && prompt.trim() ? { prompt } : {}),
+          ...threadIdPayload(threadIdRef.current),
           startId: id,
           ...rest,
         },
         SKIP_ERROR_TOAST
       )
-      markSent(device.deviceLabel, actionKey, send)
+      markSent(device.deviceLabel, actionKey, send, sent?.startId ?? id)
     } catch (error) {
       const errorToast = startFailureToast(
         error,
@@ -588,4 +623,9 @@ export function useRemoteStart(
     refresh: () => setRefreshTick((tick) => tick + 1),
     latestVersions,
   }
+}
+
+/** EXP-1284: the `threadId` a start carries, when it has one. */
+function threadIdPayload(threadId: string | null): { threadId?: string } {
+  return threadId ? { threadId } : {}
 }

@@ -114,6 +114,11 @@ pub struct IssuesCreateInput {
     /// `/api/attachments/{id}` URL owned by that draft.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub draft_id: Option<String>,
+    /// EXP-1284: "New issue in this thread" — the server links the new issue
+    /// into that thread (source `user`) in the create's transaction. Skipped
+    /// when absent, so every thread-less create's wire is byte-identical.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
 }
 
 impl IssuesCreateInput {
@@ -130,6 +135,7 @@ impl IssuesCreateInput {
             label_ids: None,
             parent_id: None,
             draft_id: None,
+            thread_id: None,
         }
     }
 }

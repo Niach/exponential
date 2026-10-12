@@ -52,7 +52,7 @@ internal fun appLinkAnnotation(
 ): LinkAnnotation? {
     if (handler == null) return LinkAnnotation.Url(url = href, styles = styles)
     return when (val link = classifyAppLink(href, handler.origin)) {
-        is AppLink.Issue, is AppLink.Session -> {
+        is AppLink.Issue, is AppLink.Session, is AppLink.Thread -> {
             val url = absoluteUrl(href, handler.origin)
             LinkAnnotation.Clickable(
                 tag = url,
@@ -135,6 +135,7 @@ fun rememberAppLinkHandler(): AppLinkHandler? {
         AppLinkHandler(origin) { link, url ->
             when (link) {
                 is AppLink.Session -> bus.openSession(link.sessionId)
+                is AppLink.Thread -> bus.openThread(link.threadId)
                 is AppLink.Issue -> {
                     bus.openWebIssueRef(
                         uri = Uri.parse(url),

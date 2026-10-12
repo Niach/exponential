@@ -133,8 +133,8 @@ import kotlinx.coroutines.launch
  * EXP-825: the team's AGENT page — the ONE launcher on every client. The
  * composer card ([AgentComposer]: subject chips, the message, images, the
  * labelled submit), the `@`/`#`/`:` candidate menu under it, the options line
- * ([AgentOptionsRow]), the start captions, then the caller's Running and Past
- * sessions ([agentSessionsList], moved here from the Devices tab, which keeps
+ * ([AgentOptionsRow]), the start captions, then the caller's Running and
+ * Recent THREADS ([agentThreadsList], EXP-1284; moved here from the Devices tab, which keeps
  * machines only — web parity, EXP-818).
  *
  * Two mounts: the Agent TAB (the bar's chat arm and the app's landing
@@ -153,11 +153,18 @@ fun AgentScreen(
     onBack: (() -> Unit)?,
     onOpenSteer: (codingSessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
+    /** EXP-1284: a Running / Recent row opens its THREAD. */
+    onOpenThread: (threadId: String) -> Unit = {},
+    /** T-N2: a start LANDS on its thread (Conversation selected), replacing
+     *  this page when it was pushed; default = [onOpenThread]. */
+    onLandInThread: (threadId: String) -> Unit = onOpenThread,
     viewModel: AgentComposerViewModel = hiltViewModel(),
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
     // The sessions under the composer: the Devices tab's own model, reused
     // rather than mirrored (both read the same synced shapes).
     sessionsViewModel: AgentsViewModel = hiltViewModel(),
+    // EXP-1284: the lists show THREADS (`partitionThreadList`).
+    threadsViewModel: com.exponential.app.ui.thread.ThreadsViewModel = hiltViewModel(),
 ) {
     // ── Composer state ──────────────────────────────────────────────────────
     val teamId by viewModel.teamId.collectAsStateWithLifecycle()
@@ -206,18 +213,31 @@ fun AgentScreen(
     val syncedDeviceRows by dataViewModel.deviceRows.collectAsStateWithLifecycle()
 
     // ── Sessions ────────────────────────────────────────────────────────────
-    val sessionsState by sessionsViewModel.state.collectAsStateWithLifecycle()
-    val pastRuns by sessionsViewModel.pastRuns.collectAsStateWithLifecycle()
     // EXP-1186: runs are cross-team, banded per team once there are several.
     val memberTeams by sessionsViewModel.teams.collectAsStateWithLifecycle()
+    // EXP-1284: Running (a live run of mine) vs Recent, as THREADS.
+    val threadList by threadsViewModel.list.collectAsStateWithLifecycle()
+    val orphanLive by threadsViewModel.orphanLive.collectAsStateWithLifecycle()
 
     // The desktop picked the start up — open the live session ONCE (EXP-536).
     val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
+    // EXP-1284 (T-N2/T11): EVERY start lands on its THREAD with the
+    // Conversation on show — the thread it was started into, else the one
+    // the server placed it in (its synced item, a short wait); a session no
+    // thread names yet opens on its own screen. Kept apart from the one-shot
+    // so consuming it never cancels the wait.
+    var landing by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(startedSessionId) {
         startedSessionId?.let {
             viewModel.consumeStartedSession()
-            onOpenSteer(it)
+            landing = it
         }
+    }
+    LaunchedEffect(landing) {
+        val sessionId = landing ?: return@LaunchedEffect
+        val threadId = viewModel.seed.threadId ?: threadsViewModel.awaitThreadOf(sessionId)
+        landing = null
+        if (threadId != null) onLandInThread(threadId) else onOpenSteer(sessionId)
     }
     // EXP-1253: computed ONCE per mount (it never flips while you type); the
     // name fills in when the user row syncs.
@@ -512,7 +532,7 @@ fun AgentScreen(
     // …and with nothing running, the composer column sits in the MIDDLE of the
     // page instead of hugging the top bar (web `justify-center`, desktop
     // `min_h_full`, iOS the same rule).
-    val emptyRuns = sessionsState.rows.isEmpty()
+    val emptyRuns = threadList.running.isEmpty() && orphanLive.isEmpty()
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -801,22 +821,23 @@ fun AgentScreen(
                 null -> Unit
             }
             item(key = "__sessions_gap__") { Spacer(Modifier.height(4.dp)) }
-            agentSessionsList(
-                rows = sessionsState.rows,
-                steerEnabled = steerEnabled == true,
-                onOpenSteer = onOpenSteer,
-                onOpenIssue = onOpenIssue,
+            agentThreadsList(
+                running = threadList.running,
+                onOpenThread = onOpenThread,
                 teams = memberTeams,
+                // T4: my live sessions no thread names yet stay listed.
+                orphans = orphanLive,
+                onOpenSession = onOpenSteer,
             )
         }
         }
     }
 
     if (recentOpen) {
-        RecentRunsSheet(
-            pastRuns = pastRuns,
+        RecentThreadsSheet(
+            recent = threadList.recent,
             teams = memberTeams,
-            onOpenRun = onOpenSteer,
+            onOpenThread = onOpenThread,
             onDismiss = { recentOpen = false },
         )
     }

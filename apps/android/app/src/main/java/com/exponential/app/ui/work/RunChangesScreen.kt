@@ -53,7 +53,13 @@ fun RunChangesScreen(
             else -> null
         }
     }
-    val groups = remember(session?.results) { parseSessionResultGroups(session?.results) }
+    // EXP-1284 (rule 8): the run's THREAD's Guide once the thread has one.
+    val threadsVm: com.exponential.app.ui.thread.ThreadsViewModel = hiltViewModel()
+    val threadBySession by threadsVm.threadBySession.collectAsStateWithLifecycle()
+    val guideRaw = session?.let {
+        com.exponential.app.domain.ThreadPage.guideResults(it.results, threadBySession[it.id]?.results)
+    }
+    val groups = remember(guideRaw) { parseSessionResultGroups(guideRaw) }
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     // The Reviews row's own title: a chat run's subject, an action run's
     // snapshot, else "Chat".

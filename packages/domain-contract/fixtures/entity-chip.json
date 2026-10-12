@@ -170,6 +170,20 @@
       "icon": "ui-team"
     },
     {
+      "name": "a thread reads its title",
+      "ref": { "kind": "thread", "id": "th-1", "title": "Checkout redesign" },
+      "label": "Checkout redesign",
+      "detail": null,
+      "icon": "work-faces"
+    },
+    {
+      "name": "an untitled thread reads the noun",
+      "ref": { "kind": "thread", "id": "th-2" },
+      "label": "Thread",
+      "detail": null,
+      "icon": "work-faces"
+    },
+    {
       "name": "an invite reads the email it carried",
       "ref": { "kind": "invite", "id": "inv-1", "title": "sam@example.com" },
       "label": "sam@example.com",

@@ -534,6 +534,14 @@ data class SteerStartOptions(
      * `codingSessionComputerUseCap`.
      */
     val computerUse: Boolean? = null,
+    /**
+     * EXP-1284: start INTO this thread (the thread page's reply composer,
+     * "Start a session here"). The server joins the run to the thread and links
+     * the start's issue(s); a vanished or foreign thread falls through to the
+     * default placement. Refused with a resume — a resume always stays in its
+     * predecessor's thread. Null/omitted = the default placement.
+     */
+    val threadId: String? = null,
 )
 
 // The three non-resume forms of steer.startSession all carry the EXP-825
@@ -557,6 +565,8 @@ internal data class StartSessionInput(
     // EXP-1249: next to `mcpServerIds`, both before the `prompt` that rides LAST.
     @SerialName("mcpServerIds") val mcpServerIds: List<String>? = null,
     @SerialName("computerUse") val computerUse: Boolean? = null,
+    // EXP-1284: the thread this start joins (omitted when null).
+    @SerialName("threadId") val threadId: String? = null,
     // Review #3 (feedback-states.json `starting.startIdKey`): the client's
     // uuid for THIS Start press, reused by Retry; the device starts an id
     // once. Omitted when null.
@@ -583,6 +593,8 @@ internal data class StartBatchSessionInput(
     // EXP-1249: next to `mcpServerIds`, both before the `prompt` that rides LAST.
     @SerialName("mcpServerIds") val mcpServerIds: List<String>? = null,
     @SerialName("computerUse") val computerUse: Boolean? = null,
+    // EXP-1284: the thread this start joins (omitted when null).
+    @SerialName("threadId") val threadId: String? = null,
     // Review #3 (feedback-states.json `starting.startIdKey`): the client's
     // uuid for THIS Start press, reused by Retry; the device starts an id
     // once. Omitted when null.
@@ -616,6 +628,8 @@ internal data class StartActionSessionInput(
     // EXP-1249: next to `mcpServerIds`, both before the `prompt` that rides LAST.
     @SerialName("mcpServerIds") val mcpServerIds: List<String>? = null,
     @SerialName("computerUse") val computerUse: Boolean? = null,
+    // EXP-1284: the thread this start joins (omitted when null).
+    @SerialName("threadId") val threadId: String? = null,
     // Review #3 (feedback-states.json `starting.startIdKey`): the client's
     // uuid for THIS Start press, reused by Retry; the device starts an id
     // once. Omitted when null.
@@ -710,6 +724,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 account = options.account,
                 mcpServerIds = options.mcpServerIds,
                 computerUse = options.computerUse,
+                threadId = options.threadId,
                 prompt = prompt,
                 startId = startId,
             ),
@@ -745,6 +760,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 account = options.account,
                 mcpServerIds = options.mcpServerIds,
                 computerUse = options.computerUse,
+                threadId = options.threadId,
                 prompt = prompt,
                 startId = startId,
             ),
@@ -826,6 +842,7 @@ class SteerApi @Inject constructor(private val trpc: TrpcClient) {
                 account = options.account,
                 mcpServerIds = options.mcpServerIds,
                 computerUse = options.computerUse,
+                threadId = options.threadId,
                 prompt = prompt,
                 startId = startId,
             ),

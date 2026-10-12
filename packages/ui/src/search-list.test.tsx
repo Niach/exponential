@@ -69,6 +69,35 @@ describe(`SearchList`, () => {
     expect(onChange).toHaveBeenCalledTimes(2)
   })
 
+  it(`starts the list at the top on every query change (the preselected top row stays in view)`, () => {
+    const onQueryChange = vi.fn()
+    const { container, rerender } = render(
+      <SearchList
+        mode="single"
+        value={null}
+        onChange={vi.fn()}
+        items={ISSUES}
+        density="pointer"
+        query=""
+        onQueryChange={onQueryChange}
+      />
+    )
+    const list = container.querySelector(`[cmdk-list]`) as HTMLElement
+    list.scrollTop = 120
+    rerender(
+      <SearchList
+        mode="single"
+        value={null}
+        onChange={vi.fn()}
+        items={ISSUES}
+        density="pointer"
+        query="t"
+        onQueryChange={onQueryChange}
+      />
+    )
+    expect(list.scrollTop).toBe(0)
+  })
+
   it(`shows the result count once a query is typed`, () => {
     render(
       <SearchList

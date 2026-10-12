@@ -79,6 +79,7 @@ import {
   issueRelations,
   issueSubscribers,
   notifications,
+  threadItems,
 } from "@/db/schema"
 
 const WS = `11111111-1111-4111-8111-111111111111`
@@ -303,13 +304,15 @@ describe(`issues.move`, () => {
       issueRelations,
       codingSessions,
       notifications,
+      // EXP-1284: the issue's thread items carry the board mirrors too.
+      threadItems,
     ]) {
       const childUpdate = updates.find((u) => u.table === table)
       expect(childUpdate).toBeDefined()
       expect(childUpdate!.set).toEqual({ boardId: PROJ_TO })
       expect(collectParams(childUpdate!.where)).toEqual([ISSUE_ID])
     }
-    expect(updates).toHaveLength(9)
+    expect(updates).toHaveLength(10)
 
     // Timeline event with the full hop payload.
     expect(h.recordIssueEvent).toHaveBeenCalledTimes(1)

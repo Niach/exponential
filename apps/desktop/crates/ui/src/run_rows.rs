@@ -683,6 +683,9 @@ pub(crate) struct RunStatusRowSpec {
     pub(crate) tool_line: Option<SharedString>,
     pub(crate) show_work: bool,
     pub(crate) on_toggle: Option<RunRowAction>,
+    /// The Show work / Hide work switch shows (EXP-1284: never on a
+    /// teammate's session block — its work is not this viewer's to open).
+    pub(crate) toggle: bool,
 }
 
 /// EXP-1175 — the Run face's ONE status row, over the thread or the
@@ -725,16 +728,19 @@ pub(crate) fn run_status_row(spec: RunStatusRowSpec, cx: &App) -> gpui::AnyEleme
                 .text_color(muted.opacity(0.7))
                 .child(line)
         }));
-    let mut toggle = crate::controls::text_button(
-        SharedString::from(format!("{}-toggle", spec.id)),
-        show_work_label(spec.show_work),
-        crate::controls::TextButtonVariant::Text,
-        cx,
-    )
-    .flex_shrink_0();
-    if let Some(on_toggle) = spec.on_toggle {
-        toggle = toggle.on_click(move |event, window, cx| on_toggle(event, window, cx));
-    }
+    let toggle = spec.toggle.then(|| {
+        let mut toggle = crate::controls::text_button(
+            SharedString::from(format!("{}-toggle", spec.id)),
+            show_work_label(spec.show_work),
+            crate::controls::TextButtonVariant::Text,
+            cx,
+        )
+        .flex_shrink_0();
+        if let Some(on_toggle) = spec.on_toggle {
+            toggle = toggle.on_click(move |event, window, cx| on_toggle(event, window, cx));
+        }
+        toggle
+    });
     div()
         .id(spec.id)
         .flex()
@@ -746,8 +752,62 @@ pub(crate) fn run_status_row(spec: RunStatusRowSpec, cx: &App) -> gpui::AnyEleme
         .py(gpui::px(6.))
         .child(lead)
         .child(body)
-        .child(toggle)
+        .children(toggle)
         .into_any_element()
+}
+
+/// EXP-1284 (review T5) — a session's status row off its SYNCED row alone:
+/// what a teammate's session block shows on a thread page (EXP-312: never a
+/// steer ticket, never the transcript). The state is the session lists' own
+/// (heartbeat-aware); no Show work switch.
+pub(crate) fn synced_status_row(
+    id: SharedString,
+    session: &domain::rows::CodingSession,
+    cx: &App,
+) -> gpui::AnyElement {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let facts = running_run_facts(session, None, None, now_ms / 1_000, cx);
+    let ended = !crate::queries::coding_session_is_live(session, now_ms / 1_000);
+    let state = run_row_state(facts.paused, ended, false, false, facts.display);
+    let mark = match state {
+        RunRowState::Ended => RunStatusMark::Ended,
+        RunRowState::Paused => RunStatusMark::Live(None),
+        RunRowState::NeedsInput => RunStatusMark::Live(Some(CodingSessionDisplay::NeedsInput)),
+        RunRowState::Working => {
+            RunStatusMark::Live(facts.working.then_some(CodingSessionDisplay::Working))
+        }
+        RunRowState::Review => RunStatusMark::Live(Some(CodingSessionDisplay::Review)),
+        RunRowState::Done => RunStatusMark::Live(Some(CodingSessionDisplay::Done)),
+    };
+    let device = facts
+        .device_label
+        .as_deref()
+        .or(session.device_label.as_deref())
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+        .unwrap_or("Desktop")
+        .to_string();
+    let (caption, tone) = run_row_caption(
+        state,
+        &device,
+        stamp_ms(run_started_at(session)),
+        stamp_ms(past_run_ended_at(session)),
+        now_ms,
+    );
+    run_status_row(
+        RunStatusRowSpec {
+            id,
+            agent: facts.agent,
+            mark,
+            caption: SharedString::from(caption),
+            tone,
+            tool_line: None,
+            show_work: false,
+            on_toggle: None,
+            toggle: false,
+        },
+        cx,
+    )
 }
 
 /// A row of a mixed list (an action's Runs): live runs

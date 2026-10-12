@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1154: the PR body = a TEXT projection of the run's Guide (EXP-1251, formerly Results) (apps/web lib/pr-body-from-results.ts). Text sections only (non-blank text, first text per topic, first-seen order, files cleaned like session-results.json files); null without one (the caller keeps its fallback). The first Summary (trimmed, case-insensitive) leads with no heading; every other topic = '### <topic>' (whitespace runs collapsed to one space; a trailing ' #' run's last '#' escaped as '\\\\#'), a blank line, its text; a section's files follow as '- `path`' bullets after a blank line (newlines stripped; the fence one backtick longer than the longest backtick run in the path, padded with a space when the path starts or ends with a backtick); sections join with a blank line; resultsUrl adds '\\n\\n---\\n\\n[Guide and screenshots in Exponential](<url>)'. Over max (default 60000) the sections cut at the last newline that fits and end in a '\\n…' line; the footer is always kept. Pictures are never embedded. EXP-1251 prUrl: a case may carry prUrl (the PR the body is for): a topic whose first text entry is tagged with ANOTHER prUrl is left out (untagged topics stay); prUrl null = untagged topics only; absent = no filter.",
+  "$comment": "EXP-1154: the PR body = a TEXT projection of the run's Guide (EXP-1251, formerly Results) (apps/web lib/pr-body-from-results.ts). Text sections only (non-blank text, first text per topic, first-seen order, files cleaned like session-results.json files); null without one (the caller keeps its fallback). The first Summary (trimmed, case-insensitive) leads with no heading; every other topic = '### <topic>' (whitespace runs collapsed to one space; a trailing ' #' run's last '#' escaped as '\\\\#'), a blank line, its text; a section's files follow as '- `path`' bullets after a blank line (newlines stripped; the fence one backtick longer than the longest backtick run in the path, padded with a space when the path starts or ends with a backtick); sections join with a blank line; resultsUrl adds '\\n\\n---\\n\\n[Guide and screenshots in Exponential](<url>)'. Over max (default 60000) the sections cut at the last newline that fits and end in a '\\n…' line; the footer is always kept. Pictures are never embedded. EXP-1251 prUrl: a case may carry prUrl (the PR the body is for): a topic whose first text entry is tagged with ANOTHER prUrl is left out (untagged topics stay); prUrl null = untagged topics only; absent = no filter. EXP-1284 sessionIds: a case may carry sessionIds (the session the body is for + its resume chain): an entry stamped (sessionId) with another session is left out unless tagged with this prUrl; unstamped entries stay but yield their topic to a kept stamped entry; absent = no session filter (first text per topic, as before).",
   "cases": [
     {
       "name": "null blob",
@@ -451,6 +451,121 @@
       "resultsUrl": null,
       "prUrl": null,
       "expected": "### Verification\n\nTests pass."
+    },
+    {
+      "name": "a thread's later session leaves an earlier session's summary out",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Shipped the first fix.",
+          "prUrl": "https://github.com/o/r/pull/10",
+          "sessionId": "s-1"
+        },
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Follow-up for the edge case.",
+          "sessionId": "s-2"
+        },
+        {
+          "topic": "Verification",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Unit tests pass.",
+          "sessionId": "s-2"
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/threads/th-1?view=guide",
+      "prUrl": null,
+      "sessionIds": [
+        "s-2"
+      ],
+      "expected": "Follow-up for the edge case.\n\n### Verification\n\nUnit tests pass.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/threads/th-1?view=guide)"
+    },
+    {
+      "name": "a legacy entry yields its topic to the session's own",
+      "raw": [
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Filed before the stamp."
+        },
+        {
+          "topic": "Notes",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Legacy notes."
+        },
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "The session's own summary.",
+          "sessionId": "s-2"
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/threads/th-1?view=guide",
+      "prUrl": "https://github.com/o/r/pull/12",
+      "sessionIds": [
+        "s-1",
+        "s-2"
+      ],
+      "expected": "The session's own summary.\n\n### Notes\n\nLegacy notes.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/threads/th-1?view=guide)"
+    },
+    {
+      "name": "another session's topic tagged with this PR stays",
+      "raw": [
+        {
+          "topic": "Context",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Picked up from the first session.",
+          "prUrl": "https://github.com/o/r/pull/12",
+          "sessionId": "s-1"
+        },
+        {
+          "topic": "Summary",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Finished it.",
+          "sessionId": "s-2"
+        },
+        {
+          "topic": "Other",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "text": "Another session's untagged words.",
+          "sessionId": "s-3"
+        }
+      ],
+      "resultsUrl": "https://exp.example/t/acme/threads/th-1?view=guide",
+      "prUrl": "https://github.com/o/r/pull/12",
+      "sessionIds": [
+        "s-2"
+      ],
+      "expected": "Finished it.\n\n### Context\n\nPicked up from the first session.\n\n---\n\n[Guide and screenshots in Exponential](https://exp.example/t/acme/threads/th-1?view=guide)"
     }
   ]
 }

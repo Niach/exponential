@@ -47,6 +47,10 @@ final class AppDependencies: @unchecked Sendable {
     // EXP-878: issue drafts — rows sync (22nd shape), the three writes
     // (upsert / delete / listAttachments) are tRPC.
     let issueDraftsApi: IssueDraftsApi
+    // EXP-1284: threads — rows sync (`threads` + `thread-items`, the 22nd
+    // and 23rd shapes), get + the four writes (create / update / link /
+    // unlink) are tRPC.
+    let threadsApi: ThreadsApi
     let onboardingApi: OnboardingApi
     // Server-only repositories registry (not a synced shape) — read + link
     // management in team settings (masterplan §7a).
@@ -171,6 +175,7 @@ final class AppDependencies: @unchecked Sendable {
         self.notificationsApi = NotificationsApi(trpc: trpc)
         self.relationsApi = RelationsApi(trpc: trpc)
         self.issueDraftsApi = IssueDraftsApi(trpc: trpc)
+        self.threadsApi = ThreadsApi(trpc: trpc)
         self.onboardingApi = OnboardingApi(trpc: trpc)
         self.repositoriesApi = RepositoriesApi(trpc: trpc)
         self.steerApi = SteerApi(trpc: trpc)

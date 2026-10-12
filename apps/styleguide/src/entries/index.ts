@@ -36,6 +36,7 @@ import { entry as runStatusRow } from "./run-status-row.tsx"
 import { entry as sessionThread } from "./session-thread.tsx"
 import { entry as composerOptions } from "./composer-options.tsx"
 import { entry as workCard } from "./work-card.tsx"
+import { entry as threadParts } from "./thread-parts.tsx"
 import { entry as scriptCard } from "./script-card.tsx"
 import { entry as commentCallCard } from "./comment-call-card.tsx"
 import { entry as teamAgentsSettings } from "./team-agents-settings.tsx"
@@ -88,6 +89,7 @@ export const ENTRIES: readonly StyleguideEntry[] = [
   sessionThread,
   composerOptions,
   workCard,
+  threadParts,
   scriptCard,
   commentCallCard,
   teamAgentsSettings,

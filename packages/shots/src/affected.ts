@@ -823,6 +823,8 @@ const NATIVE_DIRS: { dir: string; views: RegExp }[] = [
   // thread's cards (Work, Script, Comment) draw from the same folder.
   { dir: `session`, views: /^(steering|chat|agents|machine-settings|add-server|agent-home|work-card|script-card|comment-call-card)/ },
   { dir: `steer`, views: /^(steering|chat)/ },
+  // EXP-1284: the native thread screens (ui/thread, UI/Thread).
+  { dir: `thread`, views: /^thread/ },
 ]
 
 /** Role suffixes a screen's filename carries on one platform or the other. */

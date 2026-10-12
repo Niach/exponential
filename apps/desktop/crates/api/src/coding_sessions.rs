@@ -1,7 +1,8 @@
 //! Typed `codingSessions.*` tRPC helpers (masterplan-v3 §7.1 steps 6 + 8).
 //! Shapes verified against `apps/web/src/lib/trpc/coding-sessions.ts`:
 //!
-//! - `codingSessions.start({issueId, deviceLabel?})` → `{session}` —
+//! - `codingSessions.start({issueId, deviceLabel?, threadId?})` →
+//!   `{session, threadId}` (EXP-1284: the thread the run was placed in) —
 //!   **mutation**, called BEFORE the child spawns: the returned row id keys
 //!   the session tab (§06) and the steer session room (§08). The server
 //!   enforces the plan's concurrent-session capacity here
@@ -83,11 +84,33 @@ pub struct CodingSession {
     pub started_at: Option<String>,
     #[serde(default)]
     pub ended_at: Option<String>,
+    /// EXP-1284: the thread this run sits in. `codingSessions.start` returns
+    /// it BESIDE the row (`{session, threadId}`) and the start helpers copy
+    /// it in here; `None` from every other procedure, from a start whose
+    /// placement failed, and from servers that predate threads.
+    #[serde(default)]
+    pub thread_id: Option<String>,
 }
 
 #[derive(Deserialize)]
 struct SessionEnvelope {
     session: CodingSession,
+    /// EXP-1284: only `codingSessions.start` sends it (absent elsewhere and
+    /// on older servers).
+    #[serde(default, rename = "threadId")]
+    thread_id: Option<String>,
+}
+
+impl SessionEnvelope {
+    /// The row, carrying the start's thread placement when the server named
+    /// one (a row that already carries its own wins).
+    fn into_session(self) -> CodingSession {
+        let mut session = self.session;
+        if session.thread_id.is_none() {
+            session.thread_id = self.thread_id;
+        }
+        session
+    }
 }
 
 /// EXP-432: requester attribution for a start that arrived over the relay
@@ -96,10 +119,38 @@ struct SessionEnvelope {
 /// steer deviceId so the server can verify the share before attributing the
 /// row. Both `None` (the [`Default`]) on local and own-device starts — the
 /// wire stays byte-identical there.
+///
+/// EXP-1284: `thread_id` is the relay frame's top-level `threadId` — the
+/// thread the requester asked this start to JOIN (same team, checked
+/// server-side; a vanished one falls through to the default placement).
+/// Sent as `threadId` on every fresh start form and dropped on a resume
+/// (`resumedFromId` set): the server keeps a resume in its predecessor's
+/// thread. `None` on local starts and pre-threads frames.
+///
+/// EXP-1284 (T16): `start_id` is the relay frame's `startId`, echoed as
+/// `startId` on every fresh start form (dropped on a resume) so the server
+/// matches the landing session to its pending start EXACTLY — its placement
+/// fallback for a device that drops `threadId`. `None` on local starts.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Attribution<'a> {
     pub started_by_id: Option<&'a str>,
     pub device_id: Option<&'a str>,
+    pub thread_id: Option<&'a str>,
+    pub start_id: Option<&'a str>,
+}
+
+impl<'a> Attribution<'a> {
+    /// The `threadId` a start sends: the requested thread, never beside a
+    /// resume link.
+    fn start_thread_id(&self, resumed_from_id: Option<&str>) -> Option<&'a str> {
+        self.thread_id.filter(|_| resumed_from_id.is_none())
+    }
+
+    /// The `startId` a start echoes: the relay frame's, never beside a
+    /// resume link.
+    fn start_start_id(&self, resumed_from_id: Option<&str>) -> Option<&'a str> {
+        self.start_id.filter(|_| resumed_from_id.is_none())
+    }
 }
 
 #[derive(Serialize)]
@@ -148,6 +199,15 @@ struct StartInput<'a> {
     /// Skipped when empty so a pick-less start's wire is byte-identical.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     mcp_server_ids: &'a [String],
+    /// EXP-1284: the thread this start joins ([`Attribution::thread_id`]);
+    /// skipped when absent, so a thread-less start's wire is byte-identical
+    /// and an older server never sees the key.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thread_id: Option<&'a str>,
+    /// EXP-1284 (T16): the relay frame's start ([`Attribution::start_id`]),
+    /// LAST and skipped when absent (local starts, older frames).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -187,6 +247,12 @@ struct StartBatchInput<'a> {
     /// EXP-1140 — same as [`StartInput::mcp_server_ids`], on the batch branch.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     mcp_server_ids: &'a [String],
+    /// EXP-1284 — same as [`StartInput::thread_id`], on the batch branch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thread_id: Option<&'a str>,
+    /// EXP-1284 — same as [`StartInput::start_id`], on the batch branch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -235,6 +301,12 @@ struct StartActionInput<'a> {
     /// EXP-1140 — same as [`StartInput::mcp_server_ids`], on the action branch.
     #[serde(skip_serializing_if = "<[String]>::is_empty")]
     mcp_server_ids: &'a [String],
+    /// EXP-1284 — same as [`StartInput::thread_id`], on the action branch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thread_id: Option<&'a str>,
+    /// EXP-1284 — same as [`StartInput::start_id`], on the action branch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -292,6 +364,11 @@ pub struct HeartbeatScope {
     /// lose which account its usage numbers belong to, and an absent value
     /// reads as UNKNOWN on every client, never as the ambient login.
     pub agent_account: Option<String>,
+    /// EXP-1284: the thread `codingSessions.start` placed the run in (its
+    /// response's `threadId`), echoed so a resurrected row REJOINS it
+    /// instead of opening a fresh thread. `None` = the server named none
+    /// (an older server, or a failed placement) — the key is then omitted.
+    pub thread_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -326,6 +403,9 @@ struct HeartbeatInput<'a> {
     /// so an older server sees the wire it always did.
     #[serde(skip_serializing_if = "Option::is_none")]
     agent_account: Option<&'a str>,
+    /// EXP-1284 — the run's thread, echoed like `agent_account`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thread_id: Option<&'a str>,
 }
 
 #[derive(Deserialize)]
@@ -427,9 +507,11 @@ pub fn start(
             agent_account,
             attachment_ids,
             mcp_server_ids,
+            thread_id: attribution.start_thread_id(resumed_from_id),
+            start_id: attribution.start_start_id(resumed_from_id),
         },
     )?;
-    Ok(envelope.session)
+    Ok(envelope.into_session())
 }
 
 /// `codingSessions.start` for a BATCH-scoped (multi-issue) session: the
@@ -464,9 +546,11 @@ pub fn start_batch(
             attachment_ids,
             batch_issue_ids,
             mcp_server_ids,
+            thread_id: attribution.start_thread_id(resumed_from_id),
+            start_id: attribution.start_start_id(resumed_from_id),
         },
     )?;
-    Ok(envelope.session)
+    Ok(envelope.into_session())
 }
 
 /// `codingSessions.start` for an ACTION-scoped session (EXP-253): the
@@ -525,9 +609,11 @@ pub fn start_action(
             agent_account: start.agent_account,
             attachment_ids: start.attachment_ids,
             mcp_server_ids: start.mcp_server_ids,
+            thread_id: start.attribution.start_thread_id(start.resumed_from_id),
+            start_id: start.attribution.start_start_id(start.resumed_from_id),
         },
     )?;
-    Ok(envelope.session)
+    Ok(envelope.into_session())
 }
 
 /// `codingSessions.mergePr` — EXP-734: squash-merge the pull request a run
@@ -819,6 +905,7 @@ pub fn heartbeat(
                 .unwrap_or_default(),
             agent: scope.and_then(|scope| scope.agent.as_deref()),
             agent_account: scope.and_then(|scope| scope.agent_account.as_deref()),
+            thread_id: scope.and_then(|scope| scope.thread_id.as_deref()),
         },
     )?;
     Ok(envelope.alive)
@@ -937,6 +1024,7 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: Some("claude".to_string()),
             agent_account: Some("system".to_string()),
+            thread_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1009,6 +1097,8 @@ mod tests {
         let attribution = Attribution {
             started_by_id: Some("user-2"),
             device_id: Some("dev-1"),
+            thread_id: None,
+            start_id: None,
         };
         let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[], &[]).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1027,6 +1117,8 @@ mod tests {
         let attribution = Attribution {
             started_by_id: None,
             device_id: Some("dev-1"),
+            thread_id: None,
+            start_id: None,
         };
         let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[], &[]).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1052,6 +1144,7 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            thread_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1105,6 +1198,7 @@ mod tests {
             batch_issue_ids: vec!["i-1".to_string()],
             agent: None,
             agent_account: None,
+            thread_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-b", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1152,6 +1246,7 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            thread_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1176,6 +1271,7 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            thread_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1344,6 +1440,7 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            thread_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1372,6 +1469,7 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            thread_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1427,6 +1525,7 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            thread_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-a", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1578,6 +1677,7 @@ mod tests {
             batch_issue_ids: Vec::new(),
             agent: Some("codex".to_string()),
             agent_account: None,
+            thread_id: None,
         };
         assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1768,6 +1868,198 @@ mod tests {
         assert_eq!(
             session.pr_url.as_deref(),
             Some("https://github.com/o/r/pull/12")
+        );
+    }
+
+    /// EXP-1284: a relay start that names a thread sends it as `threadId`
+    /// on every fresh subject form, and the response's top-level `threadId`
+    /// lands on the returned row.
+    #[test]
+    fn start_forms_post_the_requested_thread_and_decode_the_placement() {
+        let attribution = Attribution {
+            started_by_id: None,
+            device_id: None,
+            thread_id: Some("th-1"),
+            start_id: None,
+        };
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-1","issueId":"issue-1"},"threadId":"th-1"}}}"#,
+        );
+        let session = start(&client(&base), "issue-1", None, attribution, None, None, None, None, &[], &[]).unwrap();
+        assert_eq!(session.thread_id.as_deref(), Some("th-1"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"issueId":"issue-1","threadId":"th-1"}"#), "{request}");
+
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-b","teamId":"ws-1"},"threadId":"th-1"}}}"#,
+        );
+        let ids = vec!["issue-1".to_string(), "issue-2".to_string()];
+        let session = start_batch(&client(&base), "ws-1", None, attribution, None, None, None, None, &[], &ids, &[]).unwrap();
+        assert_eq!(session.thread_id.as_deref(), Some("th-1"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#"{"teamId":"ws-1","batchIssueIds":["issue-1","issue-2"],"threadId":"th-1"}"#
+            ),
+            "{request}"
+        );
+
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-a","actionId":"act-1"},"threadId":"th-1"}}}"#,
+        );
+        let session = start_action(
+            &client(&base),
+            ActionStart {
+                action_id: "act-1",
+                attribution,
+                ..ActionStart::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(session.thread_id.as_deref(), Some("th-1"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(request.ends_with(r#"{"actionId":"act-1","threadId":"th-1"}"#), "{request}");
+    }
+
+    /// EXP-1284: a resume never sends a thread (the server keeps it in its
+    /// predecessor's), but still reads the placement the server answers.
+    #[test]
+    fn a_resume_drops_the_requested_thread() {
+        let attribution = Attribution {
+            started_by_id: None,
+            device_id: None,
+            thread_id: Some("th-1"),
+            start_id: None,
+        };
+        let (base, captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-2"},"threadId":"th-old"}}}"#,
+        );
+        let session = start(&client(&base), "issue-1", None, attribution, None, Some("sess-1"), None, None, &[], &[]).unwrap();
+        assert_eq!(session.thread_id.as_deref(), Some("th-old"));
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(r#"{"issueId":"issue-1","resumedFromId":"sess-1"}"#),
+            "{request}"
+        );
+
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"session":{"id":"sess-3"}}}}"#);
+        let _ = start_action(
+            &client(&base),
+            ActionStart {
+                action_id: "act-1",
+                resumed_from_id: Some("sess-2"),
+                attribution,
+                ..ActionStart::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(r#"{"actionId":"act-1","resumedFromId":"sess-2"}"#),
+            "{request}"
+        );
+    }
+
+    /// EXP-1284 (T16): a relay start echoes the frame's `startId` LAST on
+    /// every fresh subject form (the server matches the landing to its
+    /// pending start); a resume drops it like the thread.
+    #[test]
+    fn start_forms_echo_the_relay_start_id_and_a_resume_drops_it() {
+        let attribution = Attribution {
+            started_by_id: None,
+            device_id: None,
+            thread_id: Some("th-1"),
+            start_id: Some("st-1"),
+        };
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let _ = start(&client(&base), "issue-1", None, attribution, None, None, None, None, &[], &[]).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(r#"{"issueId":"issue-1","threadId":"th-1","startId":"st-1"}"#),
+            "{request}"
+        );
+
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let ids = vec!["issue-1".to_string()];
+        let _ = start_batch(&client(&base), "ws-1", None, attribution, None, None, None, None, &[], &ids, &[]).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#"{"teamId":"ws-1","batchIssueIds":["issue-1"],"threadId":"th-1","startId":"st-1"}"#
+            ),
+            "{request}"
+        );
+
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let _ = start_action(
+            &client(&base),
+            ActionStart {
+                action_id: "act-1",
+                attribution,
+                ..ActionStart::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(r#"{"actionId":"act-1","threadId":"th-1","startId":"st-1"}"#),
+            "{request}"
+        );
+
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let _ = start(&client(&base), "issue-1", None, attribution, None, Some("sess-1"), None, None, &[], &[]).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(r#"{"issueId":"issue-1","resumedFromId":"sess-1"}"#),
+            "{request}"
+        );
+    }
+
+    /// EXP-1284: a pre-threads server answers `{session}` alone — the row
+    /// decodes with no thread; `end` (no `threadId` ever) likewise.
+    #[test]
+    fn an_old_server_start_decodes_without_a_thread() {
+        let (base, _captured) = one_shot_server(200, SESSION_BODY);
+        let session = start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[], &[]).unwrap();
+        assert_eq!(session.thread_id, None);
+        // A placement failure is an explicit null.
+        let (base, _captured) = one_shot_server(
+            200,
+            r#"{"result":{"data":{"session":{"id":"sess-1"},"threadId":null}}}"#,
+        );
+        let session = start(&client(&base), "issue-1", None, Attribution::default(), None, None, None, None, &[], &[]).unwrap();
+        assert_eq!(session.thread_id, None);
+    }
+
+    /// EXP-1284: the heartbeat echoes the run's thread so a resurrected row
+    /// rejoins it.
+    #[test]
+    fn heartbeat_echoes_the_runs_thread() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"alive":true}}}"#);
+        let scope = HeartbeatScope {
+            issue_id: Some("issue-1".to_string()),
+            team_id: None,
+            action_id: None,
+            action_name: None,
+            started_by_id: None,
+            device_id: None,
+            started_reason: None,
+            trigger_id: None,
+            branch: None,
+            batch_issue_ids: Vec::new(),
+            agent: None,
+            agent_account: None,
+            thread_id: Some("th-1".to_string()),
+        };
+        assert!(heartbeat(&client(&base), "sess-1", Some(&scope)).unwrap());
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(r#"{"id":"sess-1","issueId":"issue-1","threadId":"th-1"}"#),
+            "{request}"
         );
     }
 }

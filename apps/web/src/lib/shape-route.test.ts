@@ -21,6 +21,8 @@ import { Route as deviceWorktreesRoute } from "@/routes/api/shapes/device-worktr
 import { Route as labelsRoute } from "@/routes/api/shapes/labels"
 import { Route as teamMembersRoute } from "@/routes/api/shapes/team-members"
 import { Route as teamsRoute } from "@/routes/api/shapes/teams"
+import { Route as threadsRoute } from "@/routes/api/shapes/threads"
+import { Route as threadItemsRoute } from "@/routes/api/shapes/thread-items"
 
 const {
   resolveSession,
@@ -657,6 +659,8 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     [`issue-subscribers`, issueSubscribersRoute],
     [`attachments`, attachmentsRoute],
     [`coding-sessions`, codingSessionsRoute],
+    // EXP-1284: issue items carry the board mirrors; run items keep them NULL.
+    [`thread-items`, threadItemsRoute],
   ] as const
 
   // EXP-878: attachments additionally drop draft-owned rows (`draft_id` set,
@@ -822,6 +826,57 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
     expect(columns).not.toContain(`emailed_at`)
   })
 
+  // EXP-1284: thread shells are team-scoped with NO board/trash predicate (a
+  // thread spans boards; its items carry the mirrors) but the STATIC hidden
+  // filter (review T3): `has_visible_items` is filtered on, never streamed.
+  it(`threads pins its columns and scopes members by team + visibility`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserTeamIds.mockResolvedValue([`w-2`, `w-1`])
+
+    await shapeHandler(threadsRoute)({
+      request: new Request(`https://example.com/api/shapes/threads?columns=x`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+    expect(originUrl.searchParams.get(`columns`)).toBe(
+      `id,team_id,title,created_by,results,created_at,updated_at`
+    )
+    expect(originUrl.searchParams.get(`where`)).toBe(
+      `("team_id" IN ('w-1','w-2')) AND ("has_visible_items" = true)`
+    )
+    expect(originUrl.searchParams.get(`columns`)).not.toContain(`has_visible_items`)
+
+    const anonUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue(null)
+    prepareElectricUrl.mockReturnValue(anonUrl)
+    membership.getUserTeamIds.mockClear()
+    await shapeHandler(threadsRoute)({
+      request: new Request(`https://example.com/api/shapes/threads`),
+    })
+    expect(anonUrl.searchParams.get(`where`)).toBe(
+      `"id" = '00000000-0000-0000-0000-000000000000'`
+    )
+    expect(membership.getUserTeamIds).not.toHaveBeenCalled()
+  })
+
+  it(`thread-items pins its columns (the board mirrors stay server-only)`, async () => {
+    const originUrl = new URL(`https://electric.example/v1/shape`)
+    resolveSession.mockResolvedValue({ user: { id: `user-1` } })
+    prepareElectricUrl.mockReturnValue(originUrl)
+    membership.getUserTeamIds.mockResolvedValue([`w-1`])
+
+    await shapeHandler(threadItemsRoute)({
+      request: new Request(`https://example.com/api/shapes/thread-items`, {
+        headers: { authorization: `Bearer t` },
+      }),
+    })
+    expect(originUrl.searchParams.get(`columns`)).toBe(
+      `id,thread_id,kind,issue_id,session_id,team_id,board_id,added_by,added_by_session_id,source,sort_order,created_at,updated_at`
+    )
+  })
+
   // EXP-778: the pins shape — the caller's own rows, static per user, no
   // trash mirror (clients resolve the target from the scoped shapes).
   it(`pins clause is fully static per user and never anonymous`, async () => {
@@ -885,6 +940,8 @@ describe(`team-stable trash-aware child shapes (REV2-5)`, () => {
       `assignee_id`,
       `label_ids`,
       `due_date`,
+      // EXP-1284: the thread a "New issue in this thread" draft files into.
+      `thread_id`,
       `created_at`,
       `updated_at`,
     ])
@@ -1009,7 +1066,7 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     proxyElectricRequest.mockResolvedValue(new Response(`ok`))
   })
 
-  // ALL 21 shape routes (the file list in routes/api/shapes/ IS the list).
+  // ALL 23 shape routes (the file list in routes/api/shapes/ IS the list).
   // The pin is what makes adding a server-only column to a synced table safe
   // — an unpinned proxy would stream it to every client on the next deploy
   // with no code change and no test failure. A new route added without a
@@ -1036,6 +1093,8 @@ describe(`every shape proxy pins a columns allowlist (REV-49)`, () => {
     [`team-invites`, teamInvitesRoute],
     [`team-members`, teamMembersRoute],
     [`teams`, teamsRoute],
+    [`thread-items`, threadItemsRoute],
+    [`threads`, threadsRoute],
     [`users`, usersRoute],
   ] as const
 

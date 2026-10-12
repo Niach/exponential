@@ -64,13 +64,20 @@ export function useMobileChromeVisible(): boolean {
     to: `/t/$teamSlug/actions/$actionId`,
     fuzzy: true,
   })
+  // EXP-1284: a thread is the Work screen of n issues and m runs — its own
+  // back header, its pager under it.
+  const onThreadDetail = matchRoute({
+    to: `/t/$teamSlug/threads/$threadId`,
+    fuzzy: true,
+  })
   // EXP-851: the Agent page is a LIST screen again (composer over Running /
   // Recent in one scroller), so it keeps the standard phone chrome.
   return (
     !onIssueDetail &&
     !onSessionDetail &&
     !onActionDetail &&
-    !onDraftPage
+    !onDraftPage &&
+    !onThreadDetail
   )
 }
 

@@ -165,6 +165,43 @@ final class SteerStartInputEncodingTests: XCTestCase {
         XCTAssertNil(batch.index(forKey: "subagentModel"))
     }
 
+    // MARK: - Thread (EXP-1284)
+
+    // `threadId` places the start INTO a thread (the thread's reply box and
+    // "Start a session here"); absent = the server's own placement. It rides the
+    // three subject forms, never a resume (the server refuses it there).
+    func testThreadIdRidesEverySubjectAndIsOmittedByDefault() throws {
+        let plain = try json(StartSessionInput(
+            issueId: "i-1", deviceId: "d-1", agent: nil, model: nil,
+            subagentModel: nil, effort: nil, ultracode: nil, planMode: nil,
+            resume: nil, account: nil, prompt: nil
+        ))
+        XCTAssertNil(plain.index(forKey: "threadId"))
+        let issue = try json(StartSessionInput(
+            issueId: "i-1", deviceId: "d-1", agent: nil, model: nil,
+            subagentModel: nil, effort: nil, ultracode: nil, planMode: nil,
+            resume: nil, account: nil, prompt: nil, threadId: "t-1"
+        ))
+        XCTAssertEqual(issue["threadId"] as? String, "t-1")
+        let batch = try json(StartBatchSessionInput(
+            issueIds: ["a", "b"], deviceId: "d-1", agent: nil, model: nil,
+            subagentModel: nil, effort: nil, ultracode: nil, planMode: nil,
+            account: nil, prompt: nil, threadId: "t-1"
+        ))
+        XCTAssertEqual(batch["threadId"] as? String, "t-1")
+        let action = try json(StartActionSessionInput(
+            actionId: "builtin:chat", teamId: "team-1", deviceId: "d-1",
+            agent: nil, model: nil, subagentModel: nil, effort: nil,
+            ultracode: nil, planMode: nil, inputs: nil, account: nil,
+            prompt: "Keep going", threadId: "t-1"
+        ))
+        XCTAssertEqual(action["threadId"] as? String, "t-1")
+        let resume = try json(ResumeSessionInput(
+            resumeSessionId: "sess-1", deviceId: "d-1", account: nil
+        ))
+        XCTAssertNil(resume.index(forKey: "threadId"))
+    }
+
     // MARK: - Options → wire
 
     func testSteerStartOptionsCarryTheAccountProfile() {

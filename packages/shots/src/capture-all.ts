@@ -111,6 +111,9 @@ const STEER_DEPENDENT_VIEWS = new Set([
   `issue-detail`,
   `board`,
   `machine-settings`,
+  // EXP-1284: the thread's live session renders its prompt, work and pending
+  // question off the stub's feed; without it the conversation reads "Paused".
+  `thread`,
 ])
 /**
  * Views that photograph the demo user's DEVICE FLEET: the Devices page, a
@@ -2099,7 +2102,7 @@ async function main(): Promise<number> {
 
     ids = await fetchDemoIds()
     console.log(
-      `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportToken ? `` : ` · NO reporter token (support-reporter will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}${ids.steeredSessionId ? `` : ` · NO showcase session (steering will skip)`}${ids.runChangesSessionId ? `` : ` · NO run-changes session (run-changes will skip)`}`
+      `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportToken ? `` : ` · NO reporter token (support-reporter will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}${ids.steeredSessionId ? `` : ` · NO showcase session (steering will skip)`}${ids.runChangesSessionId ? `` : ` · NO run-changes session (run-changes will skip)`}${ids.threadId && ids.threadRunsId ? `` : ` · NO demo threads (thread/thread-runs will skip)`}`
     )
   }
 
