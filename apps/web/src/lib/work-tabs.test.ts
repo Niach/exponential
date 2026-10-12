@@ -698,3 +698,85 @@ describe(`the New run tab`, () => {
     expect(keys(closeTabs(s, [`new`]))).toEqual([`issue:i1`])
   })
 })
+
+// EXP-1284: a THREAD is a tab of its own, bound to its newest live run of
+// mine, and the New run tab lands INTO the thread its run joined.
+describe(`the thread tab`, () => {
+  const threadTab: WorkTab = {
+    kind: `thread`,
+    threadId: `t1`,
+    runId: null,
+    from: null,
+    live: false,
+  }
+
+  it(`is a route, a key and a href of its own`, () => {
+    expect(routePathFromLocation(`/t/acme/threads/t1`, `agent`)).toEqual({
+      kind: `thread`,
+      threadId: `t1`,
+      from: `agent`,
+    })
+    const route = { kind: `thread` as const, threadId: `t1`, from: null }
+    expect(routeTabKey(route)).toBe(`thread:t1`)
+    expect(routeTabFace(route)).toBeNull()
+    expect(tabHref(`acme`, threadTab, () => null)).toEqual({
+      to: `/t/$teamSlug/threads/$threadId`,
+      params: { teamSlug: `acme`, threadId: `t1` },
+      search: {},
+    })
+  })
+
+  it(`opens from its route once, and the tabless origin opens none`, () => {
+    const opened = upsertFromRoute(EMPTY_WORK_TABS, {
+      kind: `thread`,
+      threadId: `t1`,
+      from: null,
+    })
+    expect(keys(opened)).toEqual([`thread:t1`])
+    expect(
+      upsertFromRoute(opened, { kind: `thread`, threadId: `t1`, from: null })
+    ).toBe(opened)
+    expect(
+      upsertFromRoute(EMPTY_WORK_TABS, {
+        kind: `thread`,
+        threadId: `t1`,
+        from: TABLESS_ORIGIN,
+      })
+    ).toBe(EMPTY_WORK_TABS)
+  })
+
+  it(`binds the thread's newest live run of mine and lets go when it ends`, () => {
+    const s = state([threadTab])
+    const live = reconcileLive(s, [
+      { runId: `r1`, issueId: null, threadId: `t1` },
+      { runId: `r2`, issueId: `i1`, threadId: `t1` },
+      { runId: `r3`, issueId: null, threadId: `t9` },
+    ])
+    expect(live.tabs[0]).toEqual({ ...threadTab, runId: `r2`, live: true })
+    const ended = reconcileLive(live, [])
+    expect(ended.tabs[0]).toEqual({ ...threadTab, runId: `r2`, live: false })
+    expect(reconcileLive(ended, [])).toBe(ended)
+  })
+
+  it(`is where the New run tab lands once the run's thread is known`, () => {
+    const s = state([NEW_RUN_TAB])
+    expect(landNewRun(s, { runId: `r1`, issueId: `i1`, threadId: `t1` }).tabs).toEqual([
+      { kind: `thread`, threadId: `t1`, runId: `r1`, from: null, live: false },
+    ])
+    // A thread that already has a tab takes the New run tab's place.
+    expect(
+      keys(landNewRun(state([NEW_RUN_TAB, threadTab]), { runId: `r1`, issueId: null, threadId: `t1` }))
+    ).toEqual([`thread:t1`])
+    // Unknown thread: the old rule.
+    expect(keys(landNewRun(s, { runId: `r1`, issueId: null, threadId: null }))).toEqual([`run:r1`])
+  })
+
+  it(`survives a reload and closes when its bound run merged`, () => {
+    const bound = state([{ ...threadTab, runId: `r1`, live: true }])
+    expect(parseWorkTabsState(JSON.stringify(bound))).toEqual(bound)
+    expect(parseWorkTabsState(JSON.stringify({ tabs: [{ kind: `thread` }] }))).toEqual(EMPTY_WORK_TABS)
+    expect(
+      keys(closeMergedRunTabs(bound, [{ runId: `r1`, issueId: null, endedBy: `merge` }]))
+    ).toEqual([])
+  })
+})

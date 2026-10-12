@@ -1329,7 +1329,7 @@
       {
         "name": "threads_get",
         "title": "Read thread",
-        "blurb": "Reads a thread, the unit of work: its title, its issues and its runs.",
+        "blurb": "Reads a thread, the unit of work: its title, its issues and its sessions.",
         "progressive": "Reading thread",
         "done": "Read thread",
         "progressiveMany": "Reading {n} threads",
@@ -1340,7 +1340,7 @@
       {
         "name": "threads_link",
         "title": "Add to thread",
-        "blurb": "Adds an issue or a run to a thread; a run moves, it sits in one thread.",
+        "blurb": "Adds an issue or a session to a thread; a session moves, it sits in one thread.",
         "progressive": "Adding to thread",
         "done": "Added to thread",
         "progressiveMany": "Adding {n} items to threads",
@@ -1351,7 +1351,7 @@
       {
         "name": "threads_unlink",
         "title": "Remove from thread",
-        "blurb": "Detaches an issue or a run from a thread; a run gets a fresh thread of its own.",
+        "blurb": "Detaches an issue or a session from a thread; a session gets a fresh thread of its own.",
         "progressive": "Removing from thread",
         "done": "Removed from thread",
         "progressiveMany": "Removing {n} items from threads",

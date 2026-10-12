@@ -33,6 +33,8 @@ export interface IssueDraftSearch {
   board?: string
   status?: string
   from?: string
+  /** EXP-1284: `New issue in this thread` — the created issue joins it. */
+  thread?: string
 }
 
 export function parseIssueDraftSearch(
@@ -44,6 +46,7 @@ export function parseIssueDraftSearch(
     board: pick(search.board),
     status: pick(search.status),
     from: pick(search.from),
+    thread: pick(search.thread),
   }
 }
 
@@ -59,18 +62,22 @@ export function newDraftNavigation({
   boardId,
   status,
   from,
+  threadId,
   draftId = crypto.randomUUID(),
 }: {
   teamSlug: string
   boardId?: string
   status?: StatusRowOption
   from?: string
+  /** EXP-1284: file the issue into this thread. */
+  threadId?: string
   draftId?: string
 }) {
   const search: IssueDraftSearch = {}
   if (boardId) search.board = boardId
   if (status && !isFallbackStatusOption(status)) search.status = status.id
   if (from) search.from = from
+  if (threadId) search.thread = threadId
   return {
     to: `/t/$teamSlug/drafts/$draftId` as const,
     params: { teamSlug, draftId },

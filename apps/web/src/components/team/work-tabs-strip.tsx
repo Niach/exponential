@@ -35,6 +35,9 @@ import {
 } from "@/hooks/use-work-tabs"
 import { LIVE_DOT_TONE_BY_SESSION_TONE } from "@/lib/session-row-caption"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
+import { ThreadLead } from "@/components/thread/thread-row"
+import { useThreadBundles, type ThreadBundle } from "@/hooks/use-threads"
+import { useSession } from "@/hooks/use-session"
 
 // EXP-870: the WORK TABS strip — browser-like tabs on the bare ground above
 // the content card, md+ only (the desktop's title-band strip; phones keep
@@ -148,6 +151,22 @@ export function WorkTabsStrip({
     () => new Map(((issueRows ?? []) as Issue[]).map((row) => [row.id, row])),
     [issueRows]
   )
+  // EXP-1284: thread tabs read their title + live mark off the ONE model.
+  const threadIds = useMemo(
+    () =>
+      state.tabs.flatMap((tab) => (tab.kind === `thread` ? [tab.threadId] : [])),
+    [state.tabs]
+  )
+  const { data: authSession } = useSession()
+  const { bundles: threadBundles } = useThreadBundles(
+    threadIds.length > 0 ? teamId : undefined,
+    authSession?.user?.id,
+    { threadIds }
+  )
+  const threadsById = useMemo(
+    () => new Map(threadBundles.map((bundle) => [bundle.thread.id, bundle])),
+    [threadBundles]
+  )
   const runsById = useMemo(
     () =>
       new Map(((runRows ?? []) as CodingSession[]).map((row) => [row.id, row])),
@@ -170,8 +189,10 @@ export function WorkTabsStrip({
     if (!path) return null
     const match = tabs.find((tab) => {
       switch (path.kind) {
+        case `thread`:
+          return tab.kind === `thread` && tab.threadId === path.threadId
         case `run`:
-          return tab.runId === path.runId
+          return tab.kind !== `thread` && tab.runId === path.runId
         case `issue`: {
           if (tab.kind !== `issue`) return false
           const issue = issuesById.get(tab.issueId)
@@ -194,6 +215,20 @@ export function WorkTabsStrip({
         identifier: null,
         title: NEW_RUN_TAB_TITLE,
         lead: <NewRunIcon className="size-3.5 text-muted-foreground" />,
+      }
+    }
+    if (tab.kind === `thread`) {
+      const bundle: ThreadBundle | undefined = threadsById.get(tab.threadId)
+      return {
+        key,
+        tab,
+        identifier: null,
+        title: bundle ? bundle.view.title : null,
+        lead: bundle ? (
+          <ThreadLead bundle={bundle} ringClassName="ring-background" />
+        ) : (
+          <LiveDot tone={LIVE_DOT_TONE_BY_SESSION_TONE.muted} />
+        ),
       }
     }
     const run = tab.runId ? runsById.get(tab.runId) : undefined

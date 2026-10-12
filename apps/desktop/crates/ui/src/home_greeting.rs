@@ -146,6 +146,7 @@ pub(crate) fn home_greeting_now(name: Option<&str>) -> String {
 }
 
 /// A row stamp as epoch milliseconds (unparseable = 0, sorts last).
+#[cfg_attr(not(test), allow(dead_code))]
 fn stamp_ms(stamp: Option<&str>) -> i64 {
     stamp
         .and_then(|stamp| chrono::DateTime::parse_from_rfc3339(stamp).ok())
@@ -155,7 +156,9 @@ fn stamp_ms(stamp: Option<&str>) -> i64 {
 
 /// RECENT: the caller's last [`RECENT_COUNT`] OWN top-level runs (no parent
 /// run) in `team_id`, any status, newest first by `updated_at` then
-/// `created_at`.
+/// `created_at`. EXP-1284: the home lists THREADS now
+/// (`threads::team_thread_lists`); the run rule stays locked by its tests.
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) fn home_recent_runs<'a>(
     rows: impl Iterator<Item = &'a domain::rows::CodingSession>,
     me: &str,

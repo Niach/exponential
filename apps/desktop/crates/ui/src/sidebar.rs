@@ -808,6 +808,9 @@ impl RailView {
             // The Running section (EXP-923) and the pinned session rows are
             // live reads over my coding_sessions rows.
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
+            // EXP-1284: the Running section lists THREADS now.
+            cx.observe(&collections.threads, |_, _, cx| cx.notify()),
+            cx.observe(&collections.thread_items, |_, _, cx| cx.notify()),
             // The pinned session rows' dots read the runs THIS process hosts
             // (and their paused edge the devices rows below).
             cx.observe(&local_sessions, |_, _, cx| cx.notify()),
@@ -1012,39 +1015,54 @@ impl RailView {
     /// Returns `None` with nothing running (the caller renders neither the
     /// rule nor the label).
     fn render_running_section(&mut self, cx: &mut gpui::Context<Self>) -> Option<gpui::AnyElement> {
-        // EXP-1075: the ACTIVE team's own live runs only — the other teams
-        // are the switcher's dot now.
-        let nav = self.nav.clone();
-        // EXP-1248: children always show — no fold.
-        let rows = crate::sessions_section::rail_running_rows(&nav, cx);
-        if rows.is_empty() {
+        // EXP-1284: the rail lists THREADS, not bare runs — every thread of
+        // the ACTIVE team with a live run of mine (`partition_thread_list`'s
+        // Running half), its title over `listCaption`, the newest run's mark
+        // spinning while busy and amber while it needs input. A row opens
+        // the thread (EXP-1075: the other teams stay the switcher's dot).
+        let team_id = active_team_id(&self.nav, cx)?;
+        let (running, _) = crate::threads::team_thread_lists(&team_id, cx);
+        if running.is_empty() {
             return None;
         }
-        // EXP-965: the connector, off the depth sequence.
-        let guides = domain::tree_guides::guides_for(
-            &rows.iter().map(|row| row.depth).collect::<Vec<_>>(),
-        );
         let screen = resolved_screen(&self.nav, cx);
-        let elements: Vec<gpui::AnyElement> = rows
+        let elements: Vec<gpui::AnyElement> = running
             .iter()
             .enumerate()
             .map(|(index, row)| {
-                let guides = guides.get(index).cloned().unwrap_or_default();
-                let run = &row.run;
-                // EXP-870: the row stays current across the Issue | Run
-                // toggle — both faces are the same piece of work.
+                // The row stays current on the thread AND on any of its runs.
                 let active = match &screen {
-                    Some(Screen::Session { session_id }) => session_id == &run.session_id,
-                    Some(Screen::IssueDetail { issue_id }) => {
-                        run.issue_id.as_deref() == Some(issue_id.as_str())
-                    }
+                    Some(Screen::Thread { thread_id }) => thread_id == &row.thread_id,
+                    Some(Screen::Session { session_id }) => row.run_ids.contains(session_id),
                     _ => false,
                 };
-                self.rail_running_row(index, run, guides, active, cx)
+                // EXP-1271: a background start spins (the working mark)
+                // until its first turn.
+                let starting = row.run_ids.iter().any(|run_id| {
+                    crate::coding_flow::run_starting(
+                        run_id,
+                        row.display() == Some(crate::queries::CodingSessionDisplay::Working),
+                        cx,
+                    )
+                });
+                let display = if starting && !row.needs_input {
+                    Some(crate::queries::CodingSessionDisplay::Working)
+                } else {
+                    row.display()
+                };
+                crate::thread_screen::thread_list_row(
+                    "rail-running",
+                    index,
+                    row,
+                    display,
+                    active,
+                    true,
+                    crate::thread_screen::ThreadRowOpen::LiveRail,
+                    cx,
+                )
             })
             .collect();
         let rule = self.section_rule(cx);
-        // EXP-1248: the rows stack flush (gapless, like every run list).
         Some(
             v_flex()
                 .w_full()
@@ -1053,85 +1071,6 @@ impl RailView {
                 .child(self.section_label("Running", cx))
                 .child(v_flex().w_full().children(elements))
                 .into_any_element(),
-        )
-    }
-
-    /// ONE Running row ([`Self::render_running_section`]): EXP-1248's SMALL
-    /// [`crate::run_rows::run_row`] — the agent's mark at `12 + 14·depth`
-    /// (its working spark mid-turn, else the brand mark with the state's
-    /// badge), identifier · title, the host machine's glyph trailing.
-    fn rail_running_row(
-        &self,
-        index: usize,
-        run: &crate::sessions_section::RailRunRow,
-        guides: domain::tree_guides::Guides,
-        active: bool,
-        _cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let session_id = run.session_id.clone();
-        let open: crate::run_rows::RunRowAction = {
-            let session_id = session_id.clone();
-            Box::new(move |_, window: &mut Window, cx: &mut App| {
-                // EXP-923: no tab — a live run is reachable from this row for
-                // as long as it runs.
-                crate::navigation::navigate_from_live_rail(
-                    window,
-                    cx,
-                    Screen::Session {
-                        session_id: session_id.clone(),
-                    },
-                );
-            })
-        };
-        // EXP-874: the kill rides the row's right-click menu, not a trailing
-        // button — the session lists' own grammar. A paused host is never
-        // killed (it resumes when the lid opens).
-        let kill = (!run.paused).then(|| {
-            let local = run.local.clone();
-            crate::run_rows::RunRowKill {
-                // EXP-849: one verb, wherever the run is hosted.
-                label: SharedString::from("Stop session"),
-                on_kill: Box::new(move |_, window: &mut Window, cx: &mut App| {
-                    crate::session_bar::prompt_kill_session(
-                        local.clone(),
-                        session_id.clone(),
-                        window,
-                        cx,
-                    );
-                }),
-            }
-        });
-        crate::run_rows::run_row(
-            crate::run_rows::RunRowSpec {
-                id_prefix: "rail-running",
-                index,
-                size: crate::run_rows::RunRowSize::Small,
-                guides,
-                agent: Some(run.agent),
-                // EXP-1271: a background start spins (the working mark)
-                // until its first turn.
-                mark: crate::run_rows::RunStatusMark::Live(
-                    if crate::coding_flow::run_starting(
-                        &run.session_id,
-                        run.state == Some(crate::queries::CodingSessionDisplay::Working),
-                        _cx,
-                    ) {
-                        Some(crate::queries::CodingSessionDisplay::Working)
-                    } else {
-                        run.state
-                    },
-                ),
-                identifier: run.identifier.clone(),
-                title: run.title.clone(),
-                caption: None,
-                caption_tone: crate::run_rows::StatusTone::Muted,
-                device_icon: Some(run.device_icon.clone()),
-                device_label: run.device_label.clone(),
-                active,
-                on_open: open,
-                kill,
-            },
-            _cx,
         )
     }
 

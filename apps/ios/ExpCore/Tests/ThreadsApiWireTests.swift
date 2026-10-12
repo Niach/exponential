@@ -73,4 +73,17 @@ final class ThreadsApiWireTests: XCTestCase {
         XCTAssertFalse(issue.removed)
         XCTAssertNil(issue.newThreadId)
     }
+
+    // `issues.create({threadId})` files the issue INTO that thread (the
+    // thread's "New issue in this thread"); absent = no thread.
+    func testCreateIssueCarriesTheThreadOnlyWhenSet() throws {
+        func object(_ input: CreateIssueInput) throws -> [String: Any] {
+            let data = try JSONEncoder().encode(input)
+            return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        }
+        let plain = try object(CreateIssueInput(boardId: "b1", title: "x"))
+        XCTAssertNil(plain.index(forKey: "threadId"))
+        let threaded = try object(CreateIssueInput(boardId: "b1", title: "x", threadId: "t1"))
+        XCTAssertEqual(threaded["threadId"] as? String, "t1")
+    }
 }

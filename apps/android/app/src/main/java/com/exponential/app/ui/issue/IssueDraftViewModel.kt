@@ -138,6 +138,9 @@ class IssueDraftViewModel @Inject constructor(
     private val parentArg: String? = savedStateHandle.get<String>("parent")?.takeIf { it.isNotBlank() }
     private val statusArg: String? = savedStateHandle.get<String>("status")?.takeIf { it.isNotBlank() }
 
+    /** EXP-1284: "New issue in this thread" — the create links it there. */
+    val threadId: String? = savedStateHandle.get<String>("thread")?.takeIf { it.isNotBlank() }
+
     /** Share mode: the `share-compose` route carries no draft id. */
     val shareMode: Boolean = draftIdArg == null
     val parentId: String? = parentArg.takeIf { !shareMode }
@@ -975,6 +978,7 @@ class IssueDraftViewModel @Inject constructor(
                     labelIds = labelIds.takeIf { it.isNotEmpty() },
                     draftId = draftId,
                     parentId = parentId,
+                    threadId = threadId,
                 ),
             )
             upsertCreatedLocally(accountId, created, labelIds)

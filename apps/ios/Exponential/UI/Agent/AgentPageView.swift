@@ -10,10 +10,10 @@ import SwiftUI
 /// chips); the composer card (`AgentComposerCard`: placeholder "What do you
 /// want to build?", the starting row after Start); the `@`/`:` candidate
 /// menu under it (`#` opens THE search list in a sheet, SLOP-28); the options
-/// line (`AgentOptionsRow`); then RECENT (my last three top-level runs in
-/// this team, small session rows, no band when empty), Getting started while
-/// the team has no board, and the caller's Running sessions
-/// (`AgentSessionsList`, the phones' list under the composer, web parity).
+/// line (`AgentOptionsRow`); then (EXP-1284) THREADS, not bare runs
+/// (`AgentThreadLists`: Running = a live run of mine, Recent = the team's
+/// other threads, `partitionThreadList`; a row opens the thread), then
+/// Getting started while the team has no board.
 /// The suggestion rows and the brand-mark watermark are gone ×4.
 ///
 /// Two shapes: the Agent ROOT (`isTabRoot`, an empty seed as the stack's
@@ -36,6 +36,9 @@ struct AgentPageView: View {
     @Environment(\.accountId) private var accountId
     @Environment(TeamState.self) private var teamState
     @State private var sessions: AgentsViewModel?
+    /// EXP-1284: the page lists THREADS, not bare runs (Running / Recent,
+    /// `partitionThreadList`).
+    @State private var threads: ThreadListModel?
     @State private var composer: AgentComposerModel?
     /// nil until the relay config resolves — the composer waits for it
     /// rather than flashing the relay-off note.
@@ -63,6 +66,7 @@ struct AgentPageView: View {
     /// EXP-1196: the not-ready row's Update while `agent_update` is out.
     @State private var updatingAgent: String?
     @Environment(\.toaster) private var toaster
+    @Environment(\.pushRoute) private var pushRoute
 
     private var reservesTabBar: Bool { isTabRoot && !keyboardVisible }
 
@@ -79,7 +83,7 @@ struct AgentPageView: View {
                 // EXP-923: only the RUNNING rows count now — history moved
                 // into its own sheet, so an empty Running band is an empty
                 // page.
-                let centred = sessions.rows.isEmpty && sessions.homeRecentRows.isEmpty
+                let centred = (threads?.running.isEmpty ?? true) && (threads?.recent.isEmpty ?? true)
                 GeometryReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
@@ -119,14 +123,16 @@ struct AgentPageView: View {
                             captions(composer)
                         }
 
-                        homeRecent(sessions)
+                        // EXP-1284: the threads (draft 3) — Running = a
+                        // live run of mine, Recent = the team's others; a
+                        // row opens the thread.
+                        if let threads {
+                            AgentThreadLists(model: threads) { threadId in
+                                pushRoute(.thread(accountId: accountId, threadId: threadId))
+                            }
+                            .padding(.top, CGFloat(HomeGreeting.Geometry.optionsToRecent) - 12)
+                        }
                         homeGettingStarted
-
-                        AgentSessionsList(
-                            vm: sessions,
-                            steerEnabled: steerEnabled == true
-                        )
-                        .padding(.top, 8)
                     }
                     .padding()
                     .frame(
@@ -214,6 +220,8 @@ struct AgentPageView: View {
             alignActiveTeamToSeed()
             ensureModels()
             sessions?.activeTeamId = teamState.activeTeam?.id
+            threads?.activeTeamId = teamState.activeTeam?.id
+            threads?.start()
             // Re-arm on every appear: pushing the session stops the
             // observation (onDisappear), popping back must resume it.
             sessions?.startObserving()
@@ -228,6 +236,7 @@ struct AgentPageView: View {
         }
         .onChange(of: teamState.activeTeam?.id) { _, teamId in
             sessions?.activeTeamId = teamId
+            threads?.activeTeamId = teamId
             // The composer is bound to ONE team (its pools, its builtins'
             // teamId) — a team switch under the page starts a fresh one. A
             // composer nobody touched yet keeps the play button's seed (the
@@ -241,6 +250,7 @@ struct AgentPageView: View {
         }
         .onDisappear {
             sessions?.stopObserving()
+            threads?.stop()
             composer?.startWatcher.stop()
             // EXP-1271: nothing watches for the row any more, so the card
             // must not stay "Starting" (`abandonStarting`).
@@ -262,8 +272,10 @@ struct AgentPageView: View {
                 sessionTarget = started
             }
         }
+        // EXP-1284: the started run opens as its THREAD once the run's item
+        // synced (the New run becomes the thread), else its Work screen.
         .navigationDestination(item: $sessionTarget) { target in
-            WorkScreen(subject: .session(id: target.sessionId))
+            RunThreadScreen(sessionId: target.sessionId)
                 .environment(\.accountId, accountId)
         }
         // EXP-897/EXP-980/SLOP-3: starting on BLOCKED work asks first: an
@@ -317,6 +329,9 @@ struct AgentPageView: View {
         if composer == nil, let sessions {
             composer = makeComposer(sessions: sessions, seed: seed)
         }
+        if threads == nil {
+            threads = ThreadListModel(accountId: accountId, userId: deps.auth.userId, db: deps.db)
+        }
     }
 
     private func makeComposer(sessions: AgentsViewModel, seed: AgentComposerSeed) -> AgentComposerModel {
@@ -354,43 +369,6 @@ struct AgentPageView: View {
                 .accessibilityIdentifier(HomeGreeting.TestId.greeting)
         }
         .frame(maxWidth: .infinity)
-    }
-
-    /// RECENT: my last `recentCount` top-level runs in the active team, any
-    /// status, each a SMALL session row that opens the run; no band at all
-    /// with zero runs.
-    @ViewBuilder
-    private func homeRecent(_ sessions: AgentsViewModel) -> some View {
-        let rows = sessions.homeRecentRows
-        if !rows.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                GlassSectionBand(HomeGreeting.recentLabel)
-                ForEach(rows) { row in
-                    Button {
-                        sessionTarget = .init(sessionId: row.session.id)
-                    } label: {
-                        SessionListRow(
-                            session: row.session,
-                            identifier: sessionRowIdentifier(
-                                issue: row.issue, session: row.session, batchIssues: row.batchIssues
-                            ),
-                            title: sessionRowTitle(
-                                issue: row.issue, session: row.session, batchIssues: row.batchIssues
-                            ),
-                            prState: row.issue?.prState ?? row.session.prState,
-                            device: row.device,
-                            deviceIcon: SessionListRow.deviceIcon(row.session, devices: sessions.devices),
-                            size: .small
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier(HomeGreeting.TestId.recentRow)
-                }
-            }
-            .padding(.top, CGFloat(HomeGreeting.Geometry.optionsToRecent) - 12)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier(HomeGreeting.TestId.recent)
-        }
     }
 
     /// EXP-1270: while the team has NO board, Getting started follows

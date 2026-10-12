@@ -112,6 +112,9 @@ impl IssueHeader {
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
+            // EXP-1284: the tray's `Threads` row.
+            cx.observe(&collections.threads, |_, _, cx| cx.notify()),
+            cx.observe(&collections.thread_items, |_, _, cx| cx.notify()),
             // EXP-549/550: the card's machine name + paused state come from
             // the devices rows — heartbeats and renames re-render it.
             cx.observe(&collections.devices, |_, _, cx| cx.notify()),
@@ -863,6 +866,8 @@ impl IssueHeader {
         chips.extend(self.estimate_control(issue, cx).map(IntoElement::into_any_element));
         chips.extend(self.board_chip(issue, cx).map(IntoElement::into_any_element));
         chips.extend(self.origin_chip(issue, cx).map(IntoElement::into_any_element));
+        // EXP-1284: the issue names its threads (draft 3).
+        chips.extend(crate::thread_screen::issue_threads_row(&issue.id, cx));
         crate::work_header::property_tray(chips, actions)
     }
 

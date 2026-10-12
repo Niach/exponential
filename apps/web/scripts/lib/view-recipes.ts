@@ -554,7 +554,25 @@ async function recipeOpenGettingStarted(page: Page): Promise<void> {
  * test parses this literal, so keep it a flat name-to-function table with the
  * closing brace in column 0.
  */
+/**
+ * EXP-1284: open a thread's child menu (Link an issue · New issue in this
+ * thread · Start a session here · Unlink <IDENT>) on its LAST issue tab — the
+ * `thread-runs` view's draft shows it open. A right-click on md+; the phone
+ * pager's tab takes the same gesture (the menu opens as its sheet).
+ */
+async function recipeOpenThreadChildMenu(page: Page): Promise<void> {
+  const tabs = page.locator(`[data-testid="thread-strip"] [data-menu="thread-child"]`)
+  await tabs.first().waitFor({ timeout: 20_000 })
+  await tabs.last().click({ button: `right` })
+  await page
+    .getByText(/^Unlink /)
+    .filter({ visible: true })
+    .first()
+    .waitFor({ timeout: 15_000 })
+}
+
 export const RECIPES: Record<string, Recipe> = {
+  openThreadChildMenu: recipeOpenThreadChildMenu,
   openOnboardingCreateTeam: recipeOpenOnboardingCreateTeam,
   openOnboardingJoin: recipeOpenOnboardingJoin,
   openOnboardingInvite: recipeOpenOnboardingInvite,

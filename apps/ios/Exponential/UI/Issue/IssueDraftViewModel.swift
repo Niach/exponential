@@ -87,6 +87,9 @@ final class IssueDraftViewModel {
     let draftId: String
     private(set) var boardId: String
     let parentId: String?
+    /// EXP-1284: the thread the issue is filed INTO (the thread's "New issue
+    /// in this thread", `issues.create({threadId})`); nil = none.
+    let threadId: String?
     /// The route's pre-picked status row (nil = the team's Backlog builtin).
     private let initialStatusId: String?
 
@@ -195,11 +198,12 @@ final class IssueDraftViewModel {
     /// published when it is back, so its exit never pops the wrong screen.
     @ObservationIgnored private var deferredConsumed: Consumed?
 
-    init(draftId: String, boardId: String, statusId: String?, parentId: String?) {
+    init(draftId: String, boardId: String, statusId: String?, parentId: String?, threadId: String? = nil) {
         self.draftId = draftId
         self.boardId = boardId
         self.initialStatusId = statusId
         self.parentId = parentId
+        self.threadId = threadId
     }
 
     deinit {
@@ -903,7 +907,8 @@ final class IssueDraftViewModel {
             // The server reparents the draft's attachments and deletes the
             // row inside the create's transaction.
             draftId: rowExists && !defersUploads ? draftId : nil,
-            parentId: parentId
+            parentId: parentId,
+            threadId: threadId
         )
 
         do {

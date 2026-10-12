@@ -42,11 +42,11 @@ class AgentComposerSeedRouteTest {
     fun `the pattern declares every arg as a query placeholder`() {
         assertEquals(
             "agent?issues={issues}&action={action}&device={device}&pr={pr}&text={text}" +
-                "&icon={icon}&conflict={conflict}",
+                "&icon={icon}&conflict={conflict}&thread={thread}",
             AGENT_ROUTE_PATTERN,
         )
         assertEquals(
-            listOf("issues", "action", "device", "pr", "text", "icon", "conflict"),
+            listOf("issues", "action", "device", "pr", "text", "icon", "conflict", "thread"),
             AGENT_ROUTE_ARGS,
         )
     }
@@ -123,6 +123,16 @@ class AgentComposerSeedRouteTest {
             assertFalse(value, AgentComposerSeed.fromArgs { if (it == ARG_CONFLICT) value else null }.conflict)
         }
         assertTrue(AgentComposerSeed.fromArgs { if (it == ARG_CONFLICT) "1" else null }.conflict)
+    }
+
+    @Test
+    fun `a thread rides as thread= and survives the round trip`() {
+        val seed = AgentComposerSeed(threadId = issueB, text = "go")
+        val route = agentRoute(seed)
+        assertEquals("agent?text=go&thread=$issueB", route)
+        assertEquals(seed, AgentComposerSeed.fromArgs(argsOf(route)))
+        // A malformed id is dropped like a malformed issue id.
+        assertNull(AgentComposerSeed.fromArgs { if (it == ARG_THREAD) "nope" else null }.threadId)
     }
 
     @Test

@@ -35,13 +35,15 @@ enum AppRoute: Hashable {
     /// autosaves to. `statusId` pre-picks a status; `parentId` files it as a
     /// sub-issue of that issue (the face's Sub-issues `+`, EXP-1097), which
     /// writes no draft row. Creating replaces this route with the issue it
-    /// filed.
+    /// filed. EXP-1284: `threadId` files it INTO that thread (the thread's
+    /// "New issue in this thread").
     case issueDraft(
         accountId: String,
         draftId: String,
         boardId: String,
         statusId: String? = nil,
-        parentId: String? = nil
+        parentId: String? = nil,
+        threadId: String? = nil
     )
     /// The live agent-session (steering) screen — pushed from the Agents tab
     /// or the issue detail's coding card. A pushed destination (EXP-221), not
@@ -51,6 +53,15 @@ enum AppRoute: Hashable {
     /// a Reviews → Agent runs row opens, like an issue row opens its issue's
     /// `.issueFace(…, face: .guide)`.
     case runChanges(accountId: String, sessionId: String)
+    /// EXP-1284: a THREAD (the unit of work: n issues, m runs) — the phone's
+    /// Thread screen, its child strip as the pager tabs. `child` opens it on
+    /// one child (nil = the Conversation).
+    case thread(accountId: String, threadId: String, child: ThreadPage? = nil)
+    /// EXP-1284: a run's THREAD — what a started run and a run row open: the
+    /// thread once the run's `thread_items` row is synced, the run's own Work
+    /// screen for a run with none (a legacy run, or one the shapes have not
+    /// delivered within the wait).
+    case runThread(accountId: String, sessionId: String)
     /// EXP-825: the team's Agent page — the ONE launcher (composer + the
     /// caller's Running/Recent sessions), a pushed detail. Every play button
     /// lands here with a `seed`; the Chat FAB with an empty one.
@@ -187,6 +198,13 @@ struct AppNavigator: View {
             UITestingStyleguide.requested.map(ThreadCardsScreen.kinds.contains) == true
         )) {
             ThreadCardsScreen(kind: UITestingStyleguide.requested ?? "work-card")
+        }
+        // EXP-1284: the Thread screen specimens (capture only,
+        // `-uiTestingStyleguide thread|thread-runs`, `sg_thread*`).
+        .fullScreenCover(isPresented: .constant(
+            UITestingStyleguide.requested.map(ThreadStyleguideScreen.kinds.contains) == true
+        )) {
+            ThreadStyleguideScreen(kind: UITestingStyleguide.requested ?? "thread")
         }
         .toastHost(toaster, bannerHeight: toastBannerHeight)
     }
@@ -482,6 +500,14 @@ struct MainNavigator: View {
                 }
             }
         }
+        // EXP-1284: a tapped thread link opens the Thread screen.
+        .onChange(of: deps.deepLinkBus.pendingThreadId) { _, threadId in
+            if threadId != nil, let target = deps.deepLinkBus.consumeThread() {
+                navigate {
+                    path.append(AppRoute.thread(accountId: target.accountId, threadId: target.threadId))
+                }
+            }
+        }
         // EXP-825: a `/t/{team}/agent` universal link.
         .onChange(of: deps.deepLinkBus.pendingAgentTeamSlug) { _, slug in
             if slug != nil {
@@ -752,10 +778,10 @@ struct MainNavigator: View {
     /// link left pending on the bus is cleared). The page's OWN exits
     /// (`onCreated`, `onClose`) never come through here.
     private func navigate(_ change: @escaping () -> Void, dropped: @escaping () -> Void = {}) {
-        if case let .issueDraft(_, draftId, _, _, _)? = path.last {
+        if case let .issueDraft(_, draftId, _, _, _, _)? = path.last {
             let held = IssueDraftLeaveGuard.Held(
                 proceed: {
-                    if case let .issueDraft(_, top, _, _, _)? = path.last, top == draftId {
+                    if case let .issueDraft(_, top, _, _, _, _)? = path.last, top == draftId {
                         path.removeLast()
                     }
                     change()
@@ -891,18 +917,19 @@ struct MainNavigator: View {
             WorkScreen(subject: .issue(id: id), focusCommentId: commentId)
                 .id(id)
                 .environment(\.accountId, accountId)
-        case let .issueDraft(accountId, draftId, boardId, statusId, parentId):
+        case let .issueDraft(accountId, draftId, boardId, statusId, parentId, threadId):
             IssueDraftPageView(
                 draftId: draftId,
                 boardId: boardId,
                 statusId: statusId,
                 parentId: parentId,
+                threadId: threadId,
                 onCreated: { createdId in
                     replaceTopRoute(with: .issue(accountId: accountId, id: createdId))
                 },
                 onClose: {
                     // Only THIS page: a link may have pushed over it.
-                    if case let .issueDraft(_, top, _, _, _)? = path.last, top == draftId {
+                    if case let .issueDraft(_, top, _, _, _, _)? = path.last, top == draftId {
                         path.removeLast()
                     }
                 }
@@ -914,6 +941,15 @@ struct MainNavigator: View {
                 .environment(\.accountId, accountId)
         case let .runChanges(accountId, sessionId):
             RunChangesView(sessionId: sessionId)
+                .environment(\.accountId, accountId)
+        case let .thread(accountId, threadId, child):
+            // `.id(threadId)`: a thread swapped in place (an unlinked run's
+            // fresh thread) rebuilds rather than keeping the old one's state.
+            ThreadScreen(threadId: threadId, initialPage: child ?? .conversation)
+                .id(threadId)
+                .environment(\.accountId, accountId)
+        case let .runThread(accountId, sessionId):
+            RunThreadScreen(sessionId: sessionId)
                 .environment(\.accountId, accountId)
         case let .agent(accountId, seed):
             // Always a pushed detail (a play button's seed): the Agent TAB is

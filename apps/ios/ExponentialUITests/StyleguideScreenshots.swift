@@ -26,7 +26,15 @@ import XCTest
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices · sg_agent-home · sg_search-list ·
 ///   sg_getting-started · sg_feedback-states · sg_work-card ·
-///   sg_script-card · sg_comment-call-card
+///   sg_script-card · sg_comment-call-card · sg_thread · sg_thread-runs
+///
+/// EXP-1284 added the last two: the THREAD screen (the unit of work, n
+/// issues and m runs) — its child strip as the pager tabs, the conversation
+/// and the reply box — drawn by its real pieces over fake rows matching the
+/// approved drafts (`ThreadStyleguideScreen`, `-uiTestingStyleguide
+/// thread|thread-runs`, the run-thread cards' seam): one live run whose agent
+/// linked and filed an issue, and four runs (an ended run, its resume, two
+/// live children of it as one card) with a child's menu open.
 ///
 /// EXP-1259 added the last four: the Agent HOME the app lands on (the
 /// greeting, the composer, Recent), the `#` typeahead's search-list sheet,
@@ -986,6 +994,24 @@ final class StyleguideScreenshots: XCTestCase {
         openThreadCards(app, "comment-call-card")
         snapshot("sg_comment-call-card", settle: 2)
 
+        // ── sg_thread · sg_thread-runs: the Thread screen (EXP-1284) ─────────
+        // Capture-only specimens over the real Thread pieces, one relaunch
+        // each (the shot names stay literal for views.test.ts).
+        openThreadSpecimen(app, "thread")
+        expect(
+            anyElement(app, identified: "thread-link-row"),
+            within: Wait.nav,
+            "The thread specimen drew no agent link rows"
+        )
+        snapshot("sg_thread", settle: 2)
+        openThreadSpecimen(app, "thread-runs")
+        expect(
+            anyElement(app, identified: "thread-parallel-block"),
+            within: Wait.nav,
+            "The thread-runs specimen drew no parallel card"
+        )
+        snapshot("sg_thread-runs", settle: 2)
+
         finished = true
     }
 
@@ -999,6 +1025,17 @@ final class StyleguideScreenshots: XCTestCase {
             anyElement(app, identified: "thread-cards-screen"),
             within: Wait.launch,
             "The \(card) screen never opened — is -uiTestingStyleguide wired?"
+        )
+    }
+
+    /// EXP-1284: relaunch signed out onto one Thread screen specimen.
+    @MainActor
+    private func openThreadSpecimen(_ app: XCUIApplication, _ kind: String) {
+        launchSignedOut(app, extraArguments: ["-uiTestingStyleguide", kind])
+        expect(
+            anyElement(app, identified: "thread-styleguide-screen"),
+            within: Wait.launch,
+            "The \(kind) specimen never opened — is -uiTestingStyleguide wired?"
         )
     }
 

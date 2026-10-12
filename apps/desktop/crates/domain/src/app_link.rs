@@ -15,6 +15,8 @@ pub enum AppLink {
     },
     /// A run on THIS instance — open it in the app.
     Session { team_slug: String, session_id: String },
+    /// EXP-1284: a thread on THIS instance — open it in the app.
+    Thread { team_slug: String, thread_id: String },
     /// Another page on THIS instance: the path as written (query + hash
     /// kept), resolved against the instance origin by the caller.
     App { path: String },
@@ -113,6 +115,10 @@ fn in_app(path: &str) -> AppLink {
             team_slug: team.clone(),
             session_id: id.clone(),
         },
+        [t, team, threads, id] if t == "t" && threads == "threads" => AppLink::Thread {
+            team_slug: team.clone(),
+            thread_id: id.clone(),
+        },
         _ => AppLink::App { path: path.to_string() },
     }
 }
@@ -157,6 +163,7 @@ mod tests {
         board_slug: Option<String>,
         identifier: Option<String>,
         session_id: Option<String>,
+        thread_id: Option<String>,
     }
 
     impl FixtureLink {
@@ -170,6 +177,10 @@ mod tests {
                 "session" => AppLink::Session {
                     team_slug: self.team_slug.unwrap(),
                     session_id: self.session_id.unwrap(),
+                },
+                "thread" => AppLink::Thread {
+                    team_slug: self.team_slug.unwrap(),
+                    thread_id: self.thread_id.unwrap(),
                 },
                 "app" => AppLink::App { path: self.path.unwrap() },
                 "external" => AppLink::External { url: self.url.unwrap() },

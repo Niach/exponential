@@ -146,6 +146,7 @@ export * from "./search-list"
 // EXP-1259 D12-D14: the run transcript's cards — THE Work card (workflow,
 // task list, subagent), the code-mode Script card and the comment call card.
 export * from "./work-card"
+export * from "./thread-parts"
 export * from "./script-card"
 export * from "./comment-call-card"
 // EXP-1270 (EXP-1259 D6): THE Getting started block's face (header + one

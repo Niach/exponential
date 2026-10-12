@@ -75,6 +75,7 @@ import { IssueActionsMenu } from "@/components/issue-actions-menu"
 import { IssuePropertiesTray } from "@/components/issue-properties-tray"
 import { IssueTitleField } from "@/components/issue-title-field"
 import { PrGraphBadge } from "@/components/pr-graph-badge"
+import { IssueThreadsRow } from "@/components/thread/issue-threads-row"
 import { failedAction } from "@/lib/action-error"
 
 const UiUndoIcon = conceptIcon(`ui-undo`)
@@ -605,6 +606,15 @@ export function IssueDetailView({
   ) : null
 
   const titleField = <IssueTitleField issue={issue} readOnly={readOnly} />
+  // EXP-1284: the issue NAMES its threads (one chip each, opening it).
+  const threadsRow = (
+    <IssueThreadsRow
+      issueId={issue.id}
+      teamId={teamId}
+      teamSlug={teamSlug}
+      className="px-5 pt-1 pb-2"
+    />
+  )
   // EXP-1097: "Sub-issue of [parent]" rides ABOVE the title, on every layout.
   const parentLine = <IssueParentLine issueId={issue.id} phone={isMobile} />
 
@@ -731,6 +741,7 @@ export function IssueDetailView({
           {/* The title first, then the tray, as on the natives and the New
               issue page. */}
           {propsTray(false, false)}
+          {threadsRow}
           {editor}
           {filesSection}
           {relationsSection}
@@ -830,6 +841,7 @@ export function IssueDetailView({
                 {parentLine}
                 {titleField}
               </div>
+              {threadsRow}
             </div>
             <WorkStickyTray ref={trayRef} collapsed={titleCollapsed}>
               {propsTray(true)}

@@ -9,6 +9,8 @@ import Foundation
 public enum AppLink: Equatable, Sendable {
     case issue(teamSlug: String, boardSlug: String, identifier: String)
     case session(teamSlug: String, sessionId: String)
+    /// EXP-1284: a thread on this instance.
+    case thread(teamSlug: String, threadId: String)
     /// Another page on this instance, the path as written (query + hash kept).
     case app(path: String)
     /// Open as given (another origin, `mailto:`).
@@ -84,6 +86,9 @@ public enum AppLink: Equatable, Sendable {
         }
         if parts.count == 4, parts[0] == "t", parts[2] == "sessions" {
             return .session(teamSlug: parts[1], sessionId: parts[3])
+        }
+        if parts.count == 4, parts[0] == "t", parts[2] == "threads" {
+            return .thread(teamSlug: parts[1], threadId: parts[3])
         }
         return .app(path: written)
     }

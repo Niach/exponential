@@ -1062,7 +1062,7 @@
       "id": "thread",
       "group": "coding",
       "title": "Thread",
-      "blurb": "A thread (EXP-1284, thread-view.json): the unit of work holding n issues and m runs. The child strip reads Conversation, each linked issue, the \"+\" and Guide; the conversation shows Run 1 live with the issues its agent linked as rows (Linked, Filed and linked) and the reply box under it.",
+      "blurb": "A thread (EXP-1284, thread-view.json): the unit of work holding n issues and m sessions. The child strip reads Conversation, each linked issue, the \"+\" and Guide; the conversation shows Session 1 live with the issues its agent linked as rows (Linked, Filed and linked) and the reply box under it.",
       "order": 17,
       "web": {
         "route": "/t/$teamSlug/threads/$threadId",
@@ -1088,19 +1088,20 @@
         }
       },
       "notes": {
-        "web": "`$threadId` resolves to DEMO_THREAD_ID (apps/web/scripts/screenshot-demo.ts): the steered showcase run plus the issue its agent filed into the thread. Needs the relay like `steering` for the live run's feed."
+        "web": "`$threadId` resolves to DEMO_THREAD_ID (apps/web/scripts/screenshot-demo.ts): the steered showcase session plus the issue its agent filed into the thread. Needs the relay like `steering` for the live session's feed."
       }
     },
     {
       "id": "thread-runs",
       "group": "coding",
-      "title": "Thread with several runs",
-      "blurb": "A thread with m runs (EXP-1284): ended runs fold to one line with Show work, a resume continues the thread as the next run, and the two runs one parent started share ONE card, each naming its issue. A child's menu offers Link an issue, New issue in this thread, Start a run here and Unlink.",
+      "title": "Thread with several sessions",
+      "blurb": "A thread with m sessions (EXP-1284): ended sessions fold to one line with Show work, a resume continues the thread as the next session, and the two sessions one parent started share ONE card, each naming its issue. A child's menu offers Link an issue, New issue in this thread, Start a session here and Unlink.",
       "order": 18,
       "web": {
         "route": "/t/$teamSlug/threads/$threadRunsId",
+        "recipe": "openThreadChildMenu",
         "anchor": {
-          "text": "started by Run 2",
+          "text": "started by Session 2",
           "timeoutMs": 30000
         },
         "settleMs": 1200
@@ -1121,7 +1122,7 @@
         }
       },
       "notes": {
-        "web": "`$threadRunsId` resolves to DEMO_THREAD_RUNS_ID: two ended runs (the second a resume) and two live children of Run 2."
+        "web": "`$threadRunsId` resolves to DEMO_THREAD_RUNS_ID: two ended sessions (the second a resume) and two live children of Session 2."
       }
     },
     {
@@ -4402,7 +4403,7 @@
       "id": "session-row",
       "group": "coding",
       "title": "Session rows",
-      "blurb": "ONE SessionRow in two sizes (EXP-1248): the sidebar's small one-line row and the big two-line row the Recent list and the phone Running list draw, the run mark at 12 + 14·depth on every row, children always shown, no fold chevron, the device glyph trailing in both sizes.",
+      "blurb": "ONE SessionRow in two sizes (EXP-1248): the small one-line row and the big two-line row, the session mark at 12 + 14·depth on every row, children always shown, no fold chevron, the device glyph trailing in both sizes. Since EXP-1284 the Running and Recent lists show THREADS, so the specimen draws the rows on their own.",
       "order": 11,
       "ios": {
         "shot": "sg_session-row",
@@ -4415,7 +4416,8 @@
       "notes": {
         "web": "The styleguide island `session-row` (apps/styleguide/src/entries/session-row.tsx) draws both sizes on the real component; the app views are `agents` and the sidebar.",
         "web-mobile": "See web: the phone's Running list and the Recent sheet draw the big row (`agents` web-mobile).",
-        "desktop": "The desktop styleguide entry `session_row.rs` draws both sizes; the app views are the rail and Recent."
+        "desktop": "The desktop styleguide entry `session_row.rs` draws both sizes; the app views are the rail and Recent.",
+        "android": "EXP-1284: the Recent sheet lists threads now, so `sg_session-row` photographs a capture-only screen of SessionRows built from fake data."
       }
     },
     {

@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1284: the THREAD view model, mirrored x4 (web lib/thread-view.ts, desktop domain/src/thread_view.rs, iOS ExpCore Domain/ThreadView.swift, Android domain/ThreadView.kt). buildThreadView({thread, items, issues, runs}) -> title (stored title, else the first run's name unless it is the generic 'Chat', else the first linked issue's title, else the first run's name, else 'Thread'; titleDerived when not stored), strip (Conversation, one issue chip per linked issue in sort order, the '+' and the Guide with a dot when the thread's results are non-empty; phones use it as the pager), headerCaption ('<n> run(s) · <device | k devices>'), listCaption ('<no issues | n issue(s)> · <n run(s)>' plus the LIVE runs' device part while any run is live), live/needsInput/busy, conversation (runs in start order as 'Run N' blocks: caption = device, 'resumed' when it resumes a run, 'started by Run K' when an in-thread run started it; ended runs fold; two or more non-resume children of the same in-thread parent become ONE parallel block 'Runs 3 and 4' at the first child's place; issues an agent linked sit under the run that linked them, 'Filed and linked' when the issue was created at most 120 s before the link, else 'Linked'; issues a person linked show only in the strip), runIds, issueIds. Items whose issue or run is not synced drop out. partitionThreadList: running = mineLive, recent = the rest, both by updatedAt desc.",
+  "$comment": "EXP-1284: the THREAD view model, mirrored x4 (web lib/thread-view.ts, desktop domain/src/thread_view.rs, iOS ExpCore Domain/ThreadView.swift, Android domain/ThreadView.kt). buildThreadView({thread, items, issues, runs}) -> title (stored title, else the first run's name unless it is the generic 'Chat', else the first linked issue's title, else the first run's name, else 'Thread'; titleDerived when not stored), strip (Conversation, one issue chip per linked issue in sort order, the '+' and the Guide with a dot when the thread's results are non-empty; phones use it as the pager), headerCaption ('<n> session(s) · <device | k devices>'), listCaption ('<no issues | n issue(s)> · <n session(s)>' plus the LIVE runs' device part while any run is live), live/needsInput/busy, conversation (runs in start order as 'Session N' blocks (the product says session, never run): caption = device, 'resumed' when it resumes a run, 'started by Session K' when an in-thread run started it; ended runs fold; two or more non-resume children of the same in-thread parent become ONE parallel block 'Sessions 3 and 4' at the first child's place; issues an agent linked sit under the run that linked them, 'Filed and linked' when the issue was created at most 120 s before the link, else 'Linked'; issues a person linked show only in the strip), runIds, issueIds. Items whose issue or run is not synced drop out. partitionThreadList: running = mineLive, recent = the rest, both by updatedAt desc.",
   "views": [
     {
       "name": "two issues the agent linked, one live run (draft 1)",
@@ -100,8 +100,8 @@
             "dot": false
           }
         ],
-        "headerCaption": "1 run · macbook",
-        "listCaption": "2 issues · 1 run · macbook",
+        "headerCaption": "1 session · macbook",
+        "listCaption": "2 issues · 1 session · macbook",
         "live": true,
         "needsInput": false,
         "busy": true,
@@ -109,7 +109,7 @@
           {
             "kind": "run",
             "runId": "r1",
-            "label": "Run 1",
+            "label": "Session 1",
             "caption": [
               "macbook"
             ],
@@ -143,7 +143,7 @@
       }
     },
     {
-      "name": "m runs: a resume, then two children of Run 2 in one card (draft 2)",
+      "name": "m sessions: a resume, then two children of Session 2 in one card (draft 2)",
       "input": {
         "thread": {
           "id": "t1",
@@ -340,8 +340,8 @@
             "dot": true
           }
         ],
-        "headerCaption": "4 runs · 2 devices",
-        "listCaption": "3 issues · 4 runs · 2 devices",
+        "headerCaption": "4 sessions · 2 devices",
+        "listCaption": "3 issues · 4 sessions · 2 devices",
         "live": true,
         "needsInput": true,
         "busy": false,
@@ -349,7 +349,7 @@
           {
             "kind": "run",
             "runId": "r1",
-            "label": "Run 1",
+            "label": "Session 1",
             "caption": [
               "macbook"
             ],
@@ -368,7 +368,7 @@
           {
             "kind": "run",
             "runId": "r2",
-            "label": "Run 2",
+            "label": "Session 2",
             "caption": [
               "macbook",
               "resumed"
@@ -379,9 +379,9 @@
           },
           {
             "kind": "parallel",
-            "label": "Runs 3 and 4",
+            "label": "Sessions 3 and 4",
             "caption": [
-              "started by Run 2"
+              "started by Session 2"
             ],
             "state": "needs_input",
             "runs": [
@@ -480,8 +480,8 @@
             "dot": false
           }
         ],
-        "headerCaption": "1 run",
-        "listCaption": "no issues · 1 run",
+        "headerCaption": "1 session",
+        "listCaption": "no issues · 1 session",
         "live": false,
         "needsInput": false,
         "busy": false,
@@ -489,7 +489,7 @@
           {
             "kind": "run",
             "runId": "r1",
-            "label": "Run 1",
+            "label": "Session 1",
             "caption": [],
             "state": "ended",
             "folded": true,
@@ -600,8 +600,8 @@
             "dot": false
           }
         ],
-        "headerCaption": "2 runs · 2 devices",
-        "listCaption": "no issues · 2 runs · 2 devices",
+        "headerCaption": "2 sessions · 2 devices",
+        "listCaption": "no issues · 2 sessions · 2 devices",
         "live": true,
         "needsInput": false,
         "busy": false,
@@ -609,7 +609,7 @@
           {
             "kind": "run",
             "runId": "r1",
-            "label": "Run 1",
+            "label": "Session 1",
             "caption": [
               "macbook"
             ],
@@ -620,10 +620,10 @@
           {
             "kind": "run",
             "runId": "r2",
-            "label": "Run 2",
+            "label": "Session 2",
             "caption": [
               "mint",
-              "started by Run 1"
+              "started by Session 1"
             ],
             "state": "live",
             "folded": false,
@@ -714,8 +714,8 @@
             "dot": false
           }
         ],
-        "headerCaption": "1 run · macbook",
-        "listCaption": "1 issue · 1 run · macbook",
+        "headerCaption": "1 session · macbook",
+        "listCaption": "1 issue · 1 session · macbook",
         "live": true,
         "needsInput": false,
         "busy": true,
@@ -723,7 +723,7 @@
           {
             "kind": "run",
             "runId": "r1",
-            "label": "Run 1",
+            "label": "Session 1",
             "caption": [
               "macbook"
             ],
@@ -776,8 +776,8 @@
             "dot": false
           }
         ],
-        "headerCaption": "0 runs",
-        "listCaption": "no issues · 0 runs",
+        "headerCaption": "0 sessions",
+        "listCaption": "no issues · 0 sessions",
         "live": false,
         "needsInput": false,
         "busy": false,

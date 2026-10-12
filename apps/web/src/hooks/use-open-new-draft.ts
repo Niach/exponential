@@ -13,7 +13,9 @@ export function useOpenNewDraft(teamSlug: string) {
   const navigate = useNavigate()
   const router = useRouter()
   return useCallback(
-    (options: { boardId?: string; status?: StatusRowOption } = {}) => {
+    (
+      options: { boardId?: string; status?: StatusRowOption; threadId?: string } = {}
+    ) => {
       const location = router.state.location
       const fromParam = (location.search as { from?: unknown }).from
       const from = draftOriginFrom(

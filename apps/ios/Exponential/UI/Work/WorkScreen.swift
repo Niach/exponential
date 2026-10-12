@@ -126,6 +126,12 @@ struct WorkScreen: View {
     @State private var issueTitleScrolledAway = false
     /// The two edges the collapse compares, outside SwiftUI's diffing.
     @State private var titleEdges = TitleCollapseTracker()
+    /// EXP-1284: the THREAD the shown run sits in — the header's link to it
+    /// (brief §7: a run screen offers its thread once the item synced).
+    @State private var shownThread: RunThreadLookup?
+    /// EXP-1284: the thread of the run whose Guide this screen reads — its
+    /// Guide is the THREAD's (`guideOfRun`: thread results ?? run results).
+    @State private var resultsThread: RunThreadLookup?
     /// `initialFace` opens an issue subject on that face (a deep link's
     /// Guide); unavailable faces fall back as usual.
     /// EXP-1241: the comment the Issue face opens scrolled to (and flashes).
@@ -246,8 +252,30 @@ struct WorkScreen: View {
     /// topic's text, grouped — off its synced row. EXP-1251: an issue shows
     /// only its own PR's topics plus the untagged ones (`sessionResultsForPr`).
     private var sessionResultGroups: [SessionResultGroup] {
-        guard issueId != nil else { return parseSessionResultGroups(resultsSession?.results) }
-        return sessionResultGroupsForPr(resultsSession?.results, prUrl: issue?.prUrl)
+        guard issueId != nil else { return parseSessionResultGroups(resultsRaw) }
+        return sessionResultGroupsForPr(resultsRaw, prUrl: issue?.prUrl)
+    }
+
+    /// EXP-1284: the results run's Guide — its THREAD's once the run's item
+    /// synced (web `guideOfRun`), else the run's own row.
+    private var resultsRaw: String? {
+        let thread = resultsThread?.sessionId == resultsSession?.id ? resultsThread?.thread : nil
+        return ThreadViews.guideResults(threadResults: thread?.results, runResults: resultsSession?.results)
+    }
+
+    /// EXP-1284: the header's link to the shown run's thread.
+    @ViewBuilder
+    private var threadLink: some View {
+        if let thread = shownThread?.thread, shownThread?.sessionId == shownSessionId {
+            Button {
+                pushRoute(.thread(accountId: accountId, threadId: thread.id))
+            } label: {
+                AppIcon(AppIcons.workFaces, size: AppIcon.Size.medium, weight: .medium)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+            .accessibilityLabel("Open thread")
+            .accessibilityIdentifier("work-open-thread")
+        }
     }
 
     private var hasRunResults: Bool { !sessionResultGroups.isEmpty }
@@ -859,6 +887,14 @@ struct WorkScreen: View {
                 } else {
                     ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
                 }
+                // EXP-1284: the run's THREAD, always mounted like the badge
+                // (EXP-942); draws nothing until the run's item synced.
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .topBarTrailing) { threadLink }
+                        .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) { threadLink }
+                }
                 // EXP-942: Stop / Resume is its OWN bar item, so the system
                 // gives it its own capsule instead of merging it with the
                 // `…` menu into one shared shape. Mounted for the whole Run
@@ -1211,6 +1247,11 @@ struct WorkScreen: View {
                 runChrome = RunChrome()
                 sawLiveSession = false
                 subjectModel?.observeShown(id: id)
+                shownThread?.follow(id)
+            }
+            // EXP-1284: the Guide follows the results run's THREAD.
+            .onChange(of: resultsSession?.id, initial: true) { _, id in
+                resultsThread?.follow(id)
             }
             // The ended edge: an issue-bound subject stays; an issue-less one
             // keeps the native auto-pop (EXP-696).
@@ -1244,6 +1285,15 @@ struct WorkScreen: View {
                 db: deps.db
             )
         }
+        // EXP-1284: the run's thread (the header link + the Guide).
+        if shownThread == nil {
+            shownThread = RunThreadLookup(accountId: accountId, db: deps.db)
+        }
+        if resultsThread == nil {
+            resultsThread = RunThreadLookup(accountId: accountId, db: deps.db)
+        }
+        shownThread?.follow(shownSessionId)
+        resultsThread?.follow(resultsSession?.id)
         // Re-arm on every appear: pushing a child screen stops the
         // observations (onDisappear), popping back must resume them.
         subjectModel?.observeShown(id: shownSessionId)
@@ -1281,6 +1331,8 @@ struct WorkScreen: View {
         // first responder may outlive this screen (EXP-246).
         UIApplication.endEditing()
         subjectModel?.stop()
+        shownThread?.stop()
+        resultsThread?.stop()
         prGraphModel?.stop()
         readinessModel?.stop()
         prChangesModel?.stopObserving()

@@ -8,7 +8,7 @@ Your working directory is your whole subject: the run's repository worktree, or 
 
 ## Threads
 
-Your run sits in a thread (`exponential_threads_get`): issues and runs, ONE Guide, one PR. A run with no issue decides if the work needs one, files it into the thread (`exponential_issues_create` with `threadId`) or links an existing one (`exponential_threads_link`); `exponential_threads_unlink` detaches what does not belong. `exponential_pr_open` with no subject = ONE PR for every issue of the thread.
+Your session sits in a thread (`exponential_threads_get`): issues and sessions, ONE Guide, one PR. A session with no issue decides if the work needs one, files it into the thread (`exponential_issues_create` with `threadId`) or links an existing one (`exponential_threads_link`); `exponential_threads_unlink` detaches what does not belong. `exponential_pr_open` with no subject = ONE PR for every issue of the thread.
 
 ## Refs, mentions and links
 

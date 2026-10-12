@@ -159,8 +159,13 @@ export function useRemoteStart(
      * `useOpenSession` verbatim; absent = derive it from the URL. */
     origin?: DetailOrigin | null
     /** EXP-1255: called with the started run as the watch opens it (the
-     *  New run tab turns into that run's tab). */
-    onOpened?: (session: CodingSession) => void
+     *  New run tab turns into that run's tab). EXP-1284: returning `true`
+     *  means the caller opened it itself (the run's THREAD page), so the
+     *  hook does not navigate to the run. */
+    onOpened?: (session: CodingSession) => boolean | void
+    /** EXP-1284: every start from this hook goes INTO this thread
+     *  (`steer.startSession({threadId})` — "Start a session here"). */
+    threadId?: string | null
   } = {}
 ): RemoteStart {
   const { enabled = true, currentUserId, teamId, listTeamIds } = options
@@ -186,6 +191,8 @@ export function useRemoteStart(
   const openSession = useOpenSession()
   const onOpenedRef = useRef(options.onOpened)
   onOpenedRef.current = options.onOpened
+  const threadIdRef = useRef(options.threadId ?? null)
+  threadIdRef.current = options.threadId ?? null
 
   // EXP-481: device rows off the synced shape (already server-scoped to own
   // rows + team-shared servers); user rows resolve shared owners' names.
@@ -259,8 +266,7 @@ export function useRemoteStart(
     if (!match) return
     // EXP-740: navigate to the run exactly once — clearing `pending` stops
     // this effect from ever matching again for this send.
-    onOpenedRef.current?.(match)
-    openSession(match, openOptions)
+    if (onOpenedRef.current?.(match) !== true) openSession(match, openOptions)
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
     setPending(null)
   }, [sessionRows, pending, currentUserId, openSession, openOptions])
@@ -297,6 +303,7 @@ export function useRemoteStart(
       const { resume, ...rest } = options
       const base = {
         deviceId: device.deviceId,
+        ...threadIdPayload(threadIdRef.current),
         ...rest,
         // A blank prompt is OMITTED — the server drops whitespace-only
         // anyway, and older relays never see the key.
@@ -344,6 +351,7 @@ export function useRemoteStart(
           ...(isBuiltinActionId(action.id) ? { teamId: action.teamId } : {}),
           ...(inputs ? { inputs } : {}),
           ...(prompt && prompt.trim() ? { prompt } : {}),
+          ...threadIdPayload(threadIdRef.current),
           ...rest,
         },
         SKIP_ERROR_TOAST
@@ -370,4 +378,9 @@ export function useRemoteStart(
     refresh: () => setRefreshTick((tick) => tick + 1),
     latestVersions,
   }
+}
+
+/** EXP-1284: the `threadId` a start carries, when it has one. */
+function threadIdPayload(threadId: string | null): { threadId?: string } {
+  return threadId ? { threadId } : {}
 }

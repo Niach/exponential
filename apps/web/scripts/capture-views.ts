@@ -49,6 +49,8 @@ import {
   DEMO_ACTION_ID,
   DEMO_SESSION_IDS,
   DEMO_STEERED_SESSION_ID,
+  DEMO_THREAD_ID,
+  DEMO_THREAD_RUNS_ID,
   NEWCOMER_EMAIL,
   NEWCOMER_PASSWORD,
   STARTER_EMAIL,
@@ -141,6 +143,9 @@ function resolveRoute(route: string, ctx: RecipeCtx, db: DbPlaceholders): string
     // EXP-1204: the run-changes view's row — a teammate's chat run with an
     // open PR of its own, pinned the same way.
     .replaceAll(`$runChangesSessionId`, DEMO_SESSION_IDS.runChanges)
+    // EXP-1284: the two demo threads, pinned the same way.
+    .replaceAll(`$threadRunsId`, DEMO_THREAD_RUNS_ID)
+    .replaceAll(`$threadId`, DEMO_THREAD_ID)
     // SLOP-2: an action is a page too, and the seed pins its id the same way.
     .replaceAll(`$actionId`, DEMO_ACTION_ID)
     .replaceAll(`$inviteToken`, DEMO_INVITE_TOKEN)

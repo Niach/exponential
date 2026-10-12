@@ -743,8 +743,11 @@ impl IssueDetailView {
     ) -> Option<AnyElement> {
         let reviewable = crate::queries::is_reviewable(issue);
         let row = crate::work_header::issue_results_row(&issue.id, None, cx);
+        // EXP-1284: THE Guide is the run's THREAD's (`threads.results`),
+        // else the run's own.
         let scoped = row.as_ref().map(|row| {
-            domain::session_results::session_results_for_pr(row.results.as_ref(), issue.pr_url.as_deref())
+            let guide = crate::threads::guide_results_of_session(row, cx);
+            domain::session_results::session_results_for_pr(guide.as_ref(), issue.pr_url.as_deref())
         });
         let mut groups = scoped
             .as_ref()

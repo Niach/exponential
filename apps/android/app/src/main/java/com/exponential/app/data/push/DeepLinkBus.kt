@@ -28,6 +28,9 @@ class DeepLinkBus @Inject constructor() {
         // straight to the run that hit the wall.
         data class Session(val id: String) : Target
 
+        // EXP-1284: a tapped thread link in agent prose — the Thread screen.
+        data class Thread(val id: String) : Target
+
         // A verified https `/t/{team}/agent` App Link (EXP-825): the Agent
         // page composer, opened with an empty seed on the active account.
         data object Agent : Target
@@ -90,6 +93,10 @@ class DeepLinkBus @Inject constructor() {
 
     fun openSession(id: String) {
         _target.value = Target.Session(id)
+    }
+
+    fun openThread(id: String) {
+        _target.value = Target.Thread(id)
     }
 
     fun openAgent() {

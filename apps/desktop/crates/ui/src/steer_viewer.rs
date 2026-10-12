@@ -608,6 +608,18 @@ pub(crate) struct SteerSessionView {
     /// EXP-1175: [`Self::show_work`] as of this frame's render — what the
     /// cx-less projection ([`Self::active_subagent`]) reads.
     show_work_cached: bool,
+    /// EXP-1284: the view is EMBEDDED in a thread's conversation as one run
+    /// block's body — no list, no composer, no banners: the status row over
+    /// the run's thread (or, behind its OWN Show work, the transcript) laid
+    /// out flat inside the thread's one scroll ([`Self::render_embedded`]).
+    embedded: bool,
+    /// EXP-1284: an embedded view's Show work — local to the block, never
+    /// the per-user preference the Run face remembers.
+    embedded_show_work: bool,
+    /// EXP-1284: THE Guide this run's Guide face reads — its thread's
+    /// `results` while that has entries, else the run's own
+    /// ([`crate::threads::guide_results_of_session`], the web `guideOfRun`).
+    guide_results: Option<serde_json::Value>,
     /// EXP-776: the frame's issue-chip resolver (EXP-760), built ONCE per
     /// frame over `chip_cache` instead of per prose body. `None` for a run
     /// with no resolvable team.
@@ -684,6 +696,14 @@ impl SteerSessionView {
             let shared_state = store.state();
             subscriptions.push(cx.observe(&collections.coding_sessions, |this, _, cx| {
                 this.refresh_row(cx);
+            }));
+            // EXP-1284: THE Guide is the run's THREAD's — its row and its
+            // membership re-read the Guide the faces show.
+            subscriptions.push(cx.observe(&collections.threads, |this, _, cx| {
+                this.refresh_guide(cx);
+            }));
+            subscriptions.push(cx.observe(&collections.thread_items, |this, _, cx| {
+                this.refresh_guide(cx);
             }));
             // EXP-776: the chip memo is only as fresh as the issues and
             // statuses it was read from (glyph and tint are part of a chip).
@@ -833,6 +853,9 @@ impl SteerSessionView {
             thread_cards: Vec::new(),
             status_ticking: false,
             show_work_cached: crate::run_rows::SHOW_WORK_DEFAULT,
+            embedded: false,
+            embedded_show_work: false,
+            guide_results: None,
             chips: None,
             chip_cache: Default::default(),
             focus_handle: cx.focus_handle(),
@@ -1541,7 +1564,32 @@ impl SteerSessionView {
     /// ([`crate::ui_prefs::show_work`]), `EXP_DEV_SHOW_WORK=1` forcing it on
     /// for the capture lane.
     fn show_work(&self, cx: &App) -> bool {
+        if self.embedded {
+            return self.embedded_show_work;
+        }
         crate::screens::dev_show_work() || crate::ui_prefs::show_work(&show_work_user(cx))
+    }
+
+    /// EXP-1284 — make this view a thread conversation's run block body
+    /// ([`Self::render_embedded`]); `show_work` opens it on the transcript
+    /// (a folded run's Show work).
+    pub(crate) fn set_embedded(&mut self, show_work: bool, cx: &mut gpui::Context<Self>) {
+        self.embedded = true;
+        self.embedded_show_work = show_work;
+        cx.notify();
+    }
+
+    /// EXP-1284 — the thread's reply composer sends to this run: the SAME
+    /// delivery the Run face's composer ends in (local engine prompt, or the
+    /// relay's `input` frame). `false` = it did not go out (the run is over,
+    /// or the relay is not connected).
+    pub(crate) fn send_reply(&mut self, text: &str, cx: &mut gpui::Context<Self>) -> bool {
+        if !self.run_open() {
+            return false;
+        }
+        let sent = self.deliver(text);
+        cx.notify();
+        sent
     }
 
     /// Whether the run is over — a merged/ended session offers no Merge
@@ -1603,6 +1651,7 @@ impl SteerSessionView {
             }
             cx.notify();
         }
+        self.refresh_guide(cx);
         // EXP-895: the row is where the issue id comes from, so this is the
         // first moment the FALLBACK files can be asked for — a run that
         // never publishes a diff (an ended one, a remote host that is gone)
@@ -2901,9 +2950,19 @@ impl SteerSessionView {
     /// EXP-933: GROUPS, pictures AND each topic's report text — a run that
     /// published only text still has a Results face.
     pub(crate) fn results_groups(&self) -> Vec<domain::session_results::SessionResultGroup> {
-        domain::session_results::parse_session_result_groups(
-            self.row.as_ref().and_then(|row| row.results.as_ref()),
-        )
+        domain::session_results::parse_session_result_groups(self.guide_results.as_ref())
+    }
+
+    /// EXP-1284 — re-read THE Guide (the thread's, else the run's own).
+    fn refresh_guide(&mut self, cx: &mut gpui::Context<Self>) {
+        let guide = self
+            .row
+            .as_ref()
+            .and_then(|row| crate::threads::guide_results_of_session(row, cx));
+        if guide != self.guide_results {
+            self.guide_results = guide;
+            cx.notify();
+        }
     }
 
     /// EXP-1251 — one of the Guide's diff pages is up.
@@ -4405,6 +4464,7 @@ impl SteerSessionView {
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let entity = cx.entity().downgrade();
+        let embedded = self.embedded;
         crate::run_rows::run_status_row(
             crate::run_rows::RunStatusRowSpec {
                 id,
@@ -4415,8 +4475,16 @@ impl SteerSessionView {
                 tool_line,
                 show_work,
                 on_toggle: Some(Box::new(move |_, window, cx| {
-                    crate::ui_prefs::set_show_work(&show_work_user(cx), !show_work);
-                    let _ = entity.update(cx, |_, cx| cx.notify());
+                    // EXP-1284: an embedded block's switch is its own.
+                    if embedded {
+                        let _ = entity.update(cx, |this, cx| {
+                            this.embedded_show_work = !show_work;
+                            cx.notify();
+                        });
+                    } else {
+                        crate::ui_prefs::set_show_work(&show_work_user(cx), !show_work);
+                        let _ = entity.update(cx, |_, cx| cx.notify());
+                    }
                     window.refresh();
                 })),
             },
@@ -4468,6 +4536,45 @@ impl SteerSessionView {
             cx,
         );
         Some(work_column_row(element).into_any_element())
+    }
+
+    /// EXP-1284 — the EMBEDDED body (a thread conversation's run block): the
+    /// Run face's status row over the run's thread rows, or — behind the
+    /// row's own Show work — the transcript rows, all laid out flat (the
+    /// thread page owns the one scroll; a list cannot nest in it). No
+    /// composer, banners or panes: the thread's reply box steers.
+    fn render_embedded(
+        &mut self,
+        show_work: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::Div {
+        let status = self.render_status_row(show_work, cx);
+        let rows: Vec<AnyElement> = if show_work {
+            (0..self.row_keys.len())
+                .map(|ix| self.render_list_row(ix, window, cx))
+                .collect()
+        } else {
+            (0..self.thread_rows.len())
+                .map(|ix| self.render_thread_row(ix, window, cx))
+                .collect()
+        };
+        // The bubble cap reads the view's width (the normal body's probe).
+        let width_probe = self.view_width.clone();
+        v_flex()
+            .relative()
+            .w_full()
+            .min_w_0()
+            .children(status)
+            .children(rows)
+            .child(
+                gpui::canvas(
+                    move |bounds, _, _| width_probe.set(bounds.size.width),
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
     }
 
     /// EXP-1271 — the owner's open run before its first turn: nothing
@@ -8527,6 +8634,10 @@ impl Render for SteerSessionView {
         self.show_work_cached = show_work;
         self.sync_list(cx);
         self.sync_thread(cx);
+        // EXP-1284: a thread's run block — flat, inside the thread's scroll.
+        if self.embedded {
+            return self.render_embedded(show_work, window, cx);
+        }
         self.sync_card_focus(window, cx);
         // EXP-789: the subagent strip sits between the header and the feed
         // (EXP-1175: the transcript's only).

@@ -12,8 +12,8 @@
 //   * its CAPTIONS: the header's `2 runs · 2 devices` and a list row's
 //     `2 issues · 1 run · macbook` (the device part only while a run is
 //     live, naming the live runs' devices);
-//   * its CONVERSATION: every run in start order as a `Run N` block (state,
-//     device, `resumed`, `started by Run K`), the issues its agent linked as
+//   * its CONVERSATION: every run in start order as a `Session N` block (the product says SESSION) (state,
+//     device, `resumed`, `started by Session K`), the issues its agent linked as
 //     rows under it (`Linked` / `Filed and linked`), and the runs one parent
 //     started as ONE parallel card once there are two or more of them;
 //   * its LIST placement: Running (a live run of mine) vs Recent.
@@ -86,9 +86,9 @@ export interface ThreadLinkRow {
 export interface ThreadRunBlock {
   kind: `run`
   runId: string
-  /** `Run 1`, … in start order across the whole thread. */
+  /** `Session 1`, … in start order across the whole thread. */
   label: string
-  /** The muted parts after the label: device, `resumed`, `started by Run K`. */
+  /** The muted parts after the label: device, `resumed`, `started by Session K`. */
   caption: string[]
   state: ThreadRunState
   /** Ended runs fold to one line until Show work opens them. */
@@ -107,9 +107,9 @@ export interface ThreadParallelRow {
 
 export interface ThreadParallelBlock {
   kind: `parallel`
-  /** `Runs 3 and 4`, `Runs 3, 4 and 5`. */
+  /** `Sessions 3 and 4`, `Sessions 3, 4 and 5`. */
   label: string
-  /** `started by Run 2`. */
+  /** `started by Session 2`. */
   caption: string[]
   /** Live while any of its runs is. */
   state: ThreadRunState
@@ -157,7 +157,7 @@ function plural(count: number, one: string, many: string): string {
   return `${count} ${count === 1 ? one : many}`
 }
 
-/** `Run 3 and 4`-style joins: `3`, `3 and 4`, `3, 4 and 5`. */
+/** `Sessions 3 and 4`-style joins: `3`, `3 and 4`, `3, 4 and 5`. */
 function joinOrdinals(ordinals: number[]): string {
   if (ordinals.length <= 1) return ordinals.map(String).join(``)
   const head = ordinals.slice(0, -1).join(`, `)
@@ -220,7 +220,7 @@ export function buildThreadView(input: {
   ]
 
   const liveRuns = runs.filter((run) => run.status !== `ended`)
-  const runsPart = plural(runs.length, `run`, `runs`)
+  const runsPart = plural(runs.length, `session`, `sessions`)
   const headerParts = [runsPart, devicesPart(runs)].filter(Boolean) as string[]
   const issuesPart =
     issues.length === 0 ? `no issues` : plural(issues.length, `issue`, `issues`)
@@ -267,14 +267,14 @@ export function buildThreadView(input: {
       run.parentSessionId && !run.resumedFromId ? childrenOf.get(run.parentSessionId) : undefined
     const startedBy =
       run.parentSessionId && ordinal.has(run.parentSessionId)
-        ? `started by Run ${ordinal.get(run.parentSessionId)}`
+        ? `started by Session ${ordinal.get(run.parentSessionId)}`
         : null
     if (siblings && siblings.length >= 2) {
       for (const sibling of siblings) placed.add(sibling.id)
       const states = siblings.map(threadRunState)
       conversation.push({
         kind: `parallel`,
-        label: `Runs ${joinOrdinals(siblings.map((sibling) => ordinal.get(sibling.id)!))}`,
+        label: `Sessions ${joinOrdinals(siblings.map((sibling) => ordinal.get(sibling.id)!))}`,
         caption: startedBy ? [startedBy] : [],
         state: states.includes(`needs_input`)
           ? `needs_input`
@@ -303,7 +303,7 @@ export function buildThreadView(input: {
     conversation.push({
       kind: `run`,
       runId: run.id,
-      label: `Run ${ordinal.get(run.id)}`,
+      label: `Session ${ordinal.get(run.id)}`,
       caption,
       state,
       folded: state === `ended`,

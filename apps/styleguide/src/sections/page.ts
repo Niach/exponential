@@ -135,6 +135,7 @@ export const ENTRY_BAND: Readonly<Record<string, ComponentKind>> = {
   [`run-status-row`]: `Lists & rows`,
   [`session-thread`]: `Lists & rows`,
   [`work-card`]: `Surfaces`,
+  [`thread-parts`]: `Surfaces`,
   [`script-card`]: `Surfaces`,
   [`comment-call-card`]: `Surfaces`,
   [`pr-graph-badge`]: `Buttons & chips`,

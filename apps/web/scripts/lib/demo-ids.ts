@@ -27,12 +27,15 @@ import {
   devices,
   issues,
   teams,
+  threads,
 } from "@/db/schema"
 import { mintReporterToken } from "@/lib/reporter/token"
 import {
   DEMO_DEVICE_ID,
   DEMO_SESSION_IDS,
   DEMO_STEERED_SESSION_ID,
+  DEMO_THREAD_ID,
+  DEMO_THREAD_RUNS_ID,
   DEMO_WIDGET_ISSUE_ID,
   EMPTY_BOARD_SLUG,
   TEAM_SLUG,
@@ -97,6 +100,14 @@ export interface DemoIds {
    * showcase run: absent = the view skips.
    */
   runChangesSessionId?: string
+  /**
+   * EXP-1284: the two seeded threads the `thread` / `thread-runs` views are
+   * photographed on, pinned as `DEMO_THREAD_ID` / `DEMO_THREAD_RUNS_ID` so the
+   * web route and the desktop's `EXP_DEV_SCREEN=thread:<id>` can name them.
+   * Same presence check as the showcase run: absent = the view skips.
+   */
+  threadId?: string
+  threadRunsId?: string
 }
 
 export async function resolveDemoIds(): Promise<DemoIds> {
@@ -204,6 +215,18 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     )
     .limit(1)
 
+  // EXP-1284: the two pinned demo threads, presence-checked like the runs.
+  const demoThreads = await db
+    .select({ id: threads.id })
+    .from(threads)
+    .where(
+      and(
+        eq(threads.teamId, team.id),
+        inArray(threads.id, [DEMO_THREAD_ID, DEMO_THREAD_RUNS_ID])
+      )
+    )
+  const threadIds = new Set(demoThreads.map((row) => row.id))
+
   return {
     teamId: team.id,
     boardId: board.id,
@@ -223,5 +246,7 @@ export async function resolveDemoIds(): Promise<DemoIds> {
     deviceId: device?.id,
     steeredSessionId: steeredSession?.id,
     runChangesSessionId: runChangesSession?.id,
+    threadId: threadIds.has(DEMO_THREAD_ID) ? DEMO_THREAD_ID : undefined,
+    threadRunsId: threadIds.has(DEMO_THREAD_RUNS_ID) ? DEMO_THREAD_RUNS_ID : undefined,
   }
 }

@@ -63,6 +63,9 @@ export interface IssueDraftEditorOptions {
   initialBoardId: string
   /** The group status a "+" seeded (`?status=`). */
   initialStatusId?: string | null
+  /** EXP-1284: `New issue in this thread` (`?thread=`) — the created issue
+   *  is linked into that thread (`issues.create({threadId})`). */
+  threadId?: string | null
   /** The synced row — LIVE. Seeds the page ONCE when present on open;
    *  afterwards only its presence is read (EXP-1231). */
   draft?: IssueDraft
@@ -91,6 +94,7 @@ export function useIssueDraftEditor({
   teamId,
   initialBoardId,
   initialStatusId = null,
+  threadId = null,
   draft,
   boards,
   labels,
@@ -470,6 +474,7 @@ export function useIssueDraftEditor({
         dueDate: snapshot.dueDate ?? undefined,
         labelIds: snapshot.labelIds.length > 0 ? snapshot.labelIds : undefined,
         draftId: rowExistsRef.current ? draftId : undefined,
+        ...(threadId ? { threadId } : {}),
       }, SKIP_ERROR_TOAST)
       created = result.issue
       txId = result.txId

@@ -5,6 +5,7 @@ import com.exponential.app.data.db.ExponentialDatabase
 import com.exponential.app.domain.ARG_ACTION
 import com.exponential.app.domain.ARG_ISSUES
 import com.exponential.app.domain.ARG_PR
+import com.exponential.app.domain.ARG_THREAD
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -16,12 +17,14 @@ import kotlinx.coroutines.flow.map
 /**
  * EXP-1186: what a route names that OWNS a team — a team action (the agent
  * route's `action` arg or the action page's `actionId`), else the issue a
- * `pr` / `issues` seed names. Null = nothing team-owned (an empty composer,
+ * `pr` / `issues` seed names, else the thread a `thread` seed starts into
+ * (EXP-1284). Null = nothing team-owned (an empty composer,
  * a builtin): the screen keeps the SELECTED team.
  */
 sealed interface RouteSubject {
     data class Action(val id: String) : RouteSubject
     data class Issue(val id: String) : RouteSubject
+    data class Thread(val id: String) : RouteSubject
 }
 
 /** The [RouteSubject] off a route's args, [get] answering one key at a time. */
@@ -31,7 +34,8 @@ fun routeSubject(get: (String) -> String?): RouteSubject? {
     val pr = get(ARG_PR)?.takeIf { it.isNotEmpty() }
     if (pr != null) return RouteSubject.Issue(pr)
     val issue = get(ARG_ISSUES)?.split(',')?.map { it.trim() }?.firstOrNull { it.isNotEmpty() }
-    return issue?.let { RouteSubject.Issue(it) }
+    if (issue != null) return RouteSubject.Issue(issue)
+    return get(ARG_THREAD)?.takeIf { it.isNotEmpty() }?.let { RouteSubject.Thread(it) }
 }
 
 /**
@@ -59,6 +63,7 @@ fun routeTeamIdFlow(
                     db.issueDao().observeById(subject.id),
                     db.boardDao().observeAll(),
                 ) { issue, boards -> boards.firstOrNull { it.id == issue?.boardId }?.teamId }
+                is RouteSubject.Thread -> db.threadDao().observeById(subject.id).map { it?.teamId }
             }
         }
     }

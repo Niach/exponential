@@ -48,15 +48,15 @@ pub(crate) struct ChangelogEntry {
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
     id: "2026-10-12-threads",
     date: "2026-10-12",
-    title: "Threads: one place for a piece of work, its issues and its runs",
-    summary: "A thread holds the issues and runs of one piece of work. The agent links the issues it files or picks up, the thread shows every run and link as one conversation, and lists show threads instead of single runs.",
-    body: r#"- **Threads**: every run starts in a thread. A run on an issue joins that issue's thread, a resume continues its thread, and anything else opens a new one.
+    title: "Threads: one place for a piece of work, its issues and its sessions",
+    summary: "A thread holds the issues and sessions of one piece of work. The agent links the issues it files or picks up, the thread shows every session and link as one conversation, and lists show threads instead of single sessions.",
+    body: r#"- **Threads**: every session starts in a thread. A session on an issue joins that issue's thread, a resume continues its thread, and anything else opens a new one.
 - **The agent links its work**: the agent files new issues into its thread, links existing ones and detaches what does not belong. Each link shows as a row in the conversation.
 - **One page**: the tabs across the top read Conversation, each linked issue, a plus button and Guide. On phones they are the pager.
-- **Many runs**: resumes continue the conversation, ended runs fold to one line with Show work, and runs one run started side by side share one card.
+- **Many sessions**: resumes continue the conversation, ended sessions fold to one line with Show work, and sessions one session started side by side share one card.
 - **One PR, one Guide**: a thread's PR covers every issue in it by default, and its Guide is the PR body.
-- **Menus**: link an issue, file a new issue into the thread, start a run in it or unlink an issue from the plus button or an issue's menu.
-- **Lists**: Running and Recent show threads with their issue and run counts, and an issue names the threads it sits in."#,
+- **Menus**: link an issue, file a new issue into the thread, start a session in it or unlink an issue from the plus button or an issue's menu.
+- **Lists**: Running and Recent show threads with their issue and session counts, and an issue names the threads it sits in."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

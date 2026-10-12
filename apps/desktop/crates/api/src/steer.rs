@@ -186,6 +186,13 @@ pub struct StartSessionInput {
     /// `computer-use-run`, and LAST on the wire like every option before it.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub computer_use: Option<bool>,
+    /// EXP-1284: the thread this start JOINS (`steer.startSession({threadId})`
+    /// — a thread of the subject's team; refused beside `resume_session_id`,
+    /// whose resume stays in its predecessor's thread). The relay forwards it
+    /// on the start frame and the device echoes it into
+    /// `codingSessions.start`. LAST on the wire like every option before it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thread_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -454,6 +461,30 @@ mod tests {
         assert!(
             request.ends_with(
                 r#"{"issueId":"22222222-2222-4222-8222-222222222222","deviceId":"dev-2","account":"0a1b2c3d","computerUse":false}"#
+            ),
+            "{request}"
+        );
+    }
+
+    /// EXP-1284: "Start a session here" names the thread the start joins, LAST.
+    #[test]
+    fn start_session_carries_the_thread_last() {
+        let (base, captured) = one_shot_server(200, r#"{"result":{"data":{"ok":true}}}"#);
+        start_session(
+            &client(&base),
+            &StartSessionInput {
+                issue_id: Some("22222222-2222-4222-8222-222222222222".to_string()),
+                device_id: "dev-2".to_string(),
+                computer_use: Some(false),
+                thread_id: Some("44444444-4444-4444-8444-444444444444".to_string()),
+                ..Default::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#""computerUse":false,"threadId":"44444444-4444-4444-8444-444444444444"}"#
             ),
             "{request}"
         );

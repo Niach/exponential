@@ -101,6 +101,11 @@ const LOCAL_EXCLUDES: &[&str] = &[
 pub enum LaunchOrigin {
     /// The Start-coding button on the issue-detail header.
     Local,
+    /// EXP-1284: a person's start on THIS machine that joins a thread
+    /// ("Start a session here", the thread's reply composer): exactly
+    /// [`Self::Local`], plus the `threadId` `codingSessions.start` sends
+    /// (the api layer drops it beside a resume link).
+    LocalThread { thread_id: String },
     /// A relay `start_session` frame (§08's control channel). `started_by`
     /// (EXP-432) is the requesting teammate when the start targeted this
     /// machine as a SHARED server device — echoed into
@@ -148,13 +153,14 @@ fn attribution<'a>(
             Some(device_id.as_str()),
             thread_id.as_deref(),
         ),
-        _ => (None, None, None),
+        LaunchOrigin::LocalThread { thread_id } => (None, None, Some(thread_id.as_str())),
+        LaunchOrigin::Local => (None, None, None),
     };
     coding_sessions::Attribution {
         // Only a `started_by` relay start re-owns the row (EXP-432).
         started_by_id,
         device_id: relay_device_id.or(deps.device_id.as_deref()),
-        // EXP-1284: local starts join no requested thread (yet).
+        // EXP-1284: a relay frame's thread, or a local start's own pick.
         thread_id,
     }
 }
@@ -174,7 +180,7 @@ fn started_reason<'a>(
     }
     match origin {
         LaunchOrigin::Relay { started_reason, .. } => started_reason.as_deref(),
-        LaunchOrigin::Local => None,
+        LaunchOrigin::Local | LaunchOrigin::LocalThread { .. } => None,
     }
 }
 
@@ -6998,6 +7004,48 @@ Not shared: Max (not connected). Until a member shares their connection (Setting
         assert_eq!(prepared.heartbeat_scope.thread_id, None);
         let requests = captured.lock().unwrap();
         assert!(!requests.iter().any(|r| r.contains("threadId")));
+    }
+
+    /// EXP-1284: "Start a session here" on THIS machine — a `LocalThread` origin
+    /// sends its thread on the start like a relay frame's, and stays a
+    /// person's start (no reason, no requester).
+    #[test]
+    fn prepare_issue_local_thread_rides_the_start() {
+        let dir = temp_dir("issue-local-thread-pick");
+        let worktree = dir.0.join("wt");
+        fs::create_dir_all(&worktree).unwrap();
+        let (base, captured) = canned_server_recording(vec![
+            (200, FOR_ISSUE_OK.to_string()),
+            (200, TOKEN_OK.to_string()),
+            (
+                200,
+                r#"{"result":{"data":{"session":{"id":"sess-1","issueId":"issue-1","status":"running"},"threadId":"th-3"}}}"#
+                    .to_string(),
+            ),
+        ]);
+        let worktrees = Arc::new(FakeWorktrees {
+            worktree: worktree.clone(),
+            seen: Default::default(),
+        });
+        let deps = make_deps(&base, &dir.0, worktrees);
+        let mut req = request("EXP-42");
+        req.origin = LaunchOrigin::LocalThread {
+            thread_id: "th-3".to_string(),
+        };
+        let prepared = match prepare(&PrepareRequest::Issue(req), &deps).unwrap() {
+            Prepared::Ready(prepared) => prepared,
+            other => panic!("expected Ready, got {other:?}"),
+        };
+        assert_eq!(prepared.heartbeat_scope.thread_id.as_deref(), Some("th-3"));
+        assert_eq!(prepared.heartbeat_scope.started_reason, None);
+        assert_eq!(prepared.heartbeat_scope.started_by_id, None);
+        let requests = captured.lock().unwrap();
+        let start = requests
+            .iter()
+            .find(|r| r.contains("codingSessions.start"))
+            .expect("start mutation");
+        assert!(start.contains(r#""threadId":"th-3""#), "{start}");
+        assert!(!start.contains("startedReason"), "{start}");
     }
 
     /// EXP-679: a LOCAL issue start is a person's — no reason anywhere, and

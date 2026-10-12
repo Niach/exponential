@@ -113,10 +113,8 @@ import com.exponential.app.ui.session.AgentsViewModel
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.domain.ToastAction
 import com.exponential.app.ui.components.ExponentialMark
-import com.exponential.app.ui.components.CodingSessionRow
 import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.LocalToaster
-import com.exponential.app.ui.components.SessionRowSize
 import com.exponential.app.ui.gettingstarted.GettingStartedSection
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.IssueTypeaheadSheetHost
@@ -135,8 +133,8 @@ import kotlinx.coroutines.launch
  * EXP-825: the team's AGENT page — the ONE launcher on every client. The
  * composer card ([AgentComposer]: subject chips, the message, images, the
  * labelled submit), the `@`/`#`/`:` candidate menu under it, the options line
- * ([AgentOptionsRow]), the start captions, then the caller's Running and Past
- * sessions ([agentSessionsList], moved here from the Devices tab, which keeps
+ * ([AgentOptionsRow]), the start captions, then the caller's Running and
+ * Recent THREADS ([agentThreadsList], EXP-1284; moved here from the Devices tab, which keeps
  * machines only — web parity, EXP-818).
  *
  * Two mounts: the Agent TAB (the bar's chat arm and the app's landing
@@ -155,11 +153,15 @@ fun AgentScreen(
     onBack: (() -> Unit)?,
     onOpenSteer: (codingSessionId: String) -> Unit,
     onOpenIssue: (issueId: String) -> Unit,
+    /** EXP-1284: a Running / Recent row opens its THREAD. */
+    onOpenThread: (threadId: String) -> Unit = {},
     viewModel: AgentComposerViewModel = hiltViewModel(),
     dataViewModel: AgentLaunchDataViewModel = hiltViewModel(),
     // The sessions under the composer: the Devices tab's own model, reused
     // rather than mirrored (both read the same synced shapes).
     sessionsViewModel: AgentsViewModel = hiltViewModel(),
+    // EXP-1284: the lists show THREADS (`partitionThreadList`).
+    threadsViewModel: com.exponential.app.ui.thread.ThreadsViewModel = hiltViewModel(),
 ) {
     // ── Composer state ──────────────────────────────────────────────────────
     val teamId by viewModel.teamId.collectAsStateWithLifecycle()
@@ -194,7 +196,6 @@ fun AgentScreen(
     // EXP-1253: the home around the card — the greeting's name, Recent, and
     // whether Getting started still follows it (no board yet).
     val userName by viewModel.userName.collectAsStateWithLifecycle()
-    val homeRecent by viewModel.homeRecent.collectAsStateWithLifecycle()
     val teamHasBoard by viewModel.teamHasBoard.collectAsStateWithLifecycle()
     // EXP-1271: the start in flight, until its row lands or it times out.
     val starting by viewModel.starting.collectAsStateWithLifecycle()
@@ -209,17 +210,22 @@ fun AgentScreen(
     val syncedDeviceRows by dataViewModel.deviceRows.collectAsStateWithLifecycle()
 
     // ── Sessions ────────────────────────────────────────────────────────────
-    val sessionsState by sessionsViewModel.state.collectAsStateWithLifecycle()
-    val pastRuns by sessionsViewModel.pastRuns.collectAsStateWithLifecycle()
     // EXP-1186: runs are cross-team, banded per team once there are several.
     val memberTeams by sessionsViewModel.teams.collectAsStateWithLifecycle()
+    // EXP-1284: Running (a live run of mine) vs Recent, as THREADS.
+    val threadList by threadsViewModel.list.collectAsStateWithLifecycle()
 
     // The desktop picked the start up — open the live session ONCE (EXP-536).
     val startedSessionId by viewModel.startedSessionId.collectAsStateWithLifecycle()
     LaunchedEffect(startedSessionId) {
         startedSessionId?.let {
             viewModel.consumeStartedSession()
-            onOpenSteer(it)
+            // EXP-1284: a start INTO a thread lands back on that thread (the
+            // pushed composer pops; the new run is its next block) — the
+            // phone twin of web `landNewRun` turning the New run tab into
+            // the thread's.
+            val back = onBack
+            if (viewModel.seed.threadId != null && back != null) back() else onOpenSteer(it)
         }
     }
     // EXP-1253: computed ONCE per mount (it never flips while you type); the
@@ -332,10 +338,10 @@ fun AgentScreen(
         device == null -> if (signedOut.isNotEmpty()) {
             "${signedOut.joinToString(", ")} not signed in on your machines. Sign in on the machine first."
         } else {
-            "No desktop online. Open the Exponential desktop app to start a run."
+            "No desktop online. Open the Exponential desktop app to start a session."
         }
         agentNotReady -> "Not ready on ${device?.deviceLabel?.ifBlank { device?.deviceId }}. Run the doctor there."
-        multiRepo -> "Pick issues from a single repository per run."
+        multiRepo -> "Pick issues from a single repository per session."
         overCap -> "At most $MAX_BATCH_ISSUES issues per run. Split the batch."
         selectedAction != null && ActionInputValues.hasUnsupportedType(selectedActionInputs) ->
             "This action needs a newer app version."
@@ -502,7 +508,7 @@ fun AgentScreen(
     // …and with nothing running, the composer column sits in the MIDDLE of the
     // page instead of hugging the top bar (web `justify-center`, desktop
     // `min_h_full`, iOS the same rule).
-    val emptyRuns = sessionsState.rows.isEmpty()
+    val emptyRuns = threadList.running.isEmpty()
 
     Scaffold(
         containerColor = Color.Transparent,
@@ -519,7 +525,7 @@ fun AgentScreen(
                     ) {
                         Icon(
                             ExpIcons.settingsSessions,
-                            contentDescription = "Recent runs",
+                            contentDescription = "Recent sessions",
                             modifier = Modifier.size(20.dp),
                         )
                     }
@@ -566,7 +572,7 @@ fun AgentScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Remote start isn't available on this server. Start runs from the desktop app; live runs show up below.",
+                            "Remote start isn't available on this server. Start sessions from the desktop app; live sessions show up below.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         )
@@ -775,17 +781,13 @@ fun AgentScreen(
                     }
                     // EXP-1253: RECENT — my last three top-level runs in
                     // this team, small session rows; no band when empty.
-                    if (homeRecent.isNotEmpty()) {
+                    // EXP-1284: the recent THREADS (title + listCaption).
+                    val recentThreads = threadList.recent.take(AgentHome.RECENT_COUNT)
+                    if (recentThreads.isNotEmpty()) {
                         item(key = "__home_recent__") {
-                            HomeRecent(
-                                rows = homeRecent,
-                                onOpen = { row ->
-                                    if (steerEnabled == true) {
-                                        onOpenSteer(row.session.id)
-                                    } else {
-                                        row.session.issueId?.let(onOpenIssue)
-                                    }
-                                },
+                            HomeRecentThreads(
+                                rows = recentThreads.map { it.listRow() },
+                                onOpen = onOpenThread,
                                 modifier = Modifier.padding(top = (AgentHome.OPTIONS_TO_RECENT - 6).dp),
                             )
                         }
@@ -807,11 +809,9 @@ fun AgentScreen(
                 null -> Unit
             }
             item(key = "__sessions_gap__") { Spacer(Modifier.height(4.dp)) }
-            agentSessionsList(
-                rows = sessionsState.rows,
-                steerEnabled = steerEnabled == true,
-                onOpenSteer = onOpenSteer,
-                onOpenIssue = onOpenIssue,
+            agentThreadsList(
+                running = threadList.running,
+                onOpenThread = onOpenThread,
                 teams = memberTeams,
             )
         }
@@ -819,10 +819,10 @@ fun AgentScreen(
     }
 
     if (recentOpen) {
-        RecentRunsSheet(
-            pastRuns = pastRuns,
+        RecentThreadsSheet(
+            recent = threadList.recent,
             teams = memberTeams,
-            onOpenRun = onOpenSteer,
+            onOpenThread = onOpenThread,
             onDismiss = { recentOpen = false },
         )
     }
@@ -962,13 +962,13 @@ private fun HomeHeadline(greeting: String, modifier: Modifier = Modifier) {
 }
 
 /**
- * EXP-1253 RECENT: a muted uppercase band label over my last three
- * top-level runs in this team, each the SMALL session row that opens it.
+ * EXP-1284: RECENT on the home — the band label over my recent THREADS,
+ * each a thread row that opens it.
  */
 @Composable
-private fun HomeRecent(
-    rows: List<com.exponential.app.ui.session.PastRunRow>,
-    onOpen: (com.exponential.app.ui.session.PastRunRow) -> Unit,
+private fun HomeRecentThreads(
+    rows: List<com.exponential.app.ui.thread.ThreadListRowModel>,
+    onOpen: (String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Column(modifier = modifier.fillMaxWidth().testTag(AgentHome.RECENT_TEST_ID)) {
@@ -982,13 +982,14 @@ private fun HomeRecent(
         )
         rows.forEach { row ->
             Box(Modifier.testTag(AgentHome.RECENT_ROW_TEST_ID)) {
-                CodingSessionRow(
-                    session = row.session,
-                    issue = row.issue,
-                    device = row.device,
-                    size = SessionRowSize.Small,
-                    batchIssues = row.batchIssues,
-                    onClick = { onOpen(row) },
+                com.exponential.app.ui.thread.ThreadListRow(
+                    title = row.title,
+                    caption = row.caption,
+                    live = row.live,
+                    busy = row.busy,
+                    needsInput = row.needsInput,
+                    agent = row.agent,
+                    onClick = { onOpen(row.threadId) },
                 )
             }
         }

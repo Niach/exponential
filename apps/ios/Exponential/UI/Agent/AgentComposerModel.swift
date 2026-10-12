@@ -97,6 +97,9 @@ final class AgentComposerModel {
     /// The text a seed dropped into the draft — a draft that still equals
     /// it has not been typed in.
     private var seededDraft = ""
+    /// EXP-1284: the thread a seed asked this start to land in (the thread's
+    /// "Start a session here" / reply box); nil = the server places it.
+    private(set) var threadId: String?
     /// EXP-897/EXP-980: every `blocks` row and the issues at either end, read
     /// live off GRDB — `IssueGraph` applies the rules. The whole table rather
     /// than one issue's rows: the prompt asks for a BATCH as well, and draws
@@ -153,6 +156,9 @@ final class AgentComposerModel {
         if let text = seed.text, !text.isEmpty, draftText.isEmpty {
             draftText = text
             seededDraft = text
+        }
+        if let threadId = seed.threadId {
+            self.threadId = threadId
         }
     }
 
@@ -1038,7 +1044,8 @@ final class AgentComposerModel {
                 teamId: action.teamId,
                 options: launch.buildOptions(),
                 inputs: values.isEmpty ? nil : values,
-                prompt: prompt
+                prompt: prompt,
+                threadId: threadId
             )
             return .action(name: action.name)
         case .action, .fixConflicts:
@@ -1056,7 +1063,8 @@ final class AgentComposerModel {
                 teamId: action.isBuiltin ? action.teamId : nil,
                 options: launch.buildOptions(),
                 inputs: values.isEmpty ? nil : values,
-                prompt: prompt
+                prompt: prompt,
+                threadId: threadId
             )
             return .action(name: action.name)
         case .issues:
@@ -1070,7 +1078,8 @@ final class AgentComposerModel {
                     issueIds: ids,
                     deviceId: device.deviceId,
                     options: launch.buildOptions(),
-                    prompt: prompt
+                    prompt: prompt,
+                    threadId: threadId
                 )
             } else {
                 // Single-issue only — a batch has no per-issue worktree to
@@ -1082,7 +1091,8 @@ final class AgentComposerModel {
                     options: launch.buildOptions(
                         resume: resumeActive && issueIds == nil ? true : nil
                     ),
-                    prompt: prompt
+                    prompt: prompt,
+                    threadId: threadId
                 )
             }
             return key

@@ -50,6 +50,12 @@ export function useAppLinkClick() {
             params: { teamSlug: link.teamSlug, sessionId: link.sessionId },
           })
           return
+        case `thread`:
+          void navigate({
+            to: `/t/$teamSlug/threads/$threadId`,
+            params: { teamSlug: link.teamSlug, threadId: link.threadId },
+          })
+          return
         case `app`:
           void navigate({ href: link.path })
           return

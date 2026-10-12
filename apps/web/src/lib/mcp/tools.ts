@@ -5435,7 +5435,7 @@ export function registerExponentialTools(
     `exponential_threads_get`,
     {
       annotations: READ_ONLY,
-      description: `Get a thread (default: your run's), the unit of work: its title, its issues (status, PR, source user|agent) and its runs (status, live, PR). A run's words stay with its owner: exponential_sessions_messages.`,
+      description: `Get a thread (default: your session's), the unit of work: its title, its issues (status, PR, source user|agent) and its sessions (status, live, PR). A session's words stay with its owner: exponential_sessions_messages.`,
       inputSchema: strictInput({ threadId: uuidString.optional() }),
     },
     async ({ threadId }) => {
@@ -5451,7 +5451,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_threads_update`,
     {
-      description: `Rename a thread (default: your run's). title '' or null = derived from its first issue or run.`,
+      description: `Rename a thread (default: your session's). title '' or null = derived from its first session or issue.`,
       inputSchema: strictInput({
         threadId: uuidString.optional(),
         title: z.string().max(255).nullable(),
@@ -5476,7 +5476,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_threads_link`,
     {
-      description: `Add an issue (UUID or identifier) or a run you own (sessionId; it MOVES, a run sits in one thread) to a thread (default: your run's). Idempotent: added false = already there.`,
+      description: `Add an issue (UUID or identifier) or a session you own (sessionId; it MOVES, a session sits in one thread) to a thread (default: your session's). Idempotent: added false = already there.`,
       inputSchema: strictInput(threadTargetInput),
     },
     async (input) => {
@@ -5518,7 +5518,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_threads_unlink`,
     {
-      description: `Detach an issue (UUID or identifier) or a run you own (sessionId) from a thread (default: your run's). The issue itself stays; a run moves into a fresh thread of its own (newThreadId).`,
+      description: `Detach an issue (UUID or identifier) or a session you own (sessionId) from a thread (default: your session's). The issue itself stays; a session moves into a fresh thread of its own (newThreadId).`,
       inputSchema: strictInput(threadTargetInput),
     },
     async (input) => {

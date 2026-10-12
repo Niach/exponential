@@ -79,6 +79,8 @@ export interface IssueDraftPageProps {
   initialStatusId?: string
   /** The `?from=` origin — Back returns there, Create keeps it. */
   from?: string
+  /** EXP-1284: `New issue in this thread` — Create links the issue into it. */
+  threadId?: string
 }
 
 export function IssueDraftPage({
@@ -92,6 +94,7 @@ export function IssueDraftPage({
   initialBoardId,
   initialStatusId,
   from,
+  threadId,
 }: IssueDraftPageProps) {
   const isMobile = useIsMobile()
   const navigate = useNavigate()
@@ -128,6 +131,7 @@ export function IssueDraftPage({
     teamId,
     initialBoardId,
     initialStatusId,
+    threadId,
     draft,
     boards,
     labels,

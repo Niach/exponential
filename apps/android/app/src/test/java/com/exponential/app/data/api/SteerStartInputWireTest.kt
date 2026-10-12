@@ -175,4 +175,39 @@ class SteerStartInputWireTest {
                 .contains("computerUse"),
         )
     }
+
+    /** EXP-1284: the thread a start joins rides before the prompt, every form. */
+    @Test
+    fun `a thread id rides on every non-resume form before the prompt`() {
+        val single = json.encodeToString(
+            StartSessionInput.serializer(),
+            StartSessionInput(issueId = "i-1", deviceId = "d-1", threadId = "t-1", prompt = "Go"),
+        )
+        assertEquals("""{"issueId":"i-1","deviceId":"d-1","threadId":"t-1","prompt":"Go"}""", single)
+        val batch = json.encodeToString(
+            StartBatchSessionInput.serializer(),
+            StartBatchSessionInput(issueIds = listOf("i-1", "i-2"), deviceId = "d-1", threadId = "t-1"),
+        )
+        assertEquals("""{"issueIds":["i-1","i-2"],"deviceId":"d-1","threadId":"t-1"}""", batch)
+        val action = json.encodeToString(
+            StartActionSessionInput.serializer(),
+            StartActionSessionInput(actionId = "builtin:chat", deviceId = "d-1", teamId = "team-1", threadId = "t-1", prompt = "Hi"),
+        )
+        assertEquals(
+            """{"actionId":"builtin:chat","deviceId":"d-1","teamId":"team-1","threadId":"t-1","prompt":"Hi"}""",
+            action,
+        )
+        // Omitted when null (the default placement).
+        assertFalse(json.encodeToString(StartSessionInput.serializer(), StartSessionInput(issueId = "i-1", deviceId = "d-1")).contains("threadId"))
+    }
+
+    @Test
+    fun `issues create carries the thread when filed into one`() {
+        val encoded = json.encodeToString(
+            CreateIssueInput.serializer(),
+            CreateIssueInput(boardId = "b-1", title = "Bug", threadId = "t-1"),
+        )
+        assertTrue(encoded.contains(""""threadId":"t-1""""))
+        assertFalse(json.encodeToString(CreateIssueInput.serializer(), CreateIssueInput(boardId = "b-1", title = "Bug")).contains("threadId"))
+    }
 }

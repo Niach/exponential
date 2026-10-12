@@ -263,6 +263,9 @@ fun IssueFace(
     onAddSubIssue: (() -> Unit)? = null,
     /** EXP-1241: scroll to this comment once it renders, then highlight it. */
     focusCommentId: String? = null,
+    /** EXP-1284: the `Threads` row's chip — opens that thread. Null hides
+     *  the row. */
+    onOpenThread: ((String) -> Unit)? = null,
 ) {
     val issueId = viewModel.issueId
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -667,6 +670,12 @@ fun IssueFace(
                     boardEntity = state.board,
                     onOpenBoard = if (isModerator) { { controller.openMoveBoard() } } else null,
                 )
+
+                // EXP-1284: the issue names its threads — one chip per
+                // thread holding it (a live mark while it runs).
+                if (onOpenThread != null) {
+                    IssueThreadsRow(issueId = issueId, onOpen = onOpenThread)
+                }
 
                 // EXP-893: no Coding-now / Watch row under the chips any more —
                 // the run is the Run face of this very screen, one tab away,
@@ -1117,4 +1126,25 @@ fun IssueTitleField(
             inner()
         },
     )
+}
+
+/** EXP-1284: the issue page's `Threads` row (×4), off the synced threads. */
+@Composable
+private fun IssueThreadsRow(issueId: String, onOpen: (String) -> Unit) {
+    val threadsVm: com.exponential.app.ui.thread.ThreadsViewModel = androidx.hilt.navigation.compose.hiltViewModel()
+    val bundles by threadsVm.bundles.collectAsStateWithLifecycle()
+    val chips = remember(bundles, issueId) {
+        threadsVm.threadsOfIssue(bundles, issueId).map { bundle ->
+            com.exponential.app.ui.thread.ThreadsRowChip(
+                threadId = bundle.thread.id,
+                title = bundle.view.title,
+                live = bundle.view.live,
+                busy = bundle.view.busy,
+                agent = (bundle.myLiveRun ?: bundle.liveRun)?.agent,
+            )
+        }
+    }
+    if (chips.isEmpty()) return
+    Spacer(Modifier.height(12.dp))
+    com.exponential.app.ui.thread.ThreadsRow(threads = chips, onOpen = onOpen)
 }

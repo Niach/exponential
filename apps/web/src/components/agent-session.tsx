@@ -428,6 +428,9 @@ export function AgentSessionView({
   graphBadge,
   renderMobileHeader,
   onBack,
+  guideResults,
+  embedded = false,
+  initialShowWork = false,
 }: {
   session: CodingSession
   currentUserId: string
@@ -505,6 +508,18 @@ export function AgentSessionView({
   }) => ReactNode
   /** Leave the session page (the socket outlives the unmount, EXP-621). */
   onBack: () => void
+  /** EXP-1284: the Guide this run shows — its THREAD's (`threads.results`)
+   *  once the thread has one; absent = the run's own results. */
+  guideResults?: unknown
+  /** EXP-1284: EMBEDDED in a thread's conversation (a session block): the
+   *  Run face's body alone — the status row over the run's turns / thread,
+   *  the pending plan or question card answered IN its card, and Show work
+   *  swapping in the transcript IN PLACE — at its natural height, with no
+   *  header, scroller, strips or composer (the thread's reply box steers). */
+  embedded?: boolean
+  /** EXP-1284: an embedded view opened by a folded block's Show work starts
+   *  on the transcript. */
+  initialShowWork?: boolean
 }) {
   /** EXP-886: more than one run of mine on the issue — "Runs". */
   const multipleRuns = (issueRuns?.length ?? 0) > 1
@@ -570,7 +585,15 @@ export function AgentSessionView({
   const [agentTab, setAgentTab] = useState<string | null>(null)
   /** EXP-1175: the Run face opens as the THREAD (status row + published
    *  results); Show work swaps in the full transcript in place. Per user. */
-  const showWork = useShowWork(currentUserId)
+  // EXP-1284: an embedded block keeps its OWN Show work (the per-user pref
+  // belongs to the run's page), so one block never flips every other.
+  const prefShowWork = useShowWork(currentUserId)
+  const [blockShowWork, setBlockShowWork] = useState(initialShowWork)
+  const showWork = embedded ? blockShowWork : prefShowWork
+  const toggleShowWork = () => {
+    if (embedded) setBlockShowWork((current) => !current)
+    else setShowWork(currentUserId, !showWork)
+  }
   // The thread has ONE conversation: hiding the work drops a subagent tab.
   useEffect(() => {
     if (!showWork) setAgentTab(null)
@@ -975,9 +998,10 @@ export function AgentSessionView({
   /** EXP-879: the screenshots this run published (`coding_sessions.results`,
    *  a synced jsonb blob) — EXP-933: and each topic's report text, grouped:
    *  the Guide's sections (EXP-1251). */
+  const guideSource = guideResults !== undefined ? guideResults : session.results
   const resultGroups = useMemo(
-    () => parseSessionResultGroups(session.results),
-    [session.results]
+    () => parseSessionResultGroups(guideSource),
+    [guideSource]
   )
   /** EXP-1175: the Run face's default body — the same results in publish
    *  order, the Summary text last as the reply. */
@@ -1068,7 +1092,7 @@ export function AgentSessionView({
         toolLine={open && index === lastTurn ? runToolLine : null}
         showWork={showWork}
         toggleLabel={showWorkLabel(showWork)}
-        onToggle={() => setShowWork(currentUserId, !showWork)}
+        onToggle={toggleShowWork}
       />
     )
   }
@@ -1618,6 +1642,92 @@ export function AgentSessionView({
     return null
   }
 
+  // EXP-1284: the session block of a thread's conversation — the Run face's
+  // body at its natural height (the thread page scrolls).
+  if (embedded) {
+    return (
+      <OpenResultsContext.Provider value={openResults}>
+      <SessionResultsRawContext.Provider value={session.results}>
+      <RunCardsContext.Provider value={runCards}>
+      <div className="agent-feed flex flex-col" data-testid="embedded-run" data-show-work={showWork}>
+        {!perTurnThread && (
+          <RunStatusRow
+            agent={session.agent}
+            markState={runRowMarkState}
+            starting={startingRun}
+            caption={startingRun ? startingCaption : runRow.text}
+            tone={startingRun ? `muted` : runRow.tone}
+            toolLine={runToolLine}
+            showWork={showWork}
+            toggleLabel={showWorkLabel(showWork)}
+            onToggle={toggleShowWork}
+          />
+        )}
+        {!showWork ? (
+          <SessionThreadView
+            className={perTurnThread ? `pt-1` : `pt-0`}
+            thread={thread}
+            turns={perTurnThread ? turns.turns : undefined}
+            renderStatusRow={renderTurnRow}
+            messageCaption={(message) =>
+              userMessageCaption({ name: ownerName, at: message.at })
+            }
+            attachmentSrc={(id) => `/api/attachments/${id}`}
+            renderText={renderResultText}
+            renderReply={(text) => <NarrationBubble text={text} />}
+          >
+            {pendingCardRows.length > 0 ? (
+              <div>
+                {pendingCardRows.map((row, index) =>
+                  renderTranscriptRow(row, index, pendingCardRows)
+                )}
+              </div>
+            ) : null}
+          </SessionThreadView>
+        ) : feed.length === 0 ? (
+          <div className="flex flex-col gap-2 py-2" data-testid="transcript-placeholder">
+            <SkeletonRows rowHeight={36} className="-mx-3" />
+            <span className="text-xs text-muted-foreground">
+              {phase.kind === `history_pending`
+                ? (phase.detail ?? `Fetching the transcript…`)
+                : `Connecting…`}
+            </span>
+          </div>
+        ) : (
+          <div className="flex flex-col py-2" data-testid="embedded-transcript">
+            {canLoadEarlier ? (
+              <div className="flex justify-center pb-1">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 text-xs text-muted-foreground"
+                  onClick={loadEarlier}
+                >
+                  Load earlier
+                </Button>
+              </div>
+            ) : null}
+            {rows.map((row, index) => renderTranscriptRow(row, index, rows))}
+            {working && (
+              <div className={transcriptGapClass(rows.length === 0 ? null : rowClass(rows[rows.length - 1]), `tool`)}>
+                <WorkingIndicatorRow
+                  agent={session.agent}
+                  startedAt={turnStartedAt}
+                  tokens={turnTokens}
+                  workflow={runningWorkflow}
+                />
+              </div>
+            )}
+          </div>
+        )}
+        {killDialog}
+      </div>
+      </RunCardsContext.Provider>
+      </SessionResultsRawContext.Provider>
+      </OpenResultsContext.Provider>
+    )
+  }
+
   return (
     <OpenResultsContext.Provider value={openResults}>
     <SessionResultsRawContext.Provider value={session.results}>
@@ -1824,7 +1934,7 @@ export function AgentSessionView({
               toolLine={runToolLine}
               showWork={showWork}
               toggleLabel={showWorkLabel(showWork)}
-              onToggle={() => setShowWork(currentUserId, !showWork)}
+              onToggle={toggleShowWork}
             />
           </div>
           )}
@@ -2714,7 +2824,7 @@ function IssueRefText({ text }: { text: string }) {
 // memo: a live feed re-renders on every incoming frame, and a bubble that
 // rendered markdown owns a TipTap editor — re-running that for unchanged text
 // is the one cost worth avoiding here.
-const NarrationBubble = memo(function NarrationBubble({
+export const NarrationBubble = memo(function NarrationBubble({
   text,
 }: {
   text: string

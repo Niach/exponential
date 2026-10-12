@@ -975,6 +975,8 @@ impl IssueDraftView {
             api::issues::IssuesCreateInput::new(target.board_id.clone(), capture.title.clone());
         capture.props.read(cx).apply_to_create(&mut input);
         input.draft_id = row_exists.then(|| target.draft_id.clone());
+        // EXP-1284: "New issue in this thread" files straight into it.
+        input.thread_id = crate::thread_screen::draft_thread(&target.draft_id, cx);
         let markdown = capture.description.read(cx).markdown(cx);
         let stripped_description = strip_draft_images(&markdown);
         if !stripped_description.is_empty() {

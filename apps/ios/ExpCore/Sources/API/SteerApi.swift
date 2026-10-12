@@ -870,6 +870,10 @@ struct StartSessionInput: Encodable {
     // as on every client.
     var mcpServerIds: [String]? = nil
     var computerUse: Bool? = nil
+    // EXP-1284: start INTO this thread (same team; the server refuses it
+    // next to `resumeSessionId`, which this input never carries). Omitted
+    // when nil.
+    var threadId: String? = nil
 }
 
 /// Batch remote-start (EXP-156): 2+ issues → ONE Claude session on one pushed
@@ -890,6 +894,10 @@ struct StartBatchSessionInput: Encodable {
     let prompt: String?
     var mcpServerIds: [String]? = nil
     var computerUse: Bool? = nil
+    // EXP-1284: start INTO this thread (same team; the server refuses it
+    // next to `resumeSessionId`, which this input never carries). Omitted
+    // when nil.
+    var threadId: String? = nil
 }
 
 /// Action remote-start (EXP-253/EXP-257): exactly one of
@@ -918,6 +926,10 @@ struct StartActionSessionInput: Encodable {
     let prompt: String?
     var mcpServerIds: [String]? = nil
     var computerUse: Bool? = nil
+    // EXP-1284: start INTO this thread (same team; the server refuses it
+    // next to `resumeSessionId`, which this input never carries). Omitted
+    // when nil.
+    var threadId: String? = nil
 }
 
 /// Resume remote-start (EXP-637): the fourth `steer.startSession` subject —
@@ -974,7 +986,8 @@ public final class SteerApi: Sendable {
         issueId: String,
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
-        prompt: String? = nil
+        prompt: String? = nil,
+        threadId: String? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -993,7 +1006,8 @@ public final class SteerApi: Sendable {
                     account: options.account,
                     prompt: prompt,
                     mcpServerIds: options.mcpServerIds,
-                    computerUse: options.computerUse
+                    computerUse: options.computerUse,
+                    threadId: threadId
                 )
             )
         } catch let TrpcError.httpError(status, body) {
@@ -1014,7 +1028,8 @@ public final class SteerApi: Sendable {
         issueIds: [String],
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
-        prompt: String? = nil
+        prompt: String? = nil,
+        threadId: String? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -1032,7 +1047,8 @@ public final class SteerApi: Sendable {
                     account: options.account,
                     prompt: prompt,
                     mcpServerIds: options.mcpServerIds,
-                    computerUse: options.computerUse
+                    computerUse: options.computerUse,
+                    threadId: threadId
                 )
             )
         } catch let TrpcError.httpError(status, body) {
@@ -1061,7 +1077,8 @@ public final class SteerApi: Sendable {
         teamId: String? = nil,
         options: SteerStartOptions = SteerStartOptions(),
         inputs: [String: String]? = nil,
-        prompt: String? = nil
+        prompt: String? = nil,
+        threadId: String? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -1081,7 +1098,8 @@ public final class SteerApi: Sendable {
                     account: options.account,
                     prompt: prompt,
                     mcpServerIds: options.mcpServerIds,
-                    computerUse: options.computerUse
+                    computerUse: options.computerUse,
+                    threadId: threadId
                 )
             )
         } catch let TrpcError.httpError(status, body) {

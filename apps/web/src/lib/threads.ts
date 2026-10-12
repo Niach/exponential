@@ -295,7 +295,7 @@ export type StartSubject =
 
 /** EXP-1284: every start opens or joins a thread, AFTER its row exists.
  *  1. A resume stays in its predecessor's thread (same team).
- *  2. A requested `threadId` (composer "start a run here", MCP
+ *  2. A requested `threadId` (composer "start a session here", MCP
  *     `sessions_start{threadId}`) is joined when it is in the run's team; the
  *     start's own issue(s) are linked into it. A vanished or foreign thread
  *     falls through to the default (one stale id never fails a start).

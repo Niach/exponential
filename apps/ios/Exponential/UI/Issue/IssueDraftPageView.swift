@@ -29,6 +29,7 @@ struct IssueDraftPageView: View {
         boardId: String,
         statusId: String? = nil,
         parentId: String? = nil,
+        threadId: String? = nil,
         onCreated: @escaping (String) -> Void,
         onClose: @escaping () -> Void
     ) {
@@ -36,7 +37,8 @@ struct IssueDraftPageView: View {
         self.onClose = onClose
         self.draftId = draftId
         _vm = State(initialValue: IssueDraftViewModel(
-            draftId: draftId, boardId: boardId, statusId: statusId, parentId: parentId
+            draftId: draftId, boardId: boardId, statusId: statusId, parentId: parentId,
+            threadId: threadId
         ))
     }
 

@@ -1341,6 +1341,9 @@ pub fn spawn_into_window(
     let action_id = prepared.action_id.clone();
     let started_reason = prepared.heartbeat_scope.started_reason.clone();
     let started_by_id = prepared.heartbeat_scope.started_by_id.clone();
+    // EXP-1284: the thread the start placed the run in (`codingSessions.start`
+    // answers it) — where a composer's start lands.
+    let thread_id = prepared.heartbeat_scope.thread_id.clone();
     // EXP-1271: what the remote-start toast names (the run's subject).
     let announce = RemoteStartNotice {
         session_id: session_id.clone(),
@@ -1471,7 +1474,7 @@ pub fn spawn_into_window(
     // EXP-478: only now (see the PTY arm).
     drop(launch_hold);
     if should_open_session(landing) {
-        open_landed_session(&session_id, landing == RunLanding::Composer, window, cx);
+        open_landed_session(&session_id, thread_id, landing == RunLanding::Composer, window, cx);
     } else {
         announce_remote_start(announce, window, cx);
     }
@@ -1541,7 +1544,35 @@ pub(crate) fn take_back_new_run_tab(window: &Window, new_run_id: &str, cx: &mut 
 /// Open a run that landed in `window`: a composer's start in place of the
 /// New run tab that started it ([`hand_off_new_run_tab`]), else as an
 /// ordinary open (a Resume never takes a New run tab's pending handoff).
-pub(crate) fn open_landed_session(session_id: &str, from_composer: bool, window: &mut Window, cx: &mut App) {
+///
+/// EXP-1284: a run lands in its THREAD. `thread_id` is the placement the
+/// start answered (else the synced `thread_items` row): the New run tab
+/// becomes the thread's tab, and a run started or resumed FROM the thread
+/// on show (its reply, "Start a session here" in place) stays there — the
+/// thread draws the new run as its next block.
+pub(crate) fn open_landed_session(
+    session_id: &str,
+    thread_id: Option<String>,
+    from_composer: bool,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    // A resume sits in its predecessor's thread before its own item syncs.
+    let thread_id = thread_id
+        .or_else(|| crate::threads::thread_of_session(session_id, cx))
+        .or_else(|| {
+            let store = Store::try_global(cx)?;
+            let resumed_from = store
+                .collections()
+                .coding_sessions
+                .read(cx)
+                .get(session_id)?
+                .resumed_from_id
+                .clone()?;
+            crate::threads::thread_of_session(&resumed_from, cx)
+        });
+    let nav = crate::navigation::nav_for_window(window, cx);
+    let shown = crate::navigation::resolved_screen(&nav, cx);
     let new_run = (from_composer
         && cx
             .try_global::<NewRunHandoffs>()
@@ -1552,8 +1583,30 @@ pub(crate) fn open_landed_session(session_id: &str, from_composer: bool, window:
                 .remove(&window.window_handle().window_id())
         })
         .flatten();
-    match new_run {
-        Some(id) => crate::navigation::navigate_replacing_tab(
+    if let (Some(thread_id), Some(crate::navigation::Screen::Thread { thread_id: on_show })) =
+        (&thread_id, &shown)
+    {
+        if thread_id == on_show {
+            return;
+        }
+    }
+    match (new_run, thread_id) {
+        (Some(id), Some(thread_id)) => {
+            let thread = crate::navigation::Screen::Thread { thread_id };
+            let new_run = crate::navigation::Screen::NewRun { id };
+            // The thread already has a tab here: that one goes active and
+            // the New run tab that started the run closes (one piece of work
+            // is one chip).
+            if crate::screens::has_tab(&thread, window, cx) {
+                if let Some(panel) = crate::screens::screens_for_window(window, cx) {
+                    panel.update(cx, |panel, cx| panel.close_screen_tab(&new_run, window, cx));
+                }
+                crate::navigation::navigate(window, cx, thread);
+            } else {
+                crate::navigation::navigate_replacing_tab(window, cx, thread, new_run);
+            }
+        }
+        (Some(id), None) => crate::navigation::navigate_replacing_tab(
             window,
             cx,
             crate::navigation::Screen::Session {
@@ -1561,7 +1614,7 @@ pub(crate) fn open_landed_session(session_id: &str, from_composer: bool, window:
             },
             crate::navigation::Screen::NewRun { id },
         ),
-        None => crate::session_screen::open_session(session_id, window, cx),
+        (None, _) => crate::session_screen::open_session(session_id, window, cx),
     }
 }
 
@@ -1773,7 +1826,7 @@ pub(crate) fn follow_remote_start_then(
                 // visit to the Agent page).
                 let _ = handle.update(cx, |_, window, cx| {
                     // Only the composer's own start follows with `settled`.
-                    open_landed_session(&session_id, settled.is_some(), window, cx);
+                    open_landed_session(&session_id, None, settled.is_some(), window, cx);
                     if let Some(settled) = settled {
                         settled(Some(session_id.clone()), window, cx);
                     }

@@ -262,6 +262,74 @@ fn local_engine(session_id: &str, cx: &App) -> Option<engine::EngineSession> {
     Some(sessions.read(cx).session_by_id(session_id)?.host.session.clone())
 }
 
+/// EXP-1284 — a run's body for a thread's conversation: the ONE transcript
+/// renderer over the source this run's live state names (the in-process
+/// engine, the journal replay, or the relay), EMBEDDED — status row over its
+/// thread, flat inside the thread's scroll. `show_work` opens it on the
+/// transcript (a folded run's Show work).
+pub(crate) fn embedded_run_view(
+    session_id: &str,
+    show_work: bool,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<SteerSessionView> {
+    let (_, source) = resolve_source(session_id, cx);
+    let session_id = session_id.to_string();
+    cx.new(|cx| {
+        let mut view = SteerSessionView::with_source(session_id, source, window, cx);
+        view.set_embedded(show_work, cx);
+        view
+    })
+}
+
+/// EXP-1284 — the thread's GUIDE child: the run's Guide face (which reads
+/// THE thread Guide, `threads::guide_results_of_session`), headerless.
+pub(crate) fn guide_run_view(
+    session_id: &str,
+    window: &mut Window,
+    cx: &mut App,
+) -> Entity<SteerSessionView> {
+    let (_, source) = resolve_source(session_id, cx);
+    let session_id = session_id.to_string();
+    cx.new(|cx| {
+        let mut view = SteerSessionView::with_source(session_id, source, window, cx);
+        view.set_run_face(crate::screens::RunFace::Guide, cx);
+        view
+    })
+}
+
+/// EXP-1284 — a run's header offers its THREAD: a glass pill (the thread
+/// glyph, the word) that opens the thread's tab. `None` before the run's
+/// `thread_items` row syncs (or for a pre-threads run with none).
+fn thread_pill(session_id: &str, cx: &App) -> Option<AnyElement> {
+    let thread_id = crate::threads::thread_of_session(session_id, cx)?;
+    let title = crate::threads::thread_title(&thread_id, cx);
+    Some(
+        crate::surface::glass_pill_button(
+            "session-open-thread",
+            crate::work_header::header_action_size(false),
+            cx,
+        )
+        .icon(
+            gpui_component::Icon::new(registry::ACTION_CHAT)
+                .with_size(gpui::px(crate::work_header::header_action_size(false).glyph()))
+                .text_color(cx.theme().muted_foreground),
+        )
+        .label("Thread")
+        .tooltip(title)
+        .on_click(move |_, window, cx| {
+            crate::navigation::navigate(
+                window,
+                cx,
+                Screen::Thread {
+                    thread_id: thread_id.clone(),
+                },
+            );
+        })
+        .into_any_element(),
+    )
+}
+
 /// Whether the SYNCED row says the run is over.
 fn row_ended(session_id: &str, cx: &App) -> bool {
     let Some(store) = sync::Store::try_global(cx) else {
@@ -699,7 +767,10 @@ impl SessionScreenView {
                 // EXP-916: the Changes pane has no bar of its own any more,
                 // so the tray keeps the ONE merge control on every face.
                 header.set_merge_suppressed(false);
-                let right = header.right_cluster(&issue, Vec::new(), toggle, diff_open, cx);
+                // EXP-1284: the run's thread leads the cluster.
+                let leading: Vec<AnyElement> =
+                    thread_pill(&row.id, cx).into_iter().collect();
+                let right = header.right_cluster(&issue, leading, toggle, diff_open, cx);
                 let actions = header.issue_actions(&issue, action, cx);
                 (
                     right,
@@ -747,7 +818,11 @@ impl SessionScreenView {
             }
             None => crate::work_header::collapsed_title(None, "Loading…", None, cx),
         };
-        let mut right: Vec<AnyElement> = Vec::with_capacity(4);
+        let mut right: Vec<AnyElement> = Vec::with_capacity(5);
+        // EXP-1284: the run's thread leads the cluster.
+        if let Some(row) = row.as_ref() {
+            right.extend(thread_pill(&row.id, cx));
+        }
         // EXP-897 §4: the same badge an issue-bound header carries (a batch
         // run's PR closes several issues, and a chat run can be stacked).
         if let Some(row) = row.as_ref() {

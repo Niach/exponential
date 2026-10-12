@@ -1,13 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
-import { and, eq, useLiveQuery } from "@tanstack/react-db"
 import {
   Button,
   conceptIcon,
   ExponentialLogo,
-  getDeviceIcon,
-  SessionRow,
   SkeletonRows,
+  THREAD_COPY,
   Tooltip,
   TooltipContent,
   TooltipTrigger,
@@ -23,16 +21,18 @@ import { useSteerConfig } from "@/components/agent-session"
 import { SessionsList } from "@/components/agent-shell"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { LaunchComposer } from "@/components/launch-composer"
-import {
-  sessionDeviceRow,
-  sessionRowFacts,
-  useDeviceRows,
-} from "@/components/session-tree"
-import { useAgentsData, useSessionListRows } from "@/hooks/use-agents-data"
+import { useOpenThread } from "@/components/thread/thread-list"
+import { ThreadRow } from "@/components/thread/thread-row"
+import { useAgentsData } from "@/hooks/use-agents-data"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
-import { useNow } from "@/hooks/use-now"
 import { useOpenSession } from "@/hooks/use-open-session"
+import {
+  threadIdOfRun,
+  useThreadBundle,
+  useThreadList,
+  waitForThreadOfRun,
+} from "@/hooks/use-threads"
 import { useRemoteStart, type RemoteStart } from "@/hooks/use-remote-start"
 import { useSession } from "@/hooks/use-session"
 import {
@@ -44,8 +44,6 @@ import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { updateWorkTabs } from "@/hooks/use-work-tabs"
 import { TAB_BAR_CLEARANCE } from "@/components/team/mobile-tab-bar"
 import type { CodingSession, Team, User } from "@/db/schema"
-import { codingSessionCollection } from "@/lib/collections"
-import { selectHomeRecent } from "@/lib/home-recent"
 import { landNewRun } from "@/lib/work-tabs"
 import {
   seedFromSearch,
@@ -112,7 +110,7 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
   head: () => ({ meta: [{ title: pageTitle(`Agent`) }] }),
   validateSearch: (
     search: Record<string, unknown>
-  ): AgentSearch & { from?: string } => ({
+  ): AgentSearch & { from?: string; thread?: string } => ({
     issues: str(search.issues),
     action: str(search.action),
     pr: str(search.pr),
@@ -121,6 +119,9 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
     icon: str(search.icon),
     conflict: flag(search.conflict),
     from: str(search.from),
+    // EXP-1284: "Start a session here" — every start from this page goes INTO
+    // that thread. Sticky like `from` (never stripped with the seed).
+    thread: str(search.thread),
   }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
@@ -150,22 +151,48 @@ function AgentPage() {
   const steerEnabled = Boolean(isMember && steerConfig?.enabled)
 
   // EXP-1255: a run started here LANDS → the New run tab (when one is open)
-  // turns into that run's tab, in place.
+  // turns into that run's tab, in place. EXP-1284: every start joins a
+  // THREAD, so it lands as that thread's tab and its page opens — the run's
+  // item usually syncs with the run row; a start that names `?thread=`
+  // knows it up front.
   const teamIdForTabs = team?.id
+  const requestedThread = search.thread ?? null
+  const fromRef = useRef(search.from)
+  fromRef.current = search.from
+  const openSessionDirect = useOpenSession()
   const onOpened = useCallback(
-    (run: CodingSession) => {
-      if (!teamIdForTabs) return
-      updateWorkTabs(teamIdForTabs, (state) =>
-        landNewRun(state, { runId: run.id, issueId: run.issueId })
-      )
+    (run: CodingSession): boolean => {
+      if (!teamIdForTabs) return false
+      const land = (threadId: string | null) => {
+        updateWorkTabs(teamIdForTabs, (state) =>
+          landNewRun(state, { runId: run.id, issueId: run.issueId, threadId })
+        )
+        if (!threadId) {
+          openSessionDirect(run)
+          return
+        }
+        void navigate({
+          to: `/t/$teamSlug/threads/$threadId`,
+          params: { teamSlug, threadId },
+          search: fromRef.current ? { from: fromRef.current } : {},
+        })
+      }
+      const known = threadIdOfRun(run.id) ?? requestedThread
+      if (known) {
+        land(known)
+        return true
+      }
+      void waitForThreadOfRun(run.id).then(land)
+      return true
     },
-    [teamIdForTabs]
+    [teamIdForTabs, requestedThread, navigate, teamSlug, openSessionDirect]
   )
   const remote = useRemoteStart({
     enabled: steerEnabled,
     currentUserId,
     teamId: team?.id,
     onOpened,
+    threadId: requestedThread,
   })
 
   // The one-shot seed: held here after the URL keys are stripped, handed to
@@ -216,6 +243,7 @@ function AgentPage() {
         params: { teamSlug },
         search: {
           ...(current.from ? { from: current.from } : {}),
+          ...(current.thread ? { thread: current.thread } : {}),
           ...(actionId ? { action: actionId } : {}),
         },
         replace: true,
@@ -258,10 +286,13 @@ function AgentPage() {
       params: { teamSlug },
       // EXP-851: the seed is one-shot, the ORIGIN is not — it decides where
       // the launched run lands and which list the sidebar keeps.
-      search: search.from ? { from: search.from } : {},
+      search: {
+        ...(search.from ? { from: search.from } : {}),
+        ...(search.thread ? { thread: search.thread } : {}),
+      },
       replace: true,
     })
-  }, [urlSeed, navigate, teamSlug, search.from])
+  }, [urlSeed, navigate, teamSlug, search.from, search.thread])
 
   // EXP-862: with nothing running, the composer is the whole page — it
   // centres in the column instead of hanging off the top edge (the desktop's
@@ -327,6 +358,21 @@ function AgentPage() {
             listEmpty ? `min-h-full justify-center` : ``
           } ${TAB_BAR_CLEARANCE}`}
         >
+          {search.thread && (
+            <StartInThreadLine
+              teamId={team.id}
+              currentUserId={currentUserId}
+              threadId={search.thread}
+              onClear={() =>
+                void navigate({
+                  to: `/t/$teamSlug/agent`,
+                  params: { teamSlug },
+                  search: search.from ? { from: search.from } : {},
+                  replace: true,
+                })
+              }
+            />
+          )}
           <HomeColumn
             team={team}
             currentUserId={currentUserId}
@@ -363,6 +409,44 @@ function AgentPage() {
     </div>
   )
 }
+
+/** EXP-1284: "Start a session here" — the thread every start from this page
+ *  goes into, named above the composer, with the way out. */
+function StartInThreadLine({
+  teamId,
+  currentUserId,
+  threadId,
+  onClear,
+}: {
+  teamId: string
+  currentUserId: string
+  threadId: string
+  onClear: () => void
+}) {
+  const { bundle } = useThreadBundle(teamId, currentUserId, threadId)
+  if (!bundle) return null
+  return (
+    <div
+      data-testid="start-in-thread"
+      className="mb-4 flex min-w-0 items-center justify-center gap-1.5 text-xs text-muted-foreground"
+    >
+      <span className="shrink-0">Starting in</span>
+      <span className="min-w-0 truncate font-medium text-foreground">{bundle.view.title}</span>
+      <span className="shrink-0">{THREAD_COPY.word}</span>
+      <Button
+        variant="ghost"
+        size="icon-xs"
+        aria-label="Start outside the thread"
+        className="shrink-0"
+        onClick={onClear}
+      >
+        <ClearThreadIcon />
+      </Button>
+    </div>
+  )
+}
+
+const ClearThreadIcon = conceptIcon(`ui-close`)
 
 /** EXP-1253: the home column under the page chrome: the headline + composer
  *  (or the relay-less line), Recent, and Getting started while the team has
@@ -463,8 +547,10 @@ function HomeHeadline({ greeting }: { greeting: string }) {
   )
 }
 
-/** RECENT: my last `recent.count` top-level runs in the active team, any
- *  status, each a small SessionRow that opens the run; no band when empty. */
+/** RECENT: EXP-1284 — lists show THREADS: the team's last `recent.count`
+ *  threads holding no live run of mine (`partitionThreadList`; the running
+ *  ones are the sidebar's Running), each the thread's title over its list
+ *  caption, opening the thread page; no band when empty. */
 function HomeRecent({
   teamId,
   currentUserId,
@@ -472,21 +558,9 @@ function HomeRecent({
   teamId: string
   currentUserId: string
 }) {
-  const { data: sessionRows } = useLiveQuery(
-    (query) =>
-      query
-        .from({ s: codingSessionCollection })
-        .where(({ s }) => and(eq(s.teamId, teamId), eq(s.userId, currentUserId))),
-    [teamId, currentUserId]
-  )
-  const recent = useMemo(
-    () => selectHomeRecent((sessionRows ?? []) as CodingSession[], currentUserId, teamId),
-    [sessionRows, currentUserId, teamId]
-  )
-  const rows = useSessionListRows(teamId, recent)
-  const devices = useDeviceRows()
-  const now = useNow(30_000)
-  const openSession = useOpenSession()
+  const { recent } = useThreadList(teamId, currentUserId)
+  const openThread = useOpenThread()
+  const rows = recent.slice(0, HOME_RECENT.count)
   if (rows.length === 0) return null
   return (
     <section
@@ -497,26 +571,15 @@ function HomeRecent({
       <h2 className="px-3 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
         {HOME_RECENT.label}
       </h2>
-      {rows.map((row) => {
-        const facts = sessionRowFacts(row, { now })
-        return (
-          <SessionRow
-            key={row.session.id}
-            size="small"
-            agent={facts.agent}
-            markState={facts.markState}
-            identifier={facts.identifier}
-            title={facts.title}
-            caption={facts.caption}
-            captionTone={facts.captionTone}
-            deviceIcon={getDeviceIcon(sessionDeviceRow(row.session, devices) ?? {})}
-            deviceName={facts.deviceName}
-            dimmed={facts.paused}
-            onClick={() => openSession(row.session, { origin: { kind: `agent` } })}
-            data-testid={HOME_TEST_IDS.recentRow}
-          />
-        )
-      })}
+      {rows.map((bundle) => (
+        <ThreadRow
+          key={bundle.thread.id}
+          bundle={bundle}
+          ringClassName="ring-background"
+          onOpen={() => openThread(bundle, { origin: { kind: `agent` } })}
+          testId={HOME_TEST_IDS.recentRow}
+        />
+      ))}
     </section>
   )
 }
