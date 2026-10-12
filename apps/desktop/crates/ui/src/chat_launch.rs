@@ -10,7 +10,7 @@
 //! the CHAT PROMPT with no subject, the creator REQUEST for the Create-action
 //! builtin (both required), and optional additional instructions otherwise.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashSet};
 
 use coding::{
     ActionInputValue, BatchIssueSpec, BatchLaunchRequest, LaunchOptions, LaunchOrigin, RepoGroup,
@@ -199,22 +199,8 @@ pub(crate) fn remote_start_input(
 ) -> api::steer::StartSessionInput {
     let mut input = api::steer::StartSessionInput {
         device_id: device_id.to_string(),
-        agent: Some(options.agent.id().to_string()),
-        model: Some(options.model.clone()).filter(|model| !model.is_empty()),
-        effort: Some(options.effort.clone()).filter(|effort| !effort.is_empty()),
-        ultracode: Some(options.ultracode),
-        plan_mode: Some(options.plan_mode),
-        // EXP-981: claude-only; blank = the CLI's own default, which is what
-        // an omitted field would leave the target machine's default at, so
-        // it rides only when picked.
-        subagent_model: Some(options.subagent_model.clone())
-            .filter(|model| !model.is_empty()),
         prompt,
-        account: options.account.clone(),
-        // EXP-1249: the "+" menu's toggle; `None` = the target's own switch
-        // (the composer only offers it for a `computer-use-run` machine).
-        computer_use: options.computer_use,
-        ..Default::default()
+        ..options_input(options)
     };
     match subject {
         RemoteSubject::Chat {
@@ -256,6 +242,115 @@ pub(crate) fn remote_start_input(
         }
     }
     input
+}
+
+/// The launch options half of a start, exactly as `steer.startSession`
+/// sends them (shared by [`remote_start_input`] and [`draft_fingerprint`]).
+fn options_input(options: &LaunchOptions) -> api::steer::StartSessionInput {
+    api::steer::StartSessionInput {
+        agent: Some(options.agent.id().to_string()),
+        model: Some(options.model.clone()).filter(|model| !model.is_empty()),
+        effort: Some(options.effort.clone()).filter(|effort| !effort.is_empty()),
+        ultracode: Some(options.ultracode),
+        plan_mode: Some(options.plan_mode),
+        // EXP-981: claude-only; blank = the CLI's own default, which is what
+        // an omitted field would leave the target machine's default at, so
+        // it rides only when picked.
+        subagent_model: Some(options.subagent_model.clone())
+            .filter(|model| !model.is_empty()),
+        account: options.account.clone(),
+        // EXP-1249: the "+" menu's toggle; `None` = the target's own switch
+        // (the composer only offers it for a `computer-use-run` machine).
+        computer_use: options.computer_use,
+        ..Default::default()
+    }
+}
+
+/// Recheck R2 (feedback-states.json `starting.fingerprint`): the draft a
+/// composer `startId` is bound to. Two drafts are the SAME start (one
+/// startId, the device dedupes a repeat) when every field is equal: lists
+/// are sets, absent and null are one (`None`), text is verbatim. The launch
+/// options are the ones the start SENDS ([`options_input`]: blank model /
+/// effort / subagent model are absent), so an option the start would not
+/// change never mints a new id. A Stacked PR answer only rewrites the
+/// message, so it is the same draft.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DraftFingerprint {
+    /// The target machine (`None` before the device pick settles).
+    pub(crate) device_id: Option<String>,
+    pub(crate) text: String,
+    pub(crate) issue_ids: BTreeSet<String>,
+    pub(crate) action_id: Option<String>,
+    /// The action's filled input picks, key → value.
+    pub(crate) action_inputs: BTreeMap<String, String>,
+    /// The chat's repo (`None` for any other subject).
+    pub(crate) repository_id: Option<String>,
+    /// The staged attachments' local pick ids.
+    pub(crate) attachments: BTreeSet<String>,
+    pub(crate) agent: Option<String>,
+    pub(crate) model: Option<String>,
+    pub(crate) effort: Option<String>,
+    pub(crate) plan_mode: Option<bool>,
+    pub(crate) account: Option<String>,
+    pub(crate) mcp_server_ids: BTreeSet<String>,
+    pub(crate) computer_use: Option<bool>,
+    pub(crate) ultracode: Option<bool>,
+    pub(crate) subagent_model: Option<String>,
+    /// The composer's Resume toggle as the start uses it.
+    pub(crate) resume: bool,
+}
+
+/// The subject half of a [`DraftFingerprint`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum DraftSubject {
+    Chat { repository_id: Option<String> },
+    Issues(Vec<String>),
+    Action {
+        action_id: String,
+        inputs: Vec<ActionInputValue>,
+    },
+}
+
+/// [`DraftFingerprint`] of the composer's draft as it is now: `options` =
+/// the composer's options as the start takes them (a resume never plans, an
+/// action's own MCP list wins), `resume` = whether the start resumes.
+pub(crate) fn draft_fingerprint(
+    device_id: Option<&str>,
+    text: &str,
+    subject: DraftSubject,
+    attachments: &[u64],
+    options: &LaunchOptions,
+    resume: bool,
+) -> DraftFingerprint {
+    let sent = options_input(options);
+    let mut fingerprint = DraftFingerprint {
+        device_id: device_id.map(str::to_string),
+        text: text.to_string(),
+        attachments: attachments.iter().map(u64::to_string).collect(),
+        agent: sent.agent,
+        model: sent.model,
+        effort: sent.effort,
+        plan_mode: sent.plan_mode,
+        account: sent.account,
+        mcp_server_ids: options.mcp_server_ids.iter().cloned().collect(),
+        computer_use: sent.computer_use,
+        ultracode: sent.ultracode,
+        subagent_model: sent.subagent_model,
+        resume,
+        ..Default::default()
+    };
+    match subject {
+        DraftSubject::Chat { repository_id } => fingerprint.repository_id = repository_id,
+        DraftSubject::Issues(issue_ids) => fingerprint.issue_ids = issue_ids.into_iter().collect(),
+        DraftSubject::Action { action_id, inputs } => {
+            fingerprint.action_id = Some(action_id);
+            fingerprint.action_inputs = inputs
+                .into_iter()
+                .map(|filled| (filled.key, filled.value))
+                .collect();
+        }
+    }
+    fingerprint
 }
 
 /// One issue's `repositories.forIssue` probe state.
@@ -618,5 +713,80 @@ mod tests {
         );
         assert_eq!(team_action.team_id, None, "a row action never sends teamId");
         assert_eq!(team_action.inputs, None);
+    }
+
+    /// Recheck R2: the draft fingerprint replays feedback-states.json
+    /// `starting.fingerprint.cases` (sets order-free, absent = null).
+    #[test]
+    fn the_draft_fingerprint_replays_the_fixture() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/feedback-states.json"
+        ))
+        .expect("feedback-states.json parses");
+        let text = |value: &serde_json::Value, key: &str| {
+            value.get(key).and_then(|v| v.as_str()).map(str::to_string)
+        };
+        let flag = |value: &serde_json::Value, key: &str| value.get(key).and_then(|v| v.as_bool());
+        let set = |value: &serde_json::Value, key: &str| -> BTreeSet<String> {
+            value
+                .get(key)
+                .and_then(|v| v.as_array())
+                .map(|items| items.iter().filter_map(|v| v.as_str()).map(str::to_string).collect())
+                .unwrap_or_default()
+        };
+        let parse = |value: &serde_json::Value| DraftFingerprint {
+            device_id: text(value, "deviceId"),
+            text: text(value, "text").unwrap_or_default(),
+            issue_ids: set(value, "issueIds"),
+            action_id: text(value, "actionId"),
+            action_inputs: value
+                .get("actionInputs")
+                .and_then(|v| v.as_object())
+                .map(|map| {
+                    map.iter()
+                        .filter_map(|(key, v)| v.as_str().map(|v| (key.clone(), v.to_string())))
+                        .collect()
+                })
+                .unwrap_or_default(),
+            repository_id: text(value, "repositoryId"),
+            attachments: set(value, "attachments"),
+            agent: text(value, "agent"),
+            model: text(value, "model"),
+            effort: text(value, "effort"),
+            plan_mode: flag(value, "planMode"),
+            account: text(value, "account"),
+            mcp_server_ids: set(value, "mcpServerIds"),
+            computer_use: flag(value, "computerUse"),
+            ultracode: flag(value, "ultracode"),
+            subagent_model: text(value, "subagentModel"),
+            resume: flag(value, "resume").unwrap_or(false),
+        };
+        let cases = fixture["starting"]["fingerprint"]["cases"]
+            .as_array()
+            .expect("fingerprint cases");
+        assert!(cases.len() >= 10);
+        for case in cases {
+            let name = case["name"].as_str().unwrap_or_default();
+            let same = case["same"].as_bool().expect("same");
+            assert_eq!(parse(&case["a"]) == parse(&case["b"]), same, "{name}");
+        }
+    }
+
+    /// The fingerprint drops what the start would not send: a blank model
+    /// equals no model, and a resume flag is part of it.
+    #[test]
+    fn the_draft_fingerprint_reads_the_options_as_sent() {
+        let mut blank = options();
+        blank.model = String::new();
+        let a = draft_fingerprint(Some("d1"), "Fix it", DraftSubject::Chat { repository_id: None }, &[2, 1], &blank, false);
+        assert_eq!(a.model, None);
+        assert_eq!(a.attachments, ["1", "2"].iter().map(|v| v.to_string()).collect());
+        let b = draft_fingerprint(Some("d1"), "Fix it", DraftSubject::Chat { repository_id: None }, &[1, 2], &blank, true);
+        assert_ne!(a, b, "the Resume toggle is part of the draft");
+        let issues = |ids: &[&str]| DraftSubject::Issues(ids.iter().map(|v| v.to_string()).collect());
+        assert_eq!(
+            draft_fingerprint(None, "", issues(&["i2", "i1"]), &[], &blank, false),
+            draft_fingerprint(None, "", issues(&["i1", "i2"]), &[], &blank, false),
+        );
     }
 }

@@ -85,7 +85,7 @@ use coding::{
 
 use crate::action_inputs::ActionInputPicks;
 use crate::action_run::{self, ActionRepo, ActionRepoRow, StartActionArgs};
-use crate::chat_launch::{self, RemoteSubject, RepoState, SubjectKind};
+use crate::chat_launch::{self, DraftFingerprint, DraftSubject, RemoteSubject, RepoState, SubjectKind};
 use domain::blocked_start;
 use crate::coding_flow::{self, CodingHub, SessionSubject};
 use crate::composer_images::{self, PendingImages};
@@ -796,26 +796,33 @@ impl ChatScreenView {
             .unwrap_or_else(coding::default_device_label)
     }
 
-    /// What the draft's start is bound to (final review B4): the target
-    /// device, the text, the subject's issue / action ids and the staged
-    /// attachments. A Stacked PR answer is the same draft (it only rewrites
-    /// the message), so it is not part of it.
+    /// What the draft's start is bound to (final review B4, recheck R2:
+    /// feedback-states.json `starting.fingerprint`): the target device, the
+    /// text, the subject (issue ids, or the action and its input picks, or
+    /// the chat's repo), the staged attachments and every launch option as
+    /// the start sends them, the Resume toggle included.
     fn draft_fingerprint(&self, cx: &App) -> DraftFingerprint {
         let subject = match &self.subject {
-            Subject::None => SubjectKey::Chat,
-            Subject::Issues(issues) => {
-                let mut ids: Vec<String> = issues.checked.iter().cloned().collect();
-                ids.sort();
-                SubjectKey::Issues(ids)
-            }
-            Subject::Action(subject) => SubjectKey::Action(subject.action_id.clone()),
+            Subject::None => DraftSubject::Chat {
+                repository_id: self.chat_repo.as_ref().map(|repo| repo.id.clone()),
+            },
+            Subject::Issues(issues) => DraftSubject::Issues(issues.checked.iter().cloned().collect()),
+            Subject::Action(subject) => DraftSubject::Action {
+                action_id: subject.action_id.clone(),
+                inputs: self
+                    .selected_action()
+                    .map(|action| subject.picks.collect(action))
+                    .unwrap_or_default(),
+            },
         };
-        DraftFingerprint {
-            device: self.selected_device().map(|device| device.device_id.clone()),
-            text: self.input.read(cx).value().to_string(),
+        chat_launch::draft_fingerprint(
+            self.selected_device().map(|device| device.device_id.as_str()),
+            self.input.read(cx).value().as_ref(),
             subject,
-            attachments: self.images.keys(),
-        }
+            &self.images.keys(),
+            &self.options(cx),
+            self.resume_active(cx),
+        )
     }
 
     /// The `startId` of a Start of the draft as it is now: the one already
@@ -4574,27 +4581,6 @@ struct Starting {
     generation: u64,
     start_id: String,
     handoff: Option<coding_flow::StartHandoff>,
-}
-
-/// Final review B4 — the draft a `startId` was minted for
-/// ([`ChatScreen::draft_fingerprint`]).
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct DraftFingerprint {
-    /// The target machine (`None` before the device pick settles).
-    device: Option<String>,
-    text: String,
-    subject: SubjectKey,
-    /// The staged attachments' strip keys, in order.
-    attachments: Vec<u64>,
-}
-
-/// The subject part of a [`DraftFingerprint`]: its issue / action ids.
-#[derive(Clone, Debug, PartialEq, Eq)]
-enum SubjectKey {
-    Chat,
-    /// The checked issues, sorted.
-    Issues(Vec<String>),
-    Action(String),
 }
 
 /// The current draft's start: its `startId` and the draft it is bound to.

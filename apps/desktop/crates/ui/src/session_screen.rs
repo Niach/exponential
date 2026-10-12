@@ -901,8 +901,10 @@ fn resume_remote_inner(
 }
 
 /// Send (or, from the failure toast's Retry, re-send) a resume intent. A
-/// failure that may have reached the machine (a relay timeout) is still
-/// followed; the Retry repeats the startId, so the machine resumes once.
+/// failure that may have reached the machine (no answer, or the server's
+/// relay timeout: `coding_flow::may_have_reached_device`) is still followed,
+/// quietly for `starting.watchMs`; a definite one is only the toast. The
+/// Retry repeats the startId, so the machine resumes once.
 fn send_resume(
     intent: crate::coding_flow::RemoteStartIntent,
     device_label: String,
@@ -932,14 +934,16 @@ fn send_resume(
             .spawn(async move { api::steer::start_session(&trpc, &input) })
             .await;
         let _ = handle.update(cx, |_, window, cx| {
-            let follow = match result {
+            // (follow, late): recheck R3, a failure of unknown fate is
+            // followed quietly for the long watch, a definite one never.
+            let (follow, late) = match result {
                 Ok(()) => {
                     crate::toast::show(
                         Toast::success(format!("Resume sent to {device_label}.")),
                         window,
                         cx,
                     );
-                    true
+                    (true, false)
                 }
                 Err(err) => {
                     let retry_label = device_label.clone();
@@ -952,7 +956,7 @@ fn send_resume(
                         send_resume(intent.clone(), retry_label.clone(), window, cx)
                     });
                     crate::toast::show(toast, window, cx);
-                    crate::coding_flow::may_have_reached_device(&err)
+                    (crate::coding_flow::may_have_reached_device(&err), true)
                 }
             };
             if follow {
@@ -960,6 +964,7 @@ fn send_resume(
                     device_id,
                     subject,
                     Some(start_id),
+                    late,
                     window,
                     cx,
                 );
