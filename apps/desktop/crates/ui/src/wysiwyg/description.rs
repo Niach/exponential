@@ -116,6 +116,10 @@ pub struct WysiwygDescription {
     /// The completion menu's scroll (release review R5): ↑/↓ keep the
     /// selected row in view past the cap.
     completion_scroll: gpui::ScrollHandle,
+    /// SLOP-28: the open `#` typeahead (THE search list at the caret) and
+    /// the `#` the reader closed.
+    typeahead: Option<crate::picker::search_list::OpenIssueTypeahead>,
+    typeahead_gate: crate::picker::search_list::TypeaheadGate,
     /// Images staged in create-dialog mode (`draft://` URLs; resolved at
     /// submit by the dialog's existing upload flow).
     staged: Vec<StagedImage>,
@@ -464,6 +468,8 @@ impl WysiwygDescription {
             completion_source,
             completion: None,
             completion_scroll: gpui::ScrollHandle::new(),
+            typeahead: None,
+            typeahead_gate: Default::default(),
             probed_sizes: HashMap::new(),
             failed_retry_scheduled: false,
             _subscriptions: subscriptions,
@@ -1183,9 +1189,27 @@ impl WysiwygDescription {
     fn refresh_completion(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let had = self.completion.is_some();
         self.completion = None;
+        // SLOP-28: an open typeahead holds the focus; nothing re-triggers
+        // under it.
+        if self.typeahead.is_some() {
+            if had {
+                cx.notify();
+            }
+            return;
+        }
         if let Some(source) = self.completion_source.clone() {
             if let Some(text) = self.editor.read(cx).focused_text_before_caret(window, cx) {
-                if let Some(token) = detect_trigger(&text, text.len()) {
+                // SLOP-28: a `#` token opens THE search list at the caret.
+                if let Some(team_id) = source.issue_team_id() {
+                    if let Some(prefill) = self.typeahead_gate.open_on(&text, text.len()) {
+                        self.open_typeahead(team_id, prefill, window, cx);
+                        cx.notify();
+                        return;
+                    }
+                }
+                if let Some(token) = detect_trigger(&text, text.len())
+                    .filter(|token| token.trigger != crate::markdown::CompletionTrigger::IssueRef)
+                {
                     // EXP-551: `:tada:` — a CLOSED token whose query is an
                     // exact shortcode commits straight away, so the habit of
                     // typing both colons never leaves literal shortcode text.
@@ -1222,6 +1246,65 @@ impl WysiwygDescription {
         if had || self.completion.is_some() {
             cx.notify();
         }
+    }
+
+    /// SLOP-28: open the `#` typeahead on `prefill`, hung off the caret (read
+    /// now: the caret's block loses focus to the search field).
+    fn open_typeahead(
+        &mut self,
+        team_id: String,
+        prefill: crate::picker::search_list::TypeaheadPrefill,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(caret) = self.editor.read(cx).caret_viewport_bounds(window, cx) else {
+            return;
+        };
+        let anchor = crate::picker::search_list::CaretAnchor {
+            left: caret.origin.x,
+            top: caret.origin.y,
+            bottom: caret.origin.y + caret.size.height,
+        };
+        self.typeahead = Some(crate::picker::search_list::OpenIssueTypeahead::open(
+            team_id,
+            prefill,
+            anchor,
+            window,
+            cx,
+            |this: &mut Self, event, token, window, cx| this.on_typeahead_event(event, token, window, cx),
+        ));
+    }
+
+    /// SLOP-28: a pick writes `#IDENT ` over the token; Escape leaves the
+    /// text as typed; Backspace in the empty field deletes the token; the
+    /// caret's block gets the focus back on all three (a click away keeps
+    /// it where it went).
+    fn on_typeahead_event(
+        &mut self,
+        event: &crate::picker::search_list::IssueTypeaheadEvent,
+        token: &crate::picker::search_list::TypeaheadPrefill,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::picker::search_list::{typeahead_insert, IssueTypeaheadEvent};
+        self.typeahead = None;
+        let (bytes_back, replacement) = match event {
+            IssueTypeaheadEvent::Pick(identifier) => (token.token_len(), typeahead_insert(identifier)),
+            IssueTypeaheadEvent::Close { delete_token: true } => (token.token_len(), String::new()),
+            IssueTypeaheadEvent::Close { delete_token: false } => {
+                self.typeahead_gate.close(token.start);
+                (0, String::new())
+            }
+            IssueTypeaheadEvent::Dismiss => {
+                self.typeahead_gate.close(token.start);
+                cx.notify();
+                return;
+            }
+        };
+        self.editor.update(cx, |editor, cx| {
+            editor.replace_text_before_caret_and_refocus(bytes_back, &replacement, window, cx);
+        });
+        cx.notify();
     }
 
     fn accept_completion(&mut self, index: usize, window: &mut Window, cx: &mut Context<Self>) {
@@ -1790,6 +1873,11 @@ impl Render for WysiwygDescription {
         // pinned toolbars they used to mount are gone.
         let rail = self.render_rail(window, cx);
         let completion_popup = self.render_completion(window, cx);
+        // SLOP-28: the open `#` typeahead.
+        let typeahead = self
+            .typeahead
+            .as_ref()
+            .map(|typeahead| typeahead.render(window, cx));
         let menu_backdrop = self.render_image_menu_backdrop(window, cx);
         // EXP-285: a flex column that STRETCHES when the host slot gives it
         // height, with a trailing filler strip below the (content-hugging
@@ -1826,6 +1914,7 @@ impl Render for WysiwygDescription {
             .child(self.render_insert_bar(cx))
             .children(rail)
             .children(completion_popup)
+            .children(typeahead)
             .children(menu_backdrop)
             .children(self.render_image_menu(cx))
     }
@@ -2020,8 +2109,9 @@ mod tests {
         assert_eq!(transport.fetches.load(Ordering::SeqCst), 2);
     }
 
-    /// One fixed `#EXP-42` candidate for every query — enough to open the
-    /// popup without a synced Store behind it.
+    /// One fixed `@jane@example.com` candidate for every query — enough to
+    /// open the popup without a synced Store behind it. (SLOP-28: `#` opens
+    /// the search list instead, so the popup's keys are tested on `@`.)
     struct StubCompletionSource;
 
     impl CompletionSource for StubCompletionSource {
@@ -2033,15 +2123,15 @@ mod tests {
         ) -> Vec<CompletionItem> {
             vec![CompletionItem {
                 trigger,
-                insert: "#EXP-42".to_string(),
-                label: "EXP-42".into(),
-                detail: "Editor chip improvements".into(),
+                insert: "@jane@example.com".to_string(),
+                label: "Jane".into(),
+                detail: "jane@example.com".into(),
                 decoration: None,
             }]
         }
     }
 
-    // EXP-307: enter/tab must ACCEPT the open `#` completion instead of
+    // EXP-307: enter/tab must ACCEPT the open `@` completion instead of
     // reaching the vendored editor. gpui dispatches matched key bindings
     // before any key-down listener, and the editor binds enter/tab in its own
     // key context — so the old `capture_key_down`-only wiring never saw the
@@ -2077,13 +2167,13 @@ mod tests {
         cx.update(|window, cx| {
             view.update(cx, |view, cx| {
                 view.editor.update(cx, |editor, cx| {
-                    editor.replace_text_before_caret(0, "#EX", window, cx);
+                    editor.replace_text_before_caret(0, "@ja", window, cx);
                 });
             });
         });
         draw_frames(cx);
         view.read_with(cx, |view, _| {
-            assert!(view.completion.is_some(), "typing `#EX` opens the popup");
+            assert!(view.completion.is_some(), "typing `@ja` opens the popup");
         });
 
         cx.simulate_keystrokes("enter");
@@ -2093,7 +2183,7 @@ mod tests {
             // parity).
             assert_eq!(
                 view.markdown(cx).trim_end(),
-                "#EXP-42",
+                "@jane@example.com",
                 "enter accepted the item"
             );
         });
@@ -2103,20 +2193,20 @@ mod tests {
         cx.update(|window, cx| {
             view.update(cx, |view, cx| {
                 view.editor.update(cx, |editor, cx| {
-                    editor.replace_text_before_caret(0, "#EX", window, cx);
+                    editor.replace_text_before_caret(0, "@ja", window, cx);
                 });
             });
         });
         draw_frames(cx);
         view.read_with(cx, |view, _| {
-            assert!(view.completion.is_some(), "typing `#EX` re-opens the popup");
+            assert!(view.completion.is_some(), "typing `@ja` re-opens the popup");
         });
         cx.simulate_keystrokes("tab");
         view.read_with(cx, |view, cx| {
             assert!(view.completion.is_none(), "tab closed the popup");
             assert_eq!(
                 view.markdown(cx).trim_end(),
-                "#EXP-42 #EXP-42",
+                "@jane@example.com @jane@example.com",
                 "tab accepted the item in place of the pending token"
             );
         });

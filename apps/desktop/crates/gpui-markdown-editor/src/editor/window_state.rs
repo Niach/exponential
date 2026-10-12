@@ -307,6 +307,39 @@ impl Editor {
         });
     }
 
+    /// SLOP-28 vendoring: the `#` typeahead's write-back. The typeahead's
+    /// own search field holds focus while it is open, so the focused-only
+    /// lookup of [`Self::replace_text_before_caret`] would no-op: the ACTIVE
+    /// block stands in (the toolbar rule, [`Self::format_target`]) and gets
+    /// the focus back, caret after the replacement. An empty `replacement`
+    /// deletes the token; `bytes_back == 0` only refocuses.
+    pub fn replace_text_before_caret_and_refocus(
+        &mut self,
+        bytes_back: usize,
+        replacement: &str,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(block) = self.format_target(window, cx) else {
+            return;
+        };
+        self.focus_block(block.entity_id());
+        if bytes_back > 0 || !replacement.is_empty() {
+            block.update(cx, |block, cx| {
+                if !block.selected_range.is_empty() {
+                    return;
+                }
+                let end = block.cursor_offset().min(block.display_text().len());
+                let start = end.saturating_sub(bytes_back);
+                if !block.display_text().is_char_boundary(start) {
+                    return;
+                }
+                block.replace_text_in_visible_range(start..end, replacement, None, false, cx);
+            });
+        }
+        cx.notify();
+    }
+
     /// EXP-551 vendoring: insert `text` at the caret through the normal
     /// typed-edit path — the emoji picker's insertion point.
     ///

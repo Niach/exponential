@@ -4423,16 +4423,28 @@ impl SteerSessionView {
     /// ([`Self::render_turn_status_row`]).
     fn render_status_row(&mut self, show_work: bool, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let facts = self.status_facts(cx)?;
-        if !show_work && self.thread.per_turn {
+        // EXP-1271 (EXP-1259 D8): before the first turn the OWNER's row is
+        // THE mark over "Starting on <device>" (and it shows even in the
+        // per-turn thread, which has no turn row yet).
+        let starting = self.starting_run(&facts, cx);
+        if !starting && !show_work && self.thread.per_turn {
             return None;
         }
-        let caption = crate::run_rows::run_row_caption(
-            facts.state,
-            &facts.device,
-            facts.started_ms,
-            facts.ended_ms,
-            facts.now_ms,
-        );
+        let caption = if starting {
+            (
+                crate::feedback::starting_label(&facts.device),
+                crate::run_rows::StatusTone::Muted,
+            )
+        } else {
+            crate::run_rows::run_row_caption(
+                facts.state,
+                &facts.device,
+                facts.started_ms,
+                facts.ended_ms,
+                facts.now_ms,
+            )
+        };
+        let mark = if starting { crate::run_rows::RunStatusMark::Starting } else { facts.mark };
         let tool_line = (!facts.ended)
             .then(|| steer::feed::last_tool_line(self.feed.items()))
             .flatten()
@@ -4440,13 +4452,31 @@ impl SteerSessionView {
         let element = self.status_row_element(
             SharedString::from("steer-run-status-row"),
             &facts,
-            facts.mark,
+            mark,
             caption,
             tool_line,
             show_work,
             cx,
         );
         Some(work_column_row(element).into_any_element())
+    }
+
+    /// EXP-1271 — the owner's open run before its first turn: nothing
+    /// streamed, nothing published, no turn begun, the host not offline
+    /// (web `startingRun`).
+    fn starting_run(&self, facts: &StatusFacts, cx: &App) -> bool {
+        let me = crate::queries::active_account(cx).map(|account| account.user_id);
+        let owner = self
+            .row
+            .as_ref()
+            .is_some_and(|row| row.user_id.is_some() && row.user_id == me);
+        owner
+            && !facts.ended
+            && !matches!(self.phase, ViewerPhase::Ended { .. })
+            && !self.paused(cx)
+            && self.feed.is_empty()
+            && self.thread_keys.is_empty()
+            && !self.working_now()
     }
 
     /// EXP-1245 — one turn's status row in the owner's thread: a settled
@@ -5486,12 +5516,20 @@ impl SteerSessionView {
         let comment = collections
             .as_ref()
             .and_then(|collections| collections.comments.read(cx).get(&comment_ref.id).cloned());
-        let author = comment.as_ref().and_then(|comment| {
-            let user = comment.author_id.as_deref().and_then(|author_id| {
-                collections.as_ref()?.users.read(cx).get(author_id).cloned()
-            });
-            Some(crate::comments::thread_comment_author(comment, user.as_ref()))
-        });
+        let author = match comment.as_ref() {
+            Some(comment) => {
+                let user = comment.author_id.as_deref().and_then(|author_id| {
+                    collections.as_ref()?.users.read(cx).get(author_id).cloned()
+                });
+                Some(crate::comments::thread_comment_author(comment, user.as_ref()))
+            }
+            // Not synced here yet: the run's owner, whose key posted it.
+            None => self.row.as_ref().and_then(|row| {
+                let owner = row.user_id.as_deref()?;
+                let user = collections.as_ref()?.users.read(cx).get(owner).cloned()?;
+                user.name.clone().filter(|name| !name.trim().is_empty())
+            }),
+        };
         let now = chrono::Utc::now().timestamp();
         let meta = match comment.as_ref() {
             Some(comment) => crate::comments::thread_comment_meta(comment, now),
@@ -5502,7 +5540,11 @@ impl SteerSessionView {
             .and_then(|comment| comment.body.clone())
             .or_else(|| comment_ref.title.clone())
             .unwrap_or_default();
-        let issue_id = comment.as_ref().map(|comment| comment.issue_id.clone());
+        // The synced row's issue, else the answer's own issue ref.
+        let issue_id = comment
+            .as_ref()
+            .map(|comment| comment.issue_id.clone())
+            .or_else(|| issue_ref.map(|issue_ref| issue_ref.id.clone()).filter(|id| !id.is_empty()));
         let id = item.id;
         let mark = match self.builtin_agent() {
             Some(agent) => crate::coding_selects::agent_mark(agent).xsmall().into_any_element(),
@@ -7885,14 +7927,6 @@ fn push_text(runs: &mut Vec<MarkerSegment>, body: &str) {
         return;
     }
     runs.push(MarkerSegment::Text(body.to_string()));
-}
-
-fn status_dot(color: gpui::Hsla) -> impl IntoElement {
-    div()
-        .flex_shrink_0()
-        .size_1p5()
-        .rounded_full()
-        .bg(color)
 }
 
 /// EXP-787 — the transcript's PROSE rung: narration, a sent message, a card's

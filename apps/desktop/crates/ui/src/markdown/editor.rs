@@ -996,6 +996,10 @@ pub struct MarkdownEditor {
     /// The completion menu's scroll (release review R5): ↑/↓ keep the
     /// selected row in view past the cap.
     completion_scroll: ScrollHandle,
+    /// SLOP-28: the open `#` typeahead (THE search list at the caret) with
+    /// the block it opened in, and the `#` the reader closed.
+    typeahead: Option<(u64, crate::picker::search_list::OpenIssueTypeahead)>,
+    typeahead_gate: crate::picker::search_list::TypeaheadGate,
     /// Shared image cache (create with [`MarkdownEditor::images`] to reuse in
     /// a sibling [`MarkdownView`]).
     images: Entity<ImageCache>,
@@ -1044,6 +1048,8 @@ impl MarkdownEditor {
             completion_source: None,
             completion: None,
             completion_scroll: ScrollHandle::new(),
+            typeahead: None,
+            typeahead_gate: Default::default(),
             images,
             transport: None,
             upload_issue_id: None,
@@ -1241,6 +1247,7 @@ impl MarkdownEditor {
             .collect();
         self.focused_block = None;
         self.completion = None;
+        self.typeahead = None;
     }
 
     fn new_text_block(
@@ -1310,7 +1317,7 @@ impl MarkdownEditor {
     ) {
         match event {
             InputEvent::Change => {
-                self.refresh_completion(block_id, &input, cx);
+                self.refresh_completion(block_id, &input, window, cx);
                 self.emit_change(window, cx);
                 cx.notify();
             }
@@ -1359,6 +1366,7 @@ impl MarkdownEditor {
         &mut self,
         block_id: u64,
         input: &Entity<TextareaState>,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let Some(source) = self.completion_source.clone() else {
@@ -1369,7 +1377,19 @@ impl MarkdownEditor {
             let state = input.read(cx);
             (state.value().to_string(), state.cursor())
         };
-        let Some(token) = detect_trigger(&value, cursor) else {
+        // SLOP-28: a `#` token opens THE search list at the caret.
+        if let Some(team_id) = source.issue_team_id() {
+            if let Some(prefill) = self.typeahead_gate.open_on(&value, cursor) {
+                self.completion = None;
+                if self.typeahead.is_none() {
+                    self.open_typeahead(block_id, input, team_id, prefill, window, cx);
+                }
+                return;
+            }
+        }
+        let Some(token) = detect_trigger(&value, cursor)
+            .filter(|token| token.trigger != super::CompletionTrigger::IssueRef)
+        else {
             self.completion = None;
             return;
         };
@@ -1384,6 +1404,78 @@ impl MarkdownEditor {
             items,
             selected: 0,
         });
+    }
+
+    /// SLOP-28: open the `#` typeahead on `prefill`, hung off the caret line.
+    fn open_typeahead(
+        &mut self,
+        block_id: u64,
+        input: &Entity<TextareaState>,
+        team_id: String,
+        prefill: crate::picker::search_list::TypeaheadPrefill,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::picker::search_list::{textarea_caret_anchor, OpenIssueTypeahead};
+        let Some(bounds) = self.blocks.iter().find_map(|block| match block {
+            EditorBlock::Text { id, bounds, .. } if *id == block_id => Some(bounds.clone()),
+            _ => None,
+        }) else {
+            return;
+        };
+        let anchor = textarea_caret_anchor(input.read(cx), bounds.get().origin, window);
+        let open = OpenIssueTypeahead::open(team_id, prefill, anchor, window, cx, {
+            move |this: &mut Self, event, token, window, cx| {
+                this.on_typeahead_event(block_id, event, token, window, cx)
+            }
+        });
+        self.typeahead = Some((block_id, open));
+    }
+
+    /// SLOP-28: a pick writes `#IDENT ` over the token; Escape leaves the
+    /// text as typed; Backspace in the empty field deletes the token; focus
+    /// returns to the block on all three (a click away keeps it there).
+    fn on_typeahead_event(
+        &mut self,
+        block_id: u64,
+        event: &crate::picker::search_list::IssueTypeaheadEvent,
+        token: &crate::picker::search_list::TypeaheadPrefill,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        use crate::picker::search_list::{typeahead_insert, IssueTypeaheadEvent};
+        self.typeahead = None;
+        let replacement = match event {
+            IssueTypeaheadEvent::Pick(identifier) => Some(typeahead_insert(identifier)),
+            IssueTypeaheadEvent::Close { delete_token: true } => Some(String::new()),
+            IssueTypeaheadEvent::Close { delete_token: false } | IssueTypeaheadEvent::Dismiss => {
+                self.typeahead_gate.close(token.start);
+                None
+            }
+        };
+        let Some(input) = self.text_input(block_id) else {
+            cx.notify();
+            return;
+        };
+        if let Some(replacement) = replacement {
+            input.update(cx, |state, cx| {
+                let value = state.value().to_string();
+                let start = token.start;
+                let end = start + token.token_len();
+                if end > value.len() || !value.is_char_boundary(start) || !value.is_char_boundary(end) {
+                    return;
+                }
+                let new_value = format!("{}{replacement}{}", &value[..start], &value[end..]);
+                let position = byte_offset_to_position(&new_value, start + replacement.len());
+                state.set_value(new_value, window, cx);
+                state.set_cursor_position(position, window, cx);
+            });
+            self.emit_change(window, cx);
+        }
+        if !matches!(event, IssueTypeaheadEvent::Dismiss) {
+            input.update(cx, |state, cx| state.focus(window, cx));
+        }
+        cx.notify();
     }
 
     fn accept_completion(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -2091,6 +2183,7 @@ fn render_editor_preview(
 impl Render for MarkdownEditor {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.preview_when_blurred
+            && self.typeahead.is_none()
             && self.link_editor.is_none()
             && self.error.is_none()
             && !self.image_menu_open
@@ -2106,6 +2199,11 @@ impl Render for MarkdownEditor {
         let theme_border = cx.theme().border;
         let error = self.error.clone();
         let completion = self.render_completion(window, cx);
+        // SLOP-28: the open `#` typeahead.
+        let typeahead = self
+            .typeahead
+            .as_ref()
+            .map(|(_, typeahead)| typeahead.render(window, cx));
         // While an image resize drag is live, one canvas child registers the
         // window-level move/up listeners each frame (the gpui-component
         // resizable-panel pattern) — the mouse may leave the handle mid-drag.
@@ -2173,6 +2271,7 @@ impl Render for MarkdownEditor {
                     .children(self.render_edit_blocks(cx)),
             )
             .when_some(completion, |el, completion| el.child(completion))
+            .children(typeahead)
             .when_some(resize_overlay, |el, overlay| el.child(overlay))
             .into_any_element()
     }

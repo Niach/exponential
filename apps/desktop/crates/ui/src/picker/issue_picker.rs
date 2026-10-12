@@ -10,34 +10,28 @@
 //! Start coding, two or more = a batch. Ported out of the deleted
 //! start-coding dialog: the pool rules (EXP-119: `done`/`cancelled`/
 //! `duplicate`/PR-merged rows hidden, pre-seeded ids exempt and force-checked),
-//! the per-run cap and the row anatomy (EXP-768: priority · identifier ·
-//! status · title) are unchanged.
+//! and the per-run cap are unchanged.
 //!
 //! EXP-892: searching runs through the ONE engine (`domain::issue_search`).
 //!
-//! EXP-1030: the POPOVER is gone from here — the `#` tool mounts
-//! [`crate::picker::Picker`] like every other IDE pick, which owns the
-//! surface, the filter field, the keyboard cursor and the selection mark
-//! (a multi row's own highlight, never a circle). What stays is the DATA
-//! half the primitive cannot know: the pool ([`snapshot_rows`]), the ranking
-//! ([`visible_rows`], handed over as the primitive's `rank`), its memo, the
-//! row anatomy ([`issue_row_body`], its `render_item`) and the overflow
-//! notes ([`list_note`], its `footer`).
+//! SLOP-28 (EXP-1259 D4/D5): the composer's pick is the "+" menu's
+//! Implement issue › submenu, THE search list
+//! ([`crate::picker::search_list`]); every issue row ×4 is that list's row
+//! (status glyph, mono identifier, title — [`issue_item_body`] for the
+//! Picker). What stays here is the DATA half: the pool ([`snapshot_rows`]),
+//! the ranking ([`visible_rows`]), its memo, and the overflow note
+//! ([`list_note`]).
 
 use std::collections::HashSet;
 use std::rc::Rc;
 
-use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, AnyElement, App, Hsla, IntoElement, ParentElement as _, SharedString, Styled as _,
 };
-use gpui_component::{h_flex, ActiveTheme as _, Sizable as _};
+use gpui_component::{ActiveTheme as _, Sizable as _};
 use sync::Store;
 
-use domain::options::get_issue_priority_config;
 use domain::{IssuePriority, IssueStatus};
-
-use crate::icons::{option_icon, resolved_status_icon};
 
 use gpui_component::Icon;
 
@@ -107,6 +101,24 @@ pub(crate) fn issue_items(issues: &[Issue]) -> Vec<PickerItem<String>> {
     issue_rows(&rows)
 }
 
+/// SLOP-28: an issue row's body as THE search list draws it (status glyph,
+/// mono identifier, title), from an [`issue_rows`] item (its keywords are
+/// `[identifier, title]`).
+pub(crate) fn issue_item_body(item: &PickerItem<String>, cx: &App) -> AnyElement {
+    let (identifier, title) = match item.keywords.as_slice() {
+        [identifier, title, ..] => (identifier.clone(), title.clone()),
+        _ => (SharedString::default(), item.label.clone()),
+    };
+    let status = item.icon.clone().map(|icon| {
+        let icon = icon.xsmall();
+        match item.color {
+            Some(color) => icon.text_color(color).into_any_element(),
+            None => icon.into_any_element(),
+        }
+    });
+    super::search_list::issue_row_body(status, identifier, title, None, cx)
+}
+
 pub(crate) fn issue_picker(
     issues: &[Issue],
     value: Option<String>,
@@ -115,6 +127,8 @@ pub(crate) fn issue_picker(
 ) -> Picker<String> {
     Picker::single(issue_items(issues), value, trigger, on_change)
         .search(true)
+        .placeholder(super::search_list::ISSUE_SEARCH_PLACEHOLDER)
+        .render_item(|item, cx| issue_item_body(item, cx))
         .empty_text("No issues")
 }
 
@@ -126,6 +140,8 @@ pub(crate) fn issue_multi_picker(
 ) -> Picker<String> {
     Picker::multi(issue_items(issues), value, trigger, on_change)
         .search(true)
+        .placeholder(super::search_list::ISSUE_SEARCH_PLACEHOLDER)
+        .render_item(|item, cx| issue_item_body(item, cx))
         .empty_text("No issues")
 }
 
@@ -400,72 +416,6 @@ pub(crate) fn list_note(text: impl Into<SharedString>, cx: &App) -> gpui::Div {
         .child(text.into())
 }
 
-/// The `#` picker's rows for the primitive: ONE item per pool row, in POOL
-/// order. [`visible_rows`] does the ranking (the primitive's `rank` hook), so
-/// the indices it hands back index straight into this list.
-///
-/// The label is only the SEARCH keyword set — what a row draws is
-/// [`issue_row_body`], which the composer hands over as `render_item`.
-pub(crate) fn picker_items(rows: &[IssueRow]) -> Vec<crate::picker::PickerItem<String>> {
-    rows.iter()
-        .map(|row| {
-            crate::picker::PickerItem::new(
-                row.issue_id.clone(),
-                format!("{} {}", row.identifier, row.title),
-            )
-            .keywords(vec![row.identifier.clone().into(), row.title.clone().into()])
-        })
-        .collect()
-}
-
-/// One checklist row's BODY (EXP-768, the mobile anatomy on every client):
-/// priority · identifier · status · title (+ state hint or `note`).
-///
-/// The selection mark is NOT here and never comes back: EXP-1021 made a multi
-/// row's own highlight its mark, and the row shell, the hover and the toggle
-/// all belong to [`crate::picker::Picker`].
-pub(crate) fn issue_row_body(
-    row: &IssueRow,
-    note: Option<SharedString>,
-    cx: &App,
-) -> AnyElement {
-    let theme = cx.theme();
-    let muted = theme.muted_foreground;
-    let priority = get_issue_priority_config(row.priority);
-    h_flex()
-        .flex_1()
-        .min_w_0()
-        .items_center()
-        .gap_2p5()
-        .child(option_icon(priority, cx).xsmall())
-        .child(
-            div()
-                .flex_shrink_0()
-                .min_w(px(60.))
-                .text_xs()
-                .text_color(muted)
-                .font_family(theme::terminal::FONT_FAMILY)
-                .child(SharedString::from(row.identifier.clone())),
-        )
-        .child(resolved_status_icon(&row.resolved, cx).xsmall())
-        .child(
-            div()
-                .flex_1()
-                .min_w_0()
-                .text_sm()
-                .truncate()
-                .text_color(theme.foreground)
-                .child(SharedString::from(row.title.clone())),
-        )
-        .when_some(
-            note.or_else(|| row.state_hint.map(SharedString::from)),
-            |this, note| {
-                this.child(div().flex_shrink_0().text_xs().text_color(muted).child(note))
-            },
-        )
-        .into_any_element()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -624,41 +574,6 @@ mod tests {
         let (visible, _, no_matches) = visible_rows(&rows, &checked, "nothing here");
         assert_eq!(visible, vec![5]);
         assert!(no_matches);
-    }
-
-    /// EXP-1030: the primitive's rows are 1:1 with the POOL, in pool order —
-    /// that is what lets [`visible_rows`]' indices be handed straight to
-    /// `Picker::rank`. A row's label is only its search keyword set (the body
-    /// is [`issue_row_body`]), and both the identifier and the title match.
-    #[test]
-    fn the_picker_items_mirror_the_pool_one_for_one() {
-        let rows = vec![
-            row("a", "EXP-870", "Login flicker"),
-            row("b", "EXP-12", "Login timeout"),
-        ];
-        let items = picker_items(&rows);
-        assert_eq!(items.len(), rows.len());
-        let values: Vec<&str> = items.iter().map(|item| item.value.as_str()).collect();
-        assert_eq!(values, vec!["a", "b"], "pool order, so an index means the same row");
-        assert_eq!(items[0].label, SharedString::from("EXP-870 Login flicker"));
-        assert_eq!(
-            items[0].keywords,
-            vec![
-                SharedString::from("EXP-870"),
-                SharedString::from("Login flicker")
-            ]
-        );
-        // A row carries no glyph and no description of its own: the composer
-        // draws the whole body itself (`render_item`).
-        assert!(items[0].icon.is_none());
-        assert!(items[0].description.is_none());
-        assert!(!items[0].disabled);
-
-        // …and the ranking indexes straight into them.
-        let picked: HashSet<String> = HashSet::new();
-        let (visible, _, _) = visible_rows(&rows, &picked, "flicker");
-        assert_eq!(visible, vec![0]);
-        assert_eq!(items[visible[0]].value, "a");
     }
 
     /// EXP-892: the picker ranks through `domain::issue_search` — an exact

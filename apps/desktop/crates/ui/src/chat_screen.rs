@@ -60,6 +60,8 @@
 
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+
+use crate::picker::search_list;
 use std::rc::Rc;
 
 use gpui::{
@@ -137,11 +139,11 @@ pub(crate) fn implement_button_label(count: usize) -> String {
 /// EXP-1249: how tall the "+" menu may grow, for the side-with-room fit.
 const PLUS_MENU_WANTED_HEIGHT: f32 = 360.;
 
-/// EXP-1249: the searchable picker a "+" menu row opens, anchored to the +.
+/// EXP-1249: the searchable picker a "+" menu row opens, anchored to the +
+/// (SLOP-28: Implement issue › and Run action › are submenus now, THE search
+/// list inside the menu).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ComposerPicker {
-    Issues,
-    Actions,
     McpServers,
 }
 
@@ -2611,248 +2613,48 @@ impl ChatScreenView {
         rows
     }
 
-    /// "+" → Implement issue ›: the issue picker, mounted on THE picker
-    /// primitive (EXP-1030) and OPENED by the menu row (EXP-1249), anchored
-    /// to the + through `trigger`. Everything the primitive cannot know
-    /// rides in as hooks — the ranking (`domain::issue_search` through
-    /// [`issue_picker::visible_rows`], memoised here), the row anatomy and
-    /// the overflow notes — and everything else (the surface, the filter
-    /// field, ↑/↓/Enter, the multi-select highlight) is its own.
-    fn issue_picker_surface(
+    /// The "+" → Implement issue › pool: the subject's rows (the picks and
+    /// the repo-probe notes) or, with no issue subject yet, the team's open
+    /// issues.
+    fn implement_pool(
         &self,
-        trigger: AnyElement,
-        fit: (gpui::Anchor, gpui::Pixels),
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        let (rows, checked, notes): (Rc<Vec<IssueRow>>, HashSet<String>, Vec<(String, SharedString)>) =
-            match &self.subject {
-                Subject::Issues(issues) => (
-                    issues.rows.clone(),
-                    issues.checked.clone(),
-                    issues
-                        .rows
-                        .iter()
-                        .filter_map(|row| {
-                            let note: SharedString = match issues.repos.get(&row.issue_id)? {
-                                RepoState::Ready(None) => "no repository linked".into(),
-                                RepoState::Error(err) => {
-                                    format!("repository check failed: {err}").into()
-                                }
-                                RepoState::Loading if issues.checked.contains(&row.issue_id) => {
-                                    "resolving repository…".into()
-                                }
-                                _ => return None,
-                            };
-                            Some((row.issue_id.clone(), note))
-                        })
-                        .collect(),
-                ),
-                _ => (
-                    self.team_id
-                        .as_deref()
-                        .map(|team| self.team_pool(team, cx))
-                        .unwrap_or_default(),
-                    HashSet::new(),
-                    Vec::new(),
-                ),
-            };
-        let items = issue_picker::picker_items(&rows);
-        let picked: Vec<String> = rows
-            .iter()
-            .filter(|row| checked.contains(&row.issue_id))
-            .map(|row| row.issue_id.clone())
-            .collect();
-        let view = cx.entity().downgrade();
-        // Where a row's body reads its data from: the pool by id, and the
-        // transient probe note ("no repository linked") beside it.
-        let bodies: Rc<HashMap<String, usize>> = Rc::new(
-            rows.iter()
-                .enumerate()
-                .map(|(ix, row)| (row.issue_id.clone(), ix))
-                .collect(),
-        );
-        let notes: Rc<HashMap<String, SharedString>> = Rc::new(notes.into_iter().collect());
-        // ONE ranking per frame, memoised on this view: `rank` and `footer`
-        // both read it, and the composer repaints at 60 fps while a run is
-        // busy (release review R5).
-        let ranked = {
-            let rows = rows.clone();
-            let checked = checked.clone();
-            let view = view.clone();
-            move |query: &str, cx: &mut App| -> (Vec<usize>, usize, bool) {
-                match view.upgrade() {
-                    Some(host) => host
-                        .read(cx)
-                        .issue_pick_memo
-                        .borrow_mut()
-                        .get(&rows, &checked, query),
-                    None => issue_picker::visible_rows(&rows, &checked, query),
-                }
-            }
-        };
-        let rank_of = ranked.clone();
-        let footer_of = ranked;
-        let empty_pool = rows.is_empty();
-        let body_rows = rows.clone();
-        let on_close = self.picker_on_close(cx);
-        let submit_close = on_close.clone();
-        let picked_count = picked.len();
-        crate::picker::deferred(move |window, cx| {
-            crate::picker::Picker::multi(
-                items,
-                picked,
-                trigger,
-                Rc::new(move |values: Vec<String>, window: &mut Window, cx: &mut App| {
-                    // The primitive reports the WHOLE new set; the composer
-                    // stores one toggle at a time, so the one row that moved
-                    // is the difference.
-                    let Some(view) = view.upgrade() else {
-                        return;
-                    };
-                    let before = view.read(cx).checked_issue_ids();
-                    let after: HashSet<String> = values.into_iter().collect();
-                    let added = after.difference(&before).next().cloned();
-                    let removed = before.difference(&after).next().cloned();
-                    let Some((issue_id, on)) = added
-                        .map(|id| (id, true))
-                        .or_else(|| removed.map(|id| (id, false)))
-                    else {
-                        return;
-                    };
-                    view.update(cx, |this, cx| this.toggle_issue(issue_id, on, window, cx));
-                }),
-            )
-            .search(true)
-            .id("chat-issue-picker")
-            .open(on_close)
-            // The run cap (contract ×4): at it the unpicked rows go
-            // disabled, a checked one still toggles off.
-            .max(issue_picker::MAX_ISSUES_PER_RUN)
-            .width(px(480.))
-            .fit(fit)
-            .empty_text("No open issues in this team.")
-            // EXP-892: the ONE engine ranks, checked rows pinned first.
-            .rank(move |_items, query, cx| rank_of(query, cx).0)
-            .render_item(move |item, cx| {
-                let Some(row) = bodies
-                    .get(&item.value)
-                    .and_then(|ix| body_rows.get(*ix))
-                else {
-                    return gpui::Empty.into_any_element();
-                };
-                issue_picker::issue_row_body(row, notes.get(&row.issue_id).cloned(), cx)
-            })
-            .footer(move |query, cx| {
-                let (_, hidden, no_matches) = footer_of(query, cx);
-                let mut notes: Vec<SharedString> = Vec::new();
-                if empty_pool {
-                    notes.push("No open issues in this team.".into());
-                }
-                if no_matches {
-                    notes.push("No matches. Only open issues are shown.".into());
-                }
-                if hidden > 0 {
-                    notes.push(format!("+{hidden} more. Refine your search.").into());
-                }
-                // The fixture's `implementButton`: once anything is picked a
-                // footer submit closes the picker (the picks already ARE the
-                // subject).
-                let submit = (picked_count > 0).then(|| {
-                    let close = submit_close.clone();
-                    h_flex()
-                        .w_full()
-                        .p_1()
-                        .child(
-                            Button::new(IMPLEMENT_SUBMIT_ID)
-                                .primary()
-                                .small()
-                                .w_full()
-                                .cursor_pointer()
-                                .label(implement_button_label(picked_count))
-                                .on_click(move |_, window, cx| close(window, cx)),
-                        )
-                });
-                if notes.is_empty() && submit.is_none() {
-                    return None;
-                }
-                Some(
-                    v_flex()
-                        .w_full()
-                        .children(
-                            notes
-                                .into_iter()
-                                .map(|note| issue_picker::list_note(note, cx)),
-                        )
-                        .children(submit)
-                        .into_any_element(),
-                )
-            })
-            .render(window, cx)
-        })
-        .into_any_element()
+        cx: &App,
+    ) -> (Rc<Vec<IssueRow>>, HashSet<String>, HashMap<String, SharedString>) {
+        match &self.subject {
+            Subject::Issues(issues) => (
+                issues.rows.clone(),
+                issues.checked.clone(),
+                issues
+                    .rows
+                    .iter()
+                    .filter_map(|row| {
+                        let note: SharedString = match issues.repos.get(&row.issue_id)? {
+                            RepoState::Ready(None) => "no repository linked".into(),
+                            RepoState::Error(err) => format!("repository check failed: {err}").into(),
+                            RepoState::Loading if issues.checked.contains(&row.issue_id) => {
+                                "resolving repository…".into()
+                            }
+                            _ => return None,
+                        };
+                        Some((row.issue_id.clone(), note))
+                    })
+                    .collect(),
+            ),
+            _ => (
+                self.team_id
+                    .as_deref()
+                    .map(|team| self.team_pool(team, cx))
+                    .unwrap_or_default(),
+                HashSet::new(),
+                HashMap::new(),
+            ),
+        }
     }
 
-    /// "+" → Run action ›: the actions picker (builtins pinned first, Create
-    /// action included; Chat is never listed) — THE action picker
-    /// (EXP-1030), whose rows are the curated icon, the name and the muted
-    /// description — opened by the menu row, anchored to the + (EXP-1249).
-    fn action_picker_surface(
-        &self,
-        trigger: AnyElement,
-        fit: (gpui::Anchor, gpui::Pixels),
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        let actions: Vec<crate::picker::action_picker::ActionPickerAction> = self
-            .actions
-            .iter()
-            .filter(|action| action.id != api::actions::BUILTIN_CHAT_ID)
-            .map(|action| crate::picker::action_picker::ActionPickerAction {
-                id: action.id.clone(),
-                name: action.name.clone(),
-                icon: action.icon.clone(),
-                description: action
-                    .description
-                    .as_deref()
-                    .map(str::trim)
-                    .filter(|text| !text.is_empty())
-                    .map(str::to_string),
-            })
-            .collect();
-        let ready = self.actions_ready;
-        let picked = match &self.subject {
-            Subject::Action(subject) => Some(subject.action_id.clone()),
-            _ => None,
-        };
-        let view = cx.entity().downgrade();
-        let on_close = self.picker_on_close(cx);
-        crate::picker::deferred(move |window, cx| {
-            crate::picker::action_picker::action_picker(
-                &actions,
-                picked,
-                trigger,
-                Rc::new(move |values: Vec<String>, _window: &mut Window, cx: &mut App| {
-                    let Some(id) = values.into_iter().next() else {
-                        return;
-                    };
-                    if let Some(view) = view.upgrade() {
-                        view.update(cx, |this, cx| this.select_action(id, cx));
-                    }
-                }),
-            )
-            .id("chat-action-picker")
-            .open(on_close)
-            .width(px(360.))
-            .fit(fit)
-            // A list that has not arrived says so; an arrived empty one says
-            // there is nothing to run.
-            .empty_text(if ready {
-                "No actions yet."
-            } else {
-                "Loading actions…"
-            })
-            .render(window, cx)
-        })
-        .into_any_element()
+    /// Back to the field after a "+" submenu closed the menu.
+    fn refocus_input(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.input.read(cx).focus_handle(cx).focus(window, cx);
+        cx.notify();
     }
 
     /// "+" → MCP servers ›: the team's servers behind the shared multi
@@ -2954,8 +2756,6 @@ impl ChatScreenView {
         // above from it), no width, nothing to hit.
         let anchor = || div().w(px(0.)).h(bounds.size.height.max(px(24.))).into_any_element();
         let picker = match self.open_picker {
-            Some(ComposerPicker::Issues) => Some(self.issue_picker_surface(anchor(), picker_fit, cx)),
-            Some(ComposerPicker::Actions) => Some(self.action_picker_surface(anchor(), picker_fit, cx)),
             Some(ComposerPicker::McpServers) => self.mcp_picker_surface(anchor(), picker_fit, cx),
             None => None,
         };
@@ -3814,19 +3614,53 @@ pub(crate) fn plus_menu(
             }
         }
     };
-    let chevron = |cx: &App| Some(menu_row_value(None, true, cx));
+    let root = cx.entity().downgrade();
     menu = menu.min_w(px(260.));
     for row in composer_menu_rows(options.map(ComposerMenuConditions::of)) {
         menu = match (row, options) {
             (ComposerMenuRow::Separator, _) => menu.separator(),
-            (ComposerMenuRow::ImplementIssue, _) => menu.item(
-                pointer_menu_item(None, MENU_IMPLEMENT_ISSUE, chevron, open(ComposerPicker::Issues))
-                    .icon(row.menu_icon()),
-            ),
-            (ComposerMenuRow::RunAction, _) => menu.item(
-                pointer_menu_item(None, MENU_RUN_ACTION, chevron, open(ComposerPicker::Actions))
-                    .icon(row.menu_icon()),
-            ),
+            // SLOP-28 (EXP-1259 D5): THE search list as a submenu — hover
+            // or Right opens it, Left/Escape hand the keys back.
+            (ComposerMenuRow::ImplementIssue, _) => {
+                let view = view.clone();
+                let root = root.clone();
+                menu.submenu_with_icon(
+                    Some(row.menu_icon()),
+                    MENU_IMPLEMENT_ISSUE,
+                    window,
+                    cx,
+                    move |sub, window, cx| {
+                        search_list::menu_search_list_submenu(
+                            "chat-implement-issue",
+                            implement_issue_source(&view),
+                            sub,
+                            root.clone(),
+                            window,
+                            cx,
+                        )
+                    },
+                )
+            }
+            (ComposerMenuRow::RunAction, _) => {
+                let view = view.clone();
+                let root = root.clone();
+                menu.submenu_with_icon(
+                    Some(row.menu_icon()),
+                    MENU_RUN_ACTION,
+                    window,
+                    cx,
+                    move |sub, window, cx| {
+                        search_list::menu_search_list_submenu(
+                            "chat-run-action",
+                            run_action_source(&view),
+                            sub,
+                            root.clone(),
+                            window,
+                            cx,
+                        )
+                    },
+                )
+            }
             (ComposerMenuRow::AddFile, _) => menu.item({
                 let view = view.clone();
                 pointer_menu_item(None, MENU_ADD_FILE, |_| None, move |window, cx| {
@@ -3964,6 +3798,181 @@ pub(crate) fn plus_menu(
     }
     menu
 }
+
+/// SLOP-28 — "+" → Implement issue ›: the issue rows (status glyph, mono
+/// identifier, title), the picks pinned first with their check, the repo
+/// probe's note on the rest; a pick toggles and keeps the menu open, the
+/// footer's Implement button closes it (the picks already are the subject).
+fn implement_issue_source(view: &gpui::WeakEntity<ChatScreenView>) -> search_list::MenuListSource {
+    let rows_view = view.clone();
+    let pick_view = view.clone();
+    let empty_view = view.clone();
+    let footer_view = view.clone();
+    search_list::MenuListSource {
+        placeholder: search_list::ISSUE_SEARCH_PLACEHOLDER,
+        rows: Rc::new(move |query: &str, _window: &mut Window, cx: &mut App| {
+            let Some(view) = rows_view.upgrade() else {
+                return Vec::new();
+            };
+            let this = view.read(cx);
+            let (rows, checked, notes) = this.implement_pool(cx);
+            let (order, _, _) = this.issue_pick_memo.borrow_mut().get(&rows, &checked, query);
+            let at_cap = checked.len() >= issue_picker::MAX_ISSUES_PER_RUN;
+            order
+                .into_iter()
+                .filter_map(|ix| rows.get(ix))
+                .map(|row| {
+                    let picked = checked.contains(&row.issue_id);
+                    let trailing = if picked {
+                        Some(search_list::row_check(cx))
+                    } else {
+                        notes
+                            .get(&row.issue_id)
+                            .cloned()
+                            .or_else(|| row.state_hint.map(SharedString::from))
+                            .map(|note| {
+                                div()
+                                    .flex_shrink_0()
+                                    .text_xs()
+                                    .text_color(cx.theme().muted_foreground)
+                                    .child(note)
+                                    .into_any_element()
+                            })
+                    };
+                    search_list::MenuListRow {
+                        id: row.issue_id.clone(),
+                        body: search_list::issue_row_body(
+                            Some(
+                                crate::icons::resolved_status_icon(&row.resolved, cx)
+                                    .xsmall()
+                                    .into_any_element(),
+                            ),
+                            row.identifier.clone(),
+                            row.title.clone(),
+                            trailing,
+                            cx,
+                        ),
+                        disabled: at_cap && !picked,
+                    }
+                })
+                .collect()
+        }),
+        pick: Rc::new(move |issue_id: &str, window: &mut Window, cx: &mut App| {
+            if let Some(view) = pick_view.upgrade() {
+                view.update(cx, |this, cx| {
+                    let on = !this.checked_issue_ids().contains(issue_id);
+                    this.toggle_issue(issue_id.to_string(), on, window, cx);
+                });
+            }
+            false
+        }),
+        empty: Rc::new(move |_query: &str, cx: &App| {
+            let empty_pool = empty_view
+                .upgrade()
+                .is_none_or(|view| view.read(cx).implement_pool(cx).0.is_empty());
+            if empty_pool {
+                "No open issues in this team.".into()
+            } else {
+                "No matches. Only open issues are shown.".into()
+            }
+        }),
+        footer: Some(Rc::new(
+            move |query: &str, close: search_list::MenuClose, _window: &mut Window, cx: &mut App| {
+                let view = footer_view.upgrade()?;
+                let (hidden, picked) = {
+                    let this = view.read(cx);
+                    let (rows, checked, _) = this.implement_pool(cx);
+                    let (_, hidden, _) = this.issue_pick_memo.borrow_mut().get(&rows, &checked, query);
+                    (hidden, checked.len())
+                };
+                let note = (hidden > 0)
+                    .then(|| issue_picker::list_note(format!("+{hidden} more. Refine your search."), cx));
+                // The fixture's `implementButton`: once anything is picked,
+                // the footer submit closes the menu.
+                let submit = (picked > 0).then(|| {
+                    let view = view.downgrade();
+                    h_flex().w_full().p_1().child(
+                        Button::new(IMPLEMENT_SUBMIT_ID)
+                            .primary()
+                            .small()
+                            .w_full()
+                            .cursor_pointer()
+                            .label(implement_button_label(picked))
+                            .on_click(move |_, window, cx| {
+                                close(window, cx);
+                                if let Some(view) = view.upgrade() {
+                                    view.update(cx, |this, cx| this.refocus_input(window, cx));
+                                }
+                            }),
+                    )
+                });
+                (note.is_some() || submit.is_some()).then(|| {
+                    v_flex()
+                        .w_full()
+                        .children(note)
+                        .children(submit)
+                        .into_any_element()
+                })
+            },
+        )),
+    }
+}
+
+/// SLOP-28 — "+" → Run action ›: the team's actions (builtins first, Chat
+/// never listed) as icon + NAME rows, no descriptions; a pick sets the
+/// subject and closes the menu.
+fn run_action_source(view: &gpui::WeakEntity<ChatScreenView>) -> search_list::MenuListSource {
+    let rows_view = view.clone();
+    let pick_view = view.clone();
+    let empty_view = view.clone();
+    search_list::MenuListSource {
+        placeholder: RUN_ACTION_PLACEHOLDER,
+        rows: Rc::new(move |query: &str, _window: &mut Window, cx: &mut App| {
+            let Some(view) = rows_view.upgrade() else {
+                return Vec::new();
+            };
+            let needle = query.trim().to_lowercase();
+            view.read(cx)
+                .actions
+                .iter()
+                .filter(|action| action.id != api::actions::BUILTIN_CHAT_ID)
+                .filter(|action| needle.is_empty() || action.name.to_lowercase().contains(&needle))
+                .map(|action| search_list::MenuListRow {
+                    id: action.id.clone(),
+                    body: search_list::action_row_body(
+                        crate::icons::action_icon(action.icon.as_deref()),
+                        action.name.clone(),
+                        cx,
+                    ),
+                    disabled: false,
+                })
+                .collect()
+        }),
+        pick: Rc::new(move |action_id: &str, window: &mut Window, cx: &mut App| {
+            if let Some(view) = pick_view.upgrade() {
+                view.update(cx, |this, cx| {
+                    this.select_action(action_id.to_string(), cx);
+                    this.refocus_input(window, cx);
+                });
+            }
+            true
+        }),
+        empty: Rc::new(move |query: &str, cx: &App| {
+            let ready = empty_view.upgrade().is_some_and(|view| view.read(cx).actions_ready);
+            if !ready {
+                "Loading actions…".into()
+            } else if query.trim().is_empty() {
+                "No actions yet.".into()
+            } else {
+                "No actions match".into()
+            }
+        }),
+        footer: None,
+    }
+}
+
+/// The Run action › field's placeholder.
+const RUN_ACTION_PLACEHOLDER: &str = "Search actions";
 
 /// Register the composer a freshly opened dialog window hosts (called by
 /// [`crate::composer_dialog::open`]) so the rail's pinned action row keeps

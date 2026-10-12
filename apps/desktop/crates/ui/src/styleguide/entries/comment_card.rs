@@ -1,4 +1,4 @@
-//! EXP-1241 (EXP-1259 D14): `comment-card` (Special components): the comment
+//! EXP-1241 (EXP-1259 D14): `comment-call-card` (Special components): the comment
 //! an `exponential_comments_create` call posted, as the run thread draws it —
 //! "Commented on" over the REAL thread comment card
 //! (`crate::comments::thread_comment_card`): the agent's mark, the author,
@@ -9,7 +9,7 @@ use gpui_component::{h_flex, ActiveTheme as _, Icon, Sizable as _};
 
 use crate::comments::{thread_comment_card, ThreadCommentProps};
 
-pub(crate) const ID: &str = "comment-card";
+pub(crate) const ID: &str = "comment-call-card";
 pub(crate) const OWNER: &str = "EXP-1241";
 
 const BODY: &str = "**Status 2026-10-08, evening**\n\n#VAPP-98 (renderer hardening) is open as PR #1007; the host API run #VAPP-91 is not based on the new contract yet, so I sent it a heads-up.\n\nNext: the conformance fixtures for the Swift and Compose renderers, then the docs pass.";

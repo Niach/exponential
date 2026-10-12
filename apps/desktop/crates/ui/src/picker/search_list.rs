@@ -27,6 +27,7 @@
 //! 6/8 typeahead caps are gone.
 
 use std::collections::HashSet;
+use std::rc::Rc;
 use std::time::Duration;
 
 use gpui::{
@@ -89,38 +90,60 @@ impl TypeaheadPrefill {
     }
 }
 
-/// The `#` rule (search-list.json): a `#` at the start of the text, after
-/// whitespace or after `(` opens the list, and the token between it and the
-/// caret (no whitespace in it) prefills the field. A `#` inside a word
+/// The `#` rule (search-list.json, the web `typeaheadPrefill` regex
+/// `(?:^|[\s(])#([A-Za-z0-9-]*)$`): a `#` at the start of the text, after
+/// whitespace or after `(` opens the list, and the identifier-charset token
+/// between it and the caret prefills the field. A `#` inside a word
 /// (`C#sharp`) is not a trigger, and whitespace after the `#` ends the token.
 pub(crate) fn typeahead_prefill(text: &str, caret: usize) -> Option<TypeaheadPrefill> {
     if caret > text.len() || !text.is_char_boundary(caret) {
         return None;
     }
     let before = &text[..caret];
-    let token_start = before
-        .char_indices()
+    let query_len = before
+        .bytes()
         .rev()
-        .find(|(_, c)| c.is_whitespace())
-        .map(|(ix, c)| ix + c.len_utf8())
-        .unwrap_or(0);
-    let token = &before[token_start..];
-    let start = if token.starts_with('#') {
-        token_start
-    } else if token.starts_with("(#") {
-        token_start + 1
-    } else {
-        return None;
-    };
-    let query = &before[start + 1..];
-    // `##` is a heading, not a reference.
-    if query.contains('#') {
+        .take_while(|byte| byte.is_ascii_alphanumeric() || *byte == b'-')
+        .count();
+    let hash = caret.checked_sub(query_len + 1)?;
+    if before.as_bytes()[hash] != b'#' {
         return None;
     }
-    Some(TypeaheadPrefill {
-        start,
-        query: query.to_string(),
+    let opens = before[..hash]
+        .chars()
+        .next_back()
+        .is_none_or(|c| c.is_whitespace() || c == '(');
+    opens.then(|| TypeaheadPrefill {
+        start: hash,
+        query: before[hash + 1..].to_string(),
     })
+}
+
+/// The `#` an editor's reader closed with Escape (or by clicking away): the
+/// typeahead does not reopen on THAT `#` while its token goes on, and opens
+/// again once the token ended. Pure, one per editor.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct TypeaheadGate {
+    closed_at: Option<usize>,
+}
+
+impl TypeaheadGate {
+    /// The token to open the typeahead on for this text and caret, if any.
+    pub(crate) fn open_on(&mut self, text: &str, caret: usize) -> Option<TypeaheadPrefill> {
+        let prefill = typeahead_prefill(text, caret);
+        match (&prefill, self.closed_at) {
+            (Some(prefill), Some(start)) if prefill.start == start => None,
+            _ => {
+                self.closed_at = None;
+                prefill
+            }
+        }
+    }
+
+    /// The reader closed the typeahead opened on the `#` at `start`.
+    pub(crate) fn close(&mut self, start: usize) {
+        self.closed_at = Some(start);
+    }
 }
 
 /// Whether the bottom fade paints: more rows than fit, and the viewport not
@@ -889,8 +912,378 @@ pub(crate) fn typeahead_popover(
     .into_any_element()
 }
 
+// ---------------------------------------------------------------------------
+// The menu submenu (composer-menu.json: Implement issue ›, Run action ›)
+// ---------------------------------------------------------------------------
+
+/// One row of a [`MenuSearchList`].
+pub(crate) struct MenuListRow {
+    pub(crate) id: String,
+    /// The row's body ([`issue_row_body`] / [`action_row_body`]).
+    pub(crate) body: AnyElement,
+    /// At a cap: an unpicked row that cannot be picked.
+    pub(crate) disabled: bool,
+}
+
+/// What a [`MenuSearchList`] lists and does: the HOST's data, the list's
+/// surface and keys.
+pub(crate) struct MenuListSource {
+    pub(crate) placeholder: &'static str,
+    /// The rows for a query, in order.
+    pub(crate) rows: Rc<dyn Fn(&str, &mut Window, &mut App) -> Vec<MenuListRow>>,
+    /// A pick by row id; `true` = the whole menu closes after it.
+    pub(crate) pick: Rc<dyn Fn(&str, &mut Window, &mut App) -> bool>,
+    /// What an empty list reads as.
+    pub(crate) empty: Rc<dyn Fn(&str, &App) -> SharedString>,
+    /// Under the rows (notes, the Implement button), handed the "close the
+    /// whole menu" hook.
+    pub(crate) footer:
+        Option<Rc<dyn Fn(&str, MenuClose, &mut Window, &mut App) -> Option<AnyElement>>>,
+}
+
+/// Closes the whole menu a [`MenuSearchList`] sits in.
+pub(crate) type MenuClose = Rc<dyn Fn(&mut Window, &mut App)>;
+
+/// THE search list as a menu SUBMENU (composer-menu.json): the field on top,
+/// [`ROW_HEIGHT`] rows, at most [`MAX_VISIBLE_ROWS`] visible. The submenu
+/// opens on hover or Right arrow (the crate's own submenu rules); the field
+/// takes the keys as soon as the pointer enters the list or the arrow
+/// focuses the submenu. ↑/↓ move, Enter/Tab pick, Escape (and Left with the
+/// caret at the field's start) hand the keys back to the parent menu.
+pub(crate) struct MenuSearchList {
+    id: SharedString,
+    list: SearchListState,
+    source: MenuListSource,
+    /// The submenu this list fills (its focus = "the arrow came in").
+    submenu: gpui::WeakEntity<gpui_component::menu::PopupMenu>,
+    /// The menu at the top of the chain (what a closing pick dismisses, and
+    /// where Escape hands the keys back: these submenus are one level deep).
+    root: gpui::WeakEntity<gpui_component::menu::PopupMenu>,
+    /// The row ids as last painted (what the keys address).
+    ids: Vec<String>,
+    enabled: Vec<bool>,
+    _subscription: Subscription,
+}
+
+impl MenuSearchList {
+    pub(crate) fn new(
+        id: impl Into<SharedString>,
+        source: MenuListSource,
+        submenu: gpui::WeakEntity<gpui_component::menu::PopupMenu>,
+        root: gpui::WeakEntity<gpui_component::menu::PopupMenu>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Self {
+        let list = SearchListState::new(source.placeholder, window, cx);
+        let subscription = cx.subscribe(&list.input, |this: &mut Self, _, event: &InputEvent, cx| {
+            if matches!(event, InputEvent::Change) {
+                let query = this.list.query(cx);
+                this.list.sync_query(&query);
+                cx.notify();
+            }
+        });
+        Self {
+            id: id.into(),
+            list,
+            source,
+            submenu,
+            root,
+            ids: Vec::new(),
+            enabled: Vec::new(),
+            _subscription: subscription,
+        }
+    }
+
+    fn close_hook(&self) -> MenuClose {
+        let root = self.root.clone();
+        Rc::new(move |_window: &mut Window, cx: &mut App| dismiss_menu(&root, cx))
+    }
+
+    fn pick(&mut self, position: usize, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(id) = self.ids.get(position).cloned() else {
+            return;
+        };
+        if !self.enabled.get(position).copied().unwrap_or(false) {
+            return;
+        }
+        let pick = self.source.pick.clone();
+        if pick(&id, window, cx) {
+            dismiss_menu(&self.root, cx);
+        }
+        cx.notify();
+    }
+
+    fn step(&mut self, delta: isize, cx: &mut Context<Self>) {
+        self.list.step(delta, self.ids.len());
+        cx.notify();
+    }
+
+    /// Escape / Left at the field's start: the keys go back to the parent menu
+    /// (this submenu stays open under the pointer's row, the crate's rule).
+    fn back_to_parent(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        // One level deep: the parent IS the root.
+        if let Some(parent) = self.root.upgrade() {
+            parent.read(cx).focus_handle(cx).focus(window, cx);
+        }
+        cx.notify();
+    }
+
+    fn focus_field(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let field = self.list.input.read(cx).focus_handle(cx);
+        if !field.is_focused(window) {
+            field.focus(window, cx);
+        }
+    }
+}
+
+/// Close a menu chain from its root (the [`crate::controls::PointerMenu`]
+/// host drops the popover on the root's dismiss).
+pub(crate) fn dismiss_menu(
+    root: &gpui::WeakEntity<gpui_component::menu::PopupMenu>,
+    cx: &mut App,
+) {
+    if let Some(root) = root.upgrade() {
+        root.update(cx, |_, cx| cx.emit(gpui::DismissEvent));
+    }
+}
+
+impl gpui::Render for MenuSearchList {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        use gpui_component::input::{Enter, Escape, IndentInline, MoveDown, MoveLeft, MoveUp};
+        // Right arrow focused the submenu: the field takes the keys.
+        let arrived = self
+            .submenu
+            .upgrade()
+            .is_some_and(|submenu| submenu.read(cx).focus_handle(cx).is_focused(window));
+        if arrived {
+            self.focus_field(window, cx);
+        }
+        let query = self.list.query(cx);
+        let rows = (self.source.rows.clone())(&query, window, cx);
+        self.ids = rows.iter().map(|row| row.id.clone()).collect();
+        self.enabled = rows.iter().map(|row| !row.disabled).collect();
+        let selected = self.list.cursor(rows.len());
+        let entity = cx.entity().downgrade();
+        let count = rows.len();
+        let elements: Vec<AnyElement> = rows
+            .into_iter()
+            .enumerate()
+            .map(|(position, item)| {
+                let hover = entity.clone();
+                let pick = entity.clone();
+                row((self.id.clone(), position), selected == Some(position), cx)
+                    .when(item.disabled, |row| row.opacity(0.5).cursor_default())
+                    .on_hover(move |hovered, _, cx| {
+                        if *hovered {
+                            let _ = hover.update(cx, |this, cx| {
+                                if this.list.hover(position) {
+                                    cx.notify();
+                                }
+                            });
+                        }
+                    })
+                    .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+                        cx.stop_propagation();
+                        let _ = pick.update(cx, |this, cx| this.pick(position, window, cx));
+                    })
+                    .child(item.body)
+                    .into_any_element()
+            })
+            .collect();
+        let footer = self
+            .source
+            .footer
+            .clone()
+            .and_then(|footer| footer(&query, self.close_hook(), window, cx));
+        let empty = (self.source.empty)(&query, cx);
+        let mut list = SearchList::new(
+            ElementId::Name(SharedString::from(format!("{}-rows", self.id))),
+            &self.list.input,
+            &self.list.scroll,
+        )
+        .rows(elements, count)
+        .empty(empty_row(empty, cx));
+        if let Some(footer) = footer {
+            list = list.footer(footer);
+        }
+        let on = |f: fn(&mut MenuSearchList, &mut Window, &mut Context<MenuSearchList>)| {
+            let target = entity.clone();
+            move |window: &mut Window, cx: &mut App| {
+                let _ = target.update(cx, |this, cx| f(this, window, cx));
+            }
+        };
+        let up = on(|this, _, cx| this.step(-1, cx));
+        let down = on(|this, _, cx| this.step(1, cx));
+        let enter = on(|this, window, cx| {
+            if let Some(position) = this.list.cursor(this.ids.len()) {
+                this.pick(position, window, cx);
+            }
+        });
+        let tab = on(|this, window, cx| {
+            if let Some(position) = this.list.cursor(this.ids.len()) {
+                this.pick(position, window, cx);
+            }
+        });
+        let escape = on(|this, window, cx| this.back_to_parent(window, cx));
+        let left = on(|this, window, cx| this.back_to_parent(window, cx));
+        let field = self.list.input.clone();
+        let pointer = entity.clone();
+        div()
+            .id(self.id.clone())
+            // The crate pads an element row 8px a side: the list spans the
+            // whole submenu instead.
+            .mx(px(-8.))
+            .flex_1()
+            .min_w_0()
+            .cursor_default()
+            .capture_action(move |_: &MoveUp, window, cx| {
+                up(window, cx);
+                cx.stop_propagation();
+            })
+            .capture_action(move |_: &MoveDown, window, cx| {
+                down(window, cx);
+                cx.stop_propagation();
+            })
+            .capture_action(move |action: &Enter, window, cx| {
+                if action.shift || action.secondary {
+                    return;
+                }
+                enter(window, cx);
+                cx.stop_propagation();
+            })
+            .capture_action(move |_: &IndentInline, window, cx| {
+                tab(window, cx);
+                cx.stop_propagation();
+            })
+            .capture_action(move |_: &Escape, window, cx| {
+                escape(window, cx);
+                cx.stop_propagation();
+            })
+            .capture_action(move |_: &MoveLeft, window, cx| {
+                // Left leaves only from the field's START (web parity);
+                // anywhere else it moves the caret.
+                if field.read(cx).cursor() == 0 {
+                    left(window, cx);
+                    cx.stop_propagation();
+                }
+            })
+            // The pointer came in: the field takes the keys.
+            .on_mouse_move(move |_, window, cx| {
+                let _ = pointer.update(cx, |this, cx| this.focus_field(window, cx));
+            })
+            .child(list.render(cx))
+    }
+}
+
+/// A menu search list's width (the web submenu's).
+pub(crate) const MENU_LIST_WIDTH: f32 = 400.;
+
+/// Build `source`'s list as the ONE row of `submenu` (a `PopupMenu` built by
+/// `submenu_with_icon`): the composer's Implement issue › / Run action ›.
+pub(crate) fn menu_search_list_submenu(
+    id: impl Into<SharedString>,
+    source: MenuListSource,
+    submenu: gpui_component::menu::PopupMenu,
+    root: gpui::WeakEntity<gpui_component::menu::PopupMenu>,
+    window: &mut Window,
+    cx: &mut Context<gpui_component::menu::PopupMenu>,
+) -> gpui_component::menu::PopupMenu {
+    let this = cx.entity().downgrade();
+    let list = cx.new(|cx| MenuSearchList::new(id, source, this, root, window, cx));
+    submenu
+        .min_w(px(MENU_LIST_WIDTH))
+        .max_w(px(MENU_LIST_WIDTH + 16.))
+        .item(gpui_component::menu::PopupMenuItem::element(move |_, _| list.clone()).disabled(true))
+}
+
 /// The gap between the caret line and the popover (the EXP-970 menu's).
 const TYPEAHEAD_GAP: f32 = 4.;
+
+/// The caret line of a plain textarea (the comment composer, the run
+/// composer, the classic block editor) in window coordinates: the field's
+/// `origin` plus the shaped width of the caret's line up to the caret, one
+/// line height per row down, inside the field's 8px padding.
+pub(crate) fn textarea_caret_anchor(
+    state: &gpui_component::input::TextareaState,
+    origin: gpui::Point<Pixels>,
+    window: &Window,
+) -> CaretAnchor {
+    let value = state.value().to_string();
+    let cursor = state.cursor().min(value.len());
+    let position = state.cursor_position();
+    let line_height = state.line_height().unwrap_or(px(20.));
+    let scroll = state.scroll_offset();
+    let line_start = value[..cursor].rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let line_text = value[line_start..cursor].to_string();
+    let text_style = window.text_style();
+    let font_size = text_style.font_size.to_pixels(window.rem_size());
+    let caret_x = if line_text.is_empty() {
+        px(0.)
+    } else {
+        let run = gpui::TextRun {
+            len: line_text.len(),
+            font: text_style.font(),
+            color: gpui::black(),
+            background_color: None,
+            underline: None,
+            strikethrough: None,
+        };
+        window
+            .text_system()
+            .shape_line(SharedString::from(line_text), font_size, &[run], None)
+            .width
+    };
+    let bottom = origin.y + scroll.y + line_height * (position.line as f32 + 1.) + px(8.);
+    CaretAnchor {
+        left: origin.x + caret_x + px(8.),
+        top: bottom - line_height,
+        bottom,
+    }
+}
+
+/// An editor's OPEN `#` typeahead: the entity, the caret line it hangs off
+/// (measured when it opened: the editor's caret loses focus to the field),
+/// the token it opened on, and the subscription feeding its events back.
+pub(crate) struct OpenIssueTypeahead {
+    pub(crate) entity: Entity<IssueTypeahead>,
+    pub(crate) anchor: CaretAnchor,
+    _subscription: Subscription,
+}
+
+impl OpenIssueTypeahead {
+    /// Open the typeahead on `prefill`; `on_event` gets every event with the
+    /// token it opened on (the editor drops this value in it).
+    pub(crate) fn open<V: 'static>(
+        team_id: String,
+        prefill: TypeaheadPrefill,
+        anchor: CaretAnchor,
+        window: &mut Window,
+        cx: &mut Context<V>,
+        on_event: impl Fn(&mut V, &IssueTypeaheadEvent, &TypeaheadPrefill, &mut Window, &mut Context<V>)
+            + 'static,
+    ) -> Self {
+        let token = prefill.clone();
+        let entity = cx.new(|cx| IssueTypeahead::new(team_id, prefill, window, cx));
+        let subscription = cx.subscribe_in(&entity, window, move |this, _, event, window, cx| {
+            on_event(this, event, &token, window, cx)
+        });
+        Self {
+            entity,
+            anchor,
+            _subscription: subscription,
+        }
+    }
+
+    /// The popover, for the editor's render.
+    pub(crate) fn render(&self, window: &mut Window, cx: &mut App) -> AnyElement {
+        typeahead_popover(&self.entity, self.anchor, window, cx)
+    }
+}
+
+/// What a pick puts in the editor's text in place of the `#token`.
+pub(crate) fn typeahead_insert(identifier: &str) -> String {
+    format!("#{identifier} ")
+}
 
 #[cfg(test)]
 mod tests {
@@ -960,6 +1353,22 @@ mod tests {
         );
         // What a pick replaces: the `#` plus the token.
         assert_eq!(typeahead_prefill("see #ab", 7).expect("token").token_len(), 3);
+    }
+
+    #[test]
+    fn the_gate_keeps_a_closed_hash_closed_until_its_token_ends() {
+        let mut gate = TypeaheadGate::default();
+        let open = gate.open_on("see #si", 7).expect("a token");
+        assert_eq!(open.start, 4);
+        gate.close(open.start);
+        // Typing on after Escape: the same `#`, no reopening.
+        assert_eq!(gate.open_on("see #sid", 8), None);
+        // The token ended (a space): the gate forgets it...
+        assert_eq!(gate.open_on("see #sid ", 9), None);
+        // ...so a NEW `#` opens, and so does the old one typed again.
+        assert!(gate.open_on("see #sid #", 10).is_some());
+        assert!(gate.open_on("see #s", 6).is_some());
+        assert_eq!(typeahead_insert("EXP-12"), "#EXP-12 ");
     }
 
     #[test]
