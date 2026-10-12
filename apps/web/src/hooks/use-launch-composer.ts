@@ -319,6 +319,40 @@ export function startingTimeoutToast(
   })
 }
 
+/** Final review (feedback-states.json `starting`): what binds a startId to
+ *  ONE draft start: the target device, the text, the subject (issue ids,
+ *  or the action + its picks, or the chat's repo), the attachments and a
+ *  stacked start's line issue. Equal fingerprints = the same start. */
+export function draftStartFingerprint(draft: {
+  deviceId: string
+  text: string
+  subject: LaunchSubject
+  repoId: string
+  attachments: readonly string[]
+  stackedIssueId?: string
+}): string {
+  const { subject } = draft
+  const about =
+    subject === null
+      ? [`chat`, draft.repoId]
+      : subject.kind === `issues`
+        ? [`issues`, [...subject.ids].sort()]
+        : [
+            `action`,
+            subject.id,
+            Object.entries(subject.inputs).sort(([a], [b]) =>
+              a < b ? -1 : a > b ? 1 : 0
+            ),
+          ]
+  return JSON.stringify([
+    draft.deviceId,
+    draft.text,
+    about,
+    draft.attachments,
+    draft.stackedIssueId ?? null,
+  ])
+}
+
 export function useLaunchComposer({
   teamId,
   remote,
@@ -350,15 +384,20 @@ export function useLaunchComposer({
   // Review #3: `Date.now()` when the start request went out (after the
   // uploads): the starting deadline counts from here, not from the press.
   const [sentAt, setSentAt] = useState<number | null>(null)
-  // Every Start press mints a startId; a Retry (any toast's) reuses it, so
-  // a device that did start the first one ignores the repeat.
-  const startIdRef = useRef<string | null>(null)
-  const reuseStartIdRef = useRef(false)
-  // The delivered start whose run's landing clears the draft, and the id of
-  // the run the watch had opened before it (a landing = a newer one).
+  // Final review: ONE startId per draft start, bound to its fingerprint
+  // (`draftStartFingerprint`): every Retry and every later Start of the
+  // same draft on the same device reuses it, so a device (and the server)
+  // that already took the first one drops the repeat; a landing or a
+  // changed draft/device mints a fresh one.
+  const startIdRef = useRef<{ id: string; fingerprint: string } | null>(null)
+  // The delivered start whose run's landing clears the draft, the id of the
+  // run the watch had opened before it (a landing = a newer one), the
+  // draft's fingerprint at the send and whether its deadline gave up.
   const awaitingLandRef = useRef<{
     run: ComposerStarting
     openedBefore: string | null
+    fingerprint: string
+    timedOut: boolean
   } | null>(null)
   const currentStartRef = useRef<ComposerStarting | null>(null)
   const timeoutToastRef = useRef<string | number | null>(null)
@@ -902,18 +941,35 @@ export function useLaunchComposer({
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
+  const fingerprintFor = (stackedIssueId?: string) =>
+    draftStartFingerprint({
+      deviceId: device?.deviceId ?? ``,
+      text,
+      subject,
+      repoId,
+      attachments: images.map((image) => image.url),
+      stackedIssueId,
+    })
+  // The draft as it stands now (a plain start's fingerprint): what a late
+  // landing compares against the draft it sent.
+  const fingerprintRef = useRef(``)
+  fingerprintRef.current = fingerprintFor()
+
   /** The actual start. `stacked` = a stacked start (SLOP-3): the line's
    *  first issue, the typed text wrapped by `stackedStartPrompt`. */
   const start = async (stacked?: { plan: StackPlan; issueId: string }) => {
     if (blocked || !device) return
     setBlockedOpen(false)
     setSending(true)
+    const fingerprint = fingerprintFor(stacked?.issueId)
+    // A stacked start's line issue binds the id, not the draft a late
+    // landing compares against.
+    const sentDraft = stacked ? fingerprintFor() : fingerprint
     const startId =
-      reuseStartIdRef.current && startIdRef.current
-        ? startIdRef.current
+      startIdRef.current?.fingerprint === fingerprint
+        ? startIdRef.current.id
         : crypto.randomUUID()
-    reuseStartIdRef.current = false
-    startIdRef.current = startId
+    startIdRef.current = { id: startId, fingerprint }
     const startedRun: ComposerStarting = {
       deviceLabel: device.deviceLabel || device.deviceId,
       since: Date.now(),
@@ -961,14 +1017,17 @@ export function useLaunchComposer({
         omitMcp: subjectOwnsMcpServers(subject),
       })
       // The remote hook toasts its own failures and rethrows; a refused start
-      // keeps the draft, and the toast's Retry re-submits it (FEED-79).
-      const retry = () => void submitRef.current(true)
+      // keeps the draft, and the toast's Retry re-submits it (FEED-79)
+      // under the same startId while the draft is unchanged.
+      const retry = () => void submitRef.current()
       // Review #3: SENT. The deadline arms now, and from here on the run
       // landing (even after the deadline) is this start's landing.
       setSentAt(Date.now())
       awaitingLandRef.current = {
         run: startedRun,
         openedBefore: remote.openedId,
+        fingerprint: sentDraft,
+        timedOut: false,
       }
       if (subject === null) {
         await remote.runAction(
@@ -1032,11 +1091,14 @@ export function useLaunchComposer({
   }
 
   // EXP-1271: the starting state ends when the run's row lands (the remote
-  // watch opened a run since the request was sent) or, `starting.timeoutMs`
+  // watch matched a run since the request was sent) or, `starting.timeoutMs`
   // after it was SENT, with the error toast (Retry re-submits the kept draft
   // under the same startId). Review #3: the timeout aborts nothing: the
-  // watch keeps looking quietly, and a late row still clears the draft,
-  // dismisses the error toast and lands.
+  // watch keeps looking quietly for `starting.watchMs`. Final review: a late
+  // row always dismisses the error; it clears the draft and lands only when
+  // the draft is unchanged since its send, otherwise the field stays as the
+  // person left it and the remote watch does not navigate (`quietWatch`'s
+  // gate below asks the same question).
   const landedRef = useRef<(() => void) | undefined>(onLanded)
   landedRef.current = onLanded
   useEffect(() => {
@@ -1044,31 +1106,43 @@ export function useLaunchComposer({
     if (!awaiting || remote.openedId === null) return
     if (remote.openedId === awaiting.openedBefore) return
     awaitingLandRef.current = null
+    startIdRef.current = null
     if (timeoutToastRef.current !== null) {
       toast.dismiss(timeoutToastRef.current)
       timeoutToastRef.current = null
     }
     setStarting(null)
     setSentAt(null)
+    if (awaiting.timedOut && fingerprintRef.current !== awaiting.fingerprint) {
+      return
+    }
     clearDraft()
     landedRef.current?.()
     // `clearDraft` only touches setters and a ref.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [remote.openedId])
 
-  const submitRef = useRef<(retry?: boolean) => Promise<void>>(async () => {})
+  const submitRef = useRef<() => Promise<void>>(async () => {})
   const quietWatchRef = useRef(remote.quietWatch)
   quietWatchRef.current = remote.quietWatch
   useEffect(() => {
     if (!starting || sentAt === null) return
     const left = sentAt + STARTING.timeoutMs - Date.now()
     const timer = setTimeout(() => {
-      quietWatchRef.current()
+      const awaiting = awaitingLandRef.current
+      if (awaiting?.run === starting) {
+        awaiting.timedOut = true
+        quietWatchRef.current(
+          () => fingerprintRef.current === awaiting.fingerprint
+        )
+      } else {
+        quietWatchRef.current()
+      }
       setStarting(null)
       setSentAt(null)
       timeoutToastRef.current = startingTimeoutToast(
         starting.deviceLabel,
-        () => void submitRef.current(true)
+        () => void submitRef.current()
       )
     }, Math.max(left, 0))
     return () => clearTimeout(timer)
@@ -1078,8 +1152,7 @@ export function useLaunchComposer({
   // asks about blockers outside it. An action or a chat never asks, and
   // neither does a RESUME: it re-enters a worktree whose base was decided
   // when the run first started.
-  const submitWith = async (retry = false) => {
-    reuseStartIdRef.current = retry
+  const submitWith = async () => {
     if (blocked || !device) return
     if (blockedStart.length > 0 && subject?.kind === `issues` && !resumeActive) {
       setBlockedOpen(true)
@@ -1087,7 +1160,7 @@ export function useLaunchComposer({
     }
     await start()
   }
-  const submit = () => submitWith(false)
+  const submit = () => submitWith()
   submitRef.current = submitWith
 
   return {

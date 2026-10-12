@@ -81,7 +81,11 @@ vi.mock(`sonner`, async (importOriginal) => ({
   toast: { error: mockState.toastError, dismiss: mockState.toastDismiss },
 }))
 
-import { useLaunchComposer, type LaunchSeed } from "@/hooks/use-launch-composer"
+import {
+  draftStartFingerprint,
+  useLaunchComposer,
+  type LaunchSeed,
+} from "@/hooks/use-launch-composer"
 import type { RemoteStart } from "@/hooks/use-remote-start"
 import { stackedStartPrompt } from "@/lib/blocked-start"
 
@@ -610,7 +614,10 @@ describe(`useLaunchComposer submit`, () => {
     }
   })
 
-  it(`mints a startId per Start press and Retry reuses it`, async () => {
+  // Final review B1/B4: ONE startId per draft start. Retry AND a later
+  // Start press of the unchanged draft reuse it; an edited draft is a
+  // fresh start.
+  it(`reuses the startId for Retry and a later Start of the same draft`, async () => {
     vi.useFakeTimers()
     try {
       const { result, remote } = mount()
@@ -624,14 +631,32 @@ describe(`useLaunchComposer submit`, () => {
       expect(remote.runAction).toHaveBeenCalledTimes(2)
       expect(vi.mocked(remote.runAction).mock.calls[1]![6]).toBe(first)
       act(() => vi.advanceTimersByTime(30_000))
-      // A fresh press is a fresh start.
+      // The obvious move after a timeout: Start again, same draft.
       await act(() => result.current.submit())
-      const third = vi.mocked(remote.runAction).mock.calls[2]![6]
-      expect(third).toMatch(/^[0-9a-f-]{36}$/)
-      expect(third).not.toBe(first)
+      expect(vi.mocked(remote.runAction).mock.calls[2]![6]).toBe(first)
+      act(() => vi.advanceTimersByTime(30_000))
+      // An edited draft is another start, Retry included.
+      act(() => result.current.setText(`hi there`))
+      const staleRetry = mockState.toastError.mock.calls.at(-1)![1].action.onClick
+      await act(async () => staleRetry())
+      const fourth = vi.mocked(remote.runAction).mock.calls[3]![6]
+      expect(fourth).toMatch(/^[0-9a-f-]{36}$/)
+      expect(fourth).not.toBe(first)
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it(`a landing ends the draft start: the next Start mints a fresh id`, async () => {
+    const remote = makeRemote()
+    const { result, rerender } = mount(null, remote)
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    const first = vi.mocked(remote.runAction).mock.calls[0]![6]
+    rerender({ seed: null, remote: { ...remote, openedId: `run-1` } })
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    expect(vi.mocked(remote.runAction).mock.calls[1]![6]).not.toBe(first)
   })
 
   it(`a refused start's Retry reuses the startId too`, async () => {
@@ -665,6 +690,30 @@ describe(`useLaunchComposer submit`, () => {
     }
   })
 
+  // Final review B2: the person typed a new prompt after the timeout; the
+  // first start's late row clears the error only, the field stays and the
+  // watch is told not to navigate.
+  it(`a late row after the draft changed keeps the field and does not land`, async () => {
+    vi.useFakeTimers()
+    try {
+      mockState.toastError.mockReturnValue(`toast-8`)
+      const { result, land, onLanded, remote } = mount()
+      act(() => result.current.setText(`hi`))
+      await act(() => result.current.submit())
+      act(() => vi.advanceTimersByTime(30_000))
+      const canOpen = vi.mocked(remote.quietWatch).mock.calls[0]![0]!
+      expect(canOpen()).toBe(true)
+      act(() => result.current.setText(`something else`))
+      expect(canOpen()).toBe(false)
+      land()
+      expect(mockState.toastDismiss).toHaveBeenCalledWith(`toast-8`)
+      expect(result.current.text).toBe(`something else`)
+      expect(onLanded).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it(`a run the watch had opened before the start is not its landing`, async () => {
     const remote = makeRemote({ openedId: `old-run` })
     const { result, rerender, onLanded } = mount(null, remote)
@@ -676,6 +725,46 @@ describe(`useLaunchComposer submit`, () => {
     rerender({ seed: null, remote: { ...remote, openedId: `new-run` } })
     expect(result.current.text).toBe(``)
     expect(onLanded).toHaveBeenCalledTimes(1)
+  })
+})
+
+describe(`draftStartFingerprint`, () => {
+  const base = {
+    deviceId: `dev-1`,
+    text: `hi`,
+    subject: { kind: `issues` as const, ids: [`i1`, `i2`] },
+    repoId: ``,
+    attachments: [`blob:a.png`],
+  }
+  it(`is one start for the same draft on the same device`, () => {
+    expect(
+      draftStartFingerprint({
+        ...base,
+        subject: { kind: `issues`, ids: [`i2`, `i1`] },
+      })
+    ).toBe(draftStartFingerprint(base))
+    const action = (inputs: Record<string, string>) =>
+      draftStartFingerprint({
+        ...base,
+        subject: { kind: `action`, id: `act-1`, inputs },
+      })
+    expect(action({ a: `1`, b: `2` })).toBe(action({ b: `2`, a: `1` }))
+  })
+  it(`changes with the device, text, subject, attachments or stacked line`, () => {
+    const fp = draftStartFingerprint(base)
+    for (const change of [
+      { deviceId: `dev-2` },
+      { text: `hi!` },
+      { subject: { kind: `issues` as const, ids: [`i1`] } },
+      { subject: null },
+      { attachments: [] },
+      { stackedIssueId: `i1` },
+    ]) {
+      expect(draftStartFingerprint({ ...base, ...change })).not.toBe(fp)
+    }
+    expect(
+      draftStartFingerprint({ ...base, subject: null, repoId: `r1` })
+    ).not.toBe(draftStartFingerprint({ ...base, subject: null, repoId: `r2` }))
   })
 })
 

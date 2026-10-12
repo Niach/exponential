@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
 import type { Team } from "@/db/schema"
 import { TeamGeneralSection } from "@/components/team/general-section"
+import { _resetTeamPromptSaves } from "@/lib/team-prompt-saves"
 
 // EXP-1275 (EXP-1259 D9): the team prompt autosaves `autosave.debounceMs`
 // after the last keystroke and on blur; the caption reads Saving → Saved →
@@ -48,7 +49,30 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers()
+  _resetTeamPromptSaves()
 })
+
+/** The next `teams.update` call waits until the returned settle runs. */
+function holdNextSave() {
+  let settle: (error?: Error) => void = () => {}
+  mockState.update.mockImplementationOnce(
+    () =>
+      new Promise((resolve, reject) => {
+        settle = (error) => (error ? reject(error) : resolve({}))
+      })
+  )
+  return (error?: Error) => act(async () => settle(error))
+}
+
+async function typeAndBlur(field: HTMLElement, value: string) {
+  fireEvent.change(field, { target: { value } })
+  await act(async () => {
+    fireEvent.blur(field)
+  })
+}
+
+const savedTexts = () =>
+  mockState.update.mock.calls.map(([input]) => input as { teamId: string; agentPrompt: string })
 
 describe(`team prompt autosave`, () => {
   it(`saves once, debounceMs after the last keystroke, then reads Saved`, async () => {
@@ -148,5 +172,63 @@ describe(`team prompt autosave`, () => {
     expect(mockState.update).toHaveBeenCalledTimes(1)
     saved.unmount()
     expect(mockState.update).toHaveBeenCalledTimes(1)
+  })
+
+  // Final review #8/B7: ONE save in flight per team, the last edit wins.
+  it(`queues edits behind an in-flight save and sends only the latest`, async () => {
+    const settle = holdNextSave()
+    const field = await renderLoaded()
+    await typeAndBlur(field, `a`)
+    await typeAndBlur(field, `ab`)
+    await typeAndBlur(field, `abc`)
+    expect(savedTexts()).toEqual([{ teamId: `team-1`, agentPrompt: `a` }])
+    expect(screen.getByText(autosave.captions.saving)).toBeTruthy()
+    await settle()
+    expect(savedTexts()).toEqual([
+      { teamId: `team-1`, agentPrompt: `a` },
+      { teamId: `team-1`, agentPrompt: `abc` },
+    ])
+  })
+
+  it(`the unmount flush waits for the in-flight save`, async () => {
+    const settle = holdNextSave()
+    const view = render(<TeamGeneralSection team={team} />)
+    await act(async () => {})
+    const field = screen.getByTestId(`team-agent-prompt`)
+    await typeAndBlur(field, `first`)
+    fireEvent.change(field, { target: { value: `first, then left` } })
+    view.unmount()
+    expect(mockState.update).toHaveBeenCalledTimes(1)
+    await settle()
+    expect(savedTexts().map((input) => input.agentPrompt)).toEqual([
+      `first`,
+      `first, then left`,
+    ])
+  })
+
+  it(`Retry resends the CURRENT text, not the one that failed`, async () => {
+    mockState.update.mockRejectedValueOnce(new Error(`Server said no`))
+    const field = await renderLoaded()
+    await typeAndBlur(field, `abc`)
+    fireEvent.change(field, { target: { value: `abcd` } })
+    const retry = mockState.toastError.mock.calls[0]![1].action.onClick
+    await act(async () => retry())
+    expect(savedTexts().map((input) => input.agentPrompt)).toEqual([`abc`, `abcd`])
+    expect(screen.getByText(autosave.captions.saved)).toBeTruthy()
+  })
+
+  it(`Retry after a team switch stays bound to the team that failed`, async () => {
+    mockState.update.mockRejectedValueOnce(new Error(`Server said no`))
+    const view = render(<TeamGeneralSection team={team} />)
+    await act(async () => {})
+    await typeAndBlur(screen.getByTestId(`team-agent-prompt`), `for acme`)
+    view.rerender(<TeamGeneralSection team={{ ...team, id: `team-2` } as Team} />)
+    await act(async () => {})
+    fireEvent.change(screen.getByTestId(`team-agent-prompt`), {
+      target: { value: `for team two` },
+    })
+    const retry = mockState.toastError.mock.calls[0]![1].action.onClick
+    await act(async () => retry())
+    expect(savedTexts().at(-1)).toEqual({ teamId: `team-1`, agentPrompt: `for acme` })
   })
 })

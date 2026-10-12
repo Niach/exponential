@@ -16,6 +16,12 @@ import {
 } from "@exp/ui"
 import { relativeTime } from "@/components/comment-rows/format"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import {
+  onTeamPromptSave,
+  queueTeamPromptSave,
+  registerTeamPromptDraft,
+  teamPromptSaving,
+} from "@/lib/team-prompt-saves"
 import { trpc } from "@/lib/trpc-client"
 
 /** EXP-1025: the team prompt's cap in UTF-8 bytes (the contract's; the
@@ -147,55 +153,71 @@ export function TeamGeneralSection({ team }: { team: Team }) {
   // The draft whose save just failed: the timer never retries it on its own
   // (that would toast every debounce); a new keystroke, blur or Retry does.
   const failedPromptRef = useRef<string | null>(null)
-  const inFlightPromptRef = useRef<string | null>(null)
-
-  const handleSavePrompt = async () => {
-    if (prompt === null || !promptDirty || promptOver || promptSaving) return
-    setPromptSaving(true)
-    setPromptJustSaved(false)
-    inFlightPromptRef.current = prompt
-    try {
-      await trpc.teams.update.mutate({ teamId: team.id, agentPrompt: prompt }, SKIP_ERROR_TOAST)
-      const saved = prompt.trimEnd()
-      setSavedPrompt(saved)
+  // Final review #8/B7: every save goes through the team's ONE queue
+  // (`lib/team-prompt-saves.ts`): one in flight per team, the last edit
+  // wins, a failed save's Retry resends that team's CURRENT text. The
+  // caption follows the queue's events for this team.
+  const promptRef = useRef(prompt)
+  promptRef.current = prompt
+  useEffect(() => {
+    const teamId = team.id
+    setPromptSaving(teamPromptSaving(teamId))
+    const unregister = registerTeamPromptDraft(teamId, () =>
+      promptTeamIdRef.current === teamId ? promptRef.current : null
+    )
+    const unsubscribe = onTeamPromptSave((event) => {
+      if (event.teamId !== teamId) return
+      if (event.kind === `saving`) {
+        setPromptSaving(true)
+        setPromptJustSaved(false)
+        return
+      }
+      setPromptSaving(false)
+      if (event.kind === `failed`) {
+        failedPromptRef.current = event.text
+        return
+      }
+      failedPromptRef.current = null
+      setSavedPrompt(event.text.trimEnd())
       setPromptUpdatedAt(new Date())
       setPromptJustSaved(true)
-      failedPromptRef.current = null
-    } catch (e) {
-      failedPromptRef.current = prompt
-      failedAction(`save`, `the team prompt`, e, { retry: () => void savePromptRef.current() })
-    } finally {
-      inFlightPromptRef.current = null
-      setPromptSaving(false)
+    })
+    return () => {
+      unregister()
+      unsubscribe()
     }
+  }, [team.id])
+
+  const handleSavePrompt = () => {
+    if (prompt === null || !promptDirty || promptOver) return
+    if (promptTeamIdRef.current !== team.id) return
+    queueTeamPromptSave(team.id, prompt)
   }
-  // The debounce timer and Retry run the LATEST save (the newest draft).
+  // The debounce timer runs the LATEST save (the newest draft).
   const savePromptRef = useRef(handleSavePrompt)
   savePromptRef.current = handleSavePrompt
 
-  // Re-armed when a save settles too: keystrokes typed while it was in
-  // flight (whose timer found it busy) still save.
+  // A keystroke while a save is in flight queues behind it (last wins).
   useEffect(() => {
-    if (!promptDirty || promptOver || promptSaving) return
+    if (!promptDirty || promptOver) return
     if (prompt === failedPromptRef.current) return
     const timer = setTimeout(
-      () => void savePromptRef.current(),
+      () => savePromptRef.current(),
       FEEDBACK_STATES.autosave.debounceMs
     )
     return () => clearTimeout(timer)
-  }, [prompt, promptDirty, promptOver, promptSaving])
+  }, [prompt, promptDirty, promptOver])
 
   // Review #8: leaving the page (or switching team) inside the debounce
-  // window must not drop the edit: the cleanup sends a dirty, under-cap
-  // draft to the team it was typed for, unless that exact text is already
-  // in flight or its save just failed (its toast holds the Retry).
+  // window must not drop the edit: the cleanup queues a dirty, under-cap
+  // draft for the team it was typed for (the queue skips the text already
+  // in flight), unless its save just failed (its toast holds the Retry).
   const unsavedPromptRef = useRef<{ teamId: string; prompt: string } | null>(null)
   unsavedPromptRef.current =
     prompt !== null &&
     promptDirty &&
     !promptOver &&
     promptTeamIdRef.current !== null &&
-    prompt !== inFlightPromptRef.current &&
     prompt !== failedPromptRef.current
       ? { teamId: promptTeamIdRef.current, prompt }
       : null
@@ -204,13 +226,7 @@ export function TeamGeneralSection({ team }: { team: Team }) {
       const unsaved = unsavedPromptRef.current
       if (!unsaved || unsaved.teamId !== team.id) return
       unsavedPromptRef.current = null
-      const send = () =>
-        trpc.teams.update
-          .mutate({ teamId: unsaved.teamId, agentPrompt: unsaved.prompt }, SKIP_ERROR_TOAST)
-          .catch((e: unknown) =>
-            failedAction(`save`, `the team prompt`, e, { retry: () => void send() })
-          )
-      void send()
+      queueTeamPromptSave(unsaved.teamId, unsaved.prompt)
     },
     [team.id]
   )
@@ -292,7 +308,7 @@ export function TeamGeneralSection({ team }: { team: Team }) {
               data-testid="team-agent-prompt"
               value={prompt ?? ``}
               onChange={(e) => setPrompt(e.target.value)}
-              onBlur={() => void handleSavePrompt()}
+              onBlur={handleSavePrompt}
               placeholder={prompt === null ? undefined : TEAM_PROMPT_PLACEHOLDER}
               disabled={prompt === null}
               aria-invalid={promptOver || undefined}

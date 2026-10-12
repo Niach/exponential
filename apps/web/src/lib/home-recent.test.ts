@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import composerHome from "@exp/domain-contract/fixtures/composer-home.json"
 import { selectHomeRecent, type HomeRecentSession } from "./home-recent"
 
 const run = (
@@ -78,4 +79,36 @@ describe(`selectHomeRecent`, () => {
     ]
     expect(selectHomeRecent(rows, `me`, `t1`).map((row) => row.id)).toEqual([`other`, `resumed`])
   })
+
+  it(`sees a fork as two rows: the newest successor continues, the older one is its own`, () => {
+    const rows = [
+      run(`root`, { createdAt: new Date(`2026-10-12T08:00:00Z`) }),
+      run(`fork-old`, {
+        resumedFromId: `root`,
+        createdAt: new Date(`2026-10-12T09:00:00Z`),
+        updatedAt: new Date(`2026-10-12T11:00:00Z`),
+      }),
+      run(`fork-new`, {
+        resumedFromId: `root`,
+        createdAt: new Date(`2026-10-12T09:30:00Z`),
+        updatedAt: new Date(`2026-10-12T12:00:00Z`),
+      }),
+    ]
+    expect(selectHomeRecent(rows, `me`, `t1`).map((row) => row.id)).toEqual([
+      `fork-new`,
+      `fork-old`,
+    ])
+  })
+})
+
+// Final review #20: the ×4 contract's replayable cases.
+describe(`composer-home.json recentCases`, () => {
+  for (const testCase of composerHome.recentCases) {
+    it(testCase.name, () => {
+      const rows = testCase.sessions as unknown as HomeRecentSession[]
+      expect(
+        selectHomeRecent(rows, testCase.userId, testCase.teamId).map((row) => row.id)
+      ).toEqual(testCase.expected)
+    })
+  }
 })
