@@ -734,6 +734,7 @@ export const steerRouter = router({
           // the first forward, no new frame) never remembers it twice.
           const rememberThread = (
             ownerId: string,
+            startId: string,
             subject: Parameters<typeof rememberStartThread>[0][`subject`],
             thread: { threadId?: string }
           ) => {
@@ -743,6 +744,7 @@ export const steerRouter = router({
               deviceId: input.deviceId,
               subject,
               threadId: thread.threadId,
+              startId,
             })
           }
 
@@ -1304,7 +1306,7 @@ export const steerRouter = router({
                 message: `Steer relay error (${result.status})`,
               })
             }
-            rememberThread(ownerId, { actionId: action.id }, actionThread)
+            rememberThread(ownerId, startId, { actionId: action.id }, actionThread)
             return { ok: true as const, startId }
           }
 
@@ -1458,6 +1460,7 @@ export const steerRouter = router({
           }
           rememberThread(
             ownerId,
+            startId,
             input.issueId ? { issueId: input.issueId } : { issueIds: ids },
             issueThread
           )

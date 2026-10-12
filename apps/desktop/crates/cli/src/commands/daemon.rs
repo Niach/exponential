@@ -1776,6 +1776,9 @@ fn handle_remote_start(
         // EXP-1284: the thread the requester asked this start to join
         // (dropped on a resume frame), echoed into `codingSessions.start`.
         thread_id: start.thread_id.clone(),
+        // EXP-1284 (T16): the frame's startId, echoed into the start so the
+        // server matches the landing session to its pending start.
+        start_id: start.start_id.clone(),
     };
 
     // Success is observed purely via the synced `coding_sessions` row

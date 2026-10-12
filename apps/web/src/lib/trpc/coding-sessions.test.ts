@@ -3253,6 +3253,7 @@ describe(`codingSessions.start — thread placement (EXP-1284)`, () => {
       deviceId: `mac-1`,
       subject: { issueId: ISSUE_ID },
       threadId: THREAD_ID,
+      startId: `start-1`,
     })
     await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1` })
     expect(placement().requestedThreadId).toBe(THREAD_ID)
@@ -3270,6 +3271,7 @@ describe(`codingSessions.start — thread placement (EXP-1284)`, () => {
         deviceId: `mac-1`,
         subject: { issueId: ISSUE_ID },
         threadId: THREAD_ID,
+        startId: `start-1`,
       })
     remember()
     await caller.start({ issueId: ISSUE_ID, deviceId: `mac-2` })
@@ -3282,6 +3284,57 @@ describe(`codingSessions.start — thread placement (EXP-1284)`, () => {
     expect(placement().requestedThreadId).toBe(OTHER)
     await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1` })
     expect(placement().requestedThreadId).toBeNull()
+  })
+})
+
+// Review T16 (recheck): two pending starts of ONE issue on one device never
+// swap threads: the echoed frame `startId` takes exactly its own.
+describe(`codingSessions.start — the echoed startId (EXP-1284)`, () => {
+  const T1 = `11111111-1111-4111-8111-111111111111`
+  const T2 = `22222222-2222-4222-8222-222222222222`
+  const placement = () => vi.mocked(joinThreadForStart).mock.calls.at(-1)![1]
+  const rememberBoth = () => {
+    for (const [startId, threadId] of [
+      [`start-a`, T1],
+      [`start-b`, T2],
+    ] as const) {
+      rememberStartThread({
+        ownerId: `actor`,
+        deviceId: `mac-1`,
+        subject: { issueId: ISSUE_ID },
+        threadId,
+        startId,
+      })
+    }
+  }
+
+  it(`takes exactly the echoed start's thread, in any landing order`, async () => {
+    const info = vi.spyOn(console, `info`).mockImplementation(() => {})
+    rememberBoth()
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1`, startId: `start-b` })
+    expect(placement().requestedThreadId).toBe(T2)
+    // An unknown echoed id never takes another start's entry.
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1`, startId: `start-z` })
+    expect(placement().requestedThreadId).toBeNull()
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1`, startId: `start-a` })
+    expect(placement().requestedThreadId).toBe(T1)
+    info.mockRestore()
+  })
+
+  it(`without an echoed startId (an older daemon) takes them oldest first`, async () => {
+    const info = vi.spyOn(console, `info`).mockImplementation(() => {})
+    rememberBoth()
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1` })
+    expect(placement().requestedThreadId).toBe(T1)
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1` })
+    expect(placement().requestedThreadId).toBe(T2)
+    info.mockRestore()
+  })
+
+  it(`refuses a startId over 128 characters`, async () => {
+    await expect(
+      caller.start({ issueId: ISSUE_ID, deviceId: `mac-1`, startId: `x`.repeat(129) })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
   })
 })
 

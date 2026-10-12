@@ -126,11 +126,17 @@ impl SessionEnvelope {
 /// Sent as `threadId` on every fresh start form and dropped on a resume
 /// (`resumedFromId` set): the server keeps a resume in its predecessor's
 /// thread. `None` on local starts and pre-threads frames.
+///
+/// EXP-1284 (T16): `start_id` is the relay frame's `startId`, echoed as
+/// `startId` on every fresh start form (dropped on a resume) so the server
+/// matches the landing session to its pending start EXACTLY — its placement
+/// fallback for a device that drops `threadId`. `None` on local starts.
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Attribution<'a> {
     pub started_by_id: Option<&'a str>,
     pub device_id: Option<&'a str>,
     pub thread_id: Option<&'a str>,
+    pub start_id: Option<&'a str>,
 }
 
 impl<'a> Attribution<'a> {
@@ -138,6 +144,12 @@ impl<'a> Attribution<'a> {
     /// resume link.
     fn start_thread_id(&self, resumed_from_id: Option<&str>) -> Option<&'a str> {
         self.thread_id.filter(|_| resumed_from_id.is_none())
+    }
+
+    /// The `startId` a start echoes: the relay frame's, never beside a
+    /// resume link.
+    fn start_start_id(&self, resumed_from_id: Option<&str>) -> Option<&'a str> {
+        self.start_id.filter(|_| resumed_from_id.is_none())
     }
 }
 
@@ -192,6 +204,10 @@ struct StartInput<'a> {
     /// and an older server never sees the key.
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_id: Option<&'a str>,
+    /// EXP-1284 (T16): the relay frame's start ([`Attribution::start_id`]),
+    /// LAST and skipped when absent (local starts, older frames).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -234,6 +250,9 @@ struct StartBatchInput<'a> {
     /// EXP-1284 — same as [`StartInput::thread_id`], on the batch branch.
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_id: Option<&'a str>,
+    /// EXP-1284 — same as [`StartInput::start_id`], on the batch branch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -285,6 +304,9 @@ struct StartActionInput<'a> {
     /// EXP-1284 — same as [`StartInput::thread_id`], on the action branch.
     #[serde(skip_serializing_if = "Option::is_none")]
     thread_id: Option<&'a str>,
+    /// EXP-1284 — same as [`StartInput::start_id`], on the action branch.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    start_id: Option<&'a str>,
 }
 
 #[derive(Serialize)]
@@ -486,6 +508,7 @@ pub fn start(
             attachment_ids,
             mcp_server_ids,
             thread_id: attribution.start_thread_id(resumed_from_id),
+            start_id: attribution.start_start_id(resumed_from_id),
         },
     )?;
     Ok(envelope.into_session())
@@ -524,6 +547,7 @@ pub fn start_batch(
             batch_issue_ids,
             mcp_server_ids,
             thread_id: attribution.start_thread_id(resumed_from_id),
+            start_id: attribution.start_start_id(resumed_from_id),
         },
     )?;
     Ok(envelope.into_session())
@@ -586,6 +610,7 @@ pub fn start_action(
             attachment_ids: start.attachment_ids,
             mcp_server_ids: start.mcp_server_ids,
             thread_id: start.attribution.start_thread_id(start.resumed_from_id),
+            start_id: start.attribution.start_start_id(start.resumed_from_id),
         },
     )?;
     Ok(envelope.into_session())
@@ -1073,6 +1098,7 @@ mod tests {
             started_by_id: Some("user-2"),
             device_id: Some("dev-1"),
             thread_id: None,
+            start_id: None,
         };
         let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[], &[]).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1092,6 +1118,7 @@ mod tests {
             started_by_id: None,
             device_id: Some("dev-1"),
             thread_id: None,
+            start_id: None,
         };
         let _ = start(&client(&base), "issue-1", Some("testbox"), attribution, None, None, None, None, &[], &[]).unwrap();
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
@@ -1853,6 +1880,7 @@ mod tests {
             started_by_id: None,
             device_id: None,
             thread_id: Some("th-1"),
+            start_id: None,
         };
         let (base, captured) = one_shot_server(
             200,
@@ -1904,6 +1932,7 @@ mod tests {
             started_by_id: None,
             device_id: None,
             thread_id: Some("th-1"),
+            start_id: None,
         };
         let (base, captured) = one_shot_server(
             200,
@@ -1931,6 +1960,61 @@ mod tests {
         let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
         assert!(
             request.ends_with(r#"{"actionId":"act-1","resumedFromId":"sess-2"}"#),
+            "{request}"
+        );
+    }
+
+    /// EXP-1284 (T16): a relay start echoes the frame's `startId` LAST on
+    /// every fresh subject form (the server matches the landing to its
+    /// pending start); a resume drops it like the thread.
+    #[test]
+    fn start_forms_echo_the_relay_start_id_and_a_resume_drops_it() {
+        let attribution = Attribution {
+            started_by_id: None,
+            device_id: None,
+            thread_id: Some("th-1"),
+            start_id: Some("st-1"),
+        };
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let _ = start(&client(&base), "issue-1", None, attribution, None, None, None, None, &[], &[]).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(r#"{"issueId":"issue-1","threadId":"th-1","startId":"st-1"}"#),
+            "{request}"
+        );
+
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let ids = vec!["issue-1".to_string()];
+        let _ = start_batch(&client(&base), "ws-1", None, attribution, None, None, None, None, &[], &ids, &[]).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(
+                r#"{"teamId":"ws-1","batchIssueIds":["issue-1"],"threadId":"th-1","startId":"st-1"}"#
+            ),
+            "{request}"
+        );
+
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let _ = start_action(
+            &client(&base),
+            ActionStart {
+                action_id: "act-1",
+                attribution,
+                ..ActionStart::default()
+            },
+        )
+        .unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(r#"{"actionId":"act-1","threadId":"th-1","startId":"st-1"}"#),
+            "{request}"
+        );
+
+        let (base, captured) = one_shot_server(200, SESSION_BODY);
+        let _ = start(&client(&base), "issue-1", None, attribution, None, Some("sess-1"), None, None, &[], &[]).unwrap();
+        let request = captured.recv_timeout(Duration::from_secs(5)).unwrap();
+        assert!(
+            request.ends_with(r#"{"issueId":"issue-1","resumedFromId":"sess-1"}"#),
             "{request}"
         );
     }

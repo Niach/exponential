@@ -4,8 +4,12 @@
 // one drops the unknown field and the session would land in its DEFAULT
 // thread (the issue's open one, or a fresh one), silently. So the start
 // remembers the thread it validated, keyed by who owns the device, which
-// device and the start's subject, and `codingSessions.start` takes it back
-// when the device's start arrives WITHOUT a `threadId` (logged).
+// device and the start's subject, with the frame's `startId`, and
+// `codingSessions.start` takes it back when the device's start arrives
+// WITHOUT a `threadId` (logged). A device that echoes the frame's `startId`
+// gets EXACTLY its own entry (two starts of one issue on one device never
+// swap threads); one that does not (an old daemon) gets the oldest pending
+// entry of that subject, first in first out.
 //
 // Single-process and in-memory on purpose, like `start-failures.ts`: a miss
 // (restart, another replica) degrades to the default placement, never a
@@ -20,6 +24,8 @@ export type StartThreadSubject =
 interface PendingStartThread {
   threadId: string
   subject: string
+  /** The relay frame's start id (the client's, or the one the server minted). */
+  startId: string
   expiresAt: number
 }
 
@@ -59,29 +65,40 @@ function prune(now: number): void {
   }
 }
 
-/** Called once the relay accepted a start frame that names a thread. */
+/** Called once the relay accepted a start frame that names a thread. Every
+ *  start is its own entry (FIFO per device), never overwriting another; the
+ *  same `startId` again (a deduped repeat) is a no-op. */
 export function rememberStartThread(input: {
   ownerId: string
   deviceId: string
   subject: StartThreadSubject
   threadId: string
+  startId: string
 }): void {
   const now = Date.now()
   prune(now)
   const key = deviceKey(input.ownerId, input.deviceId)
-  const subject = startThreadSubjectKey(input.subject)
-  const list = (pending.get(key) ?? []).filter((entry) => entry.subject !== subject)
-  list.push({ threadId: input.threadId, subject, expiresAt: now + PENDING_TTL_MS })
+  const list = pending.get(key) ?? []
+  if (list.some((entry) => entry.startId === input.startId)) return
+  list.push({
+    threadId: input.threadId,
+    subject: startThreadSubjectKey(input.subject),
+    startId: input.startId,
+    expiresAt: now + PENDING_TTL_MS,
+  })
   pending.set(key, list)
 }
 
-/** Consumes the remembered thread of this device's start (the oldest one of
- *  that subject). Null when none is pending. Called on EVERY non-resume
+/** Consumes the remembered thread of this device's start. `startId` = the
+ *  frame's id the device echoed: EXACTLY that start's entry, else null (never
+ *  another start's). Without one (an older daemon): the OLDEST pending entry
+ *  of the subject. Null when none is pending. Called on EVERY non-resume
  *  start, so a device that does echo the thread clears its entry too. */
 export function takeStartThread(input: {
   ownerId: string
   deviceId: string | null | undefined
   subject: StartThreadSubject
+  startId?: string | null
 }): string | null {
   if (!input.deviceId) return null
   const now = Date.now()
@@ -89,7 +106,12 @@ export function takeStartThread(input: {
   const list = pending.get(key)
   if (!list) return null
   const subject = startThreadSubjectKey(input.subject)
-  const index = list.findIndex((entry) => entry.subject === subject && entry.expiresAt > now)
+  const index = list.findIndex(
+    (entry) =>
+      entry.expiresAt > now &&
+      entry.subject === subject &&
+      (!input.startId || entry.startId === input.startId)
+  )
   if (index === -1) return null
   const [entry] = list.splice(index, 1)
   if (!list.length) pending.delete(key)

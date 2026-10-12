@@ -766,6 +766,8 @@ fn relay_origin(cx: &App, start: &steer::RemoteStart) -> LaunchOrigin {
         started_by: start.started_by.clone(),
         started_reason: start.started_reason.clone(),
         thread_id: start.thread_id.clone(),
+        // EXP-1284 (T16): the frame's startId, echoed into the start.
+        start_id: start.start_id.clone(),
     }
 }
 

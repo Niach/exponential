@@ -529,3 +529,76 @@ describe.skipIf(!ready.ok)(`lib/thread-guide.ts on Postgres (EXP-1284)`, () => {
       expect(await lockRunGuide(tx, crypto.randomUUID())).toBeNull()
     }))
 })
+
+// Review T16 (recheck): two `steer.startSession` starts of the SAME issue on
+// one device, each into its own thread, land in their own threads however
+// the device's starts arrive. The router itself reads through the global db
+// (membership lookups), which cannot see this rolled-back transaction's
+// rows, so this drives what `codingSessions.start` does — take the
+// remembered thread (by the echoed startId, else oldest first), then
+// `joinThreadForStart` with it — against the real database.
+describe.skipIf(!ready.ok)(`two pending starts of one issue on one device (EXP-1284 T16)`, () => {
+  const land = async (
+    w: World,
+    issueId: string,
+    startId: string | undefined
+  ): Promise<{ session: string; thread: string }> => {
+    const { takeStartThread } = await import(`@/lib/start-threads`)
+    const session = await w.session({ issueId })
+    const requested = takeStartThread({
+      ownerId: w.userId,
+      deviceId: `mac-1`,
+      subject: { issueId },
+      startId,
+    })
+    const thread = await joinThreadForStart(w.tx, {
+      session: { id: session, teamId: w.teamId, userId: w.userId },
+      subject: { kind: `issue`, issueId },
+      requestedThreadId: requested,
+    })
+    return { session, thread: thread.id }
+  }
+
+  const setUp = async (tx: RealDbTx) => {
+    const { _clearStartThreads, rememberStartThread } = await import(`@/lib/start-threads`)
+    _clearStartThreads()
+    const w = await world(tx)
+    const issueId = await w.issue()
+    const t1 = await openThread(tx, { teamId: w.teamId, createdBy: w.userId })
+    const t2 = await openThread(tx, { teamId: w.teamId, createdBy: w.userId })
+    for (const [startId, thread] of [
+      [`start-1`, t1.id],
+      [`start-2`, t2.id],
+    ] as const) {
+      rememberStartThread({
+        ownerId: w.userId,
+        deviceId: `mac-1`,
+        subject: { issueId },
+        threadId: thread,
+        startId,
+      })
+    }
+    return { w, issueId, t1: t1.id, t2: t2.id }
+  }
+
+  it(`echoed startIds landing in reverse order each take their own thread`, () =>
+    inRollback(async (tx) => {
+      const { w, issueId, t1, t2 } = await setUp(tx)
+      const second = await land(w, issueId, `start-2`)
+      const first = await land(w, issueId, `start-1`)
+      expect(second.thread).toBe(t2)
+      expect(first.thread).toBe(t1)
+      expect((await getThreadOfSession(tx, second.session))?.id).toBe(t2)
+      expect((await getThreadOfSession(tx, first.session))?.id).toBe(t1)
+      expect(await listThreadIssueIds(tx, t1)).toEqual([issueId])
+      expect(await listThreadIssueIds(tx, t2)).toEqual([issueId])
+    }))
+
+  it(`without startIds (older daemons) they land oldest first, one per thread`, () =>
+    inRollback(async (tx) => {
+      const { w, issueId, t1, t2 } = await setUp(tx)
+      const first = await land(w, issueId, undefined)
+      const second = await land(w, issueId, undefined)
+      expect([first.thread, second.thread]).toEqual([t1, t2])
+    }))
+})

@@ -478,16 +478,22 @@ async function placeRunInThread(
 /** EXP-1284 (review T16): the thread a start asks for — the device's echo
  * of the frame's `threadId`, else the one `steer.startSession` remembered
  * for this device and subject (`lib/start-threads.ts`: a daemon that
- * predates threads drops the field). Taken on every non-resume start so an
- * echoing device clears it too; a resume takes none (its predecessor's
- * thread wins). */
+ * predates threads drops the field) — EXACTLY this start's when the device
+ * echoes the frame's `startId`, else the oldest pending one of the subject.
+ * Taken on every non-resume start so an echoing device clears it too; a
+ * resume takes none (its predecessor's thread wins). */
 function requestedStartThread(
   ownerId: string,
-  input: { threadId?: string; deviceId?: string; resumedFromId?: string },
+  input: { threadId?: string; deviceId?: string; resumedFromId?: string; startId?: string },
   subject: StartThreadSubject
 ): string | undefined {
   if (input.resumedFromId) return input.threadId
-  const remembered = takeStartThread({ ownerId, deviceId: input.deviceId, subject })
+  const remembered = takeStartThread({
+    ownerId,
+    deviceId: input.deviceId,
+    subject,
+    startId: input.startId,
+  })
   if (input.threadId) return input.threadId
   if (remembered) {
     console.info(
@@ -964,6 +970,12 @@ export const codingSessionsRouter = router({
           // default placement, never a refused start. A resume's
           // predecessor thread wins over it.
           threadId: z.string().uuid().optional(),
+          // EXP-1284 (review T16): the relay frame's `startId`, echoed by
+          // the device, so the thread `steer.startSession` remembered for
+          // THIS start is the one taken (`lib/start-threads.ts`), never
+          // another pending start's of the same subject. Absent (an older
+          // daemon) = the oldest pending entry of the subject.
+          startId: z.string().min(1).max(128).optional(),
           // EXP-484: the agent CLI running the session, recorded so every
           // client can name it (and pair the run with the host device's usage
           // windows). Absent on rows from clients that predate it.
