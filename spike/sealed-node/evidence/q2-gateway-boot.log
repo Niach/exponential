@@ -1,0 +1,109 @@
+[LOADER][INFO] Hermit Loader version 0.5.7
+[LOADER][INFO] Git version: v0.5.7
+[LOADER][INFO] Architecture: x86_64
+[LOADER][INFO] Operating system: none
+[LOADER][INFO] Enabled features: default, multiboot, x86_64-multiboot
+[LOADER][INFO] Built with rustc 1.97.1 (8bab26f4f 2026-07-14)
+[LOADER][INFO] Built on Mon, 17 Aug 2026 18:50:18 +0000
+[LOADER][INFO] CPU supports 1-GiB pages.
+[LOADER][INFO] Replacing the 2-MiB pages with a 1-GiB page.
+[LOADER][INFO] Loader: [0x100000 - 0x11e020]
+[LOADER][INFO] Found Multiboot information at 0x9500
+[LOADER][INFO] Found an ELF module at [0x120000 - 0x66ad30]
+[LOADER][INFO] Module length: 0x54ad30
+[LOADER][INFO] Parsing kernel from ELF at 0x120000..0x66ad30 (len = 0x54ad30 B / 5549360 B)
+[LOADER][INFO] Found Hermit version 0.13.2
+[LOADER][INFO] Found Uhyve interface version 1
+[LOADER][INFO] Loading kernel to 0x800000..0xd4e5a4 (len = 0x54e5a4 B / 5563812 B)
+[LOADER][INFO] TLS is at 0xbda0f8..0xbda178 (len =  0x80 B / 128 B)
+[LOADER][INFO] boot_info = BootInfo {
+}
+[LOADER][INFO] Entering kernel at 0xb872cc, stack at 0xa000, raw_boot_info at 0x11a028
+[            ][0][INFO  hermit    ] Welcome to Hermit 0.13.2
+[            ][0][INFO  hermit    ] Git version: f510614 (dirty)
+[            ][0][INFO  hermit    ] Architecture: x86_64
+[            ][0][INFO  hermit    ] Enabled features: acpi, dhcpv4, dns, net, pci, pci_ids, smoltcp, tcp, virtio, virtio_net, virtio_vsock, vsock
+[            ][0][INFO  hermit    ] Built on Mon, 12 Oct 2026 05:14:01 +0000
+[            ][0][INFO  hermit    ] Kernel starts at 0x800000
+[            ][0][INFO  hermit    ] FDT:
+
+
+
+};
+
+[            ][0][INFO  hermit    ] BSS starts at 0xd4d5e8
+[            ][0][INFO  hermit    ] tls_info = Some(
+[            ][0][INFO  mm        ] Total memory size: 49 MiB
+[            ][0][INFO  mm        ] Kernel region: 0x800000..0xe00000
+[            ][0][INFO  mm        ] Minimum memory size: 18 MiB
+[            ][0][INFO  mm        ] Heap: size 26 MB, start address 0x400000000000
+[            ][0][INFO  mm        ] Heap is located at 0x400000000000..0x400001a00000 (0 Bytes unmapped)
+[            ][0][INFO  mm        ] FrameAlloc free list:
+[            ][0][INFO  mm        ] PageAlloc free list:
+[            ][0][INFO  env       ] bootargs = /tmp/sealed/dl/loader/hermit-loader-x86_64-multiboot -- vsock-pool:8080:8 vsock-once:9000
+[    0.099005][0][INFO  processor ] 
+[    0.099269][0][INFO  processor ] ========================== CPU INFORMATION ===========================
+[    0.099883][0][INFO  processor ] Model:                   13th Gen Intel(R) Core(TM) i9-13900K
+[    0.100409][0][INFO  processor ] Frequency:               2989 MHz (from Measurement)
+[    0.100963][0][INFO  processor ] SpeedStep Technology:    Not Available
+[    0.101376][0][INFO  processor ] Features:                MMX SSE SSE2 SSE3 SSSE3 SSE4.1 SSE4.2 AVX AESNI RDRAND FMA MOVBE MCE FXSR XSAVE VMX RDTSCP CLFLUSH TSC-DEADLINE X2APIC HYPERVISOR AVX2 BMI1 BMI2 PKU FSGSBASE RDSEED 
+[    0.102621][0][INFO  processor ] Physical Address Width:  46 bits
+[    0.103020][0][INFO  processor ] Linear Address Width:    48 bits
+[    0.103472][0][INFO  processor ] Supports 1GiB Pages:     Yes
+[    0.103864][0][INFO  processor ] ======================================================================
+[    0.104528][0][INFO  processor ] 
+[    0.104917][0][INFO  systemtime] Hermit booted on 2026-10-12 5:20:11.895083 +00:00:00
+[    0.105478][0][INFO  acpi      ] Found an ACPI revision 0 table at 0xF52A0 with OEM ID "BOCHS "
+[    0.109888][0][INFO  pci       ] Initialized PCI
+[    0.110223][0][INFO  apic      ] IOAPIC v17 has 24 entries
+[    0.110758][0][INFO  apic      ] 
+[    0.110988][0][INFO  apic      ] ===================== MULTIPROCESSOR INFORMATION =====================
+[    0.111560][0][INFO  apic      ] APIC in use:             x2APIC
+[    0.111950][0][INFO  apic      ] Initialized CPUs:        1
+[    0.112307][0][INFO  apic      ] ======================================================================
+[    0.112887][0][INFO  apic      ] 
+[    0.113119][0][INFO  pci       ] 
+[    0.113383][0][INFO  pci       ] ======================== PCI BUS INFORMATION =========================
+[    0.113989][0][INFO  pci       ] 00:00 Host bridge [0600]: Intel Corporation 440FX - 82441FX PMC [Natoma] [8086:1237]
+[    0.114827][0][INFO  pci       ] 00:01 ISA bridge [0601]: Intel Corporation 82371SB PIIX3 ISA [Natoma/Triton II] [8086:7000]
+[    0.115734][0][INFO  pci       ] 00:03 Ethernet controller [0200]: Red Hat, Inc. Virtio 1.0 network device [1AF4:1041], IRQ 11, BAR1 Memory32 { address: 0xFEB80000, size: 0x1000, prefetchable: false }, BAR4 Memory64 { address: 0xFEBF8000, size: 0x4000, prefetchable: true }
+[    0.121648][0][INFO  pci       ] 00:05 Communication controller [0780]: Red Hat, Inc. Virtio 1.0 socket [1AF4:1053], IRQ 10, BAR1 Memory32 { address: 0xFEB81000, size: 0x1000, prefetchable: false }, BAR4 Memory64 { address: 0xFEBFC000, size: 0x4000, prefetchable: true }
+[    0.124110][0][INFO  pci       ] ======================================================================
+[    0.124755][0][INFO  pci       ] 
+[    0.125781][0][INFO  hermit    ] Hermit is running on common system!
+[    0.126747][0][INFO  pci       ] Found virtio device with device id 0x1041
+[    0.131739][0][INFO  virtio    ] device_features = F(CTRL_GUEST_OFFLOADS | MAC | MRG_RXBUF | STATUS | CTRL_VQ | CTRL_RX | CTRL_VLAN | GUEST_ANNOUNCE | CTRL_MAC_ADDR | INDIRECT_DESC | EVENT_IDX | VERSION_1 | RING_RESET | 0x100000)
+[    0.133591][0][INFO  virtio    ] driver_features = F(CSUM | MTU | MAC | MRG_RXBUF | STATUS | CTRL_VQ | MQ | INDIRECT_DESC | VERSION_1 | RING_PACKED | NOTIFICATION_DATA)
+[    0.134955][0][INFO  virtio    ] common_features = F(MAC | MRG_RXBUF | STATUS | CTRL_VQ | INDIRECT_DESC | VERSION_1)
+[    0.135956][0][INFO  virtio    ] Features have been negotiated between virtio network device 1041 and driver.
+[    0.137474][0][INFO  split     ] Created SplitVq: idx=0, size=256
+[    0.138910][0][INFO  split     ] Created SplitVq: idx=1, size=256
+[    0.139499][0][INFO  virtio    ] Network driver successfully initialized virtqueues.
+[    0.140311][0][INFO  split     ] Created SplitVq: idx=2, size=64
+[    0.140887][0][INFO  virtio    ] Device specific initialization for Virtio network device 1041 finished
+[    0.141847][0][INFO  pci       ] Network device with id 1041, has been initialized by driver!
+[    0.142612][0][INFO  pci       ] Virtio-net link is up after initialization.
+[    0.143255][0][INFO  pci       ] Virtio network driver initialized.
+[    0.143851][0][INFO  pci       ] Virtio interrupt handler at line 11
+[    0.144453][0][INFO  pci       ] Found virtio device with device id 0x1053
+[    0.150546][0][INFO  virtio    ] device_features = F(SEQPACKET | INDIRECT_DESC | EVENT_IDX | VERSION_1)
+[    0.151226][0][INFO  virtio    ] driver_features = F(VERSION_1)
+[    0.151609][0][INFO  virtio    ] common_features = F(VERSION_1)
+[    0.152024][0][INFO  vsock     ] Features have been negotiated between virtio socket device 1053 and driver.
+[    0.152861][0][INFO  split     ] Created SplitVq: idx=0, size=128
+[    0.153301][0][INFO  vsock     ] num_packets 64
+[    0.154000][0][INFO  split     ] Created SplitVq: idx=1, size=128
+[    0.154489][0][INFO  split     ] Created SplitVq: idx=2, size=128
+[    0.155629][0][INFO  pci       ] Socket device with cid 4, has been initialized by driver!
+[    0.156168][0][INFO  pci       ] Virtio sock driver initialized.
+[    0.156572][0][INFO  pci       ] Virtio interrupt handler at line 10
+[    0.157193][0][INFO  network   ] Try to initialize network!
+[    0.157588][0][INFO  device    ] MAC address: 52-54-00-12-34-56
+[    0.157980][0][INFO  device    ] ChecksumCapabilities { ipv4: Both, udp: Both, tcp: Both, icmpv4: Both, icmpv6: Both }
+[    0.158657][0][INFO  device    ] MTU: 1514 bytes
+[    0.159019][0][INFO  vsock     ] Try to initialize vsock interface!
+[    0.159541][0][INFO  network   ] DHCP lost config!
+[    0.159875][0][INFO  network   ] DHCP config acquired!
+[    0.160212][0][INFO  network   ] IP address:   10.0.2.15/24
+[    0.160602][0][INFO  network   ] Gateway:      10.0.2.2
+[    0.160991][0][INFO  network   ] DNS server 0: 10.0.2.3

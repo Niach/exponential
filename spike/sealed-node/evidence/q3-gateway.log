@@ -1,0 +1,13 @@
+[gateway] waiting for the token on vsock port 9000
+[gateway] boot ok: listen=vsock-pool:8080:8 token_len=108 routes=1
+[gateway] listening on vsock-pool:8080:8
+[gateway] POST /v1/messages -> api.anthropic.com | HTTP/1.1 200 OK | body_in=68378 body_out=1372 ttfb_ms=2195 total_ms=4087
+[gateway] POST /v1/messages -> api.anthropic.com | HTTP/1.1 200 OK | body_in=69480 body_out=722 ttfb_ms=927 total_ms=935
+[gateway] REFUSED 403: host is not allowlisted
+[gateway] REFUSED 403: only origin-form request targets are allowed
+[gateway] REFUSED 405: CONNECT is not allowed
+[gateway] REFUSED 403: path is not allowlisted
+[gateway] REFUSED 403: path is not allowlisted
+[gateway] REFUSED 411: chunked request bodies are not supported
+[gateway] REFUSED 400: control characters in request head
+[gateway] POST /v1/messages/count_tokens -> api.anthropic.com | HTTP/1.1 200 OK | body_in=72 body_out=30 ttfb_ms=275 total_ms=275

@@ -1,0 +1,65 @@
+=== AGENT VM UP 1.52s ===
+
+=== Q3 environment ===
+kernel: 6.17.0-42-generic  mem: 1966MiB  cpus: 4
+net devices: lo 
+routes (/proc/net/route):
+Iface	Destination	Gateway 	Flags	RefCnt	Use	Metric	Mask		MTU	Window	IRTT                                                       
+claude 2.1.296 (Claude Code)  git 2.43.0
+
+=== Q3 claude turn with tool calls (bash + git in the guest) ===
+SCAN-WINDOW-OPEN
+exit=0  wall=20.28s
+stream events: 53  deltas: 43  tool_use blocks: 2
+"is_error":false "num_turns":2 "subtype":"success" "result":"1" "duration_ms":20124 
+git log in guest: 18fd220 first
+
+=== Q4a no route out except the gateway ===
+PASS  no NIC besides lo
+      -> lo 
+PASS  direct IP egress fails (1.1.1.1:80)
+      -> curl: (7) Failed to connect to 1.1.1.1 port 80 after 0 ms: Couldn't connect to server 
+PASS  direct IP egress fails (api.anthropic.com IP 160.79.104.10:443)
+      -> curl: (7) Failed to connect to 160.79.104.10 port 443 after 0 ms: Couldn't connect to server 
+PASS  DNS / direct HTTPS fails
+      -> curl: (6) Could not resolve host: api.anthropic.com 
+PASS  gateway CID 4 not reachable directly over vsock
+      -> 2026/10/12 05:20:36 socat[210] E connect(5, AF=40 cid:4 port:8080, 16): Connection timed out 
+PASS  gateway token port not reachable (CID 4:9000)
+      -> 2026/10/12 05:20:40 socat[215] E connect(5, AF=40 cid:4 port:9000, 16): Connection timed out 
+PASS  no host vsock service on 9000
+      -> 2026/10/12 05:20:42 socat[220] E connect(5, AF=40 cid:2 port:9000, 16): Connection reset by peer 
+PASS  no host vsock service on 22
+      -> 2026/10/12 05:20:42 socat[225] E connect(5, AF=40 cid:2 port:22, 16): Connection reset by peer 
+
+=== Q4b the gateway refuses non-allowlisted destinations ===
+PASS  Host: example.com -> 403
+      -> {"type":"error","error":{"type":"gateway_refused","message":"host is not allowlisted"}}
+PASS  absolute-form proxy request -> 403
+      -> {"type":"error","error":{"type":"gateway_refused","message":"only origin-form request targets are allowed"}}
+2026/10/12 05:20:42 socat[243] E read(6, 0x5c466e8e5000, 8192): Connection reset by peer
+PASS  CONNECT tunnel -> 405
+      -> curl: (56) CONNECT tunnel failed, response 405 
+PASS  non-allowlisted path /v1/files -> 403
+      -> {"type":"error","error":{"type":"gateway_refused","message":"path is not allowlisted"}}
+PASS  non-allowlisted path /api/oauth/profile -> 403
+      -> {"type":"error","error":{"type":"gateway_refused","message":"path is not allowlisted"}}
+PASS  chunked request body -> 411
+      -> {"type":"error","error":{"type":"gateway_refused","message":"chunked request bodies are not supported"}}
+PASS  bare CR inside a header value -> 400
+      -> {"type":"error","error":{"type":"gateway_refused","message":"control characters in request head"}}
+PASS  allowlisted route still works (count_tokens)
+      -> {"input_tokens":10}
+
+=== Q4c the token never appears in the guest ===
+anthropic-looking credentials in any process environment:
+      4 sk-ant-oat01-DUMMY-guest-credential-not-a-real-token
+anthropic-looking credentials anywhere in the guest filesystem (incl. claude transcripts = every response body).
+positive control: a planted copy of the DUMMY in /tmp/control.txt must show up:
+      1 /guest-tests.sh:sk-ant-oat01-DUMMY-guest-credential-not-a-real-token
+      1 /tmp/control.txt:sk-ant-oat01-DUMMY-guest-credential-not-a-real-token
+files scanned: 73
+files under ~/.claude: 4  bytes: 127011
+credentials file present: none
+=== GUEST TESTS DONE ===
+[   52.624292] reboot: Power down

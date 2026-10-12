@@ -1,0 +1,21 @@
+#!/bin/busybox sh
+# Agent VM init: loopback only, vsock bridge to the gateway, then the tests.
+/bin/busybox mount -t proc proc /proc
+/bin/busybox mount -t sysfs sys /sys
+/bin/busybox mount -t devtmpfs dev /dev
+/bin/busybox mount -t tmpfs tmp /tmp
+exec </dev/console >/dev/console 2>&1
+for m in vsock vmw_vsock_virtio_transport_common vmw_vsock_virtio_transport; do
+  insmod /lib/modules/$m.ko || echo "insmod $m failed"
+done
+ip link set lo up
+export PATH=/usr/bin:/bin HOME=/root SHELL=/bin/bash TERM=dumb
+# The agent's ONLY exit: 127.0.0.1:8080 -> vsock host(2):5000 -> relay -> gateway.
+socat TCP-LISTEN:8080,bind=127.0.0.1,reuseaddr,fork VSOCK-CONNECT:2:5000 &
+sleep 0.2
+echo "=== AGENT VM UP $(cut -d' ' -f1 /proc/uptime)s ==="
+/bin/bash /guest-tests.sh
+echo "=== GUEST TESTS DONE ==="
+# Keep the VM alive briefly so the host can scan guest RAM, then power off.
+sleep ${HOLD_SECONDS:-20}
+poweroff -f

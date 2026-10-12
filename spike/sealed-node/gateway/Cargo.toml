@@ -1,0 +1,31 @@
+[package]
+name = "sealed-gateway"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+# Standalone: never part of apps/desktop's workspace.
+[workspace]
+
+[dependencies]
+rustls = { version = "0.23", default-features = false, features = ["std", "tls12"] }
+webpki-roots = "1"
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
+
+[target.'cfg(target_os = "hermit")'.dependencies]
+# No "shell" feature: the image has no interactive surface at all.
+hermit = { git = "https://github.com/hermit-os/hermit-rs.git", tag = "hermit-0.13.2", default-features = false, features = ["acpi", "pci", "pci-ids", "tcp", "dhcpv4", "dns", "virtio-net", "vsock"] }
+# ring ships no assembly for target_os = "hermit" (undefined ring_core_* at
+# link time), so the unikernel uses the pure-Rust RustCrypto provider.
+rustls-rustcrypto = "0.0.2-alpha"
+hermit-abi = { git = "https://github.com/hermit-os/hermit-rs.git", tag = "hermit-0.13.2" }
+
+[profile.release]
+opt-level = "s"
+lto = true # overridden to false for hermit: the kernel archive carries no bitcode
+codegen-units = 1
+panic = "abort"
+strip = true

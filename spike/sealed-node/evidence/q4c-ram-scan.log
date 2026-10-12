@@ -1,0 +1,6 @@
+[scan] /dev/shm/sealed-agent-ram (2048 MiB): real-token len=108 full=0 middle24=0
+[scan] /dev/shm/sealed-agent-ram (2048 MiB): dummy-credential len=52 full=11 middle24=12
+[scan] /dev/shm/sealed-agent-ram (2048 MiB): real-token len=108 full=0 middle24=0
+[scan] /dev/shm/sealed-agent-ram (2048 MiB): dummy-credential len=52 full=39 middle24=40
+[scan] /dev/shm/sealed-gw-ram (64 MiB): real-token len=108 full=3 middle24=3
+[node] RSS: gateway 65652KiB agent 773424KiB

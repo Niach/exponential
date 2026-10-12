@@ -1,0 +1,73 @@
+diff --git a/src/executor/vsock.rs b/src/executor/vsock.rs
+index f992a47..f1d9c3b 100644
+--- a/src/executor/vsock.rs
++++ b/src/executor/vsock.rs
+@@ -78,10 +78,26 @@ async fn vsock_run() {
+ 			let mut vsock_guard = VSOCK_MAP.lock();
+ 			let header_cid: u32 = header.src_cid.to_ne().try_into().unwrap();
+ 
++			// sealed-node patch: a connection request nobody can take (port
++			// unbound, or bound and busy) gets a RST instead of silence, so the
++			// peer fails fast instead of timing out.
+ 			let Some(raw) = vsock_guard.get_mut_socket(port) else {
++				if op == Op::Request {
++					hdr = Some(*header);
++				}
+ 				return;
+ 			};
+ 
++			// sealed-node patch: demux by the full 4-tuple. Without the peer
++			// port, a late packet of a closed connection (e.g. the peer's
++			// SHUTDOWN/RST) lands on the next connection bound to this port.
++			if raw.state != VsockState::Listen && header.src_port.to_ne() != raw.remote_port {
++				if op == Op::Request {
++					hdr = Some(*header);
++				}
++				return;
++			}
++
+ 			if op == Op::Request && raw.state == VsockState::Listen && type_ == Type::Stream {
+ 				raw.state = VsockState::ReceiveRequest;
+ 				raw.remote_cid = header_cid;
+diff --git a/src/fd/socket/vsock.rs b/src/fd/socket/vsock.rs
+index 949a471..7328c2d 100644
+--- a/src/fd/socket/vsock.rs
++++ b/src/fd/socket/vsock.rs
+@@ -421,6 +421,37 @@ impl ObjectInterface for Socket {
+ 
+ impl Drop for Socket {
+ 	fn drop(&mut self) {
++		// sealed-node patch: tell the peer the connection is gone. Upstream
++		// only forgets the port, so the peer never sees EOF and keeps the
++		// half-dead connection open. The map lock is released before the
++		// driver lock is taken (the RX path takes driver, then map).
++		let peer = {
++			let guard = VSOCK_MAP.lock();
++			guard.get_socket(self.port).and_then(|raw| {
++				matches!(raw.state, VsockState::Connected | VsockState::Shutdown)
++					.then_some((raw.remote_cid, raw.remote_port, raw.fwd_cnt))
++			})
++		};
++		if let Some((remote_cid, remote_port, fwd_cnt)) = peer {
++			const HEADER_SIZE: usize = mem::size_of::<Hdr>();
++			let mut driver_guard = hardware::get_vsock_driver().unwrap().lock();
++			let local_cid = driver_guard.get_cid();
++			let port = self.port;
++			driver_guard.send_packet(HEADER_SIZE, |buffer| {
++				let hdr = unsafe { &mut *buffer.as_mut_ptr().cast::<Hdr>() };
++				hdr.src_cid = le64::from_ne(local_cid);
++				hdr.dst_cid = le64::from_ne(remote_cid.into());
++				hdr.src_port = le32::from_ne(port);
++				hdr.dst_port = le32::from_ne(remote_port);
++				hdr.len = le32::from_ne(0);
++				hdr.type_ = le16::from_ne(Type::Stream.into());
++				hdr.op = le16::from_ne(Op::Shutdown.into());
++				// VIRTIO_VSOCK_SHUTDOWN_RCV | VIRTIO_VSOCK_SHUTDOWN_SEND
++				hdr.flags = le32::from_ne(3);
++				hdr.buf_alloc = le32::from_ne(crate::executor::vsock::RAW_SOCKET_BUFFER_SIZE as u32);
++				hdr.fwd_cnt = le32::from_ne(fwd_cnt);
++			});
++		}
+ 		let mut guard = VSOCK_MAP.lock();
+ 		guard.remove_socket(self.port);
+ 	}

@@ -1,0 +1,25 @@
+[gateway] boot ok: listen=tcp:127.0.0.1:8787 token_len=108 routes=7
+[gateway] listening on tcp:127.0.0.1:8787
+[gateway] >>> POST /v1/messages?beta=true
+[gateway]     Accept: application/json
+[gateway]     Authorization: <redacted len=42 prefix="Bearer ">
+[gateway]     Content-Type: application/json
+[gateway]     User-Agent: claude-cli/2.1.296 (external, sdk-cli)
+[gateway]     X-Claude-Code-Session-Id: 257e04d2-aa9b-45f3-af31-8901de79c12b
+[gateway]     X-Stainless-Arch: x64
+[gateway]     X-Stainless-Lang: js
+[gateway]     X-Stainless-OS: Linux
+[gateway]     X-Stainless-Package-Version: 0.128.0
+[gateway]     X-Stainless-Retry-Count: 0
+[gateway]     X-Stainless-Runtime: node
+[gateway]     X-Stainless-Runtime-Version: v26.3.0
+[gateway]     X-Stainless-Timeout: 600
+[gateway]     anthropic-beta: claude-code-20250219,oauth-2025-04-20,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,effort-2025-11-24,dangerous-tool-use-2026-09-03,afk-mode-2026-01-31,extended-cache-ttl-2025-04-11
+[gateway]     anthropic-dangerous-direct-browser-access: true
+[gateway]     anthropic-version: 2023-06-01
+[gateway]     x-app: cli
+[gateway]     Connection: keep-alive
+[gateway]     Host: 127.0.0.1:8787
+[gateway]     Accept-Encoding: gzip, deflate, br, zstd
+[gateway]     Content-Length: 68261
+[gateway] POST /v1/messages -> api.anthropic.com | HTTP/1.1 200 OK | body_in=68261 body_out=736 ttfb_ms=1549 total_ms=1556
