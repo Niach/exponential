@@ -383,7 +383,10 @@ function guideText(
   topic: string,
   text: string,
   at: Date,
-  files?: string[]
+  files?: string[],
+  /** EXP-1284 (review): the session that wrote the entry — stamped
+   *  server-side on every real write; a session block shows only its own. */
+  sessionId?: string
 ): CodingSessionResult {
   return {
     topic,
@@ -394,6 +397,7 @@ function guideText(
     text,
     ...(files ? { files } : {}),
     at: at.getTime(),
+    ...(sessionId ? { sessionId } : {}),
   }
 }
 
@@ -493,13 +497,16 @@ async function seedThreads(ctx: {
     guideText(
       `Summary`,
       `Planned offline sync for issue edits: edits queue on the device and replay in order once sync resumes, and a field somebody else changed meanwhile keeps their value. Filed #${conflictRules.identifier} for the conflict rules and split the build into two parallel runs.`,
-      minutesAgo(46)
+      minutesAgo(46),
+      undefined,
+      ids.threadRunsResume
     ),
     guideText(
       `Edit queue`,
       `A persistent queue in the sync layer records every edit with the value it was based on. Replay drops an edit whose base no longer matches and raises a toast instead of overwriting the newer value.`,
       minutesAgo(45),
-      [`src/sync/edit-queue.ts`, `src/sync/replay.ts`, `src/sync/replay.test.ts`]
+      [`src/sync/edit-queue.ts`, `src/sync/replay.ts`, `src/sync/replay.test.ts`],
+      ids.threadRunsResume
     ),
   ]
   const chatBranch = `exp/chat-${ids.threadRunsChat.slice(0, 8)}`
@@ -689,13 +696,16 @@ async function seedThreads(ctx: {
       guideText(
         `Summary`,
         `Deferred the shape subscribe until after the first frame and added a board snapshot cache that paints the last board before sync finishes: 740 ms on the CI device, under the 800 ms target. Filed #${editorBundle.identifier} for the editor's highlighting bundle.`,
-        minutesAgo(12)
+        minutesAgo(12),
+        undefined,
+        DEMO_STEERED_SESSION_ID
       ),
       guideText(
         `Board snapshot cache`,
         `The last rendered board is written to disk on every sync and painted on launch, then replaced in place once the shape catches up.`,
         minutesAgo(11),
-        [`src/board/snapshot-cache.ts`, `src/sync/bootstrap.ts`]
+        [`src/board/snapshot-cache.ts`, `src/sync/bootstrap.ts`],
+        DEMO_STEERED_SESSION_ID
       ),
     ],
     createdAt: showcaseStart,
