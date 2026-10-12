@@ -32,7 +32,6 @@ import {
   asc,
   desc,
   eq,
-  gt,
   gte,
   inArray,
   isNotNull,
@@ -2429,7 +2428,7 @@ export function registerExponentialTools(
     `exponential_issues_activity`,
     {
       annotations: READ_ONLY,
-      description: `Issue activity history, oldest first: {field, from, to, actorId, actorKind user|agent|automation, sessionId, at} per change (status ids, assignee, label, priority, estimate, title, board, pr, relation). since: ISO, strictly after.`,
+      description: `Issue activity history, oldest first: {field, from, to, actorId, actorKind user|agent|automation, sessionId, at} per change (status ids, assignee, label, priority, estimate, title, board, pr, relation). since: ISO, at or after (the last row's at; rows sharing that instant repeat, dedupe by id).`,
       inputSchema: strictInput({
         issueId: z.string().min(1),
         since: isoDateTime.optional(),
@@ -2456,7 +2455,11 @@ export function registerExponentialTools(
           .where(
             and(
               eq(issueEvents.issueId, issueId),
-              since ? gt(issueEvents.createdAt, new Date(since)) : undefined
+              // At-or-after, never strictly after: one `issues.update` writes
+              // its events with ONE `now()`, and `at` is serialized at ms
+              // precision, so a strict cut at the last row's instant would
+              // drop its siblings. A repeat is deduped by id; a skip is lost.
+              since ? gte(issueEvents.createdAt, new Date(since)) : undefined
             )
           )
           .orderBy(asc(issueEvents.createdAt), asc(issueEvents.id))
