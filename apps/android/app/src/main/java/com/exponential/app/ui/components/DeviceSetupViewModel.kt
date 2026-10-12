@@ -80,7 +80,7 @@ data class ServerCardState(
     /** The code was refused (expired, used, another account): under the field. */
     val error: String? = null,
     val approved: Boolean = false,
-    /** FEED-79: a mint or approve request that failed; raised once as a toast. */
+    /** FEED-79: an approve request that failed; raised once as a toast. */
     val failure: FailedAction? = null,
 )
 
@@ -125,12 +125,9 @@ class DeviceSetupViewModel @Inject constructor(
                     devicesApi.createInstallToken(accountId)
                 } catch (e: CancellationException) {
                     throw e
-                } catch (e: Exception) {
-                    // Network, 429: the plain command stays, plus ONE toast
-                    // whose Retry mints again (FEED-79).
-                    _server.update {
-                        it.copy(failure = FailedAction("create", "the install token", trpcErrorMessage(e, "")) { activate() })
-                    }
+                } catch (_: Exception) {
+                    // Network, 429: the plain command stays. FEED-79: the mint
+                    // runs on open and on expiry, so no toast.
                     return@launch
                 }
                 _server.update { it.copy(token = minted.token) }

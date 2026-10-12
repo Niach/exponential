@@ -64,6 +64,10 @@ pub struct BoardDetailPane {
     /// fetched under (EXP-139) — a link to a repo this cache doesn't know yet
     /// (connected on another client) re-fetches exactly once per change.
     loaded_links: Option<Vec<(String, String)>>,
+    /// FEED-79: the repo-list load in flight is the person's Retry press
+    /// (its failure toasts); the load on open and every live re-list (a link
+    /// change, the FEED-42 re-list) fail quietly into the empty picker.
+    retry_pressed: bool,
     /// FEED-42: the linked repository id this pane already re-listed ONCE
     /// for — a load that came back without the board's repo (a server cache
     /// that lagged a connect on another client) gets one retry before the
@@ -110,6 +114,7 @@ impl BoardDetailPane {
             loaded_team: None,
             account_id: None,
             loaded_links: None,
+            retry_pressed: false,
             relisted_unknown: None,
             branches: None,
             generation: 0,
@@ -212,12 +217,13 @@ impl BoardDetailPane {
                 if this.generation != generation {
                     return; // superseded by a newer fetch
                 }
+                let attended = std::mem::take(&mut this.retry_pressed);
                 this.repos = match result {
                     Ok(repos) => RepoLoad::Ready(repos),
                     Err(message) => {
-                        crate::action_error::failed_action(
-                            "load",
+                        crate::action_error::failed_load(
                             "the repositories",
+                            attended,
                             Some(message),
                             cx,
                         );
@@ -453,8 +459,21 @@ impl BoardDetailPane {
                     RepoLoad::Idle | RepoLoad::Loading => {
                         menu = crate::feedback::menu_skeleton(menu, "board-repo-skeleton");
                     }
-                    // The failure was a toast (FEED-79).
-                    RepoLoad::Failed => {}
+                    // A failed load is quiet (FEED-79): the picker's Retry.
+                    RepoLoad::Failed => {
+                        let pane = pane.clone();
+                        menu = menu.item(
+                            crate::controls::pointer_label_item(crate::feedback::RETRY, false)
+                                .icon(Icon::new(registry::UI_REFRESH))
+                                .on_click(move |_, _, cx| {
+                                    pane.update(cx, |this, cx| {
+                                        this.retry_pressed = true;
+                                        this.repos = RepoLoad::Idle;
+                                        cx.notify();
+                                    });
+                                }),
+                        );
+                    }
                     RepoLoad::Ready(repos) => {
                         has_repos = !repos.is_empty();
                         for repo in repos {
@@ -555,11 +574,7 @@ impl BoardDetailPane {
     /// Lazy `repositories.listBranches` for the board's repo (EXP-712),
     /// kicked when the Branch menu opens and cached until the repo changes.
     fn ensure_branches(&mut self, repository_id: String, cx: &mut gpui::Context<Self>) {
-        if self
-            .branches
-            .as_ref()
-            .is_some_and(|(id, _)| id == &repository_id)
-        {
+        if crate::board_form::branches_settled_for(self.branches.as_ref(), &repository_id) {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
@@ -579,7 +594,7 @@ impl BoardDetailPane {
             let _ = this.update(cx, |this, cx| {
                 let load = match result {
                     Ok(out) => crate::board_form::BranchLoad::Ready(out.branches),
-                    Err(err) => crate::board_form::branches_failed(&err, cx),
+                    Err(err) => crate::board_form::branches_failed(&err),
                 };
                 this.branches = Some((repository_id, load));
                 cx.notify();

@@ -1,12 +1,9 @@
 package com.exponential.app.ui.agent
 
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import com.exponential.app.data.api.ActionDto
-import com.exponential.app.ui.components.LocalToaster
-import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.components.picker.ActionPicker
 import com.exponential.app.ui.components.picker.ActionPickerAction
 
@@ -25,17 +22,14 @@ internal fun AgentActionPickerPage(
     selectedId: String?,
     onPick: (String) -> Unit,
 ) {
-    // FEED-79: a failed load = the empty state plus ONE toast.
-    val toaster = LocalToaster.current
-    LaunchedEffect(error) {
-        if (error != null) toaster.failedAction("load", "actions", error)
-    }
+    // FEED-79: the list loads on its own, so a failed load is quiet: the
+    // empty state, never a toast.
     ActionPicker(
         actions = actions.orEmpty().map { ActionPickerAction(id = it.id, name = it.name, icon = it.icon) },
         value = selectedId,
         onChange = onPick,
         // With no row to offer: skeleton rows while the list loads, else
-        // that nothing matched (a failed load's toast says why).
+        // that nothing matched.
         emptyText = "No matching actions",
         loading = actions == null && error == null,
         inline = true,

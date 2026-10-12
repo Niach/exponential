@@ -17,6 +17,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -30,6 +31,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.FailedActionToast
@@ -222,6 +224,22 @@ fun ActionPromptTab(
             // EXP-1275: the fetch = skeleton rows, never "Loading prompt…".
             if (state.loading) {
                 SkeletonRows(dot = false, modifier = Modifier.padding(vertical = 4.dp))
+            } else if (state.loadFailed) {
+                // FEED-79: the fetch ran on open, so no toast: the prompt's
+                // empty state + Retry (a failed Retry tap toasts).
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp),
+                ) {
+                    Text(
+                        "Prompt unavailable",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    TextButton(onClick = { viewModel.load(actionId, retried = true) }) {
+                        Text(FeedbackStates.RETRY)
+                    }
+                }
             } else {
                 GlassTextField(
                     value = body,

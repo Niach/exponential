@@ -88,7 +88,6 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
   const [tree, setTree] = useState<ScopePickerTeam[] | null>(null)
   // A failed load draws the picker's empty state (+ a toast with Retry).
   const [treeFailed, setTreeFailed] = useState(false)
-  const [treeAttempt, setTreeAttempt] = useState(0)
   const [selection, setSelection] = useState<ScopeSelection>(
     EMPTY_SCOPE_SELECTION
   )
@@ -102,28 +101,24 @@ export function ApiKeysSection({ initialKeys }: { initialKeys: ApiKeyRow[] }) {
   const apiKeys = keys.filter((row) => !isDeviceKey(row))
 
   // The scope tree (the member's teams + live boards) loads once per open.
+  // FEED-79: a load on open fails quietly (the picker's empty tree); the
+  // next open tries again.
   useEffect(() => {
     if (!createOpen || tree) return
     let cancelled = false
+    setTreeFailed(false)
     trpc.mcpGrants.scopeTree
       .query()
       .then((scopes) => {
         if (!cancelled) setTree(scopes.teams)
       })
-      .catch((e: unknown) => {
-        if (cancelled) return
-        setTreeFailed(true)
-        failedAction(`load`, `your teams`, e, {
-          retry: () => {
-            setTreeFailed(false)
-            setTreeAttempt((n) => n + 1)
-          },
-        })
+      .catch(() => {
+        if (!cancelled) setTreeFailed(true)
       })
     return () => {
       cancelled = true
     }
-  }, [createOpen, tree, treeAttempt])
+  }, [createOpen, tree])
 
   const closeCreate = () => {
     setCreateOpen(false)

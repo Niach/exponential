@@ -179,11 +179,11 @@ class TeamSettingsViewModel @Inject constructor(
                     resolvedRepoIds.clear()
                     _githubStatus.value = null
                     if (accountId != null && teamId != null) {
-                        // A failed load is the empty list plus the toast
-                        // (EXP-365, FEED-79), never a silent "No repositories".
+                        // FEED-79: the list loads on its own (team switch,
+                        // resume, after a write), so a failed load is quiet:
+                        // the empty list, never a toast.
                         runCatching { repositoriesApi.list(accountId, teamId) }
                             .onSuccess { _repos.value = it }
-                            .onFailure { fail("load", "the repositories", it) { refreshRepos() } }
                         _reposLoaded.value = true
                         loadGithubStatus(accountId, teamId)
                     }
@@ -267,12 +267,10 @@ class TeamSettingsViewModel @Inject constructor(
     }
 
     private suspend fun loadGithubStatus(accountId: String, teamId: String) {
+        // FEED-79: re-read on open and on every resume, so a failure is quiet
+        // (no block: nothing to show), never a toast.
         runCatching { integrationsApi.githubStatus(accountId, teamId) }
             .onSuccess { _githubStatus.value = it }
-            .onFailure {
-                // FEED-79: no block (nothing to show) plus the toast.
-                if (_githubStatus.value == null) fail("load", "the GitHub connection", it) { refreshGithub() }
-            }
     }
 
     // FEED-32: a board's synced repositoryId can point at a repo this registry
@@ -288,9 +286,9 @@ class TeamSettingsViewModel @Inject constructor(
         val teamId = selection.selectedId.value ?: return
         _resolvingRepoId.value = repositoryId
         viewModelScope.launch {
+            // Quiet on failure (FEED-79): the row reads "Repository unavailable".
             runCatching { repositoriesApi.list(accountId, teamId) }
                 .onSuccess { _repos.value = it }
-                .onFailure { fail("load", "the repositories", it) }
             if (_resolvingRepoId.value == repositoryId) _resolvingRepoId.value = null
         }
     }
@@ -456,9 +454,10 @@ class TeamSettingsViewModel @Inject constructor(
     fun refreshRepos(): Job = viewModelScope.launch {
         val accountId = auth.activeAccountId.value ?: return@launch
         val teamId = selection.selectedId.value ?: return@launch
+        // Quiet on failure (FEED-79): every caller is automatic (a deep link,
+        // after a write); the list keeps what it had.
         runCatching { repositoriesApi.list(accountId, teamId) }
             .onSuccess { _repos.value = it }
-            .onFailure { fail("load", "the repositories", it) { refreshRepos() } }
     }
 
     // Member-level since EXP-557: register a repo picked from the caller's own

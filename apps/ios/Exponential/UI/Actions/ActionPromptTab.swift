@@ -44,8 +44,11 @@ struct ActionPromptTab: View {
     @State private var loading = true
     @State private var saving = false
     /// FEED-79: a name already taken (CONFLICT) is INPUT, inline under the
-    /// name; every other load/save failure is a toast.
+    /// name; a failed save is a toast. The body loads on appear, so a failed
+    /// load is quiet: the prompt's empty state + Retry (a failed Retry tap
+    /// toasts).
     @State private var nameError: String?
+    @State private var loadFailed = false
     @Environment(\.toaster) private var toaster
 
     private var loaded: Bool { loadedBody != nil }
@@ -200,6 +203,17 @@ struct ActionPromptTab: View {
             if loading {
                 // EXP-1275 (D8): the prompt's placeholder, not "Loading…".
                 SkeletonRows(rows: 3, rowHeight: 22, dot: false, dividers: false)
+            } else if loadFailed {
+                VStack(spacing: 12) {
+                    Text("Prompt unavailable")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                    GlassPill(FeedbackStates.Errors.retry, icon: AppIcons.uiRefresh, mode: .action {
+                        Task { await retryLoad() }
+                    })
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 12)
             } else {
                 GlassTextField(
                     "Prompt",
@@ -232,17 +246,35 @@ struct ActionPromptTab: View {
         repos = (try? await deps.repositoriesApi.list(
             accountId: accountId, teamId: action.teamId
         )) ?? []
+        await loadBody(accountId: accountId, retried: false)
+        loading = false
+    }
+
+    /// The Retry tap: the body fetch again (the rest of the form keeps what
+    /// was typed), and a toast only if it fails again.
+    @MainActor
+    private func retryLoad() async {
+        loading = true
+        await loadBody(accountId: accountId, retried: true)
+        loading = false
+    }
+
+    @MainActor
+    private func loadBody(accountId: String, retried: Bool) async {
         do {
             let fetched = try await deps.actionsApi.get(accountId: accountId, id: action.id)
             prompt = fetched.body
             loadedBody = fetched.body
+            loadFailed = false
         } catch {
-            toaster.error(
-                FeedbackStates.Errors.title(verb: "load", thing: "the prompt"),
-                description: error.userFacingMessage
-            )
+            loadFailed = true
+            if retried {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "load", thing: "the prompt"),
+                    description: error.userFacingMessage
+                )
+            }
         }
-        loading = false
     }
 
     private func save() {

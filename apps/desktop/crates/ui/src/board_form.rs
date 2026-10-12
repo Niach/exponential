@@ -372,18 +372,30 @@ pub(crate) fn board_repo_note(cx: &App) -> impl IntoElement {
 pub(crate) enum BranchLoad {
     Loading,
     Ready(Vec<String>),
-    /// The fetch failed — a toast said so ([`branches_failed`]).
+    /// The fetch failed, quietly ([`branches_failed`]); the next open of
+    /// the menu fetches again.
     Failed,
 }
 
 /// The Branch menu's empty list.
 const NO_BRANCHES: &str = "No branches found.";
 
-/// FEED-79: a failed branch fetch is the error toast; the menu reads empty
-/// until the form fetches again.
-pub(crate) fn branches_failed(err: &api::ApiError, cx: &mut gpui::App) -> BranchLoad {
-    crate::action_error::failed_action_err("load", "the branches", err, cx);
+/// FEED-79: the branch list loads as the menu opens, so a failure is quiet:
+/// the menu reads empty and its next open fetches again.
+pub(crate) fn branches_failed(err: &api::ApiError) -> BranchLoad {
+    log::warn!("[ui] repositories.listBranches failed: {err}");
     BranchLoad::Failed
+}
+
+/// Whether the lazy branch fetch for `repository_id` is already in flight
+/// or landed (a FAILED one fetches again on the next open).
+pub(crate) fn branches_settled_for(
+    branches: Option<&(String, BranchLoad)>,
+    repository_id: &str,
+) -> bool {
+    branches.is_some_and(|(id, load)| {
+        id == repository_id && !matches!(load, BranchLoad::Failed)
+    })
 }
 
 /// The board form's **Branch** dropdown (EXP-712): the branch this board's
@@ -464,7 +476,7 @@ fn branch_dropdown<V: gpui::Render>(
                 None | Some(BranchLoad::Loading) => {
                     return crate::feedback::menu_skeleton(menu, "board-branch-skeleton");
                 }
-                // The failure was a toast (FEED-79): the empty list.
+                // A failed load is quiet (FEED-79): the empty list.
                 Some(BranchLoad::Failed) => {
                     return menu.label(NO_BRANCHES);
                 }

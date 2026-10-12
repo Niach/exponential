@@ -250,12 +250,11 @@ fun IssueListScreen(
         null
     }
     val homeState = homeViewModel?.state?.collectAsStateWithLifecycle()?.value
-    val homeError = homeViewModel?.error?.collectAsStateWithLifecycle()?.value
     if (homeViewModel != null) {
+        // FEED-79: the bootstrap runs on launch, so a failed team load is
+        // quiet (never a toast); the root keeps drawing its empty / syncing
+        // state.
         LaunchedEffect(Unit) { homeViewModel.bootstrap() }
-        // FEED-79: a failed team load is a toast (Retry re-runs the
-        // bootstrap); the root keeps drawing its empty / syncing state.
-        FailedActionToast(homeError, "load", "your team", onShown = {}, retry = homeViewModel::bootstrap)
     }
 
     // "Any signed-in account has a board" — gates the cross-account switcher

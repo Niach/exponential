@@ -5,6 +5,7 @@ import type { SyncedAction } from "@/db/schema"
 import {
   BARE_FIELD_CLASS,
   BOARD_ICON_OPTIONS,
+  FEEDBACK_ERRORS,
   FEEDBACK_WORDS,
   FieldError,
   IconPicker,
@@ -87,6 +88,9 @@ export function ActionPromptForm({
   // Synced rows carry no body (EXP-268) — fetched on open; the prompt field
   // stays disabled until it lands so a save can never blank it.
   const [bodyLoading, setBodyLoading] = useState(false)
+  // The load on open failed: the field holds its empty state + Retry (no
+  // toast, FEED-79) and Save stays off so the real body is never blanked.
+  const [bodyFailed, setBodyFailed] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   // FEED-79: a duplicate-name CONFLICT renders under the name field (input);
   // every other failed load/save is a toast.
@@ -108,14 +112,14 @@ export function ActionPromptForm({
   )
 
   // The body (+ MCP list) fetch; a newer load or another action drops a
-  // stale answer. A failed load leaves the field empty and toasts, Retry
-  // fetches again.
+  // stale answer. The load on open fails quietly (the field's empty state +
+  // Retry); only a failed Retry tap, the person's own action, toasts.
   const loadSeq = useRef(0)
   // The action on screen (null once unmounted): a late Retry for another
   // action, or after the page left, does nothing.
   const shownId = useRef<string | null>(action.id)
   shownId.current = action.id
-  const loadBody = useCallback(() => {
+  const loadBody = useCallback((retried = false) => {
     const id = action.id
     if (shownId.current !== id) return
     const seq = ++loadSeq.current
@@ -129,12 +133,14 @@ export function ActionPromptForm({
         setSavedBody(res.action.body)
         setMcpServerIds([...res.action.mcpServerIds])
         setSavedMcpServerIds([...res.action.mcpServerIds])
+        setBodyFailed(false)
         setBodyLoading(false)
       })
       .catch((err) => {
         if (stale()) return
+        setBodyFailed(true)
         setBodyLoading(false)
-        failedAction(`load`, `the prompt`, err, { retry: loadBody })
+        if (retried) failedAction(`load`, `the prompt`, err, { retry: () => loadBody(true) })
       })
   }, [action.id])
   useEffect(() => {
@@ -185,7 +191,8 @@ export function ActionPromptForm({
     Boolean(name.trim()) &&
     Boolean(body.trim()) &&
     !bodyTooLong &&
-    !bodyLoading
+    !bodyLoading &&
+    !bodyFailed
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -342,6 +349,13 @@ export function ActionPromptForm({
           <GlassGroup className="flex-1">
             {bodyLoading ? (
               <SkeletonRows dot={false} className="min-h-64 py-1" />
+            ) : bodyFailed ? (
+              <div className="flex min-h-64 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+                Prompt unavailable
+                <Button type="button" variant="outline" size="sm" onClick={() => loadBody(true)}>
+                  {FEEDBACK_ERRORS.retry}
+                </Button>
+              </div>
             ) : (
               <Textarea
                 id="action-body"

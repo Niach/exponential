@@ -883,16 +883,102 @@ pub(crate) fn block(model: &Model, team_id: Option<&str>, cx: &App) -> gpui::Any
         .min_w_0()
         .gap_3()
         .child(header)
-        .child(
-            // Never wraps: a column narrower than the cards scrolls sideways.
-            div()
-                .id("getting-started-cards")
-                .w_full()
-                .min_w_0()
-                .overflow_x_scroll()
-                .child(h_flex().flex_none().gap(px(CARD_GAP)).children(cards)),
-        )
+        .child(CardRow { cards })
         .into_any_element()
+}
+
+/// The width (px) of the card row's edge fades.
+const ROW_FADE_W: f32 = 32.;
+
+/// The card row. Never wraps: a column narrower than the cards scrolls
+/// sideways, and an edge with cards past it fades into the ground (right
+/// while more sit to the right, left once scrolled), so a cut card reads as
+/// "scroll for more" (web shows its scrollbar; gpui's only on scroll).
+#[derive(IntoElement)]
+struct CardRow {
+    cards: Vec<gpui::AnyElement>,
+}
+
+impl gpui::RenderOnce for CardRow {
+    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let scroll = window
+            .use_keyed_state("getting-started-cards-scroll", cx, |_, _| gpui::ScrollHandle::new())
+            .read(cx)
+            .clone();
+        let fades = scroll.clone();
+        div()
+            .relative()
+            .w_full()
+            .min_w_0()
+            .child(
+                // A flex row, so the card strip keeps its own width (a block
+                // parent would squeeze it to the column and leave nothing to
+                // scroll).
+                div()
+                    .id("getting-started-cards")
+                    .flex()
+                    .w_full()
+                    .min_w_0()
+                    .overflow_x_scroll()
+                    .track_scroll(&scroll)
+                    .child(h_flex().flex_none().gap(px(CARD_GAP)).children(self.cards)),
+            )
+            // Paint-only, after the row: reads the offset the row's own
+            // prepaint just settled, so the fades follow every scroll frame.
+            .child(
+                gpui::canvas(
+                    |_, _, _| (),
+                    move |bounds, _, window, _| paint_row_fades(bounds, &fades, window),
+                )
+                .absolute()
+                .top_0()
+                .left_0()
+                .size_full(),
+            )
+    }
+}
+
+fn paint_row_fades(bounds: gpui::Bounds<gpui::Pixels>, scroll: &gpui::ScrollHandle, window: &mut Window) {
+    let (left, right) = row_fades(
+        f32::from(scroll.offset().x),
+        f32::from(scroll.max_offset().x),
+    );
+    if !left && !right {
+        return;
+    }
+    // The panel's ground where the row sits on the window ramp.
+    let height = f32::from(window.viewport_size().height).max(1.);
+    let ground = crate::surface::panel_fill_at(f32::from(bounds.center().y) / height);
+    let clear = ground.opacity(0.);
+    let width = px(ROW_FADE_W).min(bounds.size.width);
+    let strip = |x| gpui::Bounds::new(gpui::point(x, bounds.origin.y), size(width, bounds.size.height));
+    if left {
+        window.paint_quad(gpui::fill(
+            strip(bounds.origin.x),
+            gpui::linear_gradient(
+                90.,
+                gpui::linear_color_stop(ground, 0.),
+                gpui::linear_color_stop(clear, 1.),
+            ),
+        ));
+    }
+    if right {
+        window.paint_quad(gpui::fill(
+            strip(bounds.right() - width),
+            gpui::linear_gradient(
+                90.,
+                gpui::linear_color_stop(clear, 0.),
+                gpui::linear_color_stop(ground, 1.),
+            ),
+        ));
+    }
+}
+
+/// Which edges of the card row fade at scroll offset `offset_x` (<= 0) with
+/// `max_x` (>= 0) to scroll: (cards past the left edge, cards past the right).
+fn row_fades(offset_x: f32, max_x: f32) -> (bool, bool) {
+    const SLACK: f32 = 0.5;
+    (offset_x < -SLACK, max_x > SLACK && -offset_x < max_x - SLACK)
 }
 
 /// THE block's entry point for a team: under the empty board's empty state,
@@ -976,6 +1062,16 @@ impl Render for GettingStartedDialog {
 mod tests {
     use super::*;
     use serde_json::{json, Value};
+
+    /// The card row fades the edge cards sit past: right while more sit to
+    /// the right, left once scrolled, none when everything fits.
+    #[test]
+    fn the_card_row_fades_the_edges_with_cards_past_them() {
+        assert_eq!(row_fades(0., 0.), (false, false));
+        assert_eq!(row_fades(0., 24.), (false, true));
+        assert_eq!(row_fades(-10., 24.), (true, true));
+        assert_eq!(row_fades(-24., 24.), (true, false));
+    }
 
     const FIXTURE: &str =
         include_str!("../../../../../packages/domain-contract/fixtures/getting-started.json");

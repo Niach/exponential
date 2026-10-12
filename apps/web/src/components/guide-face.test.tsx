@@ -154,30 +154,32 @@ describe(`GuideBody`, () => {
     expect(screen.getByTestId(`feedback-skeleton`)).toBeTruthy()
   })
 
-  it(`a failed fetch = the empty state + one toast whose Retry reloads`, () => {
+  it(`a failed fetch on open = the empty state + Retry, no toast; a failed Retry tap toasts`, () => {
     failedAction.mockClear()
     const onRetry = vi.fn()
-    const { rerender } = render(
-      <GuideBody
-        groups={[]}
-        files={null}
-        filesState={{ kind: `error`, message: `boom` }}
-        onRetry={onRetry}
-      />
+    const body = (filesState: { kind: `error`; message: string } | { kind: `loading` }) => (
+      <GuideBody groups={[]} files={null} filesState={filesState} onRetry={onRetry} />
     )
+    const { rerender } = render(body({ kind: `error`, message: `boom` }))
     expect(screen.getByText(GUIDE_NO_CHANGES)).toBeTruthy()
-    rerender(
-      <GuideBody
-        groups={[]}
-        files={null}
-        filesState={{ kind: `error`, message: `boom` }}
-        onRetry={onRetry}
-      />
-    )
+    rerender(body({ kind: `error`, message: `boom` }))
+    expect(failedAction).not.toHaveBeenCalled()
+
+    fireEvent.click(screen.getByText(`Retry`))
+    expect(onRetry).toHaveBeenCalledTimes(1)
+    rerender(body({ kind: `loading` }))
+    rerender(body({ kind: `error`, message: `boom` }))
     expect(failedAction).toHaveBeenCalledTimes(1)
     const [verb, thing, error, options] = failedAction.mock.calls[0]
     expect([verb, thing, error]).toEqual([`load`, `the changes`, `boom`])
     options.retry()
-    expect(onRetry).toHaveBeenCalled()
+    expect(onRetry).toHaveBeenCalledTimes(2)
+  })
+
+  it(`a failed PR body load stays quiet`, () => {
+    failedAction.mockClear()
+    render(<GuideBody groups={[]} files={null} error="boom" />)
+    expect(screen.getByText(GUIDE_NO_CHANGES)).toBeTruthy()
+    expect(failedAction).not.toHaveBeenCalled()
   })
 })

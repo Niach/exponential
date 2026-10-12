@@ -20,7 +20,7 @@ struct SignInMethodsSection: View {
 
     @Environment(AppDependencies.self) private var deps
     @State private var methods: SignInMethods?
-    // FEED-79: a failed load = the band with only its Retry, plus a toast.
+    // FEED-79: a failed load = the band with only its Retry (no toast).
     @State private var loadFailed = false
     @Environment(\.toaster) private var toaster
     @State private var confirm: Confirm?
@@ -52,7 +52,7 @@ struct SignInMethodsSection: View {
                     HStack(spacing: 8) {
                         if loadFailed {
                             GlassPill(FeedbackStates.Errors.retry, mode: .action {
-                                Task { await load() }
+                                Task { await load(retried: true) }
                             })
                             Spacer()
                         } else {
@@ -269,7 +269,9 @@ struct SignInMethodsSection: View {
 
     // MARK: - Actions
 
-    private func load() async {
+    /// FEED-79: the list loads on appear and on change notices, so a failure
+    /// is quiet (the band's Retry); only a failed Retry tap toasts.
+    private func load(retried: Bool = false) async {
         do {
             let next = try await deps.usersApi.signInMethods(accountId: accountId)
             methods = next
@@ -277,6 +279,7 @@ struct SignInMethodsSection: View {
         } catch {
             if methods == nil {
                 loadFailed = true
+                guard retried else { return }
                 toaster.error(
                     FeedbackStates.Errors.title(verb: "load", thing: "sign-in methods"),
                     description: error.trpcUserMessage

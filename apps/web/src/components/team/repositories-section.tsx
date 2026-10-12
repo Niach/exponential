@@ -161,9 +161,10 @@ export function TeamRepositoriesSection({
     try {
       setRepos(await trpc.repositories.list.query({ teamId }))
       setLoadFailed(false)
-    } catch (err) {
+    } catch {
+      // FEED-79: the list loads on open, on focus and after a write, so a
+      // failed load is quiet: the empty state (or the rows it last had).
       setLoadFailed(true)
-      failedAction(`load`, `the repositories`, err, { retry: () => void refresh() })
     } finally {
       setReloading(false)
     }

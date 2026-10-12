@@ -45,7 +45,8 @@ struct OnboardingView: View {
     @State private var page = OnboardingView.teamPage
     @State private var teamId: String?
     @State private var resolvingTeam = true
-    /// FEED-79: a failed team lookup = the step's Retry plus a toast.
+    /// FEED-79: the team lookup runs on appear, so a failure is quiet (the
+    /// step's Retry); only a failed Retry tap toasts.
     @State private var teamLoadFailed = false
     @Environment(\.toaster) private var toaster
     /// Step 3: a link was minted, so the trailing button reads "Continue".
@@ -127,7 +128,7 @@ struct OnboardingView: View {
             } else if teamLoadFailed {
                 VStack(spacing: 12) {
                     GlassSubmitButton(OnboardingCopy.retry) {
-                        Task { await resolveTeam() }
+                        Task { await resolveTeam(retried: true) }
                     }
                 }
             } else {
@@ -285,7 +286,7 @@ struct OnboardingView: View {
     /// EXP-188). A user who already has a membership (e.g. re-running a
     /// half-finished wizard) skips straight to the board step; a fresh signup
     /// gets the create-or-join choice.
-    private func resolveTeam() async {
+    private func resolveTeam(retried: Bool = false) async {
         guard teamId == nil, let accountId = deps.auth.activeAccountId else {
             resolvingTeam = false
             return
@@ -299,10 +300,12 @@ struct OnboardingView: View {
             }
         } catch {
             teamLoadFailed = true
-            toaster.error(
-                FeedbackStates.Errors.title(verb: "load", thing: "your teams"),
-                description: error.trpcUserMessage
-            )
+            if retried {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "load", thing: "your teams"),
+                    description: error.trpcUserMessage
+                )
+            }
         }
         resolvingTeam = false
     }

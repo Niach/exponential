@@ -189,11 +189,24 @@ public enum FeedbackStates {
     }
 
     /// (6) ERRORS (FEED-79): a failed action is a toast titled
-    /// `Couldn't <verb> <thing>`; invalid input stays inline under its field.
+    /// `Couldn't <verb> <thing>`; invalid input stays inline under its field;
+    /// automatic or background work (sync, polling, a load on appear or
+    /// focus) never toasts.
     public enum Errors {
         public static let retry = "Retry"
         public static let inlineSize: Double = 13
 
         public static func title(verb: String, thing: String) -> String { "Couldn't \(verb) \(thing)" }
+
+        /// Where a failure renders, by who started the work (the fixture's
+        /// `kind` → `render`): `action` = toast, `input` = inline,
+        /// `background` (and anything unknown) = quiet.
+        public static func surface(kind: String) -> String {
+            switch kind {
+            case "action": return "toast"
+            case "input": return "inline"
+            default: return "quiet"
+            }
+        }
     }
 }

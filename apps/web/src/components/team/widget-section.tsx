@@ -3,7 +3,6 @@ import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { Link } from "@tanstack/react-router"
 import { Check, Copy, Sparkles } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
-import { failedAction } from "@/lib/action-error"
 import { buildWidgetSnippet } from "@/lib/widget-snippet"
 import { useBillingPlan } from "@/hooks/use-billing"
 import { useTeamBoards } from "@/hooks/use-team-data"
@@ -64,13 +63,14 @@ export function TeamWidgetSection({ team }: { team: Team }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<WidgetListItem | null>(null)
 
-  // FEED-79: a failed load = the empty list + a toast with Retry.
+  // FEED-79: the list loads on open and re-lists after an action, so a
+  // failed load is quiet: the empty list (or the rows it last had).
   const refresh = useCallback(async (): Promise<void> => {
     setReloading(true)
     try {
       setWidgets(await trpc.widgets.list.query({ teamId }))
-    } catch (error) {
-      failedAction(`load`, `the widgets`, error, { retry: () => void refresh() })
+    } catch {
+      // Quiet (FEED-79).
     } finally {
       setLoading(false)
       setReloading(false)

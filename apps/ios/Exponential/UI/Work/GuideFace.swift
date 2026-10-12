@@ -167,7 +167,6 @@ private struct GuideBody: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.motion) private var motion
-    @Environment(\.toaster) private var toaster
 
     /// EXP-1172: the topics whose `Earlier` band is open.
     @State private var expandedEarlier: Set<String> = []
@@ -273,14 +272,6 @@ private struct GuideBody: View {
             .padding(.horizontal, horizontalPadding)
             .padding(.vertical, 12)
         }
-        .onChange(of: diffFailure, initial: true) { _, message in
-            guard let message else { return }
-            toaster.error(FeedbackStates.Errors.title(verb: "load", thing: "the changes"), description: message)
-        }
-        .onChange(of: prFailure, initial: true) { _, message in
-            guard let message else { return }
-            toaster.error(FeedbackStates.Errors.title(verb: "load", thing: "the pull request"), description: message)
-        }
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
             contentWidth = width
         }
@@ -295,21 +286,10 @@ private struct GuideBody: View {
             SkeletonRows(rows: 3, rowHeight: 36)
                 .accessibilityIdentifier("guide-diff-loading")
         case .failed, .ready:
-            // FEED-79: a failed load is the error toast (`body`'s onChange),
-            // the face keeps what it has.
+            // FEED-79: the load runs on open, so a failure is quiet: the
+            // face keeps what it has, never a toast.
             EmptyView()
         }
-    }
-
-    /// FEED-79: the failed loads, as the toasts they raise.
-    private var diffFailure: String? {
-        if case let .failed(message) = diffStatus { return message }
-        return nil
-    }
-
-    private var prFailure: String? {
-        if case let .failed(message)? = prFallback { return message }
-        return nil
     }
 
     /// One topic under its band (or as the lead): the text, its ONE Changes
@@ -347,7 +327,7 @@ private struct GuideBody: View {
             // Rendered as the PR-body group (`prDescriptionGroup`).
             EmptyView()
         case .failed:
-            // FEED-79: the toast (`body`'s onChange), no red line.
+            // FEED-79: a load on open fails quietly, no red line.
             EmptyView()
         case .loading:
             // EXP-1275 (D8): a placeholder, not "Loading…".

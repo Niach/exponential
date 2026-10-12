@@ -1,5 +1,6 @@
 package com.exponential.app.ui.components
 
+import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.ToastKind
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -47,5 +48,14 @@ class FailedActionToastTest {
         toaster.failedAction("load", "the changes", "   ")
         toaster.failedAction("load", "the preview", null)
         assertEquals(listOf(null, null), toaster.toasts.map { it.description })
+    }
+
+    // The fixture's `background` case (`FeedbackMarkTest` replays every kind):
+    // automatic work never reaches `failedAction`, so it raises no toast.
+    @Test
+    fun backgroundWorkMapsToNoToast() {
+        assertEquals("quiet", FeedbackStates.errorSurface("background"))
+        assertEquals("toast", FeedbackStates.errorSurface("action"))
+        assertEquals("inline", FeedbackStates.errorSurface("input"))
     }
 }

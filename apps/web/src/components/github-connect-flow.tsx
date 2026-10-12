@@ -118,19 +118,17 @@ export function GithubConnectFlow({
       .then(({ team }) => {
         if (live) setResolvedTeamId(team?.id ?? null)
       })
-      .catch((error: unknown) => {
-        if (!live) return
-        setFailed(true)
-        failedAction(`load`, `your team`, error)
+      .catch(() => {
+        // FEED-79: a load on open never toasts; the steps stay as they are.
+        if (live) setFailed(true)
       })
     return () => {
       live = false
     }
   }, [teamId])
 
-  // FEED-79: a failed load toasts ONCE per failing streak (every window
-  // focus re-lists, so a down server must not toast on each one).
-  const loadFailedRef = useRef(false)
+  // FEED-79: the list runs on open and on every window focus, so a failure
+  // stays quiet (no toast): the steps keep their last known state.
   const refresh = useCallback(
     async (force = false) => {
       if (!resolvedTeamId) return
@@ -142,15 +140,8 @@ export function GithubConnectFlow({
           })
         )
         setFailed(false)
-        loadFailedRef.current = false
-      } catch (error) {
+      } catch {
         setFailed(true)
-        if (!loadFailedRef.current) {
-          loadFailedRef.current = true
-          failedAction(`load`, `the GitHub connection`, error, {
-            retry: () => void refresh(true),
-          })
-        }
       }
     },
     [resolvedTeamId]

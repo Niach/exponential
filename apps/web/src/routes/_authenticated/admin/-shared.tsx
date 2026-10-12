@@ -1,8 +1,7 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import { useRouter } from "@tanstack/react-router"
-import { GlassCard, ListEmpty, Pill } from "@exp/ui"
+import { Button, FEEDBACK_ERRORS, GlassCard, ListEmpty, Pill } from "@exp/ui"
 import { cn } from "@/lib/utils"
-import { failedAction } from "@/lib/action-error"
 
 // Admin console formatting helpers. tRPC serializes with plain JSON, so Date
 // fields arrive as ISO strings (despite the inferred `Date` types) and
@@ -16,32 +15,32 @@ const TONE_CLASS: Record<StatTone, string> = {
   bad: `text-destructive`,
 }
 
-/** A route loader failed (FEED-79): the page's heading over its empty state,
- *  plus ONE toast with Retry (re-runs the loader). The route-level boundary
- *  keeps the admin shell and nav up (EXP-373). */
+/** A route loader failed (FEED-79): the page's heading over its empty state
+ *  and its Retry (re-runs the loader). The load ran on navigation, so it
+ *  never toasts. The route-level boundary keeps the admin shell and nav up
+ *  (EXP-373). */
 export function AdminLoadFailure({
   heading,
-  thing,
-  error,
   className = `max-w-5xl`,
 }: {
   heading: string
-  thing: string
-  error: unknown
   className?: string
 }) {
   const router = useRouter()
-  // Once per failure (StrictMode re-runs effects; the ref survives).
-  const toasted = useRef<unknown>(undefined)
-  useEffect(() => {
-    if (toasted.current === error) return
-    toasted.current = error
-    failedAction(`load`, thing, error, { retry: () => void router.invalidate() })
-  }, [error, thing, router])
+  const [retrying, setRetrying] = useState(false)
+  const retry = () => {
+    setRetrying(true)
+    void router.invalidate().finally(() => setRetrying(false))
+  }
   return (
     <div className={cn(`mx-auto space-y-4 p-4 md:p-6`, className)}>
       <h1 className="text-2xl font-bold">{heading}</h1>
-      <ListEmpty className="rounded-md border px-4 py-8">Nothing to show</ListEmpty>
+      <div className="flex flex-col items-center gap-3 rounded-md border px-4 py-8">
+        <ListEmpty className="py-0">Nothing to show</ListEmpty>
+        <Button size="sm" variant="outline" onClick={retry} pending={retrying}>
+          {FEEDBACK_ERRORS.retry}
+        </Button>
+      </div>
     </div>
   )
 }

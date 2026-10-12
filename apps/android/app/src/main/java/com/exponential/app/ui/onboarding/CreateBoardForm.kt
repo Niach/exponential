@@ -120,7 +120,7 @@ fun CreateBoardForm(
     viewModel: CreateBoardViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    // FEED-79: a failed repos load (Retry) or create is an error toast.
+    // FEED-79: a failed create is an error toast (the repos load is quiet).
     FailedActionToast(state.failure, onShown = viewModel::clearFailure)
 
     LaunchedEffect(teamId) {

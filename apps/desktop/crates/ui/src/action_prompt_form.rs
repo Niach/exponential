@@ -78,6 +78,12 @@ pub(crate) struct ActionPromptForm {
     /// `actions.get` in flight — the prompt and Save stay disabled so a
     /// save can never blank the body.
     body_loading: bool,
+    /// FEED-79: `actions.get` failed. The load on open is quiet: the prompt
+    /// field becomes its empty state + Retry and Save stays off, so the real
+    /// body is never blanked. `body_retry_pressed` = the load in flight is
+    /// the person's Retry press, whose failure toasts.
+    body_failed: bool,
+    body_retry_pressed: bool,
     submitting: bool,
     /// EXP-1259 D8: Save's pending face ("Saving").
     pending: crate::feedback::Pending,
@@ -86,6 +92,9 @@ pub(crate) struct ActionPromptForm {
     name_error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
+
+/// The prompt field when `actions.get` failed (web `action-prompt-form.tsx`).
+const PROMPT_UNAVAILABLE: &str = "Prompt unavailable";
 
 impl ActionPromptForm {
     /// The form over one synced (non-builtin) action row.
@@ -174,6 +183,8 @@ impl ActionPromptForm {
             saved_mcp_server_ids: Vec::new(),
             body,
             body_loading: true,
+            body_failed: false,
+            body_retry_pressed: false,
             submitting: false,
             pending: crate::feedback::Pending::default(),
             name_error: None,
@@ -198,29 +209,25 @@ impl ActionPromptForm {
                 .spawn(async move { api::actions::get(&trpc, &action_id) })
                 .await;
             let _ = this.update_in(window, |view, window, cx| {
+                let attended = std::mem::take(&mut view.body_retry_pressed);
                 match result {
                     Ok(action) => {
+                        view.body_failed = false;
                         view.body.update(cx, |state, cx| {
                             state.set_value(action.body, window, cx);
                         });
                         view.mcp_server_ids = action.mcp_server_ids.clone();
                         view.saved_mcp_server_ids = action.mcp_server_ids;
                     }
-                    // FEED-79: a failed load = the toast (Retry refetches);
-                    // the prompt stays empty and Save waits for a body.
+                    // FEED-79: the load on open fails quietly (the field's
+                    // empty state + Retry, Save off); only a Retry press
+                    // that fails again toasts.
                     Err(err) => {
-                        let form = cx.entity().downgrade();
-                        crate::action_error::failed_action_with_retry(
-                            "load",
+                        view.body_failed = true;
+                        crate::action_error::failed_load(
                             "the prompt",
+                            attended,
                             crate::action_error::action_error_description(&err),
-                            move |window, cx| {
-                                let _ = form.update(cx, |view, cx| {
-                                    view.body_loading = true;
-                                    view.fetch_body(window, cx);
-                                    cx.notify();
-                                });
-                            },
                             cx,
                         );
                     }
@@ -233,6 +240,14 @@ impl ActionPromptForm {
             });
         })
         .detach();
+    }
+
+    /// The failed prompt's Retry: the same load, attended.
+    fn retry_body(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        self.body_retry_pressed = true;
+        self.body_loading = true;
+        self.fetch_body(window, cx);
+        cx.notify();
     }
 
     fn fetch_repos(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
@@ -290,7 +305,7 @@ impl ActionPromptForm {
     }
 
     fn submit(&mut self, window: &mut Window, cx: &mut gpui::Context<Self>) {
-        if self.submitting || self.body_loading || self.read_only(cx) {
+        if self.submitting || self.body_loading || self.body_failed || self.read_only(cx) {
             return;
         }
         // A name is one logical line; pasted newlines collapse (EXP-230).
@@ -390,7 +405,8 @@ impl Render for ActionPromptForm {
         let read_only = self.read_only(cx);
         let name_empty = self.name.read(cx).value().trim().is_empty();
         let body_empty = self.body.read(cx).value().trim().is_empty();
-        let disabled = name_empty || body_empty || self.body_loading || self.submitting;
+        let disabled =
+            name_empty || body_empty || self.body_loading || self.body_failed || self.submitting;
         let muted = cx.theme().muted_foreground;
 
         // -- left column: the metadata form ---------------------------------
@@ -485,18 +501,31 @@ impl Render for ActionPromptForm {
             });
 
         // -- right column: the prompt ---------------------------------------
-        // One group, one field: the placeholder is the title here too.
-        let right = v_flex().flex_1().min_w_0().child(
-            crate::surface::glass_group().child(
-                Textarea::new(&self.body)
-                    .appearance(false)
-                    .w_full()
-                    .px_4()
-                    .py_3()
-                    .font_family(theme::terminal::FONT_FAMILY)
-                    .disabled(self.body_loading || read_only),
-            ),
-        );
+        // One group, one field: the placeholder is the title here too. A
+        // failed load swaps the field for its empty state + Retry (FEED-79).
+        let prompt: gpui::AnyElement = if self.body_failed && !self.body_loading {
+            crate::action_error::load_failed_state(
+                "action-prompt-retry",
+                gpui_component::Icon::new(crate::icons::registry::ACTION_DEFAULT),
+                PROMPT_UNAVAILABLE,
+                cx.listener(|this, _, window, cx| this.retry_body(window, cx)),
+                cx,
+            )
+            .into_any_element()
+        } else {
+            Textarea::new(&self.body)
+                .appearance(false)
+                .w_full()
+                .px_4()
+                .py_3()
+                .font_family(theme::terminal::FONT_FAMILY)
+                .disabled(self.body_loading || read_only)
+                .into_any_element()
+        };
+        let right = v_flex()
+            .flex_1()
+            .min_w_0()
+            .child(crate::surface::glass_group().child(prompt));
 
         // The one write of the section: owners only (a reader has no Save).
         let footer = (!read_only).then(|| {

@@ -2,7 +2,6 @@ import { useEffect, useState } from "react"
 import {
   createFileRoute,
   useRouter,
-  type ErrorComponentProps,
 } from "@tanstack/react-router"
 import { ShieldBan, ShieldCheck } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
@@ -124,8 +123,8 @@ export const Route = createFileRoute(`/_authenticated/admin/email`)({
   errorComponent: EmailError,
 })
 
-function EmailError({ error }: ErrorComponentProps) {
-  return <AdminLoadFailure heading="Email health" thing="email data" error={error} />
+function EmailError() {
+  return <AdminLoadFailure heading="Email health" />
 }
 
 // All outbound email (the email_deliveries ledger) + bounce/complaint

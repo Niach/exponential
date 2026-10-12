@@ -280,7 +280,7 @@ impl CreateBoardDialogView {
                         // Same as the manual refresh: bypass the server's
                         // per-team repo cache (spawn_fetches clears the
                         // notice).
-                        this.spawn_fetches(true, cx);
+                        this.spawn_fetches(true, false, cx);
                     }
                     crate::github_connect::GithubConnectOutcome::Failed(code) => {
                         // Nothing changed server-side — no refetch.
@@ -294,7 +294,7 @@ impl CreateBoardDialogView {
         subscriptions.push(
             cx.observe_global::<crate::oauth::SignInLinkOutcome>(|this, cx| {
                 match crate::github_connect::github_link_outcome(cx) {
-                    Some(Ok(())) => this.spawn_fetches(true, cx),
+                    Some(Ok(())) => this.spawn_fetches(true, false, cx),
                     Some(Err(message)) => this.connect_failed(message.to_string(), cx),
                     None => {}
                 }
@@ -325,14 +325,17 @@ impl CreateBoardDialogView {
         // Load the team's connected repos AND the installable GitHub-App
         // repos so the picker can offer both an existing registry repo and an
         // inline connect (a backing repo is required by the server, v4 §3.1).
-        this.spawn_fetches(false, cx);
+        this.spawn_fetches(false, false, cx);
         this
     }
 
     /// (Re)fetch both the registry repos and the installable GitHub-App repos.
     /// `refresh` forces the server past its per-user repo cache — used by the
     /// explicit Refresh after the user connects the App in the browser.
-    fn spawn_fetches(&mut self, refresh: bool, cx: &mut gpui::Context<Self>) {
+    /// `attended` = the person pressed Refresh or Retry: only then does a
+    /// failure toast (FEED-79); the load on open and the connect hand-backs
+    /// fail quietly into the empty picker.
+    fn spawn_fetches(&mut self, refresh: bool, attended: bool, cx: &mut gpui::Context<Self>) {
         let Some(trpc) = queries::trpc_client(cx) else {
             return;
         };
@@ -356,19 +359,11 @@ impl CreateBoardDialogView {
                 if this.fetch_generation != generation {
                     return; // superseded by a newer fetch
                 }
-                // FEED-79: a failed list = the empty picker + ONE toast.
+                // FEED-79: a failed list = the empty picker + its Retry;
+                // only a person's Refresh / Retry that fails toasts.
                 let failure = registry.as_ref().err().or(github.as_ref().err()).cloned();
                 if let Some(message) = failure {
-                    let dialog = cx.entity().downgrade();
-                    crate::action_error::failed_action_with_retry(
-                        "load",
-                        "the repositories",
-                        Some(message),
-                        move |_, cx| {
-                            let _ = dialog.update(cx, |this, cx| this.spawn_fetches(true, cx));
-                        },
-                        cx,
-                    );
+                    crate::action_error::failed_load("the repositories", attended, Some(message), cx);
                 }
                 this.repos = match registry {
                     Ok(repos) => RepoLoad::Ready(repos),
@@ -669,6 +664,8 @@ impl CreateBoardDialogView {
             _ => None,
         };
         let connect_label = crate::board_form::connect_repository_label(has_repos);
+        // FEED-79: a failed list's empty picker carries its Retry.
+        let repos_failed = matches!(self.repos, RepoLoad::Failed);
         let view = cx.entity().clone();
         let menu_repos = registry.clone();
         // The trigger is the ROW's trailing value — no field chrome of its
@@ -718,6 +715,16 @@ impl CreateBoardDialogView {
                         crate::controls::pointer_label_item(SharedString::from(repo.full_name.clone()), false)
                             .icon(Icon::new(registry::UI_GITHUB))
                             .checked(true),
+                    );
+                }
+                if repos_failed {
+                    let view = view.clone();
+                    menu = menu.item(
+                        crate::controls::pointer_label_item(crate::feedback::RETRY, false)
+                            .icon(Icon::new(registry::UI_REFRESH))
+                            .on_click(move |_, _, cx| {
+                                view.update(cx, |this, cx| this.spawn_fetches(true, true, cx));
+                            }),
                     );
                 }
                 let view = view.clone();
@@ -834,11 +841,7 @@ impl CreateBoardDialogView {
     /// Lazy `repositories.listBranches` for the selected repo (EXP-712) —
     /// kicked when the Branch menu opens, cached until the selection changes.
     fn ensure_branches(&mut self, repository_id: String, cx: &mut gpui::Context<Self>) {
-        if self
-            .branches
-            .as_ref()
-            .is_some_and(|(id, _)| id == &repository_id)
-        {
+        if crate::board_form::branches_settled_for(self.branches.as_ref(), &repository_id) {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
@@ -858,7 +861,7 @@ impl CreateBoardDialogView {
             let _ = this.update(cx, |this, cx| {
                 let load = match result {
                     Ok(out) => crate::board_form::BranchLoad::Ready(out.branches),
-                    Err(err) => crate::board_form::branches_failed(&err, cx),
+                    Err(err) => crate::board_form::branches_failed(&err),
                 };
                 this.branches = Some((repository_id, load));
                 cx.notify();
@@ -1010,7 +1013,7 @@ impl CreateBoardDialogView {
             }
         }
 
-        // A genuine fetch failure was a toast (FEED-79); an unconfigured
+        // A genuine fetch failure is quiet (FEED-79; Refresh below retries); an unconfigured
         // instance still says so here — the difference between "nothing to
         // connect" and "nothing can connect".
         if matches!(&self.github, GithubLoad::Ready(result) if !result.configured) {
@@ -1038,7 +1041,7 @@ impl CreateBoardDialogView {
                 } else {
                     gh_copy::REFRESH
                 })
-                .on_click(cx.listener(|this, _, _, cx| this.spawn_fetches(true, cx))),
+                .on_click(cx.listener(|this, _, _, cx| this.spawn_fetches(true, true, cx))),
         );
         if let Some(url) = github_result
             .filter(|_| ready)

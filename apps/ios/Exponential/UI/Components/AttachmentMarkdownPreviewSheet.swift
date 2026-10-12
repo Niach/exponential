@@ -18,14 +18,15 @@ struct AttachmentMarkdownPreviewSheet: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
-    // FEED-79: a failed load or Download is a toast, never a rose line.
+    // FEED-79: a failed Download (the person's tap) is a toast; the load on
+    // open fails quietly into the empty state. Never a rose line.
     @Environment(\.toaster) private var toaster
 
     private enum Phase {
         case loading
         case ready(String)
         case tooLarge
-        /// The fetch failed: the body stays empty, the reason is a toast.
+        /// The fetch on open failed: the empty state, no toast.
         case failed
     }
 
@@ -119,7 +120,11 @@ struct AttachmentMarkdownPreviewSheet: View {
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .padding(.vertical, 24)
         case .failed:
-            EmptyView()
+            // Web's line for the same state (no toast: the load ran on open).
+            Text("No preview. Download it to read it.")
+                .font(.callout)
+                .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                .padding(.vertical, 24)
         }
     }
 
@@ -145,10 +150,6 @@ struct AttachmentMarkdownPreviewSheet: View {
             return
         } catch {
             phase = .failed
-            toaster.error(
-                FeedbackStates.Errors.title(verb: "load", thing: "the file"),
-                description: AttachmentFiles.markdownPreviewErrorMessage(error)
-            )
         }
     }
 

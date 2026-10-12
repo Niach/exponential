@@ -169,6 +169,9 @@ struct MarkdownPreview {
     scroll: ScrollHandle,
     _images_sub: Subscription,
     _load: Option<Task<()>>,
+    /// FEED-79: the fetch in flight is the person's Retry press (its failure
+    /// toasts); the fetch on open fails quietly into the empty body.
+    retry_pressed: bool,
 }
 
 impl MarkdownPreview {
@@ -184,6 +187,7 @@ impl MarkdownPreview {
             scroll: ScrollHandle::new(),
             _images_sub: images_sub,
             _load: None,
+            retry_pressed: false,
         };
         if this.phase == PreviewPhase::Loading {
             this.load(transport, cx);
@@ -191,8 +195,8 @@ impl MarkdownPreview {
         this
     }
 
-    /// Fetch the file. FEED-79: a failed load = the empty body + ONE toast,
-    /// whose Retry fetches again.
+    /// Fetch the file. FEED-79: a failed load on open = the empty body +
+    /// Retry, no toast; only a Retry press that fails again toasts.
     fn load(&mut self, transport: Option<Arc<dyn AttachmentTransport>>, cx: &mut gpui::Context<Self>) {
         self.phase = PreviewPhase::Loading;
         let Some(transport) = transport else {
@@ -217,20 +221,16 @@ impl MarkdownPreview {
 
     fn fail(&mut self, message: String, cx: &mut gpui::Context<Self>) {
         self.phase = PreviewPhase::Error(message.clone());
-        let preview = cx.entity().downgrade();
-        crate::action_error::failed_action_with_retry(
-            "load",
-            "the preview",
-            Some(message),
-            move |_, cx| {
-                let _ = preview.update(cx, |this, cx| {
-                    let transport = queries::attachment_transport(cx);
-                    this.load(transport, cx);
-                    cx.notify();
-                });
-            },
-            cx,
-        );
+        let attended = std::mem::take(&mut self.retry_pressed);
+        crate::action_error::failed_load("the preview", attended, Some(message), cx);
+    }
+
+    /// The empty body's Retry: the same fetch, attended.
+    fn retry(&mut self, cx: &mut gpui::Context<Self>) {
+        self.retry_pressed = true;
+        let transport = queries::attachment_transport(cx);
+        self.load(transport, cx);
+        cx.notify();
     }
 
     fn render_body(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
@@ -251,13 +251,15 @@ impl MarkdownPreview {
                 .text_color(cx.theme().muted_foreground)
                 .child(TOO_LARGE_COPY)
                 .into_any_element(),
-            // The failure was a toast (FEED-79): the empty body.
-            PreviewPhase::Error(_) => div()
-                .py_6()
-                .text_sm()
-                .text_color(cx.theme().muted_foreground)
-                .child(NO_PREVIEW_COPY)
-                .into_any_element(),
+            // A failed load (FEED-79): the empty body + Retry, no toast.
+            PreviewPhase::Error(_) => crate::action_error::load_failed_state(
+                "md-preview-retry",
+                gpui_component::Icon::new(registry::UI_FILE),
+                NO_PREVIEW_COPY,
+                cx.listener(|this, _, _, cx| this.retry(cx)),
+                cx,
+            )
+            .into_any_element(),
             PreviewPhase::Ready(source) => {
                 let mut view = MarkdownView::new(
                     SharedString::from(format!("md-preview-{}", self.target.attachment_id)),

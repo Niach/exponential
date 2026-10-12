@@ -10,7 +10,7 @@ const mockState = vi.hoisted(() => ({
   toastError: vi.fn(),
 }))
 
-// FEED-79: a failed load is a toast over the empty state, never a rose line.
+// FEED-79: a failed load on open is the empty state: no toast, no rose line.
 vi.mock(`sonner`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("sonner")>()),
   toast: { success: vi.fn(), error: mockState.toastError },
@@ -64,17 +64,15 @@ describe(`PasskeysSection last way in`, () => {
 })
 
 describe(`PasskeysSection load failure`, () => {
-  it(`toasts once with Retry and draws the empty state`, async () => {
+  it(`stays quiet and draws the empty state`, async () => {
     mockState.listUserPasskeys.mockResolvedValue({
       data: null,
       error: { message: `Server unavailable` },
     })
     render(<PasskeysSection passkeyEnabled waysIn={2} />)
-    await waitFor(() => expect(mockState.toastError).toHaveBeenCalledTimes(1))
-    const [title, options] = mockState.toastError.mock.calls[0]
-    expect(title).toBe(`Couldn't load your passkeys`)
-    expect(options.description).toBe(`Server unavailable`)
-    expect(options.action?.label).toBeTruthy()
+    await waitFor(() => expect(mockState.listUserPasskeys).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByTestId(`feedback-skeleton`)).toBeNull())
+    expect(mockState.toastError).not.toHaveBeenCalled()
     expect(screen.queryByRole(`button`, { name: `Remove` })).toBeNull()
     expect(screen.queryByRole(`alert`)).toBeNull()
   })

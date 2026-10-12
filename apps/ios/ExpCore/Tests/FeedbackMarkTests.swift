@@ -174,6 +174,13 @@ final class FeedbackMarkTests: XCTestCase {
             let thing = try XCTUnwrap(c["thing"] as? String)
             XCTAssertEqual(FeedbackStates.Errors.title(verb: verb, thing: thing), c["title"] as? String)
         }
+        // Every case renders where the fixture says; background work is quiet.
+        for c in cases {
+            let kind = try XCTUnwrap(c["kind"] as? String)
+            XCTAssertEqual(FeedbackStates.Errors.surface(kind: kind), c["render"] as? String, "\(c["name"] ?? kind)")
+        }
+        XCTAssertTrue(cases.contains { $0["kind"] as? String == "background" })
+        XCTAssertEqual(FeedbackStates.Errors.surface(kind: "background"), "quiet")
     }
 
     func testTheTestIdsAreTheFixtures() throws {

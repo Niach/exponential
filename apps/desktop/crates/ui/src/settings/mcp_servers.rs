@@ -220,8 +220,9 @@ pub struct McpServersPane {
     /// next render to start it, `reloading` is the fetch in flight.
     reload_requested: bool,
     reloading: bool,
-    /// FEED-79: the load failure already toasted (once per failing streak).
-    load_failed: bool,
+    /// FEED-79: the load in flight is the person's Retry press (its failure
+    /// toasts); a load on entry or after a write fails quietly.
+    retry_pressed: bool,
     /// EXP-1274: the built-in tools band's inline filter.
     tool_filter: Entity<InputState>,
     _subscriptions: Vec<Subscription>,
@@ -256,7 +257,7 @@ impl McpServersPane {
             value_input,
             reload_requested: false,
             reloading: false,
-            load_failed: false,
+            retry_pressed: false,
             tool_filter,
             _subscriptions: subscriptions,
         }
@@ -281,6 +282,12 @@ impl McpServersPane {
             Load::Idle | Load::Loading => {}
         }
         cx.notify();
+    }
+
+    /// The failed list's Retry: the same load, attended.
+    fn retry_load(&mut self, cx: &mut gpui::Context<Self>) {
+        self.retry_pressed = true;
+        self.refetch(cx);
     }
 
     fn ensure_loaded(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
@@ -324,24 +331,16 @@ impl McpServersPane {
                 if this.generation != generation {
                     return;
                 }
-                // FEED-79: a failed load = the empty state + ONE toast per
-                // failing streak.
-                match &result {
-                    Err(message) if !this.load_failed => {
-                        this.load_failed = true;
-                        let pane = cx.entity().downgrade();
-                        crate::action_error::failed_action_with_retry(
-                            "load",
-                            "the MCP servers",
-                            Some(message.clone()),
-                            move |_, cx| {
-                                let _ = pane.update(cx, |this, cx| this.refetch(cx));
-                            },
-                            cx,
-                        );
-                    }
-                    Err(_) => {}
-                    Ok(_) => this.load_failed = false,
+                // FEED-79: a failed load = the empty state + Retry; only a
+                // Retry press that fails again toasts.
+                let attended = std::mem::take(&mut this.retry_pressed);
+                if let Err(message) = &result {
+                    crate::action_error::failed_load(
+                        "the MCP servers",
+                        attended,
+                        Some(message.clone()),
+                        cx,
+                    );
                 }
                 this.load = Load::Ready(result);
                 this.reloading = false;
@@ -1205,11 +1204,13 @@ impl Render for McpServersPane {
             Load::Idle | Load::Loading => {
                 body = body.child(super::settings_skeleton("mcp-servers-skeleton", cx));
             }
-            // A failed load reads as the empty list; the failure was a toast.
+            // A failed load (FEED-79): the empty state + Retry, no toast.
             Load::Ready(Err(_)) => {
-                body = body.child(crate::controls::empty_state_list(
+                body = body.child(crate::action_error::load_failed_state(
+                    "mcp-servers-retry",
                     Icon::new(registry::SETTINGS_MCP),
                     crate::empty_state_copy::MCP_SERVERS,
+                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
                     cx,
                 ));
             }

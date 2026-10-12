@@ -153,4 +153,13 @@ class FeedbackMarkTest {
             )
         }
     }
+
+    @Test
+    fun `every error case renders where the fixture says, background work stays quiet`() {
+        val cases = fixture.obj("errors").getValue("cases").jsonArray.map { it.jsonObject }
+        for (case in cases) {
+            assertEquals(case.string("name"), case.string("render"), FeedbackStates.errorSurface(case.string("kind")))
+        }
+        assertTrue(cases.any { it.string("kind") == "background" })
+    }
 }

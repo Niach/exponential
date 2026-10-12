@@ -153,7 +153,13 @@ pub struct NotificationsPrefsPane {
     /// The account the loaded prefs belong to — a re-login must not show
     /// (or write!) the previous account's preferences.
     account_id: Option<String>,
+    /// FEED-79: the load in flight is the person's Retry press (its failure
+    /// toasts); a load on entry fails quietly into the empty state.
+    retry_pressed: bool,
 }
+
+/// The prefs band when their load failed (FEED-79: the empty state + Retry).
+const NO_PREFERENCES: &str = "No notification preferences";
 
 impl NotificationsPrefsPane {
     pub fn new(_cx: &mut gpui::Context<Self>) -> Self {
@@ -161,7 +167,15 @@ impl NotificationsPrefsPane {
             load: Load::Idle,
             generation: 0,
             account_id: None,
+            retry_pressed: false,
         }
+    }
+
+    /// The failed load's Retry: the same read, attended.
+    fn retry_load(&mut self, cx: &mut gpui::Context<Self>) {
+        self.retry_pressed = true;
+        self.load = Load::Idle;
+        cx.notify();
     }
 
     /// EXP-369: drop cached prefs so the next render refetches. The pane is
@@ -204,21 +218,16 @@ impl NotificationsPrefsPane {
                 if this.generation != generation {
                     return;
                 }
+                let attended = std::mem::take(&mut this.retry_pressed);
                 this.load = match result {
                     Ok(prefs) => Load::Ready(prefs),
                     Err(err) => {
-                        // FEED-79: the empty controls + the toast.
-                        let pane = cx.entity().downgrade();
-                        crate::action_error::failed_action_with_retry(
-                            "load",
+                        // FEED-79: the empty state + Retry; only a Retry
+                        // press that fails again toasts.
+                        crate::action_error::failed_load(
                             "your notification preferences",
+                            attended,
                             crate::action_error::action_error_description(&err),
-                            move |_, cx| {
-                                let _ = pane.update(cx, |this, cx| {
-                                    this.load = Load::Idle;
-                                    cx.notify();
-                                });
-                            },
                             cx,
                         );
                         Load::Error
@@ -386,7 +395,15 @@ impl Render for NotificationsPrefsPane {
                     .child(settings_skeleton("notification-prefs-skeleton", cx));
             }
             Load::Error => {
-                body = body.child(glass_group_rows(rows));
+                body = body.child(glass_group_rows(rows)).child(
+                    crate::action_error::load_failed_state(
+                        "notification-prefs-retry",
+                        gpui_component::Icon::new(crate::icons::registry::SETTINGS_NOTIFICATIONS),
+                        NO_PREFERENCES,
+                        cx.listener(|this, _, _, cx| this.retry_load(cx)),
+                        cx,
+                    ),
+                );
             }
             Load::Ready(prefs) => {
                 // EXP-369: the per-type switches gate PUSH too, so the master

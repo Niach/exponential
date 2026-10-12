@@ -122,6 +122,17 @@ object FeedbackStates {
     fun errorTitle(verb: String, thing: String): String =
         ERROR_TITLE_PATTERN.replace("{verb}", verb).replace("{thing}", thing)
 
+    /**
+     * Where a failure renders, by who started the work (the fixture's `kind`
+     * -> `render`): `action` = toast, `input` = inline, `background` (sync,
+     * polling, a load on open or focus; anything unknown) = quiet, never a toast.
+     */
+    fun errorSurface(kind: String): String = when (kind) {
+        "action" -> "toast"
+        "input" -> "inline"
+        else -> "quiet"
+    }
+
     private fun easeInOutCubic(x: Double): Double =
         if (x < 0.5) 4 * x * x * x else 1 - (-2 * x + 2).pow(3) / 2
 

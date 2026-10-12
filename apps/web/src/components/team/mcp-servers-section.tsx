@@ -103,8 +103,6 @@ const DisconnectIcon = conceptIcon(`ui-clear`)
 const BackIcon = conceptIcon(`ui-back`)
 const CloseIcon = conceptIcon(`ui-close`)
 const ShareIcon = conceptIcon(`ui-share`)
-/** `useMcpServers`' own fallback line: the toast's title already says it. */
-const LOAD_FALLBACK = `Couldn't load the MCP servers.`
 
 /** A settings deep link's one-shot requests (the route strips them once
  * handed over): `?connect=<id>` starts a connect, `?mcp=…` is the OAuth
@@ -130,13 +128,8 @@ export function TeamMcpServersSection({
   onRequestConsumed?: () => void
 }) {
   const { servers, reloading, error, refresh, setShared } = useMcpServers(teamId)
-  // FEED-79: a failed load = the empty state + one toast per failure.
-  useEffect(() => {
-    if (!error) return
-    failedAction(`load`, `the MCP servers`, error === LOAD_FALLBACK ? undefined : error, {
-      retry: () => void refresh(),
-    })
-  }, [error, refresh])
+  // FEED-79: the list loads on open and re-lists after a write, so a failed
+  // load is quiet: the empty state, never a toast.
   const [editor, setEditor] = useState<Editor | null>(null)
   const [removeTarget, setRemoveTarget] = useState<McpServerRow | null>(null)
   const [keyTarget, setKeyTarget] = useState<McpServerRow | null>(null)

@@ -3,6 +3,8 @@ import type { Team } from "@/db/schema"
 import { contract } from "@exp/domain-contract"
 import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
 import {
+  Button,
+  FEEDBACK_ERRORS,
   FieldError,
   GlassGroup,
   GlassInputRow,
@@ -93,7 +95,8 @@ export function TeamGeneralSection({ team }: { team: Team }) {
   // the caption reads Saving → Saved (`savedHoldMs`) → Edited {ago}, never
   // Unsaved. `null` = still loading; the field is disabled until then so a
   // blur can never save an empty draft over a prompt that has not arrived.
-  // FEED-79: a failed load = the empty (disabled) field + a toast with Retry.
+  // FEED-79: the load runs on open, so a failure is quiet: the field's empty
+  // state + Retry; only a failed Retry tap (the person's action) toasts.
   const [prompt, setPrompt] = useState<string | null>(null)
   const [savedPrompt, setSavedPrompt] = useState<string>(``)
   const [promptUpdatedAt, setPromptUpdatedAt] = useState<Date | null>(null)
@@ -101,6 +104,11 @@ export function TeamGeneralSection({ team }: { team: Team }) {
   const [promptJustSaved, setPromptJustSaved] = useState(false)
   const [promptLoadFailed, setPromptLoadFailed] = useState(false)
   const [promptLoadAttempt, setPromptLoadAttempt] = useState(0)
+  const promptRetried = useRef(false)
+  const retryPromptLoad = () => {
+    promptRetried.current = true
+    setPromptLoadAttempt((attempt) => attempt + 1)
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -119,9 +127,9 @@ export function TeamGeneralSection({ team }: { team: Team }) {
       .catch((e: unknown) => {
         if (cancelled) return
         setPromptLoadFailed(true)
-        failedAction(`load`, `the team prompt`, e, {
-          retry: () => setPromptLoadAttempt((attempt) => attempt + 1),
-        })
+        const tapped = promptRetried.current
+        promptRetried.current = false
+        if (tapped) failedAction(`load`, `the team prompt`, e, { retry: retryPromptLoad })
       })
     return () => {
       cancelled = true
@@ -234,6 +242,13 @@ export function TeamGeneralSection({ team }: { team: Team }) {
         <GlassGroup>
           {prompt === null && !promptLoadFailed ? (
             <SkeletonRows rows={2} dot={false} />
+          ) : prompt === null ? (
+            <div className="flex min-h-48 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+              Prompt unavailable
+              <Button type="button" variant="outline" size="sm" onClick={retryPromptLoad}>
+                {FEEDBACK_ERRORS.retry}
+              </Button>
+            </div>
           ) : (
             <Textarea
               id="team-agent-prompt"

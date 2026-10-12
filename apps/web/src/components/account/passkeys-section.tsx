@@ -81,23 +81,18 @@ export function PasskeysSection({
   const [removeTarget, setRemoveTarget] = useState<PasskeyRow | null>(null)
   const [removing, setRemoving] = useState(false)
 
-  // A failed load draws the empty state (+ a toast with Retry).
+  // FEED-79: the list loads on open and after an add, so a failed load is
+  // quiet: the empty state (or the rows it last had), never a toast.
   const refresh = async () => {
-    const retry = () => void refresh()
     try {
       const { data, error } = await authClient.passkey.listUserPasskeys()
       if (error) {
         setRows((prev) => prev ?? [])
-        failedAction(`load`, `your passkeys`, error, {
-          description: authErrorMessage(error, ``) || undefined,
-          retry,
-        })
         return
       }
       setRows((data ?? []) as PasskeyRow[])
-    } catch (err) {
+    } catch {
       setRows((prev) => prev ?? [])
-      failedAction(`load`, `your passkeys`, err, { retry })
     }
   }
 

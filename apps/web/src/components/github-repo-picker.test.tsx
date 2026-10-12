@@ -126,13 +126,13 @@ describe(`GithubRepoPicker (SLOP-7)`, () => {
     expect(mockState.openGithubConnect).toHaveBeenCalledTimes(2)
   })
 
-  it(`a failed list load toasts once with Retry`, async () => {
+  it(`a failed list load (on open, on focus) never toasts`, async () => {
     mockState.reposQuery.mockRejectedValue(new Error(`GitHub is down`))
     renderPicker()
-    await waitFor(() => expect(mockState.toastError).toHaveBeenCalledTimes(1))
-    const [title, options] = mockState.toastError.mock.calls[0]
-    expect(title).toBe(`Couldn't load your GitHub repositories`)
-    expect(options.action?.label).toBe(`Retry`)
+    await waitFor(() => expect(mockState.reposQuery).toHaveBeenCalled())
+    window.dispatchEvent(new Event(`focus`))
+    await waitFor(() => expect(mockState.reposQuery.mock.calls.length).toBeGreaterThan(1))
+    expect(mockState.toastError).not.toHaveBeenCalled()
   })
 
   it(`renders one configure link per installation under the list`, async () => {

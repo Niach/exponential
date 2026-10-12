@@ -346,7 +346,7 @@
     "action": "Open"
   },
   "errors": {
-    "rule": "A FAILED ACTION (save, delete, start, connect, merge, send, invite, sign-in request that reached the server) = toast.error(title, {description: the server's message, action: Retry when re-running the same call is safe}). Title = `Couldn't <verb> <thing>` (sentence case, no period). INVALID INPUT stays INLINE under its field in the rose foreground at 13px (a red field border + the line), never a toast: auth forms, the invite email, URL fields, byte caps, required fields, names already taken. Nothing else renders an error inline: no rose sentences in settings sections, dialogs, option lines, pickers or faces; a section whose LOAD failed shows its empty state plus the toast.",
+    "rule": "ONLY a failure of something the PERSON just did toasts. Automatic or background work (trunk sync, polling, refresh on open or on focus, heartbeats, prefetch, live reloads) NEVER toasts: it keeps its existing quiet surface (the IDE trunk_sync badge + banner, a list's band spinner, its empty state). A FAILED ACTION (save, delete, start, connect, merge, send, invite, sign-in request that reached the server) = toast.error(title, {description: the server's message, action: Retry when re-running the same call is safe}). Title = `Couldn't <verb> <thing>` (sentence case, no period). INVALID INPUT stays INLINE under its field in the rose foreground at 13px (a red field border + the line), never a toast: auth forms, the invite email, URL fields, byte caps, required fields, names already taken. Nothing else renders an error inline: no rose sentences in settings sections, dialogs, option lines, pickers or faces; a section whose automatic LOAD failed shows its empty state (plus its Retry); only a failed Retry tap toasts.",
     "titlePattern": "Couldn't {verb} {thing}",
     "retry": "Retry",
     "inline": {
@@ -400,6 +400,11 @@
         "kind": "input",
         "render": "inline",
         "message": "Too long: {used} of {max} bytes"
+      },
+      {
+        "name": "a failed automatic sync or background refresh never toasts",
+        "kind": "background",
+        "render": "quiet"
       }
     ]
   }

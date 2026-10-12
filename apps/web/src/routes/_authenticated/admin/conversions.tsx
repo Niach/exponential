@@ -3,7 +3,6 @@ import {
   createFileRoute,
   Link,
   redirect,
-  type ErrorComponentProps,
 } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
 import { getRuntimeConfig } from "@/lib/runtime-config"
@@ -63,8 +62,8 @@ export const Route = createFileRoute(`/_authenticated/admin/conversions`)({
   errorComponent: ConversionsError,
 })
 
-function ConversionsError({ error }: ErrorComponentProps) {
-  return <AdminLoadFailure heading="Conversions" thing="conversions" error={error} />
+function ConversionsError() {
+  return <AdminLoadFailure heading="Conversions" />
 }
 
 function pct(part: number, whole: number): string | undefined {

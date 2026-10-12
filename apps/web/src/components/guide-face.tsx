@@ -3,9 +3,11 @@ import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
 import type { DiffFile } from "@exp/domain-contract/diff"
 import {
   conceptIcon,
+  FEEDBACK_ERRORS,
   GlassSectionHeader,
   MOBILE_WORK_BAR_CLEARANCE,
   MobileWorkBar,
+  Pill,
   SessionResultsView,
   SkeletonRows,
   StackRail,
@@ -42,6 +44,7 @@ import { cn } from "@/lib/utils"
 // alone is one `Changes` section.
 
 const PrStackIcon = conceptIcon(`pr-stack`)
+const UiRefreshIcon = conceptIcon(`ui-refresh`)
 
 /** The fallback's band label without a PR title. */
 export const PR_DESCRIPTION_FALLBACK_TOPIC = `Pull request`
@@ -215,26 +218,42 @@ export function GuideBody({
   const showView = groups.length > 0 || hasDiff
   const filesError = filesState?.kind === `error` ? filesState.message : null
   const waiting = !showView && (loading || filesState?.kind === `loading`) && !error
-  // FEED-79: a failed load = the empty state + ONE toast per failure (Retry
-  // reloads the diff; the PR body's own fetch has no reload here).
-  const retry = useRef(onRetry)
-  retry.current = onRetry
+  // FEED-79: both fetches run on open, so a failed one is the empty state,
+  // never a toast; the diff keeps its Retry, and only a failed Retry tap
+  // (the person's own action) toasts.
+  const filesLoading = filesState?.kind === `loading`
+  const retried = useRef(false)
+  const retryFiles = onRetry
+    ? () => {
+        retried.current = true
+        onRetry()
+      }
+    : undefined
+  const retryRef = useRef(retryFiles)
+  retryRef.current = retryFiles
   useEffect(() => {
-    if (showView || !error) return
-    failedAction(`load`, `the pull request`, error)
-  }, [error, showView])
-  useEffect(() => {
-    if (showView || !filesError) return
-    const reload = retry.current
+    if (filesLoading) return
+    const tapped = retried.current
+    retried.current = false
+    if (!tapped || !filesError) return
+    const again = retryRef.current
     failedAction(`load`, `the changes`, filesError, {
-      retry: reload ? () => reload() : undefined,
+      retry: again ? () => again() : undefined,
     })
-  }, [filesError, showView])
+  }, [filesLoading, filesError])
   return (
     <div data-testid="guide-body">
       {stack && <div className="px-7 pt-5 md:px-5">{stack}</div>}
       {waiting && <SkeletonRows dot={false} className="px-4 py-3 md:px-2" />}
       {!showView && !waiting && <ListEmpty>{GUIDE_NO_CHANGES}</ListEmpty>}
+      {!showView && !waiting && filesError && retryFiles && (
+        <div className="flex justify-center pb-6">
+          <Pill mode="action" onClick={retryFiles}>
+            <UiRefreshIcon className="size-3" />
+            {FEEDBACK_ERRORS.retry}
+          </Pill>
+        </div>
+      )}
       {showView && (
         <SessionResultsView
           groups={groups}

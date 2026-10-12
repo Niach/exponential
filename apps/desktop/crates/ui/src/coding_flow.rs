@@ -1021,8 +1021,9 @@ pub fn any_terminal_dock(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
 /// [`AuthContext`] is authoritative; the default only covers the pre-session
 /// window.
 /// EXP-1232: fetch the managed Codex build off the UI thread (at most one
-/// per process), then re-run the doctor so its row moves on. A failure
-/// shows as a toast and as the row's `Download failed` · Update.
+/// per process), then re-run the doctor so its row moves on. Automatic
+/// work, so a failure is quiet (FEED-79): the row's `Download failed` ·
+/// Update says it.
 pub fn start_codex_fetch(hub: &Entity<CodingHub>, data_dir: PathBuf, cx: &mut App) {
     let hub = hub.clone();
     cx.spawn(async move |cx| {
@@ -1035,7 +1036,7 @@ pub fn start_codex_fetch(hub: &Entity<CodingHub>, data_dir: PathBuf, cx: &mut Ap
         };
         let _ = cx.update(|cx| {
             if let Err(message) = result {
-                crate::action_error::failed_action("download", "Codex", Some(message), cx);
+                log::warn!("[coding] managed Codex download failed: {message}");
             }
             CodingHub::refresh_doctor(&hub, cx);
         });
@@ -1886,6 +1887,9 @@ pub struct StartCodingControl {
     /// EXP-1121: the "Ready to code?" popover is up — it keeps rendering
     /// (rows ticking) even once every step is met.
     readiness_open: bool,
+    /// FEED-79: the GitHub read in flight is the picker's Retry press (its
+    /// failure toasts); the read on popover open fails quietly.
+    github_retry_pressed: bool,
     /// The repository row's inline picker is showing.
     picker_open: bool,
     /// Its search field (created on first open — it needs a window).
@@ -1948,6 +1952,7 @@ impl StartCodingControl {
             github: crate::coding_readiness::GithubProbe::Idle,
             github_generation: 0,
             readiness_open: false,
+            github_retry_pressed: false,
             picker_open: false,
             repo_query: None,
             linking: false,
@@ -2138,19 +2143,11 @@ impl StartCodingControl {
                 if this.github_generation != generation {
                     return;
                 }
-                // FEED-79: the picker's list failed — its empty state + the
-                // toast (only while the popover asks for it).
-                if facts.repos.is_none() && this.readiness_open {
-                    let control = cx.entity().downgrade();
-                    crate::action_error::failed_action_with_retry(
-                        "load",
-                        "the repositories",
-                        None,
-                        move |_, cx| {
-                            let _ = control.update(cx, |this, cx| this.refresh_github(cx));
-                        },
-                        cx,
-                    );
+                // FEED-79: the picker's list failed — its empty state +
+                // Retry; only a Retry press that fails again toasts.
+                let attended = std::mem::take(&mut this.github_retry_pressed);
+                if facts.repos.is_none() {
+                    crate::action_error::failed_load("the repositories", attended, None, cx);
                 }
                 this.github = crate::coding_readiness::GithubProbe::Ready { team_id, facts };
                 cx.notify();
@@ -2165,6 +2162,12 @@ impl StartCodingControl {
         if let Some(subject) = self.readiness_subject(cx) {
             self.fetch_github(subject.team_id, true, cx);
         }
+    }
+
+    /// The picker's Retry: the same read, attended.
+    pub(crate) fn retry_github(&mut self, cx: &mut gpui::Context<Self>) {
+        self.github_retry_pressed = true;
+        self.refresh_github(cx);
     }
 
     /// The popover opened or closed.

@@ -180,7 +180,7 @@ Virtual builtins = client-CONSTRUCTED, never DB rows, **byte-identical** strings
 
 ### Desktop IDE & mobile
 
-Desktop IDE = master-only + autopull (no branch switch; changes land via PRs or Source Control's CONFIRMED commit-and-push; Discard-and-reset; `trunk_sync` badge + banner). First-run wizard ×4 (`lib/auth/onboarding.ts`, server-gated): team → board → invite → devices; a joiner owning NO device gets the devices step after the accept (EXP-1169). ONE device-setup block ×4 = that step, Add device, readiness `set_up_server`. Lists ×4 = a filled group band (no count, bar status groups) over FLAT hairline-divided rows (settings too); `GlassGroup` = form fields. EXP-1175: the Run face opens as the THREAD ×4: a status row (`runRowCaption` + `lastToolLine`, `run-row.json`) over `sessionThread` (results in publish order, Summary = the reply, cards never hide); the OWNER sees TURNS (`sessionTurns`: a row per turn + their messages off the relay feed); Show work = the transcript in place, a per-USER pref. Workflows/tasks/subagents = ONE Work card, code mode = the Script card, `comments_create` = the real comment ×4. Remote starts never take the IDE window.
+Desktop IDE = master-only + autopull (no branch switch; changes land via PRs or Source Control's CONFIRMED commit-and-push; Discard-and-reset; `trunk_sync` badge + banner). First-run wizard ×4 (`lib/auth/onboarding.ts`, server-gated): team → board → invite → devices; a joiner owning NO device gets the devices step after the accept (EXP-1169). ONE device-setup block ×4 = that step, Add device, readiness `set_up_server`. Lists ×4 = a filled group band (no count, bar status groups) over FLAT hairline-divided rows (settings too); `GlassGroup` = form fields. EXP-1175: the Run face opens as the THREAD ×4: a status row (`runRowCaption` + `lastToolLine`, `run-row.json`) over `sessionThread` (results in publish order, Summary = the reply, cards never hide); the OWNER sees TURNS (`sessionTurns`: a row per turn + their messages off the relay feed); Show work = the transcript in place, a per-USER pref. Workflows/tasks/subagents = ONE Work card, code mode = the Script card, `comments_create` = the real comment ×4. Remote starts never take the IDE.
 
 ## Billing (per-seat, Creem—cloud only)
 
@@ -201,7 +201,7 @@ Server-only `widget_configs` (public `expw_` key + domain allowlist, `board_id` 
 ## Style Conventions
 
 - Template literals; functional components only
-- Feedback ×4 = `feedback-states.json`: failed action = toast (`Couldn't <verb> <thing>`), invalid input inline, skeletons not "Loading…"; motion = tokens only
+- Feedback ×4 = `feedback-states.json`: a person's failed action = toast, background never (`Couldn't <verb> <thing>`), invalid input inline, skeletons, not "Loading…"; motion = tokens
 - shadcn/ui from `@exp/ui` ALWAYS over raw `<input>`/`<button>`/`<textarea>`/`<label>`; icons by CONCEPT
 
 ## Agent context budget (EXP-353)

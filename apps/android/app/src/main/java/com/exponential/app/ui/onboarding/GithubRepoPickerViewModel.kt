@@ -47,11 +47,10 @@ class GithubRepoPickerViewModel @Inject constructor(
     private val _loading = MutableStateFlow(true)
     val loading: StateFlow<Boolean> = _loading.asStateFlow()
 
-    // FEED-79: a failed load (once per failing streak: every resume
-    // re-lists), connect hop, add or offline lookup = ONE error toast.
+    // FEED-79: a failed tapped re-list, connect hop, add or offline lookup =
+    // ONE error toast; an automatic load (open, resume) stays quiet.
     private val _failure = MutableStateFlow<FailedAction?>(null)
     val failure: StateFlow<FailedAction?> = _failure.asStateFlow()
-    private var loadFailing = false
 
     fun clearFailure() {
         _failure.value = null
@@ -228,7 +227,12 @@ class GithubRepoPickerViewModel @Inject constructor(
         }
     }
 
-    fun load(accountId: String, teamId: String, refresh: Boolean = false) {
+    /**
+     * FEED-79: the list loads on open and on every resume, so those fail
+     * quietly (the sheet keeps what it has); only a re-list the person
+     * [tapped] (Refresh, "I've done that") toasts its failure.
+     */
+    fun load(accountId: String, teamId: String, refresh: Boolean = false, tapped: Boolean = false) {
         lastAccountId = accountId
         lastTeamId = teamId
         // The deep link and the sheet's on-resume refresh can fire back to back;
@@ -238,15 +242,13 @@ class GithubRepoPickerViewModel @Inject constructor(
             _loading.value = true
             try {
                 _result.value = integrationsApi.githubRepos(accountId, teamId, refresh)
-                loadFailing = false
                 _loading.value = false
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
-                if (!loadFailing) {
-                    loadFailing = true
+                if (tapped) {
                     _failure.value = FailedAction("load", "your GitHub repositories", trpcErrorMessage(e, "")) {
-                        load(accountId, teamId, refresh = true)
+                        load(accountId, teamId, refresh = true, tapped = true)
                     }
                 }
                 _loading.value = false

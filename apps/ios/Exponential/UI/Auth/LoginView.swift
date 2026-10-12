@@ -6,7 +6,8 @@ struct LoginView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.openURL) private var openURL
     @State private var viewModel: LoginViewModel?
-    // FEED-79: a failed sign-in options load is a toast (+Retry).
+    // FEED-79: the sign-in options load on appear, so a failure is quiet
+    // (the Retry pill); only a failed Retry tap toasts.
     @Environment(\.toaster) private var toaster
     @FocusState private var focusedField: Field?
 
@@ -67,18 +68,20 @@ struct LoginView: View {
                 viewModel?.consumePendingIntent()
             }
         }
-        // FEED-79: a failed config load toasts the server's message with a
-        // Retry that re-runs the same (safe, read-only) fetch.
-        .onChange(of: viewModel?.configError) { _, message in
-            guard let message, let vm = viewModel else { return }
-            toaster.error(
-                FeedbackStates.Errors.title(verb: "load", thing: "sign-in options"),
-                description: message,
-                action: ToastAction(label: FeedbackStates.Errors.retry) { [weak vm] in
-                    Task { @MainActor in await vm?.loadConfig() }
-                }
-            )
-        }
+    }
+
+    /// The Retry tap (the person's own action): re-runs the same safe,
+    /// read-only fetch and toasts only if it fails again.
+    private func retryConfig(_ vm: LoginViewModel) async {
+        await vm.loadConfig()
+        guard let message = vm.configError else { return }
+        toaster.error(
+            FeedbackStates.Errors.title(verb: "load", thing: "sign-in options"),
+            description: message,
+            action: ToastAction(label: FeedbackStates.Errors.retry) {
+                Task { @MainActor in await retryConfig(vm) }
+            }
+        )
     }
 
     @ViewBuilder
@@ -89,10 +92,10 @@ struct LoginView: View {
                     .tint(.white)
                     .frame(maxWidth: .infinity, alignment: .center)
             } else if vm.configError != nil {
-                // FEED-79: the failure itself is the toast; the screen keeps
-                // only the way back in.
+                // FEED-79: the load ran on appear, so no toast; the screen
+                // keeps only the way back in.
                 GlassPill(FeedbackStates.Errors.retry, icon: AppIcons.uiRefresh, mode: .action {
-                    Task { await vm.loadConfig() }
+                    Task { await retryConfig(vm) }
                 })
                 .frame(maxWidth: .infinity, alignment: .center)
             } else {

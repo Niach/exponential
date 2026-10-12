@@ -100,6 +100,9 @@ pub struct ApiKeysPane {
     /// [`Self::mark_stale`] (pane re-entry) and by the dismiss button.
     minted: Option<MintedPersonalKey>,
     name_input: Entity<InputState>,
+    /// FEED-79: the load in flight is the person's Retry press (its failure
+    /// toasts); a load on entry or after a write fails quietly.
+    retry_pressed: bool,
 }
 
 impl ApiKeysPane {
@@ -112,6 +115,7 @@ impl ApiKeysPane {
             busy: false,
             minted: None,
             name_input,
+            retry_pressed: false,
         }
     }
 
@@ -170,16 +174,14 @@ impl ApiKeysPane {
                 if this.generation != generation {
                     return;
                 }
-                // FEED-79: a failed load = the empty lists + the toast.
+                // FEED-79: a failed load = the empty lists + Retry; only a
+                // Retry press that fails again toasts.
+                let attended = std::mem::take(&mut this.retry_pressed);
                 if let Err(message) = &result.list {
-                    let pane = cx.entity().downgrade();
-                    crate::action_error::failed_action_with_retry(
-                        "load",
+                    crate::action_error::failed_load(
                         "your API keys",
+                        attended,
                         Some(message.clone()),
-                        move |_, cx| {
-                            let _ = pane.update(cx, |this, cx| this.refetch(cx));
-                        },
                         cx,
                     );
                 }
@@ -193,6 +195,12 @@ impl ApiKeysPane {
     fn refetch(&mut self, cx: &mut gpui::Context<Self>) {
         self.load = Load::Idle;
         cx.notify();
+    }
+
+    /// The failed list's Retry: the same load, attended.
+    fn retry_load(&mut self, cx: &mut gpui::Context<Self>) {
+        self.retry_pressed = true;
+        self.refetch(cx);
     }
 
     /// The "Create key" confirm: a name input and the FEED-76 scope picker
@@ -697,10 +705,17 @@ impl Render for ApiKeysPane {
                 sessions = sessions.child(settings_skeleton("api-sessions-skeleton", cx));
                 keys = keys.child(settings_skeleton("api-keys-skeleton", cx));
             }
-            // A failed load reads as the empty lists; the failure was a toast.
+            // A failed load (FEED-79): the empty lists, Retry under the
+            // keys, no toast.
             Load::Ready(Loaded { list: Err(_), .. }) => {
                 sessions = sessions.child(empty("No signed-in devices.", cx));
-                keys = keys.child(empty("No API keys.", cx));
+                keys = keys.child(crate::action_error::load_failed_state(
+                    "api-keys-retry",
+                    gpui_component::Icon::new(crate::icons::registry::SETTINGS_API),
+                    "No API keys",
+                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
+                    cx,
+                ));
             }
             Load::Ready(Loaded {
                 list: Ok(rows),

@@ -40,6 +40,7 @@ import com.exponential.app.data.api.RepositoriesApi
 import com.exponential.app.data.api.TeamRepo
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.domain.BoardRepoLabel
+import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.onboarding.GithubRepoPickerSheet
 import com.exponential.app.ui.theme.GlassTokens
@@ -308,14 +309,17 @@ fun BoardRepoField(
         } else {
             listOf(repoDefault) + state.branches
         }
-        // FEED-79: a failed branch list = the default alone plus ONE toast
-        // (Retry lists again).
+        // FEED-79: the list loads when the sheet opens, so a failure is quiet:
+        // the default alone + the Retry row; only a failed Retry tap toasts.
         val toaster = LocalToaster.current
+        var branchesRetried by remember(registry.id) { mutableStateOf(false) }
+        val retryBranches = {
+            branchesRetried = true
+            viewModel.load(accountId, registry.id, force = true)
+        }
         LaunchedEffect(state.error) {
             val message = state.error ?: return@LaunchedEffect
-            toaster.failedAction("load", "the branches", message) {
-                viewModel.load(accountId, registry.id, force = true)
-            }
+            if (branchesRetried) toaster.failedAction("load", "the branches", message) { retryBranches() }
         }
         GlassSheet(title = "Branch", onDismiss = { branchSheet = false }) {
             LazyColumn(
@@ -362,6 +366,15 @@ fun BoardRepoField(
                             onBranchChange(if (isDefault) null else name)
                         },
                     )
+                }
+                if (state.error != null && !state.loading) {
+                    item(key = "\u0000retry") {
+                        GlassSheetRow(
+                            label = FeedbackStates.RETRY,
+                            leading = { RowGlyph(ExpIcons.uiRefresh) },
+                            onClick = { retryBranches() },
+                        )
+                    }
                 }
             }
         }
