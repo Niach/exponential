@@ -64,6 +64,9 @@ final class RunContinuation {
             ? StartIntent.retry(pending: intent, target: target)
             : StartIntent.press(target: target)
         if resolved != intent { intentSentAt = nil }
+        // The FIRST send of this intent: a Retry's row (or a late one after
+        // a send of unknown fate) is the original one.
+        if intentSentAt == nil { intentSentAt = Date() }
         intent = resolved
         retryHandler = onRetry
         self.kind = kind
@@ -107,12 +110,34 @@ final class RunContinuation {
         }
     }
 
-    /// The server refused the send.
-    func failed(_ message: String) {
+    /// The send failed: the failure toast (off `watcher.failure`) with
+    /// Retry. Recheck R3 (`starting.maybeDelivered`): a send whose fate is
+    /// unknown (a transport error, a client timeout, the relay's timeout)
+    /// may have reached the device, so the watcher also follows it quietly
+    /// and a late row still swaps in; a definite refusal follows nothing.
+    func failed(
+        _ error: Error,
+        key: StartedRunKey,
+        userId: String?,
+        db: DatabaseManager,
+        accountId: String
+    ) {
         hold.expire()
-        watcher.failed(message)
         deadlineTask?.cancel()
         deadlineTask = nil
+        let message = error.userFacingMessage
+        guard StartDelivery.fate(of: error) == .maybeDelivered else {
+            watcher.failed(message)
+            return
+        }
+        watcher.follow(
+            key: key,
+            userId: userId,
+            db: db,
+            accountId: accountId,
+            failure: message,
+            cutoff: intentSentAt ?? Date()
+        )
     }
 
     /// The successor synced in — the screen swaps it in place.

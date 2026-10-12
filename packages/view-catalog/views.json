@@ -4490,10 +4490,20 @@
         "shot": "sg_composer-menu",
         "lane": "styleguide"
       },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "chat"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_COMPOSER_MENU": "implement-issue"
+        }
+      },
       "notes": {
         "web": "`openComposerMenuImplement` opens the Agent composer's \"+\" dropdown and hovers Implement issue, so its submenu (THE search list, SLOP-28) is open beside the menu.",
         "web-mobile": "No app capture: on phones the menu is a bottom sheet and Implement issue pushes a page, which no hover reaches; the open sheet is the natives' `sg_composer-menu`.",
-        "desktop": "No app capture: no `EXP_DEV_*` value opens the \"+\" menu (`EXP_DEV_SCREEN=chat` is the closed composer). The desktop styleguide `menu_submenu` entry draws the real \"+\" menu and a submenu."
+        "desktop": "The Agent page (`EXP_DEV_SCREEN=chat`) with `EXP_DEV_COMPOSER_MENU=implement-issue`: the \"+\" menu opens once the launch cluster and the shapes are in, with its first row selected, so the Implement issue submenu (THE search list) is open beside it."
       }
     },
     {
@@ -4725,10 +4735,21 @@
         "shot": "sg_script-card",
         "lane": "styleguide"
       },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "session:$steeredSession"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_SHOW_WORK": "1",
+          "EXP_DEV_SCROLL_TO": "script-card"
+        }
+      },
       "notes": {
         "web": "The `steering` session with Show work on: the demo feed (apps/web/scripts/screenshot-desktop.ts) carries a code-mode `exec` call (`mcp__codemode__exec`, toolKind `script`, its settle carrying a 13-call log with one failure and the script source); `showScriptCard` sets the Show work pref, reloads and centres the card. Needs `bun run screenshots:desktop`, like `steering`.",
         "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
-        "desktop": "No app capture: the `steering` drive with `EXP_DEV_SHOW_WORK=1` opens the transcript on its tail, where the demo feed's code-mode `exec` call sits just above the fold (only the card's last row shows under the status row) and no `EXP_DEV_*` value scrolls the feed. The desktop styleguide entry `script_card.rs` draws the card."
+        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1` and `EXP_DEV_SCROLL_TO=script-card`: the transcript parks with the demo feed's code-mode `exec` call (apps/web/scripts/screenshot-desktop.ts) near the top of the viewport instead of on the tail, its calls grouped by tool off the settle's `script` log. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
       }
     },
     {
@@ -4777,6 +4798,14 @@
       "title": "Feedback states",
       "blurb": "The six feedback kinds ×4 (EXP-1275, feedback-states.json): the inline spinner with its progressive word, the pending button, skeleton rows, the mark’s stroke sweep, the blocking backdrop, and a failed action as an error toast with Retry.",
       "order": 16,
+      "web": {
+        "route": "/t/$teamSlug/agent?dev=feedback-states",
+        "anchor": {
+          "testId": "feedback-states-specimen",
+          "timeoutMs": 20000
+        },
+        "settleMs": 800
+      },
       "ios": {
         "shot": "sg_feedback-states",
         "lane": "styleguide"
@@ -4785,10 +4814,17 @@
         "shot": "sg_feedback-states",
         "lane": "styleguide"
       },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "styleguide:feedback-states"
+        },
+        "anchorDelayMs": 1500
+      },
       "notes": {
-        "web": "No app capture: the six kinds only show one at a time and only while work is pending or has failed (the composer's \"Starting on <device>\", list skeletons, a failed action's toast), so no route or recipe holds them still. The styleguide entry `feedback-states` (apps/styleguide/src/entries/feedback-states.tsx) draws every kind on its real primitive.",
-        "web-mobile": "See web.",
-        "desktop": "No app capture, for the same reason as web. The desktop styleguide entry `feedback_states.rs`."
+        "web": "The six kinds only show one at a time in the app and only while work is pending or has failed, so the capture is the DEV-ONLY `?dev=feedback-states` on the Agent route (never parsed in a production build: serve `bun dev`, or a `NODE_ENV=development bun run build` under Bun when Caddy drops vite's module requests): `@exp/ui` `FeedbackStatesSpecimen`, the styleguide entry's board, inside the app chrome.",
+        "web-mobile": "No phone-browser shot: one kind per row, the phone frame holds four of the six; the natives' `sg_feedback-states` are the phone frames.",
+        "desktop": "The DEV-ONLY `EXP_DEV_SCREEN=styleguide:feedback-states`: the IDE styleguide entry `feedback_states.rs` drawn full-window, every kind on its real `feedback` primitive."
       }
     }
   ]

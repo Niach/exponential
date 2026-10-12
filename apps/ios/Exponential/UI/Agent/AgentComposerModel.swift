@@ -82,6 +82,9 @@ final class AgentComposerModel {
     private var draftStartSentAt: Date?
     /// The draft start `startWatcher` is watching for.
     private var watchedStartId: String?
+    /// When that watch ends (`StartedRunMatch.watchWindow` after the first
+    /// send): until then a team change keeps this composer (recheck R3).
+    private var watchedUntil: Date?
     /// The session a landing opens (the page pushes it while visible and
     /// consumes it). Nil when the draft changed after its send: the field
     /// stays as left and nothing navigates.
@@ -182,6 +185,19 @@ final class AgentComposerModel {
     /// Nothing picked, typed, attached or sent since the seed was applied.
     var isPristine: Bool {
         !touched && pendingImages.isEmpty && pendingFiles.isEmpty && draftText == seededDraft
+    }
+
+    /// Nothing in the draft at all: no text, subject or attachment.
+    var isEmptyDraft: Bool {
+        draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && pendingImages.isEmpty && pendingFiles.isEmpty && checked.isEmpty && actionId == nil
+    }
+
+    /// Recheck R3: a start is on the wire, starting, or still followed by the
+    /// quiet watch; a team change must not drop it (the page keeps this
+    /// composer until it lands or its window closes).
+    var isFollowingStart: Bool {
+        sending || starting != nil || (watchedUntil.map { $0 > Date() } ?? false)
     }
 
     // MARK: - Load
@@ -806,10 +822,8 @@ final class AgentComposerModel {
     /// A Start press or the error toast's Retry: the same draft on the same
     /// device re-sends under the SAME `startId`, anything else mints one.
     func submit() {
-        guard canSubmit, !sending, let device else { return }
-        let resolved = DraftStart.resolve(
-            pending: draftStart, deviceId: device.deviceId, fingerprint: draftFingerprint
-        )
+        guard canSubmit, !sending, let fingerprint = draftFingerprint else { return }
+        let resolved = DraftStart.resolve(pending: draftStart, fingerprint: fingerprint)
         if resolved.startId != draftStart?.startId { draftStartSentAt = nil }
         draftStart = resolved
         if !resumeActive {
@@ -909,6 +923,9 @@ final class AgentComposerModel {
     private func send(stacked: (plan: BlockedStart.StackPlan, issueId: String)? = nil) {
         guard canSubmit, let device, let teamId, !sending else { return }
         sending = true
+        // A send is a touch: a team change never rebuilds this composer
+        // under a start it may still land (recheck R3).
+        touched = true
         error = nil
         imageError = nil
         let watched = draftStart
@@ -967,8 +984,8 @@ final class AgentComposerModel {
                 attachmentIds: pendingImages.compactMap(\.uploadedId),
                 files: pendingFiles.compactMap(\.wireFile)
             )
+            let sentAt = Date()
             do {
-                let sentAt = Date()
                 let key = try await dispatch(
                     device: device, teamId: teamId, prompt: prompt,
                     issueIds: stacked.map { [$0.issueId] }, startId: watched?.startId
@@ -981,6 +998,7 @@ final class AgentComposerModel {
                 // (uploads done), never at the press. The watch outlives the
                 // page (it lives on this model), bounded by its window.
                 watchedStartId = watched?.startId
+                watchedUntil = (draftStartSentAt ?? sentAt).addingTimeInterval(StartedRunMatch.watchWindow)
                 startWatcher.begin(
                     key: key,
                     userId: deps.auth.userId,
@@ -996,14 +1014,38 @@ final class AgentComposerModel {
                 )
             } catch {
                 // FEED-79 (EXP-1259 D10): a failed start is a toast with
-                // Retry; the draft stays.
+                // Retry (the same startId); the draft stays.
                 starting = nil
-                let message = error.userFacingMessage
-                Toaster.shared.error(
-                    FeedbackStates.Errors.title(verb: "start", thing: "the session"),
-                    description: message,
+                let toast = ToastItem(
+                    kind: .error,
+                    title: FeedbackStates.Errors.title(verb: "start", thing: "the session"),
+                    description: error.userFacingMessage,
                     action: retryAction()
                 )
+                timeoutToastId = toast.id
+                Toaster.shared.show(toast)
+                // Recheck R3 (`starting.maybeDelivered`): a send whose fate is
+                // unknown may have reached the device, so it is followed
+                // quietly too and a late session still lands; a definite
+                // refusal has nothing to follow.
+                if StartDelivery.fate(of: error) == .maybeDelivered, let watched,
+                   draftStart?.startId == watched.startId,
+                   let key = watchKey(teamId: teamId, issueIds: stacked.map { [$0.issueId] }) {
+                    if draftStartSentAt == nil { draftStartSentAt = sentAt }
+                    let cutoff = draftStartSentAt ?? sentAt
+                    watchedStartId = watched.startId
+                    watchedUntil = cutoff.addingTimeInterval(StartedRunMatch.watchWindow)
+                    startWatcher.follow(
+                        key: key,
+                        userId: deps.auth.userId,
+                        db: deps.db,
+                        accountId: accountId,
+                        cutoff: cutoff,
+                        onLanded: { [weak self] sessionId in
+                            self?.runLanded(sessionId: sessionId, start: watched)
+                        }
+                    )
+                }
             }
         }
     }
@@ -1017,24 +1059,71 @@ final class AgentComposerModel {
         starting = nil
         error = nil
         watchedStartId = nil
+        watchedUntil = nil
         dismissTimeoutToast()
         if let start, draftStart?.startId == start.startId {
             draftStart = nil
             draftStartSentAt = nil
         }
-        guard start?.landsInto(draftFingerprint) ?? true else { return }
+        if let start {
+            guard let current = draftFingerprint, start.landsInto(current) else { return }
+        }
         clearDraft()
         landedSession = StartedRunWatcher.StartedSession(sessionId: sessionId)
     }
 
-    /// The draft as a start is bound to it: text, subject, attachments.
-    private var draftFingerprint: DraftStart.Fingerprint {
-        DraftStart.Fingerprint(
-            text: draftText,
-            issueIds: checked,
-            actionId: actionId,
-            attachments: pendingImages.map(\.id.uuidString) + pendingFiles.map(\.id.uuidString)
-        )
+    /// The draft as a start is bound to it (recheck R2,
+    /// `starting.fingerprint.fields`): the machine, the text, the subject
+    /// (issues, or the action + its wire inputs, or the chat's repository),
+    /// the attachments and every launch option in the form the start sends.
+    /// Nil without a machine to start on.
+    private var draftFingerprint: DraftStart.Fingerprint? {
+        guard let device else { return nil }
+        let attachments = pendingImages.map(\.id.uuidString) + pendingFiles.map(\.id.uuidString)
+        let options = launch.buildOptions()
+        switch subject {
+        case .none:
+            return DraftStart.Fingerprint(
+                deviceId: device.deviceId,
+                text: draftText,
+                repositoryId: chatRepoId.isEmpty ? nil : chatRepoId,
+                attachments: attachments,
+                options: options
+            )
+        case .action, .fixConflicts:
+            return DraftStart.Fingerprint(
+                deviceId: device.deviceId,
+                text: draftText,
+                actionId: actionId,
+                actionInputs: ActionInputValues.wireValues(
+                    selectedActionInputs, values: resolvedInputValues
+                ),
+                attachments: attachments,
+                options: options
+            )
+        case let .issues(count):
+            // The Resume toggle rides single-issue starts only (`dispatch`).
+            return DraftStart.Fingerprint(
+                deviceId: device.deviceId,
+                text: draftText,
+                issueIds: checked,
+                attachments: attachments,
+                options: count == 1 && resumeActive ? launch.buildOptions(resume: true) : options
+            )
+        }
+    }
+
+    /// The row a start of the current subject produces (`dispatch`'s key),
+    /// for the quiet follow of a send whose fate is unknown.
+    private func watchKey(teamId: String, issueIds: [String]?) -> StartedRunKey? {
+        switch subject {
+        case .none:
+            return .action(name: ActionDto.builtinChatAction(teamId: teamId).name)
+        case .action, .fixConflicts:
+            return selectedAction.map { .action(name: $0.name) }
+        case .issues:
+            return StartedRunKey.forIssues(issueIds ?? effectiveChecked)
+        }
     }
 
     private func dismissTimeoutToast() {

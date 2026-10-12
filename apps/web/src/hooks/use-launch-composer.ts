@@ -9,7 +9,7 @@ import { useNow } from "@/hooks/use-now"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
 import { useTeamBoards, useTeamById } from "@/hooks/use-team-data"
 import { useTeamRepos } from "@/hooks/use-team-repos"
-import type { RemoteStart } from "@/hooks/use-remote-start"
+import type { RemoteStart, StartCodingOptions } from "@/hooks/use-remote-start"
 import {
   actionCollection,
   codingSessionCollection,
@@ -65,6 +65,7 @@ import {
 } from "@/lib/steer-devices"
 import { uploadTeamSessionImageFile } from "@/lib/storage/issue-image-upload"
 import { failedAction } from "@/lib/action-error"
+import { draftStartKey, startMaybeDelivered } from "@/lib/start-intent"
 import {
   useLaunchOptions,
   type LaunchOptions,
@@ -319,38 +320,48 @@ export function startingTimeoutToast(
   })
 }
 
-/** Final review (feedback-states.json `starting`): what binds a startId to
- *  ONE draft start: the target device, the text, the subject (issue ids,
- *  or the action + its picks, or the chat's repo), the attachments and a
- *  stacked start's line issue. Equal fingerprints = the same start. */
+/** Final review + recheck R2 (feedback-states.json `starting.fingerprint`):
+ *  what binds a startId to ONE draft start, every field the start sends:
+ *  the target device, the text, the subject (issue ids, or the action + its
+ *  picks, or the chat's repo), the attachments and the launch options as
+ *  `buildOptions` resolves them (agent, model, effort, plan, account, MCP
+ *  picks, computer use, ultracode, subagent model). A stacked start keys
+ *  the line issue it launches and its wrapped prompt. Equal fingerprints =
+ *  the same start (`draftStartKey`). */
 export function draftStartFingerprint(draft: {
   deviceId: string
   text: string
   subject: LaunchSubject
   repoId: string
   attachments: readonly string[]
+  options: StartCodingOptions
   stackedIssueId?: string
 }): string {
-  const { subject } = draft
-  const about =
-    subject === null
-      ? [`chat`, draft.repoId]
-      : subject.kind === `issues`
-        ? [`issues`, [...subject.ids].sort()]
-        : [
-            `action`,
-            subject.id,
-            Object.entries(subject.inputs).sort(([a], [b]) =>
-              a < b ? -1 : a > b ? 1 : 0
-            ),
-          ]
-  return JSON.stringify([
-    draft.deviceId,
-    draft.text,
-    about,
-    draft.attachments,
-    draft.stackedIssueId ?? null,
-  ])
+  const { subject, options } = draft
+  return draftStartKey({
+    deviceId: draft.deviceId,
+    text: draft.text,
+    issueIds:
+      subject?.kind === `issues`
+        ? draft.stackedIssueId
+          ? [draft.stackedIssueId]
+          : subject.ids
+        : [],
+    actionId: subject?.kind === `action` ? subject.id : null,
+    actionInputs: subject?.kind === `action` ? subject.inputs : {},
+    repositoryId: subject === null ? draft.repoId || null : null,
+    attachments: draft.attachments,
+    agent: options.agent,
+    model: options.model,
+    effort: options.effort,
+    planMode: options.planMode,
+    account: options.account,
+    mcpServerIds: options.mcpServerIds,
+    computerUse: options.computerUse,
+    ultracode: options.ultracode,
+    subagentModel: options.subagentModel,
+    resume: options.resume,
+  })
 }
 
 export function useLaunchComposer({
@@ -941,14 +952,19 @@ export function useLaunchComposer({
 
   // ── Submit ────────────────────────────────────────────────────────────────
 
-  const fingerprintFor = (stackedIssueId?: string) =>
+  const fingerprintFor = (stacked?: { plan: StackPlan; issueId: string }) =>
     draftStartFingerprint({
       deviceId: device?.deviceId ?? ``,
-      text,
+      text: stacked ? stackedStartPrompt(stacked.plan, text) : text,
       subject,
       repoId,
       attachments: images.map((image) => image.url),
-      stackedIssueId,
+      // The options exactly as `start` sends them.
+      options: launch.buildOptions({
+        resume: stacked ? false : resumeActive,
+        omitMcp: subjectOwnsMcpServers(subject),
+      }),
+      stackedIssueId: stacked?.issueId,
     })
   // The draft as it stands now (a plain start's fingerprint): what a late
   // landing compares against the draft it sent.
@@ -961,7 +977,7 @@ export function useLaunchComposer({
     if (blocked || !device) return
     setBlockedOpen(false)
     setSending(true)
-    const fingerprint = fingerprintFor(stacked?.issueId)
+    const fingerprint = fingerprintFor(stacked)
     // A stacked start's line issue binds the id, not the draft a late
     // landing compares against.
     const sentDraft = stacked ? fingerprintFor() : fingerprint
@@ -984,6 +1000,8 @@ export function useLaunchComposer({
     setStarting(startedRun)
     setSentAt(null)
     let delivered = false
+    // Recheck R3: a maybe-delivered failure keeps the landing armed.
+    let followed = false
     try {
       // Upload sequentially, persisting each id as it lands — a mid-batch
       // failure keeps the composer intact and a retry only uploads the rest.
@@ -1074,12 +1092,23 @@ export function useLaunchComposer({
       // EXP-1271: delivered. The draft stays until the run's row lands
       // (`clearDraft` below) or the starting deadline gives up on it.
       delivered = true
-    } catch {
-      // Already toasted by the remote hook.
+    } catch (error) {
+      // Already toasted by the remote hook. Recheck R3: a start whose fate
+      // is unknown may still land; the remote hook follows it quietly and
+      // its late row lands here like a timed-out one (cleared draft only
+      // while the draft is unchanged since the send).
+      const awaiting = awaitingLandRef.current
+      if (awaiting?.run === startedRun && startMaybeDelivered(error)) {
+        awaiting.timedOut = true
+        followed = true
+        quietWatchRef.current(
+          () => fingerprintRef.current === awaiting.fingerprint
+        )
+      }
     } finally {
       setSending(false)
       if (!delivered && currentStartRef.current === startedRun) {
-        if (awaitingLandRef.current?.run === startedRun) {
+        if (!followed && awaitingLandRef.current?.run === startedRun) {
           awaitingLandRef.current = null
         }
         setStarting(null)

@@ -519,8 +519,15 @@ class AgentComposerViewModel @Inject constructor(
         _dismissToast.value = null
     }
 
-    /** Drop the delegate's refused-send state once the page has toasted it. */
-    fun clearRunFailure() = steerLaunch.clearFailure()
+    /**
+     * Drop the delegate's refused-send state once the page has toasted it.
+     * [toastId] = that failure toast: a start of unknown fate is still
+     * followed (recheck R3), and its late row takes the toast down.
+     */
+    fun clearRunFailure(toastId: String? = null) {
+        steerLaunch.clearFailure()
+        if (toastId != null) timeoutToastId = toastId
+    }
 
     /**
      * A row landed. A resume's (no startId) just opens. A composer start's
@@ -546,16 +553,45 @@ class AgentComposerViewModel @Inject constructor(
         _openSessionId.value = sessionId
     }
 
-    /** The draft as a start is bound to it: text, subject, attachments. */
-    private fun draftFingerprint(): DraftStart.Fingerprint {
+    /**
+     * The draft as a start is bound to it (recheck R2,
+     * `starting.fingerprint.fields`): the machine, the text, the subject
+     * (issues, or the action + its filled inputs, or the chat's repository),
+     * the attachments and every launch option in the form the start sends.
+     * Null without a machine to start on.
+     */
+    private fun draftFingerprint(): DraftStart.Fingerprint? {
+        val target = device.value ?: return null
         val subject = _subject.value
+        // The Resume toggle rides single-issue starts only (`dispatch`).
+        val resume = resumeOffered && _resume.value && (subject as? ComposerSubject.Issues)?.ids?.size == 1
+        val options = buildOptions(resume)
         return DraftStart.Fingerprint(
+            deviceId = target.deviceId,
             text = _draft.value,
-            issueIds = (subject as? ComposerSubject.Issues)?.ids.orEmpty(),
+            issueIds = (subject as? ComposerSubject.Issues)?.ids.orEmpty().toSet(),
             actionId = (subject as? ComposerSubject.Action)?.id,
-            attachments = _images.value.map { it.uri.toString() },
+            // "" = a cleared pick, which the wire drops too.
+            actionInputs = (subject as? ComposerSubject.Action)?.inputs.orEmpty()
+                .filterValues { it.isNotBlank() },
+            repositoryId = _chatRepoId.value.takeIf { subject == null && it.isNotEmpty() },
+            attachments = _images.value.map { it.uri.toString() }.toSet(),
+            agent = options.agent,
+            model = options.model,
+            effort = options.effort,
+            planMode = options.planMode,
+            account = options.account,
+            mcpServerIds = options.mcpServerIds.orEmpty().toSet(),
+            computerUse = options.computerUse,
+            ultracode = options.ultracode,
+            subagentModel = options.subagentModel,
+            resume = resume,
         )
     }
+
+    /** Whether the last Start found a resumable worktree (the fingerprint's
+     *  Resume reads the toggle only where it is offered). */
+    private var resumeOffered = false
 
     init {
         // Review #4: the pending start ends HERE, the moment the delegate
@@ -1071,8 +1107,9 @@ class AgentComposerViewModel @Inject constructor(
      */
     fun submit(action: ActionDto?, resumeOffered: Boolean) {
         if (_sending.value) return
-        device.value?.let { target ->
-            val resolved = DraftStart.resolve(draftStart, target.deviceId, draftFingerprint())
+        this.resumeOffered = resumeOffered
+        draftFingerprint()?.let { fingerprint ->
+            val resolved = DraftStart.resolve(draftStart, fingerprint)
             if (resolved.startId != draftStart?.startId) draftStartSentAtMs = null
             draftStart = resolved
         }
@@ -1273,10 +1310,14 @@ class AgentComposerViewModel @Inject constructor(
                         )
                     }
                 }
+                // Recheck R3: a refused send of unknown fate is still followed
+                // (the delegate's quiet watch): its first send is the cutoff.
+                if ((accepted || steerLaunch.isFollowing(sendStartId)) &&
+                    draftStartSentAtMs == null && draftStart?.startId == sendStartId
+                ) {
+                    draftStartSentAtMs = sentAtMs
+                }
                 if (accepted) {
-                    if (draftStartSentAtMs == null && draftStart?.startId == sendStartId) {
-                        draftStartSentAtMs = sentAtMs
-                    }
                     // EXP-1271: the draft stays until the row lands (a
                     // timeout keeps it to retry). Review #3: the deadline
                     // counts from HERE, the request SENT (uploads done); on

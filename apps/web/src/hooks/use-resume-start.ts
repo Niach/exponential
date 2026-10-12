@@ -12,7 +12,7 @@ import {
 } from "@/lib/started-run-match"
 import { trpc } from "@/lib/trpc-client"
 import { useOpenSession } from "@/hooks/use-open-session"
-import { newStartId } from "@/lib/start-intent"
+import { newStartId, startMaybeDelivered } from "@/lib/start-intent"
 
 // EXP-1259 (start surfaces): the ONE resume send behind the run's Resume
 // button (`use-resume-run.ts`) and the account switch
@@ -23,7 +23,8 @@ import { newStartId } from "@/lib/start-intent"
 // twice. The pending state ends at `STARTED_RUN_DEADLINE_MS` (the old-daemon
 // fallback: a device below the startId build reports nothing back), but the
 // watch keeps following quietly for `starting.watchMs` like the composer's:
-// a late row still opens and clears the toast.
+// a late row still opens and clears the toast. A send whose fate is unknown
+// (recheck R3) is followed the same way, after its failure toast.
 
 const WATCH_MS = FEEDBACK_STATES.starting.watchMs
 
@@ -157,12 +158,22 @@ export function useResumeStart({
         if (!mountedRef.current) return
         setPendingNow(null)
         const { verb, thing, description } = latest.current.failure
-        // FEED-79: nothing resumed, so Retry asks the machine again, under
-        // the same startId.
-        failedAction(verb, thing, error, {
+        // FEED-79: Retry asks the machine again, under the same startId.
+        const errorToast = failedAction(verb, thing, error, {
           description: description?.(error),
           retry: () => retry(send),
         })
+        // Recheck R3 (feedback-states.json `starting.maybeDelivered`): an
+        // unknown fate (transport error, client timeout, relay timeout) may
+        // still have resumed it: follow quietly for `starting.watchMs`, a
+        // late row opens and clears the error. A definite error follows
+        // nothing.
+        if (!startMaybeDelivered(error)) return
+        clearTimers()
+        dismissDeadlineToast()
+        deadlineToastRef.current = errorToast ?? null
+        setWatch(send)
+        timersRef.current = [setTimeout(() => setWatch(null), WATCH_MS)]
       })
   }
   const retry = (send: ResumeSend) => {

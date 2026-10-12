@@ -615,7 +615,13 @@ struct AgentSessionView: View {
                     accountId: accountId
                 )
             } catch {
-                continuation.failed(error.userFacingMessage)
+                continuation.failed(
+                    error,
+                    key: .resumed(fromId: session.id),
+                    userId: deps.auth.userId,
+                    db: deps.db,
+                    accountId: accountId
+                )
             }
         }
     }

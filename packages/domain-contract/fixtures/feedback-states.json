@@ -328,7 +328,759 @@
     "startIdKey": "startId",
     "$comment": "Final review (2026-10-12): ONE startId per DRAFT START, bound to the target device + the draft fingerprint (text, subject issue/action ids, attachments): minted on the first Start of that draft and reused by every Retry (timeout toast, failure toast, relay_timeout) AND every later Start press of the SAME draft on the SAME device, until a session lands or the draft or device changes (then a fresh id). The 30 s deadline counts from the moment the start request is SENT (after uploads), only for a start to another device; timeout = the error toast with Retry, composer idle, nothing aborted, the watch keeps running (also while the page is off-screen) for `watchMs`. A LATE landing clears the error; if the draft is unchanged since its send it clears the draft and lands as if in time, if the person changed it after the timeout the field stays exactly as they left it and nothing navigates (the session appears in Running). The server dedupes a start by (deviceId, startId) within `dedupeMs` (devices below this build ignore the id), devices dedupe it too.",
     "watchMs": 1800000,
-    "dedupeMs": 1800000
+    "dedupeMs": 1800000,
+    "fingerprint": {
+      "$comment": "Recheck R2 (2026-10-12): the draft fingerprint that binds a startId. Two drafts are the SAME start when every field below is equal; lists compare as sets (order-free), absent and null are equal, text compares verbatim. Every client replays `fingerprint.cases` (same: true/false).",
+      "fields": [
+        "deviceId",
+        "text",
+        "issueIds (set)",
+        "actionId",
+        "actionInputs (key/value map)",
+        "repositoryId (chat)",
+        "attachments (set of local pick ids)",
+        "agent",
+        "model",
+        "effort",
+        "planMode",
+        "account",
+        "mcpServerIds (set)",
+        "computerUse",
+        "ultracode",
+        "subagentModel",
+        "resume (the composer's Resume toggle; absent = false)"
+      ],
+      "cases": [
+        {
+          "name": "an identical draft is the same start",
+          "a": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "b": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "same": true
+        },
+        {
+          "name": "issue and MCP order do not matter",
+          "a": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "b": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i2",
+              "i1"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m2",
+              "m1"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "same": true
+        },
+        {
+          "name": "a changed model is a new start",
+          "a": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "b": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "sonnet",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "same": false
+        },
+        {
+          "name": "a changed effort is a new start",
+          "a": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "b": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "low",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "same": false
+        },
+        {
+          "name": "plan mode on is a new start",
+          "a": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "b": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": true,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "same": false
+        },
+        {
+          "name": "another account is a new start",
+          "a": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "b": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc2",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "same": false
+        },
+        {
+          "name": "another MCP pick is a new start",
+          "a": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "b": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "same": false
+        },
+        {
+          "name": "computer use switched on is a new start",
+          "a": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "b": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": true,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "same": false
+        },
+        {
+          "name": "another device is a new start",
+          "a": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "b": {
+            "deviceId": "d2",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "same": false
+        },
+        {
+          "name": "an edited text is a new start",
+          "a": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "b": {
+            "deviceId": "d1",
+            "text": "Fix it now",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "same": false
+        },
+        {
+          "name": "another attachment is a new start",
+          "a": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "b": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1",
+              "a2"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "same": false
+        },
+        {
+          "name": "a changed action input is a new start",
+          "a": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [],
+            "actionId": "act1",
+            "actionInputs": {
+              "board": "b1"
+            },
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "b": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [],
+            "actionId": "act1",
+            "actionInputs": {
+              "board": "b2"
+            },
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "same": false
+        },
+        {
+          "name": "the Resume toggle switched on is a new start",
+          "a": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null
+          },
+          "b": {
+            "deviceId": "d1",
+            "text": "Fix it",
+            "issueIds": [
+              "i1",
+              "i2"
+            ],
+            "actionId": null,
+            "actionInputs": {},
+            "repositoryId": null,
+            "attachments": [
+              "a1"
+            ],
+            "agent": "claude",
+            "model": "opus",
+            "effort": "high",
+            "planMode": false,
+            "account": "acc1",
+            "mcpServerIds": [
+              "m1",
+              "m2"
+            ],
+            "computerUse": null,
+            "ultracode": false,
+            "subagentModel": null,
+            "resume": true
+          },
+          "same": false
+        }
+      ]
+    },
+    "maybeDelivered": "Recheck R3: a start request whose fate is UNKNOWN (a network or transport error, a client-side timeout, or the server's relay_timeout answer) may have reached the device: the composer shows the failure toast with Retry (same startId) AND follows the start quietly for watchMs, so a late session still lands. A response WITH a definite error (any 4xx, or a 5xx carrying an error body other than relay_timeout) is a definite failure: toast + Retry, no follower. One rule on all four clients."
   },
   "autosave": {
     "debounceMs": 800,

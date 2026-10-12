@@ -520,6 +520,45 @@ describe(`steer.startSession — client startId (EXP-1259 review #3)`, () => {
     expect(lastStartBody().startId).toBe(startId)
   })
 
+  // Recheck R1: the device took the frame, then reported it could not
+  // launch it: the remembered forward is dropped, so Retry forwards again.
+  it(`accept, then a device failure: Retry forwards again`, async () => {
+    const startId = crypto.randomUUID()
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+    await expect(
+      caller.reportStartFailure({ startId, reason: `git checkout refused` })
+    ).resolves.toEqual({ recorded: true })
+    queueOwnDevice()
+    const again = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    expect(again).toEqual({ ok: true, startId })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(2)
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  // Recheck R3: the relay timeout (the frame may have arrived) answers 504
+  // GATEWAY_TIMEOUT; any other relay error stays a definite 500.
+  it(`a relay timeout is GATEWAY_TIMEOUT, another relay error INTERNAL_SERVER_ERROR`, async () => {
+    h.relayPostStart.mockResolvedValueOnce({ ok: false, status: 504, reason: `relay_timeout` })
+    queueOwnDevice()
+    const timeout = (await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    )) as TRPCError
+    expect(timeout).toBeInstanceOf(TRPCError)
+    expect(timeout.code).toBe(`GATEWAY_TIMEOUT`)
+    expect(timeout.message).toBe(`Steer relay error (504)`)
+    h.relayPostStart.mockResolvedValueOnce({ ok: false, status: 500, reason: `relay_error` })
+    queueOwnDevice()
+    const broken = (await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    )) as TRPCError
+    expect(broken.code).toBe(`INTERNAL_SERVER_ERROR`)
+  })
+
   it(`forwards the same startId to another device, and again after 30 minutes`, async () => {
     vi.useFakeTimers({ toFake: [`Date`] })
     try {

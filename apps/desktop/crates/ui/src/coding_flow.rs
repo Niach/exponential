@@ -1855,15 +1855,39 @@ impl RemoteStartIntent {
     }
 }
 
-/// Final review B3: whether a FAILED `steer.startSession` may still have
-/// put the frame on the device: a relay timeout (REV-34 `relay_timeout`,
-/// a 5xx) or an answer lost on the way back. A refusal (4xx) never did.
+/// Recheck R3 (feedback-states.json `starting.maybeDelivered`): whether a
+/// FAILED `steer.startSession` may still have put the frame on the device.
+/// Unknown fate = no answer (a transport error, the client's own timeout,
+/// both [`api::ApiError::Transport`]), a 2xx we could not read, a 5xx with
+/// no error body (a proxy's page), or the server's relay timeout (REV-34:
+/// HTTP 504 `GATEWAY_TIMEOUT`, "Steer relay error (504)"): toast + Retry AND
+/// the quiet follow for [`REMOTE_LATE_WAIT`]. Any other answer with an error
+/// (a 4xx, a 5xx with another error body) is definite: toast + Retry, no
+/// follower. One rule ×4 (web `startMaybeDelivered`, iOS/Android
+/// `StartDelivery`).
 pub(crate) fn may_have_reached_device(err: &api::ApiError) -> bool {
     match err {
-        api::ApiError::Http { status, .. } => *status >= 500,
-        api::ApiError::Transport { .. } => true,
+        api::ApiError::Transport { .. } | api::ApiError::Decode(_) => true,
+        api::ApiError::Http { status, message } => {
+            *status >= 500 && (is_relay_timeout(*status, message) || !has_error_body(message))
+        }
         _ => false,
     }
+}
+
+/// The server's relay timeout: tRPC `GATEWAY_TIMEOUT` (HTTP 504) with the
+/// relay's 504 in its message, or the relay's own `relay_timeout` reason.
+fn is_relay_timeout(status: u16, message: &str) -> bool {
+    (status == 504 && message.contains("Steer relay error (504)")) || message.contains("relay_timeout")
+}
+
+/// Whether an [`api::ApiError::Http`] message came from an error BODY: the
+/// api client extracts the server's message from its JSON envelope and
+/// falls back to the raw body, so an empty or HTML (a proxy's page) message
+/// means the server itself never answered.
+fn has_error_body(message: &str) -> bool {
+    let message = message.trim();
+    !message.is_empty() && !message.starts_with('<')
 }
 
 /// EXP-818: follow a remote start INTO the run, exactly as a local start lands
@@ -1877,11 +1901,14 @@ pub(crate) fn may_have_reached_device(err: &api::ApiError) -> bool {
 /// matching row wins, and nothing happens at all if none arrives within
 /// [`REMOTE_OPEN_WAIT`] (the toast already told the user where the run went).
 /// EXP-1259: `start_id` = the start's [`RemoteStartIntent`] id; a Retry of
-/// a start already followed spawns no second follower.
+/// a start already followed spawns no second follower. Recheck R3: `late`
+/// = a FAILED start whose fate is unknown ([`may_have_reached_device`]),
+/// followed quietly for [`REMOTE_LATE_WAIT`] (`starting.watchMs`) instead.
 pub(crate) fn follow_remote_start(
     device_id: String,
     subject: RemoteRunSubject,
     start_id: Option<String>,
+    late: bool,
     window: &Window,
     cx: &mut App,
 ) {
@@ -1906,7 +1933,8 @@ pub(crate) fn follow_remote_start(
     // wait is pinned to the window that opened it.
     let handle = crate::navigation::deferred_open_window(window, cx);
     cx.spawn(async move |cx| {
-        let deadline = std::time::Instant::now() + REMOTE_OPEN_WAIT;
+        let wait = if late { REMOTE_LATE_WAIT } else { REMOTE_OPEN_WAIT };
+        let deadline = std::time::Instant::now() + wait;
         loop {
             cx.background_executor().timer(REMOTE_OPEN_TICK).await;
             if let Some(session_id) =
@@ -3181,24 +3209,45 @@ mod tests {
         assert_eq!(blank.start_id().len(), 36);
     }
 
-    /// Final review B3: a relay timeout (the server's 5xx) or a lost answer
-    /// may have delivered the start, so it stays followed and its Retry
-    /// repeats the startId; a refusal never did.
+    /// Recheck R3: unknown fate (no answer, an unreadable 2xx, a proxy's
+    /// bodiless 5xx, the server's relay timeout) may have delivered the
+    /// start, so it stays followed and its Retry repeats the startId; an
+    /// answer with an error body never did.
     #[test]
     fn a_failed_start_is_followed_only_when_it_may_have_arrived() {
-        let http = |status| api::ApiError::Http {
+        let http = |status, message: &str| api::ApiError::Http {
             status,
-            message: "Steer relay error (504)".into(),
+            message: message.into(),
         };
-        assert!(may_have_reached_device(&http(500)));
-        assert!(may_have_reached_device(&http(504)));
+        // The network: a transport error and the client's own timeout.
+        assert!(may_have_reached_device(&api::ApiError::Transport {
+            message: "connection reset".into(),
+            offline: false,
+        }));
         assert!(may_have_reached_device(&api::ApiError::Transport {
             message: "timed out".into(),
             offline: true,
         }));
-        assert!(!may_have_reached_device(&http(412)));
-        assert!(!may_have_reached_device(&http(404)));
+        // A 2xx whose body we could not read: the server forwarded it.
+        assert!(may_have_reached_device(&api::ApiError::Decode("ok".into())));
+        // The server's relay timeout (504 GATEWAY_TIMEOUT).
+        assert!(may_have_reached_device(&http(504, "Steer relay error (504)")));
+        assert!(may_have_reached_device(&http(502, "relay_timeout")));
+        // A proxy answered instead of the server: no error body.
+        assert!(may_have_reached_device(&http(502, "")));
+        assert!(may_have_reached_device(&http(
+            504,
+            "<html><body>504 Gateway Time-out</body></html>"
+        )));
+        // Definite: any other 5xx with an error body, any 4xx.
+        assert!(!may_have_reached_device(&http(500, "Steer relay error (502)")));
+        assert!(!may_have_reached_device(&http(500, "Internal server error")));
+        assert!(!may_have_reached_device(&http(504, "Steer relay error (500)")));
+        assert!(!may_have_reached_device(&http(412, "Device offline")));
+        assert!(!may_have_reached_device(&http(404, "")));
+        assert!(!may_have_reached_device(&http(429, "Too many requests")));
         assert!(!may_have_reached_device(&api::ApiError::Unauthorized));
+        assert!(!may_have_reached_device(&api::ApiError::UpgradeRequired));
     }
 
     /// A bare row the subject matcher can vary one field of.

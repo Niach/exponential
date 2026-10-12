@@ -1028,10 +1028,7 @@ public final class SteerApi: Sendable {
                 )
             )
         } catch let TrpcError.httpError(status, body) {
-            if let message = Self.trpcErrorMessage(fromBody: body) {
-                throw SteerStartError.rejected(message)
-            }
-            throw TrpcError.httpError(status, body)
+            throw Self.startError(status: status, body: body)
         }
     }
 
@@ -1071,10 +1068,7 @@ public final class SteerApi: Sendable {
                 )
             )
         } catch let TrpcError.httpError(status, body) {
-            if let message = Self.trpcErrorMessage(fromBody: body) {
-                throw SteerStartError.rejected(message)
-            }
-            throw TrpcError.httpError(status, body)
+            throw Self.startError(status: status, body: body)
         }
     }
 
@@ -1124,10 +1118,7 @@ public final class SteerApi: Sendable {
                 )
             )
         } catch let TrpcError.httpError(status, body) {
-            if let message = Self.trpcErrorMessage(fromBody: body) {
-                throw SteerStartError.rejected(message)
-            }
-            throw TrpcError.httpError(status, body)
+            throw Self.startError(status: status, body: body)
         }
     }
 
@@ -1166,10 +1157,7 @@ public final class SteerApi: Sendable {
                 )
             )
         } catch let TrpcError.httpError(status, body) {
-            if let message = Self.trpcErrorMessage(fromBody: body) {
-                throw SteerStartError.rejected(message)
-            }
-            throw TrpcError.httpError(status, body)
+            throw Self.startError(status: status, body: body)
         }
     }
 
@@ -1185,6 +1173,18 @@ public final class SteerApi: Sendable {
             path: "steer.killSession",
             input: KillSessionInput(sessionId: codingSessionId)
         )
+    }
+
+    /// A `steer.startSession` HTTP failure in the shape the start surfaces
+    /// read: the server's reason (a 4xx `rejected`, a 5xx `serverError`), or
+    /// the raw error when the body carried none.
+    static func startError(status: Int, body: String) -> Error {
+        guard let message = trpcErrorMessage(fromBody: body) else {
+            return TrpcError.httpError(status, body)
+        }
+        return status >= 500
+            ? SteerStartError.serverError(status: status, message: message)
+            : SteerStartError.rejected(message)
     }
 
     /// Extract the human `message` from a tRPC error envelope
@@ -1203,10 +1203,15 @@ public final class SteerApi: Sendable {
 /// A remote-start rejection with a server-provided, user-presentable reason.
 public enum SteerStartError: Error, LocalizedError, Sendable {
     case rejected(String)
+    /// Recheck R3: a 5xx carrying a tRPC error body. The status rides along
+    /// so `StartDelivery` can tell the relay timing out (the start may be on
+    /// the device) from a definite server failure.
+    case serverError(status: Int, message: String)
 
     public var errorDescription: String? {
         switch self {
         case let .rejected(message): message
+        case let .serverError(_, message): message
         }
     }
 }

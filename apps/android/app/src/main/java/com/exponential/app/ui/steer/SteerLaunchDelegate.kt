@@ -6,6 +6,7 @@ import com.exponential.app.data.api.ActionDto
 import com.exponential.app.data.api.SteerApi
 import com.exponential.app.data.api.SteerDevice
 import com.exponential.app.data.api.SteerStartOptions
+import com.exponential.app.data.api.StartDelivery
 import com.exponential.app.data.api.trpcErrorMessage
 import com.exponential.app.data.auth.AuthRepository
 import com.exponential.app.data.db.DatabaseHolder
@@ -230,6 +231,9 @@ class SteerLaunchDelegate @Inject constructor(
             _runState.value = ActionRunState.Failed(
                 trpcErrorMessage(t, "The start command could not be delivered"),
             )
+            if (startId != null && StartDelivery.maybeDelivered(t)) {
+                followQuietly(scope, StartedRunKey.Action(action.name), startId, sentAtMs)
+            }
             return false
         }
         beginWatch(scope, StartedRunKey.Action(action.name), device, startId, sentAtMs, watchMs)
@@ -268,6 +272,9 @@ class SteerLaunchDelegate @Inject constructor(
             _runState.value = ActionRunState.Failed(
                 trpcErrorMessage(t, "The start command could not be delivered"),
             )
+            if (startId != null && StartDelivery.maybeDelivered(t)) {
+                followQuietly(scope, key, startId, sentAtMs)
+            }
             return false
         }
         beginWatch(scope, key, device, startId, sentAtMs, watchMs)
@@ -319,6 +326,45 @@ class SteerLaunchDelegate @Inject constructor(
         watch = scope.launch {
             awaitStartedRun(key, device.deviceLabel.ifBlank { device.deviceId }, startId, sentAtMs, watchMs)
         }
+    }
+
+    /**
+     * Recheck R3 (feedback-states.json `starting.maybeDelivered`): a send
+     * whose fate is unknown (a transport error, a client timeout, the relay's
+     * timeout) may have reached the device. The host toasts the failure with
+     * Retry; this follows the start QUIETLY (no Sent caption, no second error)
+     * until [StartedRunMatch.WATCH_MS] after [sentAtMs], so a late row still
+     * lands in [startedSessionId]. A re-send of the same start replaces it.
+     */
+    private fun followQuietly(scope: CoroutineScope, key: StartedRunKey, startId: String, sentAtMs: Long?) {
+        watch?.cancel()
+        quiet = true
+        watchStartId = startId
+        val sentAt = sentAtMs ?: System.currentTimeMillis()
+        watch = scope.launch {
+            val landed = awaitQuietly(key, sentAt)
+            if (currentCoroutineContext()[Job] !== watch) return@launch
+            watch = null
+            quiet = false
+            watchStartId = null
+            if (landed != null) {
+                landedStartId = startId
+                _startedSessionId.value = landed
+            }
+        }
+    }
+
+    /** Whether [startId]'s start is still followed (accepted or of unknown fate). */
+    fun isFollowing(startId: String?): Boolean =
+        startId != null && startId == watchStartId && watch?.isActive == true
+
+    /** The quiet follow's watch: the row, or null once the window closed. */
+    private suspend fun awaitQuietly(key: StartedRunKey, sentAtMs: Long): String? {
+        val userId = auth.userId.value ?: return null
+        val left = sentAtMs + StartedRunMatch.WATCH_MS - System.currentTimeMillis()
+        val id = StartedRunMatch.await(liveSessionRows, key, userId, sentAtMs, left.coerceAtLeast(0))
+        if (id != null) _runState.value = ActionRunState.Idle
+        return id
     }
 
     /**
@@ -406,6 +452,19 @@ class SteerLaunchDelegate @Inject constructor(
                         },
                     ),
                 )
+                // Recheck R3: a send of unknown fate may have reached the
+                // device: follow it quietly so a late row still lands (Idle
+                // takes the failure toast down); a refusal follows nothing.
+                if (!StartDelivery.maybeDelivered(t)) return@launch
+                val sentAt = resumeSentAtMs ?: System.currentTimeMillis().also { resumeSentAtMs = it }
+                val late = awaitQuietly(StartedRunKey.Resumed(target.sessionId), sentAt) ?: return@launch
+                landedStartId = null
+                _startedSessionId.value = late
+                if (resumeIntent == intent) {
+                    resumeIntent = null
+                    resumeSentAtMs = null
+                    lastResume = null
+                }
                 return@launch
             }
             val sentAt = resumeSentAtMs ?: System.currentTimeMillis().also { resumeSentAtMs = it }

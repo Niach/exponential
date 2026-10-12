@@ -140,6 +140,9 @@ export * from "./work-header"
 // FeedbackMark, BlockingOverlay + blockWindow); pending Button and
 // SkeletonRows live in ./button and ./skeleton.
 export * from "./feedback"
+// EXP-1259: the six kinds side by side (the styleguide entry + the web
+// app's dev-only `feedback-states` capture).
+export * from "./feedback-specimen"
 // SLOP-28 (EXP-1259 D4): THE search list (`#` typeahead, the composer
 // submenus, the issue pickers, the global search) + its caret popover.
 export * from "./search-list"

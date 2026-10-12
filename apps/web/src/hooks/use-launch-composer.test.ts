@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
+import { TRPCClientError } from "@trpc/client"
 import type { SteerDevice } from "@/lib/steer-devices"
 import {
   BUILTIN_CHAT_ID,
@@ -672,6 +673,75 @@ describe(`useLaunchComposer submit`, () => {
     expect(runAction.mock.calls[1]![6]).toBe(runAction.mock.calls[0]![6])
   })
 
+  // Recheck R2: the launch options are part of the draft start.
+  it(`a changed launch option after a timeout is a fresh start`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { result, remote } = mount()
+      act(() => result.current.setText(`hi`))
+      await act(() => result.current.submit())
+      const first = vi.mocked(remote.runAction).mock.calls[0]![6]
+      act(() => vi.advanceTimersByTime(30_000))
+      act(() => result.current.launch.setEffortValue(`low`))
+      await act(() => result.current.submit())
+      const second = vi.mocked(remote.runAction).mock.calls[1]![6]
+      expect(second).toMatch(/^[0-9a-f-]{36}$/)
+      expect(second).not.toBe(first)
+      expect(vi.mocked(remote.runAction).mock.calls[1]![2]).toMatchObject({ effort: `low` })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Recheck R3 (feedback-states.json `starting.maybeDelivered`): an unknown
+  // fate keeps the landing armed behind a quiet follow; a definite error
+  // does not.
+  it(`a maybe-delivered failure follows quietly and a late row lands the unchanged draft`, async () => {
+    const runAction = vi
+      .fn()
+      .mockRejectedValue(
+        new TRPCClientError(`Failed to fetch`, { cause: new TypeError(`Failed to fetch`) })
+      )
+    const { result, land, onLanded, remote } = mount(null, makeRemote({ runAction }))
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    expect(result.current.starting).toBeNull()
+    expect(result.current.text).toBe(`hi`)
+    const canOpen = vi.mocked(remote.quietWatch).mock.calls[0]![0]!
+    expect(canOpen()).toBe(true)
+    land()
+    expect(result.current.text).toBe(``)
+    expect(onLanded).toHaveBeenCalledTimes(1)
+  })
+
+  it(`a maybe-delivered failure's late row keeps a changed draft`, async () => {
+    const relayTimeout = new TRPCClientError(`Steer relay error (504)`)
+    ;(relayTimeout as { data?: unknown }).data = { code: `GATEWAY_TIMEOUT`, httpStatus: 504 }
+    const runAction = vi.fn().mockRejectedValue(relayTimeout)
+    const { result, land, onLanded, remote } = mount(null, makeRemote({ runAction }))
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    const canOpen = vi.mocked(remote.quietWatch).mock.calls[0]![0]!
+    act(() => result.current.setText(`something else`))
+    expect(canOpen()).toBe(false)
+    land()
+    expect(result.current.text).toBe(`something else`)
+    expect(onLanded).not.toHaveBeenCalled()
+  })
+
+  it(`a definite failure follows nothing`, async () => {
+    const refused = new TRPCClientError(`buildbox is offline`)
+    ;(refused as { data?: unknown }).data = { code: `PRECONDITION_FAILED`, httpStatus: 412 }
+    const runAction = vi.fn().mockRejectedValue(refused)
+    const { result, land, onLanded, remote } = mount(null, makeRemote({ runAction }))
+    act(() => result.current.setText(`hi`))
+    await act(() => result.current.submit())
+    expect(remote.quietWatch).not.toHaveBeenCalled()
+    land()
+    expect(result.current.text).toBe(`hi`)
+    expect(onLanded).not.toHaveBeenCalled()
+  })
+
   it(`a row landing after the timeout dismisses the error, clears the draft and lands`, async () => {
     vi.useFakeTimers()
     try {
@@ -813,12 +883,22 @@ describe(`draftStartFingerprint`, () => {
     subject: { kind: `issues` as const, ids: [`i1`, `i2`] },
     repoId: ``,
     attachments: [`blob:a.png`],
+    options: {
+      agent: `claude`,
+      model: `opus`,
+      effort: `high`,
+      ultracode: false,
+      planMode: false,
+      mcpServerIds: [`m1`, `m2`],
+      account: `acc1`,
+    },
   }
   it(`is one start for the same draft on the same device`, () => {
     expect(
       draftStartFingerprint({
         ...base,
         subject: { kind: `issues`, ids: [`i2`, `i1`] },
+        options: { ...base.options, mcpServerIds: [`m2`, `m1`] },
       })
     ).toBe(draftStartFingerprint(base))
     const action = (inputs: Record<string, string>) =>
@@ -836,13 +916,34 @@ describe(`draftStartFingerprint`, () => {
       { subject: { kind: `issues` as const, ids: [`i1`] } },
       { subject: null },
       { attachments: [] },
-      { stackedIssueId: `i1` },
+      { stackedIssueId: `i3` },
     ]) {
       expect(draftStartFingerprint({ ...base, ...change })).not.toBe(fp)
     }
     expect(
       draftStartFingerprint({ ...base, subject: null, repoId: `r1` })
     ).not.toBe(draftStartFingerprint({ ...base, subject: null, repoId: `r2` }))
+  })
+  // Recheck R2: every launch option the start sends.
+  it(`changes with every launch option`, () => {
+    const fp = draftStartFingerprint(base)
+    for (const change of [
+      { agent: `codex` },
+      { model: `sonnet` },
+      { effort: `low` },
+      { planMode: true },
+      { account: `acc2` },
+      { account: undefined },
+      { mcpServerIds: [`m1`] },
+      { computerUse: true },
+      { computerUse: false },
+      { ultracode: true },
+      { subagentModel: `haiku` },
+    ]) {
+      expect(
+        draftStartFingerprint({ ...base, options: { ...base.options, ...change } })
+      ).not.toBe(fp)
+    }
   })
 })
 

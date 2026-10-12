@@ -4,6 +4,7 @@ import {
   Button,
   conceptIcon,
   ExponentialLogo,
+  FeedbackStatesSpecimen,
   SkeletonRows,
   THREAD_COPY,
   Tooltip,
@@ -51,6 +52,7 @@ import {
   type LaunchSeed,
 } from "@/lib/launch-seed"
 import { pageTitle } from "@/lib/page-title"
+import { isProductionBuild } from "@/lib/production-build"
 import {
   setRecentRunsPanelOpen,
   useRecentRunsPanelOpen,
@@ -106,11 +108,20 @@ const flag = (value: unknown): string | undefined =>
 // `/t/$teamSlug/sessions/$sessionId` (EXP-851: full width, with this list in
 // the sidebar beside it).
 
+// EXP-1259 (DEV-ONLY): `?dev=feedback-states` swaps the page for the six
+// feedback kinds side by side (`@exp/ui` `FeedbackStatesSpecimen`, the
+// styleguide's board), for the view catalog's `feedback-states` capture:
+// the kinds never show together in the app. Never parsed in a production
+// build (`isProductionBuild`).
+type DevView = `feedback-states`
+const devView = (value: unknown): DevView | undefined =>
+  !isProductionBuild && value === `feedback-states` ? value : undefined
+
 export const Route = createFileRoute(`/t/$teamSlug/agent`)({
   head: () => ({ meta: [{ title: pageTitle(`Agent`) }] }),
   validateSearch: (
     search: Record<string, unknown>
-  ): AgentSearch & { from?: string; thread?: string } => ({
+  ): AgentSearch & { from?: string; thread?: string; dev?: DevView } => ({
     issues: str(search.issues),
     action: str(search.action),
     pr: str(search.pr),
@@ -122,6 +133,7 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
     // EXP-1284: "Start a session here" — every start from this page goes INTO
     // that thread. Sticky like `from` (never stripped with the seed).
     thread: str(search.thread),
+    dev: devView(search.dev),
   }),
   beforeLoad: async ({ context, location }) => {
     if (!context.session) {
@@ -131,8 +143,20 @@ export const Route = createFileRoute(`/t/$teamSlug/agent`)({
       })
     }
   },
-  component: AgentPage,
+  component: AgentRoute,
 })
+
+function AgentRoute() {
+  const { dev } = Route.useSearch()
+  if (dev === `feedback-states`) {
+    return (
+      <div className={`h-full min-h-0 overflow-y-auto p-6 ${TAB_BAR_CLEARANCE}`}>
+        <FeedbackStatesSpecimen />
+      </div>
+    )
+  }
+  return <AgentPage />
+}
 
 function AgentPage() {
   const { teamSlug } = Route.useParams()
