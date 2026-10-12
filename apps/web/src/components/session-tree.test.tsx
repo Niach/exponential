@@ -101,7 +101,7 @@ describe(`SessionTree`, () => {
     const child = screen.getByTestId(`session-row-I2`)
     expect(parent.style.paddingLeft).toBe(`12px`)
     expect(child.style.paddingLeft).toBe(`26px`)
-    expect(screen.queryByLabelText(`Collapse child runs`)).toBeNull()
+    expect(screen.queryByLabelText(`Collapse child sessions`)).toBeNull()
     expect(firstSlot(parent)).toBe(`run-mark`)
     expect(firstSlot(child)).toBe(`run-mark`)
   })
@@ -148,6 +148,6 @@ describe(`SessionTree`, () => {
 
   it(`renders the empty state when nothing is listed`, () => {
     render(<SessionTree rows={[]} onOpen={() => {}} empty="recent-runs" />)
-    expect(screen.getByText(`No recent runs`)).toBeTruthy()
+    expect(screen.getByText(`No recent sessions`)).toBeTruthy()
   })
 })

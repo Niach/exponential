@@ -1529,7 +1529,7 @@ mod prompt_tests {
 
     #[test]
     fn return_never_lands_on_a_destructive_answer() {
-        let stop = AlertSpec::from_prompt("Stop run", &prompts::stop_run());
+        let stop = AlertSpec::from_prompt("Stop session", &prompts::stop_run());
         assert_eq!(stop.enter_answer(), AlertEnter::Cancel);
         let make_owner = AlertSpec::from_prompt("Make owner", &prompts::make_owner("Ada"));
         assert_eq!(make_owner.enter_answer(), AlertEnter::Ok);

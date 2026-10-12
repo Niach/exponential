@@ -188,7 +188,7 @@ export function TeamMcpServersSection({
       if (await setShared(server.id, next)) {
         toast.success(
           next
-            ? `Shared ${server.name} with the team: action runs on teammates' machines use your connection`
+            ? `Shared ${server.name} with the team: action sessions on teammates' machines use your connection`
             : `Stopped sharing ${server.name}`
         )
       }
@@ -681,7 +681,7 @@ function ServerRow({
             {server.name}
           </span>
           {server.enabledByDefault && (
-            <Pill size="sm" title="Pre-selected in new runs">
+            <Pill size="sm" title="Pre-selected in new sessions">
               Default
             </Pill>
           )}
@@ -897,7 +897,7 @@ function SecretDialog({
         <DialogHeader>
           <DialogTitle>{`API key for ${server?.name ?? ``}`}</DialogTitle>
           <DialogDescription>
-            Only your runs use it. Stored encrypted; nobody can read it back.
+            Only your sessions use it. Stored encrypted; nobody can read it back.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -1128,7 +1128,7 @@ function McpServerDialog({
               )}
               <GlassToggleRow
                 id="mcp-enabled-by-default"
-                label="Pre-select in new runs"
+                label="Pre-select in new sessions"
                 checked={draft.enabledByDefault}
                 onCheckedChange={(enabledByDefault) => patch({ enabledByDefault })}
               />

@@ -26,7 +26,7 @@ export const TEAM_PROMPT_MAX_BYTES = contract.team.agentPromptMaxBytes
  *  (`settings/team_general.rs`). EXP-1054: one short placeholder, no helper
  *  paragraph under the field — the counter is the footer. */
 export const TEAM_PROMPT_TITLE = `Team prompt`
-export const TEAM_PROMPT_PLACEHOLDER = `Rules every coding run of this team follows, as markdown.`
+export const TEAM_PROMPT_PLACEHOLDER = `Rules every coding session of this team follows, as markdown.`
 
 /** `12.3k` / `840` — the counter's short form. */
 export function formatByteCount(bytes: number): string {

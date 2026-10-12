@@ -48,7 +48,7 @@
     },
     {
       "key": "run",
-      "title": "Start a run",
+      "title": "Start a session",
       "icon": "action-run",
       "target": "agent",
       "needsDevice": true,
@@ -92,7 +92,7 @@
   ],
   "cases": [
     {
-      "name": "a fresh owner's team: Create a board is next, Start a run opens the device step",
+      "name": "a fresh owner's team: Create a board is next, Start a session opens the device step",
       "signals": {
         "hasBoard": false,
         "githubInstalled": false,
@@ -240,7 +240,7 @@
       }
     },
     {
-      "name": "a server alone counts as a device, Start a run opens the composer",
+      "name": "a server alone counts as a device, Start a session opens the composer",
       "signals": {
         "hasBoard": false,
         "githubInstalled": false,

@@ -11,7 +11,7 @@ import type { StyleguideEntry } from "./types.ts"
 
 // EXP-1248: THE session row, the REAL `@exp/ui` SessionRow in both sizes over
 // the same runs: small on the sidebar ground (the main menu's Running), big on
-// the page ground (Recent, the phone Agent page, an action's Runs). The
+// the page ground (Recent, the phone Agent page, an action's Sessions). The
 // captions are literal here; the app words them with `sessionRowCaption`
 // (fixture `list-item.json`).
 
@@ -129,7 +129,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1248`,
   title: `Session row`,
-  blurb: `ONE list item for a run, two sizes, nested by the session tree (resumes collapsed, a \`sessions_start\` child under its parent, children ALWAYS shown). Anatomy ×4: [tree guides][run mark at 12 + 14·depth][mono id · title][caption, big only][device icon]. The run mark is the agent's brand mark (Claude's spark while it works, a badge when parked, dimmed once ended), so every mark and every title at one depth aligns. NO fold chevron, NO trailing chevron, NO buttons. small = one line, 32px (the sidebar's Running); big = two lines, 52px, the caption "Building · macbook · 21 h", "Needs input · mint · 5 min" (amber), "Ready for review · …", "Done · mint · 1 h". Fixture \`list-item.json\`.`,
+  blurb: `ONE list item for a session, two sizes, nested by the session tree (resumes collapsed, a \`sessions_start\` child under its parent, children ALWAYS shown). Anatomy ×4: [tree guides][session mark at 12 + 14·depth][mono id · title][caption, big only][device icon]. The session mark is the agent's brand mark (Claude's spark while it works, a badge when parked, dimmed once ended), so every mark and every title at one depth aligns. NO fold chevron, NO trailing chevron, NO buttons. small = one line, 32px (the sidebar's Running); big = two lines, 52px, the caption "Building · macbook · 21 h", "Needs input · mint · 5 min" (amber), "Ready for review · …", "Done · mint · 1 h". Fixture \`list-item.json\`.`,
   status: {
     web: {
       state: `ok`,
@@ -141,13 +141,13 @@ export const entry: StyleguideEntry = {
       state: `ok`,
       symbol: `run_rows::run_row`,
       file: `apps/desktop/crates/ui/src/run_rows.rs`,
-      note: `small = the rail Running (sidebar.rs), big = Recent and the action Runs; caption domain/src/session_row.rs`,
+      note: `small = the rail Running (sidebar.rs), big = Recent and the action Sessions; caption domain/src/session_row.rs`,
     },
     ios: {
       state: `ok`,
       symbol: `SessionRow / SessionListRow`,
       file: `apps/ios/ExpUI/Sources/SessionRow.swift`,
-      note: `lists: AgentSessionsList, RecentRunsSheet, ActionDetailView Runs; caption ExpCore Domain/SessionRow.swift`,
+      note: `lists: AgentSessionsList, RecentRunsSheet, ActionDetailView Sessions; caption ExpCore Domain/SessionRow.swift`,
     },
     android: {
       state: `ok`,

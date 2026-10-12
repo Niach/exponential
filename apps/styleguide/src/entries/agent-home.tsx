@@ -108,7 +108,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1253`,
   title: `Agent home`,
-  blurb: `The Agent page is HOME on every client (fixture \`composer-home.json\`): the app opens on it and the New run tab hosts it. The disc mark + ONE line of Inter semibold (${HOME_GEOMETRY.headline}px, phones ${HOME_GEOMETRY.headlinePhone}px), a time-of-day greeting picked per day ("Evening, Danny", "Night owl, Danny?"), computed once per visit. Then the composer ("${HOME_PLACEHOLDER}"; a picked issue or action leads with its own headline instead) and its options line, then RECENT: my last ${HOME_RECENT.count} own runs in this team as small session rows; no band without runs. A team with no board shows Getting started under it. No watermark, no suggestion rows.`,
+  blurb: `The Agent page is HOME on every client (fixture \`composer-home.json\`): the app opens on it and the New session tab hosts it. The disc mark + ONE line of Inter semibold (${HOME_GEOMETRY.headline}px, phones ${HOME_GEOMETRY.headlinePhone}px), a time-of-day greeting picked per day ("Evening, Danny", "Night owl, Danny?"), computed once per visit. Then the composer ("${HOME_PLACEHOLDER}"; a picked issue or action leads with its own headline instead) and its options line, then RECENT: my last ${HOME_RECENT.count} own sessions in this team as small session rows; no band without sessions. A team with no board shows Getting started under it. No watermark, no suggestion rows.`,
   status: {
     web: {
       state: `ok`,

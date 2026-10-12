@@ -102,14 +102,14 @@ export function useResumeRun(session: CodingSession): {
         setSentAt(null)
         setResuming(false)
         toast.error(
-          `${device.label ?? `That machine`} never started this run`,
+          `${device.label ?? `That machine`} never started this session`,
           { description: `Open the Exponential desktop app there to see why.` }
         )
       }, STARTED_RUN_DEADLINE_MS)
     } catch (e) {
       setResuming(false)
       // FEED-79: nothing resumed, so Retry asks the machine again.
-      failedAction(`resume`, `the run`, e, { retry: () => void resume() })
+      failedAction(`resume`, `the session`, e, { retry: () => void resume() })
     }
   }
 

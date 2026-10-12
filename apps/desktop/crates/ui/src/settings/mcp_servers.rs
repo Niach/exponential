@@ -107,7 +107,7 @@ fn share_menu_offered(http: bool, shared: bool) -> bool {
 fn share_toast(name: &str, shared: bool) -> (String, &'static str) {
     if shared {
         (
-            format!("Shared {name} with the team: action runs on teammates' machines use your connection"),
+            format!("Shared {name} with the team: action sessions on teammates' machines use your connection"),
             "Could not share",
         )
     } else {
@@ -515,7 +515,7 @@ impl McpServersPane {
         let server = config.name.clone();
         let spec = AlertSpec::new(
             format!("API key for {server}"),
-            "Only your runs use it. Stored encrypted; nobody can read it back.",
+            "Only your sessions use it. Stored encrypted; nobody can read it back.",
             "Save key",
         )
         .height(gpui::px(300.))
@@ -626,7 +626,7 @@ impl McpServersPane {
         let identity: SharedString = name.clone().into();
         let spec = AlertSpec::new(
             "Disconnect",
-            "Your credential for this server is deleted. Your runs stop getting its \
+            "Your credential for this server is deleted. Your sessions stop getting its \
              tools until you connect again; other members keep theirs.",
             "Disconnect",
         )
@@ -732,7 +732,7 @@ impl McpServersPane {
         let identity: SharedString = name.clone().into();
         let spec = AlertSpec::new(
             "Remove server",
-            "Runs stop offering it and every member's connection to it is deleted. \
+            "Sessions stop offering it and every member's connection to it is deleted. \
              This cannot be undone.",
             "Remove",
         )
@@ -1299,7 +1299,7 @@ mod tests {
         assert_eq!(
             share_toast("Linear", true),
             (
-                "Shared Linear with the team: action runs on teammates' machines use your connection"
+                "Shared Linear with the team: action sessions on teammates' machines use your connection"
                     .to_string(),
                 "Could not share"
             )

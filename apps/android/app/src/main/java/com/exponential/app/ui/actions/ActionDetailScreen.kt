@@ -104,7 +104,7 @@ private val ACTION_TABS = listOf(ACTION_TAB_PROMPT, ACTION_TAB_TRIGGERS, ACTION_
 
 private fun actionTabLabel(tab: String): String = when (tab) {
     ACTION_TAB_TRIGGERS -> "Triggers"
-    ACTION_TAB_RUNS -> "Runs"
+    ACTION_TAB_RUNS -> "Sessions"
     else -> "Prompt"
 }
 

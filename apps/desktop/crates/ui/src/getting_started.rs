@@ -204,7 +204,7 @@ pub(crate) const STEPS: [Step; 8] = [
     },
     Step {
         key: StepKey::Run,
-        title: "Start a run",
+        title: "Start a session",
         icon: "action-run",
         target: Target::Agent,
         needs_device: true,

@@ -567,7 +567,7 @@ export const batchCodingScriptFor = (issues: Issue[]): FeedRow[] => [
       },
       {
         title: `Split the risky change out`,
-        sub: `A second branch and a second PR from this run`,
+        sub: `A second branch and a second PR from this session`,
       },
     ],
   },
@@ -577,10 +577,10 @@ export const batchCodingScriptFor = (issues: Issue[]): FeedRow[] => [
    the issues it covers since EXP-876 (`EXP-874 +2`, web `lib/batch-run.ts`);
    this scripted tour has no covered set to name one from, so it keeps the
    fallback every client still shows for a batch whose issues are unknown. */
-export const BATCH_RUN_TITLE = `Batch run`
+export const BATCH_RUN_TITLE = `Batch session`
 
 /* ─── Runs beside the scripted one (EXP-870/874/877) ───
-   The coding agents a run can ride; the tab strip clusters live runs by
+   The coding agents a session can ride; the tab strip clusters live sessions by
    agent, led by the agent's brand mark. */
 export type AgentKind = `claude` | `codex`
 

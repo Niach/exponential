@@ -289,7 +289,7 @@ struct AgentSessionView: View {
             // EXP-1031: the transient outcomes land as toasts.
             .onChange(of: model?.killError) { _, message in
                 guard let message else { return }
-                toaster.error(FeedbackStates.Errors.title(verb: "stop", thing: "the run"), description: message)
+                toaster.error(FeedbackStates.Errors.title(verb: "stop", thing: "the session"), description: message)
             }
             .onChange(of: continuation.watcher.sentCaption) { _, caption in
                 guard let caption, model?.sessionEnded != true else { return }
@@ -299,7 +299,7 @@ struct AgentSessionView: View {
             // (it used to be a red line over the transcript).
             .onChange(of: continuation.watcher.failure) { _, failure in
                 guard let failure else { return }
-                toaster.error(FeedbackStates.Errors.title(verb: "resume", thing: "the run"), description: failure)
+                toaster.error(FeedbackStates.Errors.title(verb: "resume", thing: "the session"), description: failure)
             }
             .photosPicker(
                 isPresented: $showPhotoPicker,
@@ -1561,7 +1561,7 @@ struct AgentSessionView: View {
         switch model.phase {
         case let .ended(detail):
             bannerRow {
-                Text(detail ?? "Run ended")
+                Text(detail ?? "Session ended")
                     .font(.caption)
                     .foregroundStyle(.white.opacity(TextOpacity.secondary))
             }

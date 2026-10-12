@@ -1,8 +1,8 @@
 /* ─── The work-tabs band (app_title_bar.rs + screens.rs render_tab_strip,
    EXP-870/877): 44px of bare ground above the cutout panel, 32px chips
-   centred in it. Live runs of mine LEAD the strip, clustered by agent: the
+   centred in it. Live sessions of mine LEAD the strip, clustered by agent: the
    agent's brand mark, its chips, then a chevron that folds the cluster to
-   the mark (the mark unfolds it again). A live run's chip carries its
+   the mark (the mark unfolds it again). A live session's chip carries its
    state (spinner while its turn runs, amber waiting on you, green PR open)
    and cannot be closed. Other tabs follow with their status glyph and ×.
    The active tab wears the glass ACTIVE fill. ─── */

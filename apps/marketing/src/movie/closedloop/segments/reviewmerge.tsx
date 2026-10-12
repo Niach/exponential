@@ -172,7 +172,7 @@ export const ReviewMergeSegment: React.FC<SegmentProps> = ({
               tabs={[
                 frame >= B.mergedAt
                   ? { ...TAB_151, status: heroStatus }
-                  : // EXP-870/877: the live run rides its issue's tab in the
+                  : // EXP-870/877: the live session rides its issue's tab in the
                     // Claude group, green while its PR is open; the merge
                     // ends the run and the tab falls back to the issue chip
                     { ...TAB_151, liveDot: C.green },

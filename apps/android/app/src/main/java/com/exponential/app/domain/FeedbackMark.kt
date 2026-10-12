@@ -108,7 +108,7 @@ object FeedbackStates {
     /** The composer after Start, until the run's row lands. */
     const val STARTING_LABEL = "Starting on {device}"
     const val STARTING_TIMEOUT_MS = 30_000L
-    const val STARTING_TIMEOUT_TITLE = "The run did not start"
+    const val STARTING_TIMEOUT_TITLE = "The session did not start"
     const val STARTING_TIMEOUT_DESCRIPTION = "{device} did not answer."
     const val RETRY = "Retry"
 

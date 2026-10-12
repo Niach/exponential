@@ -30,7 +30,7 @@ import kotlinx.serialization.json.JsonPrimitive
 // names.
 
 /** The one string a batch with no knowable issues shows. Byte-identical ×4. */
-const val BATCH_RUN_FALLBACK = "Batch run"
+const val BATCH_RUN_FALLBACK = "Batch session"
 
 /** What a batch row shows: `EXP-874 +2` beside the first issue's title. */
 data class BatchRunName(

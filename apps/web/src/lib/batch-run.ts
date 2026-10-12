@@ -22,7 +22,7 @@
 // run`).
 
 /** The one string a batch with no knowable issues shows. Byte-identical ×4. */
-export const BATCH_RUN_FALLBACK = `Batch run`
+export const BATCH_RUN_FALLBACK = `Batch session`
 
 /** The session columns the rule reads. */
 export interface BatchRunSession {

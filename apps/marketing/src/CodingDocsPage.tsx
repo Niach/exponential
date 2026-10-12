@@ -15,8 +15,8 @@ const SECTIONS: DocsSectionType[] = [
   { id: `how-it-works`, num: `01`, label: `How it works` },
   { id: `setup`, num: `02`, label: `Setup` },
   { id: `start-coding`, num: `03`, label: `Start coding` },
-  { id: `single-runs`, num: `04`, label: `Single runs` },
-  { id: `batch-runs`, num: `05`, label: `Batch runs` },
+  { id: `single-runs`, num: `04`, label: `Single sessions` },
+  { id: `batch-runs`, num: `05`, label: `Batch sessions` },
   { id: `watch-steer`, num: `06`, label: `Watch & steer` },
   { id: `review-merge`, num: `07`, label: `Review & merge` },
   { id: `git-ide`, num: `08`, label: `The git IDE` },
@@ -62,7 +62,7 @@ export function CodingDocsPage() {
               <li>
                 It mints <strong>short-lived, repo-scoped GitHub tokens</strong>
                 {` `}
-                through the team&apos;s GitHub App connection, so the run can
+                through the team&apos;s GitHub App connection, so the session can
                 push without any long-lived credential on disk.
               </li>
               <li>
@@ -112,7 +112,7 @@ export function CodingDocsPage() {
             </ol>
             <p>
               Under the hood, the launcher wires a scoped MCP config into the
-              run carrying a personal API key. That&apos;s how the agent
+              session carrying a personal API key. That&apos;s how the agent
               drives Exponential itself: updating issue status, posting
               comments, and opening the PR, all as tools.
             </p>
@@ -121,7 +121,7 @@ export function CodingDocsPage() {
               Each machine reports, read-only, which account every installed
               agent CLI is signed in to and how much of its rate-limit window
               is spent — never the credential itself. A machine can hold more
-              than one Claude or Codex login, and a run picks the{` `}
+              than one Claude or Codex login, and a session picks the{` `}
               <strong>Account</strong> it uses.
             </p>
             <p>
@@ -130,7 +130,7 @@ export function CodingDocsPage() {
               which account, whether it still works, and what is left of each
               window; repairing one (a <strong>Login</strong> or{` `}
               <strong>Switch account</strong> pill) happens right there, on
-              the login&apos;s own row. And mid-run the context ring beside
+              the login&apos;s own row. And mid-session the context ring beside
               the composer opens the same usage overlay — the same one, on
               every client, phones included.
             </p>
@@ -169,7 +169,7 @@ export function CodingDocsPage() {
             <DocShot
               view="issue-detail"
               platform="desktop"
-              caption="An issue in the desktop IDE with its run live: the Issue | Run switch, the property tray, and Stop"
+              caption="An issue in the desktop IDE with its session live: the Issue | Session switch, the property tray, and Stop"
             />
 
             <UiDemo id="subject-chips" />
@@ -216,10 +216,10 @@ export function CodingDocsPage() {
                 <strong>Model</strong> and <strong>Effort</strong> pickers, per
                 agent. Each agent offers its own models and its own effort
                 vocabulary (Codex calls it Reasoning). Effort is fixed at
-                launch; a Claude run can still change model from its composer.
+                launch; a Claude session can still change model from its composer.
               </li>
               <li>
-                <strong>Ultracode</strong>, Claude only. Lets the run organize
+                <strong>Ultracode</strong>, Claude only. Lets the session organize
                 its own workflow; it takes over the effort setting.
               </li>
               <li>
@@ -229,35 +229,35 @@ export function CodingDocsPage() {
               </li>
               <li>
                 <strong>Resume previous session</strong>, offered when the
-                issue already has a recorded run to continue. It relaunches
+                issue already has a recorded session to continue. It relaunches
                 that exact transcript, with the agent it was recorded on.
               </li>
               <li>
                 An <strong>Account</strong> picker on machines that hold more
                 than one login for the agent, and an{` `}
                 <strong>MCP servers</strong> picker once your team has any:
-                pick which of them this run gets. See{` `}
+                pick which of them this session gets. See{` `}
                 <a href="/docs/mcp/#your-own-servers">MCP servers</a>.
               </li>
             </ul>
 
             <DocShot
               view="chat-issues"
-              caption="The Agent page composer with two issues chipped above the prompt, the machine and agent pickers under it: one run for a single issue, a batch for several"
+              caption="The Agent page composer with two issues chipped above the prompt, the machine and agent pickers under it: one session for a single issue, a batch for several"
             />
             <p>
               Defaults are <strong>per agent, not per mode</strong>: single and
-              batch runs prefill identically. Out of the box that&apos;s{` `}
+              batch sessions prefill identically. Out of the box that&apos;s{` `}
               <strong>plan mode on</strong> and <strong>ultracode off</strong>.
               Change them under <strong>Settings → This device → Agents</strong> on the
-              desktop, per agent, and every future run starts from your values.
-              Permissions are not a setting: every run hands Claude and Codex a
+              desktop, per agent, and every future session starts from your values.
+              Permissions are not a setting: every session hands Claude and Codex a
               full bypass, and plan mode still asks you to approve the plan
-              before any code is written. Every run uses exactly one
+              before any code is written. Every session uses exactly one
               repository.
             </p>
             <p>
-              Which branch a run starts from is resolved, never assumed: a{` `}
+              Which branch a session starts from is resolved, never assumed: a{` `}
               board&apos;s own <strong>Branch</strong> pin wins, then the
               team&apos;s per-repository default-branch override, then
               GitHub&apos;s. A batch whose issues would resolve to different
@@ -265,21 +265,21 @@ export function CodingDocsPage() {
             </p>
           </DocsSection>
 
-          {/* ── 04 Single runs ── */}
-          <DocsSection id="single-runs" num="04" label="Single runs">
-            <h2>Single runs</h2>
+          {/* ── 04 Single sessions ── */}
+          <DocsSection id="single-runs" num="04" label="Single sessions">
+            <h2>Single sessions</h2>
             <p>One issue, one branch, one PR:</p>
             <ol>
               <li>
                 The app creates a <strong>git worktree</strong> on a fresh
                 {` `}
                 <code>exp/&lt;IDENTIFIER&gt;</code> branch. Your main
-                checkout stays untouched, and several runs can work the same
+                checkout stays untouched, and several sessions can work the same
                 repo side by side.
               </li>
               <li>
-                The run opens as a <strong>session</strong>, seeded with the
-                issue. On web and desktop it is the <strong>Run</strong> face
+                The session opens seeded with the
+                issue. On web and desktop it is the <strong>Session</strong> face
                 of the issue&apos;s tab.
                 With plan mode on it <strong>plans first</strong>; you approve
                 before implementation starts.
@@ -300,12 +300,12 @@ export function CodingDocsPage() {
             </ol>
           </DocsSection>
 
-          {/* ── 05 Batch runs ── */}
-          <DocsSection id="batch-runs" num="05" label="Batch runs">
-            <h2>Batch runs</h2>
+          {/* ── 05 Batch sessions ── */}
+          <DocsSection id="batch-runs" num="05" label="Batch sessions">
+            <h2>Batch sessions</h2>
             <p>
               Chip <strong>two or more issues</strong> in the composer (or
-              use the board&apos;s bulk-select bar) and you get a batch run:{` `}
+              use the board&apos;s bulk-select bar) and you get a batch session:{` `}
               <strong>one agent session</strong> given all the issues at
               once, working on <strong>one shared branch</strong> (
               <code>exp/batch-&lt;id&gt;</code>), ending in{` `}
@@ -330,19 +330,19 @@ export function CodingDocsPage() {
               </li>
               <li>
                 <strong>Feedback triage</strong>: bulk-select a morning&apos;s
-                worth of widget reports and clear them in one run.
+                worth of widget reports and clear them in one session.
               </li>
             </ul>
             <DocsCallout kind="note" title="Batch size">
-              A run takes <em>at most 30 issues</em>. Every checked issue adds
+              A session takes <em>at most 30 issues</em>. Every checked issue adds
               to the prompt, so big batches are token-hungry.
             </DocsCallout>
             <p>
-              <strong>A run starts runs for the follow-ups it files.</strong>{` `}
+              <strong>A session starts sessions for the follow-ups it files.</strong>{` `}
               Work the agent finds out of scope becomes a new issue, and once
-              its own pull request is open it starts a run for each follow-up
+              its own pull request is open it starts a session for each follow-up
               it can verify on the same machine, built on its own branch. Those
-              runs nest under it in every sessions list. Merge such a tree root
+              sessions nest under it in every sessions list. Merge such a tree root
               first: the root&apos;s merge retargets its children onto the
               default branch. Say <code>no follow-up runs</code> in the prompt
               to turn it off.
@@ -353,7 +353,7 @@ export function CodingDocsPage() {
           <DocsSection id="watch-steer" num="06" label="Watch & steer">
             <h2>Watch &amp; steer</h2>
             <p>
-              A run is a <strong>session</strong> with one address,{` `}
+              A session has one address,{` `}
               <code>/t/&lt;team&gt;/sessions/&lt;id&gt;</code>. What it shows
               is not a log or a terminal — it is the agent&apos;s own
               narration, the tool calls it makes (collapsed into lines like
@@ -363,22 +363,22 @@ export function CodingDocsPage() {
             </p>
             <p>
               On web and desktop, work lives in <strong>tabs</strong> along
-              the top of the window. An issue and its run share one tab, and
-              the <strong>Issue | Run</strong> switch in its header flips
+              the top of the window. An issue and its session share one tab, and
+              the <strong>Issue | Session</strong> switch in its header flips
               between them. Both faces use the same header: the title, then
               the issue&apos;s properties in a tray, with{` `}
               <strong>Stop</strong> or <strong>Resume</strong> at its end. A
-              run with no issue (a chat, an action, a batch) gets a tab of its
+              session with no issue (a chat, an action, a batch) gets a tab of its
               own.
             </p>
             <p>
-              Every live run of yours gets a tab automatically, grouped by
-              agent at the front of the strip. A live run&apos;s tab
-              can&apos;t be closed. Once the run ends it becomes an ordinary
-              tab you close yourself. The same runs are listed on the{` `}
+              Every live session of yours gets a tab automatically, grouped by
+              agent at the front of the strip. A live session&apos;s tab
+              can&apos;t be closed. Once the session ends it becomes an ordinary
+              tab you close yourself. The same sessions are listed on the{` `}
               <strong>Agent</strong> page, <strong>Running</strong> then{` `}
               <strong>Past</strong>. A row carries no buttons: it opens the
-              run, and merging lives on the run&apos;s{` `}
+              session, and merging lives on the session&apos;s{` `}
               <strong>Changes</strong> face. On a phone the Agent page is
               where you open them. Live sessions
               are yours alone — teammates see the status badge on the issue,
@@ -388,15 +388,15 @@ export function CodingDocsPage() {
             <DocShot
               view="steering"
               platform="desktop"
-              caption="A run in the desktop IDE: the same header as its issue, the transcript, and the agent's question waiting for an answer"
+              caption="A session in the desktop IDE: the same header as its issue, the transcript, and the agent's question waiting for an answer"
             />
 
             <p>What the composer takes:</p>
             <ul>
               <li>
                 Plain text, and up to <strong>four images</strong> per message
-                (attach, or paste and drop on the web) — on every kind of run,
-                chat and action runs included.
+                (attach, or paste and drop on the web) — on every kind of session,
+                chat and action sessions included.
               </li>
               <li>
                 Agent <strong>slash commands</strong>, from a{` `}
@@ -407,7 +407,7 @@ export function CodingDocsPage() {
                 <code>/clear</code> (&ldquo;Start a fresh conversation
                 (context is discarded)&rdquo;, behind a confirm; the worktree
                 files are kept). The rest of the list is whatever the
-                agent itself advertises for the run, so it differs between
+                agent itself advertises for the session, so it differs between
                 Claude and Codex. While the agent folds its context the view
                 shows a <strong>Compacting context…</strong> strip, and a{` `}
                 <strong>Context compacted</strong> marker stays in the
@@ -424,23 +424,23 @@ export function CodingDocsPage() {
             </ul>
             <p>
               The composer is one box with its send button inside. The row
-              under it says whether the run is in <strong>Plan mode</strong>,
-              holds the attach button, and names the model the run is on. A
-              Claude run can switch model right there, which sends{` `}
+              under it says whether the session is in <strong>Plan mode</strong>,
+              holds the attach button, and names the model the session is on. A
+              Claude session can switch model right there, which sends{` `}
               <code>/model</code> to the agent; Codex shows its model as a
               label. On web and desktop the row ends in a{` `}
               <strong>context ring</strong> that fills as the context window
-              does. Click it for the run&apos;s usage: its context, the
+              does. Click it for the session&apos;s usage: its context, the
               account&apos;s limits, and the machine&apos;s other accounts you
-              can switch the run to.
+              can switch the session to.
             </p>
             <p>
-              Everything else about the run is picked when you start it: the
+              Everything else about the session is picked when you start it: the
               agent, its effort and plan mode. A live session is steered with
               words.
             </p>
             <p>
-              The transcript keeps the <strong>whole run</strong>, not the
+              The transcript keeps the <strong>whole session</strong>, not the
               last few hundred events. Each client renders a window of it and
               pulls the rest in as you scroll to the top; past what your
               client already holds, <strong>Load earlier</strong> fetches the
@@ -449,9 +449,9 @@ export function CodingDocsPage() {
               Past transcripts stay there for as long as that machine&apos;s
               {` `}<strong>Settings → Sessions</strong> allows (unlimited by
               default). The <strong>Agent</strong> page shows your 20 most
-              recent runs; when an issue has more than one run of yours, its
-              {` `}<strong>Run</strong> toggle reads <strong>Runs</strong> and
-              the run&apos;s page carries a picker that opens any of them.
+              recent sessions; when an issue has more than one session of yours, its
+              {` `}<strong>Session</strong> toggle reads <strong>Sessions</strong> and
+              the session&apos;s page carries a picker that opens any of them.
             </p>
             <p>
               A session whose host machine goes offline reads{` `}
@@ -459,26 +459,26 @@ export function CodingDocsPage() {
               where it left off when the machine comes back. One that hits its
               agent&apos;s usage limit is marked{` `}
               <strong>Rate limited</strong> with the time it resets, instead
-              of going quiet — the run stays live and steerable, it simply
+              of going quiet — the session stays live and steerable, it simply
               cannot make a call until then. You can see how much is left on
               any machine under <strong>Accounts</strong> on the{` `}
               <strong>Devices</strong> page.
             </p>
             <p>
-              A run you started makes no report. When the agent finishes its
+              A session you started makes no report. When the agent finishes its
               turn it waits for your next reply, in the desktop app and on a
               daemon alike, with no idle timeout. End it yourself with{` `}
               <strong>Stop</strong>. On web and desktop it sits in the
-              run&apos;s header (in the property tray for an issue run); on a
-              phone it is in the top bar. Once a run has ended,{` `}
+              session&apos;s header (in the property tray for an issue session); on a
+              phone it is in the top bar. Once a session has ended,{` `}
               <strong>Resume</strong> takes its place and relaunches it.
             </p>
             <p>
-              Runs a <a href="/docs/actions/#triggers">trigger</a>{` `}
+              Sessions a <a href="/docs/actions/#triggers">trigger</a>{` `}
               started are the ones that <strong>end themselves</strong>: the
-              agent closes the run when its work is done, and the action&apos;s
+              agent closes the session when its work is done, and the action&apos;s
               {` `}
-              <strong>Runs</strong> keeps them.
+              <strong>Sessions</strong> keeps them.
             </p>
 
             <h3>Chat</h3>
@@ -490,14 +490,14 @@ export function CodingDocsPage() {
               to no issue and needs no repository. It runs on one of your
               machines like any other session, with the Exponential tools
               wired up, so it can read and write the tracker while you talk to
-              it. Your runs are listed under the prompt, running first, then
+              it. Your sessions are listed under the prompt, running first, then
               past. Open an ended one to read it back, or to{` `}
               <strong>Resume</strong> it if its machine still can.
             </p>
 
             <DocShot
               view="chat"
-              caption="The Agent page: the composer, the machine and agent it runs on, and your running and past runs"
+              caption="The Agent page: the composer, the machine and agent it runs on, and your running and past sessions"
             />
           </DocsSection>
 
@@ -507,8 +507,8 @@ export function CodingDocsPage() {
             <p>You never have to leave the IDE to land the work:</p>
             <ul>
               <li>
-                A run&apos;s changes are a full-page face of its tab. Once the
-                run has edited files, its header switch gains a{` `}
+                A session&apos;s changes are a full-page face of its tab. Once the
+                session has edited files, its header switch gains a{` `}
                 <strong>+N -M</strong> segment that opens the diff in place of
                 the transcript. A diff card in the transcript opens the same
                 page, scoped to that turn. <strong>Merge PR</strong> sits in
@@ -527,13 +527,13 @@ export function CodingDocsPage() {
               </li>
               <li>
                 Pull requests opened by an{` `}
-                <a href="/docs/actions/">action</a> or chat run, with no issue
-                attached, get their own <strong>Agent runs</strong> group in
+                <a href="/docs/actions/">action</a> or chat session, with no issue
+                attached, get their own <strong>Agent sessions</strong> group in
                 Reviews, with the action name, branch and PR number, and count
-                toward the Reviews badge. The run itself merges too, from
+                toward the Reviews badge. The session itself merges too, from
                 the <strong>Merge</strong> button on its{` `}
                 <strong>Changes</strong> face; the rows in the Agent lists
-                only open the run.
+                only open the session.
               </li>
             </ul>
             <p>
@@ -564,7 +564,7 @@ export function CodingDocsPage() {
               Around the coding flow sits a git IDE. Open a board and its
               repository <strong>clones automatically</strong>. That clone is
               the <strong>trunk</strong>, kept level with the default branch by
-              a background sync. Coding runs work in their own worktrees, off
+              a background sync. Coding sessions work in their own worktrees, off
               to the side.
             </p>
 
@@ -591,7 +591,7 @@ export function CodingDocsPage() {
               <code>exp/…</code> PR branch renders as its own lane and curves
               back into the trunk at the squash commit that landed it. The
               Files tree has a <strong>worktree switcher</strong> on top, so
-              you can browse a run&apos;s branch — its tree, its git status
+              you can browse a session&apos;s branch — its tree, its git status
               and its diffs — without leaving the trunk view, and{` `}
               <strong>Settings → This device → Worktrees</strong> prunes the
               ones whose work has landed.
@@ -600,7 +600,7 @@ export function CodingDocsPage() {
               There is a terminal too, and it is an ordinary one: a plain
               shell on the trunk clone, opened with the button beside your
               account in the rail or <kbd>⌘T</kbd>. It fills the working area
-              the way an issue or a run does, and its tabs sit in the bar along the
+              the way an issue or a session does, and its tabs sit in the bar along the
               bottom of the window — a bar that is not there at all until you
               open one. Agents never run in it: a coding session talks to the
               agent directly, and the terminal is yours.

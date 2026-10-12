@@ -21,11 +21,11 @@ const SHOT = `data:image/svg+xml,${encodeURIComponent(
 const THREAD = sessionThread([
   {
     topic: `Summary`,
-    text: `The Run face now opens on the results thread; Show work brings the transcript back in place.`,
+    text: `The Session face now opens on the results thread; Show work brings the transcript back in place.`,
   },
   {
     topic: `Status row`,
-    text: `One row over the thread: the run mark, the caption, the last tool line and Show work.`,
+    text: `One row over the thread: the session mark, the caption, the last tool line and Show work.`,
   },
   {
     topic: `Status row`,
@@ -84,7 +84,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1175`,
   title: `Results thread`,
-  blurb: `The thread under the status row: the run's published results in PUBLISH order (\`sessionThread\`): a topic's first text under its muted caption, a picture where it was published, and the Summary text LAST as the agent's reply. Pending plan and question cards follow it, so a question never hides. Show work swaps the whole thread for the transcript in place (fixture \`session-results.json\` \`thread\`). EXP-1245: for the run's OWNER the thread is a conversation of TURNS off the relay feed (\`sessionTurns\`, fixture \`turns\`): the person's message as a right-aligned bubble (max 70%, an image thumb, \`<name> · <time> · from <device>\` under it), then that turn's own status row (\`Done on <device> · <turn time>\` once settled, the live row timed from the turn's start, fixture \`run-row.json\` \`turnCaptions\`), then the results the server stamped inside it. Teammates and an offline host keep the single-row thread (first island).`,
+  blurb: `The thread under the status row: the session's published results in PUBLISH order (\`sessionThread\`): a topic's first text under its muted caption, a picture where it was published, and the Summary text LAST as the agent's reply. Pending plan and question cards follow it, so a question never hides. Show work swaps the whole thread for the transcript in place (fixture \`session-results.json\` \`thread\`). EXP-1245: for the session's OWNER the thread is a conversation of TURNS off the relay feed (\`sessionTurns\`, fixture \`turns\`): the person's message as a right-aligned bubble (max 70%, an image thumb, \`<name> · <time> · from <device>\` under it), then that turn's own status row (\`Done on <device> · <turn time>\` once settled, the live row timed from the turn's start, fixture \`run-row.json\` \`turnCaptions\`), then the results the server stamped inside it. Teammates and an offline host keep the single-row thread (first island).`,
   status: {
     web: {
       state: `ok`,

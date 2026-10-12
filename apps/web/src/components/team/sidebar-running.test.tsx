@@ -160,7 +160,7 @@ describe(`SidebarRunningSection (EXP-923)`, () => {
       run({ id: `s3`, issueId: null }),
     ]
     const { container } = renderSection()
-    expect(container.querySelector(`[role="button"][aria-label*="child runs"]`)).toBeNull()
+    expect(container.querySelector(`[role="button"][aria-label*="child sessions"]`)).toBeNull()
     for (const id of [`s1`, `s2`, `s3`]) {
       const row = screen.getByTestId(`sidebar-running-${id}`)
       const first = Array.from(row.children).find(

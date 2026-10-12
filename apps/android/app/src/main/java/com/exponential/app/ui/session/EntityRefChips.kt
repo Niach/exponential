@@ -413,7 +413,7 @@ private fun SessionCard(ref: EntityRef, open: (EntityTarget) -> Unit) {
     }
     EntityPreviewCard(
         icon = { SessionToneDot(tone, busy = row.agentBusy) },
-        eyebrow = "Run",
+        eyebrow = "Session",
         title = pastRunTitle(row, issue, issues),
         subtitle = issue?.identifier,
         facts = {

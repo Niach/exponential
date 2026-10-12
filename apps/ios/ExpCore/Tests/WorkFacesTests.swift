@@ -57,8 +57,8 @@ final class WorkFacesTests: XCTestCase {
 
     func testLabelsTheFacesRunsOnceThereAreSeveral() {
         XCTAssertEqual(WorkFaces.faceLabel(.issue), "Issue")
-        XCTAssertEqual(WorkFaces.faceLabel(.run), "Run")
-        XCTAssertEqual(WorkFaces.faceLabel(.run, multipleRuns: true), "Runs")
+        XCTAssertEqual(WorkFaces.faceLabel(.run), "Session")
+        XCTAssertEqual(WorkFaces.faceLabel(.run, multipleRuns: true), "Sessions")
         XCTAssertEqual(WorkFaces.faceLabel(.guide), "Guide")
         XCTAssertEqual(WorkFaces.guideFaceLabel, "Guide")
         XCTAssertEqual(WorkFaces.openResultsLabel, "Open Guide")

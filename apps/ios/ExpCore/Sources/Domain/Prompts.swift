@@ -235,7 +235,7 @@ public enum Prompts {
     public enum StopRun {
         public static let entry = destructive(
             "stop-run",
-            texts: ["title": "Stop this run?"],
+            texts: ["title": "Stop this session?"],
             answer: "stop", label: "Stop"
         )
         public static func copy() -> PromptCopy { entry.copy() }
@@ -245,8 +245,8 @@ public enum Prompts {
         public static let entry = primary(
             "resume-run",
             texts: [
-                "title": "Resume this run on {device}?",
-                "titleNoDevice": "Resume this run?",
+                "title": "Resume this session on {device}?",
+                "titleNoDevice": "Resume this session?",
                 "body": "The agent continues where it stopped, in the same worktree.",
             ],
             params: ["device"], answer: "resume", label: "Resume"
@@ -264,7 +264,7 @@ public enum Prompts {
             "delete-trigger",
             texts: [
                 "title": "Delete this trigger?",
-                "body": "Past runs stay in Runs.",
+                "body": "Past sessions stay in Sessions.",
             ],
             answer: "delete", label: "Delete"
         )
@@ -276,7 +276,7 @@ public enum Prompts {
             "delete-action",
             texts: [
                 "title": "Delete \"{name}\"?",
-                "body": "Its triggers are deleted with it. Its runs stay and live ones keep going.",
+                "body": "Its triggers are deleted with it. Its sessions stay and live ones keep going.",
             ],
             params: ["name"], answer: "delete", label: "Delete"
         )

@@ -116,7 +116,7 @@ export function formatParentAnswer(
   parentSessionId: string,
   text: string
 ): string {
-  return `[Answer from your parent run ${parentSessionId.slice(0, 8)} via exponential_sessions_message] ${oneLine(text)}`
+  return `[Answer from your parent session ${parentSessionId.slice(0, 8)} via exponential_sessions_message] ${oneLine(text)}`
 }
 
 // The parent row reached through the child's parent_session_id self-FK.

@@ -293,7 +293,7 @@ describe(`Prompt`, () => {
       <Prompt
         open
         onOpenChange={onOpenChange}
-        title="Stop this run?"
+        title="Stop this session?"
         actions={[
           { label: `Cancel`, role: `cancel`, autoFocus: true },
           { label: `Stop`, role: `destructive`, onSelect: () => {} },
@@ -361,7 +361,7 @@ describe(`Prompt`, () => {
       <Prompt
         open
         onOpenChange={() => {}}
-        title="Stop this run?"
+        title="Stop this session?"
         actions={[
           { label: `Cancel`, role: `cancel` },
           { label: `Stop`, role: `destructive`, onSelect: () => {} },

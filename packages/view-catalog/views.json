@@ -21,7 +21,7 @@
     {
       "id": "coding",
       "label": "Coding",
-      "blurb": "The Actions surface, the Devices page, the Agent home whose composer launches every run, one live session being steered and the run thread’s cards.",
+      "blurb": "The Actions surface, the Devices page, the Agent home whose composer launches every session, one live session being steered and the session thread’s cards.",
       "order": 4
     },
     {
@@ -33,7 +33,7 @@
     {
       "id": "actions",
       "label": "Action authoring",
-      "blurb": "An action as a page: its prompt, its triggers and its runs, plus the form that adds a trigger.",
+      "blurb": "An action as a page: its prompt, its triggers and its sessions, plus the form that adds a trigger.",
       "order": 6
     },
     {
@@ -414,7 +414,7 @@
       "id": "issue-detail",
       "group": "issues",
       "title": "Issue detail",
-      "blurb": "One issue in full: the shared work header (title, Issue | Run face toggle, properties tray ending in the one coding action), markdown description and activity.",
+      "blurb": "One issue in full: the shared work header (title, Issue | Session face toggle, properties tray ending in the one coding action), markdown description and activity.",
       "order": 3,
       "web": {
         "route": "/t/$teamSlug/boards/$boardSlug/issues/APP-5",
@@ -745,7 +745,7 @@
         }
       },
       "notes": {
-        "desktop": "EXP-1192: always three columns, Linear-style — the root sidebar, then the notifications as a second sidebar INSIDE the content card (the Inbox | My issues strip and Mark all read on top), then the main pane: an empty state (\"No notification selected\") until a notification is picked, after which its issue or run opens beside the list without re-sliding it."
+        "desktop": "EXP-1192: always three columns, Linear-style — the root sidebar, then the notifications as a second sidebar INSIDE the content card (the Inbox | My issues strip and Mark all read on top), then the main pane: an empty state (\"No notification selected\") until a notification is picked, after which its issue or session opens beside the list without re-sliding it."
       }
     },
     {
@@ -856,7 +856,7 @@
       "id": "actions-mobile",
       "group": "coding",
       "title": "Actions",
-      "blurb": "The action catalog: one row per reusable agent run, each with its play button. Phones reach it through its own Actions tab and list every team's actions grouped by team (EXP-1186/1187); web md+ and desktop through the sidebar's Actions entry.",
+      "blurb": "The action catalog: one row per reusable agent session, each with its play button. Phones reach it through its own Actions tab and list every team's actions grouped by team (EXP-1186/1187); web md+ and desktop through the sidebar's Actions entry.",
       "order": 2,
       "web": {
         "route": "/t/$teamSlug/actions",
@@ -896,7 +896,7 @@
       "id": "chat",
       "group": "coding",
       "title": "Agent",
-      "blurb": "The Agent page, HOME on every client (EXP-1253): the disc mark and a time-of-day greeting over the composer (the ONE launcher), empty here, a free prompt bound to no issue that needs no repository, and Recent (the last three own runs) under the options line. No suggestion rows, no watermark; what is RUNNING is a section of the sidebar.",
+      "blurb": "The Agent page, HOME on every client (EXP-1253): the disc mark and a time-of-day greeting over the composer (the ONE launcher), empty here, a free prompt bound to no issue that needs no repository, and Recent (the last three own sessions) under the options line. No suggestion rows, no watermark; what is RUNNING is a section of the sidebar.",
       "order": 4,
       "web": {
         "route": "/t/$teamSlug/agent",
@@ -916,9 +916,9 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "EXP-923: my live runs are the sidebar’s Running section, and the full history is a panel behind the ghost history button at the page’s top-left. EXP-1253: the page is home (the team index redirects here, see `agent-home`): greeting, composer, Recent.",
+        "web": "EXP-923: my live sessions are the sidebar’s Running section, and the full history is a panel behind the ghost history button at the page’s top-left. EXP-1253: the page is home (the team index redirects here, see `agent-home`): greeting, composer, Recent.",
         "web-mobile": "EXP-923: the phone keeps the Running list under the composer; Recent left the page for the header's history button, which opens it as a bottom sheet.",
-        "desktop": "EXP-1192: the IDE LANDS here on startup, and Agent is the rail’s first entry (above Inbox). The page is the home column (EXP-1253: greeting, composer, Recent); my live runs are the rail’s own Running section. The ghost history button at the page’s top-left slides Recent runs in as a second sidebar INSIDE the content card and turns into a Back button while it is open. `EXP_DEV_SCREEN=chat` opens the page; add `EXP_DEV_TOOL=history` for the Recent runs sidebar."
+        "desktop": "EXP-1192: the IDE LANDS here on startup, and Agent is the rail’s first entry (above Inbox). The page is the home column (EXP-1253: greeting, composer, Recent); my live sessions are the rail’s own Running section. The ghost history button at the page’s top-left slides Recent sessions in as a second sidebar INSIDE the content card and turns into a Back button while it is open. `EXP_DEV_SCREEN=chat` opens the page; add `EXP_DEV_TOOL=history` for the Recent sessions sidebar."
       },
       "desktop": {
         "drive": {
@@ -931,7 +931,7 @@
       "id": "agent-home",
       "group": "coding",
       "title": "Agent home",
-      "blurb": "Where every client lands (EXP-1253, composer-home.json): the disc mark and ONE greeting line in Inter semibold, “What do you want to build?” in the composer, and Recent, the last three own runs as small SessionRows, under the options line.",
+      "blurb": "Where every client lands (EXP-1253, composer-home.json): the disc mark and ONE greeting line in Inter semibold, “What do you want to build?” in the composer, and Recent, the last three own sessions as small SessionRows, under the options line.",
       "order": 3,
       "web": {
         "route": "/t/$teamSlug",
@@ -951,7 +951,7 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "The team index redirects to the Agent page (a replace), so this is the landing a team URL gets; the anchor waits for Recent, which needs the seeded runs.",
+        "web": "The team index redirects to the Agent page (a replace), so this is the landing a team URL gets; the anchor waits for Recent, which needs the seeded sessions.",
         "desktop": "The IDE starts on Agent (EXP-1192) and the dev screen for it is `chat`, so `chat`’s desktop capture is this page; a second drive would photograph the same pixels."
       }
     },
@@ -959,7 +959,7 @@
       "id": "chat-issues",
       "group": "coding",
       "title": "Agent · Issues",
-      "blurb": "The composer with work attached: one chip per picked issue above the prompt, the machine and agent pickers under it. Two issues off the board, handed to one run.",
+      "blurb": "The composer with work attached: one chip per picked issue above the prompt, the machine and agent pickers under it. Two issues off the board, handed to one session.",
       "order": 5,
       "web": {
         "route": "/t/$teamSlug/agent?issues=$issueA,$issueB",
@@ -1027,7 +1027,7 @@
       "id": "steering",
       "group": "coding",
       "title": "Steering a session",
-      "blurb": "One coding session on its own page: it opens as the status row over the run's results thread with the agent's open question still in place, Show work expands the full scrubbed transcript, and the reply box answers it.",
+      "blurb": "One coding session on its own page: it opens as the status row over the session's results thread with the agent's open question still in place, Show work expands the full scrubbed transcript, and the reply box answers it.",
       "order": 7,
       "web": {
         "route": "/t/$teamSlug/sessions/$sessionId",
@@ -1047,8 +1047,8 @@
         "lane": "store"
       },
       "notes": {
-        "web": "EXP-740 gave a session its own full-page route and EXP-870 made it the ONE run URL (an issue's run included — the issue is its work tab's other face), so there is no recipe to expand: `$sessionId` resolves to DEMO_STEERED_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the id the seed stamps on the demo user's running showcase run. Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION. EXP-1175: the shot now photographs the THREAD (status row + results, the pending question card in place); set localStorage `exp.showWork:<userId>` to `true` to photograph the transcript.",
-        "desktop": "A session is a `Screen::Session` tab in the center panel since EXP-746, not a dock, and `session:$steeredSession` opens the seeded showcase run in it. With no engine of its own the tab dials the relay as a VIEWER (owner-only ticket via `steer.mintTicket`), so it renders the same relay-fed feed the web shot photographs — which makes `bun run screenshots:desktop` and the steer-relay container prerequisites here too, exactly as they are for web. Without them the tab photographs a Reconnecting / steering-unavailable state, so `--skip-relay` skips this view instead."
+        "web": "EXP-740 gave a session its own full-page route and EXP-870 made it the ONE session URL (an issue's session included — the issue is its work tab's other face), so there is no recipe to expand: `$sessionId` resolves to DEMO_STEERED_SESSION_ID (apps/web/scripts/screenshot-demo.ts), the id the seed stamps on the demo user's running showcase session. Needs `bun run screenshots:desktop` running: the feed is relay-fed, and an unreachable relay photographs a Reconnecting state instead. The anchor is the tail fragment of DEMO_FEED_QUESTION. EXP-1175: the shot now photographs the THREAD (status row + results, the pending question card in place); set localStorage `exp.showWork:<userId>` to `true` to photograph the transcript.",
+        "desktop": "A session is a `Screen::Session` tab in the center panel since EXP-746, not a dock, and `session:$steeredSession` opens the seeded showcase session in it. With no engine of its own the tab dials the relay as a VIEWER (owner-only ticket via `steer.mintTicket`), so it renders the same relay-fed feed the web shot photographs — which makes `bun run screenshots:desktop` and the steer-relay container prerequisites here too, exactly as they are for web. Without them the tab photographs a Reconnecting / steering-unavailable state, so `--skip-relay` skips this view instead."
       },
       "desktop": {
         "drive": {
@@ -1211,8 +1211,8 @@
     {
       "id": "run-changes",
       "group": "reviews",
-      "title": "Run changes",
-      "blurb": "The PR diff of an ISSUE-LESS run (a chat or action run's own pull request, EXP-1194) on the run's Guide: the same file cards as the issue's Guide pages, fed by codingSessions.prFiles, opened from the Reviews \"Agent runs\" row. A teammate's run, so it reads read-only.",
+      "title": "Session changes",
+      "blurb": "The PR diff of an ISSUE-LESS session (a chat or action session's own pull request, EXP-1194) on the session's Guide: the same file cards as the issue's Guide pages, fed by codingSessions.prFiles, opened from the Reviews \"Agent sessions\" row. A teammate's session, so it reads read-only.",
       "order": 3,
       "web": {
         "route": "/t/$teamSlug/sessions/$runChangesSessionId?view=guide&section=all",
@@ -1243,9 +1243,9 @@
         }
       },
       "notes": {
-        "web": "EXP-1204. The run is Jonas's finished chat run (seed `DEMO_SESSION_IDS.runChanges`), so the demo user is a TEAMMATE and the page is `TeammateRunGuide`: the stub header with the GitHub button over the run's Guide, read-only, no steer ticket. `?view=guide&section=all` opens the Guide's Show complete diff page (every file card, the file tree beside them on md+), the same page review-diff captures for an issue. The owner's own run draws the same Guide on its run face. Like review-diff the diff is fetched live from GitHub (`codingSessions.prFiles` → the run's `pr_url`), which also insists the PR's repo is a TEAM repository: the seed registers it (`android/kotlin`, an ARCHIVED repo on purpose — a team repo's OPEN PRs would land in the Reviews queue as an external group, and an archived repo can never grow one). The anchor is a line of the first file's own patch (the ResolverImpl import #125 adds).",
-        "desktop": "EXP_DEV_RUN_FACE=guide-all lands the run tab on the Guide's Show complete diff page (the same page the web route opens).",
-        "ios": "EXP-1251: the Reviews 'Agent runs' row opens the run on its Guide; the flow taps Show complete diff (else the one Changes row of a report-less Guide), waits for guide-section-page, then changes-file-row, and shoots that page.",
+        "web": "EXP-1204. The session is Jonas's finished chat session (seed `DEMO_SESSION_IDS.runChanges`), so the demo user is a TEAMMATE and the page is `TeammateRunGuide`: the stub header with the GitHub button over the session's Guide, read-only, no steer ticket. `?view=guide&section=all` opens the Guide's Show complete diff page (every file card, the file tree beside them on md+), the same page review-diff captures for an issue. The owner's own session draws the same Guide on its session face. Like review-diff the diff is fetched live from GitHub (`codingSessions.prFiles` → the session's `pr_url`), which also insists the PR's repo is a TEAM repository: the seed registers it (`android/kotlin`, an ARCHIVED repo on purpose — a team repo's OPEN PRs would land in the Reviews queue as an external group, and an archived repo can never grow one). The anchor is a line of the first file's own patch (the ResolverImpl import #125 adds).",
+        "desktop": "EXP_DEV_RUN_FACE=guide-all lands the session tab on the Guide's Show complete diff page (the same page the web route opens).",
+        "ios": "EXP-1251: the Reviews 'Agent sessions' row opens the session on its Guide; the flow taps Show complete diff (else the one Changes row of a report-less Guide), waits for guide-section-page, then changes-file-row, and shoots that page.",
         "android": "EXP-1251: the review-run-row opens RunChangesScreen on the Guide; the flow taps guide-changes-row, waits for guide-section + changes-file-row, shoots, then backs out twice."
       }
     },
@@ -1319,7 +1319,7 @@
       "id": "action-page",
       "group": "actions",
       "title": "Action",
-      "blurb": "One action as a page: its prompt (name, icon, repository, MCP servers, the markdown body the agent runs), its triggers and its runs. The MCP servers list offers only team MCPs (no sign-in, or a member's shared connection) and every run of the action uses it.",
+      "blurb": "One action as a page: its prompt (name, icon, repository, MCP servers, the markdown body the agent runs), its triggers and its sessions. The MCP servers list offers only team MCPs (no sign-in, or a member's shared connection) and every session of the action uses it.",
       "order": 1,
       "web": {
         "route": "/t/$teamSlug/actions/$actionId",
@@ -1344,7 +1344,7 @@
         }
       },
       "notes": {
-        "web": "A desktop viewport shows Prompt, Triggers and Runs as three sections of one page, so this one shot covers what the phone splits into tabs. The anchor is the seeded daily trigger's sentence.",
+        "web": "A desktop viewport shows Prompt, Triggers and Sessions as three sections of one page, so this one shot covers what the phone splits into tabs. The anchor is the seeded daily trigger's sentence.",
         "web-mobile": "The phone shows the same three as tabs; this is the default Prompt tab. `action-triggers` and `action-runs` are the other two.",
         "ios": "The Prompt tab is not captured on its own; `action-triggers` and `action-runs` photograph the page.",
         "android": "The Prompt tab is not captured on its own; `action-triggers` and `action-runs` photograph the page."
@@ -1391,7 +1391,7 @@
       "id": "action-create",
       "group": "actions",
       "title": "New action",
-      "blurb": "Authoring an action by describing it: the Agent page composer with the Create action builtin picked as its chip — describe the action in the prompt and the creator run writes the definition, no form (EXP-257, EXP-825).",
+      "blurb": "Authoring an action by describing it: the Agent page composer with the Create action builtin picked as its chip — describe the action in the prompt and the creator session writes the definition, no form (EXP-257, EXP-825).",
       "order": 5,
       "web": {
         "route": "/t/$teamSlug/agent?action=builtin:create-action",
@@ -1451,8 +1451,8 @@
     {
       "id": "action-runs",
       "group": "actions",
-      "title": "Action runs",
-      "blurb": "The Runs tab of an action on a phone: every run of it, the triggered ones marked with their trigger's glyph.",
+      "title": "Action sessions",
+      "blurb": "The Sessions tab of an action on a phone: every session of it, the triggered ones marked with their trigger's glyph.",
       "order": 3,
       "webMobile": {
         "route": "/t/$teamSlug/actions/$actionId?tab=runs",
@@ -1471,8 +1471,8 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "A desktop viewport has no tabs: Runs is a section of `action-page`.",
-        "desktop": "The desktop app has no tabs: Runs is a section of `action-page`."
+        "web": "A desktop viewport has no tabs: Sessions is a section of `action-page`.",
+        "desktop": "The desktop app has no tabs: Sessions is a section of `action-page`."
       }
     },
     {
@@ -2059,7 +2059,7 @@
       "id": "getting-started",
       "group": "getting-started",
       "title": "Getting started",
-      "blurb": "ONE block ×4 (getting-started.json): the title, “4 of 8”, a meter and Docs over one row of square cards in the order Create a board · Connect GitHub · Add a device · Start a run · Invite your team · Set up a server · Connect your tools · Feedback widget; the next step highlighted, done steps checked and still clickable. Here: the sidebar entry’s dialog.",
+      "blurb": "ONE block ×4 (getting-started.json): the title, “4 of 8”, a meter and Docs over one row of square cards in the order Create a board · Connect GitHub · Add a device · Start a session · Invite your team · Set up a server · Connect your tools · Feedback widget; the next step highlighted, done steps checked and still clickable. Here: the sidebar entry’s dialog.",
       "order": 1,
       "web": {
         "route": "/t/$teamSlug/boards/$boardSlug",
@@ -4336,7 +4336,7 @@
       "id": "session-row",
       "group": "coding",
       "title": "Session rows",
-      "blurb": "ONE SessionRow in two sizes (EXP-1248): the sidebar's small one-line row and the big two-line row the Recent list and the phone Running list draw, the run mark at 12 + 14·depth on every row, children always shown, no fold chevron, the device glyph trailing in both sizes.",
+      "blurb": "ONE SessionRow in two sizes (EXP-1248): the sidebar's small one-line row and the big two-line row the Recent list and the phone Running list draw, the session mark at 12 + 14·depth on every row, children always shown, no fold chevron, the device glyph trailing in both sizes.",
       "order": 11,
       "ios": {
         "shot": "sg_session-row",
@@ -4574,7 +4574,7 @@
       "notes": {
         "web": "The styleguide entry `work-card` (apps/styleguide/src/entries/work-card.tsx) draws it on the real component; the app view is `steering`.",
         "web-mobile": "See web: the phone thread draws the same card at full width.",
-        "desktop": "The desktop styleguide entry `work_card.rs`; the app view is a run’s thread."
+        "desktop": "The desktop styleguide entry `work_card.rs`; the app view is a session’s thread."
       }
     },
     {
@@ -4594,7 +4594,7 @@
       "notes": {
         "web": "The styleguide entry `script-card` (apps/styleguide/src/entries/script-card.tsx) draws it on the real component; the app view is `steering`.",
         "web-mobile": "See web: the phone thread draws the same card at full width.",
-        "desktop": "The desktop styleguide entry `script_card.rs`; the app view is a run’s thread."
+        "desktop": "The desktop styleguide entry `script_card.rs`; the app view is a session’s thread."
       }
     },
     {
@@ -4614,7 +4614,7 @@
       "notes": {
         "web": "The styleguide entry `comment-call-card` (apps/styleguide/src/entries/comment-call-card.tsx) draws it on the real component; the app view is `steering`.",
         "web-mobile": "See web: the phone thread draws the same card at full width.",
-        "desktop": "The desktop styleguide entry `comment_card.rs`; the app view is a run’s thread."
+        "desktop": "The desktop styleguide entry `comment_card.rs`; the app view is a session’s thread."
       }
     },
     {

@@ -140,7 +140,7 @@ export function BoardSwitcherSheet({
                         <TeamLiveDot
                           live={teamLive.get(row.id)}
                           placement="trailing"
-                          title="Runs in this team"
+                          title="Sessions in this team"
                         />
                       )}
                     </div>

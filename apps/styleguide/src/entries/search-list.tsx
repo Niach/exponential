@@ -27,7 +27,7 @@ const REVIEW = { icon: conceptIcon(`status-in-review`), color: `text-blue-500` }
 
 const ISSUES = [
   { id: `i1`, identifier: `EXP-1259`, title: `UX batch 2: home, tabs, search, getting started`, ...STARTED },
-  { id: `i2`, identifier: `EXP-1255`, title: `Tab close on hover, a New run tab`, ...REVIEW },
+  { id: `i2`, identifier: `EXP-1255`, title: `Tab close on hover, a New session tab`, ...REVIEW },
   { id: `i3`, identifier: `EXP-1253`, title: `The Agent page is home`, ...STARTED },
   { id: `i4`, identifier: `EXP-1249`, title: `One "+" menu in the composer`, ...BACKLOG },
   { id: `i5`, identifier: `EXP-1243`, title: `Motion pass over every component`, ...BACKLOG },

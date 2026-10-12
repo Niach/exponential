@@ -679,7 +679,7 @@ fun WorkScreen(
         // EXP-968: the joined issue when there is one — never a hard null
         // that would make the bar say "Issue syncing…" about a synced row.
         shownSession != null -> sessionRowTitle(shownSession!!, issue, batchIssues)
-        else -> "Run"
+        else -> "Session"
     }
     val canKill = ownShown && !sessionEnded && shownLive
     val verb = when {
@@ -1053,7 +1053,7 @@ fun WorkScreen(
 }
 
 /** EXP-876: the covered-issues sheet's title behind a batch run's title. */
-internal const val COVERED_ISSUES_TITLE = "Issues in this run"
+internal const val COVERED_ISSUES_TITLE = "Issues in this session"
 
 /** EXP-1251: a section page key as the saveable screen state. */
 internal fun guideSectionParam(key: GuideSectionKey): String = when (key) {

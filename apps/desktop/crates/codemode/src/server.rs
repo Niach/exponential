@@ -123,7 +123,7 @@ impl CallHost for Run {
         }
         let client = self
             .client(server)
-            .ok_or_else(|| format!("tool_unavailable: no server `{server}` in this run (see ALL_TOOLS)"))?;
+            .ok_or_else(|| format!("tool_unavailable: no server `{server}` in this session (see ALL_TOOLS)"))?;
         match client.call(tool, args, CALL_TIMEOUT) {
             Ok(result) => Ok(result),
             Err(ClientError::Timeout) => Err(format!("{server}.{tool} did not answer within {} s", CALL_TIMEOUT.as_secs())),
@@ -199,7 +199,7 @@ impl Hub {
                 let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
                 match self.run(token) {
                     Some(run) => Ok(call_tool(&run, name, &arguments)),
-                    None => Err(json!({ "code": -32000, "message": "This run's code-mode grant ended." })),
+                    None => Err(json!({ "code": -32000, "message": "This session's code-mode grant ended." })),
                 }
             }
             _ => Err(json!({ "code": -32601, "message": format!("Method not found: {method}") })),
@@ -277,7 +277,7 @@ pub(crate) fn outcome_result(outcome: &ExecOutcome) -> Value {
     let error = outcome.error.as_ref().map(|error| match error {
         ExecError::Script(text) => text.clone(),
         ExecError::Timeout => format!("timed out after {:?}; split the work or raise timeout_ms", outcome.elapsed),
-        ExecError::Cancelled => "the run ended while the script ran".to_string(),
+        ExecError::Cancelled => "the session ended while the script ran".to_string(),
     });
     let structured = json!({
         "ok": outcome.ok(),
@@ -355,13 +355,13 @@ fn tool_definitions() -> Value {
 }
 
 /// What the agent reads at `initialize`.
-const INSTRUCTIONS: &str = "Code mode. `exec` runs JavaScript that calls this run's OTHER MCP tools as \
+const INSTRUCTIONS: &str = "Code mode. `exec` runs JavaScript that calls this session's OTHER MCP tools as \
 `await tools.<server>.<tool>(args)` (or `tools.mcp__<server>__<tool>`), in parallel with `Promise.all`; \
 only the script's console output and return value come back, so a hundred intermediate results stay out \
 of your context. `describe` lists the tools with their input schemas. Use a script when one step is many \
 calls or several windows at once; a single call stays a direct tool call.";
 
-const EXEC_DESCRIPTION: &str = "Run JavaScript that calls this run's MCP tools in bulk and in parallel; only \
+const EXEC_DESCRIPTION: &str = "Run JavaScript that calls this session's MCP tools in bulk and in parallel; only \
 the script's console output and return value come back (intermediate results stay out of your context). \
 Every tool is `await tools.<server>.<tool>(args)` or `await tools.mcp__<server>__<tool>(args)`, e.g. \
 `tools.computer.list_windows({})`, `tools.exponential.exponential_issues_list({boardId})`. \
@@ -375,7 +375,7 @@ or timers besides sleep. timeout_ms ends the script at any await or call; a sync
 awaits is bounded only by a 10M-iterations-per-function ceiling, so keep loops short and await inside \
 them. One call = a direct tool call, not a script.";
 
-const DESCRIBE_DESCRIPTION: &str = "Input schemas of this run's MCP tools for use inside `exec`. `names` as \
+const DESCRIBE_DESCRIPTION: &str = "Input schemas of this session's MCP tools for use inside `exec`. `names` as \
 `mcp__<server>__<tool>`, `<server>.<tool>` or a bare tool name when unambiguous; omit it for every tool's \
 name and one-line summary (what `ALL_TOOLS` shows in a script). Stdio team servers are direct-call only \
 and listed as such.";

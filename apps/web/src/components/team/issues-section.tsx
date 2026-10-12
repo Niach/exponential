@@ -281,12 +281,12 @@ export function PrAutomationCard({
             )
           })}
         <div className="flex items-center justify-between gap-3 px-4 py-3">
-          <span className="min-w-0 text-sm">When a PR merges, end its runs</span>
+          <span className="min-w-0 text-sm">When a PR merges, end its sessions</span>
           <Switch
             checked={team.endSessionsOnMerge !== false}
             disabled={endSessionsBusy}
             onCheckedChange={(next) => void persistEndSessions(next)}
-            aria-label="End runs when a pull request merges"
+            aria-label="End sessions when a pull request merges"
           />
         </div>
       </GlassGroup>

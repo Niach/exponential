@@ -332,11 +332,11 @@ fun AgentScreen(
         device == null -> if (signedOut.isNotEmpty()) {
             "${signedOut.joinToString(", ")} not signed in on your machines. Sign in on the machine first."
         } else {
-            "No desktop online. Open the Exponential desktop app to start a run."
+            "No desktop online. Open the Exponential desktop app to start a session."
         }
         agentNotReady -> "Not ready on ${device?.deviceLabel?.ifBlank { device?.deviceId }}. Run the doctor there."
-        multiRepo -> "Pick issues from a single repository per run."
-        overCap -> "At most $MAX_BATCH_ISSUES issues per run. Split the batch."
+        multiRepo -> "Pick issues from a single repository per session."
+        overCap -> "At most $MAX_BATCH_ISSUES issues per session. Split the batch."
         selectedAction != null && ActionInputValues.hasUnsupportedType(selectedActionInputs) ->
             "This action needs a newer app version."
         !AgentComposerPrompt.withinLimit(
@@ -450,7 +450,7 @@ fun AgentScreen(
     LaunchedEffect(runState) {
         val failed = runState as? ActionRunState.Failed ?: return@LaunchedEffect
         toaster.error(
-            FeedbackStates.errorTitle("start", "the run"),
+            FeedbackStates.errorTitle("start", "the session"),
             failed.message,
             ToastAction(FeedbackStates.RETRY) { retryStart() },
         )
@@ -519,7 +519,7 @@ fun AgentScreen(
                     ) {
                         Icon(
                             ExpIcons.settingsSessions,
-                            contentDescription = "Recent runs",
+                            contentDescription = "Recent sessions",
                             modifier = Modifier.size(20.dp),
                         )
                     }
@@ -566,7 +566,7 @@ fun AgentScreen(
                         )
                         Spacer(Modifier.width(8.dp))
                         Text(
-                            "Remote start isn't available on this server. Start runs from the desktop app; live runs show up below.",
+                            "Remote start isn't available on this server. Start sessions from the desktop app; live sessions show up below.",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         )

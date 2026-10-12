@@ -162,11 +162,11 @@ export function triggerBadges(triggers: readonly ActionTrigger[]): TriggerBadges
  * the same action, so the row says what started it instead of repeating the
  * action's name. */
 export function actionRunTitle(startedReason: string | null | undefined): string {
-  if (startedReason === `schedule`) return `Scheduled run`
-  if (startedReason === `event`) return `Event run`
+  if (startedReason === `schedule`) return `Scheduled session`
+  if (startedReason === `event`) return `Event session`
   // Another run started it (`agent`, or a reason added later).
-  if (startedReason) return `Agent run`
-  return `Manual run`
+  if (startedReason) return `Agent session`
+  return `Manual session`
 }
 
 // ISO weekday names, index = weekday - 1 (1=Mon … 7=Sun).

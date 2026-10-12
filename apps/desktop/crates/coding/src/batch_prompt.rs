@@ -178,8 +178,8 @@ mod tests {
         // EXP-637/EXP-1222: the shared close-out rides every prompt — a
         // person-started batch ends itself only when the person asks.
         assert!(prompt.contains("leave the worktree clean"));
-        assert!(prompt.contains("only when the person asks you to end the run"));
-        assert!(!prompt.contains("That call ends this run"));
+        assert!(prompt.contains("only when the person asks you to end the session"));
+        assert!(!prompt.contains("That call ends this session"));
         let unattended = render_batch_prompt(&BatchPromptArgs {
             default_branch: "main",
             branch: "exp/batch-a1b2c3d4",

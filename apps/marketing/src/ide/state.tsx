@@ -17,17 +17,17 @@ export type Tool =
 export type IdeView = `board` | `issue` | `files` | `source-control`
 
 /* `issue` = an issue and its run as ONE top tab (EXP-870); `run` = an
-   issue-less run's Run-only tab (a batch). `file`/`sc` are legacy kinds. */
+   issue-less session's Run-only tab (a batch). `file`/`sc` are legacy kinds. */
 export type TabKind = `issue` | `file` | `sc` | `run`
 export type Tab = { key: string; kind: TabKind; label: string; ref: string }
 
 /* Which face of a top tab is up (work_header.rs `Face`): the Diff face is
-   the run's full-page diff (EXP-877), never a side pane. */
+   the session's full-page diff (EXP-877), never a side pane. */
 export type Face = `issue` | `run` | `diff`
 
 /* A run's phase: `running` = the agent's turn is going, `waiting` = its turn
    ended on a question it holds for (EXP-674), `review` = idle with its PR
-   open, `ended` = stopped (or its PR merged, EXP-498). `idle` = no run. */
+   open, `ended` = stopped (or its PR merged, EXP-498). `idle` = no session. */
 export type CodingState = `idle` | `running` | `waiting` | `review` | `ended`
 /* A coding run targets ONE issue or a BATCH of issues (EXP-106) — one
    session, one exp/batch-<id8> branch, one combined PR. */
@@ -110,7 +110,7 @@ export type IdeApi = {
   codingScript: FeedRow[]
   scriptPos: ScriptPos
   /* EXP-825: every play button navigates to the Agent page with its issues
-     already chipped, and the send starts the run (1 chip = a single run,
+     already chipped, and the send starts the session (1 chip = a single run,
      2+ = a batch). */
   composerOpen: boolean
   chips: string[]

@@ -151,7 +151,7 @@ final class SessionAccountSwitchTests: XCTestCase {
         XCTAssertEqual(SessionAccountSwitch.wallSwitchLabel, "Switch account")
         XCTAssertEqual(
             SessionAccountSwitch.costNote,
-            "The run continues under the other account. Re-reading the transcript once costs tokens."
+            "The session continues under the other account. Re-reading the transcript once costs tokens."
         )
     }
 }

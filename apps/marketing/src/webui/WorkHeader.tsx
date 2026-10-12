@@ -1,5 +1,5 @@
 /* ─── The ONE work header (work-header.tsx, EXP-877) ───
-   The issue face and the run face both render it, so the title never moves
+   The issue face and the session face both render it, so the title never moves
    when the face flips. Fixed above the scrolling body in the shared 896px
    column:
      Row 1: the 24px title | the right cluster on the same line — the
@@ -7,7 +7,7 @@
             unavailable face is HIDDEN), the pin, the "…" actions menu
      Row 2: the properties tray (issue-properties-tray.tsx) — the property
             pills, then [Merge PR while the PR is open] [the ONE coding
-            action: Stop on my live run, else Start coding]. */
+            action: Stop on my live session, else Start coding]. */
 import { PRIORITY_LABEL, STATUS_LABEL, type Issue } from "../ide/data"
 import { useWeb, type WorkFace } from "./state"
 import { PriorityGlyph, StatusGlyph, WebAvatar } from "./bits"
@@ -32,7 +32,7 @@ function FaceToggle({ issue }: { issue: Issue }) {
   if (!session) return null
   const items: { face: WorkFace; label: React.ReactNode }[] = [
     { face: `issue`, label: `Issue` },
-    { face: `run`, label: `Run` },
+    { face: `run`, label: `Session` },
   ]
   /* The diff face appears once the run's changes have replayed — the issue
      face never waits on them. */

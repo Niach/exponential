@@ -232,7 +232,7 @@ pub const MERGE_RUN_PR: Spec = Spec {
 
 pub const STOP_RUN: Spec = Spec {
     id: "stop-run",
-    copy: &[("title", "Stop this run?")],
+    copy: &[("title", "Stop this session?")],
     params: &[],
     actions: confirm!(destructive "stop", "Stop"),
     focus: "cancel",
@@ -241,8 +241,8 @@ pub const STOP_RUN: Spec = Spec {
 pub const RESUME_RUN: Spec = Spec {
     id: "resume-run",
     copy: &[
-        ("title", "Resume this run on {device}?"),
-        ("titleNoDevice", "Resume this run?"),
+        ("title", "Resume this session on {device}?"),
+        ("titleNoDevice", "Resume this session?"),
         ("body", "The agent continues where it stopped, in the same worktree."),
     ],
     params: &["device"],
@@ -252,7 +252,7 @@ pub const RESUME_RUN: Spec = Spec {
 
 pub const DELETE_TRIGGER: Spec = Spec {
     id: "delete-trigger",
-    copy: &[("title", "Delete this trigger?"), ("body", "Past runs stay in Runs.")],
+    copy: &[("title", "Delete this trigger?"), ("body", "Past sessions stay in Sessions.")],
     params: &[],
     actions: confirm!(destructive "delete", "Delete"),
     focus: "cancel",
@@ -262,7 +262,7 @@ pub const DELETE_ACTION: Spec = Spec {
     id: "delete-action",
     copy: &[
         ("title", "Delete \"{name}\"?"),
-        ("body", "Its triggers are deleted with it. Its runs stay and live ones keep going."),
+        ("body", "Its triggers are deleted with it. Its sessions stay and live ones keep going."),
     ],
     params: &["name"],
     actions: confirm!(destructive "delete", "Delete"),
@@ -774,8 +774,8 @@ mod tests {
             Some("It is squash-merged. It covers 3 issues.")
         );
         assert_eq!(merge_run_pr(None).title, "Merge this pull request?");
-        assert_eq!(resume_run(Some(" ")).title, "Resume this run?");
-        assert_eq!(resume_run(Some("Mac")).title, "Resume this run on Mac?");
+        assert_eq!(resume_run(Some(" ")).title, "Resume this session?");
+        assert_eq!(resume_run(Some("Mac")).title, "Resume this session on Mac?");
         assert_eq!(stop_run().body, None);
         assert_eq!(remove_passkey(Some("")).title, "Remove the passkey \"Passkey\"?");
         assert_eq!(delete_account(Some("Cloud")).title, "Delete your account on Cloud?");

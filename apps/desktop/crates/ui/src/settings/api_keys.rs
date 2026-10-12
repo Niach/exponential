@@ -343,7 +343,7 @@ impl ApiKeysPane {
         let (title, description, ok_label) = if device_row {
             (
                 "Disconnect device",
-                "Disconnects this device's coding runs and their MCP wiring. \
+                "Disconnects this device's coding sessions and their MCP wiring. \
                  The device stays signed in and mints a new key the next time \
                  it signs in or regenerates.",
                 "Disconnect",

@@ -170,7 +170,7 @@ exponential login --install-token expi_...
               <code>code</code> and <code>run</code> take the same agent
               options as the Agent page composer, and fall back to your saved
               per-agent defaults when you omit them. <code>--plan</code> works
-              on both agents; every run bypasses the agent&apos;s permission
+              on both agents; every session bypasses the agent&apos;s permission
               prompts. See{` `}
               <a href="/docs/coding/">Coding agents</a>.
             </p>
@@ -205,7 +205,7 @@ exponential run fix-conflicts --input pr=EXP-42
               it&apos;s on. <code>exponential devices</code> lists them with
               their online state, agents and running sessions. Add{` `}
               <code>--device</code> to <code>code</code> or <code>run</code>{` `}
-              and the run starts on that machine, the way the Agent page
+              and the session starts on that machine, the way the Agent page
               starts it. Agent options you leave out come from that
               machine&apos;s own launch defaults:
             </p>
@@ -266,17 +266,17 @@ exponential daemon install
               session or an <a href="/docs/actions/">action</a> there and
               pick that machine, and it runs on it exactly like it would on
               the desktop app: the same launcher, the same live activity
-              feed, the same steering from web, iOS, or Android. Batch runs,
-              chat runs, <a href="/docs/actions/#triggers">triggers</a>{` `}
+              feed, the same steering from web, iOS, or Android. Batch sessions,
+              chat sessions, <a href="/docs/actions/#triggers">triggers</a>{` `}
               and the built-in <em>Fix merge conflicts</em> action work too.
             </p>
             <p>
-              A run you start on the daemon makes no report, exactly like a
-              run in the desktop app or an attached CLI: when the agent
+              A session you start on the daemon makes no report, exactly like a
+              session in the desktop app or an attached CLI: when the agent
               finishes its turn it waits for your next reply, and the daemon
               keeps its process and worktree alive with no idle timeout. Hit{` `}
-              <strong>Stop</strong> on the run in the web or mobile app when
-              you are done with it. Runs started by a{` `}
+              <strong>Stop</strong> on the session in the web or mobile app when
+              you are done with it. Sessions started by a{` `}
               <a href="/docs/actions/#triggers">trigger</a> are the ones that end
               themselves when their work is done.
             </p>
@@ -298,14 +298,14 @@ exponential daemon install
                 Its <strong>Name</strong>, whether it is your{` `}
                 <strong>Default device</strong> (preselected in every picker,
                 marked with a star in the list), and which team it is{` `}
-                <strong>Shared with</strong> — teammates can then start runs
+                <strong>Shared with</strong> — teammates can then start sessions
                 on it. Withdrawing the share ends their running sessions.
               </li>
               <li>
                 Its launch defaults: <strong>Default agent</strong>, and per
                 agent the <strong>Model</strong>, effort,{` `}
                 <strong>Ultracode</strong> and <strong>Plan mode</strong>{` `}
-                a run starts with.
+                a session starts with.
               </li>
               <li>
                 Each agent&apos;s <strong>account</strong> and rate-limit{` `}
@@ -342,7 +342,7 @@ exponential update
             <p>
               You rarely need it, though: the install script turns automatic
               updates on (<code>EXP_NO_AUTOUPDATE=1</code> leaves them off),
-              and a CLI installed some other way asks on its first run.{` `}
+              and a CLI installed some other way asks on its first session.{` `}
               <code>exponential update --auto on</code> or{` `}
               <code>--auto off</code> changes it later. With
               auto-update on, commands check once a day and restart

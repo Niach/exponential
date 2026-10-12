@@ -124,8 +124,8 @@ const TYPE_ROWS: [(&str, &str, &str); 9] = [
     ),
     (
         NOTIFICATION_TYPE_SESSION_BLOCKED,
-        "Blocked runs",
-        "One of your coding runs hits a rate limit.",
+        "Blocked sessions",
+        "One of your coding sessions hits a rate limit.",
     ),
 ];
 

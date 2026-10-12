@@ -21,7 +21,7 @@ export function ActionRunsSection({
 }: {
   actionId: string
   teamId: string
-  /** Off on a phone, where the tab already says "Runs". */
+  /** Off on a phone, where the tab already says "Sessions". */
   showHeader?: boolean
 }) {
   const openSession = useOpenSession()
@@ -44,7 +44,7 @@ export function ActionRunsSection({
 
   return (
     <div>
-      {showHeader && <GlassSectionHeader label="Runs" />}
+      {showHeader && <GlassSectionHeader label="Sessions" />}
       {runs.length === 0 ? (
         <Empty id="action-runs" />
       ) : (

@@ -92,7 +92,7 @@ public enum GettingStarted {
         Step(key: .board, title: "Create a board", icon: "ui-folder", target: .createBoard, needsDevice: false, visibleWhen: nil, phones: true),
         Step(key: .github, title: "Connect GitHub", icon: "ui-github", target: .github, needsDevice: false, visibleWhen: nil, phones: true),
         Step(key: .device, title: "Add a device", icon: "ui-device", target: .addDevice, needsDevice: false, visibleWhen: nil, phones: true),
-        Step(key: .run, title: "Start a run", icon: "action-run", target: .agent, needsDevice: true, visibleWhen: nil, phones: true),
+        Step(key: .run, title: "Start a session", icon: "action-run", target: .agent, needsDevice: true, visibleWhen: nil, phones: true),
         Step(key: .invite, title: "Invite your team", icon: "ui-invite", target: .invite, needsDevice: false, visibleWhen: .canManageMembers, phones: true),
         Step(key: .server, title: "Set up a server", icon: "ui-server", target: .addServer, needsDevice: false, visibleWhen: nil, phones: true),
         Step(key: .mcp, title: "Connect your tools", icon: "ui-mcp", target: .mcp, needsDevice: false, visibleWhen: nil, phones: false),

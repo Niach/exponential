@@ -339,7 +339,7 @@ export function MyMachines({
       )}
       {/* EXP-432: teammates' server devices shared with this team — read-only
           rows (owner name in the tooltip, no rename/remove/update). The Agent
-          page composer is what aims a run at one. */}
+          page composer is what aims a session at one. */}
       {teamShared.length > 0 && (
         <div className="mt-6">
           <GlassSectionHeader label="Team devices" />

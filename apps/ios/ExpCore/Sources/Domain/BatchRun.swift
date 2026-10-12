@@ -23,7 +23,7 @@ import Foundation
 /// `BatchRun.kt`: same order, same `+N`, same fallback string, same test names.
 public enum BatchRun {
     /// The one string a batch with no knowable issues shows. Byte-identical ×4.
-    public static let fallback = "Batch run"
+    public static let fallback = "Batch session"
 
     /// What a batch row shows.
     public struct Name: Equatable {

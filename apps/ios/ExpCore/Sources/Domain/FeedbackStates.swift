@@ -183,7 +183,7 @@ public enum FeedbackStates {
     public enum Starting {
         public static func label(device: String) -> String { "Starting on \(device)" }
         public static let timeoutMs = 30_000
-        public static let timeoutTitle = "The run did not start"
+        public static let timeoutTitle = "The session did not start"
         public static func timeoutDescription(device: String) -> String { "\(device) did not answer." }
         public static let timeoutAction = "Retry"
     }

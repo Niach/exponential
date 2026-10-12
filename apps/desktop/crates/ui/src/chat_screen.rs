@@ -110,7 +110,7 @@ const FIELDS_MAX_H: f32 = 280.;
 
 /// EXP-923: the history button's tooltip — the only word on the Agent page's
 /// own chrome, and the panel's own heading is the ×4 "Recent".
-const RECENT_RUNS_LABEL: &str = "Recent runs";
+const RECENT_RUNS_LABEL: &str = "Recent sessions";
 
 /// EXP-1249: the composer "+" menu's words (web `launch-composer.tsx`'s
 /// menu, the styleguide `menu` entry's composer specimen).
@@ -467,7 +467,7 @@ pub(crate) fn fix_conflicts_card(
 enum Presentation {
     /// The Agent screen (`Screen::Chat`) and a New run tab: HOME, the
     /// greeting over the centred column with Recent under it, and the
-    /// "Recent runs" button.
+    /// "Recent sessions" button.
     Page,
     /// A dialog window opened by a play button ([`crate::composer_dialog`]):
     /// the launcher alone — headline, card, options, notes — and nothing of
@@ -846,7 +846,7 @@ impl ChatScreenView {
         let composer = cx.entity().downgrade();
         crate::action_error::failed_action_with_retry(
             "start",
-            "the run",
+            "the session",
             Some(message.to_string()),
             move |window, cx| {
                 let _ = composer.update(cx, |this, cx| this.send(window, cx));
@@ -1663,7 +1663,7 @@ impl ChatScreenView {
             return Some("Uploading images…".into());
         }
         if self.team_id.is_none() {
-            return Some("Sign in and wait for sync before starting a run.".into());
+            return Some("Sign in and wait for sync before starting a session.".into());
         }
         let Some(launch) = self.launch.as_ref() else {
             return Some("Checking local tools…".into());
@@ -1767,7 +1767,7 @@ impl ChatScreenView {
                         .unwrap_or_else(|| "another device".to_string());
                         return Some(
                             format!(
-                                "{} already has a live run on {device} (one run per issue).",
+                                "{} already has a live session on {device} (one session per issue).",
                                 row.identifier
                             )
                             .into(),
@@ -2038,7 +2038,7 @@ impl ChatScreenView {
                     if let Some(record) = record {
                         let same_agent = options.agent == record.agent;
                         let Some(deps) = coding_flow::build_resume_deps(&record, cx) else {
-                            self.start_failed("Sign in and wait for sync before starting a run.".into(), cx);
+                            self.start_failed("Sign in and wait for sync before starting a session.".into(), cx);
                             return false;
                         };
                         let request = ResumeRunRequest {
@@ -2082,7 +2082,7 @@ impl ChatScreenView {
                         prompt,
                         cx,
                     ) else {
-                        self.start_failed("Sign in and wait for sync before starting a run.".into(), cx);
+                        self.start_failed("Sign in and wait for sync before starting a session.".into(), cx);
                         return false;
                     };
                     self.run_prepare(
@@ -2107,7 +2107,7 @@ impl ChatScreenView {
                 };
                 let batch_id = request.batch_id.clone();
                 let Some(deps) = coding_flow::build_batch_deps(cx) else {
-                    self.start_failed("Sign in and wait for sync before starting a run.".into(), cx);
+                    self.start_failed("Sign in and wait for sync before starting a session.".into(), cx);
                     return false;
                 };
                 self.run_prepare(
@@ -2240,7 +2240,7 @@ impl ChatScreenView {
     ) {
         let Some(trpc) = queries::trpc_client(cx) else {
             self.end_starting(generation, window, cx);
-            self.start_failed("Sign in and wait for sync before starting a run.".into(), cx);
+            self.start_failed("Sign in and wait for sync before starting a session.".into(), cx);
             return;
         };
         let device_id = input.device_id.clone();
@@ -2929,7 +2929,7 @@ impl ChatScreenView {
         let muted = cx.theme().muted_foreground;
         let hint: SharedString = match self.resume_candidate() {
             Some((_, record)) => format!(
-                "Resumes the {} run exactly (its own transcript); a resume keeps the run's own agent.",
+                "Resumes the {} session exactly (its own transcript); a resume keeps the session's own agent.",
                 record.agent.label()
             )
             .into(),
@@ -3157,7 +3157,7 @@ impl ChatScreenView {
 
     /// EXP-923/EXP-1253 — the Agent SCREEN, HOME: the greeting headline,
     /// the launcher, then Recent (and Getting started while the team has no
-    /// board), centred in the page's one scroll, with the "Recent runs"
+    /// board), centred in the page's one scroll, with the "Recent sessions"
     /// ghost button in the corner. A New run tab draws the same.
     ///
     /// The composer IS the page, so it sits in the middle of it (web
@@ -3316,7 +3316,7 @@ impl ChatScreenView {
     }
 
     /// EXP-1037 — the composer in its DIALOG window: the launcher alone, in
-    /// the window's own scroll. No page scroll chrome, no "Recent runs"
+    /// the window's own scroll. No page scroll chrome, no "Recent sessions"
     /// button, no suggestion band — a dialog always has a subject, and the
     /// one thing left to decide is whether to send it.
     ///

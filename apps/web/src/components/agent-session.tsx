@@ -1354,7 +1354,7 @@ export function AgentSessionView({
     <>
       <MobileWorkBar
         /* EXP-916: the ring belongs to the composer band — while a card holds
-           the keyboard, or once the run is over, the bar is the trailing circle
+           the keyboard, or once the session is over, the bar is the trailing circle
            alone (Android's `FloatingBottomBar(right = …)`, iOS's
            `bandRetired`). */
         leading={
@@ -1626,16 +1626,16 @@ export function AgentSessionView({
       {/* EXP-851/850 §10: on a phone the header IS `MobileDetailHeader` —
           byte-identical to the issue, review and session-issue
           screens — with the Context pill as its one trailing control; the
-          run's own controls follow in a compact second row, because a native
-          bar carries exactly one. On md+ the single header row names the run
+          session's own controls follow in a compact second row, because a native
+          bar carries exactly one. On md+ the single header row names the session
           over its phase caption and carries every control on the right. */}
       {isMobile ? (
         /* EXP-893: the phone header never jumps between faces — an issue
            subject wears the issue's header (the route renders it, with Stop
-           / Resume in its trailing slot on the Run face only); a run subject
+           / Resume in its trailing slot on the Run face only); a session subject
            the shared detail header with its title, and the
            same Stop / Resume on the right. No caption row, no plan chip:
-           the strips under the transcript say what the run is doing. */
+           the strips under the transcript say what the session is doing. */
         renderMobileHeader ? (
           renderMobileHeader({ shownFace, tabs: mobileTabs })
         ) : (
@@ -1669,7 +1669,7 @@ export function AgentSessionView({
            renders, so nothing moves when the face flips. No back control on
            md+ (EXP-870): the compact rail and the list nav's back row are the
            way out. No identity block, no phase caption: the title says what
-           the run is, the transcript's footer says what it is doing. */
+           the session is, the transcript's footer says what it is doing. */
         <WorkHeader
           /* EXP-1256: nothing scrolls UNDER this bar (the body starts below
              it), so it paints no edge layer: the body's own masked fade is
@@ -1677,7 +1677,7 @@ export function AgentSessionView({
           edge={false}
           /* EXP-1162: a run face has no title row of its own, so the bar is
              always collapsed — the issue's identifier over its title, or
-             the run's own subject. */
+             the session's own subject. */
           title={
             issueHeader ? (
               issueHeader.title
@@ -1695,7 +1695,7 @@ export function AgentSessionView({
                   it. */}
               {graphBadge}
               {/* EXP-950: with several runs the "Runs" segment carries the
-                  caret to the issue's other runs — and shows alone when the
+                  caret to the issue's other sessions — and shows alone when the
                   issue face is out of reach. */}
               <WorkFaceToggle
                 face={shownFace}
@@ -2064,7 +2064,7 @@ export function AgentSessionView({
           {/* EXP-804: the PERSISTED usage wall off the session row — a walled
               run is still running. Deliberately not the same thing as
               `RateLimitBanner` below, which is the LIVE stream's own report:
-              this one is already there when you open a run whose stream has
+              this one is already there when you open a session whose stream has
               not connected yet, which is exactly the moment a silently walled
               run looks healthy. */}
           {blockedLabel && (
@@ -2331,7 +2331,7 @@ function SessionUsageSections({
           bars and the icon-only switch (claude, own machine, between turns).
           EXP-1051: the refusal and the switch's cost are the button's own
           tooltip now, so a row carries no sentence. A switch opens the
-          continuation run's page by itself. */}
+          continuation session's page by itself. */}
       {others.length > 0 && (
         <div className={cn(section, `space-y-1.5`)}>
           <p className={title}>{ACCOUNTS_SECTION_TITLE}</p>

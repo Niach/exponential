@@ -190,7 +190,7 @@ export function LaunchComposer({
             ) : actionSubject && subject && inputDefs.length > 0 ? (
               /* The action's typed picks (repo / board / pr / icon) — the
                  free-text kinds are gone (EXP-825): what the requester types
-                 IS the run's instructions. */
+                 IS the session's instructions. */
               <div className="px-3 pt-3">
                 <ActionInputFields
                   defs={inputDefs}

@@ -914,7 +914,7 @@ struct WorkScreen: View {
                 Text("Stop").fontWeight(.medium)
             }
             .tint(DesignTokens.Semantic.red)
-            .accessibilityLabel("Stop the agent and end the run")
+            .accessibilityLabel("Stop the agent and end the session")
             .accessibilityIdentifier("session-stop")
         case .resume:
             Button { showResumeConfirm = true } label: {

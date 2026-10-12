@@ -154,7 +154,7 @@ private fun CommentCardSpecimens() {
         caption = "via MCP · 2 minutes ago",
         mark = { AgentRunMark(agent = "claude", state = null, size = 14.dp, badgeSize = 0.dp, modifier = Modifier.size(14.dp)) },
         body = "**Status 2026-10-08, evening**\n\n#VAPP-98 (renderer hardening) is open as PR #1007; the host API " +
-            "run #VAPP-91 is not based on the new contract yet, so I sent it a heads-up. The conformance " +
+            "session #VAPP-91 is not based on the new contract yet, so I sent it a heads-up. The conformance " +
             "lanes are green on React and gpui; Swift and Compose wait on the fixture bump.",
         onOpen = {},
     )

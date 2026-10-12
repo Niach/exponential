@@ -203,7 +203,7 @@ function ReviewsPage() {
             })}
 
             {/* EXP-734: PRs a coding run opened for itself (an action or
-                chat run with no linked issue). EXP-1186: one band per team. */}
+                chat session with no linked issue). EXP-1186: one band per team. */}
             {sessionGroups.map((sessionGroup) =>
               sessionGroup.entries.length === 0
                 ? null
@@ -213,7 +213,7 @@ function ReviewsPage() {
                       leading={
                         <PrOpenIcon className="size-3.5 shrink-0 text-muted-foreground" />
                       }
-                      label="Agent runs"
+                      label="Agent sessions"
                       trailing={
                         teamCaption(sessionGroup.team?.id) ?? (
                           <span className="text-xs text-muted-foreground">

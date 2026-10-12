@@ -17,17 +17,17 @@ describe(`WorkFaceStrip`, () => {
     expect(container.innerHTML).toBe(``)
   })
 
-  it(`a lone Runs item with a menu still shows its caret`, () => {
+  it(`a lone Sessions item with a menu still shows its caret`, () => {
     render(
       <WorkFaceStrip
         face="run"
-        items={[{ face: `run`, label: `Runs`, onSelect: vi.fn() }]}
+        items={[{ face: `run`, label: `Sessions`, onSelect: vi.fn() }]}
         runMenu={{ content: <DropdownMenuContent /> }}
       />
     )
     expect(screen.getByTestId(`work-face-toggle`)).toBeTruthy()
     expect(screen.getByTestId(`issue-run-switcher`).getAttribute(`title`)).toBe(
-      `Switch run`
+      `Switch session`
     )
   })
 
@@ -52,7 +52,7 @@ describe(`WorkFaceStrip`, () => {
 
   // EXP-1162: the tabs carry the state — the title never does. The Run tab
   // wears the agent's brand mark (never a dot), an open PR dots the Guide.
-  it(`marks the Run tab with the agent and dots the open pull request`, () => {
+  it(`marks the Session tab with the agent and dots the open pull request`, () => {
     render(
       <WorkFaceStrip
         face="issue"
@@ -60,7 +60,7 @@ describe(`WorkFaceStrip`, () => {
         run={{ agent: `codex`, state: `needs_input` }}
         items={[
           { face: `issue`, label: `Issue`, onSelect: vi.fn() },
-          { face: `run`, label: `Run`, onSelect: vi.fn() },
+          { face: `run`, label: `Session`, onSelect: vi.fn() },
           { face: `guide`, label: `Guide`, onSelect: vi.fn() },
         ]}
       />
@@ -70,7 +70,7 @@ describe(`WorkFaceStrip`, () => {
     expect(mark.dataset.tone).toBe(`needs_input`)
     expect(mark.getAttribute(`aria-label`)).toBe(`Needs input`)
     // The mark LEADS the label and carries the sidebar row's amber badge.
-    expect(mark.nextSibling?.textContent).toBe(`Run`)
+    expect(mark.nextSibling?.textContent).toBe(`Session`)
     expect(mark.querySelector(`.bg-amber-500`)).not.toBeNull()
     const dots = screen.getAllByTestId(`face-dot`)
     expect(dots.map((dot) => dot.dataset.tone)).toEqual([`review`])
@@ -89,7 +89,7 @@ describe(`WorkFaceStrip`, () => {
         run={{ agent: `claude`, state: `working` }}
         items={[
           { face: `issue`, label: `Issue`, onSelect: vi.fn() },
-          { face: `run`, label: `Run`, onSelect: vi.fn() },
+          { face: `run`, label: `Session`, onSelect: vi.fn() },
         ]}
       />
     )
@@ -108,7 +108,7 @@ describe(`WorkFaceStrip`, () => {
         run={{ agent: `claude`, state: `review` }}
         items={[
           { face: `issue`, label: `Issue`, onSelect: vi.fn() },
-          { face: `run`, label: `Run`, onSelect: vi.fn() },
+          { face: `run`, label: `Session`, onSelect: vi.fn() },
         ]}
       />
     )

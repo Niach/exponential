@@ -51,7 +51,7 @@ export const ACTIVE_BOARD = BOARDS[0]
 const TEAM_NAME = `Exponential`
 
 /* crate::changelog::LATEST.summary — the What's new card's one-line teaser. */
-const WHATS_NEW_SUMMARY = `An issue and its coding run now share one header, and the diff opens full page.`
+const WHATS_NEW_SUMMARY = `An issue and its coding session now share one header, and the diff opens full page.`
 
 type Entry = {
   key: string
@@ -126,7 +126,7 @@ export function Rail({ compact = false }: { compact?: boolean }) {
     },
     {
       /* EXP-825: the Agent page's composer IS the launcher; EXP-880: a
-         green dot while my runs are live, never a count. */
+         green dot while my sessions are live, never a count. */
       key: `agent`,
       Icon: IcMessageCircle,
       label: `Agent`,

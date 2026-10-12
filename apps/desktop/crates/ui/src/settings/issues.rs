@@ -386,7 +386,7 @@ impl IssuesPane {
                     div()
                         .min_w_0()
                         .text_sm()
-                        .child("When a PR merges, end its runs"),
+                        .child("When a PR merges, end its sessions"),
                 )
                 .child(
                     crate::controls::web_switch("pr-automation-end-sessions")

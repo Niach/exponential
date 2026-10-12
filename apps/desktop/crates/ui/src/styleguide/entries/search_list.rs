@@ -23,7 +23,7 @@ pub(crate) const OWNER: &str = "SLOP-28";
 /// The demo issues: (identifier, title, status glyph).
 const ISSUES: [(&str, &str, ExpIcon); 10] = [
     ("EXP-1259", "UX batch 2: home, tabs, search, getting started", registry::STATUS_IN_PROGRESS),
-    ("EXP-1255", "Tab close on hover, a New run tab", registry::STATUS_IN_REVIEW),
+    ("EXP-1255", "Tab close on hover, a New session tab", registry::STATUS_IN_REVIEW),
     ("EXP-1253", "The Agent page is home", registry::STATUS_IN_PROGRESS),
     ("EXP-1249", "One \"+\" menu in the composer", registry::STATUS_BACKLOG),
     ("EXP-1243", "Motion pass over every component", registry::STATUS_BACKLOG),

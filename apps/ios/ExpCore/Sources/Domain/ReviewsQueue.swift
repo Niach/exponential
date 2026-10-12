@@ -13,7 +13,7 @@ public enum ReviewsQueue {
     public static let repoBandCaption = "not linked to an issue"
     /// The "Agent runs" band's trailing caption on a single-team list ×4
     /// (fixture `labels.runBandCaption`).
-    public static let runBandCaption = "opened by a coding run"
+    public static let runBandCaption = "opened by a coding session"
 
     /// One team's `repositories.openPulls` repo, tagged with that team.
     public struct PullRepo: Equatable, Sendable, Identifiable {

@@ -268,7 +268,7 @@ struct LaunchOptionsSection: View {
             // mode are both claude-only (EXP-441/EXP-849); a binding (the
             // trigger variant) has neither.
             if let resumeRow {
-                GlassToggleRow("Resume previous run", isOn: resumeRow.isOn)
+                GlassToggleRow("Resume previous session", isOn: resumeRow.isOn)
             }
             if let ultracode, agent == "claude" {
                 GlassToggleRow("Ultracode", isOn: ultracode)

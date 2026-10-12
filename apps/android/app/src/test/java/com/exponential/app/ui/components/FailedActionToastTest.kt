@@ -34,10 +34,10 @@ class FailedActionToastTest {
     @Test
     fun theFixtureTitles() {
         val toaster = Toaster()
-        toaster.failedAction("start", "the run")
+        toaster.failedAction("start", "the session")
         toaster.failedAction("connect", "GitHub")
         assertEquals(
-            listOf("Couldn't start the run", "Couldn't connect GitHub"),
+            listOf("Couldn't start the session", "Couldn't connect GitHub"),
             toaster.toasts.map { it.title },
         )
     }

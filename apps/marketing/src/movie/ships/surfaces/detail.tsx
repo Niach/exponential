@@ -388,7 +388,7 @@ export type WorkHeaderProps = {
 }
 
 const FACE_ISSUE_W = 58
-const FACE_RUN_W = 50
+const FACE_RUN_W = 74
 const faceDiffW = (add: number, del: number) =>
   24 + Math.round((`+${add}`.length + `-${del}`.length) * 7.8) + 4
 
@@ -514,7 +514,7 @@ export const WorkHeader: React.FC<WorkHeaderProps> = ({
                   }}
                 />
                 {faceItem(`Issue`, FACE_ISSUE_W, faceT < 0.5)}
-                {faceItem(`Run`, FACE_RUN_W, faceT >= 0.5)}
+                {faceItem(`Session`, FACE_RUN_W, faceT >= 0.5)}
                 {showDiff && diff ? (
                   <span
                     style={{

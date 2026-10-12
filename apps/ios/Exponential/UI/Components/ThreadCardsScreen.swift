@@ -126,7 +126,7 @@ struct ThreadCardsScreen: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Status 2026-10-08, evening").font(.subheadline.weight(.semibold))
                 Text(
-                    "#VAPP-98 (renderer hardening) is open as PR #1007; the host API run #VAPP-91 is not based on "
+                    "#VAPP-98 (renderer hardening) is open as PR #1007; the host API session #VAPP-91 is not based on "
                         + "the new contract yet, so I sent it a heads-up. The conformance lanes are green on all "
                         + "four renderers and the review wave starts tonight."
                 )

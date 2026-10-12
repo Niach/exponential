@@ -27,7 +27,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1241`,
   title: `Comment call card`,
-  blurb: `A settled \`exponential_comments_create\` call renders the REAL comment, never the tool line: our mark and \`Commented on\` over the issue chip, then the comment in the timeline's comment look (the agent's mark, the author, \`via MCP · <time>\`), the markdown body clamped to three lines behind \`Show more\`. The body, author and time are the synced comment row's (the result preview names its id); until it syncs, the preview's text, the run's owner and the settle's time. Clicking the comment opens the issue at \`?comment=<id>\`: the timeline scrolls to it and washes it for 1.5 s (reduced motion: only the scroll). A running or failed call keeps its ordinary tool row.`,
+  blurb: `A settled \`exponential_comments_create\` call renders the REAL comment, never the tool line: our mark and \`Commented on\` over the issue chip, then the comment in the timeline's comment look (the agent's mark, the author, \`via MCP · <time>\`), the markdown body clamped to three lines behind \`Show more\`. The body, author and time are the synced comment row's (the result preview names its id); until it syncs, the preview's text, the session's owner and the settle's time. Clicking the comment opens the issue at \`?comment=<id>\`: the timeline scrolls to it and washes it for 1.5 s (reduced motion: only the scroll). A running or failed call keeps its ordinary tool row.`,
   status: {
     web: {
       state: `ok`,

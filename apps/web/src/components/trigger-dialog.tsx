@@ -45,7 +45,7 @@ export type WriteTriggers = (
 ) => Promise<void>
 
 // One reason, one wording, wherever a required input blocks a trigger.
-export const REQUIRED_INPUTS_HINT = `This action has required inputs, and a triggered run has none to fill them with. Make the inputs optional to enable it.`
+export const REQUIRED_INPUTS_HINT = `This action has required inputs, and a triggered session has none to fill them with. Make the inputs optional to enable it.`
 
 export function TriggerDialog({
   open,

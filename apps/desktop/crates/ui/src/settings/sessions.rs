@@ -90,7 +90,7 @@ impl SessionsPane {
                     let pane = cx.entity().downgrade();
                     crate::action_error::failed_action_with_retry(
                         "save",
-                        "the run history setting",
+                        "the session history setting",
                         Some(err),
                         move |_, cx| {
                             let _ = pane.update(cx, |this, cx| this.set_days(days, cx));
@@ -112,7 +112,7 @@ impl Render for SessionsPane {
         let value_color = cx.theme().foreground.opacity(0.7);
 
         let row = glass_picker_row(
-            "Keep run history",
+            "Keep session history",
             None,
             Button::new("sessions-retention-select")
                 .ghost()
@@ -145,7 +145,7 @@ impl Render for SessionsPane {
         );
 
         section(cx)
-            .child(crate::surface::glass_section_header("Runs", None, cx))
+            .child(crate::surface::glass_section_header("Sessions", None, cx))
             .child(glass_group_rows(vec![row]))
     }
 }

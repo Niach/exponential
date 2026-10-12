@@ -300,7 +300,7 @@ describe(`PrGraphOverlay`, () => {
     expect(bandTitles()).toEqual([`pr-graph-band-batch`])
     expect(screen.getByTestId(`relation-row-ONE`)).toBeTruthy()
     expect(screen.getByTestId(`relation-row-TWO`)).toBeTruthy()
-    expect(screen.queryByText(`Runs`)).toBeNull()
+    expect(screen.queryByText(`Sessions`)).toBeNull()
     expect(screen.queryByText(`Merge stack`)).toBeNull()
   })
 

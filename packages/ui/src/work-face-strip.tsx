@@ -11,12 +11,12 @@ import { SEGMENTED_TAB, Tabs, TabsList, TabsTrigger } from "./tabs"
 // EXP-1152 — THE Work face strip, one component for every Work screen on the
 // web: the md+ work header (`WorkFaceToggle`, EXP-870/877) and the phone's
 // header band (`MobileFaceTabs`, EXP-1150). It is the segmented capsule
-// (`tabs.tsx`) naming the faces `Issue · Run/Runs · Guide` in their fixed
+// (`tabs.tsx`) naming the faces `Issue · Session/Sessions · Guide` in their fixed
 // order (EXP-1251: Changes + Results merged into the Guide; its counts moved
 // into the body) — the desktop `work_header.rs` `FaceToggle`, iOS
 // `WorkFaceTabs`, Android `FaceTabs.kt`. An unavailable face is HIDDEN, never
-// disabled, and the strip is absent under two faces unless the `Runs` caret
-// earns it (EXP-950: a lone `Runs` item keeps the run menu in reach). The
+// disabled, and the strip is absent under two faces unless the `Sessions` caret
+// earns it (EXP-950: a lone `Sessions` item keeps the session menu in reach). The
 // menu's CONTENT is the app's (it reads live runs), so it is handed in; the
 // strip owns only where the caret sits. A NULL face (EXP-1024, the workflow
 // node panel) leaves every segment inactive.
@@ -123,7 +123,7 @@ export function WorkFaceStrip({
   /** The face on show; `null` = none (every segment inactive). */
   face: WorkFaceStripFace | null
   items: readonly WorkFaceStripItem[]
-  /** The `Runs` caret's menu — a `DropdownMenuContent` element. The caret
+  /** The `Sessions` caret's menu — a `DropdownMenuContent` element. The caret
    *  shows only with this AND a `run` item to hang from. */
   runMenu?: { content: ReactNode }
   /** EXP-1162: the segments' state, by face. */
@@ -176,8 +176,8 @@ export function WorkFaceStrip({
                     variant="ghost"
                     size="icon"
                     className="h-full w-auto rounded-full pr-2.5 pl-0.5 opacity-70 hover:bg-transparent hover:opacity-100 dark:hover:bg-transparent"
-                    title="Switch run"
-                    aria-label="Switch run"
+                    title="Switch session"
+                    aria-label="Switch session"
                     data-testid="issue-run-switcher"
                   >
                     <UiChevronDownIcon className="size-3" />

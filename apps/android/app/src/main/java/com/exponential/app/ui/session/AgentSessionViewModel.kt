@@ -883,7 +883,7 @@ class AgentSessionViewModel @AssistedInject constructor(
                 steerApi.killSession(accountId, codingSessionId)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                _killError.value = trpcErrorMessage(t, "Couldn't stop the run")
+                _killError.value = trpcErrorMessage(t, "Couldn't stop the session")
             }
         }
     }

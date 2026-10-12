@@ -113,14 +113,14 @@ Around 80 tools, all named `exponential_<family>_<verb>`:
 - **sessions**: list, get, message (steer), kill, and start a coding,
   action or chat session on one of the user's own machines. A start
   targets an ONLINE device (`devices_list` first) — offline devices are
-  refused, never queued. A run may delegate independent work to a second
-  run with `sessions_start`; the child reports back into the starter's
-  session. Inside a launcher-started run four more tools register:
-  `sessions_end` (ends the run: unattended runs last, attended ones when
-  asked), `sessions_ask_parent` (ask the run that started this one, or the
-  person who owns it), `sessions_results` (the run's report by topic, with
+  refused, never queued. A session may delegate independent work to a second
+  session with `sessions_start`; the child reports back into the starter's
+  session. Inside a launcher-started session four more tools register:
+  `sessions_end` (ends the session: unattended sessions last, attended ones when
+  asked), `sessions_ask_parent` (ask the session that started this one, or the
+  person who owns it), `sessions_results` (the session's report by topic, with
   screenshots; it becomes the PR body) and `sessions_show` (a picture in the
-  run's transcript while it works). Every launched run also gets a short
+  session's transcript while it works). Every launched session also gets a short
   playbook of these conventions appended to its system prompt.
 - **devices**: `devices_list` shows the user's machines, their online state
   and the agent CLIs each one can run.
@@ -155,11 +155,11 @@ user's membership.
   issues to the team's configured PR-open status (default In Review);
   merging moves them to the PR-merge status (default Done).
 - **Actions** are reusable markdown prompts (up to 10 typed pick inputs:
-  `repo`, `board`, `pr`, `icon`; free text goes in the run's prompt, the
+  `repo`, `board`, `pr`, `icon`; free text goes in the session's prompt, the
   composer's "Additional instructions") that members run as local agent
   sessions from the desktop app, the web, or the CLI. An
   action's **triggers** each bind it to one device and a schedule or an
-  event; the bound machine starts the run itself, so nothing fires while
+  event; the bound machine starts the session itself, so nothing fires while
   it is off.
 - **Coding agents**: sessions run Claude Code or Codex locally with the
   Exponential MCP server wired in automatically; from the agent's point of

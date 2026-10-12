@@ -58,7 +58,7 @@ struct Snapshot {
 // (`components/team/general-section.tsx`). EXP-1054: one short placeholder,
 // no helper paragraph under the field — the counter is the footer.
 const TEAM_PROMPT_TITLE: &str = "Team prompt";
-const TEAM_PROMPT_PLACEHOLDER: &str = "Rules every coding run of this team follows, as markdown.";
+const TEAM_PROMPT_PLACEHOLDER: &str = "Rules every coding session of this team follows, as markdown.";
 
 // EXP-1105: the yolo-mode toggle — label only, no description (web parity).
 const YOLO_MODE_TITLE: &str = "Yolo mode";

@@ -38,7 +38,7 @@ object ReviewsQueue {
     const val REPO_BAND_CAPTION = "not linked to an issue"
 
     /** The "Agent runs" band's trailing caption on a single-team list ×4. */
-    const val RUN_BAND_CAPTION = "opened by a coding run"
+    const val RUN_BAND_CAPTION = "opened by a coding session"
 
     /** One open PR: every issue it links, `issues[0]` = the representative. */
     data class Entry(val key: String, val issues: List<IssueEntity>) {

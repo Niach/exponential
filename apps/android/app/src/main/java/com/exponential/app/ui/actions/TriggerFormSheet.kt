@@ -158,5 +158,5 @@ fun TriggerFormSheet(
 /** The one sentence a locked trigger row shows — the same wording on every
  * client, wherever a required input blocks enabling a trigger. */
 internal const val REQUIRED_INPUTS_HINT =
-    "This action has required inputs, and a triggered run has none to fill them with. " +
+    "This action has required inputs, and a triggered session has none to fill them with. " +
         "Make the inputs optional to enable it."

@@ -124,7 +124,7 @@ describe(`sessionIdentity`, () => {
   it(`falls back to Batch run`, () => {
     expect(sessionIdentity({ session: session({}), issue: undefined })).toEqual({
       identifier: null,
-      subject: `Batch run`,
+      subject: `Batch session`,
     })
   })
 
@@ -142,7 +142,7 @@ describe(`sessionIdentity`, () => {
       {
         id: `i-2`,
         identifier: `EXP-876`,
-        title: `Batch run names`,
+        title: `Batch session names`,
         branch: `exp/batch-1a2b3c4d`,
         createdAt: `2026-09-02T10:00:00Z`,
       },
@@ -160,7 +160,7 @@ describe(`sessionIdentity`, () => {
         session: session({ batchIssueIds: [`i-1`, `i-2`] }),
         issue: undefined,
       })
-    ).toEqual({ identifier: null, subject: `Batch run` })
+    ).toEqual({ identifier: null, subject: `Batch session` })
   })
 
   it(`says so while the issue is still syncing`, () => {
