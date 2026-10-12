@@ -4617,10 +4617,20 @@
         "shot": "sg_work-card",
         "lane": "styleguide"
       },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "session:$steeredSession"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_SHOW_WORK": "1"
+        }
+      },
       "notes": {
         "web": "The `steering` session with Show work on: `showWorkCards` sets the per-user pref (localStorage `exp.showWork:<userId>`), reloads and centres the last subagent's Work card of the relay-fed demo feed (apps/web/scripts/screenshot-desktop.ts: two subagents and a task list, whose card sits in the strip under the transcript). Needs `bun run screenshots:desktop`, like `steering`.",
         "web-mobile": "Inherits web: the phone transcript draws the same cards at full width.",
-        "desktop": "No app capture: the drive (`session:$steeredSession` + `EXP_DEV_SHOW_WORK=1`) photographs \"Live steering is unavailable on this instance\" over an empty feed, the same state the committed `steering/desktop` shot shows since 2026-10-10: `SteerViewer::new` calls `spawn_viewer` once, and with the session tab opened at boot (dev screen, or a restored layout) the active account is not set yet, so `queries::trpc_client` is None and the viewer never dials. The desktop styleguide entry `work_card.rs` draws the card."
+        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1`: the transcript opens on its tail, where the relay-fed demo feed's task list (apps/web/scripts/screenshot-desktop.ts) is the Work card in the strip under the transcript; the two subagent cards sit above the fold. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
       }
     },
     {
@@ -4650,7 +4660,7 @@
       "notes": {
         "web": "The `steering` session with Show work on: the demo feed (apps/web/scripts/screenshot-desktop.ts) carries a code-mode `exec` call (`mcp__codemode__exec`, toolKind `script`, its settle carrying a 13-call log with one failure and the script source); `showScriptCard` sets the Show work pref, reloads and centres the card. Needs `bun run screenshots:desktop`, like `steering`.",
         "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
-        "desktop": "No app capture: the drive (`session:$steeredSession` + `EXP_DEV_SHOW_WORK=1`) photographs \"Live steering is unavailable on this instance\" over an empty feed, the same state the committed `steering/desktop` shot shows since 2026-10-10: `SteerViewer::new` calls `spawn_viewer` once, and with the session tab opened at boot (dev screen, or a restored layout) the active account is not set yet, so `queries::trpc_client` is None and the viewer never dials. The desktop styleguide entry `script_card.rs` draws the card."
+        "desktop": "No app capture: the `steering` drive with `EXP_DEV_SHOW_WORK=1` opens the transcript on its tail, where the demo feed's code-mode `exec` call sits just above the fold (only the card's last row shows under the status row) and no `EXP_DEV_*` value scrolls the feed. The desktop styleguide entry `script_card.rs` draws the card."
       }
     },
     {
@@ -4677,10 +4687,20 @@
         "shot": "sg_comment-call-card",
         "lane": "styleguide"
       },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "session:$steeredSession"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_SHOW_WORK": "1"
+        }
+      },
       "notes": {
         "web": "The `steering` session with Show work on: the demo feed (apps/web/scripts/screenshot-desktop.ts) carries a `exponential_comments_create` call whose settle names the seeded `mcp` comment (DEMO_AGENT_COMMENT_ID), so the card is the real synced row; `showCommentCard` sets the Show work pref, reloads and centres the card. Needs `bun run screenshots:desktop`, like `steering`.",
         "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
-        "desktop": "No app capture: the drive (`session:$steeredSession` + `EXP_DEV_SHOW_WORK=1`) photographs \"Live steering is unavailable on this instance\" over an empty feed, the same state the committed `steering/desktop` shot shows since 2026-10-10: `SteerViewer::new` calls `spawn_viewer` once, and with the session tab opened at boot (dev screen, or a restored layout) the active account is not set yet, so `queries::trpc_client` is None and the viewer never dials. The desktop styleguide entry `comment_card.rs` draws the card."
+        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1`: the transcript opens on its tail, where the demo feed's `exponential_comments_create` call draws the seeded `mcp` comment as its card. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
       }
     },
     {

@@ -326,6 +326,35 @@ impl FeedSource {
     }
 }
 
+/// The detail a `Remote` view shows while it has nothing to dial with (no
+/// steer runtime, nobody signed in). A relay that is OFF answers the mint
+/// with the same words from the viewer task, so both read alike.
+const STEER_UNAVAILABLE_DETAIL: &str = "Live steering is unavailable on this instance.";
+
+/// A `Remote` view built before an account is active (a session tab that
+/// exists at boot: a restored layout, `EXP_DEV_SCREEN=session:<id>`) cannot
+/// dial yet. It keeps the feed's sender here and retries on every session
+/// edge until a dial succeeds; after that the socket owns reconnects and
+/// this stays empty.
+struct PendingDial(Option<flume::Sender<ViewerEvent>>);
+
+impl PendingDial {
+    fn is_pending(&self) -> bool {
+        self.0.is_some()
+    }
+
+    /// Dial with a clone of the sender. A failed attempt keeps it for the
+    /// next edge; a successful one consumes it, so a source dials ONCE.
+    fn attempt<H>(
+        &mut self,
+        dial: impl FnOnce(flume::Sender<ViewerEvent>) -> Option<H>,
+    ) -> Option<H> {
+        let handle = dial(self.0.as_ref()?.clone())?;
+        self.0 = None;
+        Some(handle)
+    }
+}
+
 /// EXP-895 — the fallback files for a run that published no diff, and the
 /// `issue:has-pr` key they were fetched for (a re-point or a PR opening
 /// re-fetches; a repaint never does).
@@ -382,6 +411,9 @@ pub(crate) struct SteerSessionView {
     feed: SteerFeed,
     /// EXP-746: what drives the feed. The relay handle lives inside it.
     source: FeedSource,
+    /// A `Remote` source with no handle yet: dialled once an account is
+    /// active (see [`PendingDial`]).
+    pending_dial: PendingDial,
     /// EXP-1051: whether the usage sheet's context-window LEGEND is unfolded.
     /// View state, not run state: the bar and its headline are always there,
     /// the per-layer breakdown is one click away and stays where the reader
@@ -710,6 +742,9 @@ impl SteerSessionView {
             // viewer's.
             subscriptions.push(cx.observe(&shared_state, |this, _, cx| {
                 this.note_network_edge(cx);
+                // …and the session edge itself: a tab built before anyone
+                // was signed in dials the moment an account is active.
+                this.dial_pending(cx);
             }));
         }
         // …#3: the window came forward — the desktop's `visibilitychange`.
@@ -743,6 +778,7 @@ impl SteerSessionView {
             row: None,
             feed: SteerFeed::new(),
             source,
+            pending_dial: PendingDial(None),
             context_legend_open: false,
             phase: ViewerPhase::Connecting,
             connected: false,
@@ -852,15 +888,9 @@ impl SteerSessionView {
         // Only the relay source dials — and only when the caller did not hand
         // one in. A local source subscribes to its engine instead: same
         // reducer, same rendering, no socket.
-        if let FeedSource::Remote { handle } = &mut this.source {
-            if handle.is_none() {
-                *handle = spawn_viewer(&session_id, events_tx, cx);
-            }
-            if handle.is_none() {
-                this.phase = ViewerPhase::Unauthorized {
-                    detail: Some("Live steering is unavailable on this instance.".to_string()),
-                };
-            }
+        if let FeedSource::Remote { handle: None } = &this.source {
+            this.pending_dial = PendingDial(Some(events_tx));
+            this.dial_pending(cx);
         }
         // EXP-773: a journal source is the whole transcript, already on disk.
         // Fold it into the SAME reducer the wire feeds, then mark the run
@@ -1694,6 +1724,33 @@ impl SteerSessionView {
         let offline = sync_offline(cx);
         if std::mem::replace(&mut self.sync_offline, offline) && !offline {
             self.wake("network back");
+        }
+    }
+
+    /// Dial a `Remote` source that has no socket yet. Until it can (no
+    /// steer runtime, nobody signed in) the view says steering is
+    /// unavailable; the first successful dial clears that back to
+    /// `Connecting`, and from there the viewer task reports the relay's own
+    /// answer (a relay that is off says the same words, for good).
+    fn dial_pending(&mut self, cx: &mut gpui::Context<Self>) {
+        if !self.pending_dial.is_pending() {
+            return;
+        }
+        let FeedSource::Remote { handle } = &mut self.source else {
+            return;
+        };
+        let session_id = self.session_id.clone();
+        match self.pending_dial.attempt(|tx| spawn_viewer(&session_id, tx, cx)) {
+            Some(dialled) => {
+                *handle = Some(dialled);
+                self.phase = ViewerPhase::Connecting;
+                cx.notify();
+            }
+            None => {
+                self.phase = ViewerPhase::Unauthorized {
+                    detail: Some(STEER_UNAVAILABLE_DETAIL.to_string()),
+                };
+            }
         }
     }
 
@@ -7257,7 +7314,7 @@ impl SteerSessionView {
             ViewerPhase::Unauthorized { detail } => banners.push(banner(
                 detail
                     .clone()
-                    .unwrap_or_else(|| "Live steering is unavailable on this instance.".to_string()),
+                    .unwrap_or_else(|| STEER_UNAVAILABLE_DETAIL.to_string()),
             )),
             ViewerPhase::Reconnecting => banners.push(banner("Connection lost.".to_string())),
             ViewerPhase::Starting if !self.feed.is_empty() => banners.push(banner(
@@ -8872,6 +8929,34 @@ mod tests {
     }
 
     use super::*;
+
+    // ── A session tab that exists at boot dials once an account is active ──
+
+    #[test]
+    fn a_pending_dial_retries_until_it_succeeds_then_never_again() {
+        let (tx, rx) = flume::unbounded::<ViewerEvent>();
+        let mut pending = PendingDial(Some(tx));
+        // Boot: nobody signed in, the dial has nothing to dial with.
+        assert_eq!(pending.attempt(|_| None::<()>), None);
+        assert!(pending.is_pending(), "a failed dial keeps the sender for the next edge");
+        // The account edge: the dial gets a live sender into the feed.
+        let dialled = pending.attempt(|tx| {
+            tx.send(ViewerEvent::Phase(ViewerPhase::Live)).ok()?;
+            Some("handle")
+        });
+        assert_eq!(dialled, Some("handle"));
+        assert!(matches!(rx.try_recv(), Ok(ViewerEvent::Phase(ViewerPhase::Live))));
+        assert!(!pending.is_pending());
+        // Later session edges never dial a second socket.
+        assert_eq!(pending.attempt(|_| -> Option<&str> { panic!("dialled twice") }), None);
+    }
+
+    #[test]
+    fn a_source_that_never_waited_has_nothing_to_dial() {
+        let mut pending = PendingDial(None);
+        assert!(!pending.is_pending());
+        assert_eq!(pending.attempt(|_| -> Option<()> { panic!("dialled") }), None);
+    }
 
     // ── EXP-698: `[Image #N]` pills in a sent message ──────────────────────
 

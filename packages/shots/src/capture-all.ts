@@ -134,6 +134,7 @@ const FLEET_VIEWS = new Set([
   `composer-menu`,
   `steering`,
   `work-card`,
+  `comment-call-card`,
   `action-page`,
   `action-create`,
   `action-triggers`,

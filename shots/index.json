@@ -496,6 +496,13 @@
         "bytes": 22986,
         "sha256": "813b30fec6e26c78d4cf9d91be203faa7d8a0e9eafcfdbe8f7fafb41ee7df998"
       },
+      "desktop": {
+        "file": "shots/comment-call-card/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 77012,
+        "sha256": "084ab4fd8a4129e39904bba134ece7ed20d52e6276e133cd0fe67ca2889ea402"
+      },
       "ios": {
         "file": "shots/comment-call-card/ios.webp",
         "width": 828,
@@ -3998,8 +4005,8 @@
         "file": "shots/steering/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 37004,
-        "sha256": "ab988482133f329fb8d6c5e15e61efcf2ede24bd59b70bb4af0d96bd2bcd8088"
+        "bytes": 54592,
+        "sha256": "c89d0be3d4985b466fa19f7f0585d962b2a78e7e47bf04de4c01b4bee4b1df32"
       },
       "ios": {
         "file": "shots/steering/ios.webp",
@@ -4085,6 +4092,13 @@
         "height": 1800,
         "bytes": 28218,
         "sha256": "13e82f79710b8127b282b604e32ea5680a08dabd41d045d017985f2da520ac62"
+      },
+      "desktop": {
+        "file": "shots/work-card/desktop.webp",
+        "width": 1800,
+        "height": 1126,
+        "bytes": 77010,
+        "sha256": "b6eb6cb00a4bc83798785f80d0b6caec30ec2e9a731a8220bbe923683ca8fab1"
       },
       "ios": {
         "file": "shots/work-card/ios.webp",
