@@ -141,6 +141,7 @@ function makeRemote(overrides: Partial<RemoteStart> = {}): RemoteStart {
     sentTo: null,
     startIssues: vi.fn().mockResolvedValue(undefined),
     runAction: vi.fn().mockResolvedValue(undefined),
+    supersede: vi.fn(),
     quietWatch: vi.fn(),
     openedId: null,
     refresh: vi.fn(),
@@ -709,6 +710,83 @@ describe(`useLaunchComposer submit`, () => {
       expect(mockState.toastDismiss).toHaveBeenCalledWith(`toast-8`)
       expect(result.current.text).toBe(`something else`)
       expect(onLanded).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  // Final review B6: an EDITED draft started after the timeout supersedes
+  // the first start's watch before its uploads: the first run's late row
+  // never ends the new start nor touches its draft.
+  it(`a different start supersedes the previous watch before its uploads`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { result, remote, land, onLanded } = mount()
+      act(() => result.current.setText(`hi`))
+      await act(() => result.current.submit())
+      const first = vi.mocked(remote.runAction).mock.calls[0]![6]
+      expect(remote.supersede).toHaveBeenLastCalledWith(first)
+      act(() => vi.advanceTimersByTime(30_000))
+      act(() => result.current.setText(`something else`))
+      let finishUpload: (value: { id: string }) => void = () => {}
+      mockState.upload.mockImplementationOnce(
+        () => new Promise((resolve) => (finishUpload = resolve))
+      )
+      act(() => {
+        result.current.addFiles([new File([`x`], `a.png`, { type: `image/png` })], 0)
+      })
+      const draft = result.current.text
+      let submitted: Promise<void> = Promise.resolve()
+      act(() => {
+        submitted = result.current.submit()
+      })
+      const second = vi.mocked(remote.supersede).mock.calls.at(-1)![0]
+      expect(second).toMatch(/^[0-9a-f-]{36}$/)
+      expect(second).not.toBe(first)
+      expect(remote.runAction).toHaveBeenCalledTimes(1)
+      // The first start's row lands while the new start uploads.
+      land()
+      expect(result.current.text).toBe(draft)
+      expect(result.current.starting).not.toBeNull()
+      expect(onLanded).not.toHaveBeenCalled()
+      await act(async () => {
+        finishUpload({ id: `att-1` })
+        await submitted
+      })
+      expect(remote.runAction).toHaveBeenCalledTimes(2)
+      expect(vi.mocked(remote.runAction).mock.calls[1]![6]).toBe(second)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`a re-send of the same draft keeps the watch: the original row lands it`, async () => {
+    vi.useFakeTimers()
+    try {
+      const { result, remote, land, onLanded } = mount()
+      act(() => result.current.setText(`hi`))
+      await act(() => result.current.submit())
+      const first = vi.mocked(remote.runAction).mock.calls[0]![6]
+      act(() => vi.advanceTimersByTime(30_000))
+      let resolve: () => void = () => {}
+      vi.mocked(remote.runAction).mockImplementationOnce(
+        () => new Promise<void>((done) => (resolve = done))
+      )
+      let submitted: Promise<void> = Promise.resolve()
+      act(() => {
+        submitted = result.current.submit()
+      })
+      expect(remote.supersede).toHaveBeenCalledTimes(2)
+      expect(remote.supersede).toHaveBeenLastCalledWith(first)
+      // The FIRST send's row lands while the re-send is in flight.
+      land()
+      expect(result.current.text).toBe(``)
+      expect(result.current.starting).toBeNull()
+      expect(onLanded).toHaveBeenCalledTimes(1)
+      await act(async () => {
+        resolve()
+        await submitted
+      })
     } finally {
       vi.useRealTimers()
     }

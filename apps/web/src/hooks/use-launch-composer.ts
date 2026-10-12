@@ -969,6 +969,12 @@ export function useLaunchComposer({
       startIdRef.current?.fingerprint === fingerprint
         ? startIdRef.current.id
         : crypto.randomUUID()
+    // Final review (B6): a DIFFERENT start supersedes the previous one's
+    // watch here, before the uploads: its late row only shows in Running and
+    // never touches this draft. The SAME startId keeps it (the device drops
+    // the re-send; the original row is this start's landing).
+    if (startIdRef.current?.id !== startId) awaitingLandRef.current = null
+    remote.supersede(startId)
     startIdRef.current = { id: startId, fingerprint }
     const startedRun: ComposerStarting = {
       deviceLabel: device.deviceLabel || device.deviceId,

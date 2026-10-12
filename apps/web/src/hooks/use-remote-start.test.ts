@@ -6,6 +6,9 @@ import type { SteerDevice } from "@/lib/steer-devices"
 // slow the mutation, a send resolving after unmount arms nothing, the watch
 // follows for `starting.watchMs` (30 min) and a late row clears the
 // deadline's error; a quiet watch's gate can keep it from navigating.
+// B6: a different startId supersedes the previous watch at the top of the
+// send, the same startId keeps it, and a row created before the send never
+// lands for it.
 
 const h = vi.hoisted(() => ({
   sessions: [] as unknown[],
@@ -62,12 +65,14 @@ const device: SteerDevice = {
 const action = { id: `act-1`, name: `Deploy`, teamId: `t1` }
 const NEVER_STARTED = `buildbox never started this session`
 
+// A synced action row, created (and started) now.
 const row = (id: string) => ({
   id,
   userId: `me`,
   issueId: null,
   actionName: `Deploy`,
   startedAt: new Date(Date.now()).toISOString(),
+  createdAt: new Date(Date.now()).toISOString(),
 })
 
 function mount() {
@@ -168,5 +173,82 @@ describe(`useRemoteStart watch`, () => {
     expect(h.openSession).not.toHaveBeenCalled()
     expect(onOpened).not.toHaveBeenCalled()
     expect(h.toastError).not.toHaveBeenCalled()
+  })
+
+  it(`a different startId supersedes the previous watch at the top of the send`, async () => {
+    h.mutate.mockResolvedValueOnce({ ok: true })
+    const { result, sync } = mount()
+    await act(() =>
+      result.current.runAction(device, action, {} as never, undefined, undefined, undefined, `start-a`)
+    )
+    act(() => vi.advanceTimersByTime(30_000))
+    act(() => result.current.quietWatch(() => true))
+    act(() => vi.advanceTimersByTime(10_000))
+    // The first start's run, created before the second send goes out.
+    const late = row(`run-a`)
+    act(() => vi.advanceTimersByTime(1_000))
+    let resolve: (value: unknown) => void = () => {}
+    h.mutate.mockImplementationOnce(() => new Promise((done) => (resolve = done)))
+    let sent: Promise<void> = Promise.resolve()
+    act(() => {
+      sent = result.current.runAction(
+        device,
+        action,
+        {} as never,
+        undefined,
+        undefined,
+        undefined,
+        `start-b`
+      )
+    })
+    // It syncs while the new request is in flight: the old watch is gone.
+    sync(late)
+    expect(result.current.openedId).toBeNull()
+    await act(async () => {
+      resolve({ ok: true })
+      await sent
+    })
+    // Same subject, started inside the skew window, but created before the
+    // new send: never the new start's landing.
+    sync(late)
+    expect(result.current.openedId).toBeNull()
+    expect(h.openSession).not.toHaveBeenCalled()
+    act(() => vi.advanceTimersByTime(5_000))
+    sync(late, row(`run-b`))
+    expect(result.current.openedId).toBe(`run-b`)
+    expect(h.openSession).toHaveBeenCalledTimes(1)
+    expect(h.openSession.mock.calls[0]![0]).toMatchObject({ id: `run-b` })
+  })
+
+  it(`a re-send of the same startId keeps the watch and its first send's cutoff`, async () => {
+    h.mutate.mockResolvedValue({ ok: true })
+    const { result, sync, onOpened } = mount()
+    await act(() =>
+      result.current.runAction(device, action, {} as never, undefined, undefined, undefined, `start-a`)
+    )
+    act(() => vi.advanceTimersByTime(10_000))
+    // The device created the run 10 s after the FIRST send; it syncs late.
+    const original = row(`run-a`)
+    act(() => vi.advanceTimersByTime(20_000))
+    act(() => result.current.quietWatch(() => true))
+    act(() => vi.advanceTimersByTime(5 * 60_000))
+    await act(() =>
+      result.current.runAction(device, action, {} as never, undefined, undefined, undefined, `start-a`)
+    )
+    sync(original)
+    expect(result.current.openedId).toBe(`run-a`)
+    expect(h.openSession).toHaveBeenCalledTimes(1)
+    expect(onOpened).toHaveBeenCalledTimes(1)
+  })
+
+  it(`a row created before the send is never its run`, async () => {
+    h.mutate.mockResolvedValue({ ok: true })
+    const { result, sync } = mount()
+    const earlier = row(`run-old`)
+    act(() => vi.advanceTimersByTime(1_000))
+    await act(() => result.current.runAction(device, action, {} as never))
+    sync(earlier)
+    expect(result.current.openedId).toBeNull()
+    expect(h.openSession).not.toHaveBeenCalled()
   })
 })

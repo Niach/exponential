@@ -42,6 +42,25 @@ interface WatchedSend {
   quiet: boolean
   /** The caller's say on a late landing: false = do not navigate. */
   canOpen: (() => boolean) | null
+  /** The draft start's id (none = every send is its own start). */
+  startId: string | undefined
+  /** `Date.now()` as the FIRST request of this startId went out: the
+   *  watch's cutoff (a re-send's device drops it, the original row lands). */
+  requestedAt: number
+}
+
+/** Final review (B6): a synced row created before the send went out is
+ *  never its run (rows carry no startId: an earlier start's late row on the
+ *  same subject would otherwise land here). `created_at` is server-stamped;
+ *  the cutoff is taken BEFORE the request, so the run's own row is always
+ *  younger by the round trip plus the launcher's spin-up. Fails closed on
+ *  an unparseable stamp, like `matchesStartedRun`. */
+export function createdSince(
+  session: { createdAt: Date | string },
+  sinceMs: number
+): boolean {
+  const createdAt = new Date(session.createdAt).getTime()
+  return Number.isFinite(createdAt) && createdAt >= sinceMs
 }
 
 // Remote "Start on my desktop" (EXP-106/EXP-253, merged in EXP-257): the
@@ -148,6 +167,13 @@ export interface RemoteStart {
     retry?: () => void,
     startId?: string
   ) => Promise<void>
+  /** Final review (B6): called at the TOP of a send (before its uploads).
+   *  A DIFFERENT start (another startId, or none) cancels the previous
+   *  send's watch: its run, if it lands later, only shows in Running and
+   *  never opens or reaches the composer. A re-send of the SAME startId
+   *  keeps the watch (the device drops the duplicate; the original row is
+   *  the landing). `startIssues`/`runAction` call it too. */
+  supersede: (startId?: string) => void
   /** Review #3: the composer's own 30 s starting deadline gave up on the
    * last start and toasted. Nothing is aborted: the watch keeps looking for
    * the run for `starting.watchMs` but its own deadline toast never fires.
@@ -288,7 +314,9 @@ export function useRemoteStart(
   useEffect(() => {
     if (!pending || !currentUserId) return
     const match = findStartedRun(
-      (sessionRows ?? []) as CodingSession[],
+      ((sessionRows ?? []) as CodingSession[]).filter((session) =>
+        createdSince(session, pending.sentAt)
+      ),
       pending.key,
       currentUserId,
       pending.sentAt - STARTED_RUN_SKEW_MS
@@ -320,8 +348,25 @@ export function useRemoteStart(
   // Final review: the watch itself follows the send for `WATCH_MS` (a late
   // row still lands and clears the toast); a quieted send never toasts, and
   // a send that resolves after unmount arms nothing.
-  const beginSend = (): WatchedSend => {
-    const send: WatchedSend = { quiet: false, canOpen: null }
+  // Final review (B6): a different start drops the previous send outright
+  // (in flight or watched); the same startId keeps it.
+  const supersede = (startId?: string) => {
+    const previous = sendRef.current
+    if (!previous) return
+    if (startId !== undefined && previous.startId === startId) return
+    sendRef.current = null
+    clearTimers()
+    setPending((current) => (current?.send === previous ? null : current))
+  }
+  const beginSend = (startId?: string): WatchedSend => {
+    supersede(startId)
+    const previous = sendRef.current
+    const send: WatchedSend = {
+      quiet: false,
+      canOpen: null,
+      startId,
+      requestedAt: previous?.requestedAt ?? Date.now(),
+    }
     sendRef.current = send
     return send
   }
@@ -330,13 +375,20 @@ export function useRemoteStart(
     key: StartedRunKey,
     send: WatchedSend
   ) => {
-    if (!mountedRef.current) return
+    // A later start superseded this one while its request was in flight.
+    if (!mountedRef.current || sendRef.current !== send) return
     clearTimers()
     if (deadlineToastRef.current !== null) {
       toast.dismiss(deadlineToastRef.current)
       deadlineToastRef.current = null
     }
-    setPending({ deviceLabel, sentAt: Date.now(), key, send, lapsed: false })
+    setPending({
+      deviceLabel,
+      sentAt: send.requestedAt,
+      key,
+      send,
+      lapsed: false,
+    })
     timersRef.current = [
       setTimeout(() => {
         setPending((current) =>
@@ -364,7 +416,7 @@ export function useRemoteStart(
   ) => {
     const key = startedRunKeyForIssues(issueIds)
     if (!key) return
-    const send = beginSend()
+    const send = beginSend(startId)
     setStarting(true)
     try {
       // EXP-481: `resume` rides SINGLE-issue starts only (a batch has no
@@ -408,7 +460,7 @@ export function useRemoteStart(
     retry?: () => void,
     startId?: string
   ) => {
-    const send = beginSend()
+    const send = beginSend(startId)
     setStarting(true)
     try {
       // Action runs never resume an issue worktree (EXP-481).
@@ -446,6 +498,7 @@ export function useRemoteStart(
     sentTo: pending && !pending.lapsed ? pending.deviceLabel : null,
     startIssues,
     runAction,
+    supersede,
     quietWatch: (canOpen) => {
       const send = sendRef.current
       if (!send) return
