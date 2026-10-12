@@ -111,6 +111,9 @@ const STEER_DEPENDENT_VIEWS = new Set([
   `issue-detail`,
   `board`,
   `machine-settings`,
+  // EXP-1284: the thread's live session renders its prompt, work and pending
+  // question off the stub's feed; without it the conversation reads "Paused".
+  `thread`,
 ])
 /**
  * Views that photograph the demo user's DEVICE FLEET: the Devices page, a
