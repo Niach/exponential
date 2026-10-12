@@ -153,6 +153,12 @@ pub enum Screen {
     /// specimen id = its view-catalog id; reachable only through
     /// `EXP_DEV_SCREEN=<id>`.
     ExponentialUiSpecimen { id: String },
+    /// EXP-1259 (DEV-ONLY): one IDE styleguide entry
+    /// ([`crate::styleguide::entries`]) drawn full-window, for the views
+    /// whose states never show together in the app (`feedback-states`).
+    /// `id` = the entry id; reachable only through
+    /// `EXP_DEV_SCREEN=styleguide:<id>`.
+    StyleguideEntry { id: String },
 }
 
 impl Screen {
@@ -425,6 +431,7 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
         Screen::ExponentialUiKitchenSink => "Exponential UI".into(),
         Screen::ExponentialUiDevices => "Devices · Exponential UI".into(),
         Screen::ExponentialUiSpecimen { .. } => "Exponential UI".into(),
+        Screen::StyleguideEntry { .. } => "Styleguide".into(),
     }
 }
 
@@ -906,7 +913,8 @@ impl Navigation {
 /// `issue:<uuid>` | `issue:<uuid>?face=changes|diff|results`
 /// (EXP-1154: the issue tab on that face — the review of its PR is the
 /// Changes face, [`parse_dev_issue_face`]) | `session:<uuid>` (a coding session, keyed by
-/// its `coding_sessions` ROW id — EXP-746) (anything else = no pre-route).
+/// its `coding_sessions` ROW id — EXP-746) | `styleguide:<entry id>` (EXP-1259:
+/// one IDE styleguide entry, full-window) (anything else = no pre-route).
 fn parse_dev_screen(spec: &str) -> Option<Screen> {
     // EXP-825: the seeded composer route — the query is parsed separately
     // into the nav's `pending_chat_seed`.
@@ -969,6 +977,11 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
                 return Some(Screen::Session {
                     session_id: id.to_string(),
                 });
+            }
+            // EXP-1259: one IDE styleguide entry, full-window.
+            if let Some(id) = spec.strip_prefix("styleguide:") {
+                return crate::styleguide::entries::find(id)
+                    .map(|entry| Screen::StyleguideEntry { id: entry.id.to_string() });
             }
             // SLOP-2: one action's page (Prompt · Triggers · Runs).
             spec.strip_prefix("action:").map(|id| Screen::Action {
@@ -2424,6 +2437,12 @@ mod tests {
             Some(Screen::ExponentialUiSpecimen { id: "exponential-ui-demo".into() })
         );
         assert_eq!(parse_dev_screen("exponential-ui-nope"), None);
+        // EXP-1259: one IDE styleguide entry (view `feedback-states`).
+        assert_eq!(
+            parse_dev_screen("styleguide:feedback-states"),
+            Some(Screen::StyleguideEntry { id: "feedback-states".into() })
+        );
+        assert_eq!(parse_dev_screen("styleguide:nope"), None);
         // EXP-878: a capture run reaches the Drafts page.
         assert_eq!(parse_dev_screen("drafts"), Some(Screen::Drafts));
         // EXP-1170: a fresh New issue page — a minted id, the active board.

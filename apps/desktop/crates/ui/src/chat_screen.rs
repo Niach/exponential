@@ -3002,6 +3002,14 @@ impl ChatScreenView {
         let picker_fit =
             issue_picker::popover_fit(bounds, viewport, issue_picker::POPOVER_WANTED_HEIGHT);
         let options = self.launch.as_ref().map(|launch| launch.composer_menu(cx));
+        // EXP-1259 (DEV-ONLY, `EXP_DEV_COMPOSER_MENU=implement-issue`): the
+        // Agent page opens its "+" menu once, on the first render that has
+        // the full menu (the launch cluster), synced issues and a measured +.
+        let dev_open = matches!(self.presentation, Presentation::Page)
+            && options.is_some()
+            && bounds.size.width > px(0.)
+            && crate::navigation::shapes_ready(cx)
+            && crate::screens::take_dev_composer_menu();
         let view = cx.entity().downgrade();
         let trigger = crate::composer::composer_tool("chat-tool-plus", registry::UI_ADD, cx)
             .tooltip(PLUS_TOOLTIP)
@@ -3009,7 +3017,8 @@ impl ChatScreenView {
         let menu = crate::controls::PointerMenu::new("chat-tool-plus-menu", trigger, {
             move |menu, window, cx| plus_menu(menu, &view, options.as_ref(), window, cx)
         })
-        .anchor(menu_fit.0);
+        .anchor(menu_fit.0)
+        .dev_open(dev_open);
 
         // The picker's anchor: as tall as the + (the fit measures the room
         // above from it), no width, nothing to hit.

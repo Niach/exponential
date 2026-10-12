@@ -379,7 +379,8 @@ pub(crate) fn build_screen_content(
         // VAPP-90: the dev-only kitchen sink is never undocked.
         Screen::ExponentialUiKitchenSink
         | Screen::ExponentialUiDevices
-        | Screen::ExponentialUiSpecimen { .. } => {
+        | Screen::ExponentialUiSpecimen { .. }
+        | Screen::StyleguideEntry { .. } => {
             cx.new(|_| NeverUndocked).into()
         }
         Screen::Settings => cx.new(|cx| crate::settings::SettingsView::new(window, cx)).into(),
@@ -1458,6 +1459,28 @@ pub(crate) fn dev_show_work() -> bool {
     std::env::var("EXP_DEV_SHOW_WORK").ok().as_deref() == Some("1")
 }
 
+/// EXP-1259 — `EXP_DEV_COMPOSER_MENU=implement-issue` opens the Agent
+/// page's "+" menu with its Implement issue submenu open, once
+/// ([`crate::controls::PointerMenu::dev_open`]): true for the FIRST caller
+/// only, so the menu still closes like any other after.
+pub(crate) fn take_dev_composer_menu() -> bool {
+    use std::sync::atomic::{AtomicBool, Ordering};
+    static TAKEN: AtomicBool = AtomicBool::new(false);
+    std::env::var("EXP_DEV_COMPOSER_MENU").ok().as_deref() == Some("implement-issue")
+        && !TAKEN.swap(true, Ordering::SeqCst)
+}
+
+/// EXP-1259 — `EXP_DEV_SCROLL_TO=script-card` parks a Run face's
+/// transcript (with `EXP_DEV_SHOW_WORK=1`) on its first code-mode Script
+/// card instead of the tail, so the `script-card` capture has it in frame.
+/// Read once: the transcript asks every frame.
+pub(crate) fn dev_scroll_to_script_card() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| {
+        std::env::var("EXP_DEV_SCROLL_TO").ok().as_deref() == Some("script-card")
+    })
+}
+
 impl ScreensPanel {
     pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
         // Full-page issue detail (§4.2): one instance, re-pointed on
@@ -1946,6 +1969,7 @@ impl ScreensPanel {
             | Screen::ExponentialUiKitchenSink
             | Screen::ExponentialUiDevices
             | Screen::ExponentialUiSpecimen { .. }
+            | Screen::StyleguideEntry { .. }
             | Screen::Settings => {
                 unreachable!("filtered by is_detail")
             }
@@ -4197,6 +4221,17 @@ impl Render for ScreensPanel {
                 }
                 self.exponential_ui_specimen.clone().expect("built above").into_any_element()
             }
+            // EXP-1259: one IDE styleguide entry, full-window (dev-only).
+            Some(Screen::StyleguideEntry { id }) => match crate::styleguide::entries::find(id) {
+                Some(entry) => div()
+                    .id("styleguide-entry")
+                    .size_full()
+                    .overflow_y_scroll()
+                    .p_6()
+                    .child((entry.render)(window, cx))
+                    .into_any_element(),
+                None => self.render_empty(cx),
+            },
             // EXP-851: nothing open at all (a fresh window, the last tab
             // closed, a team switch). There is no tool default left to fall
             // back on — the empty state points at the rail.

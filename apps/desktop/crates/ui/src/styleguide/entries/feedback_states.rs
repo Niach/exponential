@@ -138,13 +138,29 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                 .child(div().text_color(muted).child(value))
         },
     ));
+    // Two columns that wrap (the web entry's grid of kinds), so the six
+    // fit one 1440x900 window (`EXP_DEV_SCREEN=styleguide:feedback-states`).
     v_flex()
         .gap_6()
-        .child(labelled("Inline", inline, cx))
-        .child(labelled("Pending", pending, cx))
-        .child(labelled("Placeholder", placeholder, cx))
-        .child(labelled("The mark", mark, cx))
-        .child(labelled("Blocking", blocking, cx))
-        .child(labelled("Errors", errors, cx))
+        .child(
+            h_flex()
+                .flex_wrap()
+                .items_start()
+                .gap_10()
+                .child(
+                    v_flex()
+                        .gap_6()
+                        .child(labelled("Inline", inline, cx))
+                        .child(labelled("Pending", pending, cx))
+                        .child(labelled("Placeholder", placeholder, cx))
+                        .child(labelled("The mark", mark, cx)),
+                )
+                .child(
+                    v_flex()
+                        .gap_6()
+                        .child(labelled("Blocking", blocking, cx))
+                        .child(labelled("Errors", errors, cx)),
+                ),
+        )
         .child(labelled("Motion", motion, cx))
 }

@@ -73,6 +73,12 @@ pub(crate) struct Entry {
     pub render: Render,
 }
 
+/// The entry registered as `id` (EXP-1259: `EXP_DEV_SCREEN=styleguide:<id>`
+/// draws it full-window for a capture).
+pub(crate) fn find(id: &str) -> Option<&'static Entry> {
+    ENTRIES.iter().find(|entry| entry.id == id)
+}
+
 /// Every entry, in the section index's order.
 pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: picker_board::ID, owner: picker_board::OWNER, render: picker_board::render },

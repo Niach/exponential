@@ -113,7 +113,8 @@ const flag = (value: unknown): string | undefined =>
 // EXP-1259 (DEV-ONLY): `?dev=feedback-states` swaps the page for the six
 // feedback kinds side by side (`@exp/ui` `FeedbackStatesSpecimen`, the
 // styleguide's board), for the view catalog's `feedback-states` capture:
-// the kinds never show together in the app. Never parsed in a built app.
+// the kinds never show together in the app. Never parsed in a production
+// build (`isProductionBuild`).
 type DevView = `feedback-states`
 const devView = (value: unknown): DevView | undefined =>
   !isProductionBuild && value === `feedback-states` ? value : undefined

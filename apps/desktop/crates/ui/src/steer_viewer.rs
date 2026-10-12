@@ -642,6 +642,9 @@ pub(crate) struct SteerSessionView {
     /// EXP-1175: [`Self::show_work`] as of this frame's render — what the
     /// cx-less projection ([`Self::active_subagent`]) reads.
     show_work_cached: bool,
+    /// EXP-1259 (DEV-ONLY, `EXP_DEV_SCROLL_TO=script-card`): the transcript
+    /// row the first Script card sat at when the list was last parked on it.
+    dev_scrolled_to: Option<usize>,
     /// EXP-776: the frame's issue-chip resolver (EXP-760), built ONCE per
     /// frame over `chip_cache` instead of per prose body. `None` for a run
     /// with no resolvable team.
@@ -872,6 +875,7 @@ impl SteerSessionView {
             thread_cards: Vec::new(),
             status_ticking: false,
             show_work_cached: crate::run_rows::SHOW_WORK_DEFAULT,
+            dev_scrolled_to: None,
             chips: None,
             chip_cache: Default::default(),
             focus_handle: cx.focus_handle(),
@@ -1442,6 +1446,40 @@ impl SteerSessionView {
             // `ListState` is a shared handle: hinting a clone hints the list.
             let _ = self.list.clone().with_uniform_item_height(FEED_ROW_HINT);
         }
+    }
+
+    /// EXP-1259 (DEV-ONLY): `EXP_DEV_SCROLL_TO=script-card` parks the
+    /// transcript (Show work on) with its first code-mode Script card near
+    /// the top of the viewport (one row of lead-in) instead of on the tail,
+    /// so the `script-card` capture has the card in frame. Re-applied only
+    /// while that row's index moves (the replay still landing rows above
+    /// it), so a wheel is never fought.
+    fn dev_scroll_to_script_card(&mut self) {
+        if !self.show_work_cached || !crate::screens::dev_scroll_to_script_card() {
+            return;
+        }
+        let items = self.feed.items();
+        let script_row = self.rows.iter().position(|spec| {
+            spec.item_indices().iter().any(|&ix| {
+                matches!(
+                    items.get(ix).map(|item| &item.kind),
+                    Some(FeedKind::Tool { name, .. }) if steer::script_card::is_script_tool(name)
+                )
+            })
+        });
+        let Some(row) = script_row else {
+            return;
+        };
+        if self.dev_scrolled_to == Some(row) {
+            return;
+        }
+        self.dev_scrolled_to = Some(row);
+        // One row of lead-in above it: the list's top edge sits under the
+        // status row's fade.
+        self.list.scroll_to(gpui::ListOffset {
+            item_ix: row.saturating_sub(1),
+            offset_in_item: px(0.),
+        });
     }
 
     /// EXP-1175 — the thread's projection, refreshed every frame after
@@ -8249,22 +8287,36 @@ pub(crate) const COMMENTED_ON_LABEL: &str = "Commented on";
 /// EXP-1279 — what a `codemode__exec` row's Script card is built from: the
 /// model input, whether the call failed, and the script source.
 ///
-/// The engine attaches the call log to the SETTLED item (`_meta`'s
-/// `exponential/calls`, `exponential/callCount`, `exponential/elapsedMs`,
-/// fixture `script-card.json`); a feed item that does not carry it yet (an
-/// older host, a replay) is the card's "older codemode without a log" case:
-/// the title alone.
+/// The settle's `tool_update.script` (wire doc §1b, folded into the row by
+/// the feed) carries the call log and the source; a row without one (still
+/// running, an older host, a script refused before it ran) is the card's
+/// "older codemode without a log" case: the title alone, plus the source
+/// when that came alone.
 fn script_card_input(item: &FeedItem) -> (steer::script_card::ScriptCardInput, bool, Option<String>) {
-    let FeedKind::Tool { settled, failed, .. } = &item.kind else {
+    let FeedKind::Tool { settled, failed, script, .. } = &item.kind else {
         return (steer::script_card::ScriptCardInput::default(), false, None);
     };
+    let log = script.as_ref();
+    let calls = log.map(|log| {
+        log.calls
+            .iter()
+            .map(|call| steer::script_card::ScriptCall {
+                tool: call.tool.clone(),
+                subject: call.subject.clone(),
+                ok: call.ok,
+                ms: call.ms,
+            })
+            .collect()
+    });
     (
         steer::script_card::ScriptCardInput {
             running: !*settled,
-            ..Default::default()
+            count: log.and_then(|log| log.count).map(u64::from),
+            calls,
+            elapsed_ms: log.and_then(|log| log.elapsed_ms),
         },
         *failed,
-        None,
+        log.and_then(|log| log.source.clone()),
     )
 }
 
@@ -8619,6 +8671,7 @@ impl Render for SteerSessionView {
         let show_work = self.show_work(cx);
         self.show_work_cached = show_work;
         self.sync_list(cx);
+        self.dev_scroll_to_script_card();
         self.sync_thread(cx);
         self.sync_card_focus(window, cx);
         // EXP-789: the subagent strip sits between the header and the feed
@@ -9168,6 +9221,63 @@ mod tests {
     fn the_stale_activity_window_is_ten_minutes() {
         assert_eq!(STALE_ACTIVITY_AFTER, Duration::from_secs(600));
         assert!(STALE_TICK < STALE_ACTIVITY_AFTER);
+    }
+
+    /// EXP-1279: the settle's `script` log (folded into the row by the feed)
+    /// is what the desktop Script card groups; without one it is the title.
+    #[test]
+    fn the_script_card_reads_the_settled_log() {
+        let row = |script: Option<steer::frames::ScriptLog>| FeedItem {
+            id: 1,
+            kind: FeedKind::Tool {
+                name: "mcp__codemode__exec".into(),
+                detail: None,
+                subagent_id: None,
+                call_id: Some("tc-1".into()),
+                tool_kind: None,
+                settled: true,
+                failed: false,
+                diff: None,
+                output: None,
+                preview: None,
+                script,
+                settled_at: None,
+                started_at: None,
+            },
+            seq: None,
+        };
+        let log = steer::frames::ScriptLog {
+            count: Some(3),
+            elapsed_ms: Some(2_140),
+            calls: vec![
+                steer::frames::ScriptLogCall {
+                    tool: "exponential.exponential_issues_get".into(),
+                    subject: Some("APP-5".into()),
+                    ok: true,
+                    ms: Some(180),
+                },
+                steer::frames::ScriptLogCall {
+                    tool: "exponential.exponential_issues_pr_files".into(),
+                    subject: Some("APP-9".into()),
+                    ok: false,
+                    ms: None,
+                },
+            ],
+            source: Some("return 1".into()),
+        };
+        let (input, failed, source) = script_card_input(&row(Some(log)));
+        assert!(!input.running && !failed);
+        assert_eq!(input.count, Some(3));
+        assert_eq!(input.elapsed_ms, Some(2_140));
+        assert_eq!(input.calls.as_ref().map(Vec::len), Some(2));
+        assert_eq!(source.as_deref(), Some("return 1"));
+        let card = steer::script_card::script_card(&input);
+        assert_eq!(card.groups.len(), 2);
+        assert!(card.meta.is_some());
+
+        let (bare, _, source) = script_card_input(&row(None));
+        assert_eq!(bare, steer::script_card::ScriptCardInput::default());
+        assert_eq!(source, None);
     }
 
     // ── EXP-820: ask completion, the card keyboard, inline rows ────────────
