@@ -25,6 +25,20 @@ export interface ChangelogEntry {
 // Newest first.
 export const CHANGELOG: ChangelogEntry[] = [
   {
+    id: `2026-10-12-home-and-feedback`,
+    date: `2026-10-12`,
+    title: `The Agent page is home, one issue search, Getting started in a row, and one way to wait and fail`,
+    summary: `Every app opens on the Agent page with a greeting and your recent runs, # opens a real issue search with every match, Getting started is a row of cards, runs started elsewhere no longer take over the desktop app, and loading and errors look the same everywhere.`,
+    body: `- **Home**: web, desktop, iOS and Android open on the Agent page. It greets you by time of day, asks what you want to build and lists your last three runs. The suggestion rows are gone.
+- **Tabs**: on the web and the desktop app the close button shows on hover, and a plus button after the last tab opens a New run tab that becomes the run's tab once it starts.
+- **Issue search**: typing # opens a search box at the cursor (a bottom sheet on phones) that takes spaces and lists every match, not six. The plus menu's Implement issue and Run action open the same list beside the menu.
+- **Getting started**: one row of eight square cards in the order you need them, with a Docs button. It shows on an empty board and on the Agent page of a team without boards; done steps stay clickable. Action suggestions are gone.
+- **Starting a run**: after Start the composer shows the Exponential mark and where the run is starting until it lands. A run started from another device, a teammate or an agent no longer takes over the desktop app; it appears in Running with a toast to open it.
+- **Loading and errors**: skeleton rows replace loading text, buttons show a spinner while they work, and a failed action is a toast with Retry. Mistakes in a form still show under the field. The team prompt saves as you type.
+- **Run threads**: workflows, task lists and subagents share one Work card, a code-mode script shows the tools it called, and a comment the agent posted shows the real comment and opens it on the issue.
+- **Polish**: the run thread's fades no longer tint or blur the card border, the desktop diff page scrolls as one page, and menus, popovers and buttons follow one set of motion rules.`,
+  },
+  {
     id: `2026-10-11-one-empty-state`,
     date: `2026-10-11`,
     title: `One empty state, no refresh buttons, and a filter for the built-in tools`,
