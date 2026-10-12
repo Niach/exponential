@@ -80,7 +80,7 @@ import {
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { runFaceMark } from "@/lib/coding-session-display"
 
-type IssueSearch = { from?: string } & GuideSearch
+type IssueSearch = { from?: string; comment?: string } & GuideSearch
 
 export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
@@ -103,9 +103,15 @@ export const Route = createFileRoute(
   // `&section=N|lead|other|all&file=` opens a section's changes as a page
   // under it. The legacy `?view=results` lands on the Guide, `?view=diff` on
   // its complete diff (`parseGuideSearch`).
+  // EXP-1241: `?comment=<id>` scrolls the timeline to that comment and briefly
+  // highlights it (`IssueTimeline`) — a run's comment card links here.
   validateSearch: (search: Record<string, unknown>): IssueSearch => ({
     from:
       typeof search.from === `string` && search.from ? search.from : undefined,
+    comment:
+      typeof search.comment === `string` && search.comment
+        ? search.comment
+        : undefined,
     ...parseGuideSearch(search),
   }),
   component: IssueDetailPage,

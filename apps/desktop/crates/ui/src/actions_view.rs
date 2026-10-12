@@ -10,8 +10,7 @@
 //! a GAPPED list of [`crate::surface::glass_row_card`] rows (EXP-642).
 //!
 //! EXP-686 split the old three-tab page apart: machines moved to
-//! [`crate::devices_view`] and the suggestion seeds to the Getting-started
-//! page's second tab (the header's lightbulb goes there). SLOP-2 folded the
+//! [`crate::devices_view`]; EXP-1270 removed the suggestion seeds. SLOP-2 folded the
 //! triggers into their action: a row wears its triggers' glyphs, and the
 //! triggers and the runs they fire live on the action's page.
 //!
@@ -48,10 +47,9 @@ use gpui_component::{
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
-use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::navigation::{
-    active_team_id, nav_for_window, navigate, GettingStartedTab, Navigation, Screen,
+    active_team_id, nav_for_window, navigate, Navigation, Screen,
 };
 use crate::native_dialog::{self, AlertSpec};
 use crate::queries;
@@ -104,34 +102,6 @@ pub(crate) fn page_scaffold_with(
                     .mx_auto(),
             ),
         ))
-}
-
-/// The subtle icon-only lightbulb every list header carries next to its
-/// "New …" button (EXP-686): the curated action suggestions moved to the
-/// Getting-started page's second tab, and this is the way back to them from
-/// the list they seed.
-///
-/// EXP-862: it is a GHOST glyph ([`crate::controls::ghost_icon_button`]) — a
-/// circle means a primary action (play, send, New issue), and this is the
-/// quiet way back to the suggestions.
-///
-/// EXP-827: at the PILL's height (`CONTROL_SM`, 24px — `web_icon_xs`), not the
-/// 32px the shared affordance defaults to: it sits beside a `PillSize::Sm`
-/// "New …" pill.
-pub(crate) fn suggestions_button(id: &'static str, cx: &App) -> gpui::AnyElement {
-    crate::controls::ghost_icon_button(id, Icon::from(registry::ACTION_SUGGESTION), cx)
-        .web_icon_xs()
-        .tooltip("Suggestions")
-        .on_click(|_: &ClickEvent, window, cx| {
-            navigate(
-                window,
-                cx,
-                Screen::GettingStarted {
-                    tab: GettingStartedTab::Suggestions,
-                },
-            );
-        })
-        .into_any_element()
 }
 
 pub struct ActionsView {
@@ -550,16 +520,7 @@ impl Render for ActionsView {
                     })
                     .into_any_element()
             });
-        // EXP-686: the lightbulb sits left of "New action" and leads to the
-        // suggestion seeds on the Getting-started page.
-        let trailing = gpui_component::h_flex()
-            .items_center()
-            .gap_1()
-            .child(suggestions_button("actions-suggestions", cx))
-            .children(new_action)
-            .into_any_element();
-        let header =
-            crate::surface::glass_section_header("Actions", Some(trailing), cx);
+        let header = crate::surface::glass_section_header("Actions", new_action, cx);
 
         let rows: Vec<gpui::AnyElement> = self
             .derived

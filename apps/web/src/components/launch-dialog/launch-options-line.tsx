@@ -184,9 +184,6 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
         {model.deviceRequestNote && (
           <span className="text-amber-500">{model.deviceRequestNote}</span>
         )}
-        {/* The desktop inserts the row when the launcher spins up; the page
-            flips to the live view the moment it syncs. */}
-        {model.sentTo && <span>{`Waiting for ${model.sentTo}…`}</span>}
       </div>
       {/* EXP-1196: the picked device's failing doctor row (Git, else the
           agent's own) with its one action, instead of a sentence. */}

@@ -1297,15 +1297,21 @@ pub(crate) fn render_floating_bar(
     let pinned = below.is_some();
     let ground = collapsed.then(|| {
         use gpui::AnimationExt as _;
-        div()
+        // EXP-1256: the band starts at the card's top edge — inside its
+        // hairlines, its top corners on the card's inner radius.
+        crate::surface::scrim_band(true)
             .absolute()
             .top_0()
             .left_0()
             .right_0()
             .h(px(BAR_H))
-            .bg(crate::surface::scrim_ground())
             .when(!pinned, |ground| {
-                ground.child(crate::surface::edge_fade_top_scrim().top(px(BAR_H)))
+                ground.child(
+                    crate::surface::edge_fade_top_scrim()
+                        .top(px(BAR_H))
+                        .left_0()
+                        .right_0(),
+                )
             })
             .with_animation(
                 "work-bar-ground",
@@ -1330,13 +1336,14 @@ pub(crate) fn render_floating_bar(
         ));
     // EXP-1191: the pinned tray, on the same ground, the fade under it.
     let below = below.map(|below| {
-        div()
+        crate::surface::scrim_band(false)
             .relative()
             .pb(px(12.))
-            .bg(crate::surface::scrim_ground())
             .child(
                 crate::surface::edge_fade_top_scrim()
-                    .top(gpui::relative(1.)),
+                    .top(gpui::relative(1.))
+                    .left_0()
+                    .right_0(),
             )
             .child(centered_column(div().child(below)))
     });
@@ -1353,7 +1360,14 @@ pub(crate) fn render_floating_bar(
 /// EXP-1162 — the area under the work header: `body` (a scroll container or
 /// a pane with its own) with the TOP edge strip overlaid on it, and the
 /// bottom one when `bottom_edge` (the body runs to the pane's end).
-pub(crate) fn work_body(body: AnyElement, bottom_edge: bool) -> AnyElement {
+///
+/// EXP-1261: the top strip only once the body has SCROLLED (`scrolled`, the
+/// caller's read of its scroll offset: [`scrolled`], [`list_scrolled`]). At
+/// rest nothing has slid under the header, so a strip there only veiled the
+/// body's first row. Reading the offset at render is enough: a scroll
+/// notifies the scrolling view, and gpui re-renders every ancestor view of
+/// a dirty one, so the host's frame sees the new offset.
+pub(crate) fn work_body(body: AnyElement, bottom_edge: bool, scrolled: bool) -> AnyElement {
     div()
         .relative()
         .flex()
@@ -1363,9 +1377,21 @@ pub(crate) fn work_body(body: AnyElement, bottom_edge: bool) -> AnyElement {
         .min_w_0()
         .w_full()
         .child(body)
-        .child(crate::surface::edge_fade_top())
+        .when(scrolled, |body| body.child(crate::surface::edge_fade_top()))
         .when(bottom_edge, |body| body.child(crate::surface::edge_fade_bottom()))
         .into_any_element()
+}
+
+/// EXP-1261 — has a scroll container left its top? (gpui offsets are ≤ 0.)
+pub(crate) fn scrolled(handle: &gpui::ScrollHandle) -> bool {
+    handle.offset().y < px(0.)
+}
+
+/// EXP-1261 — [`scrolled`] for a `gpui::list`: past its first item, or into
+/// it.
+pub(crate) fn list_scrolled(list: &gpui::ListState) -> bool {
+    let top = list.logical_scroll_top();
+    top.item_ix > 0 || top.offset_in_item > px(0.)
 }
 
 // ---------------------------------------------------------------------------

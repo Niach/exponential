@@ -48,9 +48,10 @@ export const COMPOSER_MENU_TEST_IDS = fixture.testIds
 export const COMPOSER_PLUS_LABEL = fixture.plusLabel
 /** The capability a device advertises once it reads the per-run flag. */
 export const COMPUTER_USE_RUN_CAP = fixture.computerUse.cap
-/** How many chat suggestions the quiet rows under the composer show. */
-export const COMPOSER_SUGGESTION_COUNT = fixture.suggestions.count
-export const COMPOSER_SUGGESTION_ICON = fixture.suggestions.icon
+/** SLOP-28: the Implement issue / Run action submenus = the search list at
+ *  ONE row height, at most this many rows visible before it scrolls. */
+export const COMPOSER_SUBMENU_ROW_HEIGHT = fixture.submenuRowHeight
+export const COMPOSER_SUBMENU_MAX_ROWS = fixture.submenuMaxRows
 
 export function composerMenuRowTestId(id: ComposerMenuRowId): string {
   return fixture.testIds.row.replace(`{id}`, id)

@@ -32,31 +32,35 @@ internal import ExponentialUIPrimitives
 public struct GlassSubmitLabel<Icon: View>: View {
     let label: String
     var enabled: Bool = true
-    /// Swaps the label for a white ProgressView; geometry unchanged.
+    /// EXP-1275 (D8 PENDING): what the button started is running — after
+    /// 150 ms the icon slot becomes the spinner and the label the
+    /// progressive word (`pendingWord`, else the label); geometry unchanged.
     var loading: Bool = false
+    var pendingWord: String?
     let icon: Icon
 
     public init(
         _ label: String,
         enabled: Bool = true,
         loading: Bool = false,
+        pendingWord: String? = nil,
         @ViewBuilder icon: () -> Icon
     ) {
         self.label = label
         self.enabled = enabled
         self.loading = loading
+        self.pendingWord = pendingWord
         self.icon = icon()
     }
 
     public var body: some View {
-        HStack(spacing: 8) {
-            if loading {
-                ProgressView()
-                    .tint(enabled ? DesignTokens.Palette.primaryForeground : Color.white)
-            } else {
-                icon
-                Text(label)
-            }
+        PendingLabel(
+            label,
+            pendingWord: pendingWord,
+            pending: loading,
+            spinnerColor: enabled ? DesignTokens.Palette.primaryForeground : Color.white
+        ) {
+            icon
         }
         .font(.body.weight(.medium))
         .foregroundStyle(
@@ -80,8 +84,8 @@ public struct GlassSubmitLabel<Icon: View>: View {
 }
 
 extension GlassSubmitLabel where Icon == EmptyView {
-    public init(_ label: String, enabled: Bool = true, loading: Bool = false) {
-        self.init(label, enabled: enabled, loading: loading) { EmptyView() }
+    public init(_ label: String, enabled: Bool = true, loading: Bool = false, pendingWord: String? = nil) {
+        self.init(label, enabled: enabled, loading: loading, pendingWord: pendingWord) { EmptyView() }
     }
 }
 
@@ -89,18 +93,28 @@ public struct GlassSubmitButton: View {
     let label: String
     var enabled: Bool = true
     var loading: Bool = false
+    /// The progressive word while `loading` ("Starting", "Saving" —
+    /// `FeedbackStates.Pending`); nil keeps the label.
+    var pendingWord: String?
     let action: () -> Void
 
-    public init(_ label: String, enabled: Bool = true, loading: Bool = false, action: @escaping () -> Void) {
+    public init(
+        _ label: String,
+        enabled: Bool = true,
+        loading: Bool = false,
+        pendingWord: String? = nil,
+        action: @escaping () -> Void
+    ) {
         self.label = label
         self.enabled = enabled
         self.loading = loading
+        self.pendingWord = pendingWord
         self.action = action
     }
 
     public var body: some View {
         Button(action: action) {
-            GlassSubmitLabel(label, enabled: enabled, loading: loading)
+            GlassSubmitLabel(label, enabled: enabled, loading: loading, pendingWord: pendingWord)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

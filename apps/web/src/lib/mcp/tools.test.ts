@@ -549,6 +549,27 @@ const descriptors: Array<Descriptor> = [
     },
     calledWith: { issueId: UUID, body: `We shipped a fix.`, audience: `reporter` },
   },
+  // EXP-1241: the issue's identifier rides beside the comment row (the run's
+  // comment card links `<issue>?comment=<id>` off it).
+  {
+    tool: `exponential_comments_create`,
+    pick: () => caller.comments.create,
+    args: { issueId: UUID, body: `Confirmed.` },
+    resolved: {
+      comment: { id: UUID, issueId: UUID, body: `Confirmed.`, source: `mcp` },
+      reporterEmailed: null,
+      txId: 1,
+    },
+    expected: {
+      id: UUID,
+      issueId: UUID,
+      body: `Confirmed.`,
+      source: `mcp`,
+      issueIdentifier: `EXP-42`,
+      reporterEmailed: null,
+    },
+    rows: [{ identifier: `EXP-42` }],
+  },
   {
     tool: `exponential_comments_update`,
     pick: () => caller.comments.update,

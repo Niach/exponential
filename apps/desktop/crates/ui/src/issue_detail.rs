@@ -575,7 +575,13 @@ impl IssueDetailView {
         });
         let start_coding = cx.new(StartCodingControl::new);
         let header = cx.new(|cx| IssueHeader::new(start_coding.clone(), window, cx));
-        let timeline = cx.new(|cx| IssueTimeline::new(window, cx));
+        // EXP-1241: the timeline scrolls a focused comment into this body.
+        let body_scroll = gpui::ScrollHandle::new();
+        let timeline = cx.new(|cx| {
+            let mut timeline = IssueTimeline::new(window, cx);
+            timeline.set_scroll_handle(body_scroll.clone());
+            timeline
+        });
 
         let mut subscriptions = Vec::new();
         // EXP-417: the header is no longer a view of its own — this view
@@ -631,7 +637,7 @@ impl IssueDetailView {
         Self {
             issue_id: None,
             focus_handle: cx.focus_handle(),
-            body_scroll: gpui::ScrollHandle::new(),
+            body_scroll,
             title_bottom: Rc::new(std::cell::Cell::new(None)),
             tray_top: Rc::new(std::cell::Cell::new(None)),
             tray_h: Rc::new(std::cell::Cell::new(None)),

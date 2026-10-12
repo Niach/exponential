@@ -44,7 +44,7 @@ describe(`GlassSectionHeader`, () => {
     expect(open.querySelector(`svg`)?.innerHTML).not.toBe(collapsedGlyph)
   })
 
-  it(`EXP-1274: spins a 12px glyph at the trailing edge while the list refetches`, () => {
+  it(`EXP-1274/1275: spins THE 10px inline Spinner at the trailing edge while the list refetches`, () => {
     const { container, rerender } = render(
       <GlassSectionHeader label="MCP servers" count={3} loading />
     )
@@ -52,7 +52,8 @@ describe(`GlassSectionHeader`, () => {
     expect(band.getAttribute(`aria-busy`)).toBe(`true`)
     const glyph = band.querySelector(`[data-part=loading]`)!
     expect(glyph.getAttribute(`class`)).toContain(`animate-spin`)
-    expect(glyph.getAttribute(`class`)).toContain(`size-3`)
+    expect(glyph.getAttribute(`data-slot`)).toBe(`spinner`)
+    expect(glyph.getAttribute(`width`)).toBe(`10`)
     // The glyph leads the count: spinner, then 3.
     expect(band.querySelector(`[data-part=trailing]`)!.firstElementChild).toBe(glyph)
     rerender(<GlassSectionHeader label="MCP servers" count={3} />)

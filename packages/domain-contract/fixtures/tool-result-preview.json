@@ -292,6 +292,36 @@
       ]
     },
     {
+      "name": "comments_create (EXP-1241): the comment and its issue, named by the identifier twin the answer carries",
+      "tool": "mcp__exponential__exponential_comments_create",
+      "result": {
+        "id": "c-2",
+        "issueId": "i-7",
+        "issueIdentifier": "EXP-1241",
+        "teamId": "t-1",
+        "boardId": "b-1",
+        "authorId": "u-1",
+        "parentId": null,
+        "source": "mcp",
+        "audience": "team",
+        "body": "Shipped in the batch PR.",
+        "createdAt": "2026-10-12T08:00:00.000Z",
+        "reporterEmailed": null
+      },
+      "refs": [
+        {
+          "kind": "comment",
+          "id": "c-2",
+          "title": "Shipped in the batch PR."
+        },
+        {
+          "kind": "issue",
+          "id": "i-7",
+          "identifier": "EXP-1241"
+        }
+      ]
+    },
+    {
       "name": "comments_list: the comments listed plus the issue the INPUT named",
       "tool": "exponential_comments_list",
       "input": {

@@ -123,6 +123,10 @@ export interface RemoteStart {
     inputs?: Record<string, string>,
     prompt?: string
   ) => Promise<void>
+  /** EXP-1271: stop watching for the last start's run (the composer's own
+   * 30 s starting deadline gave up on it): `sentTo` clears, nothing opens and
+   * the watch's own deadline toast never fires. */
+  cancelWatch: () => void
   /** Re-fetch `latestVersions` now (device rows themselves are synced —
    * mutations stream in without any refetch). */
   refresh: () => void
@@ -147,6 +151,9 @@ export function useRemoteStart(
      * = context-free, a pinned row's start) is the caller's answer, handed to
      * `useOpenSession` verbatim; absent = derive it from the URL. */
     origin?: DetailOrigin | null
+    /** EXP-1255: called with the started run as the watch opens it (the
+     *  New run tab turns into that run's tab). */
+    onOpened?: (session: CodingSession) => void
   } = {}
 ): RemoteStart {
   const { enabled = true, currentUserId, teamId, listTeamIds } = options
@@ -170,6 +177,8 @@ export function useRemoteStart(
   } | null>(null)
   const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const openSession = useOpenSession()
+  const onOpenedRef = useRef(options.onOpened)
+  onOpenedRef.current = options.onOpened
 
   // EXP-481: device rows off the synced shape (already server-scoped to own
   // rows + team-shared servers); user rows resolve shared owners' names.
@@ -243,6 +252,7 @@ export function useRemoteStart(
     if (!match) return
     // EXP-740: navigate to the run exactly once — clearing `pending` stops
     // this effect from ever matching again for this send.
+    onOpenedRef.current?.(match)
     openSession(match, openOptions)
     if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
     setPending(null)
@@ -354,6 +364,10 @@ export function useRemoteStart(
     sentTo: pending?.deviceLabel ?? null,
     startIssues,
     runAction,
+    cancelWatch: () => {
+      if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
+      setPending(null)
+    },
     refresh: () => setRefreshTick((tick) => tick + 1),
     latestVersions,
   }

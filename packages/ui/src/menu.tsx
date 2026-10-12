@@ -432,17 +432,36 @@ function MenuTrailing({
  *  characters (Radix typeahead would steal focus, ←/→ would close the
  *  submenu under the caret). Keys from anywhere else reach Radix, so ←
  *  returns to the parent row, typeahead jumps and Tab stays trapped.
- *  Escape always closes. */
+ *  Escape always closes, and so does ← with the caret at the very start of
+ *  the field (SLOP-28: the search list submenus close on ←, composer-menu.json).
+ *  A pointer entering the body hands the field the focus, so a submenu
+ *  opened on hover takes typing at once. */
 function SubmenuBody({ children }: { children: ReactNode }) {
   return (
     <div
       data-slot="menu-submenu-body"
       onKeyDown={(event) => {
-        if (event.key !== `Escape` && isEditable(event.target)) event.stopPropagation()
+        if (event.key === `Escape` || !isEditable(event.target)) return
+        if (event.key === `ArrowLeft` && caretAtStart(event.target)) return
+        event.stopPropagation()
+      }}
+      onPointerEnter={(event) => {
+        const body = event.currentTarget
+        if (body.contains(document.activeElement)) return
+        body.querySelector<HTMLElement>(BODY_FOCUS_FIELD)?.focus({ preventScroll: true })
       }}
     >
       {children}
     </div>
+  )
+}
+
+/** An input or textarea whose caret sits at offset 0 with nothing selected. */
+function caretAtStart(target: EventTarget | null): boolean {
+  return (
+    (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement) &&
+    target.selectionStart === 0 &&
+    target.selectionEnd === 0
   )
 }
 

@@ -36,6 +36,8 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   useSidebar,
+  blockingLabel,
+  whileBlocking,
 } from "@exp/ui"
 import { useReviewsNav } from "@/hooks/use-nav-counts"
 import { useSession } from "@/hooks/use-session"
@@ -275,12 +277,17 @@ export function TeamSidebar({
                   {myTeams.map((ws) => (
                     <DropdownMenuItem
                       key={ws.id}
-                      onClick={() =>
-                        navigate({
-                          to: `/t/$teamSlug`,
-                          params: { teamSlug: ws.slug },
-                        })
-                      }
+                      onClick={() => {
+                        const go = () =>
+                          navigate({
+                            to: `/t/$teamSlug`,
+                            params: { teamSlug: ws.slug },
+                          })
+                        // EXP-1275: switching team blocks the window until
+                        // the other team's page is up.
+                        if (ws.slug === teamSlug) void go()
+                        else void whileBlocking(blockingLabel(`switchTeam`, ws.name), go)
+                      }}
                     >
                       <TeamAvatar name={ws.name} size={20} />
                       <span className="truncate">{ws.name}</span>

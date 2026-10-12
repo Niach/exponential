@@ -547,12 +547,9 @@ private fun AuthenticatedNav(
                 // EXP-686: search left the bottom bar — the board header's
                 // button pushes it instead.
                 onOpenSearch = { navController.navigate("search") { launchSingleTop = true } },
-                // EXP-698 r5: the getting-started cards under the empty
-                // states — each step's own surface, plus the compose form the
-                // hidden FAB would have opened.
-                onOpenTeamSettings = { navController.navigate("team-settings") },
-                onOpenDevices = { navController.selectTab(MainTabs.DEVICES, tabSwitch) },
-                onOpenActions = { navController.selectTab(MainTabs.ACTIONS, tabSwitch) },
+                // EXP-1270: Getting started's "Start a run" lands on the Agent
+                // home; the compose form the hidden FAB would have opened.
+                onOpenAgentHome = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
                 onNewIssue = {
                     currentBoardId?.let { navController.openIssueDraft(it) }
                 },
@@ -654,6 +651,7 @@ private fun AuthenticatedNav(
                 onOpenAbout = { navController.navigate("about") },
                 onAddServer = { navController.navigate("add-server") },
                 onBack = { navController.popBackStack() },
+                onOpenAgentHome = { navController.selectTab(MainTabs.AGENT, tabSwitch) },
             )
         }
         composable("sync-diagnostics") {

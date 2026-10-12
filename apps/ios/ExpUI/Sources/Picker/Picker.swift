@@ -612,7 +612,7 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
 
 /// One picker row: its mark, its label, its muted second line — and, when it
 /// is picked, whichever of the two marks its mode wears.
-private struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
+struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
     let item: PickerItem<Value>
     let checked: PickerChecked
     /// The mode's selection idiom, resolved by the sheet.

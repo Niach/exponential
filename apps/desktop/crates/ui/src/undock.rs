@@ -558,6 +558,9 @@ impl Render for UndockedScreenWindow {
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
         let toast_layer = crate::toast::render_layer(window, cx);
+        // EXP-1275: the BLOCKING wait (team/account switch, sign-out)
+        // paints over everything, the toasts included.
+        let blocking_layer = crate::feedback::Blocking::overlay(cx);
 
         crate::window_frame::window_frame().child(
             // EXP-269 corners: the page gradient paints to the window edge,
@@ -621,7 +624,8 @@ impl Render for UndockedScreenWindow {
                 .child(crate::text_selection_guard::selection_guard())
                 .children(sheet_layer)
                 .children(dialog_layer)
-                .child(toast_layer),
+                .child(toast_layer)
+                .children(blocking_layer),
         )
     }
 }

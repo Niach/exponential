@@ -53,6 +53,7 @@ use boa_engine::builtins::promise::{PromiseState, ResolvingFunctions};
 use boa_engine::job::{GenericJob, Job, JobExecutor, NativeAsyncJob, PromiseJob};
 use boa_engine::module::IdleModuleLoader;
 use boa_engine::object::builtins::JsPromise;
+use boa_engine::property::PropertyKey;
 use boa_engine::{js_string, Context, JsError, JsNativeError, JsResult, JsValue, NativeFunction, Source};
 use serde_json::{json, Value};
 
@@ -118,11 +119,67 @@ pub enum ExecError {
     Cancelled,
 }
 
-/// Counts for the result's footer.
+/// Counts for the result's footer, plus the call log the host's activity
+/// feed draws (EXP-1279).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct CallStats {
     pub count: usize,
     pub failed: usize,
+    /// The first [`LOG_CAP`] calls in the order the script MADE them;
+    /// `count` keeps counting past the cap.
+    pub log: Vec<CallRecord>,
+}
+
+/// EXP-1279: the most calls one script's log keeps (`script-card.json`
+/// `logCap`); the rest only count.
+pub const LOG_CAP: usize = 200;
+/// A logged subject is cut to this many characters.
+pub const SUBJECT_MAX_CHARS: usize = 80;
+
+/// EXP-1279: one nested call as the run's "Ran a script" card shows it
+/// (`script-card.json` `ScriptCall`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CallRecord {
+    /// `<server>.<tool>` as the script called it.
+    pub tool: String,
+    /// What the call was about ([`call_subject`]).
+    pub subject: Option<String>,
+    /// The call answered (a refusal, a transport error, a deadline = false).
+    pub ok: bool,
+    /// The upstream call's wall time; `None` for one that never ran.
+    pub ms: Option<u64>,
+}
+
+/// What a call was ABOUT, for the log: an Exponential tool's contract
+/// `expToolDisplay` subject argument (`issueId` of a comment, `title` of a
+/// new issue; nothing for a tool whose contract names none), any other
+/// tool's FIRST string argument in the order the script wrote them
+/// (`order`, the argument object's own keys). Trimmed, cut to
+/// [`SUBJECT_MAX_CHARS`]; `None` when blank or absent.
+pub fn call_subject(tool: &str, args: &Value, order: &[String]) -> Option<String> {
+    let args = args.as_object()?;
+    let text = match exp_tool_subject_key(tool) {
+        Some("") => None,
+        Some(key) => args.get(key).and_then(Value::as_str).map(str::trim).filter(|text| !text.is_empty()),
+        None => order
+            .iter()
+            .filter_map(|key| args.get(key).and_then(Value::as_str))
+            .map(str::trim)
+            .find(|text| !text.is_empty()),
+    }?;
+    Some(text.chars().take(SUBJECT_MAX_CHARS).collect::<String>().trim_end().to_string())
+}
+
+/// `Some(key)` for one of Exponential's own tools (the contract prefix is
+/// required, as in `steer::exp_tool`), the key being empty when its
+/// contract row names no subject argument; `None` for any other tool.
+fn exp_tool_subject_key(tool: &str) -> Option<&'static str> {
+    use domain::contract::{EXP_TOOL_NAMES, EXP_TOOL_PREFIX, EXP_TOOL_SUBJECT_KEYS};
+    let tool = tool.trim();
+    let index = EXP_TOOL_NAMES.iter().position(|row| {
+        tool.len() > row.len() && tool.ends_with(*row) && tool[..tool.len() - row.len()].ends_with(EXP_TOOL_PREFIX)
+    })?;
+    Some(EXP_TOOL_SUBJECT_KEYS[index])
 }
 
 /// Everything `exec` reports back.
@@ -661,6 +718,18 @@ fn native_call(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRe
         Some(value) if !value.is_undefined() && !value.is_null() => value.to_json(context)?.unwrap_or(json!({})),
         _ => json!({}),
     };
+    // EXP-1279: the argument keys in the order the script wrote them (a JSON
+    // map may sort them), for the log's "first string argument".
+    let order: Vec<String> = match args.get(2).and_then(JsValue::as_object) {
+        Some(object) => object
+            .own_property_keys(context)?
+            .iter()
+            .filter(|key| !matches!(key, PropertyKey::Symbol(_)))
+            .map(ToString::to_string)
+            .collect(),
+        None => Vec::new(),
+    };
+    let subject = call_subject(&tool, &payload, &order);
     let raw = args.get(3).is_some_and(JsValue::to_boolean);
     let (promise, resolvers) = JsPromise::new_pending(context);
     ENGINE.with(|slot| {
@@ -670,7 +739,15 @@ fn native_call(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRe
         let id = state.next_id;
         state.next_id += 1;
         state.pending.insert(id, resolvers);
-        state.stats.lock().unwrap().count += 1;
+        // The log slot is taken in CALL order, filled in when the call ends.
+        let logged = {
+            let mut stats = state.stats.lock().unwrap();
+            stats.count += 1;
+            (stats.log.len() < LOG_CAP).then(|| {
+                stats.log.push(CallRecord { tool: format!("{server}.{tool}"), subject, ok: false, ms: None });
+                stats.log.len() - 1
+            })
+        };
         let (host, tx, stats, cancelled, deadline) = (
             state.host.clone(),
             state.completions.clone(),
@@ -680,12 +757,20 @@ fn native_call(_this: &JsValue, args: &[JsValue], context: &mut Context) -> JsRe
         );
         let job: PoolJob = Box::new(move || {
             // Queued past the end: do not spend the upstream's time on it.
-            let out = match ended(&cancelled, deadline) {
-                Some(_) => Err("the script's deadline passed before the call started".to_string()),
-                None => host.call(&server, &tool, payload).and_then(|result| shape(result, raw)),
+            let started = Instant::now();
+            let (out, ran) = match ended(&cancelled, deadline) {
+                Some(_) => (Err("the script's deadline passed before the call started".to_string()), false),
+                None => (host.call(&server, &tool, payload).and_then(|result| shape(result, raw)), true),
             };
-            if out.is_err() {
-                stats.lock().unwrap().failed += 1;
+            {
+                let mut stats = stats.lock().unwrap();
+                if out.is_err() {
+                    stats.failed += 1;
+                }
+                if let Some(record) = logged.and_then(|index| stats.log.get_mut(index)) {
+                    record.ok = out.is_ok();
+                    record.ms = ran.then(|| started.elapsed().as_millis() as u64);
+                }
             }
             let _ = tx.send((id, out));
         });
@@ -957,6 +1042,9 @@ mod tests {
                 "echo" => Ok(json!({ "content": [{ "type": "text", "text": "ok" }], "structuredContent": args })),
                 "text" => Ok(json!({ "content": [{ "type": "text", "text": "{\"windows\":[1,2]}" }] })),
                 "big" => Ok(json!({ "content": [{ "type": "text", "text": "x".repeat(100_000) }] })),
+                name if name.starts_with("exponential_") => {
+                    Ok(json!({ "content": [{ "type": "text", "text": "{\"ok\":true}" }] }))
+                }
                 other => Err(format!("tool_unavailable: {other}")),
             };
             self.calls.lock().unwrap().push((tool.to_string(), start, Instant::now()));
@@ -1001,7 +1089,7 @@ mod tests {
         assert!(outcome.elapsed < Duration::from_millis(550), "took {:?}", outcome.elapsed);
         assert_eq!(host.max_concurrency(), 2);
         assert_eq!(outcome.result, json!(["slept 300", "slept 300"]));
-        assert_eq!(outcome.calls, CallStats { count: 2, failed: 0 });
+        assert_eq!((outcome.calls.count, outcome.calls.failed), (2, 0));
         assert_eq!(outcome.workers, 2);
 
         let sequential = run("await tools.t.slow({ms: 300}); await tools.t.slow({ms: 300}); return 1;", &host);
@@ -1034,7 +1122,7 @@ mod tests {
         );
         assert_eq!(outcome.error, None, "{outcome:?}");
         assert_eq!(outcome.result, json!(2000));
-        assert_eq!(outcome.calls, CallStats { count: 2000, failed: 0 });
+        assert_eq!((outcome.calls.count, outcome.calls.failed), (2000, 0));
         assert!(outcome.workers <= 8, "{} threads", outcome.workers);
         assert!(host.max_concurrency() <= 8, "{}", host.max_concurrency());
         let waited = Instant::now();
@@ -1071,7 +1159,7 @@ return settled.map((s) => s.status === "rejected" ? "rejected: " + s.reason.mess
         );
         assert_eq!(outcome.error, None, "{outcome:?}");
         assert_eq!(outcome.result, json!(["rejected: no such window", { "ok": true }]));
-        assert_eq!(outcome.calls, CallStats { count: 2, failed: 1 });
+        assert_eq!((outcome.calls.count, outcome.calls.failed), (2, 1));
 
         let thrown = run("await tools.t.fail({}); return 1;", &host);
         assert_eq!(thrown.error, Some(ExecError::Script("Error: no such window".into())));
@@ -1274,6 +1362,89 @@ return { names, hasAll: ALL_TOOLS.includes("mcp__t__slow"), direct: ALL_TOOLS.in
         assert!(outcome.console.len() < 1100);
         let result = outcome.result.as_str().unwrap();
         assert!(result.contains("[result truncated"), "{result}");
+    }
+
+    /// EXP-1279: every call lands in the log in the order the script MADE
+    /// it, with its subject, its verdict and its time.
+    #[test]
+    fn the_call_log_records_tool_subject_verdict_and_time_in_call_order() {
+        let host = FakeHost::new();
+        let mut tools = catalog().tools.clone();
+        tools.push(ToolSpec {
+            server: "exponential".into(),
+            name: "exponential_issues_get".into(),
+            description: "Read issue.".into(),
+            input_schema: json!({ "type": "object" }),
+        });
+        let catalog = Arc::new(Catalog { tools, unreachable: Vec::new(), direct_only: Vec::new() });
+        let dyn_host: Arc<dyn CallHost> = host.clone();
+        let outcome = run_script(
+            r#"await Promise.allSettled([
+  tools.exponential.exponential_issues_get({ commentsLimit: 0, id: " EXP-1253 " }),
+  tools.t.slow({ ms: 30 }),
+  tools.t.echo({ n: 1, zeta: "  first in the script ", alpha: "second" }),
+  tools.t.fail({ windowId: "w-9" }),
+]);"#,
+            catalog,
+            dyn_host,
+            Arc::new(AtomicBool::new(false)),
+            Limits::default(),
+        );
+        assert_eq!(outcome.error, None, "{outcome:?}");
+        let log = &outcome.calls.log;
+        let summary: Vec<(&str, Option<&str>, bool)> =
+            log.iter().map(|call| (call.tool.as_str(), call.subject.as_deref(), call.ok)).collect();
+        assert_eq!(
+            summary,
+            [
+                ("exponential.exponential_issues_get", Some("EXP-1253"), true),
+                ("t.slow", None, true),
+                ("t.echo", Some("first in the script"), true),
+                ("t.fail", Some("w-9"), false),
+            ]
+        );
+        assert!(log[1].ms.is_some_and(|ms| ms >= 30), "{:?}", log[1]);
+        assert!(log.iter().all(|call| call.ms.is_some()), "every call ran");
+        assert_eq!((outcome.calls.count, outcome.calls.failed), (4, 1));
+    }
+
+    #[test]
+    fn the_call_log_stops_at_its_cap_and_the_count_does_not() {
+        let host = FakeHost::new();
+        let outcome = run(
+            "await Promise.all(Array.from({length: 230}, (_, i) => tools.t.echo({ id: 'c' + i })));",
+            &host,
+        );
+        assert_eq!(outcome.error, None, "{outcome:?}");
+        assert_eq!(outcome.calls.count, 230);
+        assert_eq!(outcome.calls.log.len(), LOG_CAP);
+        assert_eq!(outcome.calls.log[0].subject.as_deref(), Some("c0"));
+        assert_eq!(outcome.calls.log[LOG_CAP - 1].subject.as_deref(), Some("c199"));
+    }
+
+    #[test]
+    fn a_subject_is_the_contract_argument_of_an_exponential_tool_else_the_first_string() {
+        let order = |keys: &[&str]| keys.iter().map(|key| key.to_string()).collect::<Vec<_>>();
+        let args = json!({ "body": "Done.", "issueId": "MKT-6" });
+        // `comments_create`'s contract subject is `issueId`, not the first string.
+        assert_eq!(
+            call_subject("exponential_comments_create", &args, &order(&["body", "issueId"])).as_deref(),
+            Some("MKT-6")
+        );
+        // A contract row that names no subject (a list) has none.
+        assert_eq!(call_subject("exponential_issues_list", &json!({ "boardId": "b-1" }), &order(&["boardId"])), None);
+        // Another server's `issues_get` is not ours: the prefix is required.
+        assert_eq!(
+            call_subject("issues_get", &json!({ "team": "ENG", "id": "x" }), &order(&["team", "id"])).as_deref(),
+            Some("ENG")
+        );
+        // Blank strings and non-strings are skipped; nothing left = none.
+        assert_eq!(call_subject("list_windows", &json!({ "a": " ", "b": 3 }), &order(&["a", "b"])), None);
+        assert_eq!(call_subject("list_windows", &json!(["x"]), &[]), None);
+        // Cut to 80 characters (not bytes), trimmed.
+        let long = format!("  {}", "é".repeat(100));
+        let cut = call_subject("click", &json!({ "label": long }), &order(&["label"])).unwrap();
+        assert_eq!(cut.chars().count(), SUBJECT_MAX_CHARS);
     }
 
     #[test]

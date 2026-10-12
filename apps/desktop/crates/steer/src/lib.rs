@@ -74,10 +74,14 @@ pub use domain::image_message;
 pub mod journal;
 pub mod login_picker;
 pub mod publisher;
+/// EXP-1279: the code-mode Script card model.
+pub mod script_card;
 pub mod tool_diff;
 pub mod tool_output;
 pub mod tool_group_summary;
 pub mod viewer;
+/// EXP-1240: THE Work card model (workflow, task list, subagent).
+pub mod work_card;
 /// EXP-850 §3/§7: the `workflow` payload and the shared caption.
 pub mod workflow;
 

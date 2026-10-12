@@ -125,6 +125,8 @@ struct MarkdownEditor: View {
                 .onChange(of: onAttachFile == nil) { _, isNil in
                     toolbar?.onFilePick = isNil ? nil : { showFileImporter = true }
                 }
+                // SLOP-28: `#` opens THE search list in a bottom sheet.
+                .issueRefSearchSheet(model)
         }
     }
 

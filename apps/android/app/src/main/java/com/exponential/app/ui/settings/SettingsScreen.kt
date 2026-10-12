@@ -4,6 +4,7 @@ import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -23,12 +24,15 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -47,6 +51,9 @@ import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SectionHeader
 import com.exponential.app.ui.components.TeamAvatar
 import com.exponential.app.ui.components.TopBarBackButton
+import com.exponential.app.ui.gettingstarted.GettingStartedCopy
+import com.exponential.app.ui.gettingstarted.GettingStartedSheet
+import com.exponential.app.ui.gettingstarted.GettingStartedViewModel
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.AppBackground
 import com.exponential.app.ui.theme.TextEmphasis
@@ -98,9 +105,16 @@ fun SettingsScreen(
     onOpenAbout: () -> Unit,
     onAddServer: () -> Unit,
     onBack: () -> Unit,
+    /** EXP-1270: Getting started's "Start a run" — the Agent home. */
+    onOpenAgentHome: () -> Unit = {},
     viewModel: SettingsViewModel = hiltViewModel(),
+    gettingStartedViewModel: GettingStartedViewModel = hiltViewModel(),
 ) {
     val accounts by viewModel.accounts.collectAsStateWithLifecycle()
+    // EXP-1270: the phones' Getting started ENTRY (web + IDE: the sidebar
+    // entry) — the same block in a bottom sheet, gone once complete.
+    val gettingStarted by gettingStartedViewModel.state.collectAsStateWithLifecycle()
+    var gettingStartedOpen by remember { mutableStateOf(false) }
     val serverGroups by viewModel.serverGroups.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val toaster = LocalToaster.current
@@ -176,6 +190,16 @@ fun SettingsScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     SectionHeader("General")
                     Column(Modifier.fillMaxWidth().glassGroup().padding(vertical = 4.dp)) {
+                        if (gettingStarted.visible) {
+                            Box(Modifier.testTag(GettingStartedCopy.ENTRY_TEST_ID)) {
+                                SettingsRow(
+                                    icon = ExpIcons.navGettingStarted,
+                                    title = GettingStartedCopy.TITLE,
+                                    onClick = { gettingStartedOpen = true },
+                                )
+                            }
+                            GroupDivider()
+                        }
                         // EXP-232: staging-only — exposes live shape status and
                         // a "Resync now" data-wipe hatch, not for store builds.
                         if (AppConstants.IS_STAGING) {
@@ -211,6 +235,12 @@ fun SettingsScreen(
                 }
             }
         }
+    }
+    if (gettingStartedOpen) {
+        GettingStartedSheet(
+            onOpenAgent = onOpenAgentHome,
+            onDismiss = { gettingStartedOpen = false },
+        )
     }
 }
 

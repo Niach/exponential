@@ -37,9 +37,14 @@ pub(crate) mod mcp_app_views;
 pub(crate) mod run_status_row;
 pub(crate) mod session_thread;
 pub(crate) mod composer_options;
+pub(crate) mod work_card;
+pub(crate) mod script_card;
+pub(crate) mod comment_card;
 pub(crate) mod team_agents_settings;
 pub(crate) mod your_agent_settings;
 pub(crate) mod voice_call_overlay;
+/// EXP-1270: registered in `ENTRIES` once `sections.json` lists `getting-started`.
+pub(crate) mod getting_started;
 
 /// EXP-1030: whether `id`'s file is still the one-line placeholder rather
 /// than a demo. EXP-1268/1269 landed three design drafts on the web page
@@ -98,6 +103,9 @@ pub(crate) const ENTRIES: &[Entry] = &[
     Entry { id: run_status_row::ID, owner: run_status_row::OWNER, render: run_status_row::render },
     Entry { id: session_thread::ID, owner: session_thread::OWNER, render: session_thread::render },
     Entry { id: composer_options::ID, owner: composer_options::OWNER, render: composer_options::render },
+    Entry { id: work_card::ID, owner: work_card::OWNER, render: work_card::render },
+    Entry { id: script_card::ID, owner: script_card::OWNER, render: script_card::render },
+    Entry { id: comment_card::ID, owner: comment_card::OWNER, render: comment_card::render },
     Entry { id: team_agents_settings::ID, owner: team_agents_settings::OWNER, render: team_agents_settings::render },
     Entry { id: your_agent_settings::ID, owner: your_agent_settings::OWNER, render: your_agent_settings::render },
     Entry { id: voice_call_overlay::ID, owner: voice_call_overlay::OWNER, render: voice_call_overlay::render },

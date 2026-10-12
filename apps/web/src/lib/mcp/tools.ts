@@ -2362,7 +2362,19 @@ export function registerExponentialTools(
           ...(audience ? { audience } : {}),
         })
         noteAgentIssueActivity(issueId, user.id)
-        return ok({ ...result.comment, reporterEmailed: result.reporterEmailed })
+        // EXP-1241: the issue's identifier rides beside the row, so the
+        // run's comment card links `<issue>?comment=<id>` (the preview's
+        // `issue@` ref reads it as the issue's identifier twin).
+        const [issue] = await db
+          .select({ identifier: issues.identifier })
+          .from(issues)
+          .where(eq(issues.id, issueId))
+          .limit(1)
+        return ok({
+          ...result.comment,
+          ...(issue?.identifier ? { issueIdentifier: issue.identifier } : {}),
+          reporterEmailed: result.reporterEmailed,
+        })
       } catch (e) {
         return err(e)
       }

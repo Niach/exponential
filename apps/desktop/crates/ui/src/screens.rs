@@ -299,6 +299,30 @@ pub(crate) fn remove_window(window_id: WindowId, cx: &mut App) {
     }
 }
 
+gpui::actions!(
+    exp,
+    [
+        /// EXP-1255: a New run tab — the strip's "+" as a chord (Cmd/Ctrl+T).
+        NewRunTab,
+    ]
+);
+
+/// EXP-1255 — open a fresh New run tab in `window`: the strip's "+" and
+/// Cmd/Ctrl+T. Each one is its own tab (a fresh id), hosting the Agent
+/// home's column.
+pub(crate) fn open_new_run_tab(window: &Window, cx: &mut App) {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+    let nanos = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos())
+        .unwrap_or(0);
+    let id = format!(
+        "{nanos:x}-{}",
+        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+    );
+    crate::navigation::navigate(window, cx, Screen::NewRun { id });
+}
+
 /// Build a FRESH content view for `screen` (EXP-65 undocked windows). The
 /// panel's own shared single-instance views (re-pointed on tab switch) must
 /// never be moved to another window; a fresh construction also binds the
@@ -338,6 +362,8 @@ pub(crate) fn build_screen_content(
         // EXP-1170: the New issue page is never undocked (one shared view
         // owns the draft's autosave).
         Screen::IssueDraft { .. } => cx.new(|_| NeverUndocked).into(),
+        // EXP-1255: a New run tab is never undockable (only an issue is).
+        Screen::NewRun { .. } => cx.new(|_| NeverUndocked).into(),
         Screen::Actions => cx
             .new(|cx| crate::actions_view::ActionsView::new(window, cx))
             .into(),
@@ -349,9 +375,6 @@ pub(crate) fn build_screen_content(
             .into(),
         Screen::Reviews => cx
             .new(|cx| crate::reviews_view::ReviewsView::new(window, cx))
-            .into(),
-        Screen::GettingStarted { .. } => cx
-            .new(|cx| crate::getting_started::GettingStartedView::new(window, cx))
             .into(),
         // VAPP-90: the dev-only kitchen sink is never undocked.
         Screen::ExponentialUiKitchenSink
@@ -605,6 +628,10 @@ fn opens_no_tab(
             Some(_) => false,
         }
 }
+
+/// EXP-1255: the strip's trailing "+" (a 24px ghost icon button), reserved
+/// out of the packer's budget so the last chip never slides under it.
+const NEW_TAB_BUTTON_PX: f32 = 24.;
 
 /// EXP-1250 — swap the strip to another team's tabs, never dropping any: the
 /// leaving team's non-terminal tabs are PARKED under its id, the arriving
@@ -960,6 +987,8 @@ enum ChipLead {
     /// chip carrying only a title read as a nameless tab next to the issue
     /// chips' status glyphs).
     Shell,
+    /// EXP-1255: a concept glyph — the New run chip's Agent mark.
+    Concept(ExpIcon),
 }
 
 impl ChipLead {
@@ -975,6 +1004,7 @@ impl ChipLead {
             }),
             ChipLead::Status(status) => Some(crate::icons::resolved_status_icon(status, cx)),
             ChipLead::Shell => Some(Icon::new(registry::SESSION_SHELL)),
+            ChipLead::Concept(icon) => Some(Icon::new(*icon)),
         }
     }
 }
@@ -993,9 +1023,11 @@ fn lead_reserve_px(lead: &ChipLead) -> f32 {
     const LEAD_BOX_PX: f32 = 14.;
     match lead {
         ChipLead::None => 0.,
-        ChipLead::Status(_) | ChipLead::Shell | ChipLead::Dot(_) | ChipLead::Run(..) => {
-            LEAD_BOX_PX
-        }
+        ChipLead::Status(_)
+        | ChipLead::Shell
+        | ChipLead::Dot(_)
+        | ChipLead::Run(..)
+        | ChipLead::Concept(_) => LEAD_BOX_PX,
     }
 }
 
@@ -1139,6 +1171,15 @@ fn chip_content(screen: &Screen, cx: &App) -> ChipContent {
     if let Screen::Terminal { tab } = screen {
         return terminal_chip_content(*tab, cx);
     }
+    // EXP-1255: the New run chip — the Agent glyph and its word (draft 1).
+    if let Screen::NewRun { .. } = screen {
+        return ChipContent {
+            lead: ChipLead::Concept(registry::ACTION_CHAT),
+            identifier: None,
+            title: Some(crate::navigation::NEW_RUN_TITLE.into()),
+            badge: None,
+        };
+    }
     if let Screen::IssueDetail { issue_id } = screen {
         let store = Store::global(cx);
         let issues = store.collections().issues.read(cx);
@@ -1242,12 +1283,13 @@ pub struct ScreensPanel {
     /// The Chat page (EXP-772 — the centred prompt box; the same tab-less
     /// full-page mode).
     chat: Entity<crate::chat_screen::ChatScreenView>,
+    /// EXP-1255: one Agent-home composer per open New run tab, keyed by the
+    /// tab's id — each its own draft; built on first show, dropped with the
+    /// tab ([`Self::forget_tab`]).
+    new_runs: HashMap<String, Entity<crate::chat_screen::ChatScreenView>>,
     /// The Reviews page (EXP-706 — the team's open PRs; the same tab-less
     /// full-page mode. It was a sidebar tool window until EXP-706).
     reviews: Entity<crate::reviews_view::ReviewsView>,
-    /// The Getting-started checklist page (EXP-470 — the same tab-less
-    /// full-page mode, behind a conditional rail entry).
-    getting_started: Entity<crate::getting_started::GettingStartedView>,
     /// VAPP-90: the Exponential UI kitchen sink, built on first use — a
     /// dev-only screen pays its surface build only when opened.
     exponential_ui: Option<Entity<crate::exponential_ui_screen::ExponentialUiKitchenSink>>,
@@ -1392,8 +1434,6 @@ impl ScreensPanel {
         let action = cx.new(|cx| crate::action_view::ActionView::new(window, cx));
         let chat = cx.new(|cx| crate::chat_screen::ChatScreenView::new(window, cx));
         let reviews = cx.new(|cx| crate::reviews_view::ReviewsView::new(window, cx));
-        let getting_started =
-            cx.new(|cx| crate::getting_started::GettingStartedView::new(window, cx));
         let nav = nav_for_window(window, cx);
         let rail = rail_shared_for_window(window, cx);
         let list = cx.new(|cx| ListPanel::new(ListMode::Screen, window, cx));
@@ -1491,8 +1531,8 @@ impl ScreensPanel {
             actions,
             action,
             chat,
+            new_runs: HashMap::new(),
             reviews,
-            getting_started,
             exponential_ui: None,
             exponential_ui_devices: None,
             exponential_ui_specimen: None,
@@ -1768,6 +1808,13 @@ impl ScreensPanel {
                     // EXP-1248: a Stack card pick swaps the tab's issue.
                     let replaced = rebind_tab(&mut self.tabs[ix], screen.clone(), issue_of_screen.clone());
                     self.forget_tab(&replaced, cx);
+                    // EXP-1255: a New run tab that became its run's tab is
+                    // gone for good — Back must not reopen an empty one.
+                    if matches!(replaced.screen, Screen::NewRun { .. }) {
+                        crate::navigation::purge_from_history(window, cx, |screen| {
+                            *screen == replaced.screen
+                        });
+                    }
                 } else {
                     let mut entry = TabEntry::new(
                         screen.clone(),
@@ -1824,6 +1871,8 @@ impl ScreensPanel {
                     host.update(cx, |host, cx| host.activate_tab_by_id(tab, window, cx));
                 }
             }
+            // EXP-1255: the composer is built on first show (render).
+            Screen::NewRun { .. } => {}
             Screen::BoardIssues { .. }
             | Screen::Inbox { .. }
             | Screen::Files
@@ -1835,7 +1884,6 @@ impl ScreensPanel {
             | Screen::Action { .. }
             | Screen::Chat
             | Screen::Reviews
-            | Screen::GettingStarted { .. }
             | Screen::ExponentialUiKitchenSink
             | Screen::ExponentialUiDevices
             | Screen::ExponentialUiSpecimen { .. }
@@ -2365,7 +2413,7 @@ impl ScreensPanel {
         // closed it): `sync_tabs` would see a screen with no tab and push a
         // ghost chip over "This terminal was closed". An issue tab is
         // different — its screen is still openable, so its history stays.
-        if matches!(closed.screen, Screen::Terminal { .. }) {
+        if matches!(closed.screen, Screen::Terminal { .. } | Screen::NewRun { .. }) {
             crate::navigation::purge_from_history(window, cx, |screen| *screen == closed.screen);
         }
         cx.notify();
@@ -2472,7 +2520,27 @@ impl ScreensPanel {
     ///
     /// EXP-877: no dismissal is recorded, because a LIVE tab cannot get here
     /// — [`Self::close_tab`] refuses one and the bulk closes skip them.
+    /// EXP-1255: New run tab `id`'s composer, built on first show.
+    fn new_run_view(
+        &mut self,
+        id: &str,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> Entity<crate::chat_screen::ChatScreenView> {
+        self.new_runs
+            .entry(id.to_string())
+            .or_insert_with(|| {
+                let id = id.to_string();
+                cx.new(|cx| crate::chat_screen::ChatScreenView::new_run_tab(id, window, cx))
+            })
+            .clone()
+    }
+
     fn forget_tab(&mut self, tab: &TabEntry, cx: &mut gpui::Context<Self>) {
+        // EXP-1255: a New run tab's composer (and its draft) goes with it.
+        if let Screen::NewRun { id } = &tab.screen {
+            self.new_runs.remove(id);
+        }
         // EXP-894: a closed tab's stashed drafts (`crate::tab_state`) go too.
         if let Some(issue_id) = &tab.issue_id {
             self.issue_detail
@@ -2635,8 +2703,20 @@ impl ScreensPanel {
         let top: Vec<usize> = (0..self.tabs.len())
             .filter(|&ix| !self.tabs[ix].screen.is_dock_tab())
             .collect();
+        // EXP-1255: the "+" after the last chip (and after "+N") opens a New
+        // run tab; it is there with no tab at all too.
+        let new_tab = Button::new("center-tab-new")
+            .ghost()
+            .cursor_pointer()
+            .web_icon_xs()
+            .icon(registry::UI_ADD)
+            .tooltip(crate::navigation::NEW_RUN_TITLE)
+            .on_click(|_: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                open_new_run_tab(window, cx);
+            });
         if top.is_empty() {
-            return gpui::Empty.into_any_element();
+            return h_flex().items_center().child(new_tab).into_any_element();
         }
         let active = resolved_screen(&self.nav, cx);
         let active_ix = active
@@ -2651,7 +2731,7 @@ impl ScreensPanel {
         let active_pos = active_ix.and_then(|ix| top.iter().position(|&t| t == ix));
         let visible = partition_tabs(
             &widths,
-            f32::from(available).max(0.),
+            (f32::from(available) - NEW_TAB_BUTTON_PX - chip_gap(window)).max(0.),
             chip_gap(window),
             overflow_button_width(window, top.len().saturating_sub(1)),
             active_pos,
@@ -2680,7 +2760,7 @@ impl ScreensPanel {
         if !hidden.is_empty() {
             strip = strip.child(self.overflow_menu("center-tab-overflow", hidden, cx));
         }
-        strip.into_any_element()
+        strip.child(new_tab).into_any_element()
     }
 
     /// ONE top-strip chip, with the EXP-235 set on every one of them
@@ -2785,17 +2865,26 @@ impl ScreensPanel {
                                     ),
                             )
                         })
+                        // EXP-1255: the × shows on HOVER only, on every
+                        // chip including the active one (Cmd+W and the
+                        // middle-click still close); `invisible` keeps its
+                        // slot, so the measured width never jumps.
                         .child(
-                            Button::new(("close-center-tab", ix))
-                                .ghost()
-                                .web_icon_xs()
-                                .icon(registry::UI_CLOSE)
-                                .on_click(cx.listener(
-                                    move |this, _: &ClickEvent, window, cx| {
-                                        cx.stop_propagation();
-                                        this.close_tab(ix, window, cx);
-                                    },
-                                )),
+                            div()
+                                .invisible()
+                                .group_hover(TAB_GROUP, |style| style.visible())
+                                .child(
+                                    Button::new(("close-center-tab", ix))
+                                        .ghost()
+                                        .web_icon_xs()
+                                        .icon(registry::UI_CLOSE)
+                                        .on_click(cx.listener(
+                                            move |this, _: &ClickEvent, window, cx| {
+                                                cx.stop_propagation();
+                                                this.close_tab(ix, window, cx);
+                                            },
+                                        )),
+                                ),
                         ),
             )
             .into_any_element()
@@ -3981,10 +4070,8 @@ impl Render for ScreensPanel {
             Some(Screen::Actions) => self.actions.clone().into_any_element(),
             Some(Screen::Action { .. }) => self.action.clone().into_any_element(),
             Some(Screen::Chat) => self.chat.clone().into_any_element(),
+            Some(Screen::NewRun { id }) => self.new_run_view(id, window, cx).into_any_element(),
             Some(Screen::Reviews) => self.reviews.clone().into_any_element(),
-            Some(Screen::GettingStarted { .. }) => {
-                self.getting_started.clone().into_any_element()
-            }
             // VAPP-90: the Exponential UI kitchen sink (dev-only).
             Some(Screen::ExponentialUiKitchenSink) => self
                 .exponential_ui

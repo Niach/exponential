@@ -2,8 +2,6 @@ package com.exponential.app.ui.actions
 
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
-import com.exponential.app.ui.components.GroupDivider
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -19,23 +17,21 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -43,18 +39,18 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.ActionDto
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.TriggerBadge
 import com.exponential.app.domain.TriggerBadges
-import com.exponential.app.domain.formatTriggerBlock
 import com.exponential.app.domain.triggerBadges
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
-import com.exponential.app.ui.components.GlassSegmentedControl
+import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.SectionHeader
-import com.exponential.app.ui.components.TabPager
 import com.exponential.app.ui.components.TeamSectionHeader
 import com.exponential.app.ui.components.teamBands
 import com.exponential.app.ui.components.actionGlyph
@@ -70,8 +66,7 @@ import com.exponential.app.ui.theme.glassRow
 // action preselected (the ONE launcher — typed inputs, free text and the
 // agent/model/device options live there), the "Actions" header's "New action"
 // (web-parity placement per EXP-574) lands there on the "Create action"
-// builtin, and a used suggestion seeds that builtin with its description
-// (+ trigger block) and icon. Neither client builtin is listed here: "Create
+// builtin. Neither client builtin is listed here: "Create
 // action" left in EXP-431 and "Fix merge conflicts" in EXP-686 (both pick from
 // the composer's ▶ menu).
 //
@@ -79,20 +74,14 @@ import com.exponential.app.ui.theme.glassRow
 // header, now Devices), so the screen is a ROOT surface: a plain header row,
 // no back button, and its lists clear the floating bar.
 //
-// Two segments (the PersonalScreen GlassSegmentedControl pattern): Actions
-// (the list) and Suggestions (EXP-530: seed cards whose tap opens the composer
-// prefilled). SLOP-2: an action CARRIES its triggers — the old separate triggers segment
-// is gone, a row wears a glyph per trigger kind beside its name, and tapping
-// it opens the action page ([ActionDetailScreen]: Prompt | Triggers | Runs).
-
-// rememberSaveable-friendly segment keys (plain strings, no custom Saver).
-private const val SEGMENT_ACTIONS = "actions"
-private const val SEGMENT_SUGGESTIONS = "suggestions"
-private val SEGMENTS = listOf(SEGMENT_ACTIONS, SEGMENT_SUGGESTIONS)
+// EXP-1270: the Suggestions segment is gone (the seeds left every client), so
+// the screen is the one list. SLOP-2: an action CARRIES its triggers — a row
+// wears a glyph per trigger kind beside its name, and tapping it opens the
+// action page ([ActionDetailScreen]: Prompt | Triggers | Runs).
 
 @Composable
 fun ActionsScreen(
-    // EXP-825: Run / New action / a suggestion navigate to the composer.
+    // EXP-825: Run / New action navigate to the composer.
     onOpenAgent: (AgentComposerSeed) -> Unit,
     // SLOP-2: a row opens its action's page.
     onOpenAction: (actionId: String) -> Unit,
@@ -100,10 +89,13 @@ fun ActionsScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val selectedTeamId by viewModel.selectedTeamId.collectAsStateWithLifecycle()
-    val triggerDevices by viewModel.triggerDevices.collectAsStateWithLifecycle()
     // EXP-1186: cross-team — one band per team once there are several.
     val teams by viewModel.teams.collectAsStateWithLifecycle()
     val multiTeam = teams.size > 1
+    val toaster = LocalToaster.current
+    LaunchedEffect(state.error) {
+        state.error?.let { toaster.error(FeedbackStates.errorTitle("load", "actions"), it) }
+    }
     // EXP-1186: with several teams each team band carries its own "New
     // action", creating in THAT team (web + iOS parity).
     val newActionPill: @Composable (teamId: String?) -> Unit = { teamId ->
@@ -118,9 +110,6 @@ fun ActionsScreen(
             modifier = Modifier.testTag(if (teamId == null) "new-action" else "new-action-$teamId"),
         )
     }
-
-    var segment by rememberSaveable { mutableStateOf(SEGMENT_ACTIONS) }
-    val selectedSegment = if (segment == SEGMENT_SUGGESTIONS) SEGMENT_SUGGESTIONS else SEGMENT_ACTIONS
 
     Scaffold(containerColor = Color.Transparent) { padding ->
         Column(modifier = Modifier.padding(padding).fillMaxSize()) {
@@ -139,96 +128,48 @@ fun ActionsScreen(
                     modifier = Modifier.weight(1f),
                 )
             }
-            GlassSegmentedControl(
-                options = SEGMENTS,
-                selected = selectedSegment,
-                label = { if (it == SEGMENT_SUGGESTIONS) "Suggestions" else "Actions" },
-                onSelect = { segment = it },
-                modifier = Modifier.padding(horizontal = 16.dp),
-                testTag = { "actions-segment-$it" },
-            )
-            Spacer(Modifier.height(4.dp))
-            // EXP-1190: the segments page with a horizontal swipe (the Work
-            // screen's faces), filling the column's remaining height.
-            TabPager(
-                pages = SEGMENTS,
-                selected = selectedSegment,
-                onSelect = { segment = it },
-                key = { it },
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-            ) { page ->
-                Box(modifier = Modifier.fillMaxSize()) {
-                    when (page) {
-                        SEGMENT_SUGGESTIONS -> SuggestionsContent(
-                            onUse = { suggestion ->
-                                // EXP-825: the creator run reads the request off
-                                // the composer text — the suggestion's
-                                // description, plus (SLOP-2) the machine-readable
-                                // trigger block the agent passes verbatim to
-                                // exponential_actions_update, bound to the
-                                // caller's default trigger-capable machine
-                                // (EXP-622) when one exists. The icon seeds the
-                                // builtin's `icon` pick.
-                                val trigger = suggestion.trigger
-                                val runner = triggerDevices.firstOrNull { it.isDefault }
-                                    ?: triggerDevices.firstOrNull()
-                                val text = if (trigger != null && runner != null) {
-                                    suggestion.description +
-                                        formatTriggerBlock(trigger, deviceId = runner.deviceId)
-                                } else {
-                                    suggestion.description
+            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                when {
+                    // EXP-1275: the first load is skeleton rows in
+                    // the action row's geometry, never a spinner.
+                    state.actions.isEmpty() && state.loading ->
+                        SkeletonRows(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp))
+                    // FEED-79: a failed load is the empty state plus a toast.
+                    state.actions.isEmpty() -> EmptyState(EmptyStateCopy.actions)
+                    else -> LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        // EXP-574 (web parity): the "Actions" header with
+                        // the "New action" entry (EXP-431) as its trailing
+                        // control.
+                        if (!multiTeam) {
+                            item(key = "__actions_header__") {
+                                SectionHeader(title = "Actions") { newActionPill(null) }
+                            }
+                        }
+                        // Server order (sort_order, then name) — since
+                        // EXP-686 the list carries no client builtins to
+                        // pin above it. EXP-1186: one band per team (the
+                        // team avatar + name) with several teams.
+                        teamBands(state.actions, teams) { it.teamId }.forEach { band ->
+                            band.team?.let { team ->
+                                item(key = "__actions_team_${team.id}__") {
+                                    TeamSectionHeader(team) { newActionPill(team.id) }
                                 }
-                                onOpenAgent(
-                                    AgentComposerSeed(
-                                        actionId = DomainContract.builtinCreateActionId,
-                                        text = text,
-                                        icon = suggestion.icon,
-                                    ),
+                            }
+                            items(band.items, key = { it.id }) { action ->
+                                ActionRow(
+                                    action = action,
+                                    // EXP-1186: the composer resolves the
+                                    // ACTION's team off the seed.
+                                    onRun = { onOpenAgent(AgentComposerSeed(actionId = action.id)) },
+                                    // SLOP-2: the row (and its menu's Edit)
+                                    // opens the action page, which is
+                                    // read-only for non-owners.
+                                    onOpen = { onOpenAction(action.id) },
                                 )
-                            },
-                        )
-                        else -> when {
-                            state.actions.isEmpty() && state.loading ->
-                                CircularProgressIndicator(modifier = Modifier.align(Alignment.Center))
-                            state.actions.isEmpty() && state.error != null ->
-                                CenteredCaption(state.error ?: "")
-                            state.actions.isEmpty() -> EmptyState(EmptyStateCopy.actions)
-                            else -> LazyColumn(
-                                modifier = Modifier.fillMaxSize(),
-                                contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
-                                verticalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                // EXP-574 (web parity): the "Actions" header with
-                                // the "New action" entry (EXP-431) as its trailing
-                                // control.
-                                if (!multiTeam) {
-                                    item(key = "__actions_header__") {
-                                        SectionHeader(title = "Actions") { newActionPill(null) }
-                                    }
-                                }
-                                // Server order (sort_order, then name) — since
-                                // EXP-686 the list carries no client builtins to
-                                // pin above it. EXP-1186: one band per team (the
-                                // team avatar + name) with several teams.
-                                teamBands(state.actions, teams) { it.teamId }.forEach { band ->
-                                    band.team?.let { team ->
-                                        item(key = "__actions_team_${team.id}__") {
-                                            TeamSectionHeader(team) { newActionPill(team.id) }
-                                        }
-                                    }
-                                    items(band.items, key = { it.id }) { action ->
-                                        ActionRow(
-                                            action = action,
-                                            // EXP-1186: the composer resolves the
-                                            // ACTION's team off the seed.
-                                            onRun = { onOpenAgent(AgentComposerSeed(actionId = action.id)) },
-                                            // SLOP-2: the row (and its menu's Edit)
-                                            // opens the action page, which is
-                                            // read-only for non-owners.
-                                            onOpen = { onOpenAction(action.id) },
-                                        )
-                                    }
-                                }
                             }
                         }
                     }
@@ -354,83 +295,3 @@ private fun TriggerBadgeGlyph(icon: ImageVector, badge: TriggerBadge, tag: Strin
         ),
     )
 }
-
-// ── Suggestions segment (EXP-530) ────────────────────────────────────────────
-
-@Composable
-private fun SuggestionsContent(onUse: (ActionSuggestion) -> Unit) {
-    LazyColumn(
-        modifier = Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = BottomBarInset),
-    ) {
-        // P73: ONE "Suggestions" band over flat hairline-divided rows ×4 —
-        // no per-row fill, no gaps, no trailing chevron.
-        item(key = "__suggestions_band__") { SectionHeader("Suggestions") }
-        itemsIndexed(ACTION_SUGGESTIONS, key = { _, it -> it.id }) { index, suggestion ->
-            if (index > 0) GroupDivider()
-            SuggestionRow(suggestion = suggestion, onUse = { onUse(suggestion) })
-        }
-    }
-}
-
-@Composable
-private fun SuggestionRow(suggestion: ActionSuggestion, onUse: () -> Unit) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .testTag("suggestion-row")
-            .flatRow()
-            .clickable(onClick = onUse)
-            .padding(horizontal = GlassTokens.RowPaddingH, vertical = GlassTokens.RowPaddingV),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            ExpIcons.byName(suggestion.icon) ?: ExpIcons.actionSuggestion,
-            contentDescription = null,
-            modifier = Modifier.size(18.dp),
-            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(modifier = Modifier.weight(1f)) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                Text(
-                    suggestion.title,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    // EXP-677: yield to the glyph instead of pushing it off the row.
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-                // SLOP-2: a seed that carries a trigger wears that trigger's
-                // glyph (the action row's rule); a plain one wears nothing.
-                TriggerBadgeGlyphs(triggerBadges(suggestion.trigger))
-            }
-            Text(
-                suggestion.description,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        // EXP-694: no trailing "Use" text — the whole row IS the affordance
-        // (it always was; the label only looked like a second button).
-    }
-}
-
-@Composable
-private fun CenteredCaption(text: String) {
-    Box(Modifier.fillMaxSize().padding(horizontal = 40.dp), contentAlignment = Alignment.Center) {
-        Text(
-            text,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-            textAlign = TextAlign.Center,
-        )
-    }
-}
-

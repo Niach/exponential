@@ -1,6 +1,8 @@
 import { useCallback, useSyncExternalStore } from "react"
+import type { useNavigate } from "@tanstack/react-router"
 import {
   EMPTY_WORK_TABS,
+  openNewRunTab,
   parseWorkTabsState,
   workTabsStorageKey,
   type WorkTabsState,
@@ -73,6 +75,17 @@ export function useWorkTabs(teamId: string | undefined): WorkTabsState {
     [teamId]
   )
   return useSyncExternalStore(subscribe, snapshot, snapshot)
+}
+
+/** EXP-1255: open (or focus) the New run tab and show its page, the home
+ *  column — the strip's "+" and Alt/Option+T. */
+export function openNewRunPage(
+  teamId: string,
+  teamSlug: string,
+  navigate: ReturnType<typeof useNavigate>
+): void {
+  updateWorkTabs(teamId, openNewRunTab)
+  void navigate({ to: `/t/$teamSlug/agent`, params: { teamSlug } })
 }
 
 /** Test seam: forget every cached team state. */

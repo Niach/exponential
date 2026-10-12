@@ -1,3 +1,4 @@
+import ExpCore
 import SwiftUI
 
 // The ONE composer card (EXP-698 round 2). iOS grew three of them — the issue
@@ -87,19 +88,26 @@ public struct GlassComposerSubmitButton: View {
     let accessibilityLabel: String
     var enabled: Bool = true
     var tint: Color = .white
+    /// EXP-1275 (D8 PENDING): what the send started is running — after
+    /// 150 ms the glyph becomes the spinner; the button stays put and inert.
+    var pending: Bool = false
     let action: () -> Void
+
+    @State private var showsSpinner = false
 
     public init(
         _ icon: String,
         accessibilityLabel: String,
         enabled: Bool = true,
         tint: Color = .white,
+        pending: Bool = false,
         action: @escaping () -> Void
     ) {
         self.icon = icon
         self.accessibilityLabel = accessibilityLabel
         self.enabled = enabled
         self.tint = tint
+        self.pending = pending
         self.action = action
     }
 
@@ -107,11 +115,19 @@ public struct GlassComposerSubmitButton: View {
         Button(action: action) {
             AppIcon(icon, size: GlassComposerTokens.submitSize)
                 .foregroundStyle(enabled ? tint : .white.opacity(TextOpacity.quaternary))
+                .opacity(showsSpinner ? 0 : 1)
+                .overlay {
+                    if showsSpinner {
+                        InlineSpinner(size: GlassComposerTokens.submitSize * 0.5, color: .white.opacity(TextOpacity.secondary))
+                            .accessibilityIdentifier(FeedbackStates.TestId.pending)
+                    }
+                }
                 .contentShape(Circle())
         }
         .buttonStyle(.plain)
-        .disabled(!enabled)
+        .disabled(!enabled || pending)
         .accessibilityLabel(accessibilityLabel)
+        .pendingDelay(pending, shown: $showsSpinner)
     }
 }
 

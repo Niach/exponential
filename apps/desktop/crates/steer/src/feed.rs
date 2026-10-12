@@ -181,6 +181,10 @@ pub enum FeedKind {
         /// created, the PR it opened, `N results`). Plumbed and stored in
         /// phase 1; the custom rendering is a later one.
         preview: Option<crate::frames::ToolPreview>,
+        /// EXP-1279: a `script` call's log (the calls its script made, the
+        /// script itself), as its settle published it. `None` until then,
+        /// and for every other kind.
+        script: Option<crate::frames::ScriptLog>,
     },
     UserMessage {
         text: String,
@@ -1190,6 +1194,7 @@ impl SteerFeed {
                     diff: None,
                     output: None,
                     preview: None,
+                    script: None,
                 });
             }
             // EXP-785/786: folded INTO the tool row with that call id — the
@@ -1202,6 +1207,7 @@ impl SteerFeed {
                 diff: patch,
                 output: printed,
                 preview: settled_preview,
+                script: settled_script,
                 ..
             } => {
                 let Some(item) = self.items.iter_mut().rev().find(|item| {
@@ -1216,6 +1222,7 @@ impl SteerFeed {
                     diff,
                     output,
                     preview,
+                    script,
                     ..
                 } = &mut item.kind
                 {
@@ -1237,6 +1244,10 @@ impl SteerFeed {
                         settled_preview.filter(|preview| !preview.is_empty())
                     {
                         *preview = Some(settled_preview);
+                    }
+                    // EXP-1279: same rule for a script's log.
+                    if let Some(settled_script) = settled_script {
+                        *script = Some(settled_script);
                     }
                 }
                 let after = item_bytes(&item.kind);
@@ -1819,6 +1830,7 @@ fn item_bytes(kind: &FeedKind) -> usize {
             detail,
             diff,
             output,
+            script,
             ..
         } => {
             name.len()
@@ -1826,6 +1838,8 @@ fn item_bytes(kind: &FeedKind) -> usize {
                 + diff.as_ref().map_or(0, String::len)
                 // EXP-895: the folded command output weighs too.
                 + output.as_ref().map_or(0, String::len)
+                // EXP-1279: and a script's log.
+                + script.as_ref().map_or(0, crate::frames::ScriptLog::weight)
         }
         FeedKind::Permission { tool, detail } => {
             tool.len() + detail.as_ref().map_or(0, String::len)
@@ -3021,8 +3035,54 @@ mod tests {
                 diff: None,
                 output: None,
                 preview: None,
+                script: None,
             }
         );
+    }
+
+    /// EXP-1279: a script's log folds into its tool row on the settle and
+    /// weighs in the byte budget; an update without one keeps it.
+    #[test]
+    fn a_script_log_folds_into_its_tool_row() {
+        let mut feed = SteerFeed::new();
+        feed.apply(ActivityEvent::Tool {
+            name: "mcp__codemode__exec".into(),
+            detail: None,
+            id: Some("tc-s".into()),
+            tool_kind: Some(ToolKind::Script),
+            subagent_id: None,
+            at: None,
+        });
+        let before = feed.bytes;
+        let log = crate::frames::ScriptLog {
+            count: Some(1),
+            elapsed_ms: Some(10),
+            calls: vec![crate::frames::ScriptLogCall {
+                tool: "exponential.exponential_issues_get".into(),
+                subject: Some("EXP-1".into()),
+                ok: true,
+                ms: Some(9),
+            }],
+            source: Some("return 1".into()),
+        };
+        feed.apply(ActivityEvent::ToolUpdate {
+            id: "tc-s".into(),
+            status: Some(ToolUpdateStatus::Completed),
+            diff: None,
+            output: None,
+            at: None,
+            preview: None,
+            script: Some(log.clone()),
+        });
+        feed.apply(ActivityEvent::tool_update("tc-s", Some(ToolUpdateStatus::Completed), None));
+        match &feed.items()[0].kind {
+            FeedKind::Tool { script, settled, .. } => {
+                assert!(*settled);
+                assert_eq!(script.as_ref(), Some(&log));
+            }
+            other => panic!("{other:?}"),
+        }
+        assert!(feed.bytes > before, "the log weighs in the budget");
     }
 
     // ── EXP-785/786: tool_update folds into its tool row ─────────────────
@@ -3129,6 +3189,7 @@ mod tests {
         feed.apply(ActivityEvent::ToolUpdate {
             id: "tc-1".into(),
             status: Some(ToolUpdateStatus::Completed),
+            script: None,
             diff: None,
             output: None,
             at: None,
@@ -3143,6 +3204,7 @@ mod tests {
         feed.apply(ActivityEvent::ToolUpdate {
             id: "tc-1".into(),
             status: None,
+            script: None,
             diff: Some("+x\n".into()),
             output: None,
             at: None,
@@ -3153,6 +3215,7 @@ mod tests {
         feed.apply(ActivityEvent::ToolUpdate {
             id: "tc-9".into(),
             status: Some(ToolUpdateStatus::Completed),
+            script: None,
             diff: None,
             output: None,
             at: None,
@@ -3173,6 +3236,7 @@ mod tests {
         feed.apply(ActivityEvent::ToolUpdate {
             id: "tc-1".into(),
             status: Some(ToolUpdateStatus::Completed),
+            script: None,
             diff: None,
             output: Some(printed.into()),
             at: None,
@@ -3191,6 +3255,7 @@ mod tests {
         feed.apply(ActivityEvent::ToolUpdate {
             id: "tc-1".into(),
             status: None,
+            script: None,
             diff: None,
             output: Some("   ".into()),
             at: None,
@@ -4115,6 +4180,7 @@ mod tests {
                 diff: None,
                 output: None,
                 preview: None,
+                script: None,
             },
             seq: None,
         };
@@ -5221,6 +5287,7 @@ mod edit_card_fixture_tests {
                 diff: raw.diff.clone(),
                 output: None,
                 preview: None,
+                script: None,
             },
             "user_message" => FeedKind::UserMessage {
                 text: raw.text.clone().unwrap_or_default(),
@@ -5359,6 +5426,7 @@ mod edit_card_fixture_tests {
                 diff: None,
                 output: None,
                 preview: None,
+                script: None,
             },
             seq: None,
         };
@@ -5457,6 +5525,7 @@ mod exp_tool_group_fixture_tests {
                 diff: None,
                 output: None,
                 preview: None,
+                script: None,
             },
             "user_message" => FeedKind::UserMessage {
                 text: raw.text.clone().unwrap_or_default(),
@@ -5599,6 +5668,7 @@ mod last_tool_line_tests {
                             output: None,
                             preview: (!raw["preview"].is_null())
                                 .then(|| serde_json::from_value(raw["preview"].clone()).unwrap()),
+                            script: None,
                         },
                         _ => FeedKind::Narration {
                             text: text("text").unwrap_or_default(),

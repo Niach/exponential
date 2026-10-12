@@ -930,6 +930,9 @@ impl Render for DialogShell {
         let sheet_layer = Root::render_sheet_layer(window, cx);
         let dialog_layer = Root::render_dialog_layer(window, cx);
         let toast_layer = crate::toast::render_layer(window, cx);
+        // EXP-1275: the BLOCKING wait (team/account switch, sign-out)
+        // paints over everything, the toasts included.
+        let blocking_layer = crate::feedback::Blocking::overlay(cx);
         // EXP-771: the body fill paints to the bottom window edge, so it has
         // to carry the frame's bottom radii itself — same rule (and same
         // reason) as `round_to_frame` on the gradient root below.
@@ -1001,7 +1004,8 @@ impl Render for DialogShell {
                 .child(crate::text_selection_guard::selection_guard())
                 .children(sheet_layer)
                 .children(dialog_layer)
-                .child(toast_layer),
+                .child(toast_layer)
+                .children(blocking_layer),
         )
     }
 }

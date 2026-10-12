@@ -1,7 +1,6 @@
 package com.exponential.app.ui.issue
 
 import com.exponential.app.domain.EmptyStateCopy
-import android.content.Intent
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -53,19 +52,14 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
-import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.core.net.toUri
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.exponential.app.AppConstants
 import com.exponential.app.data.db.BoardEntity
 import com.exponential.app.data.db.IssueEntity
 import com.exponential.app.data.db.LabelEntity
@@ -103,7 +97,6 @@ import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.IssueGraphSheet
 import com.exponential.app.ui.components.LabelDot
-import com.exponential.app.ui.components.LoadingState
 import com.exponential.app.ui.components.LocalBottomBarSuppression
 import com.exponential.app.ui.components.PriorityIcon
 import com.exponential.app.ui.components.StatusIcon
@@ -111,10 +104,8 @@ import com.exponential.app.ui.components.IssueGroupBand
 import com.exponential.app.ui.components.TreeGuidesRow
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.formatDueDate
-import com.exponential.app.ui.gettingstarted.GettingStartedCards
-import com.exponential.app.ui.gettingstarted.GettingStartedEntryKey
-import com.exponential.app.ui.gettingstarted.GettingStartedState
-import com.exponential.app.ui.gettingstarted.GettingStartedViewModel
+import com.exponential.app.ui.gettingstarted.GettingStartedSection
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.domain.TeamLiveRuns
 import com.exponential.app.ui.home.BoardSwitcherSheet
 import com.exponential.app.ui.home.HomeViewModel
@@ -155,12 +146,10 @@ fun IssueListScreen(
     // EXP-686: search left the bottom bar and rides the board header
     // instead.
     onOpenSearch: () -> Unit = {},
-    // EXP-698 r5: the getting-started cards under the two empty states send
-    // the user to the surface each step lives on, plus the empty board's own
-    // "New issue" pill (the compose FAB is hidden behind the empty state).
-    onOpenTeamSettings: () -> Unit = {},
-    onOpenDevices: () -> Unit = {},
-    onOpenActions: () -> Unit = {},
+    // EXP-1270: Getting started's "Start a run" opens the Agent home; the
+    // empty board's own "New issue" pill (the compose FAB is hidden behind
+    // the empty state).
+    onOpenAgentHome: () -> Unit = {},
     onNewIssue: () -> Unit = {},
     // EXP-1075: my LIVE runs grouped by team (AppViewModel.liveRunsByTeam) and
     // the team the app is on — the board switcher SHEET marks the teams with
@@ -249,37 +238,13 @@ fun IssueListScreen(
     // only the Root mount needs them. The mode of a mounted screen never
     // changes, so the conditional composable calls are stable.
     val homeViewModel: HomeViewModel? = if (mode == IssueListMode.Root) hiltViewModel() else null
-    // The checklist is a ROOT affordance (EXP-698 r5): a pushed board is
-    // somewhere you navigated to, not the app's front door.
-    val gettingStartedViewModel: GettingStartedViewModel? =
-        if (mode == IssueListMode.Root) hiltViewModel() else null
-    val gettingStarted = gettingStartedViewModel?.state?.collectAsStateWithLifecycle()?.value
-    val gettingStartedTeamId =
-        gettingStartedViewModel?.selectedTeamId?.collectAsStateWithLifecycle()?.value
-    val instanceOrigin =
-        gettingStartedViewModel?.instanceOrigin?.collectAsStateWithLifecycle()?.value
-    val context = LocalContext.current
-    val clipboard = LocalClipboardManager.current
-    val onGettingStartedAction: (GettingStartedEntryKey) -> Unit = { key ->
-        when (key) {
-            GettingStartedEntryKey.Desktop -> context.startActivity(
-                Intent(Intent.ACTION_VIEW, AppConstants.DESKTOP_RELEASES_URL.toUri()),
-            )
-            // Both the repo connect and the invite link live in team settings;
-            // mobile has no account-level Integrations menu (EXP-180).
-            GettingStartedEntryKey.Github, GettingStartedEntryKey.Invite -> onOpenTeamSettings()
-            GettingStartedEntryKey.Board -> {
-                createBoardTeamId = gettingStartedTeamId
-                showCreateBoard = true
-            }
-            GettingStartedEntryKey.Coding -> onOpenDevices()
-            GettingStartedEntryKey.Action -> onOpenActions()
-            // No resolved origin means no instance to point the daemon at —
-            // copying `EXP_INSTANCE= sh` would hand over a broken command.
-            GettingStartedEntryKey.Server -> instanceOrigin?.let { origin ->
-                clipboard.setText(AnnotatedString(AppConstants.serverInstallSnippet(origin)))
-            }
-        }
+    // EXP-1270: Getting started is a ROOT affordance (a pushed board is
+    // somewhere you navigated to, not the app's front door): the block under
+    // an EMPTY board, its targets bound by [GettingStartedSection].
+    val gettingStarted: (@Composable (Modifier) -> Unit)? = if (mode == IssueListMode.Root) {
+        { modifier -> GettingStartedSection(onOpenAgent = onOpenAgentHome, modifier = modifier, contentPadding = PaddingValues(horizontal = ListGutter)) }
+    } else {
+        null
     }
     val homeState = homeViewModel?.state?.collectAsStateWithLifecycle()?.value
     val homeError = homeViewModel?.error?.collectAsStateWithLifecycle()?.value
@@ -360,12 +325,12 @@ fun IssueListScreen(
             if (mode == IssueListMode.Root && boardId.isNullOrBlank()) {
                 // No board on this account yet (companion app: boards are
                 // created on web/desktop). When the ACTIVE account already has a
-                // board, the current one is still resolving — show a spinner,
-                // not the empty copy. An active account with only boardless
-                // teams (a fresh account) falls through to the empty state,
-                // never a perpetual spinner.
+                // board, the current one is still resolving — show skeleton
+                // rows (EXP-1275), not the empty copy. An active account with
+                // only boardless teams (a fresh account) falls through to the
+                // empty state, never a perpetual placeholder.
                 if (homeState?.activeAccountHasBoard == true) {
-                    LoadingState()
+                    SkeletonRows(modifier = Modifier.padding(horizontal = ListGutter).padding(top = 4.dp))
                 } else {
                     // Still syncing until the team resolve finishes AND
                     // the boards shape has reached up-to-date at least once —
@@ -427,13 +392,6 @@ fun IssueListScreen(
                                     )
                                 },
                             )
-                            Spacer(Modifier.height(24.dp))
-                            if (gettingStarted != null) {
-                                GettingStartedCards(
-                                    state = gettingStarted,
-                                    onAction = onGettingStartedAction,
-                                )
-                            }
                         }
                     }
                 }
@@ -463,7 +421,6 @@ fun IssueListScreen(
                     },
                     onOpenGraph = { id -> graphIssueId = id },
                     gettingStarted = gettingStarted,
-                    onGettingStartedAction = onGettingStartedAction,
                     onNewIssue = onNewIssue,
                 )
             }
@@ -701,8 +658,7 @@ private fun IssueListContent(
     onOpenGraph: (String) -> Unit,
     // EXP-698 r5: the empty board's own affordances — null on a pushed board,
     // whose empty state is just an empty state.
-    gettingStarted: GettingStartedState?,
-    onGettingStartedAction: (GettingStartedEntryKey) -> Unit,
+    gettingStarted: (@Composable (Modifier) -> Unit)?,
     onNewIssue: () -> Unit,
 ) {
     val usersById = remember(state.users) { state.users.associateBy { it.id } }
@@ -710,9 +666,9 @@ private fun IssueListContent(
     // EXP-1115: nothing to show until the issues shape has snapshotted at
     // least once — a full resync (or a fresh install) would otherwise flash
     // "No issues yet" plus the getting-started checklist for as long as the
-    // snapshot takes. A spinner, like the root's board-resolving state.
+    // snapshot takes. EXP-1275: skeleton rows in the issue row's geometry.
     if (state.groups.isEmpty() && !state.issuesSynced) {
-        LoadingState()
+        SkeletonRows(modifier = Modifier.padding(horizontal = ListGutter).padding(top = 4.dp))
         return
     }
 
@@ -749,13 +705,7 @@ private fun IssueListContent(
             }
             if (gettingStarted != null) {
                 item(key = "getting-started") {
-                    GettingStartedCards(
-                        state = gettingStarted,
-                        onAction = onGettingStartedAction,
-                        modifier = Modifier
-                            .padding(horizontal = ListGutter)
-                            .padding(top = 20.dp),
-                    )
+                    gettingStarted(Modifier.padding(top = 20.dp))
                 }
             }
         } else {

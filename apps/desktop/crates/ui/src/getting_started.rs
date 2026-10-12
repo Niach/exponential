@@ -1,300 +1,386 @@
-//! "Getting started" checklist page (EXP-470, aligned with the web in
-//! EXP-548) — the desktop mirror of the web checklist
-//! (`apps/web/src/components/getting-started/`), rendered as a tab-less
-//! full-page center screen ([`crate::navigation::Screen::GettingStarted`],
-//! the Actions page recipe) behind a rail entry that sits at the BOTTOM of
-//! the rail (the web sidebar-footer position), right above Settings/Account.
+//! Getting started (EXP-1270, EXP-1259 D6) — the desktop mirror of the ONE
+//! block the contract `packages/domain-contract/fixtures/getting-started.json`
+//! specifies ×4: a header row (title, the muted `{done} of {total}`, a
+//! progress meter, a trailing Docs button) over ONE row of square step cards
+//! that scrolls sideways when the column is narrower than its cards.
 //!
-//! Same entries, same order, same role gating, same lock chain and the same
-//! titles/descriptions as the web (`getting-started-model.ts` +
-//! `getting-started-cards.tsx`): desktop → github → invite → board → coding →
-//! action → server → widget → mcp. Only the CTAs differ where the
-//! platform must (a dialog instead of a route; owner-only web settings pages
-//! open in the browser). `derive_entries` is the byte-for-byte mirror of the
-//! web `deriveEntryStates` — change both together.
+//! [`derive_getting_started`] is the pure model (web `deriveGettingStarted`),
+//! replayed against every fixture case below. The block shows under the empty
+//! board's empty state and the no-board team center ([`inline_cards`]), on
+//! the Agent home while the team has no board, and behind the rail's
+//! "Getting started" entry, which opens it in a centred dialog
+//! ([`open_dialog`]). It disappears once `complete`.
 //!
-//! Signals: boards / coding sessions / actions / members / invites are live
-//! synced collections; the GitHub install
-//! state, the device registry, the owner-only widget list and the MCP
-//! grant/key pair are tRPC one-shots. They live in ONE app-global
-//! [`GettingStartedProgress`] entity shared by the rail entry and the page,
-//! polled at the MachinesSection cadence while the page is up and slowly
-//! otherwise, and not at all once the checklist is complete.
-//!
-//! EXP-686: the page carries a second tab — "Suggested actions", the curated
-//! seed rows that used to live on the Actions page. The active tab rides the
-//! SCREEN ([`Screen::GettingStarted`]), so the Actions header's
-//! lightbulb navigates straight into it and it survives go-back / tab
-//! restore. It is deliberately NOT a checklist entry: no new `EntryKey`, and
-//! `ENTRY_TITLES`/`ENTRY_DESCRIPTIONS` stay byte-equal with the web.
-//!
-//! There is NO dismissal (EXP-548) and, since EXP-697, no auto-hide either:
-//! the rail entry stays for good once the one-shots have answered (the web
-//! rule is `loading` alone now), and a complete checklist no longer evicts
-//! the page. Nothing persists a "hidden" flag on either side — the EXP-470
-//! `gettingStartedDismissedAt` stamp was deleted in EXP-589.
+//! Signals: boards / coding sessions / members / invites / devices are live
+//! synced collections; the GitHub install state, the owner-only widget list
+//! and the MCP grant/key pair are tRPC one-shots. They live in ONE app-global
+//! [`GettingStartedProgress`] entity shared by every surface, polled fast
+//! while the dialog is up and slowly otherwise, and not at all once complete.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
-    div, px, relative, App, AppContext as _, ClickEvent, ClipboardItem, Entity, FontWeight, Global,
-    InteractiveElement as _, IntoElement, ParentElement, Render, ScrollHandle, SharedString,
+    div, px, relative, size, App, AppContext as _, ClickEvent, Entity, FontWeight, Global,
+    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::{Button, ButtonVariants as _},
-    h_flex, v_flex, ActiveTheme as _, Icon, Sizable as _,
+    button::Button,
+    h_flex, v_flex, ActiveTheme as _, Icon,
 };
 use sync::Store;
+use theme::tokens as t;
 
-use crate::surface::glass_section_header;
 use crate::controls::WebControl as _;
-use crate::icons::registry;
-use crate::navigation::{
-    active_team_id, nav_for_window, resolved_screen, set_screen, GettingStartedTab, Navigation,
-    Screen,
-};
+use crate::icons::{registry, ExpIcon};
+use crate::navigation::{active_team_id, nav_for_window, Navigation};
+use crate::native_dialog::{self, DialogContent, DialogSpec};
 use crate::queries;
 
-/// MachinesSection cadence while the page is visible: often enough that "I
-/// just connected GitHub / ran the server one-liner" lands while the user is
-/// looking.
-const PAGE_POLL_INTERVAL: Duration = Duration::from_secs(15);
-/// Background cadence for the rail entry alone (the web fires once + on
-/// window focus; a slow poll is the desktop's equivalent).
+/// Cadence while the dialog is up: often enough that "I just connected
+/// GitHub / ran the server one-liner" lands while the user is looking.
+const DIALOG_POLL_INTERVAL: Duration = Duration::from_secs(15);
+/// Background cadence for the rail entry and the inline block.
 const RAIL_POLL_INTERVAL: Duration = Duration::from_secs(60);
-/// A page render this recent means the page is up.
+/// A dialog render this recent means the dialog is up.
 const VISIBLE_GRACE: Duration = Duration::from_secs(40);
 
-/// The docs page behind the MCP entry (web: `docsUrl('mcp')`).
-const MCP_DOCS_URL: &str = "https://exponential.at/docs/mcp/";
-
-/// EXP-698 round 5 — the checklist COPY, one place per platform and
-/// byte-identical across all four (web `getting-started-copy.ts`, iOS
-/// `GettingStartedCopy.swift`, Android `GettingStartedCopy.kt`; the web test
-/// `getting-started-copy.test.ts` reads THIS file and asserts every literal).
-///
-/// Rules the drift test depends on: ONE single-line literal per constant, no
-/// escapes, no `"` inside a string, ASCII only. The `mcp` entry has no shared
-/// action label — the desktop hands out the endpoint + docs instead.
+/// The device-setup block's words (EXP-1169) that started life on the old
+/// checklist: the desktop and server cards of [`crate::device_setup`] still
+/// read them, byte-identical with web `GETTING_STARTED_COPY`.
 pub(crate) mod copy {
     pub const DESKTOP_TITLE: &str = "Get the desktop app";
     pub const DESKTOP_DESCRIPTION: &str = "Runs agents on your machine and registers it as one of your devices.";
-    /// The IDE's getting-started list has no desktop entry (it IS the
-    /// desktop app); the Add device dialog's desktop card labels its
-    /// download button with it (EXP-1169).
+    /// The Add device dialog's desktop card labels its download button with
+    /// it (EXP-1169).
     pub const DESKTOP_ACTION: &str = "Download the desktop app";
-
-    pub const GITHUB_TITLE: &str = "Connect a GitHub repo";
-    pub const GITHUB_DESCRIPTION: &str = "Boards attach repositories; pull requests and runs flow back into issues.";
-    pub const GITHUB_ACTION: &str = "Connect GitHub";
-
-    pub const INVITE_TITLE: &str = "Invite your team";
-    pub const INVITE_DESCRIPTION: &str = "Teammates share boards, reviews, and the inbox.";
-    pub const INVITE_ACTION: &str = "Invite in team settings";
-
-    pub const BOARD_TITLE: &str = "Create a board";
-    pub const BOARD_DESCRIPTION: &str = "Boards hold your issues; connect a repository to code on one.";
-    pub const BOARD_ACTION: &str = "Create a board";
-
-    pub const CODING_TITLE: &str = "Start coding with an agent";
-    pub const CODING_DESCRIPTION: &str = "Start coding on an issue hands it to your agent, which plans, implements, and opens the PR.";
-    pub const CODING_ACTION: &str = "Open Devices";
-
-    pub const ACTION_TITLE: &str = "Create an action";
-    pub const ACTION_DESCRIPTION: &str = "Reusable agent runs for your team, written by your agent from a description.";
-    pub const ACTION_ACTION: &str = "New action";
 
     pub const SERVER_TITLE: &str = "Set up a server";
     pub const SERVER_DESCRIPTION: &str = "Run the headless daemon on an always-on machine to take remote Start coding requests.";
-    pub const SERVER_ACTION: &str = "Copy install command";
-
-    pub const WIDGET_TITLE: &str = "Set up the feedback widget";
-    pub const WIDGET_DESCRIPTION: &str = "Visitors report bugs with an annotated screenshot; each lands here as an issue.";
-    pub const WIDGET_ACTION: &str = "Set up in team settings";
-
-    pub const MCP_TITLE: &str = "Connect your tools via MCP";
-    pub const MCP_DESCRIPTION: &str = "Work with issues, boards, and comments from Claude, Cursor, or any MCP client.";
 }
 
 // ---------------------------------------------------------------------------
-// Pure model (mirrors web `deriveEntryStates`; unit-tested)
+// The contract (getting-started.json; locked by the tests below)
 // ---------------------------------------------------------------------------
 
+pub(crate) const TITLE: &str = "Getting started";
+pub(crate) const DOCS_LABEL: &str = "Docs";
+/// The Docs button's icon concept.
+pub(crate) const DOCS_ICON: &str = "ui-docs";
+pub(crate) const DOCS_URL: &str = "https://exponential.at/docs/getting-started/";
+/// The progress meter's width.
+pub(crate) const METER_W: f32 = 160.;
+pub(crate) const CARD_W: f32 = 104.;
+pub(crate) const CARD_H: f32 = 112.;
+pub(crate) const CARD_PADDING: f32 = 12.;
+pub(crate) const CARD_ICON: f32 = 16.;
+pub(crate) const CARD_GAP: f32 = 8.;
+
+/// `progress`: `{done} of {total}`.
+pub(crate) fn progress_label(done: usize, total: usize) -> String {
+    format!("{done} of {total}")
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum EntryKey {
-    Desktop,
-    Github,
-    Invite,
+pub(crate) enum StepKey {
     Board,
-    Coding,
-    Action,
+    Github,
+    Device,
+    Run,
+    Invite,
     Server,
-    Widget,
     Mcp,
+    Widget,
+}
+
+impl StepKey {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            StepKey::Board => "board",
+            StepKey::Github => "github",
+            StepKey::Device => "device",
+            StepKey::Run => "run",
+            StepKey::Invite => "invite",
+            StepKey::Server => "server",
+            StepKey::Mcp => "mcp",
+            StepKey::Widget => "widget",
+        }
+    }
+}
+
+/// What a card click runs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Target {
+    CreateBoard,
+    Github,
+    AddDevice,
+    Agent,
+    Invite,
+    AddServer,
+    Mcp,
+    Widget,
+}
+
+impl Target {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Target::CreateBoard => "create-board",
+            Target::Github => "github",
+            Target::AddDevice => "add-device",
+            Target::Agent => "agent",
+            Target::Invite => "invite",
+            Target::AddServer => "add-server",
+            Target::Mcp => "mcp",
+            Target::Widget => "widget",
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum EntryState {
-    Done,
-    Available,
-    Locked,
+pub(crate) enum Platform {
+    Pointer,
+    Phone,
 }
 
-/// Web `GettingStartedSignals`, field for field.
+/// A step's `visibleWhen`: the permission that shows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Permission {
+    CanManageMembers,
+    CanManageWidgets,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Step {
+    pub key: StepKey,
+    pub title: &'static str,
+    /// The icon CONCEPT (`registry::concept_by_name`).
+    pub icon: &'static str,
+    pub target: Target,
+    pub needs_device: bool,
+    pub visible_when: Option<Permission>,
+    pub phones: bool,
+    /// The fixture's `doneWhen`, verbatim; [`step_done`] evaluates it.
+    pub done_when: &'static str,
+}
+
+/// The eight steps, in contract order.
+pub(crate) const STEPS: [Step; 8] = [
+    Step {
+        key: StepKey::Board,
+        title: "Create a board",
+        icon: "ui-folder",
+        target: Target::CreateBoard,
+        needs_device: false,
+        visible_when: None,
+        phones: true,
+        done_when: "hasBoard",
+    },
+    Step {
+        key: StepKey::Github,
+        title: "Connect GitHub",
+        icon: "ui-github",
+        target: Target::Github,
+        needs_device: false,
+        visible_when: None,
+        phones: true,
+        done_when: "githubInstalled",
+    },
+    Step {
+        key: StepKey::Device,
+        title: "Add a device",
+        icon: "ui-device",
+        target: Target::AddDevice,
+        needs_device: false,
+        visible_when: None,
+        phones: true,
+        done_when: "hasDesktopDevice || hasServerDevice",
+    },
+    Step {
+        key: StepKey::Run,
+        title: "Start a run",
+        icon: "action-run",
+        target: Target::Agent,
+        needs_device: true,
+        visible_when: None,
+        phones: true,
+        done_when: "hasCodingSession",
+    },
+    Step {
+        key: StepKey::Invite,
+        title: "Invite your team",
+        icon: "ui-invite",
+        target: Target::Invite,
+        needs_device: false,
+        visible_when: Some(Permission::CanManageMembers),
+        phones: true,
+        done_when: "hasInvitedTeam",
+    },
+    Step {
+        key: StepKey::Server,
+        title: "Set up a server",
+        icon: "ui-server",
+        target: Target::AddServer,
+        needs_device: false,
+        visible_when: None,
+        phones: true,
+        done_when: "hasServerDevice",
+    },
+    Step {
+        key: StepKey::Mcp,
+        title: "Connect your tools",
+        icon: "ui-mcp",
+        target: Target::Mcp,
+        needs_device: false,
+        visible_when: None,
+        phones: false,
+        done_when: "mcpConnected",
+    },
+    Step {
+        key: StepKey::Widget,
+        title: "Feedback widget",
+        icon: "ui-widget",
+        target: Target::Widget,
+        needs_device: false,
+        visible_when: Some(Permission::CanManageWidgets),
+        phones: false,
+        done_when: "hasWidget",
+    },
+];
+
+/// A concept name's glyph (every name here is locked to the registry by
+/// the tests below).
+fn concept(name: &str) -> ExpIcon {
+    registry::concept_by_name(name).unwrap_or(registry::UI_DOCS)
+}
+
+pub(crate) fn step(key: StepKey) -> &'static Step {
+    STEPS
+        .iter()
+        .find(|step| step.key == key)
+        .expect("every key has a step")
+}
+
+/// The fixture's `signals`, field for field.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Signals {
-    /// The synced `devices` shape (own rows) has a desktop-kind device —
-    /// this IDE registers itself on sign-in, so this is normally true here.
+    pub has_board: bool,
+    pub github_installed: bool,
+    /// The synced `devices` shape (own rows) has a desktop-kind device.
     pub has_desktop_device: bool,
     /// The synced `devices` shape (own rows) has a server-kind device.
     pub has_server_device: bool,
-    /// integrations.github.status → installed.
-    pub github_installed: bool,
-    /// members ≥ 2 or any invite row — proof the team was shared.
-    pub has_invited_team: bool,
-    pub has_board: bool,
-    pub has_repo_board: bool,
     /// Any coding_sessions row in the team (running or ended).
     pub has_coding_session: bool,
-    /// Any synced `actions` row in the team (the builtins are not rows).
-    pub has_action: bool,
-    /// widgets.list non-empty (owner-only signal).
-    pub has_widget: bool,
+    /// members ≥ 2 or any invite row — proof the team was shared.
+    pub has_invited_team: bool,
     /// An MCP OAuth grant exists OR the user holds a personal API key.
     pub mcp_connected: bool,
+    /// widgets.list non-empty (owner-only signal).
+    pub has_widget: bool,
 }
 
-/// Web `deriveEntryStates` options: which role-gated entries the viewer
-/// sees. On the server all three are the owner role; kept as three flags so
-/// the mirror stays field-for-field.
+impl Signals {
+    fn has_device(&self) -> bool {
+        self.has_desktop_device || self.has_server_device
+    }
+}
+
+/// The fixture's `permissions`.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct Gates {
-    pub can_manage_widgets: bool,
-    pub is_owner: bool,
+pub(crate) struct Permissions {
     pub can_manage_members: bool,
+    pub can_manage_widgets: bool,
 }
 
-impl Gates {
+impl Permissions {
+    /// The IDE's role gate: both surfaces are owner-only.
     pub(crate) fn for_role(is_owner: bool) -> Self {
         Self {
-            can_manage_widgets: is_owner,
-            is_owner,
             can_manage_members: is_owner,
+            can_manage_widgets: is_owner,
         }
+    }
+
+    fn allows(&self, permission: Permission) -> bool {
+        match permission {
+            Permission::CanManageMembers => self.can_manage_members,
+            Permission::CanManageWidgets => self.can_manage_widgets,
+        }
+    }
+}
+
+/// A step's `doneWhen`.
+pub(crate) fn step_done(key: StepKey, signals: &Signals) -> bool {
+    match key {
+        StepKey::Board => signals.has_board,
+        StepKey::Github => signals.github_installed,
+        StepKey::Device => signals.has_device(),
+        StepKey::Run => signals.has_coding_session,
+        StepKey::Invite => signals.has_invited_team,
+        StepKey::Server => signals.has_server_device,
+        StepKey::Mcp => signals.mcp_connected,
+        StepKey::Widget => signals.has_widget,
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct Entry {
-    pub key: EntryKey,
-    pub state: EntryState,
-    /// For locked entries: the step whose completion unlocks this one.
-    pub locked_by: Option<EntryKey>,
+    pub key: StepKey,
+    pub done: bool,
+    /// The step's target, or `add-device` for a `needsDevice` step while no
+    /// device exists.
+    pub target: Target,
+    /// The first open step: the highlighted card.
+    pub next: bool,
 }
 
-/// Web `deriveEntryStates`, statement for statement. Static order desktop →
-/// github → invite → board → coding → action → server → widget → mcp;
-/// completion always wins over locking (a signal that exists proves the
-/// prereq was satisfiable); invite is for `can_manage_members`, action for
-/// owners, widget for `can_manage_widgets` — the others neither see those
-/// entries nor count them in the total. (SLOP-4: the helpdesk step is gone.)
-pub(crate) fn derive_entries(signals: &Signals, gates: Gates) -> Vec<Entry> {
-    let simple = |key, done| Entry {
-        key,
-        state: if done {
-            EntryState::Done
-        } else {
-            EntryState::Available
-        },
-        locked_by: None,
-    };
-    let mut entries = Vec::with_capacity(9);
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct Model {
+    pub entries: Vec<Entry>,
+    pub done: usize,
+    pub total: usize,
+    pub progress: String,
+    pub complete: bool,
+}
 
-    entries.push(simple(EntryKey::Desktop, signals.has_desktop_device));
-    entries.push(simple(EntryKey::Github, signals.github_installed));
-    if gates.can_manage_members {
-        entries.push(simple(EntryKey::Invite, signals.has_invited_team));
-    }
-    entries.push(simple(EntryKey::Board, signals.has_board));
-
-    // Coding needs a repo-backed board and a machine to run on; when locked,
-    // point at whichever feeder step is still missing, in display order.
-    let has_device = signals.has_desktop_device || signals.has_server_device;
-    entries.push(if signals.has_coding_session {
-        simple(EntryKey::Coding, true)
-    } else if signals.has_repo_board && has_device {
-        simple(EntryKey::Coding, false)
-    } else {
-        Entry {
-            key: EntryKey::Coding,
-            state: EntryState::Locked,
-            locked_by: Some(if !has_device {
-                EntryKey::Desktop
-            } else if signals.github_installed {
-                EntryKey::Board
+/// Web `deriveGettingStarted`: the visible steps in contract order (a
+/// `visibleWhen` permission the viewer lacks or a `phones: false` step on a
+/// phone drops out), each with its done flag and click target, the first
+/// open one marked `next`.
+pub(crate) fn derive_getting_started(
+    signals: &Signals,
+    permissions: Permissions,
+    platform: Platform,
+) -> Model {
+    let mut entries: Vec<Entry> = STEPS
+        .iter()
+        .filter(|step| step.visible_when.is_none_or(|p| permissions.allows(p)))
+        .filter(|step| platform == Platform::Pointer || step.phones)
+        .map(|step| Entry {
+            key: step.key,
+            done: step_done(step.key, signals),
+            target: if step.needs_device && !signals.has_device() {
+                Target::AddDevice
             } else {
-                EntryKey::Github
-            }),
-        }
-    });
-
-    // Actions are authored by the builtin creator run, which — like any
-    // coding session — needs a machine; the desktop step is the feeder.
-    if gates.is_owner {
-        entries.push(if signals.has_action {
-            simple(EntryKey::Action, true)
-        } else if has_device {
-            simple(EntryKey::Action, false)
-        } else {
-            Entry {
-                key: EntryKey::Action,
-                state: EntryState::Locked,
-                locked_by: Some(EntryKey::Desktop),
-            }
-        });
+                step.target
+            },
+            next: false,
+        })
+        .collect();
+    if let Some(next) = entries.iter_mut().find(|entry| !entry.done) {
+        next.next = true;
     }
-
-    entries.push(simple(EntryKey::Server, signals.has_server_device));
-
-    if gates.can_manage_widgets {
-        entries.push(if signals.has_widget {
-            simple(EntryKey::Widget, true)
-        } else if signals.has_board {
-            simple(EntryKey::Widget, false)
-        } else {
-            Entry {
-                key: EntryKey::Widget,
-                state: EntryState::Locked,
-                locked_by: Some(EntryKey::Board),
-            }
-        });
+    let done = entries.iter().filter(|entry| entry.done).count();
+    let total = entries.len();
+    Model {
+        entries,
+        done,
+        total,
+        progress: progress_label(done, total),
+        complete: total > 0 && done == total,
     }
-
-    entries.push(simple(EntryKey::Mcp, signals.mcp_connected));
-    entries
-}
-
-/// EXP-818: what THIS app shows of the shared list — everything but the
-/// "Get the desktop app" step: this IDE is the desktop app, the step
-/// completes on its own the moment the device registers, and a checklist
-/// telling the desktop app to get the desktop app read as a bug. The shared
-/// `derive_entries` stays the byte-for-byte web mirror (the copy constants
-/// stay too — the drift test reads them); only the IDE's view drops the
-/// row, so steps number from the GitHub one.
-pub(crate) fn ide_entries(entries: Vec<Entry>) -> Vec<Entry> {
-    entries
-        .into_iter()
-        .filter(|entry| entry.key != EntryKey::Desktop)
-        .collect()
-}
-
-/// Web `isGettingStartedComplete`: every visible entry done (an empty list is
-/// never complete).
-pub(crate) fn is_complete(entries: &[Entry]) -> bool {
-    !entries.is_empty() && entries.iter().all(|entry| entry.state == EntryState::Done)
 }
 
 // ---------------------------------------------------------------------------
@@ -309,22 +395,25 @@ struct TeamAnswers {
     has_widget: Option<bool>,
 }
 
-/// One derived snapshot for a team — what the rail and the page render.
+/// One derived snapshot for a team — what every surface renders.
 #[derive(Clone, Debug)]
 pub(crate) struct Snapshot {
-    /// Some signal source has not answered yet — the rail stays hidden, the
-    /// page renders neutral (web `loading`).
+    /// Some signal source has not answered yet: nothing renders (an empty
+    /// state must not flash a half-answered block).
     pub loading: bool,
-    pub entries: Vec<Entry>,
-    pub done: usize,
-    pub total: usize,
-    /// Every visible entry done — never true while loading (web `complete`).
-    pub complete: bool,
+    pub model: Model,
+}
+
+impl Snapshot {
+    /// Never complete while loading.
+    pub(crate) fn complete(&self) -> bool {
+        !self.loading && self.model.complete
+    }
 }
 
 pub struct GettingStartedProgress {
     /// Team-keyed so a switch back is instant; a team's own answers never
-    /// leak to another (the web hook has the identical guard).
+    /// leak to another.
     teams: HashMap<String, TeamAnswers>,
     /// mcpGrants.hasAny || personal keys > 0; `None` until answered.
     mcp_connected: Option<bool>,
@@ -335,8 +424,8 @@ pub struct GettingStartedProgress {
     inflight: bool,
     last_fetch_at: Option<Instant>,
     polling: bool,
-    /// Last render of the full page — picks the poll cadence.
-    page_rendered: Option<Instant>,
+    /// Last render of the dialog — picks the poll cadence.
+    dialog_rendered: Option<Instant>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -350,9 +439,9 @@ impl GettingStartedProgress {
         }
         let store = Store::global(cx).clone();
         let entity = cx.new(|cx| {
-            // Coarse-grained on purpose: the checklist reads six collections
-            // and derives a handful of booleans; observers of THIS entity
-            // (rail, page) re-render on any of them.
+            // Coarse-grained on purpose: the block reads a handful of
+            // collections and derives booleans; observers of THIS entity
+            // re-render on any of them.
             let subscriptions = store.observe_collections(cx);
             GettingStartedProgress {
                 teams: HashMap::new(),
@@ -362,7 +451,7 @@ impl GettingStartedProgress {
                 inflight: false,
                 last_fetch_at: None,
                 polling: false,
-                page_rendered: None,
+                dialog_rendered: None,
                 _subscriptions: subscriptions,
             }
         });
@@ -371,32 +460,27 @@ impl GettingStartedProgress {
     }
 
     /// Ask for `team_id`'s signals: fetches right away on a team change and
-    /// (re)starts the poll loop unless the checklist is already complete.
-    /// Called from every rail render (cheap: a HashMap lookup) — rendering IS
-    /// the liveness signal, like MachinesSection.
-    fn ensure(&mut self, team_id: &str, from_page: bool, cx: &mut gpui::Context<Self>) {
-        if from_page {
-            self.page_rendered = Some(Instant::now());
+    /// (re)starts the poll loop unless the block is already complete.
+    /// Rendering IS the liveness signal, like MachinesSection.
+    fn ensure(&mut self, team_id: &str, from_dialog: bool, cx: &mut gpui::Context<Self>) {
+        if from_dialog {
+            self.dialog_rendered = Some(Instant::now());
         }
         let team_changed = self.wanted_team.as_deref() != Some(team_id);
         if team_changed {
             self.wanted_team = Some(team_id.to_string());
         }
-        // Nothing left to detect once every entry is done — and every
-        // signal is one-way in practice, so the loop simply ends. A later
-        // regression (a trashed board, a removed device) re-renders the rail
-        // through the collection observers and restarts it here.
+        // Nothing left to detect once every step is done; a later regression
+        // (a trashed board, a removed device) re-renders through the
+        // collection observers and restarts it here.
         let snapshot = self.snapshot(team_id, cx);
-        if snapshot.complete {
+        if snapshot.complete() {
             return;
         }
         // Fetch now on a team change / a fresh start, and ALSO while still
         // loading with nothing in flight — the first round may have run
-        // before the session or the viewer's member row was there (owners
-        // only get `widgets.list` once their role is known), and waiting a
-        // whole rail tick would keep the entry hidden that long. Renders
-        // arrive on every collection change, so the throttle keeps this from
-        // hammering while a query legitimately fails.
+        // before the session or the viewer's member row was there. The
+        // throttle keeps a failing query from hammering.
         let stale = self
             .last_fetch_at
             .is_none_or(|at| at.elapsed() > Duration::from_secs(3));
@@ -416,10 +500,10 @@ impl GettingStartedProgress {
                 let interval = this
                     .read_with(cx, |this, _| {
                         if this
-                            .page_rendered
+                            .dialog_rendered
                             .is_some_and(|at| at.elapsed() < VISIBLE_GRACE)
                         {
-                            PAGE_POLL_INTERVAL
+                            DIALOG_POLL_INTERVAL
                         } else {
                             RAIL_POLL_INTERVAL
                         }
@@ -430,7 +514,7 @@ impl GettingStartedProgress {
                     let team = this.wanted_team.clone();
                     let complete = team
                         .as_deref()
-                        .is_some_and(|team| this.snapshot(team, cx).complete);
+                        .is_some_and(|team| this.snapshot(team, cx).complete());
                     if complete || queries::active_account(cx).is_none() {
                         this.polling = false;
                         return false;
@@ -480,8 +564,8 @@ impl GettingStartedProgress {
                 }
                 this.inflight = false;
                 let (github, widgets, grants, keys) = result;
-                // Web parity: both halves best-effort, a failure counts as
-                // "no" for that half (checklist hint, not access control).
+                // Both halves best-effort, a failure counts as "no" for that
+                // half (a setup hint, not access control).
                 let has_grant = grants.unwrap_or_else(|err| {
                     log::warn!("[ui] getting-started mcpGrants.hasAny failed: {err}");
                     false
@@ -514,8 +598,7 @@ impl GettingStartedProgress {
 
     /// EXP-485: the device signals come off the SYNCED `devices` shape —
     /// `(desktop, server)` among the signed-in user's OWN rows, `None` while
-    /// the shape is still Waiting so the checklist stays neutral exactly as
-    /// it did while the tRPC list was unanswered.
+    /// the shape is still Waiting.
     fn device_kinds(cx: &App) -> Option<(bool, bool)> {
         let collections = Store::global(cx).collections();
         let devices = collections.devices.read(cx);
@@ -540,17 +623,12 @@ impl GettingStartedProgress {
 
     fn signals(&self, team_id: &str, cx: &App) -> Signals {
         let collections = Store::global(cx).collections();
-        let boards = collections.boards_in_team(team_id, cx);
+        let has_board = !collections.boards_in_team(team_id, cx).is_empty();
         let has_coding_session = collections
             .coding_sessions
             .read(cx)
             .iter()
             .any(|session| session.team_id.as_deref() == Some(team_id));
-        let has_action = collections
-            .actions
-            .read(cx)
-            .iter()
-            .any(|action| action.team_id.as_deref() == Some(team_id));
         let members = collections
             .team_members
             .read(cx)
@@ -566,56 +644,43 @@ impl GettingStartedProgress {
         let (has_desktop_device, has_server_device) =
             Self::device_kinds(cx).unwrap_or((false, false));
         Signals {
+            has_board,
+            github_installed: answers.and_then(|a| a.github_installed) == Some(true),
             has_desktop_device,
             has_server_device,
-            github_installed: answers.and_then(|a| a.github_installed) == Some(true),
-            has_invited_team: members >= 2 || has_invite,
-            has_board: !boards.is_empty(),
-            has_repo_board: boards.iter().any(|board| board.repository_id.is_some()),
             has_coding_session,
-            has_action,
-            has_widget: answers.and_then(|a| a.has_widget) == Some(true),
+            has_invited_team: members >= 2 || has_invite,
             mcp_connected: self.mcp_connected == Some(true),
+            has_widget: answers.and_then(|a| a.has_widget) == Some(true),
         }
     }
 
-    /// Derive the team's entries + the web `loading`/`complete` pair.
+    /// Derive the team's model + the `loading` flag.
     pub(crate) fn snapshot(&self, team_id: &str, cx: &App) -> Snapshot {
-        let is_owner = crate::settings::is_owner(cx, team_id);
-        let gates = Gates::for_role(is_owner);
-        let signals = self.signals(team_id, cx);
-        let entries = ide_entries(derive_entries(&signals, gates));
+        let permissions = Permissions::for_role(crate::settings::is_owner(cx, team_id));
+        let model = derive_getting_started(
+            &self.signals(team_id, cx),
+            permissions,
+            Platform::Pointer,
+        );
         let answers = self.teams.get(team_id);
-        // Neutral until every signal source has answered — checks/locks that
-        // pop in one by one read as state changes, not loading. Membership
-        // must have synced too (`is_owner` is transiently false before the
-        // viewer's own row lands, exactly the web `resolved` guard).
+        // Nothing until every signal source has answered — checks that pop
+        // in one by one read as state changes. Membership must have synced
+        // too (`is_owner` is transiently false before the viewer's own row
+        // lands).
         let membership_resolved = crate::settings::my_membership(cx, team_id).is_some();
         let loading = !membership_resolved
             || Self::device_kinds(cx).is_none()
             || self.mcp_connected.is_none()
             || answers.and_then(|a| a.github_installed).is_none()
-            || (gates.can_manage_widgets && answers.and_then(|a| a.has_widget).is_none());
-        let done = entries
-            .iter()
-            .filter(|entry| entry.state == EntryState::Done)
-            .count();
-        let total = entries.len();
-        Snapshot {
-            loading,
-            complete: !loading && is_complete(&entries),
-            entries,
-            done,
-            total,
-        }
+            || (permissions.can_manage_widgets && answers.and_then(|a| a.has_widget).is_none());
+        Snapshot { loading, model }
     }
 }
 
-/// Whether the rail shows the Getting-started entry (the web sidebar rule):
-/// signed in with an active team and the signals answered. EXP-697 dropped the
-/// EXP-548 "hide once every entry is done" clause on both clients — the page
-/// stays reachable for good, and only the initial loading state hides the
-/// entry. Rendering the rail is what keeps the signals fresh.
+/// Whether the rail shows the Getting-started entry: signed in with an
+/// active team, the signals answered and the block not complete. Rendering
+/// the rail is what keeps the signals fresh.
 pub(crate) fn getting_started_visible(nav: &Entity<Navigation>, cx: &mut App) -> bool {
     if queries::active_account(cx).is_none() {
         return false;
@@ -627,1038 +692,414 @@ pub(crate) fn getting_started_visible(nav: &Entity<Navigation>, cx: &mut App) ->
     progress.update(cx, |progress, cx| {
         progress.ensure(&team_id, false, cx);
         let snapshot = progress.snapshot(&team_id, cx);
-        !snapshot.loading
+        !snapshot.loading && !snapshot.complete()
     })
 }
 
 // ---------------------------------------------------------------------------
-// The page view
+// Targets
 // ---------------------------------------------------------------------------
 
-pub struct GettingStartedView {
-    nav: Entity<Navigation>,
-    progress: Entity<GettingStartedProgress>,
-    scroll: ScrollHandle,
-    _subscriptions: Vec<Subscription>,
+/// Run a card's target in `window`. From inside the dialog the dialog closes
+/// first and the target runs in the window that opened it (dialogs never
+/// nest, and a navigation needs the opener's screens).
+fn run_target(target: Target, team_id: String, window: &mut Window, cx: &mut App) {
+    let in_dialog =
+        native_dialog::opener_of_window(window.window_handle().window_id(), cx).is_some();
+    if in_dialog {
+        native_dialog::close_then(window, cx, move |window, cx| {
+            run_target_here(target, team_id, window, cx)
+        });
+    } else {
+        run_target_here(target, team_id, window, cx);
+    }
 }
 
-impl GettingStartedView {
-    pub fn new(window: &mut Window, cx: &mut gpui::Context<Self>) -> Self {
-        let nav = nav_for_window(window, cx);
-        let progress = GettingStartedProgress::global(cx);
-        let subscriptions = vec![
-            cx.observe(&nav, |_, _, cx| cx.notify()),
-            // The progress entity already re-notifies on every collection
-            // change, so this one observer covers live + one-shot signals.
-            cx.observe(&progress, |_, _, cx| cx.notify()),
-        ];
-        Self {
-            nav,
-            progress,
-            scroll: ScrollHandle::new(),
-            _subscriptions: subscriptions,
+fn open_settings(section: crate::settings::SettingsSection, window: &mut Window, cx: &mut App) {
+    crate::navigation::navigate(window, cx, crate::navigation::Screen::Settings);
+    crate::sidebar::select_settings_section(window, cx, section);
+}
+
+fn run_target_here(target: Target, team_id: String, window: &mut Window, cx: &mut App) {
+    use crate::settings::SettingsSection;
+    match target {
+        Target::CreateBoard => crate::create_board_dialog::open(window, cx, team_id),
+        Target::Github => open_settings(SettingsSection::Repositories, window, cx),
+        // The ONE device-setup block (desktop card over the server card).
+        Target::AddDevice | Target::AddServer => {
+            crate::machines::open_add_server_dialog(window, cx)
         }
-    }
-
-    fn entry_card(
-        &self,
-        index: usize,
-        entry: &Entry,
-        team_id: &str,
-        loading: bool,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        entry_card(index, entry, team_id, loading, cx)
+        // The Agent page, no subject: the composer is the page.
+        Target::Agent => crate::navigation::navigate_to_chat(
+            window,
+            cx,
+            crate::navigation::ChatSeed::default(),
+        ),
+        // The IDE has no invite dialog: team settings' Members pane holds
+        // the invite form.
+        Target::Invite => open_settings(SettingsSection::Members, window, cx),
+        Target::Mcp => open_settings(SettingsSection::McpServers, window, cx),
+        Target::Widget => open_settings(SettingsSection::Widget, window, cx),
     }
 }
 
-/// One checklist card (EXP-698 round 5: a free function, so the inline
-/// empty-state cards render the same object the page does).
-pub(crate) fn entry_card(
-    index: usize,
-    entry: &Entry,
-    team_id: &str,
-    loading: bool,
-    cx: &mut App,
-) -> gpui::AnyElement {
+// ---------------------------------------------------------------------------
+// The block
+// ---------------------------------------------------------------------------
+
+/// One square step card. `team_id` `None` = a demo (the styleguide): inert.
+fn step_card(index: usize, entry: &Entry, team_id: Option<&str>, cx: &App) -> gpui::AnyElement {
     let theme = cx.theme();
     let muted = theme.muted_foreground;
-    // Titles + descriptions: the shared [`copy`] contract, byte-equal on
-    // all four clients.
-    let (icon, title, description) = match entry.key {
-        EntryKey::Desktop => (
-            registry::UI_DEVICE,
-            copy::DESKTOP_TITLE,
-            copy::DESKTOP_DESCRIPTION,
-        ),
-        EntryKey::Github => (
-            registry::UI_GITHUB,
-            copy::GITHUB_TITLE,
-            copy::GITHUB_DESCRIPTION,
-        ),
-        EntryKey::Invite => (
-            registry::UI_INVITE,
-            copy::INVITE_TITLE,
-            copy::INVITE_DESCRIPTION,
-        ),
-        EntryKey::Board => (
-            registry::NAV_BOARDS,
-            copy::BOARD_TITLE,
-            copy::BOARD_DESCRIPTION,
-        ),
-        EntryKey::Coding => (
-            registry::NAV_TERMINAL,
-            copy::CODING_TITLE,
-            copy::CODING_DESCRIPTION,
-        ),
-        EntryKey::Action => (
-            registry::ACTION_CREATE,
-            copy::ACTION_TITLE,
-            copy::ACTION_DESCRIPTION,
-        ),
-        EntryKey::Server => (
-            registry::UI_SERVER,
-            copy::SERVER_TITLE,
-            copy::SERVER_DESCRIPTION,
-        ),
-        EntryKey::Widget => (
-            registry::SETTINGS_WIDGET,
-            copy::WIDGET_TITLE,
-            copy::WIDGET_DESCRIPTION,
-        ),
-        EntryKey::Mcp => (registry::UI_MCP, copy::MCP_TITLE, copy::MCP_DESCRIPTION),
-    };
-    let locked = !loading && entry.state == EntryState::Locked;
-    // Web `lockedHint`, case for case.
-    let hint: Option<&'static str> = match (entry.key, entry.locked_by) {
-        _ if !locked => None,
-        (EntryKey::Coding, Some(EntryKey::Desktop)) => Some(
-            "Connect a machine first — coding sessions run on the desktop app or a \
-             registered server.",
-        ),
-        (EntryKey::Coding, Some(EntryKey::Github)) => {
-            Some("Connect a GitHub repo first. Runs need a repo-backed board.")
-        }
-        (EntryKey::Coding, Some(EntryKey::Board)) => {
-            Some("Create a board with a repository first.")
-        }
-        (EntryKey::Action, _) => Some(
-            "Connect a machine first — the action creator runs on the desktop app or \
-             a registered server.",
-        ),
-        (EntryKey::Widget, _) => {
-            Some("Create a board first. Widget feedback lands there as issues.")
-        }
-        _ => None,
-    };
-
-    // State glyph: green check / lock / bordered step number (the web
-    // card's exact vocabulary; `loading` renders every card neutral).
-    let glyph: gpui::AnyElement = if !loading && entry.state == EntryState::Done {
-        Icon::new(registry::UI_SELECTED)
-            .small()
-            .text_color(theme::tokens::GREEN.to_hsla())
+    let foreground = theme.foreground;
+    let hover = theme.list_hover;
+    let step = step(entry.key);
+    let corner: gpui::AnyElement = if entry.done {
+        Icon::new(registry::UI_CHECK)
+            .size(px(14.))
+            .text_color(t::GREEN.to_hsla())
             .into_any_element()
-    } else if locked {
-        Icon::new(registry::UI_PRIVATE).small().text_color(muted).into_any_element()
     } else {
         div()
-            .size(px(20.))
-            .flex()
-            .items_center()
-            .justify_center()
-            .rounded_full()
-            .border_1()
-            .border_color(theme.border)
             .text_xs()
             .text_color(muted)
-            .child(SharedString::from(format!("{}", index + 1)))
+            .child(SharedString::from((index + 1).to_string()))
             .into_any_element()
     };
-
-    let cta: Option<gpui::AnyElement> = if locked || (!loading && entry.state == EntryState::Done)
-    {
-        None
-    } else {
-        entry_cta(index, entry.key, team_id, cx)
-    };
-
-    crate::surface::glass_card()
-        .w_full()
-        .min_w_0()
-        .p_4()
-        .gap_2()
-        .when(locked, |this| this.opacity(0.6))
+    let target = entry.target;
+    let team = team_id.map(str::to_string);
+    div()
+        .id(SharedString::from(format!("getting-started-card-{}", entry.key.as_str())))
+        .flex_none()
+        .w(px(CARD_W))
+        .h(px(CARD_H))
+        .p(px(CARD_PADDING))
+        .flex()
+        .flex_col()
+        .justify_between()
+        .rounded(px(t::radius::LG))
+        .border_1()
+        .border_color(t::glass::STROKE_CARD.to_hsla())
+        .bg(t::glass::FILL_CARD.to_hsla())
+        .when(entry.next, |this| {
+            this.bg(hover).border_color(foreground.opacity(0.3))
+        })
+        .when_some(team, |this, team| {
+            this.cursor_pointer()
+                .hover(move |this| this.bg(hover))
+                .on_click(move |_: &ClickEvent, window, cx| {
+                    run_target(target, team.clone(), window, cx);
+                })
+        })
         .child(
             h_flex()
-                .items_center()
-                .gap_2()
-                .child(div().flex_shrink_0().child(glyph))
+                .w_full()
+                .items_start()
+                .justify_between()
                 .child(
-                    div()
-                        .flex_shrink_0()
-                        .child(Icon::new(icon).small().text_color(muted)),
+                    Icon::new(concept(step.icon))
+                        .size(px(CARD_ICON))
+                        .text_color(if entry.done { muted } else { foreground }),
                 )
-                .child(
-                    div()
-                        .text_sm()
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(title),
-                ),
+                .child(corner),
         )
         .child(
             div()
-                .text_xs()
-                .text_color(muted)
-                .child(hint.unwrap_or(description)),
+                .w_full()
+                .min_w_0()
+                .text_size(px(13.))
+                .font_weight(FontWeight::MEDIUM)
+                .line_clamp(2)
+                .text_color(if entry.done { muted } else { foreground })
+                .child(step.title),
         )
-        .children(cta.map(|cta| h_flex().mt_1().gap_2().flex_wrap().items_center().child(cta)))
         .into_any_element()
 }
 
-/// The per-entry call to action. Where the web links a route, the desktop
-/// opens the matching dialog/settings section; the owner-only web-only
-/// settings page (widget) opens in the browser. Labels are the
-/// shared [`copy`] contract.
-fn entry_cta(
-    index: usize,
-    key: EntryKey,
-    team_id: &str,
-    cx: &mut App,
-) -> Option<gpui::AnyElement> {
-    let team = team_id.to_string();
-    let muted = cx.theme().muted_foreground;
-    Some(match key {
-        // This IDE is the desktop app: nothing to download, the step
-        // completes on its own once the device registration lands.
-        EntryKey::Desktop => return None,
-        EntryKey::Github => Button::new(("gs-cta-github", index))
-            .primary().web_sm()
-            .label(copy::GITHUB_ACTION)
-            .on_click(|_, window, cx| {
-                crate::navigation::navigate(
-                    window,
-                    cx,
-                    crate::navigation::Screen::Settings,
-                );
-                crate::sidebar::select_settings_section(
-                    window,
-                    cx,
-                    crate::settings::SettingsSection::Repositories,
-                );
-            })
-            .into_any_element(),
-        EntryKey::Invite => Button::new(("gs-cta-invite", index))
-            .primary().web_sm()
-            .label(copy::INVITE_ACTION)
-            .on_click(|_, window, cx| {
-                crate::navigation::navigate(
-                    window,
-                    cx,
-                    crate::navigation::Screen::Settings,
-                );
-                crate::sidebar::select_settings_section(
-                    window,
-                    cx,
-                    crate::settings::SettingsSection::Members,
-                );
-            })
-            .into_any_element(),
-        EntryKey::Board => Button::new(("gs-cta-board", index))
-            .primary().web_sm()
-            .label(copy::BOARD_ACTION)
-            .on_click(move |_, window, cx| {
-                crate::create_board_dialog::open(window, cx, team.clone());
-            })
-            .into_any_element(),
-        // EXP-698 round 5: the shared label is "Open Devices" — the
-        // Devices page is where a run is started on ANY machine (and the
-        // only coding entry point the mobile clients can offer), so the
-        // desktop lands there too instead of opening its own launcher.
-        EntryKey::Coding => Button::new(("gs-cta-coding", index))
-            .primary().web_sm()
-            .label(copy::CODING_ACTION)
-            .on_click(|_, window, cx| {
-                crate::navigation::navigate(
-                    window,
-                    cx,
-                    crate::navigation::Screen::Devices,
-                );
-            })
-            .into_any_element(),
-        // The builtin creator run — the Actions page's "New action".
-        EntryKey::Action => Button::new(("gs-cta-action", index))
-            .primary().web_sm()
-            .icon(Icon::new(registry::ACTION_CREATE))
-            .label(copy::ACTION_ACTION)
-            .on_click(move |_, window, cx| {
-                let _ = &team;
-                crate::navigation::navigate_to_chat(
-                    window,
-                    cx,
-                    crate::navigation::ChatSeed::action(api::actions::BUILTIN_CREATE_ACTION_ID),
-                );
-            })
-            .into_any_element(),
-        // The one-liner goes straight to the clipboard (the shared
-        // label promises exactly that); the Add-device dialog behind
-        // My devices still shows it in full.
-        EntryKey::Server => Button::new(("gs-cta-server", index))
-            .primary().web_sm()
-            .icon(Icon::new(registry::UI_COPY))
-            .label(copy::SERVER_ACTION)
-            .on_click(|_, window, cx| {
-                let snippet = crate::machines::server_install_snippet(cx);
-                cx.write_to_clipboard(ClipboardItem::new_string(snippet));
-                crate::toast::success("Copied install command", window, cx);
-            })
-            .into_any_element(),
-        // EXP-771: both settings live IN the app now (Settings → Features),
-        // so these stopped being browser hand-offs — the same in-app jump the
-        // GitHub and Invite CTAs above make, and the shared "… in team
-        // settings" labels finally mean THIS app's team settings.
-        EntryKey::Widget => Button::new(("gs-cta-widget", index))
-            .primary().web_sm()
-            .label(copy::WIDGET_ACTION)
-            .on_click(|_, window, cx| {
-                crate::navigation::navigate(
-                    window,
-                    cx,
-                    crate::navigation::Screen::Settings,
-                );
-                crate::sidebar::select_settings_section(
-                    window,
-                    cx,
-                    crate::settings::SettingsSection::Widget,
-                );
-            })
-            .into_any_element(),
-        // The web renders per-client setup tabs; the desktop hands out
-        // the endpoint and the docs walkthrough.
-        EntryKey::Mcp => {
-            let endpoint = queries::active_account(cx)
-                .map(|account| format!("{}/api/mcp", account.instance_url.trim_end_matches('/')));
-            h_flex()
-                .gap_2()
-                .flex_wrap()
-                .items_center()
-                .children(endpoint.clone().map(|endpoint| {
-                    Button::new(("gs-cta-mcp-copy", index))
-                        .primary().web_sm()
-                        .icon(Icon::new(registry::UI_COPY))
-                        .label("Copy MCP URL")
-                        .on_click(move |_, _, cx| {
-                            cx.write_to_clipboard(ClipboardItem::new_string(endpoint.clone()));
-                        })
-                }))
-                .child(
-                    Button::new(("gs-cta-mcp-docs", index))
-                        .ghost().web_sm()
-                        .icon(Icon::new(registry::UI_EXTERNAL_LINK))
-                        .label("Setup guide")
-                        .on_click(|_, _, cx| {
-                            crate::settings::open_url(cx, MCP_DOCS_URL.to_string())
-                        }),
-                )
-                .children(endpoint.map(|endpoint| {
-                    div().text_xs().text_color(muted).child(SharedString::from(endpoint))
-                }))
-                .into_any_element()
-        }
-    })
-}
-
-impl GettingStartedView {
-    /// EXP-686: the page's two tabs — the web segmented `TabsList`, full-width
-    /// under the header. Selecting one REPLACES the screen (no back-stack
-    /// push): the tab is part of the screen's identity, not a navigation.
-    fn render_tabs(
-        &self,
-        tab: GettingStartedTab,
-        cx: &mut gpui::Context<Self>,
-    ) -> gpui::AnyElement {
-        let segment = |label: &'static str, target: GettingStartedTab| {
-            crate::controls::segmented_item(tab == target, cx)
-                .id(label)
-                .child(label)
-                .on_click(cx.listener(move |_, _: &gpui::ClickEvent, window, cx| {
-                    set_screen(window, cx, Some(Screen::GettingStarted { tab: target }));
-                }))
-        };
-        crate::controls::segmented(cx)
-            .child(segment("First steps", GettingStartedTab::FirstSteps))
-            .child(segment("Suggested actions", GettingStartedTab::Suggestions))
-            .into_any_element()
-    }
-}
-
-/// How wide one inline card may shrink before the grid drops to a single
-/// column (web `md:grid-cols-2`). The board panel can be narrower than two
-/// readable cards, so the wrap does the responsive work for us.
-const INLINE_CARD_MIN_W: f32 = 240.;
-
-/// EXP-698 round 5 — the checklist as an INLINE block under an empty state
-/// (the empty board's "No issues yet", the empty team's "No boards yet"), on
-/// every client. Same entries, same cards, same CTAs as the page; the header
-/// carries the `{done}/{total} done` progress the page shows beside its title.
-///
-/// `None` while the signals are still loading (an empty state must not flash a
-/// half-answered checklist) and once every entry is done — a finished
-/// checklist under an empty board is just noise.
-pub(crate) fn inline_cards(team_id: &str, cx: &mut App) -> Option<gpui::AnyElement> {
-    let progress = GettingStartedProgress::global(cx);
-    // NOT the page's fast cadence (`from_page: false`): an empty board can
-    // sit on screen all day, and the checklist page is the only surface that
-    // earns the 15s poll — the rail's 60s one is enough here.
-    let snapshot = progress.update(cx, |progress, cx| {
-        progress.ensure(team_id, false, cx);
-        progress.snapshot(team_id, cx)
-    });
-    if snapshot.loading || snapshot.complete {
-        return None;
-    }
-    let Snapshot {
-        entries, done, total, ..
-    } = snapshot;
-    let muted = cx.theme().muted_foreground;
-    let border = cx.theme().border;
-    let primary = cx.theme().primary;
-    // The page's progress pair (`{done}/{total} done` + the 6×192 bar), here
-    // as the section header's trailing control.
-    let progress_bar = h_flex()
+/// THE block: header row over the card row. Pure over `model`, so the
+/// styleguide draws it from a fixture case with `team_id` `None`.
+pub(crate) fn block(model: &Model, team_id: Option<&str>, cx: &App) -> gpui::AnyElement {
+    let theme = cx.theme();
+    let muted = theme.muted_foreground;
+    let fill = (model.done as f32 / model.total.max(1) as f32).min(1.);
+    let header = h_flex()
+        .w_full()
+        .min_w_0()
         .items_center()
         .gap_3()
+        .child(
+            div()
+                .text_sm()
+                .font_weight(FontWeight::SEMIBOLD)
+                .whitespace_nowrap()
+                .child(TITLE),
+        )
         .child(
             div()
                 .text_sm()
                 .whitespace_nowrap()
                 .text_color(muted)
-                .child(SharedString::from(format!("{done}/{total} done"))),
+                .child(SharedString::from(model.progress.clone())),
         )
         .child(
             div()
-                .h(px(6.))
-                .w(px(192.))
+                .flex_none()
+                .h(px(4.))
+                .w(px(METER_W))
                 .rounded_full()
-                .bg(border)
-                .child(
-                    div()
-                        .h_full()
-                        .w(relative((done as f32 / total.max(1) as f32).min(1.)))
-                        .rounded_full()
-                        .bg(primary),
-                ),
+                .bg(theme.border)
+                .child(div().h_full().w(relative(fill)).rounded_full().bg(theme.primary)),
         )
-        .into_any_element();
-
-    let cards: Vec<gpui::AnyElement> = entries
+        .child(div().flex_1())
+        .child(
+            Button::new("getting-started-docs")
+                .outline()
+                .web_sm()
+                .icon(Icon::new(concept(DOCS_ICON)))
+                .label(DOCS_LABEL)
+                .on_click(|_, _, cx| crate::settings::open_url(cx, DOCS_URL.to_string())),
+        );
+    let cards: Vec<gpui::AnyElement> = model
+        .entries
         .iter()
         .enumerate()
-        .map(|(index, entry)| entry_card(index, entry, team_id, false, cx))
+        .map(|(index, entry)| step_card(index, entry, team_id, cx))
         .collect();
-
-    Some(
-        v_flex()
-            .w_full()
-            .min_w_0()
-            .child(glass_section_header(
-                "Getting started",
-                Some(progress_bar),
-                cx,
-            ))
-            .child(
-                // Two columns, one below `INLINE_CARD_MIN_W`. The gutter is
-                // the cells' own padding, not a flex gap: a gap plus a 50%
-                // basis overflows the row and wraps every card onto its own
-                // line.
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .flex_wrap()
-                    .items_start()
-                    .children(cards.into_iter().map(|card| {
-                        // A GROWING half-width basis, not a fixed 50%: between
-                        // one and two columns wide the cells would otherwise
-                        // wrap one per line at their 240 minimum and leave the
-                        // column ragged on the right.
-                        div()
-                            .flex_grow(1.)
-                            .flex_basis(relative(0.5))
-                            .min_w(px(INLINE_CARD_MIN_W))
-                            .p_1()
-                            .child(card)
-                    })),
-            )
-            .into_any_element(),
-    )
+    v_flex()
+        .id("getting-started")
+        .w_full()
+        .min_w_0()
+        .gap_3()
+        .child(header)
+        .child(
+            // Never wraps: a column narrower than the cards scrolls sideways.
+            div()
+                .id("getting-started-cards")
+                .w_full()
+                .min_w_0()
+                .overflow_x_scroll()
+                .child(h_flex().flex_none().gap(px(CARD_GAP)).children(cards)),
+        )
+        .into_any_element()
 }
 
-impl Render for GettingStartedView {
-    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let muted = cx.theme().muted_foreground;
-        let team_id = active_team_id(&self.nav, cx);
-        // EXP-686: the tab is navigation state, read fresh every render — the
-        // lightbulb on Actions navigates here WITH a tab, and a
-        // go-back must land on the tab that was up.
-        let tab = match resolved_screen(&self.nav, cx) {
-            Some(Screen::GettingStarted { tab }) => tab,
-            _ => GettingStartedTab::default(),
-        };
-        let segments = self.render_tabs(tab, cx);
+/// THE block's entry point for a team: under the empty board's empty state,
+/// the no-board team center and the Agent home while the team has no board.
+/// `None` while the signals are still loading and once complete.
+pub(crate) fn inline_cards(team_id: &str, cx: &mut App) -> Option<gpui::AnyElement> {
+    let progress = GettingStartedProgress::global(cx);
+    // The slow cadence: an empty board can sit on screen all day.
+    let snapshot = progress.update(cx, |progress, cx| {
+        progress.ensure(team_id, false, cx);
+        progress.snapshot(team_id, cx)
+    });
+    if snapshot.loading || snapshot.complete() {
+        return None;
+    }
+    Some(block(&snapshot.model, Some(team_id), cx))
+}
 
-        let body: gpui::AnyElement = match team_id {
-            None => div()
-                .text_sm()
-                .text_color(muted)
-                .child("Waiting for your team to sync…")
-                .into_any_element(),
-            Some(team_id) => {
-                // Rendering the page IS its visibility signal (fast cadence).
-                let snapshot = self.progress.update(cx, |progress, cx| {
-                    progress.ensure(&team_id, true, cx);
-                    progress.snapshot(&team_id, cx)
-                });
-                let Snapshot {
-                    loading,
-                    entries,
-                    done,
-                    total,
-                    complete: _,
-                } = snapshot;
+// ---------------------------------------------------------------------------
+// The dialog (the rail entry)
+// ---------------------------------------------------------------------------
 
-                // EXP-697: a complete checklist no longer evicts the page —
-                // the rail entry is permanent now, so leaving on the last
-                // check would strand the user mid-read.
+/// The dialog's content width: eight cards and their gaps.
+fn dialog_content_w() -> f32 {
+    STEPS.len() as f32 * CARD_W + (STEPS.len() - 1) as f32 * CARD_GAP
+}
 
-                // The progress bar belongs to the checklist, not to the page:
-                // a row of its own UNDER the tabs (web parity), First steps
-                // only.
-                let progress: Option<gpui::AnyElement> = if loading
-                    || tab != GettingStartedTab::FirstSteps
-                {
-                    None
-                } else {
-                    Some(
-                    h_flex()
-                        .items_center()
-                        .gap_3()
-                        .child(
-                            div()
-                                .text_sm()
-                                .whitespace_nowrap()
-                                .text_color(muted)
-                                .child(SharedString::from(format!("{done}/{total} done"))),
-                        )
-                        .child(
-                            div()
-                                .h(px(6.))
-                                .w(px(192.))
-                                .rounded_full()
-                                .bg(cx.theme().border)
-                                .child(
-                                    div()
-                                        .h_full()
-                                        .w(relative((done as f32 / total.max(1) as f32).min(1.)))
-                                        .rounded_full()
-                                        .bg(cx.theme().primary),
-                                ),
-                        )
-                        .into_any_element())
-                };
+/// The rail entry's target: the block in a centred dialog over `window`.
+pub(crate) fn open_dialog(window: &mut Window, cx: &mut App) {
+    let nav = nav_for_window(window, cx);
+    let Some(team_id) = active_team_id(&nav, cx) else {
+        return;
+    };
+    // The shell pads the content by 16 on each side.
+    let width = (dialog_content_w() + 32.).min(f32::from(window.viewport_size().width) * 0.9);
+    let spec = DialogSpec::new(TITLE, size(px(width), px(200.)));
+    native_dialog::open_dialog_window(window, cx, spec, move |_window, cx| {
+        let view = cx.new(|cx| GettingStartedDialog::new(team_id, cx));
+        DialogContent::new(view)
+    });
+}
 
-                let body: gpui::AnyElement = match tab {
-                    GettingStartedTab::FirstSteps => {
-                        let cards: Vec<gpui::AnyElement> = entries
-                            .iter()
-                            .enumerate()
-                            .map(|(index, entry)| {
-                                self.entry_card(index, entry, &team_id, loading, cx)
-                            })
-                            .collect();
-                        v_flex().min_w_0().gap_4().children(cards).into_any_element()
-                    }
-                    GettingStartedTab::Suggestions => {
-                        let rows: Vec<gpui::AnyElement> =
-                            crate::action_suggestions::ACTION_SUGGESTIONS
-                                .iter()
-                                .enumerate()
-                                .map(|(ix, suggestion)| {
-                                    crate::surface::list_row(
-                                        render_suggestion_row(suggestion, team_id.clone(), cx),
-                                        ix,
-                                    )
-                                    .into_any_element()
-                                })
-                                .collect();
-                        // ×4: ONE "Suggestions" band over FLAT rows split by
-                        // hairlines — no per-row fill, no gap, no chevron.
-                        v_flex()
-                            .min_w_0()
-                            .child(glass_section_header("Suggestions", None, cx))
-                            .child(v_flex().min_w_0().children(rows))
-                            .into_any_element()
-                    }
-                };
+struct GettingStartedDialog {
+    team_id: String,
+    progress: Entity<GettingStartedProgress>,
+    _subscriptions: Vec<Subscription>,
+}
 
-                // NO `w_full` (EXP-508): a percent width on the centered
-                // column's direct child resolves against the UNCLAMPED
-                // ancestor available width at wide windows (the EXP-436
-                // leak that broke the Actions page); auto width + the
-                // column's flex-col stretch size it to the capped column.
-                v_flex()
-                    .min_w_0()
-                    .gap_4()
-                    .child(
-                        v_flex()
-                            .gap_1()
-                            .child(
-                                div()
-                                    .text_xl()
-                                    .font_weight(FontWeight::SEMIBOLD)
-                                    .child("Getting started"),
-                            )
-                            .child(div().text_sm().text_color(muted).child(
-                                "Set up the coding loop, collect feedback from your \
-                                 site, and connect your tools.",
-                            )),
-                    )
-                    .child(segments)
-                    .children(progress)
-                    .child(body)
-                    .into_any_element()
-            }
-        };
-
-        let column = v_flex().w_full().min_w_0().px_4().py_4().gap_4().child(body);
-
-        v_flex()
-            .size_full()
-            .min_h_0()
-            .min_w_0()
-            .text_color(cx.theme().foreground)
-            .child(crate::scroll_pane::v_scroll_pane(
-                "getting-started-scroll",
-                &self.scroll,
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .child(column.w_full().max_w(px(720.)).mx_auto()),
-            ))
+impl GettingStartedDialog {
+    fn new(team_id: String, cx: &mut gpui::Context<Self>) -> Self {
+        let progress = GettingStartedProgress::global(cx);
+        // The progress entity re-notifies on every collection change, so
+        // this one observer covers live + one-shot signals.
+        let subscriptions = vec![cx.observe(&progress, |_, _, cx| cx.notify())];
+        Self {
+            team_id,
+            progress,
+            _subscriptions: subscriptions,
+        }
     }
 }
 
-/// One suggestion row — the same list shape as an action row (EXP-618).
-/// EXP-694: the trailing "Use" button is gone on every client; the WHOLE row
-/// is the affordance and opens the creator dialog prefilled (EXP-686 moved
-/// these rows here from the Actions page). Without a runnable agent the row
-/// stays inert — no hover, no pointer, no click — exactly the gate the button
-/// carried, with the reason on a tooltip.
-fn render_suggestion_row(
-    suggestion: &crate::action_suggestions::Suggestion,
-    team_id: String,
-    cx: &App,
-) -> gpui::AnyElement {
-    let theme = cx.theme();
-    let muted = theme.muted_foreground;
-    // EXP-811: the ONE row hover, `list_hover` (glass fillRow) on every client.
-    let row_hover = theme.list_hover;
-    let description = suggestion.description.to_string();
-    let icon = suggestion.icon.to_string();
-    // EXP-583: a seed that carries a trigger appends it to the creator run's
-    // request as the machine-readable block (SLOP-2: for `actions.triggers`).
-    let trigger = suggestion
-        .trigger
-        .map(crate::action_suggestions::SuggestedTrigger::to_trigger);
-    // SLOP-2: what "Use" will set up, up front — the suggested trigger's
-    // glyph beside the title (the old "Automation"/"Action" pill is gone).
-    let badges = trigger
-        .as_ref()
-        .and_then(coding::triggers::parse_trigger)
-        .map(|when| crate::trigger_editor::TriggerBadges::of_when(&when))
-        .unwrap_or_default();
-    let no_agent = crate::coding_flow::no_agent_reason(cx);
-    crate::surface::flat_row()
-        // Keyed by the stable seed id, not the render index.
-        .id(SharedString::from(format!(
-            "action-suggestion-{}",
-            suggestion.id
-        )))
-        .flex()
-        .w_full()
-        .min_w_0()
-        .items_center()
-        .gap_3()
-        .px_3()
-        .py_2p5()
-        .when_some(no_agent.clone(), |this, reason| {
-            this.tooltip(move |window, cx| {
-                gpui_component::tooltip::Tooltip::new(reason.clone()).build(window, cx)
+impl Render for GettingStartedDialog {
+    fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
+        let team_id = self.team_id.clone();
+        let snapshot = self.progress.update(cx, |progress, cx| {
+            progress.ensure(&team_id, true, cx);
+            progress.snapshot(&team_id, cx)
+        });
+        div()
+            .w_full()
+            .min_w_0()
+            .text_color(cx.theme().foreground)
+            .when(!snapshot.loading, |this| {
+                this.child(block(&snapshot.model, Some(&team_id), cx))
             })
-        })
-        .when(no_agent.is_none(), |this| {
-            this.cursor_pointer()
-                .hover(move |this| this.bg(row_hover))
-                .on_click(move |_: &ClickEvent, window, cx| {
-                    // The brief is a SEED, not a commitment — the composer
-                    // opens with it as the editable request (EXP-825), the
-                    // creator builtin picked and the glyph seeded. A
-                    // suggestion with a trigger appends the web's block.
-                    let _ = &team_id;
-                    let block = trigger
-                        .clone()
-                        .map(|trigger| {
-                            crate::trigger_editor::suggestion_trigger_block(trigger, cx)
-                        })
-                        .unwrap_or_default();
-                    crate::navigation::navigate_to_chat(
-                        window,
-                        cx,
-                        crate::navigation::ChatSeed {
-                            action_id: Some(api::actions::BUILTIN_CREATE_ACTION_ID.to_string()),
-                            text: Some(format!("{description}{block}")),
-                            icon: Some(icon.clone()),
-                            ..Default::default()
-                        },
-                    );
-                })
-        })
-        .child(
-            div().flex_shrink_0().child(
-                crate::icons::action_icon(Some(suggestion.icon))
-                    .xsmall()
-                    .text_color(muted),
-            ),
-        )
-        .child(
-            gpui_component::v_flex()
-                .flex_1()
-                .min_w_0()
-                .gap_0p5()
-                .child(
-                    gpui_component::h_flex()
-                        .w_full()
-                        .min_w_0()
-                        .items_center()
-                        .gap_1p5()
-                        .child(
-                            div()
-                                .min_w_0()
-                                .text_sm()
-                                .font_weight(FontWeight::MEDIUM)
-                                .truncate()
-                                .text_color(theme.foreground)
-                                .child(SharedString::from(suggestion.title)),
-                        )
-                        .children(badges.render(cx)),
-                )
-                .child(
-                    div()
-                        .w_full()
-                        .min_w_0()
-                        .text_xs()
-                        .text_color(muted)
-                        .line_clamp(3)
-                        .child(SharedString::from(suggestion.description)),
-                ),
-        )
-        .into_any_element()
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serde_json::{json, Value};
 
-    const OWNER: Gates = Gates {
-        can_manage_widgets: true,
-        is_owner: true,
-        can_manage_members: true,
-    };
-    const MEMBER: Gates = Gates {
-        can_manage_widgets: false,
-        is_owner: false,
-        can_manage_members: false,
-    };
+    const FIXTURE: &str =
+        include_str!("../../../../../packages/domain-contract/fixtures/getting-started.json");
 
-    fn entry(signals: &Signals, gates: Gates, key: EntryKey) -> Option<Entry> {
-        derive_entries(signals, gates)
-            .into_iter()
-            .find(|entry| entry.key == key)
+    fn fixture() -> Value {
+        serde_json::from_str(FIXTURE).expect("getting-started.json parses")
     }
 
-    fn all_done() -> Signals {
-        Signals {
-            has_desktop_device: true,
-            has_server_device: true,
-            github_installed: true,
-            has_invited_team: true,
-            has_board: true,
-            has_repo_board: true,
-            has_coding_session: true,
-            has_action: true,
-            has_widget: true,
-            mcp_connected: true,
+    fn flag(object: &Value, key: &str) -> bool {
+        object[key]
+            .as_bool()
+            .unwrap_or_else(|| panic!("{key} is a bool"))
+    }
+
+    fn model_json(model: &Model) -> Value {
+        json!({
+            "entries": model.entries.iter().map(|entry| json!({
+                "key": entry.key.as_str(),
+                "done": entry.done,
+                "target": entry.target.as_str(),
+                "next": entry.next,
+            })).collect::<Vec<_>>(),
+            "done": model.done,
+            "total": model.total,
+            "progress": model.progress,
+            "complete": model.complete,
+        })
+    }
+
+    /// Every fixture case, the WHOLE expected object.
+    #[test]
+    fn replays_every_fixture_case() {
+        let fixture = fixture();
+        let cases = fixture["cases"].as_array().expect("cases");
+        assert!(!cases.is_empty());
+        for case in cases {
+            let name = case["name"].as_str().unwrap();
+            let s = &case["signals"];
+            let signals = Signals {
+                has_board: flag(s, "hasBoard"),
+                github_installed: flag(s, "githubInstalled"),
+                has_desktop_device: flag(s, "hasDesktopDevice"),
+                has_server_device: flag(s, "hasServerDevice"),
+                has_coding_session: flag(s, "hasCodingSession"),
+                has_invited_team: flag(s, "hasInvitedTeam"),
+                mcp_connected: flag(s, "mcpConnected"),
+                has_widget: flag(s, "hasWidget"),
+            };
+            let p = &case["permissions"];
+            let permissions = Permissions {
+                can_manage_members: flag(p, "canManageMembers"),
+                can_manage_widgets: flag(p, "canManageWidgets"),
+            };
+            let platform = match case["platform"].as_str() {
+                Some("pointer") => Platform::Pointer,
+                Some("phone") => Platform::Phone,
+                other => panic!("{name}: unknown platform {other:?}"),
+            };
+            let model = derive_getting_started(&signals, permissions, platform);
+            assert_eq!(model_json(&model), case["expected"], "{name}");
         }
     }
 
-    // Web `getting-started-cards.test.ts`, case for case.
-
-    /// Every string of the shared [`copy`] contract, so one loop can hold the
-    /// rules the cross-client drift test (`getting-started-copy.test.ts`)
-    /// depends on.
-    const COPY_CONSTANTS: &[(&str, &str)] = &[
-        ("DESKTOP_TITLE", copy::DESKTOP_TITLE),
-        ("DESKTOP_DESCRIPTION", copy::DESKTOP_DESCRIPTION),
-        ("DESKTOP_ACTION", copy::DESKTOP_ACTION),
-        ("GITHUB_TITLE", copy::GITHUB_TITLE),
-        ("GITHUB_DESCRIPTION", copy::GITHUB_DESCRIPTION),
-        ("GITHUB_ACTION", copy::GITHUB_ACTION),
-        ("INVITE_TITLE", copy::INVITE_TITLE),
-        ("INVITE_DESCRIPTION", copy::INVITE_DESCRIPTION),
-        ("INVITE_ACTION", copy::INVITE_ACTION),
-        ("BOARD_TITLE", copy::BOARD_TITLE),
-        ("BOARD_DESCRIPTION", copy::BOARD_DESCRIPTION),
-        ("BOARD_ACTION", copy::BOARD_ACTION),
-        ("CODING_TITLE", copy::CODING_TITLE),
-        ("CODING_DESCRIPTION", copy::CODING_DESCRIPTION),
-        ("CODING_ACTION", copy::CODING_ACTION),
-        ("ACTION_TITLE", copy::ACTION_TITLE),
-        ("ACTION_DESCRIPTION", copy::ACTION_DESCRIPTION),
-        ("ACTION_ACTION", copy::ACTION_ACTION),
-        ("SERVER_TITLE", copy::SERVER_TITLE),
-        ("SERVER_DESCRIPTION", copy::SERVER_DESCRIPTION),
-        ("SERVER_ACTION", copy::SERVER_ACTION),
-        ("WIDGET_TITLE", copy::WIDGET_TITLE),
-        ("WIDGET_DESCRIPTION", copy::WIDGET_DESCRIPTION),
-        ("WIDGET_ACTION", copy::WIDGET_ACTION),
-        ("MCP_TITLE", copy::MCP_TITLE),
-        ("MCP_DESCRIPTION", copy::MCP_DESCRIPTION),
-    ];
-
-    /// EXP-698 round 5: the web drift test greps THIS file for `"<value>"`,
-    /// so every literal has to stay one plain single-line ASCII string — no
-    /// embedded quote, no escape, no continuation, nothing empty.
+    /// The copy, the geometry and the eight steps, locked to the contract.
     #[test]
-    fn copy_constants_are_plain_single_line_ascii() {
-        for (name, value) in COPY_CONSTANTS {
-            assert!(!value.trim().is_empty(), "{name} is empty");
-            assert!(!value.contains('"'), "{name} carries a quote: {value}");
-            assert!(!value.contains('\\'), "{name} carries a backslash: {value}");
-            assert!(!value.contains('\n'), "{name} spans lines: {value}");
-            assert!(value.is_ascii(), "{name} is not ASCII: {value}");
+    fn constants_and_steps_match_the_contract() {
+        let fixture = fixture();
+        assert_eq!(fixture["title"], TITLE);
+        assert_eq!(
+            fixture["progress"].as_str().unwrap(),
+            progress_label(usize::MAX, usize::MAX)
+                .replacen(&usize::MAX.to_string(), "{done}", 1)
+                .replacen(&usize::MAX.to_string(), "{total}", 1)
+        );
+        assert_eq!(fixture["meter"].as_f64().unwrap() as f32, METER_W);
+        assert_eq!(fixture["docs"]["label"], DOCS_LABEL);
+        assert_eq!(fixture["docs"]["url"], DOCS_URL);
+        assert_eq!(fixture["docs"]["icon"], DOCS_ICON);
+        assert!(registry::concept_by_name(DOCS_ICON).is_some());
+        let card = &fixture["card"];
+        for (key, value) in [
+            ("width", CARD_W),
+            ("height", CARD_H),
+            ("padding", CARD_PADDING),
+            ("icon", CARD_ICON),
+            ("gap", CARD_GAP),
+        ] {
+            assert_eq!(card[key].as_f64().unwrap() as f32, value, "card.{key}");
         }
-    }
-
-    /// [`inline_cards`] enumerates `Snapshot::entries` in place, so the cards
-    /// under an empty board/team come out in `derive_entries` order — which
-    /// `owner_order_is_the_web_order` already pins to the web list. The one
-    /// fact left to prove is that the member view never REORDERS it: it is
-    /// the owner list with the gated entries dropped, nothing else.
-    #[test]
-    fn member_entries_are_a_subsequence_of_the_owner_order() {
-        let owner: Vec<EntryKey> = derive_entries(&Signals::default(), OWNER)
-            .iter()
-            .map(|entry| entry.key)
-            .collect();
-        let member: Vec<EntryKey> = derive_entries(&Signals::default(), MEMBER)
-            .iter()
-            .map(|entry| entry.key)
-            .collect();
-        assert!(member.len() < owner.len(), "the gates dropped nothing");
-        let mut owner_iter = owner.iter();
-        for key in &member {
-            assert!(
-                owner_iter.any(|expected| expected == key),
-                "{key:?} is out of the owner order: member {member:?} vs owner {owner:?}"
+        let steps = fixture["steps"].as_array().unwrap();
+        assert_eq!(steps.len(), STEPS.len());
+        for (expected, step) in steps.iter().zip(STEPS.iter()) {
+            let key = step.key.as_str();
+            assert_eq!(expected["key"], key);
+            assert_eq!(expected["title"], step.title, "{key}");
+            assert_eq!(expected["icon"], step.icon, "{key}");
+            assert!(registry::concept_by_name(step.icon).is_some(), "{key}");
+            assert_eq!(expected["target"], step.target.as_str(), "{key}");
+            assert_eq!(
+                expected["needsDevice"].as_bool().unwrap_or(false),
+                step.needs_device,
+                "{key}"
             );
+            let visible_when = step.visible_when.map(|p| match p {
+                Permission::CanManageMembers => "canManageMembers",
+                Permission::CanManageWidgets => "canManageWidgets",
+            });
+            assert_eq!(expected["visibleWhen"].as_str(), visible_when, "{key}");
+            assert_eq!(expected["phones"].as_bool(), Some(step.phones), "{key}");
+            assert_eq!(expected["doneWhen"], step.done_when, "{key}");
         }
     }
 
-    /// EXP-818: the IDE's own list is the web list minus the desktop step —
-    /// same order, nothing else dropped, and the desktop row's completion
-    /// no longer gates "complete".
+    /// `doneWhen` evaluates exactly the signals its text names.
     #[test]
-    fn ide_entries_drop_only_the_desktop_step() {
-        let keys: Vec<EntryKey> = ide_entries(derive_entries(&Signals::default(), OWNER))
-            .iter()
-            .map(|entry| entry.key)
-            .collect();
-        assert_eq!(keys.first(), Some(&EntryKey::Github));
-        assert!(!keys.contains(&EntryKey::Desktop));
-        assert_eq!(keys.len(), 8);
-        let mut done = all_done();
-        done.has_desktop_device = false;
-        assert!(is_complete(&ide_entries(derive_entries(&done, OWNER))));
-    }
-
-    #[test]
-    fn owner_order_is_the_web_order() {
-        let keys: Vec<EntryKey> = derive_entries(&Signals::default(), OWNER)
-            .iter()
-            .map(|entry| entry.key)
-            .collect();
-        assert_eq!(
-            keys,
-            vec![
-                EntryKey::Desktop,
-                EntryKey::Github,
-                EntryKey::Invite,
-                EntryKey::Board,
-                EntryKey::Coding,
-                EntryKey::Action,
-                EntryKey::Server,
-                EntryKey::Widget,
-                EntryKey::Mcp,
-            ]
-        );
-    }
-
-    #[test]
-    fn members_get_six_entries() {
-        let keys: Vec<EntryKey> = derive_entries(&Signals::default(), MEMBER)
-            .iter()
-            .map(|entry| entry.key)
-            .collect();
-        assert_eq!(
-            keys,
-            vec![
-                EntryKey::Desktop,
-                EntryKey::Github,
-                EntryKey::Board,
-                EntryKey::Coding,
-                EntryKey::Server,
-                EntryKey::Mcp,
-            ]
-        );
-    }
-
-    #[test]
-    fn everything_starts_undone_with_the_web_locks() {
-        let none = Signals::default();
-        let entries = derive_entries(&none, OWNER);
-        assert_eq!(entries.len(), 9);
-        assert!(entries.iter().all(|entry| entry.state != EntryState::Done));
-        let coding = entry(&none, OWNER, EntryKey::Coding).unwrap();
-        assert_eq!((coding.state, coding.locked_by), (EntryState::Locked, Some(EntryKey::Desktop)));
-        let action = entry(&none, OWNER, EntryKey::Action).unwrap();
-        assert_eq!((action.state, action.locked_by), (EntryState::Locked, Some(EntryKey::Desktop)));
-        let widget = entry(&none, OWNER, EntryKey::Widget).unwrap();
-        assert_eq!((widget.state, widget.locked_by), (EntryState::Locked, Some(EntryKey::Board)));
-        assert_eq!(entry(&none, OWNER, EntryKey::Mcp).unwrap().state, EntryState::Available);
-    }
-
-    #[test]
-    fn coding_lock_chain_walks_desktop_then_github_then_board() {
-        let with_device = Signals {
-            has_desktop_device: true,
-            ..Signals::default()
-        };
-        assert_eq!(
-            entry(&with_device, OWNER, EntryKey::Coding).unwrap().locked_by,
-            Some(EntryKey::Github)
-        );
-        let server_only = Signals {
-            has_server_device: true,
-            ..Signals::default()
-        };
-        assert_eq!(
-            entry(&server_only, OWNER, EntryKey::Coding).unwrap().locked_by,
-            Some(EntryKey::Github)
-        );
-        let github = Signals {
-            has_desktop_device: true,
-            github_installed: true,
-            has_board: true,
-            ..Signals::default()
-        };
-        assert_eq!(
-            entry(&github, OWNER, EntryKey::Coding).unwrap().locked_by,
-            Some(EntryKey::Board)
-        );
-        let ready = Signals {
-            has_repo_board: true,
-            ..github
-        };
-        let coding = entry(&ready, OWNER, EntryKey::Coding).unwrap();
-        assert_eq!((coding.state, coding.locked_by), (EntryState::Available, None));
-        // Repo board but no machine: still the desktop feeder.
-        let no_machine = Signals {
-            github_installed: true,
-            has_board: true,
-            has_repo_board: true,
-            ..Signals::default()
-        };
-        assert_eq!(
-            entry(&no_machine, OWNER, EntryKey::Coding).unwrap().locked_by,
-            Some(EntryKey::Desktop)
-        );
-    }
-
-    #[test]
-    fn action_unlocks_with_any_machine_and_completes_from_a_row() {
+    fn done_when_reads_the_named_signals() {
+        for step in STEPS {
+            assert!(!step_done(step.key, &Signals::default()), "{:?}", step.key);
+        }
         let server = Signals {
             has_server_device: true,
             ..Signals::default()
         };
-        assert_eq!(entry(&server, OWNER, EntryKey::Action).unwrap().state, EntryState::Available);
+        assert!(step_done(StepKey::Device, &server));
+        assert!(step_done(StepKey::Server, &server));
         let desktop = Signals {
             has_desktop_device: true,
             ..Signals::default()
         };
-        assert_eq!(entry(&desktop, OWNER, EntryKey::Action).unwrap().state, EntryState::Available);
-        let done = Signals {
-            has_action: true,
-            ..Signals::default()
-        };
-        let action = entry(&done, OWNER, EntryKey::Action).unwrap();
-        assert_eq!((action.state, action.locked_by), (EntryState::Done, None));
+        assert!(step_done(StepKey::Device, &desktop));
+        assert!(!step_done(StepKey::Server, &desktop));
     }
 
+    /// The dialog fits the eight cards side by side.
     #[test]
-    fn done_beats_locks() {
-        let signals = Signals {
-            has_coding_session: true,
-            has_widget: true,
-            ..Signals::default()
-        };
-        assert_eq!(entry(&signals, OWNER, EntryKey::Coding).unwrap().state, EntryState::Done);
-        assert_eq!(entry(&signals, OWNER, EntryKey::Widget).unwrap().state, EntryState::Done);
-    }
-
-    #[test]
-    fn counts_done_against_the_viewers_own_total() {
-        let signals = Signals {
-            has_desktop_device: true,
-            github_installed: true,
-            has_invited_team: true,
-            has_board: true,
-            has_repo_board: true,
-            has_coding_session: true,
-            mcp_connected: true,
-            ..Signals::default()
-        };
-        let count = |gates| {
-            let entries = derive_entries(&signals, gates);
-            (
-                entries.iter().filter(|e| e.state == EntryState::Done).count(),
-                entries.len(),
-            )
-        };
-        // Owner: action + server + widget open → 6/9; member: server open → 5/6.
-        assert_eq!(count(OWNER), (6, 9));
-        assert_eq!(count(MEMBER), (5, 6));
-    }
-
-    #[test]
-    fn complete_only_when_every_visible_entry_is_done() {
-        assert!(is_complete(&derive_entries(&all_done(), OWNER)));
-        assert!(is_complete(&derive_entries(&all_done(), MEMBER)));
-        let no_action = Signals {
-            has_action: false,
-            ..all_done()
-        };
-        assert!(!is_complete(&derive_entries(&no_action, OWNER)));
-        // A member never sees the action entry, so its signal cannot hold them.
-        assert!(is_complete(&derive_entries(&no_action, MEMBER)));
-        assert!(!is_complete(&[]));
+    fn dialog_fits_the_card_row() {
+        assert_eq!(dialog_content_w(), 8. * 104. + 7. * 8.);
     }
 }

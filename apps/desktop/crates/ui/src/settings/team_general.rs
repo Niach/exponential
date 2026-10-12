@@ -10,9 +10,11 @@
 //! `useEffect`: an Electric echo that changes the synced row overwrites the
 //! local draft (which is exactly how the post-save echo clears `dirty`).
 
+use std::time::Instant;
+
 use gpui::{
-    div, prelude::FluentBuilder as _, App, AppContext as _, Entity, IntoElement, ParentElement,
-    Render, SharedString, Styled, Subscription, Window,
+    div, prelude::FluentBuilder as _, px, App, AppContext as _, Entity, IntoElement,
+    ParentElement, Render, SharedString, Styled, Subscription, Task, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -23,6 +25,8 @@ use gpui_component::{
 use sync::Store;
 
 use crate::controls::{glass_input, web_textarea, WebControl as _};
+use crate::feedback;
+use crate::toast::{self, Toast};
 use crate::native_dialog::{self, AlertEnter, AlertSpec};
 use crate::navigation::Navigation;
 
@@ -79,6 +83,15 @@ fn approx_tokens(bytes: usize) -> String {
     }
 }
 
+/// EXP-1275: the byte cap's INLINE line under the field (feedback-states
+/// `errors` case "a prompt over its byte cap stays under its field").
+fn prompt_too_long(used: usize) -> String {
+    format!(
+        "Too long: {used} of {} bytes",
+        domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES
+    )
+}
+
 /// The counter line: `1.2k / 12.0k bytes · ≈300 tokens`.
 fn prompt_counter(bytes: usize) -> String {
     format!(
@@ -92,18 +105,28 @@ fn prompt_counter(bytes: usize) -> String {
 /// EXP-1025: the team prompt's fetch state. The text is NOT on the synced
 /// team row (server-only, like an action's body), so the pane loads it once
 /// per team and the field stays disabled until it lands — a blur can never
-/// save an empty draft over a prompt that has not arrived.
+/// save an empty draft over a prompt that has not arrived (nor after the
+/// load failed).
 #[derive(Default)]
 struct PromptState {
     /// The team the loaded text belongs to; a team switch reloads.
     team_id: Option<String>,
     loading: bool,
+    load_failed: bool,
     /// What the server holds (trailing whitespace dropped, like it does).
     saved: String,
     /// ISO stamp of the last write, for the "Edited …" caption.
     updated_at: Option<String>,
     saving: bool,
-    error: Option<SharedString>,
+    /// EXP-1275: a save was asked for while one was in flight; it runs
+    /// when that one settles.
+    resave: bool,
+    /// EXP-1275: the autosave debounce — each keystroke replaces it
+    /// (dropping the previous timer cancels it).
+    debounce: Option<Task<()>>,
+    /// EXP-1275: the last save landed at — the caption reads `Saved` for
+    /// `feedback::AUTOSAVE_SAVED_HOLD` after it.
+    saved_at: Option<Instant>,
     /// Bumped per fetch so a slow reply for the previous team is dropped.
     generation: u64,
 }
@@ -165,11 +188,17 @@ impl GeneralPane {
                 InputEvent::PressEnter { .. } | InputEvent::Blur => this.save(cx),
                 _ => {}
             }),
-            // EXP-1025: the prompt saves itself on blur too (Enter is a
-            // newline in a textarea); Change re-renders the counter.
+            // EXP-1275: the prompt AUTOSAVES — `AUTOSAVE_DEBOUNCE` after the
+            // last keystroke and on blur (Enter is a newline in a textarea).
             cx.subscribe(&prompt_input, |this, _, event: &InputEvent, cx| match event {
-                InputEvent::Change => cx.notify(),
-                InputEvent::Blur => this.save_prompt(cx),
+                InputEvent::Change => {
+                    this.schedule_prompt_save(cx);
+                    cx.notify();
+                }
+                InputEvent::Blur => {
+                    this.prompt.debounce = None;
+                    this.save_prompt(cx);
+                }
                 _ => {}
             }),
         ];
@@ -277,20 +306,26 @@ impl GeneralPane {
         let Some(team_id) = self.snapshot.as_ref().map(|snapshot| snapshot.team_id.clone()) else {
             return;
         };
+        // EXP-1275: an edit still in its debounce belongs to the team being
+        // left: flush it before the field clears.
+        if self.prompt.debounce.take().is_some() {
+            self.save_prompt(cx);
+        }
         self.prompt.generation += 1;
         let generation = self.prompt.generation;
         self.prompt.team_id = Some(team_id.clone());
         self.prompt.loading = true;
+        self.prompt.load_failed = false;
         self.prompt.saved.clear();
         self.prompt.updated_at = None;
-        self.prompt.error = None;
+        self.prompt.saved_at = None;
         self.prompt_input.update(cx, |state, cx| {
             state.set_value("", window, cx);
             state.set_placeholder("Loading…", window, cx);
         });
         let Some(trpc) = crate::queries::trpc_client(cx) else {
             self.prompt.loading = false;
-            self.prompt.error = Some("Not signed in.".into());
+            self.prompt.load_failed = true;
             return;
         };
         cx.spawn_in(window, async move |this, window| {
@@ -313,8 +348,19 @@ impl GeneralPane {
                         });
                     }
                     Err(err) => {
-                        view.prompt.error =
-                            Some(format!("Couldn't load the team prompt: {}", err.user_message()).into());
+                        // FEED-79: a failed load = the toast (Retry refetches);
+                        // the field stays disabled.
+                        view.prompt.load_failed = true;
+                        let pane = cx.entity().downgrade();
+                        toast::show(
+                            Toast::error("Couldn't load the team prompt")
+                                .description(err.user_message())
+                                .action(feedback::RETRY, move |window, cx| {
+                                    let _ = pane.update(cx, |view, cx| view.fetch_prompt(window, cx));
+                                }),
+                            window,
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
@@ -329,17 +375,39 @@ impl GeneralPane {
 
     fn prompt_dirty(&self, cx: &App) -> bool {
         !self.prompt.loading
+            && !self.prompt.load_failed
             && self.prompt_input.read(cx).value().trim_end() != self.prompt.saved
     }
 
-    /// EXP-1025: save on blur — the web `handleSavePrompt` twin. Over the
-    /// cap nothing is sent (the counter is already red and the server would
-    /// refuse it anyway).
+    /// EXP-1275: (re)start the autosave debounce: the save fires
+    /// `AUTOSAVE_DEBOUNCE` after the LAST keystroke.
+    fn schedule_prompt_save(&mut self, cx: &mut gpui::Context<Self>) {
+        if !self.prompt_dirty(cx) {
+            self.prompt.debounce = None;
+            return;
+        }
+        self.prompt.debounce = Some(cx.spawn(async move |this, cx| {
+            cx.background_executor().timer(feedback::AUTOSAVE_DEBOUNCE).await;
+            let _ = this.update(cx, |this, cx| {
+                this.prompt.debounce = None;
+                this.save_prompt(cx);
+            });
+        }));
+    }
+
+    /// EXP-1025/1275: the ONE save path (debounce, blur, Retry) — the web
+    /// `handleSavePrompt` twin. Nothing is sent when the text equals the
+    /// last saved text or is over the cap (the inline line says so and the
+    /// server would refuse it anyway).
     fn save_prompt(&mut self, cx: &mut gpui::Context<Self>) {
         let Some(team_id) = self.prompt.team_id.clone() else {
             return;
         };
-        if self.prompt.loading || self.prompt.saving || !self.prompt_dirty(cx) {
+        if self.prompt.saving {
+            self.prompt.resave = true;
+            return;
+        }
+        if self.prompt.loading || !self.prompt_dirty(cx) {
             return;
         }
         if self.prompt_bytes(cx) > domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES {
@@ -352,9 +420,10 @@ impl GeneralPane {
         let saved = text.trim_end().to_string();
         let mut input = api::teams::TeamsUpdateInput::new(team_id);
         input.agent_prompt = Some(text);
+        let generation = self.prompt.generation;
 
         self.prompt.saving = true;
-        self.prompt.error = None;
+        self.prompt.saved_at = None;
         cx.notify();
 
         cx.spawn(async move |this, cx| {
@@ -364,16 +433,38 @@ impl GeneralPane {
                 .await;
             let _ = this.update(cx, |this, cx| {
                 this.prompt.saving = false;
+                // A team switch while the write was out: the reply belongs
+                // to the team that was left (its failure still toasts, with
+                // nothing to retry against).
+                let current = this.prompt.generation == generation;
                 match result {
-                    Ok(_) => {
+                    Ok(_) if current => {
                         this.prompt.saved = saved;
                         this.prompt.updated_at = Some(chrono::Utc::now().to_rfc3339());
+                        this.prompt.saved_at = Some(Instant::now());
+                        // Repaint once the `Saved` hold is over.
+                        cx.spawn(async move |this, cx| {
+                            cx.background_executor().timer(feedback::AUTOSAVE_SAVED_HOLD).await;
+                            let _ = this.update(cx, |_, cx| cx.notify());
+                        })
+                        .detach();
                     }
+                    Ok(_) => {}
                     Err(err) => {
-                        this.prompt.error = Some(
-                            format!("Couldn't save the team prompt: {}", err.user_message()).into(),
-                        );
+                        log::warn!("[ui] teams.update(agentPrompt) failed: {err}");
+                        let mut note = Toast::error("Couldn't save the team prompt")
+                            .description(err.user_message());
+                        if current {
+                            let pane = cx.entity().downgrade();
+                            note = note.action(feedback::RETRY, move |_, cx| {
+                                let _ = pane.update(cx, |this, cx| this.save_prompt(cx));
+                            });
+                        }
+                        toast::show_in_active_window(note, cx);
                     }
+                }
+                if std::mem::take(&mut this.prompt.resave) {
+                    this.save_prompt(cx);
                 }
                 cx.notify();
             });
@@ -392,24 +483,26 @@ impl GeneralPane {
         }
         let bytes = self.prompt_bytes(cx);
         let over = bytes > domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES;
-        let dirty = self.prompt_dirty(cx);
-        let caption: Option<SharedString> = if self.prompt.saving {
-            Some("Saving…".into())
-        } else if dirty {
-            Some("Unsaved".into())
+        // EXP-1275: `Saving` (spinner) → `Saved` for the hold → `Edited
+        // {ago}`; there is no Unsaved state.
+        let just_saved = self
+            .prompt
+            .saved_at
+            .is_some_and(|at| at.elapsed() < feedback::AUTOSAVE_SAVED_HOLD);
+        let trailing = if self.prompt.saving {
+            Some(feedback::inline_status(feedback::AUTOSAVE_SAVING, true, cx))
+        } else if just_saved {
+            Some(feedback::inline_status(feedback::AUTOSAVE_SAVED, false, cx))
         } else {
-            self.prompt
-                .updated_at
-                .as_deref()
-                .map(|stamp| format!("Edited {}", crate::inbox::relative_time(stamp)).into())
-        };
-        let trailing = caption.map(|caption| {
-            div()
-                .text_xs()
-                .text_color(cx.theme().muted_foreground)
-                .child(caption)
-                .into_any_element()
-        });
+            self.prompt.updated_at.as_deref().map(|stamp| {
+                feedback::inline_status(
+                    feedback::autosave_edited(&crate::inbox::relative_time(stamp)),
+                    false,
+                    cx,
+                )
+            })
+        }
+        .map(IntoElement::into_any_element);
         let field = Textarea::new(&self.prompt_input)
             .appearance(false)
             .w_full()
@@ -417,7 +510,7 @@ impl GeneralPane {
             .py_3()
             .font_family(theme::terminal::FONT_FAMILY)
             .text_xs()
-            .disabled(self.prompt.loading);
+            .disabled(self.prompt.loading || self.prompt.load_failed);
         let footer = h_flex()
             .w_full()
             .items_start()
@@ -435,13 +528,18 @@ impl GeneralPane {
                     .when(over, |counter| counter.text_color(cx.theme().danger))
                     .child(prompt_counter(bytes)),
             );
-        let mut body = section(cx)
+        section(cx)
             .child(crate::surface::glass_section_header(TEAM_PROMPT_TITLE, trailing, cx))
-            .child(crate::surface::glass_group().child(field).child(footer));
-        if let Some(error) = &self.prompt.error {
-            body = body.child(error_notice(error.clone(), cx));
-        }
-        body
+            .child(crate::surface::glass_group().child(field).child(footer))
+            // FEED-79: a byte cap is INVALID INPUT — inline under the field.
+            .when(over, |body| {
+                body.child(
+                    div()
+                        .text_size(px(13.))
+                        .text_color(cx.theme().danger)
+                        .child(prompt_too_long(bytes)),
+                )
+            })
     }
 
     fn dirty(&self, cx: &App) -> bool {
@@ -835,5 +933,33 @@ impl Render for GeneralPane {
                     .child("Only team owners can change these settings."),
             )
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// FEED-79: the byte cap's inline line is the fixture's
+    /// "a prompt over its byte cap stays under its field" message.
+    #[test]
+    fn the_byte_cap_line_is_the_fixture_copy() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../../packages/domain-contract/fixtures/feedback-states.json"
+        ))
+        .expect("feedback-states.json parses");
+        let case = fixture["errors"]["cases"]
+            .as_array()
+            .expect("cases")
+            .iter()
+            .find(|case| case["name"] == "a prompt over its byte cap stays under its field")
+            .expect("the byte cap case");
+        let max = domain::contract::TEAM_AGENT_PROMPT_MAX_BYTES;
+        let want = case["message"]
+            .as_str()
+            .expect("message")
+            .replace("{used}", &(max + 1).to_string())
+            .replace("{max}", &max.to_string());
+        assert_eq!(prompt_too_long(max + 1), want);
     }
 }

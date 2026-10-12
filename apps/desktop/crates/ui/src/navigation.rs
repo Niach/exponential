@@ -105,6 +105,12 @@ pub enum Screen {
     /// mode like Devices; sending starts a chat run and navigates to its
     /// [`Screen::Session`].
     Chat,
+    /// EXP-1255: a NEW RUN tab — the strip's "+" (and Cmd+T) opens one,
+    /// hosting the Agent home's column ([`crate::chat_screen`], one view per
+    /// tab keyed by `id`). It is a detail tab like an issue; the run it
+    /// starts takes its place in the strip
+    /// ([`crate::coding_flow::open_landed_session`]).
+    NewRun { id: String },
     /// The Reviews page (EXP-706 — the web `t/$teamSlug/reviews` page: every
     /// open PR across the team, issue-linked ones grouped by board plus the
     /// unlinked ones grouped by repo). It used to be a sidebar TOOL WINDOW
@@ -129,13 +135,6 @@ pub enum Screen {
     /// Keyed by the manager's stable [`terminal::TabId`] — never persisted
     /// (EXP-301: nothing terminal-side survives a relaunch).
     Terminal { tab: terminal::TabId },
-    /// The Getting-started checklist (EXP-470 — the desktop mirror of the
-    /// web checklist). Tab-less full-page mode exactly like Actions, opened
-    /// from a conditional rail entry. EXP-686: the page carries the
-    /// suggestion rows as a second tab, and the tab rides the SCREEN so the
-    /// Actions lightbulb can navigate straight into it (and so
-    /// go-back / tab restore keep the tab the user was on).
-    GettingStarted { tab: GettingStartedTab },
     /// VAPP-90 (DEV-ONLY): the Exponential UI kitchen sink — the core
     /// catalog's fixture painted by the SDK's gpui painter
     /// ([`crate::exponential_ui_screen`]), the desktop twin of the web route
@@ -154,15 +153,6 @@ pub enum Screen {
     /// specimen id = its view-catalog id; reachable only through
     /// `EXP_DEV_SCREEN=<id>`.
     ExponentialUiSpecimen { id: String },
-}
-
-/// Which tab of the Getting-started page is up (EXP-686): the checklist, or
-/// the curated action suggestions that used to live on the Actions page.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
-pub enum GettingStartedTab {
-    #[default]
-    FirstSteps,
-    Suggestions,
 }
 
 impl Screen {
@@ -207,6 +197,7 @@ impl Screen {
             Screen::IssueDetail { .. }
                 | Screen::Session { .. }
                 | Screen::Terminal { .. }
+                | Screen::NewRun { .. }
         )
     }
 
@@ -429,8 +420,8 @@ pub(crate) fn screen_title(screen: &Screen, cx: &App) -> gpui::SharedString {
             .map(gpui::SharedString::from)
             .unwrap_or_else(|| "Action".into()),
         Screen::Chat => "Chat".into(),
+        Screen::NewRun { .. } => NEW_RUN_TITLE.into(),
         Screen::Reviews => "Reviews".into(),
-        Screen::GettingStarted { .. } => "Getting started".into(),
         Screen::ExponentialUiKitchenSink => "Exponential UI".into(),
         Screen::ExponentialUiDevices => "Devices · Exponential UI".into(),
         Screen::ExponentialUiSpecimen { .. } => "Exponential UI".into(),
@@ -912,13 +903,10 @@ impl Navigation {
 /// list screens the rail's tool windows became) | `chat` | `chat?<seed>` (EXP-825:
 /// `issues=<a>,<b>&action=<id>&pr=<issue>&device=<id>&text=<url-encoded>`
 /// &icon=<name>`, any subset — [`parse_dev_chat_seed`]) | `reviews` |
-/// `getting-started` | `issue:<uuid>` | `issue:<uuid>?face=changes|diff|results`
+/// `issue:<uuid>` | `issue:<uuid>?face=changes|diff|results`
 /// (EXP-1154: the issue tab on that face — the review of its PR is the
 /// Changes face, [`parse_dev_issue_face`]) | `session:<uuid>` (a coding session, keyed by
 /// its `coding_sessions` ROW id — EXP-746) (anything else = no pre-route).
-/// `getting-started` additionally reads `EXP_DEV_GETTING_STARTED_TAB`
-/// ([`parse_getting_started_tab`]) so a capture run can land on the
-/// suggestions tab without synthetic input.
 fn parse_dev_screen(spec: &str) -> Option<Screen> {
     // EXP-825: the seeded composer route — the query is parsed separately
     // into the nav's `pending_chat_seed`.
@@ -969,14 +957,6 @@ fn parse_dev_screen(spec: &str) -> Option<Screen> {
         id if crate::exponential_ui_screen::is_specimen_id(id) => {
             Some(Screen::ExponentialUiSpecimen { id: id.to_string() })
         }
-        "getting-started" => Some(Screen::GettingStarted {
-            tab: std::env::var("EXP_DEV_GETTING_STARTED_TAB")
-                .ok()
-                .as_deref()
-                .map(str::trim)
-                .and_then(parse_getting_started_tab)
-                .unwrap_or_default(),
-        }),
         _ => {
             if let Some(rest) = spec.strip_prefix("issue:") {
                 // EXP-1154: `?face=…` picks the tab's face, never the id.
@@ -1162,18 +1142,6 @@ fn parse_dev_inbox_tab(spec: &str) -> Option<crate::sidebar::InboxTab> {
     match spec {
         "inbox" => Some(crate::sidebar::InboxTab::Inbox),
         "my-issues" => Some(crate::sidebar::InboxTab::MyIssues),
-        _ => None,
-    }
-}
-
-/// DEV-ONLY `EXP_DEV_GETTING_STARTED_TAB` values (EXP-686): `first-steps` |
-/// `suggestions` (anything else = the ordinary default). Split out of
-/// [`parse_dev_screen`] so it is testable without touching the process
-/// environment. Never document for users.
-fn parse_getting_started_tab(spec: &str) -> Option<GettingStartedTab> {
-    match spec {
-        "first-steps" => Some(GettingStartedTab::FirstSteps),
-        "suggestions" => Some(GettingStartedTab::Suggestions),
         _ => None,
     }
 }
@@ -1540,6 +1508,16 @@ fn navigate_replace_inner(window: &Window, cx: &mut App, screen: Screen, in_plac
         cx.notify();
     });
 }
+
+/// EXP-1255: [`navigate`] that REBINDS the tab holding `replaced` to
+/// `screen` (a New run tab turning into its run's tab), wherever that tab
+/// sits in the strip — one tab, never a new one.
+pub(crate) fn navigate_replacing_tab(window: &Window, cx: &mut App, screen: Screen, replaced: Screen) {
+    navigate_inner(window, cx, screen, PendingOrigin::ReplaceTab(replaced));
+}
+
+/// EXP-1255: a New run tab's chip title (draft 1).
+pub(crate) const NEW_RUN_TITLE: &str = "New run";
 
 /// EXP-1170: the New issue page's board chip moved the draft to `board_id` —
 /// the screen follows (so [`active_board_id`] does), in place: no history
@@ -2209,10 +2187,11 @@ pub fn resolved_screen(nav: &Entity<Navigation>, cx: &App) -> Option<Screen> {
     default_screen(!collections.boards_in_team(&team_id, cx).is_empty())
 }
 
-/// EXP-1192: the landing screen — the Agent page, once the team has a board
-/// (until then the "No boards yet" empty state, `None`). Pure for the test.
-fn default_screen(team_has_boards: bool) -> Option<Screen> {
-    team_has_boards.then_some(Screen::Chat)
+/// EXP-1192/EXP-1253: the landing screen — the Agent page, HOME, with or
+/// without a board (a board-less team's home carries the Getting started
+/// block, whose first card creates one). Pure for the test.
+fn default_screen(_team_has_boards: bool) -> Option<Screen> {
+    Some(Screen::Chat)
 }
 
 /// Whether the teams + boards shapes have seen their first
@@ -2503,23 +2482,6 @@ mod tests {
         assert_eq!(parse_dev_inbox_tab("My-Issues"), None);
     }
 
-    /// The Getting-started tab override parses exactly the two documented
-    /// values; anything else falls back to the checklist.
-    #[test]
-    fn getting_started_tab_override_parses_both_tabs() {
-        assert_eq!(
-            parse_getting_started_tab("first-steps"),
-            Some(GettingStartedTab::FirstSteps)
-        );
-        assert_eq!(
-            parse_getting_started_tab("suggestions"),
-            Some(GettingStartedTab::Suggestions)
-        );
-        assert_eq!(parse_getting_started_tab(""), None);
-        assert_eq!(parse_getting_started_tab("Suggestions"), None);
-        assert_eq!(GettingStartedTab::default(), GettingStartedTab::FirstSteps);
-    }
-
     /// EXP-1246: Reviews is a full page that lends NO list — the PR it opens
     /// shows full width, Back returns through history. Neither a tab nor
     /// undockable (the ISSUE its rows open, EXP-1154, is both).
@@ -2637,9 +2599,6 @@ mod tests {
             Screen::Chat,
             Screen::Files,
             Screen::SourceControl,
-            Screen::GettingStarted {
-                tab: GettingStartedTab::FirstSteps,
-            },
             Screen::ExponentialUiKitchenSink,
             Screen::ExponentialUiDevices,
             Screen::IssueDetail {
@@ -2928,9 +2887,6 @@ mod tests {
             Screen::Files,
             Screen::SourceControl,
             Screen::Action { action_id: "act-1".into() },
-            Screen::GettingStarted {
-                tab: GettingStartedTab::FirstSteps,
-            },
             Screen::ExponentialUiKitchenSink,
             Screen::ExponentialUiDevices,
         ] {
@@ -2999,7 +2955,7 @@ mod tests {
     #[test]
     fn the_default_landing_is_the_agent_page() {
         assert_eq!(default_screen(true), Some(Screen::Chat));
-        assert_eq!(default_screen(false), None, "No boards yet");
+        assert_eq!(default_screen(false), Some(Screen::Chat), "home, even before a board");
         let mut nav = Navigation::new();
         nav.screen = None;
         nav.back_stack.clear();
@@ -3113,16 +3069,6 @@ mod tests {
             assert_eq!(screen_title(&draft_screen("d1", ""), cx), "New issue");
             assert_eq!(screen_title(&Screen::Actions, cx), "Actions");
             assert_eq!(screen_title(&Screen::Reviews, cx), "Reviews");
-            assert_eq!(
-                screen_title(
-                    &Screen::GettingStarted {
-                        tab: GettingStartedTab::Suggestions
-                    },
-                    cx
-                ),
-                "Getting started",
-                "the tab never changes the page's identity"
-            );
         });
     }
 

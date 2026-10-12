@@ -1,5 +1,6 @@
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { eq, useLiveQuery } from "@tanstack/react-db"
+import { useSearch } from "@tanstack/react-router"
 import type { CommentAudience } from "@exp/db-schema/domain"
 import type {
   Attachment,
@@ -53,6 +54,34 @@ interface IssueTimelineProps {
    *  fetched once by the detail) — names reporter comments and, when it
    *  carries an email, offers the composer's "Reply to reporter" toggle. */
   submission?: WidgetSubmission | null
+}
+
+/** EXP-1241: how long a `?comment=` target keeps its active-fill wash. */
+export const COMMENT_FOCUS_MS = 1500
+
+/** EXP-1241: bring the `?comment=<id>` comment into view and wash it with the
+ *  active fill, fading out over `COMMENT_FOCUS_MS` (no wash under reduce
+ *  motion, just the scroll). The wash is an inset shadow, so the card keeps
+ *  its own fill under it. True once the comment was found. */
+export function focusComment(root: HTMLElement, commentId: string): boolean {
+  const node = root.querySelector<HTMLElement>(
+    `[data-comment-id="${commentId.replace(/["\\]/g, ``)}"]`
+  )
+  if (!node) return false
+  const reduced =
+    typeof window.matchMedia === `function` &&
+    window.matchMedia(`(prefers-reduced-motion: reduce)`).matches
+  node.scrollIntoView?.({ block: `center`, behavior: reduced ? `auto` : `smooth` })
+  if (!reduced) {
+    node.animate?.(
+      [
+        { boxShadow: `inset 0 0 0 100vmax var(--color-glass-active)` },
+        { boxShadow: `inset 0 0 0 100vmax transparent` },
+      ],
+      { duration: COMMENT_FOCUS_MS, easing: `ease-out` }
+    )
+  }
+  return true
 }
 
 // The comment thread + activity events (status/assignee/label/PR), rendered as
@@ -122,6 +151,20 @@ export function IssueTimeline({
     }
     return map
   }, [issueAttachments])
+
+  // EXP-1241: `?comment=<id>` (a run's comment card, a notification) scrolls
+  // to that comment once it has synced, once per id.
+  const { comment: focusCommentId } = useSearch({ strict: false }) as {
+    comment?: string
+  }
+  const rootRef = useRef<HTMLDivElement | null>(null)
+  const focusedRef = useRef<string | null>(null)
+  const commentCount = comments?.length ?? 0
+  useEffect(() => {
+    const root = rootRef.current
+    if (!root || !focusCommentId || focusedRef.current === focusCommentId) return
+    if (focusComment(root, focusCommentId)) focusedRef.current = focusCommentId
+  }, [focusCommentId, commentCount])
 
   const userMap = useMemo(() => new Map(users.map((u) => [u.id, u])), [users])
   const labelMap = useMemo(
@@ -306,7 +349,7 @@ export function IssueTimeline({
   return (
     // EXP-1191: the gutter outside the rule, so the rule, the heading and
     // the composer all run edge to edge of the column's content box.
-    <div className="mx-auto max-w-4xl px-4 md:px-5">
+    <div ref={rootRef} className="mx-auto max-w-4xl px-4 md:px-5">
     <div className="border-t border-border py-3">
       <div className="mb-2 flex items-center justify-between gap-2">
         <div className="text-sm font-medium text-foreground">

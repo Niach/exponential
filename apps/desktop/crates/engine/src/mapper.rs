@@ -301,8 +301,10 @@ struct ToolState {
     output_dropped: usize,
     /// EXP-920: the call's ACP `raw_input`, kept ONLY for an Exponential MCP
     /// call — the settle's preview reads the `$`-rooted spec terms off it
-    /// (`pr_open` answers with a url, the input named the issue). `None` for
-    /// every other tool, so a `Read` of a megabyte file costs nothing here.
+    /// (`pr_open` answers with a url, the input named the issue) — and
+    /// (EXP-1279) a code-mode `exec`, whose settle publishes the script and
+    /// finds its call log by it. `None` for every other tool, so a `Read` of
+    /// a megabyte file costs nothing here.
     raw_input: Option<Value>,
 }
 
@@ -1819,7 +1821,15 @@ impl Mapper {
                 name: self.clean(&name, TOOL_NAME_MAX),
                 detail,
                 id: Some(id.clone()),
-                tool_kind: Some(meta_kind.unwrap_or_else(|| wire_tool_kind(call.kind))),
+                // EXP-1279: a code-mode `exec` is its own kind, `script`;
+                // ACP has no word for it.
+                tool_kind: Some(meta_kind.unwrap_or_else(|| {
+                    if is_script_tool(&call.title) {
+                        WireToolKind::Script
+                    } else {
+                        wire_tool_kind(call.kind)
+                    }
+                })),
                 subagent_id,
                 at: None,
             },
@@ -1884,9 +1894,15 @@ impl Mapper {
             state.kind = kind;
             state.title.clone_from(&title);
             // EXP-920: an adapter that names the input only on a later update
-            // (or titles the call only then) still gets it retained.
-            if state.raw_input.is_none() {
-                state.raw_input = exp_tool_input(&title, raw_input.as_ref());
+            // (or titles the call only then) still gets it retained. EXP-1279:
+            // a script's input streams in, so a later one naming the script
+            // replaces an earlier one that did not.
+            let script_missing =
+                || state.raw_input.as_ref().and_then(script_source).is_none() && is_script_tool(&title);
+            if state.raw_input.is_none() || script_missing() {
+                if let Some(input) = exp_tool_input(&title, raw_input.as_ref()) {
+                    state.raw_input = Some(input);
+                }
             }
         }
         // Rule 2: the pending → in-progress churn is a local card patch; only
@@ -1957,12 +1973,16 @@ impl Mapper {
             Some(_) => self.wire_tool_output(id),
             None => None,
         };
+        let script = match status {
+            Some(_) => self.script_log(id),
+            None => None,
+        };
         if status.is_none() && diff.is_none() && preview.is_none() && output.is_none() {
             return;
         }
         let event = match ActivityEvent::tool_update(id, status, diff) {
             ActivityEvent::ToolUpdate { id, status, diff, at, .. } => {
-                ActivityEvent::ToolUpdate { id, status, diff, output, at, preview }
+                ActivityEvent::ToolUpdate { id, status, diff, output, at, preview, script }
             }
             other => other,
         };
@@ -2040,6 +2060,40 @@ impl Mapper {
         let input = state.raw_input.as_ref().unwrap_or(&no_input);
         preview.refs = crate::exp_tool_refs::exp_tool_refs(title, result, input);
         (!preview.is_empty()).then(|| preview.clamp())
+    }
+
+    /// EXP-1279 — the settle's log for a code-mode `exec` (`script` kind):
+    /// the script (its own `script` input) and what it did. The log is not
+    /// read off the call's result: the code-mode server runs in this very
+    /// process and files each finished exec's log under the run and the
+    /// script ([`coding::codemode::take_report`]), because an agent CLI does
+    /// not forward an MCP result's `_meta` whole. Every string is redacted,
+    /// then cut to the relay's caps. A script without a log (an older code
+    /// mode, a refused script, a replay) still publishes its source. `None`
+    /// for every other tool.
+    fn script_log(&self, id: &str) -> Option<steer::frames::ScriptLog> {
+        let state = self.tools.get(id)?;
+        if !is_script_tool(&state.title) {
+            return None;
+        }
+        let source = state.raw_input.as_ref().and_then(script_source)?;
+        let redact = |text: &str| self.config.redactor.redact(text);
+        let mut log = steer::frames::ScriptLog { source: Some(redact(source)), ..Default::default() };
+        if let Some(report) = coding::codemode::take_report(&self.config.session_seed, source) {
+            log.count = Some(u32::try_from(report.count).unwrap_or(u32::MAX));
+            log.elapsed_ms = Some(report.elapsed_ms);
+            log.calls = report
+                .calls
+                .iter()
+                .map(|call| steer::frames::ScriptLogCall {
+                    tool: redact(&call.tool),
+                    subject: call.subject.as_deref().map(redact),
+                    ok: call.ok,
+                    ms: call.ms,
+                })
+                .collect();
+        }
+        Some(log.clamp())
     }
 
     /// Queue a settled tool call for eviction. Re-settling one (a `failed`
@@ -3449,10 +3503,25 @@ fn json_payload(result: &Value) -> Option<Value> {
 
 /// EXP-920: the ACP `raw_input` worth RETAINING on a tool's state — only an
 /// Exponential MCP call's, whose settle reads the `$`-rooted spec terms off
-/// it; every other tool's input is read once for the row's detail and dropped.
+/// it, and (EXP-1279) a code-mode `exec`'s; every other tool's input is read
+/// once for the row's detail and dropped.
 fn exp_tool_input(title: &str, raw_input: Option<&Value>) -> Option<Value> {
     let raw_input = raw_input?;
-    steer::exp_tool::exp_tool_index(title).is_some().then(|| raw_input.clone())
+    (steer::exp_tool::exp_tool_index(title).is_some() || is_script_tool(title)).then(|| raw_input.clone())
+}
+
+/// EXP-1279: the code-mode tool, `exec` on the `codemode` server, as either
+/// adapter titles it: claude `mcp__codemode__exec` (contract
+/// `script-card.json` `toolNameSuffix`), codex `mcp.codemode.exec`.
+fn is_script_tool(title: &str) -> bool {
+    let title = title.trim();
+    let server = coding::codemode::SERVER_NAME;
+    title.ends_with(&format!("{server}__exec")) || title.ends_with(&format!("mcp.{server}.exec"))
+}
+
+/// The script a code-mode `exec` input carries.
+fn script_source(input: &Value) -> Option<&str> {
+    input.get("script").and_then(Value::as_str)
 }
 
 /// EXP-846: `{id, identifier, title, url, count, status}` out of one of our
@@ -3544,7 +3613,8 @@ fn wire_card_kind(kind: WireToolKind) -> ToolCardKind {
         WireToolKind::Fetch => ToolCardKind::Fetch,
         WireToolKind::SwitchMode => ToolCardKind::SwitchMode,
         WireToolKind::Wait => ToolCardKind::Wait,
-        WireToolKind::Other => ToolCardKind::Other,
+        // EXP-1279: the local card has no script shape of its own.
+        WireToolKind::Script | WireToolKind::Other => ToolCardKind::Other,
     }
 }
 
@@ -4462,6 +4532,126 @@ mod tests {
         expected.identifier = Some("EXP-42".to_string());
         expected.title = Some("Fix the flicker".to_string());
         assert_eq!(preview.refs, vec![expected]);
+    }
+
+    /// EXP-1279: a code-mode `exec` is a `script` row, and its settle
+    /// carries the call log the code-mode server filed for this run and this
+    /// script, plus the script itself.
+    #[test]
+    fn a_codemode_exec_is_a_script_row_whose_settle_carries_its_call_log() {
+        let mut mapper = mapper();
+        let script = "return await tools.exponential.exponential_issues_get({ id: 'EXP-1279-a' });";
+        let mut out = MapOut::default();
+        // claude announces the call before its input has streamed in.
+        let call = ToolCall::new(ToolCallId::new("tc-script-1"), "mcp__codemode__exec")
+            .kind(ToolKind::Other)
+            .raw_input(json!({}));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        assert!(
+            out.wire.iter().any(|event| matches!(
+                event,
+                ActivityEvent::Tool { tool_kind: Some(WireToolKind::Script), .. }
+            )),
+            "{:?}",
+            out.wire
+        );
+        let mut out = MapOut::default();
+        let input = ToolCallUpdate::new(
+            ToolCallId::new("tc-script-1"),
+            ToolCallUpdateFields::new().raw_input(json!({ "script": script, "timeout_ms": 5000 })),
+        );
+        mapper.on_update(&notify(SessionUpdate::ToolCallUpdate(input)), &mut out);
+
+        coding::codemode::file_report(
+            "sess-1",
+            script,
+            coding::codemode::ScriptReport {
+                count: 3,
+                elapsed_ms: 1200,
+                calls: vec![coding::codemode::CallRecord {
+                    tool: "exponential.exponential_issues_get".into(),
+                    subject: Some("EXP-1279-a".into()),
+                    ok: true,
+                    ms: Some(40),
+                }],
+            },
+        );
+        let mut out = MapOut::default();
+        let settle = ToolCallUpdate::new(
+            ToolCallId::new("tc-script-1"),
+            ToolCallUpdateFields::new()
+                .status(ToolCallStatus::Completed)
+                .raw_output(json!({ "content": [{ "type": "text", "text": "{\"ok\":true}" }] })),
+        );
+        mapper.on_update(&notify(SessionUpdate::ToolCallUpdate(settle)), &mut out);
+        let log = out
+            .wire
+            .iter()
+            .find_map(|event| match event {
+                ActivityEvent::ToolUpdate { script: Some(script), .. } => Some(script.clone()),
+                _ => None,
+            })
+            .expect("the settle carries the log");
+        assert_eq!(
+            log,
+            steer::frames::ScriptLog {
+                count: Some(3),
+                elapsed_ms: Some(1200),
+                calls: vec![steer::frames::ScriptLogCall {
+                    tool: "exponential.exponential_issues_get".into(),
+                    subject: Some("EXP-1279-a".into()),
+                    ok: true,
+                    ms: Some(40),
+                }],
+                source: Some(script.to_string()),
+            }
+        );
+        assert_eq!(coding::codemode::take_report("sess-1", script), None, "the log was taken");
+    }
+
+    /// EXP-1279: codex titles the same tool `mcp.codemode.exec`; with no log
+    /// filed (an older code mode, a refused script) the source still rides.
+    #[test]
+    fn a_codex_codemode_exec_without_a_log_publishes_its_source() {
+        let mut mapper = mapper();
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-script-2"), "mcp.codemode.exec")
+            .kind(ToolKind::Other)
+            .raw_input(json!({ "script": "return 'EXP-1279-b'" }));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        assert!(out.wire.iter().any(|event| matches!(
+            event,
+            ActivityEvent::Tool { tool_kind: Some(WireToolKind::Script), .. }
+        )));
+        let mut out = MapOut::default();
+        let settle = ToolCallUpdate::new(
+            ToolCallId::new("tc-script-2"),
+            ToolCallUpdateFields::new().status(ToolCallStatus::Failed),
+        );
+        mapper.on_update(&notify(SessionUpdate::ToolCallUpdate(settle)), &mut out);
+        let script = out.wire.iter().find_map(|event| match event {
+            ActivityEvent::ToolUpdate { script, .. } => Some(script.clone()),
+            _ => None,
+        });
+        assert_eq!(
+            script,
+            Some(Some(steer::frames::ScriptLog {
+                source: Some("return 'EXP-1279-b'".into()),
+                ..Default::default()
+            }))
+        );
+        // Every other tool's settle carries none.
+        let mut out = MapOut::default();
+        let call = ToolCall::new(ToolCallId::new("tc-plain"), "mcp__linear__exec")
+            .kind(ToolKind::Other)
+            .status(ToolCallStatus::Completed)
+            .raw_input(json!({ "script": "x" }));
+        mapper.on_update(&notify(SessionUpdate::ToolCall(call)), &mut out);
+        assert!(out.wire.iter().all(|event| !matches!(event, ActivityEvent::ToolUpdate { script: Some(_), .. })));
+        assert!(out.wire.iter().all(|event| !matches!(
+            event,
+            ActivityEvent::Tool { tool_kind: Some(WireToolKind::Script), .. }
+        )));
     }
 
     /// EXP-1202 / EXP-1220: the CLAUDE adapter's settle of an Exponential

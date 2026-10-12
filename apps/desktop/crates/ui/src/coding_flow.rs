@@ -1298,8 +1298,10 @@ impl engine::EngineHost for DesktopEngineHost {
     }
 }
 
-/// Start a prepared launch on the in-process ACP engine and open its session
-/// screen — unless an agent started it ([`should_open_session`], EXP-1088).
+/// Start a prepared launch on the in-process ACP engine and land it per
+/// `landing` ([`should_open_session`], EXP-1271): a start made in THIS
+/// window opens its session screen, every other one stays in the rail's
+/// Running section and raises the remote-start toast.
 ///
 /// The ORDER below is the whole function: every step is an invariant some
 /// earlier bug bought.
@@ -1320,6 +1322,7 @@ impl engine::EngineHost for DesktopEngineHost {
 pub fn spawn_into_window(
     mut prepared: coding::PreparedLaunch,
     subject: SessionSubject,
+    landing: RunLanding,
     window: &mut Window,
     cx: &mut App,
 ) -> Result<(), String> {
@@ -1337,8 +1340,14 @@ pub fn spawn_into_window(
     let agent = prepared.agent;
     let action_id = prepared.action_id.clone();
     let started_reason = prepared.heartbeat_scope.started_reason.clone();
-    let started_reason_for_nav = started_reason.clone();
     let started_by_id = prepared.heartbeat_scope.started_by_id.clone();
+    // EXP-1271: what the remote-start toast names (the run's subject).
+    let announce = RemoteStartNotice {
+        session_id: session_id.clone(),
+        started_reason: started_reason.clone(),
+        started_by_id: started_by_id.clone(),
+        subject: remote_start_subject(prepared.action_id.as_deref(), &prepared.tab_title_prefix),
+    };
     let run_cleanup = prepared.run_cleanup.clone();
     // EXP-792: the team MCP servers this run starts WITHOUT, shown once the
     // engine is up (a launch that fails shows its own error instead).
@@ -1461,8 +1470,10 @@ pub fn spawn_into_window(
     );
     // EXP-478: only now (see the PTY arm).
     drop(launch_hold);
-    if should_open_session(started_reason_for_nav.as_deref()) {
-        crate::session_screen::open_session(&session_id, window, cx);
+    if should_open_session(landing) {
+        open_landed_session(&session_id, window, cx);
+    } else {
+        announce_remote_start(announce, window, cx);
     }
     // EXP-792: a picked server the run starts without is not a silent
     // degradation: ONE toast names every skipped server (the launcher's
@@ -1473,21 +1484,158 @@ pub fn spawn_into_window(
     Ok(())
 }
 
-/// EXP-1088: whether a freshly spawned run takes the window over. A run
-/// another coding session started (`agent`, MCP `sessions_start`) must NOT
-/// navigate: the person
-/// may be mid-edit elsewhere, and the run already appears in the sidebar via
-/// its synced row, nested under its parent. Everything a person asked for
-/// (the composer, a phone/web relay start, a chat, a trigger) still
-/// opens.
-///
-/// A person's LOCAL Resume never trips this even on an agent-started run:
-/// the launcher recomputes the reason from `LaunchOrigin::Local` (always
-/// `None`), and EXP-906's reason inheritance happens server-side, never in
-/// `prepared.heartbeat_scope`. Only a relay frame (`agent`) can put that
-/// reason here.
-pub(crate) fn should_open_session(started_reason: Option<&str>) -> bool {
-    started_reason != Some("agent")
+/// EXP-1271 — where a freshly spawned run LANDS.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RunLanding {
+    /// A person started it IN this window: its composer (page, dialog or a
+    /// New run tab), or the run's own Resume / account switch. It opens.
+    ThisWindow,
+    /// Everything else: a relay start (my own from another device, a
+    /// teammate's on a shared device, an agent's `sessions_start`), a remote
+    /// resume, a trigger. It never takes the window: it shows in the rail's
+    /// Running section with the starting spinner and raises the
+    /// remote-start toast (`feedback-states.json` `remoteStart`), whose Open
+    /// opens it.
+    Background,
+}
+
+/// EXP-1088/EXP-1271: whether a freshly spawned run takes the window over —
+/// ONLY a start made in this window. The person may be mid-edit anywhere
+/// else, and a background run is one click away in Running (or the toast).
+pub(crate) fn should_open_session(landing: RunLanding) -> bool {
+    landing == RunLanding::ThisWindow
+}
+
+/// EXP-1255 — the New run tab a start from this window is about to turn
+/// into its run's tab: the composer hosted by that tab registers it right
+/// before it starts, the landing takes it. One per window (the latest
+/// start wins).
+#[derive(Default)]
+struct NewRunHandoffs(HashMap<gpui::WindowId, String>);
+
+impl gpui::Global for NewRunHandoffs {}
+
+/// The composer in New run tab `new_run_id` is starting a run in `window`.
+pub(crate) fn hand_off_new_run_tab(window: &Window, new_run_id: String, cx: &mut App) {
+    cx.default_global::<NewRunHandoffs>()
+        .0
+        .insert(window.window_handle().window_id(), new_run_id);
+}
+
+/// Open a run that landed in `window`: in place of the New run tab that
+/// started it ([`hand_off_new_run_tab`]), else as an ordinary open.
+pub(crate) fn open_landed_session(session_id: &str, window: &mut Window, cx: &mut App) {
+    let new_run = cx
+        .try_global::<NewRunHandoffs>()
+        .is_some_and(|handoffs| handoffs.0.contains_key(&window.window_handle().window_id()))
+        .then(|| {
+            cx.global_mut::<NewRunHandoffs>()
+                .0
+                .remove(&window.window_handle().window_id())
+        })
+        .flatten();
+    match new_run {
+        Some(id) => crate::navigation::navigate_replacing_tab(
+            window,
+            cx,
+            crate::navigation::Screen::Session {
+                session_id: session_id.to_string(),
+            },
+            crate::navigation::Screen::NewRun { id },
+        ),
+        None => crate::session_screen::open_session(session_id, window, cx),
+    }
+}
+
+/// EXP-1271 — what a background start's toast says.
+struct RemoteStartNotice {
+    session_id: String,
+    started_reason: Option<String>,
+    started_by_id: Option<String>,
+    subject: String,
+}
+
+/// The toast's description: the chat builtin reads "Chat", anything else
+/// the launch's own subject prefix (`EXP-42`, `EXP-42 +2`, the action's
+/// name).
+fn remote_start_subject(action_id: Option<&str>, tab_title_prefix: &str) -> String {
+    if action_id == Some(api::actions::BUILTIN_CHAT_ID) {
+        return crate::feedback::REMOTE_START_CHAT.to_string();
+    }
+    tab_title_prefix.to_string()
+}
+
+/// Who the toast says started the run: an agent (`sessions_start`), the
+/// requesting teammate (a shared device), else this device's owner — the
+/// first name off the synced `users` row, the account's name before it
+/// lands.
+fn remote_starter_name(started_reason: Option<&str>, started_by_id: Option<&str>, cx: &App) -> String {
+    if started_reason == Some("agent") {
+        return crate::feedback::REMOTE_START_AGENT.to_string();
+    }
+    let users = Store::try_global(cx).map(|store| store.collections().users.clone());
+    let user_name = |user_id: &str| {
+        users
+            .as_ref()
+            .and_then(|users| users.read(cx).get(user_id).cloned())
+            .and_then(|user| user.name.filter(|name| !name.trim().is_empty()).or(user.email))
+    };
+    let name = match started_by_id {
+        Some(user_id) => user_name(user_id),
+        None => queries::active_account(cx).and_then(|account| {
+            user_name(&account.user_id).or(account.name.filter(|name| !name.trim().is_empty()))
+        }),
+    };
+    match name {
+        Some(name) => {
+            let first = crate::home_greeting::greeting_first_name(Some(&name));
+            if first.is_empty() { name } else { first.to_string() }
+        }
+        None => crate::feedback::REMOTE_START_AGENT.to_string(),
+    }
+}
+
+/// The background start's 4 s info toast with Open, and its row's starting
+/// spinner in Running ([`run_starting`]).
+fn announce_remote_start(notice: RemoteStartNotice, window: &mut Window, cx: &mut App) {
+    cx.default_global::<StartingRuns>()
+        .0
+        .insert(notice.session_id.clone(), std::time::Instant::now());
+    let name = remote_starter_name(
+        notice.started_reason.as_deref(),
+        notice.started_by_id.as_deref(),
+        cx,
+    );
+    let session_id = notice.session_id;
+    let mut toast = crate::toast::Toast::info(crate::feedback::remote_start_title(&name)).action(
+        crate::feedback::REMOTE_START_OPEN,
+        move |window, cx| crate::session_screen::open_session(&session_id, window, cx),
+    );
+    if !notice.subject.is_empty() {
+        toast = toast.description(notice.subject);
+    }
+    crate::toast::show(toast, window, cx);
+}
+
+/// EXP-1271 — the background starts still before their first turn, so the
+/// rail's Running row spins ([`run_starting`]).
+#[derive(Default)]
+struct StartingRuns(HashMap<String, std::time::Instant>);
+
+impl gpui::Global for StartingRuns {}
+
+/// How long a background start may show the starting spinner at most (its
+/// first turn normally ends it within seconds).
+const STARTING_SPINNER_CAP: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Whether `session_id` is a background start still waiting for its first
+/// turn. `busy` = the run's agent is (or was) working: the start is over.
+pub(crate) fn run_starting(session_id: &str, busy: bool, cx: &App) -> bool {
+    !busy
+        && cx
+            .try_global::<StartingRuns>()
+            .and_then(|runs| runs.0.get(session_id))
+            .is_some_and(|since| since.elapsed() < STARTING_SPINNER_CAP)
 }
 
 // ---------------------------------------------------------------------------
@@ -1560,6 +1708,23 @@ pub(crate) fn follow_remote_start(
     window: &Window,
     cx: &mut App,
 ) {
+    follow_remote_start_then(device_id, subject, None, window, cx)
+}
+
+/// EXP-1271: what a remote start's follower reports when it settles: the
+/// run's id once its row landed (and opened), `None` after
+/// [`REMOTE_OPEN_WAIT`] without one.
+pub(crate) type RemoteStartSettled = Box<dyn FnOnce(Option<String>, &mut Window, &mut App)>;
+
+/// [`follow_remote_start`] that also reports how it settled (the composer's
+/// starting state ends on it).
+pub(crate) fn follow_remote_start_then(
+    device_id: String,
+    subject: RemoteRunSubject,
+    settled: Option<RemoteStartSettled>,
+    window: &Window,
+    cx: &mut App,
+) {
     let known: HashSet<String> = session_ids(cx);
     // EXP-1075: the run lands on the team the launch was made from. The
     // predicate is TOLERANT — a row whose `team_id` has not decoded is never
@@ -1581,11 +1746,17 @@ pub(crate) fn follow_remote_start(
                 // else to do with the run then (its tab opens on the next
                 // visit to the Agent page).
                 let _ = handle.update(cx, |_, window, cx| {
-                    crate::session_screen::open_session(&session_id, window, cx);
+                    open_landed_session(&session_id, window, cx);
+                    if let Some(settled) = settled {
+                        settled(Some(session_id.clone()), window, cx);
+                    }
                 });
                 return;
             }
             if std::time::Instant::now() >= deadline {
+                if let Some(settled) = settled {
+                    let _ = handle.update(cx, |_, window, cx| settled(None, window, cx));
+                }
                 return;
             }
         }
@@ -2396,15 +2567,21 @@ pub(crate) fn live_batch_device_for_issue(cx: &App, issue_id: &str, now_epoch: i
 mod tests {
     use super::*;
 
-    /// EXP-1088: agent-started runs never steal the window;
-    /// person-started ones (incl. triggers and a local resume, whose
-    /// reason is `None`) still open.
+    /// EXP-1271: only a start made in THIS window takes it; every
+    /// background start (relay, remote resume, trigger) stays in Running.
     #[test]
-    fn only_person_started_runs_navigate() {
-        assert!(should_open_session(None));
-        assert!(should_open_session(Some("schedule")));
-        assert!(should_open_session(Some("event")));
-        assert!(!should_open_session(Some("agent")));
+    fn only_a_start_from_this_window_navigates() {
+        assert!(should_open_session(RunLanding::ThisWindow));
+        assert!(!should_open_session(RunLanding::Background));
+    }
+
+    /// EXP-1271: the toast names the chat builtin "Chat" and anything else
+    /// by the launch's own subject prefix.
+    #[test]
+    fn the_remote_start_subject() {
+        assert_eq!(remote_start_subject(Some(api::actions::BUILTIN_CHAT_ID), "web"), "Chat");
+        assert_eq!(remote_start_subject(Some("act-1"), "Tidy up"), "Tidy up");
+        assert_eq!(remote_start_subject(None, "EXP-42 +2"), "EXP-42 +2");
     }
 
     /// FEED-47/57: a live batch covering the issue holds it; an ended
