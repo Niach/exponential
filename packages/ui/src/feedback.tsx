@@ -36,7 +36,8 @@ const REDUCED_MOTION = `(prefers-reduced-motion: reduce)`
 /** `flag`, but only once it has held true for `ms`; false again at once.
  *  A pending state that resolves inside the delay never shows (D8.2). */
 export function useDelayedFlag(flag: boolean, ms: number = FEEDBACK_PENDING_DELAY_MS): boolean {
-  const [shown, setShown] = useState(false)
+  // A zero delay shows on the first render (a static specimen has no effects).
+  const [shown, setShown] = useState(() => flag && ms <= 0)
   useEffect(() => {
     if (!flag) {
       setShown(false)
@@ -105,17 +106,27 @@ const spansAt = (phase: number): MarkSpan[] => MARK.stripes.map((_, index) => ma
 
 /** D8.4 THE MARK: the logo disc (foreground) whose three cut stripes sweep in
  *  turn on a `mark.loopMs` loop; the cuts show the CALLER's ground (a mask).
- *  Static logo under reduce motion. */
-export function FeedbackMark({ size = 16, className }: { size?: number; className?: string }) {
+ *  Static logo under reduce motion. `phase` freezes one frame of the loop
+ *  (the styleguide's specimens) instead of animating. */
+export function FeedbackMark({
+  size = 16,
+  phase,
+  className,
+}: {
+  size?: number
+  phase?: number
+  className?: string
+}) {
   const id = useId()
   const clipId = `mark-clip-${id}`
   const maskId = `mark-mask-${id}`
   const reduced = useMediaQuery(REDUCED_MOTION)
   const paths = useRef<(SVGPathElement | null)[]>([])
-  const initial = reduced ? STATIC_SPANS : spansAt(0)
+  const frozen = phase !== undefined
+  const initial = reduced ? STATIC_SPANS : spansAt(phase ?? 0)
 
   useEffect(() => {
-    if (reduced || typeof requestAnimationFrame !== `function`) return
+    if (reduced || frozen || typeof requestAnimationFrame !== `function`) return
     let frame = 0
     const started = performance.now()
     const tick = (now: number) => {
@@ -127,7 +138,7 @@ export function FeedbackMark({ size = 16, className }: { size?: number; classNam
     }
     frame = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(frame)
-  }, [reduced])
+  }, [reduced, frozen])
 
   return (
     <svg
@@ -175,7 +186,9 @@ export function BlockingOverlay({ open, label }: { open: boolean; label: string 
   return createPortal(<BlockingSurface label={label} />, document.body)
 }
 
-function BlockingSurface({ label }: { label: string }) {
+/** The overlay's surface. `contained` fills the nearest positioned ancestor
+ *  instead of the window (the styleguide's specimen). */
+export function BlockingSurface({ label, contained = false }: { label: string; contained?: boolean }) {
   const { blocking } = FEEDBACK_STATES
   return (
     <div
@@ -184,7 +197,10 @@ function BlockingSurface({ label }: { label: string }) {
       role="status"
       aria-live="assertive"
       aria-busy="true"
-      className="fixed inset-0 z-[1000] flex flex-col items-center justify-center"
+      className={cn(
+        `flex flex-col items-center justify-center`,
+        contained ? `absolute inset-0` : `fixed inset-0 z-[1000]`
+      )}
       style={{
         gap: blocking.gap,
         backgroundColor: `color-mix(in oklab, var(--background) ${blocking.backdropOpacity * 100}%, transparent)`,

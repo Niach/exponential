@@ -4,14 +4,19 @@
     { "id": "style", "order": 1, "title": "1 Style", "blurb": "The values the controls are made of: colour, shape, type, motion and the icon registry.", "entries": [] },
     { "id": "general", "order": 2, "title": "2 General components", "blurb": "The Exponential app's own controls. The generic set (buttons, fields, rows, pills, dialogs, meters) lives on ui.exponential.at/components and renders through the SDK.", "entries": [
       "picker-board", "picker-issue", "picker-action", "picker-account", "picker-device", "picker-assignee", "picker-icon", "picker-status", "picker-priority", "picker-label", "picker-mcp", "picker-repository", "scope-picker",
+      "search-list", "menu-submenu",
       "toast",
-      "jump-to-bottom"
+      "jump-to-bottom",
+      "feedback-states"
     ] },
     { "id": "special", "order": 3, "title": "3 Special components", "blurb": "Compositions with one owner: a dialog, a tree, a settings surface.", "entries": [
       "composer-dialog", "composer-fix-conflicts", "issue-context-menu", "session-row", "pr-row", "pr-graph-badge", "device-settings",
       "blocked-start-dialog", "stack-merge-choice-dialog", "draft-leave-dialog", "readiness-checklist",
       "device-readiness", "results-guide", "mcp-app-views", "run-status-row", "session-thread", "composer-options",
-      "team-agents-settings", "your-agent-settings", "voice-call-overlay"
+      "work-card", "script-card", "comment-call-card",
+      "team-agents-settings", "your-agent-settings", "voice-call-overlay",
+      "agent-home", "work-tabs-strip",
+      "getting-started"
     ] },
     { "id": "views", "order": 4, "title": "4 Views", "blurb": "Whole screens, photographed on every platform.", "entries": [] }
   ],
@@ -48,8 +53,17 @@
     "run-status-row": "EXP-1175",
     "session-thread": "EXP-1175",
     "composer-options": "EXP-1249",
+    "work-card": "EXP-1240",
+    "script-card": "EXP-1279",
+    "comment-call-card": "EXP-1241",
     "team-agents-settings": "EXP-1269",
     "your-agent-settings": "EXP-1269",
-    "voice-call-overlay": "EXP-1268"
+    "voice-call-overlay": "EXP-1268",
+    "feedback-states": "EXP-1275",
+    "agent-home": "EXP-1253",
+    "work-tabs-strip": "EXP-1255",
+    "search-list": "SLOP-28",
+    "menu-submenu": "SLOP-28",
+    "getting-started": "EXP-1270"
   }
 }

@@ -559,9 +559,9 @@ export function TeamSidebar({
                         the in-app mount is headless. Cloud-only — self-hosted
                         renders nothing here. */}
                     <FeedbackButton />
-                    {/* EXP-88: re-entry point for the Getting started cards
-                        once the board's inline block is gone. */}
-                    <GettingStartedButton />
+                    {/* EXP-88/EXP-1270: Getting started's re-entry point,
+                        the same block in a centred dialog. */}
+                    <GettingStartedButton team={team} teamSlug={teamSlug} />
                   </SidebarMenu>
                   {/* EXP-238: settings entry lives down here next to the user
                       block, like the IDE's rail gear. */}

@@ -294,31 +294,3 @@ export function nextScheduleRun(
     0
   )
 }
-
-/** What a suggestion with a trigger asks the creator agent to set up on the
- * action it creates. */
-export interface TriggerSpec {
-  trigger: TriggerWhen
-  deviceId: string
-  agent?: string
-  model?: string
-  effort?: string
-}
-
-/**
- * The machine-readable block a suggestion appends to the builtin "Create
- * action" request — the creator agent creates the action, then passes this
- * JSON verbatim as `triggers` to `exponential_actions_update`. The client
- * never talks to the server itself. Byte-identical ×4: the when-part's keys
- * first, in their stored order, then `deviceId`, then the set pins.
- */
-export function formatTriggerBlock(spec: TriggerSpec): string {
-  const payload: Record<string, unknown> = {
-    ...spec.trigger,
-    deviceId: spec.deviceId,
-  }
-  if (spec.agent) payload.agent = spec.agent
-  if (spec.model) payload.model = spec.model
-  if (spec.effort) payload.effort = spec.effort
-  return `\n\nTrigger — after creating the action, call exponential_actions_update with its id and \`triggers\` set to exactly this array: \`${JSON.stringify([payload])}\`. A triggered run fills no inputs, so declare none as required.`
-}

@@ -5,6 +5,7 @@ import { FEEDBACK_STATES, markStripeSpan } from "@exp/domain-contract/feedback-m
 import { Button } from "./button"
 import {
   BlockingOverlay,
+  BlockingSurface,
   blockingLabel,
   blockWindow,
   FeedbackMark,
@@ -105,6 +106,15 @@ describe(`Button pending`, () => {
     expect(button.getAttribute(`data-testid`)).toBe(FEEDBACK_STATES.testIds.pending)
   })
 
+  it(`a zero delay shows the pending state on the first render`, () => {
+    render(
+      <Button pending pendingLabel="Starting" pendingDelayMs={0}>
+        Start
+      </Button>
+    )
+    expect(screen.getByRole(`button`).textContent).toBe(`Starting`)
+  })
+
   it(`without a word the icon slot alone gives way`, () => {
     vi.useFakeTimers()
     render(
@@ -177,6 +187,15 @@ describe(`FeedbackMark`, () => {
     expect(paths[0]!.getAttribute(`stroke-width`)).toBe(String(FEEDBACK_STATES.mark.stripeWidth))
   })
 
+  it(`freezes one frame of the loop at a given phase`, () => {
+    mockReducedMotion(false)
+    const { container } = render(<FeedbackMark phase={0.3} />)
+    const paths = [...container.querySelectorAll(`mask path`)]
+    expect(paths.map((p) => p.getAttribute(`d`))).toEqual(
+      [0, 1, 2].map((index) => markStripePath(index, markStripeSpan(index, 0.3)))
+    )
+  })
+
   it(`is the static logo under reduce motion`, () => {
     mockReducedMotion(true)
     const { container } = render(<FeedbackMark />)
@@ -201,6 +220,13 @@ describe(`BlockingOverlay`, () => {
     )
     rerender(<BlockingOverlay open={false} label="Signing out" />)
     expect(screen.queryByTestId(FEEDBACK_STATES.testIds.blocking)).toBeNull()
+  })
+
+  it(`a contained surface fills its parent instead of the window`, () => {
+    render(<BlockingSurface contained label="Switching to Personal" />)
+    const surface = screen.getByTestId(FEEDBACK_STATES.testIds.blocking)
+    expect(surface.className).toContain(`absolute inset-0`)
+    expect(surface.className).not.toContain(`fixed`)
   })
 
   it(`blockWindow shows after the delay and releases idempotently`, async () => {

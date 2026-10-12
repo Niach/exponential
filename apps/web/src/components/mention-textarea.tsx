@@ -211,8 +211,9 @@ export const MentionTextarea = forwardRef<
 
   /** Which autocomplete (if any) the text before `caret` is in the middle
    *  of. Runs on every keystroke, and (EXP-790) after a programmatic insert,
-   *  so a chip that drops a trailing `#` opens the issue picker at once. */
-  const detect = (next: string, caret: number) => {
+   *  so a chip that drops a trailing `#` opens the issue picker at once.
+   *  True when it opened the `#` search (whose input takes the focus). */
+  const detect = (next: string, caret: number): boolean => {
     const before = next.slice(0, caret)
     const mention = before.match(MENTION_AT_CARET)
     const issueRef = issueRefs ? typeaheadPrefill(next, caret) : null
@@ -226,7 +227,7 @@ export const MentionTextarea = forwardRef<
       })
     } else if (issueRef) {
       setMenu(null)
-      if (dismissedHashRef.current === issueRef.start) return
+      if (dismissedHashRef.current === issueRef.start) return false
       const field = textareaRef.current
       setIssueSearch({
         start: issueRef.start,
@@ -234,6 +235,7 @@ export const MentionTextarea = forwardRef<
         query: issueRef.query,
         anchor: field ? textareaCaretAnchor(field, next, issueRef.start) : null,
       })
+      return true
     } else if (emoji) {
       setMenu({
         kind: `emoji`,
@@ -244,6 +246,7 @@ export const MentionTextarea = forwardRef<
     } else {
       setMenu(null)
     }
+    return false
   }
 
   // Replaces [start, end) with `text`, restores focus and puts the caret
@@ -258,10 +261,13 @@ export const MentionTextarea = forwardRef<
     const next = `${value.slice(0, start)}${text}${value.slice(end)}`
     const nextCaret = start + Math.max(0, Math.min(caretOffset, text.length))
     onValueChange(next)
-    detect(next, nextCaret)
+    // An insert that opened the `#` search (the `#` button, a chip's
+    // trailing `#`) leaves the focus to the search's input: pulling it back
+    // would dismiss the popover as a focus-outside.
+    const searching = detect(next, nextCaret)
     requestAnimationFrame(() => {
       if (el) {
-        el.focus()
+        if (!searching) el.focus()
         el.setSelectionRange(nextCaret, nextCaret)
       }
     })

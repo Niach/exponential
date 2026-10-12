@@ -209,6 +209,20 @@ describe(`MentionTextarea #issue search`, () => {
     expect(values.at(-1)).toBe(`see `)
   })
 
+  it(`an inserted # (the composer's # button) opens the search and leaves the focus to it`, async () => {
+    withRefs()
+    const handle = createRef<MentionTextareaHandle>()
+    render(<Harness handle={handle} initial="see " />)
+    const el = screen.getByLabelText(`Reply`) as HTMLTextAreaElement
+    act(() => el.blur())
+    el.setSelectionRange(4, 4)
+    act(() => handle.current!.insertText(`#`))
+    expect(screen.getByTestId(`ref-search`).getAttribute(`data-start`)).toBe(`4`)
+    await act(() => new Promise((resolve) => requestAnimationFrame(resolve)))
+    expect(document.activeElement).not.toBe(el)
+    expect(el.selectionStart).toBe(5)
+  })
+
   it(`a # glued to a word is no trigger`, () => {
     withRefs()
     render(<Harness />)

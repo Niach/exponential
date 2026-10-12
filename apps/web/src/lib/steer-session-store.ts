@@ -494,6 +494,9 @@ export type FeedItem = FeedSeq &
       toolKind?: ToolKind
       /** EXP-785: a `tool_update` with a status landed — the call ENDED. */
       settled?: boolean
+      /** EXP-1241: when that settle was stamped (its `at`), so a comment
+       *  card can carry a time before the comment row syncs. */
+      settledAt?: number
       /** EXP-785: that status was `failed` (a later `completed` clears it).
        *  Group captions list these last. */
       failed?: boolean
@@ -1126,6 +1129,8 @@ export function createSteerSessionStore(
         if (event.status === `completed` || event.status === `failed`) {
           next.settled = true
           next.failed = event.status === `failed`
+          if (typeof event.at === `number` && Number.isFinite(event.at))
+            next.settledAt = event.at
         }
         if (typeof event.diff === `string` && event.diff.trim()) next.diff = event.diff
         // EXP-895: the settle's command output. An update carrying none never

@@ -5,7 +5,6 @@ import type {
   ActionTriggerEvent,
 } from "@exp/db-schema/domain"
 import {
-  formatTriggerBlock,
   nextScheduleRun,
   parseActionTriggers,
   parseTriggerWhen,
@@ -234,31 +233,6 @@ describe(`nextScheduleRun`, () => {
     expect(
       nextScheduleRun(schedule({ interval: `monthly` }), tue10)
     ).toBeNull()
-  })
-})
-
-describe(`formatTriggerBlock`, () => {
-  it(`emits the machine-readable block, byte-locked ×4`, () => {
-    expect(
-      formatTriggerBlock({
-        trigger: { kind: `schedule`, interval: `daily`, minuteOfDay: 540 },
-        deviceId: `d-1`,
-      })
-    ).toBe(
-      `\n\nTrigger — after creating the action, call exponential_actions_update with its id and \`triggers\` set to exactly this array: \`[{"kind":"schedule","interval":"daily","minuteOfDay":540,"deviceId":"d-1"}]\`. A triggered run fills no inputs, so declare none as required.`
-    )
-  })
-
-  it(`appends the set pins after the device, and omits blank ones`, () => {
-    const trigger = schedule()
-    expect(
-      formatTriggerBlock({ trigger, deviceId: `dev-1`, agent: `claude`, model: `opus` })
-    ).toContain(
-      JSON.stringify([{ ...trigger, deviceId: `dev-1`, agent: `claude`, model: `opus` }])
-    )
-    expect(formatTriggerBlock({ trigger, deviceId: `dev-1`, model: `` })).toContain(
-      JSON.stringify([{ ...trigger, deviceId: `dev-1` }])
-    )
   })
 })
 

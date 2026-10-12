@@ -22,6 +22,7 @@ const ICON_SIZES = new Set([`icon`, `icon-sm`, `icon-xs`])
 function Button({
   pending = false,
   pendingLabel,
+  pendingDelayMs,
   children,
   disabled,
   onClick,
@@ -31,8 +32,11 @@ function Button({
 }: BaseButtonProps & {
   pending?: boolean
   pendingLabel?: string
+  /** Overrides `pending.delayMs`; `0` shows at once (the styleguide's
+   *  static specimen). */
+  pendingDelayMs?: number
 }) {
-  const shown = useDelayedFlag(pending)
+  const shown = useDelayedFlag(pending, pendingDelayMs)
   const node = React.useRef<HTMLButtonElement | null>(null)
   const idleWidth = React.useRef<number | null>(null)
 

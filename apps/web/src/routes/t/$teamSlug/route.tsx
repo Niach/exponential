@@ -37,7 +37,6 @@ import {
 } from "@/hooks/use-getting-started-progress"
 import { MentionProvider } from "@/components/mention-provider"
 import { IssueContextMenuProvider } from "@/components/issue-context-menu/provider"
-import { GettingStartedSheetProvider } from "@/components/getting-started/getting-started-sheet"
 import { IssueSearchProvider } from "@/hooks/use-issue-search"
 import { MobileChromeProvider } from "@/hooks/use-mobile-chrome"
 import { useSteerSessionReaper } from "@/hooks/use-steer-session-reaper"
@@ -175,17 +174,14 @@ function TeamLayout() {
         {/* EXP-1074: THE issue context menu — one host above every list, row
             and chip that opts in with `issueMenuProps`. */}
         <IssueContextMenuProvider team={team}>
-          {/* EXP-686: the board header's Search button (mobile) and the
-              Actions lightbulb reach the layout's sheets through
-              context instead of a prop drilled through every list. The
-              Getting started sheet lives here so the lightbulb can open it
-              once the checklist is complete and its sidebar entry is gone. */}
+          {/* EXP-686: the board header's Search button (mobile) reaches the
+              layout's search through context instead of a prop drilled
+              through every list. */}
           <IssueSearchProvider value={{ open: () => setSearchOpen(true) }}>
           {/* EXP-698 r5: the bulk bar takes the tab bar's slot on phones —
               both bars live under this provider so the one that is up hides
               the other. */}
           <MobileChromeProvider>
-          <GettingStartedSheetProvider teamSlug={teamSlug} team={team}>
             <FeedbackWidgetProvider />
             {team && user && <WebMcpProvider team={team} user={user} />}
             <TeamSidebar
@@ -259,7 +255,6 @@ function TeamLayout() {
                 teamSlug={teamSlug}
               />
             )}
-          </GettingStartedSheetProvider>
           </MobileChromeProvider>
           </IssueSearchProvider>
         </IssueContextMenuProvider>

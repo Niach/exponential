@@ -2612,20 +2612,26 @@ export interface ScriptLog {
 export const SCRIPT_TOOL_SUFFIX = scriptCardSpec.toolNameSuffix
 const SCRIPT_LOG_CAP = scriptCardSpec.logCap
 const SCRIPT_TEXT_MAX = 200
-/** The script source is a code block, not a caption: a generous cap. */
-const SCRIPT_SOURCE_MAX = 16_000
+/** The source is cut like a command's output by the publisher (bytes, so
+ *  this cap in UTF-16 units never cuts what the wire accepted). */
+const SCRIPT_SOURCE_MAX = contract.steerFeed.toolOutputMaxBytes
+
+/** Codex titles the same call `mcp.codemode.exec` (wire doc §1b). */
+const SCRIPT_TOOL_SUFFIX_CODEX = `codemode.exec`
 
 /** A code-mode `exec` call: contract toolKind `script`, or (a publisher that
- *  predates the kind) a tool whose name ends in `codemode__exec`. */
+ *  predates the kind) a tool whose name ends in `codemode__exec` (claude) or
+ *  `codemode.exec` (codex). */
 export function isScriptCall(item: {
   kind: string
   name?: string
   toolKind?: string
 }): boolean {
+  if (item.kind !== `tool`) return false
+  if (item.toolKind === `script`) return true
+  const name = item.name?.trim() ?? ``
   return (
-    item.kind === `tool` &&
-    (item.toolKind === `script` ||
-      (item.name?.trim().endsWith(SCRIPT_TOOL_SUFFIX) ?? false))
+    name.endsWith(SCRIPT_TOOL_SUFFIX) || name.endsWith(SCRIPT_TOOL_SUFFIX_CODEX)
   )
 }
 

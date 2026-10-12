@@ -218,14 +218,46 @@ describe(`Menu — keyboard into a body submenu`, () => {
     )
     openByKeyboard(`Plus`)
     openSubByKeyboard(`Implement issue`)
-    const field = screen.getByRole(`textbox`, { name: `Search issues` })
+    const field = screen.getByRole<HTMLInputElement>(`textbox`, { name: `Search issues` })
     expect(document.activeElement).toBe(field)
-    // The caret keys stay the field's: ← does not close the submenu.
+    // The caret keys stay the field's while the caret has somewhere to go:
+    // ← mid-text does not close the submenu.
     act(() => {
+      fireEvent.change(field, { target: { value: `ab` } })
+      field.setSelectionRange(2, 2)
       fireEvent.keyDown(field, { key: `ArrowLeft` })
     })
     expect(document.querySelector(`[data-slot=dropdown-menu-sub-content]`)).toBeTruthy()
     expect(document.activeElement).toBe(field)
+  })
+
+  it(`← with the caret at the field's start closes back to the parent (SLOP-28)`, () => {
+    render(
+      <Menu
+        entries={[
+          {
+            kind: `submenu`,
+            label: `Run action`,
+            body: (
+              <div>
+                <input data-slot="command-input" aria-label="Search actions" />
+                <div role="option" aria-selected="false">Tidy up</div>
+              </div>
+            ),
+          },
+        ]}
+        trigger={<button type="button">Plus</button>}
+      />
+    )
+    openByKeyboard(`Plus`)
+    const subTrigger = openSubByKeyboard(`Run action`)
+    const field = screen.getByRole<HTMLInputElement>(`textbox`, { name: `Search actions` })
+    expect(document.activeElement).toBe(field)
+    act(() => {
+      fireEvent.keyDown(field, { key: `ArrowLeft` })
+    })
+    expect(document.querySelector(`[data-slot=dropdown-menu-sub-content]`)).toBeNull()
+    expect(document.activeElement).toBe(subTrigger)
   })
 
   it(`← from a picker row returns to the sub-trigger`, () => {

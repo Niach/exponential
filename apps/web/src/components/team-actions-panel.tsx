@@ -14,10 +14,6 @@ import {
   GlassSectionHeader,
   ListRow,
   Prompt,
-  Tabs,
-  TabsContent,
-  TabsList,
-  TabsTrigger,
   Menu,
   getActionIcon,
   type MenuEntry,
@@ -28,15 +24,7 @@ import type { TeamAction } from "@/components/action-prompt-form"
 import { TriggerGlyph } from "@/components/action-triggers-section"
 import { useOpenComposerInTeam } from "@/hooks/use-open-composer"
 import { TeamBandHeader } from "@/components/team/team-band"
-import { SuggestionsButton } from "@/components/getting-started/getting-started-sheet"
-import {
-  ActionSuggestionsPanel,
-} from "@/components/action-suggestions-list"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
-import {
-  primeTabEnter,
-  useFaceSwipe,
-} from "@/components/work-faces"
 import {
   pinLabel,
   usePinToggleVisible,
@@ -45,11 +33,9 @@ import { usePinToggle } from "@/hooks/use-pins"
 
 // The team Actions surface (EXP-257/EXP-530), extracted from the Agents route
 // in EXP-574: ONE list of actions (SLOP-2 — an action carries its triggers,
-// so there is no separate automations list). On a desktop viewport `/actions`
-// renders the list alone; on mobile it keeps the native-parity Actions ·
-// Suggestions tabs, driven by `?tab=`. Suggestions live in Getting started on
-// desktop — the lightbulb in the section header goes there. A row opens the
-// action's page (`actions/$actionId`: prompt, triggers, runs).
+// so there is no separate automations list), the same on every viewport
+// (EXP-1270: the Suggestions tab and the lightbulb are gone ×4). A row opens
+// the action's page (`actions/$actionId`: prompt, triggers, runs).
 
 // EXP-431: the create entry points share the cross-client `action-create`
 // concept (desktop's `registry::ACTION_CREATE`), never a raw glyph.
@@ -61,13 +47,6 @@ const UiPinIcon = conceptIcon(`ui-pin`)
 const UiUnpinIcon = conceptIcon(`ui-unpin`)
 const UiEditIcon = conceptIcon(`ui-edit`)
 const UiDeleteIcon = conceptIcon(`ui-delete`)
-
-/** Which surface this panel renders. `tabs` is the mobile Actions page (the
- * list and the suggestions behind a tab strip); `actions` the desktop one. */
-export type ActionsPanelView = `tabs` | `actions`
-/** The mobile tab strip's value — also the `?tab=` search param. */
-export const ACTIONS_PANEL_TABS = [`actions`, `suggestions`] as const
-export type ActionsPanelTab = (typeof ACTIONS_PANEL_TABS)[number]
 
 // The row's ⋯ menu — hidden entirely on the builtin (server-shipped, not
 // editable, deletable or pinnable). EXP-778: every member gets Pin/Unpin (a
@@ -291,9 +270,6 @@ export function TeamActionsPanel({
   team,
   teams,
   grouped = false,
-  view,
-  tab = `actions`,
-  onTabChange,
 }: {
   team: Team
   /** EXP-1186: the teams the list reads (the phone: every member team);
@@ -302,23 +278,12 @@ export function TeamActionsPanel({
   /** EXP-1186: one band per team (team mark + name) instead of the one
    *  "Actions" band. */
   grouped?: boolean
-  view: ActionsPanelView
-  /** `tabs` view only — the controlled tab, i.e. the route's `?tab=`. */
-  tab?: ActionsPanelTab
-  onTabChange?: (tab: ActionsPanelTab) => void
 }) {
   const { isMember } = useTeamPermissions(team)
   const [deleteTarget, setDeleteTarget] = useState<TeamAction | null>(null)
-  // EXP-1190: the phone's tabs page with a swipe, like the Work faces.
-  const swipe = useFaceSwipe(ACTIONS_PANEL_TABS, tab, (next) =>
-    onTabChange?.(next)
-  )
 
   if (!isMember) return null
 
-  // EXP-686: the seeds live in Getting started on a desktop viewport; the
-  // mobile tabs keep their own Suggestions tab.
-  const showSuggestions = view !== `tabs`
   const sectionTeams = grouped && teams && teams.length > 1 ? teams : [team]
   const actionsSection = (
     <>
@@ -327,7 +292,6 @@ export function TeamActionsPanel({
           key={row.id}
           team={row}
           grouped={sectionTeams.length > 1}
-          showSuggestions={showSuggestions}
           onDelete={setDeleteTarget}
         />
       ))}
@@ -336,36 +300,7 @@ export function TeamActionsPanel({
 
   return (
     <>
-      {view === `tabs` ? (
-        <div className="flex-1" {...swipe}>
-          <Tabs
-            value={tab}
-            onValueChange={(value) => {
-              primeTabEnter(ACTIONS_PANEL_TABS, tab, value as ActionsPanelTab)
-              onTabChange?.(value as ActionsPanelTab)
-            }}
-            className="mb-4"
-          >
-            <TabsList className="w-full">
-              <TabsTrigger value="actions" className="flex-1">
-                Actions
-              </TabsTrigger>
-              <TabsTrigger value="suggestions" className="flex-1">
-                Suggestions
-              </TabsTrigger>
-            </TabsList>
-
-            <TabsContent value="actions" data-face-body="">
-              {actionsSection}
-            </TabsContent>
-            <TabsContent value="suggestions" data-face-body="">
-              <ActionSuggestionsPanel team={team} />
-            </TabsContent>
-          </Tabs>
-        </div>
-      ) : (
-        actionsSection
-      )}
+      {actionsSection}
 
       <DeleteActionDialog
         action={deleteTarget}
@@ -382,12 +317,10 @@ export function TeamActionsPanel({
 function TeamActionsSection({
   team,
   grouped,
-  showSuggestions,
   onDelete,
 }: {
   team: Team
   grouped: boolean
-  showSuggestions: boolean
   onDelete: (action: TeamAction) => void
 }) {
   const { isMember, isOwner } = useTeamPermissions(team)
@@ -448,18 +381,12 @@ function TeamActionsSection({
     openComposer(team.slug, { actionId: BUILTIN_CREATE_ACTION_ID })
   // A grouped team with nothing to list and nothing to create is no band.
   if (grouped && sortedActions?.length === 0 && !canCreateAction) return null
-  const trailing =
-    !showSuggestions && !canCreateAction ? undefined : (
-      <>
-        {showSuggestions && <SuggestionsButton />}
-        {canCreateAction && (
-          <Pill mode="action" onClick={openCreateAction}>
-            <ActionCreateIcon className="size-3" />
-            New action
-          </Pill>
-        )}
-      </>
-    )
+  const trailing = canCreateAction ? (
+    <Pill mode="action" onClick={openCreateAction}>
+      <ActionCreateIcon className="size-3" />
+      New action
+    </Pill>
+  ) : undefined
   return (
     <div className={grouped ? `mb-4 last:mb-0` : undefined}>
       {grouped ? (

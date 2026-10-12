@@ -273,7 +273,6 @@ const UiRefreshIcon = conceptIcon(`ui-refresh`)
 const UiUsageIcon = conceptIcon(`ui-usage`)
 const UiWarningIcon = conceptIcon(`ui-warning`)
 const UiRepeatIcon = conceptIcon(`ui-repeat`)
-const UiChecklistIcon = conceptIcon(`ui-checklist`)
 const UiSwapIcon = conceptIcon(`ui-swap`)
 const UiQueuedIcon = conceptIcon(`ui-queued`)
 const UiCloseIcon = conceptIcon(`ui-close`)
@@ -1041,12 +1040,12 @@ export function AgentSessionView({
     `{device}`,
     device.label || session.deviceLabel || `Desktop`
   )
-  const runCards = useMemo(
-    () => ({ agent: session.agent ?? null, users: teamUsers }),
-    [session.agent, teamUsers]
-  )
   const ownerName =
     teamUsers.find((user) => user.id === session.userId)?.name ?? null
+  const runCards = useMemo(
+    () => ({ agent: session.agent ?? null, owner: ownerName, users: teamUsers }),
+    [session.agent, ownerName, teamUsers]
+  )
   const lastTurn = turns.turns.length - 1
   const renderTurnRow = (turn: SessionTurn, index: number): ReactNode => {
     const caption = turnRowCaption({
@@ -4026,8 +4025,13 @@ function ToolRow({
   // grouped by tool.
   if (isScriptCall(item)) return <ScriptCallRow item={item} flush={flush} />
   const exp = expToolDisplay(item.name)
-  // EXP-1241: a comment call is the comment itself, in the comment look.
-  if (exp?.name === COMMENT_CALL_TOOL && item.failed !== true) {
+  // EXP-1241: a SETTLED comment call is the comment itself, in the comment
+  // look; running or failed it keeps its ordinary row (the desktop's rule).
+  if (
+    exp?.name === COMMENT_CALL_TOOL &&
+    item.settled === true &&
+    item.failed !== true
+  ) {
     return <CommentCallRow item={item} />
   }
   if (exp) return <ExpToolRow item={item} display={exp} flush={flush} />

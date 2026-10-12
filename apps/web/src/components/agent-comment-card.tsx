@@ -18,19 +18,22 @@ import {
 // EXP-1241 (EXP-1259 D14): an `exponential_comments_create` call renders the
 // REAL comment — the synced row the result's comment ref names (its body,
 // author and time), under "Commented on <issue chip>". Until the row syncs
-// (or for a comment this client cannot see) the body is the result's own
-// preview of it. Clicking opens the issue scrolled to the comment
-// (`?comment=<id>`, `IssueTimeline`).
+// (or for a comment this client cannot see) it is the result's own preview:
+// the ref's title as the body, the run's owner (whose key posted it), "via
+// MCP" and the settle's time. Clicking opens the issue scrolled to the
+// comment (`?comment=<id>`, `IssueTimeline`).
 
 /** The contract `expToolDisplay` name of `exponential_comments_create`. */
 export const COMMENT_CALL_TOOL = `comments_create`
 
 /** What the transcript knows about the run the call sits in: its agent (the
- *  author row's mark) and the team's members (the author's name). */
+ *  author row's mark), its owner's name (the comment's author until the row
+ *  syncs) and the team's members (the synced author's name). */
 export const RunCardsContext = createContext<{
   agent: string | null
+  owner: string | null
   users: readonly User[]
-}>({ agent: null, users: [] })
+}>({ agent: null, owner: null, users: [] })
 
 /** The comment and issue a settled call's preview names. */
 export function commentCallTarget(item: ToolItem): {
@@ -53,7 +56,7 @@ export function commentCallTarget(item: ToolItem): {
 const noop = () => {}
 
 export function CommentCallRow({ item }: { item: ToolItem }) {
-  const { agent, users } = useContext(RunCardsContext)
+  const { agent, owner, users } = useContext(RunCardsContext)
   const issueRefs = useIssueRefs()
   const navigate = useNavigate()
   const { teamSlug } = useParams({ strict: false }) as { teamSlug?: string }
@@ -87,12 +90,19 @@ export function CommentCallRow({ item }: { item: ToolItem }) {
           : undefined,
         null
       )
-    : null
-  const caption = comment
-    ? [commentCaption(comment), relativeTime(comment.createdAt)]
-        .filter((part): part is string => Boolean(part))
-        .join(` · `)
-    : commentCaption({ source: `mcp`, audience: `team` })
+    : owner
+  const caption = [
+    commentCaption(comment ?? { source: `mcp`, audience: `team` }),
+    relativeTime(
+      comment
+        ? comment.createdAt
+        : item.settledAt !== undefined
+          ? new Date(item.settledAt)
+          : null
+    ),
+  ]
+    .filter((part): part is string => Boolean(part))
+    .join(` · `)
   const open =
     issue && target.commentId && teamSlug
       ? () =>

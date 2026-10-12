@@ -2655,6 +2655,7 @@ describe(`code mode (EXP-1279)`, () => {
   it(`a script call is the contract kind, or a codemode exec by name`, () => {
     expect(isScriptCall({ kind: `tool`, name: `x`, toolKind: `script` })).toBe(true)
     expect(isScriptCall({ kind: `tool`, name: `mcp__codemode__exec` })).toBe(true)
+    expect(isScriptCall({ kind: `tool`, name: `mcp.codemode.exec` })).toBe(true)
     expect(isScriptCall({ kind: `tool`, name: `Bash`, toolKind: `execute` })).toBe(false)
     expect(isScriptCall({ kind: `narration`, name: `mcp__codemode__exec` })).toBe(false)
   })
@@ -2696,6 +2697,11 @@ describe(`code mode (EXP-1279)`, () => {
         { tool: `exponential.exponential_issues_get`, subject: `EXP-1`, ok: true, ms: 12 },
         { tool: `linear.get_issue`, subject: null, ok: false, ms: null },
       ],
+    })
+    // A host with no log still sends the script: the disclosure shows it.
+    expect(parseScriptLog({ calls: [], source: `await tools.a.b()` })).toEqual({
+      calls: [],
+      source: `await tools.a.b()`,
     })
     const many = parseScriptLog({
       calls: Array.from({ length: 250 }, () => ({ tool: `a.b`, ok: true })),

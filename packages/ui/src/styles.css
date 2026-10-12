@@ -631,18 +631,16 @@ html {
   mask-image: linear-gradient(to bottom, black calc(100% - 24px), transparent);
 }
 
+/* EXP-1256 (EXP-1259 D15): inside the card the edge is the card's OWN
+   ground (the page top under the panel fill), opaque and unblurred: no
+   scrim tint, no blur reaching over the card's hairline. The card clips it
+   to its inner radius (`overflow-hidden`). */
 @utility glass-edge-top-card {
-  background-color: color-mix(
-    in oklab,
-    var(--glass-background-top) 72%,
-    transparent
-  );
+  background-color: var(--glass-background-top);
   background-image: linear-gradient(
     var(--glass-fill-panel),
     var(--glass-fill-panel)
   );
-  -webkit-backdrop-filter: blur(8px);
-  backdrop-filter: blur(8px);
   -webkit-mask-image: linear-gradient(
     to bottom,
     black calc(100% - 24px),

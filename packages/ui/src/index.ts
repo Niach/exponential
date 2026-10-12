@@ -148,3 +148,6 @@ export * from "./search-list"
 export * from "./work-card"
 export * from "./script-card"
 export * from "./comment-call-card"
+// EXP-1270 (EXP-1259 D6): THE Getting started block's face (header + one
+// strip of square cards); the app derives the entries and runs the targets.
+export * from "./getting-started-strip"
