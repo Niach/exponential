@@ -999,6 +999,7 @@ private fun HomeRecentThreads(
                     busy = row.busy,
                     needsInput = row.needsInput,
                     agent = row.agent,
+                    markState = row.markState,
                     onClick = { onOpen(row.threadId) },
                 )
             }

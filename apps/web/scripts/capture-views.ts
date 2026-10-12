@@ -289,6 +289,19 @@ function printSummary(results: Result[]): void {
   }
 }
 
+/** Forget the window's work tabs (`exp:work-tabs:v1:<team>`). The page is
+ *  still on the previous view's origin, which owns the storage; a fresh
+ *  context (about:blank) has none to clear. */
+async function clearWorkTabs(page: Page): Promise<void> {
+  await page
+    .evaluate(() => {
+      for (const key of Object.keys(window.sessionStorage)) {
+        if (key.startsWith(`exp:work-tabs:`)) window.sessionStorage.removeItem(key)
+      }
+    })
+    .catch(() => {})
+}
+
 /** Drive one view and press the shutter. Throws; the caller records it. */
 async function captureView(
   page: Page,
@@ -297,6 +310,10 @@ async function captureView(
   outPath: string,
   db: DbPlaceholders
 ): Promise<void> {
+  // EXP-1284: every view starts with an empty work-tab strip — the tabs the
+  // previous views opened (issues, sessions, threads) live in this window's
+  // sessionStorage and would otherwise pile up in every later shot.
+  await clearWorkTabs(page)
   await page.goto(`${ctx.baseUrl}${resolveRoute(capture.route, ctx, db)}`)
 
   // Recipe FIRST, anchor after: most recipe-driven views anchor on text the

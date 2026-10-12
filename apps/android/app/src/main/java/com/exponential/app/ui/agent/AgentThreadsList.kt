@@ -13,7 +13,9 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.data.db.TeamEntity
 import com.exponential.app.domain.EmptyStateCopy
 import com.exponential.app.domain.ThreadPage
+import com.exponential.app.domain.codingSessionDisplayState
 import com.exponential.app.ui.components.DEFAULT_AGENT
+import com.exponential.app.ui.components.runningRowMarkState
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.SectionHeader
@@ -37,6 +39,17 @@ fun ThreadPage.Bundle.listRow(): ThreadListRowModel = ThreadListRowModel(
     busy = view.busy,
     needsInput = view.needsInput,
     agent = (myLiveRun ?: liveRun)?.agent?.takeIf { it.isNotBlank() } ?: DEFAULT_AGENT,
+    // The live session's own state, like the session rows it replaced: its
+    // PR in review wears the green badge, a question the amber one, and
+    // only a session mid-turn spins.
+    markState = (myLiveRun ?: liveRun)?.let { run ->
+        val prState = run.issueId?.let { id -> issues.firstOrNull { it.id == id }?.prState } ?: run.prState
+        runningRowMarkState(
+            state = codingSessionDisplayState(run, prState),
+            paused = false,
+            working = run.agentBusy,
+        )
+    },
 )
 
 /**
@@ -71,6 +84,7 @@ internal fun LazyListScope.agentThreadsList(
                         busy = row.busy,
                         needsInput = row.needsInput,
                         agent = row.agent,
+                        markState = row.markState,
                         onClick = { onOpenThread(row.threadId) },
                     )
                 }
@@ -112,6 +126,7 @@ fun RecentThreadsSheet(
                             busy = row.busy,
                             needsInput = row.needsInput,
                             agent = row.agent,
+                            markState = row.markState,
                             onClick = {
                                 onDismiss()
                                 onOpenThread(row.threadId)

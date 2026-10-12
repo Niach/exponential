@@ -687,6 +687,9 @@ fun ThreadListRow(
     agent: String?,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** The live session's own mark state (review green, done blue) when the
+     *  caller resolved it; null falls back to busy / needs input. */
+    markState: CodingSessionDisplayState? = null,
 ) {
     Row(
         modifier = modifier
@@ -702,7 +705,7 @@ fun ThreadListRow(
             if (live) {
                 AgentRunMark(
                     agent = agent,
-                    state = when {
+                    state = markState ?: when {
                         needsInput -> CodingSessionDisplayState.NeedsInput
                         busy -> CodingSessionDisplayState.Working
                         else -> null
@@ -826,6 +829,7 @@ fun LazyListScope.threadRows(
             busy = row.busy,
             needsInput = row.needsInput,
             agent = row.agent,
+            markState = row.markState,
             onClick = { onOpen(row.threadId) },
         )
     }
@@ -840,4 +844,5 @@ data class ThreadListRowModel(
     val busy: Boolean,
     val needsInput: Boolean,
     val agent: String?,
+    val markState: CodingSessionDisplayState? = null,
 )

@@ -676,22 +676,27 @@ class StyleguideScreenshotsTest {
         // actual files to show. EXP-1251: the screen opens on the Guide (no
         // report = ONE Changes row); that row opens the section page, where
         // the file cards draw. Back twice: the section, then the screen.
-        flow.waitFor(hasText(RUN_CHANGES_TITLE, substring = true), SYNC_TIMEOUT)
-        composeRule.onAllNodes(hasTestTag("review-run-row")).onFirst().performClick()
-        flow.waitFor(hasTestTag("guide-changes-row"), NETWORK_TIMEOUT)
-        composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
-        flow.settle()
-        composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
-        flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
-        flow.waitFor(hasTestTag("changes-file-row"), NETWORK_TIMEOUT)
-        flow.waitFor(hasText("unchanged line", substring = true), NETWORK_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_run-changes")
-        composeRule.onNode(hasTestTag("guide-section-back")).performClick()
-        flow.waitFor(hasTestTag("guide-changes-row"), NAV_TIMEOUT)
-        composeRule.onNode(hasContentDescription("Back")).performClick()
-        flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
-        flow.settle()
+        // A detour no later shot needs (it pops back to Reviews), so a scoped
+        // run that did not ask for it skips it whole, like the Guide pair —
+        // its GitHub fetch is the walk's one network dependency.
+        if (ScreenshotFlow.isShotWanted("sg_run-changes")) {
+            flow.waitFor(hasText(RUN_CHANGES_TITLE, substring = true), SYNC_TIMEOUT)
+            composeRule.onAllNodes(hasTestTag("review-run-row")).onFirst().performClick()
+            flow.waitFor(hasTestTag("guide-changes-row"), NETWORK_TIMEOUT)
+            composeRule.onNode(hasTestTag("work-guide")).performTouchInput { swipeUp() }
+            flow.settle()
+            composeRule.onAllNodes(hasTestTag("guide-changes-row")).onFirst().performClick()
+            flow.waitFor(hasTestTag("guide-section"), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag("changes-file-row"), NETWORK_TIMEOUT)
+            flow.waitFor(hasText("unchanged line", substring = true), NETWORK_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_run-changes")
+            composeRule.onNode(hasTestTag("guide-section-back")).performClick()
+            flow.waitFor(hasTestTag("guide-changes-row"), NAV_TIMEOUT)
+            composeRule.onNode(hasContentDescription("Back")).performClick()
+            flow.waitFor(hasText(REVIEW_ISSUE_TITLE, substring = true), SYNC_TIMEOUT)
+            flow.settle()
+        }
 
         // --- Settings root: the gear lives on the board root, not on a profile
         // menu. Header matches keep ignoreCase so they hold whichever case
