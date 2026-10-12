@@ -119,6 +119,7 @@ export const PREVIEW_KINDS: Record<string, EntityRefKind[]> = {
   exponential_issue_labels_remove: [`issue`, `label`],
   exponential_issue_relations_add: [`issue`, `issue`],
   exponential_issue_relations_remove: [`issue`, `issue`],
+  exponential_issues_activity: [`issue`],
   exponential_issues_create: [`issue`],
   exponential_issues_delete: [],
   exponential_issues_get: [`issue`],

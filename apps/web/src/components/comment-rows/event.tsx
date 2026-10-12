@@ -23,6 +23,7 @@ const PrOpenedIcon = conceptIcon(`pr-open`)
 const PrMergedIcon = conceptIcon(`pr-merged`)
 const PriorityChangedIcon = conceptIcon(`event-priority-changed`)
 const EstimateChangedIcon = conceptIcon(`event-estimate-changed`)
+const TitleChangedIcon = conceptIcon(`event-title-changed`)
 const RelationAddedIcon = conceptIcon(`event-relation-added`)
 const RelationRemovedIcon = conceptIcon(`event-relation-removed`)
 
@@ -243,6 +244,19 @@ export function EventRow({
       Icon = EstimateChangedIcon
       text = (
         <>{estimateEventPhrase(payload, (team?.estimationType as IssueEstimation | undefined) ?? `fibonacci`)}</>
+      )
+      break
+    }
+    // FEED-87: ×4 `changed the title to {to}`.
+    case `title_changed`: {
+      Icon = TitleChangedIcon
+      text = (
+        <>
+          changed the title to{` `}
+          <span className="font-medium text-foreground">
+            {String(payload.to ?? ``)}
+          </span>
+        </>
       )
       break
     }

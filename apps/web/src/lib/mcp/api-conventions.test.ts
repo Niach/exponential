@@ -121,9 +121,11 @@ function paramSchema(tool: string, param: string): z.ZodType {
 // FEED-25: a read without `readOnlyHint` costs a permission card in claude's
 // plan mode — the run behind that issue waited two hours on one for
 // `attachments_get`. Reads are the `*_get`/`*_list` tools plus the two
-// GitHub-backed diffs, the MCP Apps issue list (EXP-1183) and a run's
-// transcript (EXP-1216); nothing that writes may claim the hint.
+// GitHub-backed diffs, the MCP Apps issue list (EXP-1183), a run's transcript
+// (EXP-1216) and an issue's activity log (FEED-87); nothing that writes may
+// claim the hint.
 const READ_ONLY_EXTRA = new Set([
+  `exponential_issues_activity`,
   `exponential_issues_pr_files`,
   `exponential_issues_show`,
   `exponential_repositories_branch_diff`,
@@ -164,6 +166,7 @@ describe(`identifier acceptance (EXP-707 theme A)`, () => {
     [`exponential_issues_delete`, `id`],
     [`exponential_issues_update_status`, `id`],
     [`exponential_comments_list`, `issueId`],
+    [`exponential_issues_activity`, `issueId`],
     [`exponential_comments_create`, `issueId`],
     [`exponential_issue_labels_add`, `issueId`],
     [`exponential_issue_labels_remove`, `issueId`],

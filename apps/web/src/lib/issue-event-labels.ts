@@ -94,6 +94,8 @@ export function issueEventPhrase(
       return `set priority to ${priorityLabel(p.to)}`
     case `estimate_changed`:
       return estimateEventPhrase(p)
+    case `title_changed`:
+      return `changed the title to ${String(p.to ?? ``)}`
     case `board_moved`:
       return `moved to another board`
     case `pr_opened`:

@@ -61,6 +61,17 @@ pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
 
 /// An earlier head entry, kept so the mirror's history reads in place.
 #[allow(dead_code)]
+const PREVIOUS_43: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-12-issue-activity-mcp",
+    date: "2026-10-12",
+    title: "Issue history over MCP, and renames in the activity timeline",
+    summary: "Agents can read who changed an issue's status, assignee, labels, priority, estimate or title and when, including whether a person, an agent run or an automation did it; renames now show in the timeline.",
+    body: r#"- **Issue history for agents**: the new `exponential_issues_activity` MCP tool lists an issue's changes oldest first, each with the field, the old and new value, who made it, whether it was a person, an agent or an automation, the run behind an agent's change and the time. `since` returns only what changed after a point in time.
+- **Renames in the timeline**: changing an issue's title adds a "changed the title to" row to its activity on web, desktop, iOS and Android, folded like other quick edits."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
 const PREVIOUS_42: ChangelogEntry = ChangelogEntry {
     id: "2026-10-11-one-empty-state",
     date: "2026-10-11",

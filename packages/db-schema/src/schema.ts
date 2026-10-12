@@ -2168,6 +2168,11 @@ export const issueEvents = pgTable(
     actorUserId: text(`actor_user_id`).references(() => users.id, {
       onDelete: `set null`,
     }),
+    // FEED-87: who acted — `via_mcp` = an MCP call (an agent), `session_id`
+    // = the coding run that made it (X-Exp-Session-Id; no FK, runs purge).
+    // Server-only, shape-excluded; read by exponential_issues_activity.
+    viaMcp: boolean(`via_mcp`).notNull().default(false),
+    sessionId: uuid(`session_id`),
     type: issueEventTypeEnum().notNull(),
     payload: jsonb(),
     ...timestamps,

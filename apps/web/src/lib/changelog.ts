@@ -53,6 +53,14 @@ export const CHANGELOG: ChangelogEntry[] = [
 - **Sessions**: what used to be called a run is a session everywhere: tabs, menus, toasts and the docs.`,
   },
   {
+    id: `2026-10-12-issue-activity-mcp`,
+    date: `2026-10-12`,
+    title: `Issue history over MCP, and renames in the activity timeline`,
+    summary: `Agents can read who changed an issue's status, assignee, labels, priority, estimate or title and when, including whether a person, an agent run or an automation did it; renames now show in the timeline.`,
+    body: `- **Issue history for agents**: the new \`exponential_issues_activity\` MCP tool lists an issue's changes oldest first, each with the field, the old and new value, who made it, whether it was a person, an agent or an automation, the run behind an agent's change and the time. \`since\` returns only what changed after a point in time.
+- **Renames in the timeline**: changing an issue's title adds a "changed the title to" row to its activity on web, desktop, iOS and Android, folded like other quick edits.`,
+  },
+  {
     id: `2026-10-11-one-empty-state`,
     date: `2026-10-11`,
     title: `One empty state, no refresh buttons, and a filter for the built-in tools`,

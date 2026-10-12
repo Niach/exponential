@@ -109,6 +109,10 @@ import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { recordIssueEvent } from "@/lib/integrations/activity"
 import { getThread, linkIssueToThread } from "@/lib/threads"
 import {
+  eventOrigin,
+  type IssueEventOrigin,
+} from "@/lib/integrations/event-origin"
+import {
   awaitRebaseOffMergedBranch,
   basedOnMergedPr,
   loadGuardDefaultBranches,
@@ -231,13 +235,15 @@ async function finalizeIssueUpdateInTx(
       duplicateOfId: string | null
     }
     setValues: Record<string, unknown>
+    // FEED-87: stamped on every event this write records.
+    origin: IssueEventOrigin
   }
 ): Promise<{
   issue: typeof issues.$inferSelect
   statusChange: StatusChange | null
   previousAssigneeId: string | null
 } | null> {
-  const { issueId, teamId, actorUserId, current, setValues } = args
+  const { issueId, teamId, actorUserId, current, setValues, origin } = args
 
   const [issue] = await tx
     .update(issues)
@@ -292,6 +298,7 @@ async function finalizeIssueUpdateInTx(
       issueId,
       teamId,
       actorUserId,
+      origin,
       type: `status_changed`,
       payload: {
         fromStatusId: statusChange.fromStatusId,
@@ -306,6 +313,7 @@ async function finalizeIssueUpdateInTx(
       issueId,
       teamId,
       actorUserId,
+      origin,
       type: `assignee_changed`,
       payload: { from: current.assigneeId, to: issue.assigneeId },
     })
@@ -326,6 +334,7 @@ async function finalizeIssueUpdateInTx(
       issueId,
       teamId,
       actorUserId,
+      origin,
       type: `priority_changed`,
       payload: { from: current.priority, to: issue.priority },
     })
@@ -337,8 +346,21 @@ async function finalizeIssueUpdateInTx(
       issueId,
       teamId,
       actorUserId,
+      origin,
       type: `estimate_changed`,
       payload: { from: current.estimate, to: issue.estimate },
+    })
+  }
+  // FEED-87: renames — a timeline row (folds like priority), no
+  // notification; exponential_issues_activity reads it for field history.
+  if (current.title !== issue.title) {
+    await recordIssueEvent(tx, {
+      issueId,
+      teamId,
+      actorUserId,
+      origin,
+      type: `title_changed`,
+      payload: { from: current.title, to: issue.title },
     })
   }
 
@@ -976,6 +998,7 @@ export const issuesRouter = router({
           issueId: issue.id,
           teamId: board.teamId,
           actorUserId: ctx.session.user.id,
+          origin: eventOrigin(ctx),
           type: `created`,
           payload: {
             status: issue.status,
@@ -1365,6 +1388,7 @@ export const issuesRouter = router({
           actorUserId: ctx.session.user.id,
           current: currentIssue,
           setValues,
+          origin: eventOrigin(ctx),
         })
         if (!result) {
           throw new TRPCError({ code: `NOT_FOUND`, message: `Issue not found` })
@@ -1599,6 +1623,7 @@ export const issuesRouter = router({
           issueId: input.id,
           teamId: issueContext.teamId,
           actorUserId: ctx.session.user.id,
+          origin: eventOrigin(ctx),
           type: `board_moved`,
           payload: {
             fromBoardId: current.boardId,
@@ -1733,6 +1758,7 @@ export const issuesRouter = router({
             actorUserId: ctx.session.user.id,
             current: row,
             setValues,
+            origin: eventOrigin(ctx),
           })
           // Row gone despite the lock — skip, keep the batch (the eligibility
           // filter promises silent-skip semantics).

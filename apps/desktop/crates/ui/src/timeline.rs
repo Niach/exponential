@@ -2055,6 +2055,12 @@ fn event_phrase(
             ),
             None,
         )),
+        // FEED-87: ×4 "changed the title to {to}".
+        "title_changed" => Some((
+            EventGlyph::Plain(registry::EVENT_TITLE_CHANGED),
+            format!("changed the title to {}", payload_str("to").unwrap_or_default()),
+            None,
+        )),
         // EXP-736: the relation phrases live in `domain::relations` — ONE
         // table for all four clients, keyed on the payload's per-side
         // `direction` and the contract's label slices.
@@ -2487,6 +2493,18 @@ mod tests {
         )
         .unwrap();
         assert_eq!(phrase, "removed the estimate");
+
+        // FEED-87: a rename reads with the new title.
+        let (_, phrase, _) = event_phrase(
+            &event("title_changed", json!({ "from": "Old", "to": "New title" })),
+            &users,
+            &labels,
+            &boards,
+            &[],
+            "fibonacci",
+        )
+        .unwrap();
+        assert_eq!(phrase, "changed the title to New title");
 
         // EXP-530: `created` is suppressed on every client — the issue header
         // already says who filed it.

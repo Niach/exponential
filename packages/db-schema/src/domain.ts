@@ -586,9 +586,12 @@ export const issueEventTypeValues = [
   // Payload: { type, relatedIssueId, relatedIdentifier, direction, source }.
   `relation_added`,
   `relation_removed`,
-  // EXP-630 estimates: { from, to } point values (null = unset). Renders as
-  // a plain line; never folds (mirrors treat it like any unknown kind).
+  // EXP-630 estimates: { from, to } point values (null = unset). Folds like
+  // priority (lib/activity/fold.ts).
   `estimate_changed`,
+  // FEED-87 renames: { from, to } title strings. Folds like priority; no
+  // notification.
+  `title_changed`,
 ] as const
 
 // EXP-736 issue relations (issue_relations.type, pg enum). ONE row per pair,

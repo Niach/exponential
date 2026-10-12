@@ -2,6 +2,7 @@ import { sql } from "drizzle-orm"
 import { db } from "@/db/connection"
 import { issueEvents, issues } from "@/db/schema"
 import type { IssueEventType } from "@/lib/domain"
+import type { IssueEventOrigin } from "@/lib/integrations/event-origin"
 
 type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0]
 
@@ -19,6 +20,7 @@ export async function recordIssueEvent(
     actorUserId: string | null
     type: IssueEventType
     payload?: Record<string, unknown> | null
+    origin?: IssueEventOrigin
   }
 ): Promise<void> {
   await tx.insert(issueEvents).values({
@@ -28,5 +30,7 @@ export async function recordIssueEvent(
     actorUserId: args.actorUserId,
     type: args.type,
     payload: args.payload ?? null,
+    viaMcp: args.origin?.viaMcp ?? false,
+    sessionId: args.origin?.sessionId ?? null,
   })
 }

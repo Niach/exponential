@@ -8651,6 +8651,8 @@ public object ExpIcons {
     public val eventRelationRemoved: ImageVector get() = `unlink`
     /** Concept `event-status-changed`. */
     public val eventStatusChanged: ImageVector get() = `circle-dot`
+    /** Concept `event-title-changed`. */
+    public val eventTitleChanged: ImageVector get() = `pencil`
     /** Concept `guide-changes`. */
     public val guideChanges: ImageVector get() = `code`
     /** Concept `media-fast-forward`. */

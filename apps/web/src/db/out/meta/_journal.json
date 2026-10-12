@@ -1184,6 +1184,13 @@
       "when": 1791807129557,
       "tag": "0168_threads_visibility",
       "breakpoints": true
+    },
+    {
+      "idx": 169,
+      "version": "7",
+      "when": 1791841165480,
+      "tag": "0169_issue_events_origin_and_title",
+      "breakpoints": true
     }
   ]
 }

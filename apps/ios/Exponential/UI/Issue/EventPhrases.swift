@@ -20,6 +20,7 @@ func eventVerb(_ type: String) -> String {
     case "relation_added": return "added a relation"
     case "relation_removed": return "removed a relation"
     case "estimate_changed": return "changed the estimate"
+    case "title_changed": return "changed the title"
     default: return type.replacingOccurrences(of: "_", with: " ")
     }
 }
@@ -85,6 +86,7 @@ func eventGlyph(
     case "pr_merged": return .plain(AppIcons.prMerged)
     case "priority_changed": return .plain(AppIcons.eventPriorityChanged)
     case "estimate_changed": return .plain(AppIcons.eventEstimateChanged)
+    case "title_changed": return .plain(AppIcons.eventTitleChanged)
     default: return nil
     }
 }
@@ -166,6 +168,10 @@ func eventPhrase(
             payload: eventPayloadObject(event.payload),
             scale: estimationType ?? DomainContract.issueEstimationFibonacci
         )
+    case "title_changed":
+        // FEED-87 — ×4 "changed the title to {to}".
+        guard let to = eventField(event.payload, "to") else { return eventVerb(event.type) }
+        return "changed the title to \(to)"
     case "relation_added", "relation_removed":
         // EXP-736 — byte-identical to `relationEventParts` on the web: the
         // payload's `direction` says which SIDE this issue is on, so each of
