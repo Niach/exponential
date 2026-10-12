@@ -207,6 +207,16 @@ export function SearchList<T extends string = string>(props: SearchListProps<T>)
   }, [])
   React.useLayoutEffect(measure, [measure, items, loading])
 
+  // A new query preselects the TOP row (cmdk re-selects the first match);
+  // a list left scrolled down by the previous, longer result would keep that
+  // row out of view. Every query change starts the list at the top.
+  React.useLayoutEffect(() => {
+    const list = listRef.current
+    if (!list) return
+    list.scrollTop = 0
+    measure()
+  }, [query, measure])
+
   const rowHeight = ROW_HEIGHT[density]
   const listStyle: React.CSSProperties = {
     ...(maxVisibleRows === null
