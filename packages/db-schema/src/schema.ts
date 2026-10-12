@@ -2119,6 +2119,12 @@ export const issueDrafts = pgTable(
       .notNull()
       .default(sql`'{}'::uuid[]`),
     dueDate: date(`due_date`),
+    // EXP-1284: the thread a "New issue in this thread" draft files into
+    // (`issues.create` consuming the draft links the issue there). SET NULL:
+    // a deleted thread leaves a plain draft.
+    threadId: uuid(`thread_id`).references(() => threads.id, {
+      onDelete: `set null`,
+    }),
     ...timestamps,
   },
   (table) => [
