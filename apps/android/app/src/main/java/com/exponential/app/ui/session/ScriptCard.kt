@@ -7,7 +7,6 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
@@ -88,24 +87,18 @@ fun ScriptCardView(
                 modifier = Modifier.size(14.dp),
                 tint = if (failed) ThreadCardRose else muted,
             )
-            Text(
+            // The title ellipsizes before the meta ever does: "· 59 calls ·
+            // 3.0 s" always reads whole.
+            LeadText(
                 card.title,
                 style = style.copy(fontWeight = FontWeight.Medium),
                 color = if (failed) ThreadCardRose else MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-            )
-            if (running) InlineSpinner(size = 12.dp)
-            card.meta?.let { meta ->
-                Text(
-                    "· $meta",
-                    style = style.copy(fontFeatureSettings = "tnum"),
-                    color = muted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
+            ) {
+                if (running) InlineSpinner(size = 12.dp)
+                card.meta?.let { meta ->
+                    Text("· $meta", style = style.copy(fontFeatureSettings = "tnum"), color = muted, maxLines = 1)
+                }
             }
-            Spacer(Modifier.weight(1f))
             if (script != null) {
                 Row(
                     modifier = Modifier
@@ -160,19 +153,17 @@ fun ScriptCardView(
                             Icon(ExpIcons.codingTool, null, Modifier.size(12.dp), tint = muted)
                         }
                         Text(group.label, style = style, color = MaterialTheme.colorScheme.onSurface, maxLines = 1)
-                        group.subject?.let { subject ->
-                            Text(
-                                group.more?.let { "$subject $it" } ?: subject,
-                                style = style,
-                                color = muted,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f, fill = false),
-                            )
-                        }
+                        // Fills the row so the count / failure sits flush right.
+                        Text(
+                            group.subject?.let { subject -> group.more?.let { "$subject $it" } ?: subject }.orEmpty(),
+                            style = style,
+                            color = muted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
                         val tail = group.failed ?: group.count
                         if (tail != null) {
-                            Spacer(Modifier.weight(1f))
                             Text(
                                 tail,
                                 style = style.copy(fontFeatureSettings = "tnum"),

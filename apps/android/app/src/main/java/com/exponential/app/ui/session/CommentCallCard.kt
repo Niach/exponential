@@ -23,11 +23,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Constraints
@@ -44,7 +49,6 @@ import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.ui.components.ExponentialMark
 import com.exponential.app.ui.components.InlineSpinner
 import com.exponential.app.ui.components.IssueChip
-import com.exponential.app.ui.components.IssueChipSize
 import com.exponential.app.ui.components.commentAuthorName
 import com.exponential.app.ui.components.commentCaption
 import com.exponential.app.ui.components.userDisplayName
@@ -76,6 +80,13 @@ object CommentCallCopy {
 
     /** The body clamp: three lines (web `max-h-[4.5em]`). */
     const val CLAMP_LINES = 3
+
+    /** The clamped body's fade: opaque to [CLAMP_FADE_FROM], clear from
+     *  [CLAMP_FADE_TO] (web `mask-image` fades 55% → 100%; the bottom band
+     *  here is fully clear so the line the clamp crosses never shows as a cut
+     *  half-line, whatever the markdown's block spacing). */
+    const val CLAMP_FADE_FROM = 0.4f
+    const val CLAMP_FADE_TO = 0.85f
 }
 
 /** What the transcript knows about the run a comment call sits in: its agent
@@ -90,7 +101,13 @@ fun isCommentCallCard(item: AgentFeedItem.Tool): Boolean =
     item.settled && !item.failed && ExpToolDisplay.row(item.name) == CommentCallCopy.TOOL_ROW
 
 /** The comment and issue a settled call's preview names. */
-data class CommentCallTarget(val commentId: String?, val commentText: String?, val issueKey: String?)
+data class CommentCallTarget(
+    val commentId: String?,
+    val commentText: String?,
+    val issueKey: String?,
+    /** The result's issue title (the chip's title until the issue resolves). */
+    val issueTitle: String? = null,
+)
 
 fun commentCallTarget(item: AgentFeedItem.Tool): CommentCallTarget {
     val refs = item.preview?.refs.orEmpty()
@@ -101,6 +118,7 @@ fun commentCallTarget(item: AgentFeedItem.Tool): CommentCallTarget {
         commentText = comment?.title ?: item.preview?.title,
         // The result's issue, else the call's subject (its `issueId` input).
         issueKey = issue?.identifier ?: issue?.id ?: item.detail?.trim()?.takeIf { it.isNotEmpty() },
+        issueTitle = issue?.title?.takeIf { it.isNotBlank() },
     )
 }
 
@@ -164,7 +182,6 @@ fun CommentCallRow(item: AgentFeedItem.Tool) {
                         identifier = issue.identifier,
                         title = issue.title.takeIf { it.isNotBlank() },
                         status = issue.resolvedStatus,
-                        size = IssueChipSize.Sm,
                         onClick = if (issueRefs?.canOpen == true) {
                             { issueRefs.onOpen(issue) }
                         } else {
@@ -174,14 +191,7 @@ fun CommentCallRow(item: AgentFeedItem.Tool) {
                 }
             }
             target.issueKey != null -> {
-                {
-                    Text(
-                        target.issueKey,
-                        style = threadCardTextStyle().copy(fontFamily = FontFamily.Monospace),
-                        color = threadCardMuted(),
-                        maxLines = 1,
-                    )
-                }
+                { IssueChip(identifier = target.issueKey, title = target.issueTitle, status = null) }
             }
             else -> null
         },
@@ -286,16 +296,19 @@ fun CommentCallCard(
                             if (expanded) {
                                 Modifier
                             } else {
-                                Modifier.clipToBounds().layout { measurable, constraints ->
-                                    val placeable = measurable.measure(
-                                        constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity),
-                                    )
-                                    val over = placeable.height > clampPx + 1
-                                    if (over != overflows) overflows = over
-                                    layout(placeable.width, minOf(placeable.height, clampPx)) {
-                                        placeable.placeRelative(0, 0)
+                                Modifier
+                                    .clipToBounds()
+                                    .then(if (overflows) Modifier.clampFade() else Modifier)
+                                    .layout { measurable, constraints ->
+                                        val placeable = measurable.measure(
+                                            constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity),
+                                        )
+                                        val over = placeable.height > clampPx + 1
+                                        if (over != overflows) overflows = over
+                                        layout(placeable.width, minOf(placeable.height, clampPx)) {
+                                            placeable.placeRelative(0, 0)
+                                        }
                                     }
-                                }
                             },
                         ),
                 ) {
@@ -315,3 +328,17 @@ fun CommentCallCard(
         }
     }
 }
+
+/** The clamped body's bottom fade (web `mask-image: linear-gradient(...)`):
+ *  a clamp through a heading or a paragraph gap reads as "there is more", never a cut line. */
+private fun Modifier.clampFade(): Modifier =
+    graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen).drawWithContent {
+        drawContent()
+        drawRect(
+            Brush.verticalGradient(
+                CommentCallCopy.CLAMP_FADE_FROM to Color.Black,
+                CommentCallCopy.CLAMP_FADE_TO to Color.Transparent,
+            ),
+            blendMode = BlendMode.DstIn,
+        )
+    }

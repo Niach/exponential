@@ -15,6 +15,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import com.exponential.app.domain.IssueStatus
+import com.exponential.app.domain.IssueStatusResolver
 import com.exponential.app.domain.ScriptCall
 import com.exponential.app.domain.ScriptCardInput
 import com.exponential.app.domain.ScriptCards
@@ -25,7 +27,6 @@ import com.exponential.app.domain.WorkCardWorkflowAgent
 import com.exponential.app.domain.WorkCards
 import com.exponential.app.ui.components.AgentRunMark
 import com.exponential.app.ui.components.IssueChip
-import com.exponential.app.ui.components.IssueChipSize
 import com.exponential.app.ui.session.CommentCallCard
 import com.exponential.app.ui.session.ScriptCardView
 import com.exponential.app.ui.session.WorkCardView
@@ -136,6 +137,8 @@ private fun ScriptCardSpecimens() {
     ScriptCardView(card = ScriptCards.of(ScriptCardInput(running = true)), running = true)
 }
 
+private val InProgress = IssueStatusResolver.builtinDefaults.first { it.builtinKey == IssueStatus.InProgress }
+
 @Composable
 private fun CommentCardSpecimens() {
     Caption("Commented on")
@@ -144,8 +147,7 @@ private fun CommentCardSpecimens() {
             IssueChip(
                 identifier = "VAPP-84",
                 title = "Exponential UI: an open generative-UI SDK",
-                status = null,
-                size = IssueChipSize.Sm,
+                status = InProgress,
             )
         },
         author = "Danny",
@@ -159,7 +161,7 @@ private fun CommentCardSpecimens() {
     Caption("Commenting on")
     CommentCallCard(
         issue = {
-            IssueChip(identifier = "VAPP-84", title = "Exponential UI", status = null, size = IssueChipSize.Sm)
+            IssueChip(identifier = "VAPP-84", title = "Exponential UI", status = InProgress)
         },
         author = null,
         caption = null,

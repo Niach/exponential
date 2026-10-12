@@ -25,7 +25,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -88,19 +87,53 @@ fun rememberDelayedFlag(flag: Boolean, delayMs: Long = FeedbackStates.PENDING_DE
     return flag && shown
 }
 
-/** D8.1 INLINE: the 10dp spinner every band, header and caption shares. */
+/**
+ * D8.1 INLINE: the 10dp spinner every band, header and caption shares (12dp =
+ * `pending.spinner`, a pending button's glyph slot). A fixed three-quarter
+ * ring that turns, like iOS + web: Material's indeterminate indicator grows
+ * its arc from nothing, so at 10dp (and in any frozen frame) it read as a
+ * speck. Static under reduce motion.
+ */
 @Composable
 fun InlineSpinner(
     modifier: Modifier = Modifier,
     size: Dp = FeedbackStates.INLINE_SPINNER.dp,
     color: Color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
 ) {
-    CircularProgressIndicator(
-        modifier = modifier.size(size),
-        strokeWidth = if (size <= 10.dp) 1.25.dp else 1.5.dp,
-        color = color,
-    )
+    val reduced = LocalReduceMotion.current
+    // Read in the draw phase only: a turning spinner never recomposes its row.
+    val turn = if (reduced) {
+        null
+    } else {
+        rememberInfiniteTransition(label = "inline-spinner").animateFloat(
+            initialValue = 0f,
+            targetValue = 360f,
+            animationSpec = infiniteRepeatable(tween(SPINNER_PERIOD_MS, easing = LinearEasing), RepeatMode.Restart),
+            label = "inline-spinner-turn",
+        )
+    }
+    Canvas(
+        modifier = modifier
+            .size(size)
+            .semantics { contentDescription = FeedbackStates.WORD_LOADING },
+    ) {
+        // iOS `max(1.25, size / 8)`, inset by half the stroke so it never clips.
+        val stroke = maxOf(1.25.dp.toPx(), this.size.minDimension / 8f)
+        val inset = stroke / 2f
+        drawArc(
+            color = color,
+            startAngle = (turn?.value ?: 0f) - 90f,
+            sweepAngle = 270f,
+            useCenter = false,
+            topLeft = Offset(inset, inset),
+            size = androidx.compose.ui.geometry.Size(this.size.width - stroke, this.size.height - stroke),
+            style = Stroke(width = stroke, cap = StrokeCap.Round),
+        )
+    }
 }
+
+/** One turn of [InlineSpinner] (iOS `InlineSpinner.period`). */
+private const val SPINNER_PERIOD_MS = 800
 
 /** What an autosaving field's caption says right now. */
 enum class InlineStatusState { Saving, Saved, Idle }

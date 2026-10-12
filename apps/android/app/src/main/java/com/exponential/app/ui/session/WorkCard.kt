@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -206,19 +205,16 @@ private fun WorkCardHeader(card: WorkCard, style: TextStyle) {
             modifier = Modifier.size(14.dp),
             tint = muted,
         )
-        Text(
+        LeadText(
             card.name,
             style = style.copy(fontWeight = FontWeight.Medium),
             color = MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        val kindWord = card.kindWord
-        if (kindWord != null && kindWord != card.name) {
-            Text(kindWord, style = style, color = muted, maxLines = 1)
+        ) {
+            val kindWord = card.kindWord
+            if (kindWord != null && kindWord != card.name) {
+                Text(kindWord, style = style, color = muted, maxLines = 1)
+            }
         }
-        Spacer(Modifier.weight(1f))
         if (card.running) InlineSpinner(size = 12.dp)
         if (trailing.isNotEmpty()) {
             Text(trailing, style = style.copy(fontFeatureSettings = "tnum"), color = muted, maxLines = 1)
@@ -303,16 +299,9 @@ private fun LaneRow(lane: WorkCardLane, style: TextStyle, onOpen: (() -> Unit)?)
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         LaneDot(lane.state)
-        Text(
-            lane.label,
-            style = style,
-            color = if (failed) ThreadCardRose else MaterialTheme.colorScheme.onSurface,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.weight(1f, fill = false),
-        )
-        lane.model?.let { Text(it, style = style, color = muted, maxLines = 1) }
-        Spacer(Modifier.weight(1f))
+        LeadText(lane.label, style = style, color = if (failed) ThreadCardRose else MaterialTheme.colorScheme.onSurface) {
+            lane.model?.let { Text(it, style = style, color = muted, maxLines = 1) }
+        }
         if (lane.state == "running") {
             InlineSpinner(size = 12.dp)
         } else {
@@ -339,16 +328,9 @@ private fun FoldedRow(
             modifier = if (expandable) Modifier.clickable(role = Role.Button) { open = !open } else Modifier,
         ) {
             Icon(ExpIcons.uiCheck, null, Modifier.size(12.dp), tint = muted)
-            Text(
-                row.label,
-                style = style,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.weight(1f, fill = false),
-            )
-            Text(row.lanes, style = style, color = muted, maxLines = 1)
-            Spacer(Modifier.weight(1f))
+            LeadText(row.label, style = style, color = MaterialTheme.colorScheme.onSurface) {
+                Text(row.lanes, style = style, color = muted, maxLines = 1)
+            }
             row.duration?.let {
                 Text(it, style = style.copy(fontFeatureSettings = "tnum"), color = muted, maxLines = 1)
             }
@@ -412,18 +394,15 @@ private fun PhaseRow(
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            row.detail?.let {
-                Text(
-                    it,
-                    style = style,
-                    color = muted,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false),
-                )
-            }
+            Text(
+                row.detail.orEmpty(),
+                style = style,
+                color = muted,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
             row.duration?.let {
-                Spacer(Modifier.weight(1f))
                 Text(it, style = style.copy(fontFeatureSettings = "tnum"), color = muted, maxLines = 1)
             }
         }
@@ -444,5 +423,36 @@ private fun rowPhases(card: WorkCard): List<Int> {
     val foldedCount = if (folded) card.segments.size - (card.rows.size - 1) else 0
     return card.rows.indices.map { index ->
         if (folded) (if (index == 0) 0 else foldedCount + index - 1) else index
+    }
+}
+
+/**
+ * A row's leading cluster: [text] ellipsized (only as much as it must) with
+ * its muted [trailing] word right after it, the cluster taking the space the
+ * row's end items leave, so those end items sit flush right and never
+ * truncate. (A `weight(fill = false)` text beside a weighted spacer gets only
+ * HALF the free space, which cut names and drifted the end column.)
+ */
+@Composable
+internal fun RowScope.LeadText(
+    text: String,
+    style: TextStyle,
+    color: Color,
+    trailing: @Composable RowScope.() -> Unit = {},
+) {
+    Row(
+        modifier = Modifier.weight(1f),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text,
+            style = style,
+            color = color,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f, fill = false),
+        )
+        trailing()
     }
 }

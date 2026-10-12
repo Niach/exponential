@@ -66,7 +66,8 @@ fun FeedbackStatesScreen() {
                     .fillMaxSize()
                     .statusBarsPadding()
                     .verticalScroll(rememberScrollState())
-                    .padding(horizontal = 16.dp, vertical = 72.dp),
+                    // The top clears the error toast raised over the screen.
+                    .padding(start = 16.dp, end = 16.dp, top = 112.dp, bottom = 72.dp),
                 verticalArrangement = Arrangement.spacedBy(20.dp),
             ) {
                 Kind("Inline") {

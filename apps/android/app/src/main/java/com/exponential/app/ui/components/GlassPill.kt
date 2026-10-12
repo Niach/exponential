@@ -4,12 +4,13 @@ import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.size
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -22,6 +23,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import at.exponential.ui.primitives.PillStyle
 import at.exponential.ui.primitives.PillView
+import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.PrimaryPressedAlpha
@@ -200,11 +202,11 @@ fun GlassPill(
         leading = when {
             loading -> {
                 {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(GlassPillDefaults.glyphSize(size)),
-                        strokeWidth = 2.dp,
-                        color = fg,
-                    )
+                    // D8.2: the pending spinner (`pending.spinner`) centred in
+                    // the glyph slot, so the pill keeps its width.
+                    Box(Modifier.size(GlassPillDefaults.glyphSize(size)), contentAlignment = Alignment.Center) {
+                        InlineSpinner(size = FeedbackStates.PENDING_SPINNER.dp, color = fg)
+                    }
                 }
             }
             leading != null -> leading
