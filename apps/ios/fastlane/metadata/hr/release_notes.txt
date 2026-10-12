@@ -1,19 +1,9 @@
-- Guide: Changes i Results zadatka sada su jedan Guide; svaki odjeljak agentovog izvješća otvara vlastiti diff, Show complete diff je na dnu, a Merge stoji u donjoj traci dok je pull request otvoren
-- Pokretanja: pokretanje se otvara kao nit s retkom stanja (uređaj, proteklo vrijeme, zadnji alat) i čita se potez po potez s vašim porukama između; Show work otvara cijeli prijepis, strelica skače na najnoviju poruku, a popis zadataka prikazuje napredak
-- Pokretanja: agentov logo vrti se dok radi, jantarna čeka vas, zelena ima otvoren pull request, plava je gotovo, a pokretanje prikazuje Working dok agent stvarno ne završi
-- Pisanje: gumb + otvara jedan izbornik (implementiraj zadatak, pokreni radnju, dodaj datoteku ili sliku do 50 MB, trud, subagenti, MCP poslužitelji, Computer use); prijedlozi su diskretni retci ispod polja
-- Poveznice: poveznica na pokretanje ili zadatak u agentovom odgovoru ili Guideu otvara se u aplikaciji, ostale u ugrađenom pregledniku, a gole URL adrese mogu se dodirnuti
-- Stogovi: blokirani zadatak može krenuti kao Stacked PR koji gradi cijeli niz pull requestova odozdo prema gore, a složeni pull request spaja se jednom kontrolom Merge stack
-- Radnje: automatizacije su sada okidači na radnji koju pokreću, svaka radnja je stranica s promptom, okidačima i pokretanjima, neuspjeli merge nudi Fix merge conflicts, Tidy up sređuje ploču, a brisanje radnje prvo pita
-- Navigacija: aplikacija se otvara na stranici Agent s karticama Inbox, Devices, Reviews, Agent i Actions; Reviews, pokretanja, radnje i uređaji obuhvaćaju sve vaše timove, a Inbox, My issues i Drafts listaju se bočno
-- Reviews: pull request iz chata ili radnje otvara svoj Guide u aplikaciji, a pull request čiji je repozitorij povezan u drugom timu navodi svoj zadatak
-- Novi zadatak: stvaranje zadatka otvara punu stranicu sa svim svojstvima, spremljenu kao skicu dok tipkate; zadatak stvoren iz skice na drugom uređaju otvara se ovdje, a napuštanje skice sa sadržajem pita Create, Keep as draft ili Discard
-- Zadaci: Start coding otvara popis Ready to code kad nešto nedostaje, podzadatak navodi nadređeni zadatak i prikazuje napredak prstenom, veze se grupiraju u sklopive odjeljke, a naslov se pri pomicanju sklapa u zaglavlje
-- GitHub: jedna vođena stranica povezuje vaš GitHub račun, instalira aplikaciju i navodi repozitorije u koje možete pushati
-- Povratne informacije: prijava iz widgeta je zadatak; odgovorite prijavitelju iz polja za komentar, a njegovi odgovori vraćaju se kao komentari
-- Račun: promijenite e-poštu kodom, povežite ili odspojite Google, Apple i OIDC prijave dok postoji drugi način ulaska, i upravljajte pristupnim ključevima
-- MCP poslužitelji: jednom na webu povežite svoj račun s timskim MCP poslužiteljem i svako pokretanje na bilo kojem računalu koristi ga
-- Uređaji: blok spremnosti kaže što računalu još treba, Computer use uključuje se po uređaju, a svaka prijava agenta nudi Sign out
-- Dijalozi i obavijesti: svaka potvrda i izbor koriste istu karticu, Return nikad ne bira destruktivan odgovor, a obavijesti se slažu, dodirnite za proširenje, povucite za odbacivanje
-- Pridruživanje timu: pozivnica nudi korak postavljanja uređaja ako ga još nemate, a registracija kodom e-pošte traži vaše ime
-- Ispravci: ploče prikazuju indikator dok ne stignu zadaci, tekst sesije se više ne preklapa, dvostruki gumb je nestao, pokretanje na praznom repozitoriju kreće, a krug dorade usklađuje retke, razmake i tekstove u cijeloj aplikaciji
+- Niti: sesija sada živi u niti koja drži zadatke i sesije jednog posla; agent povezuje zadatke koje stvori ili preuzme, nastavak nastavlja razgovor, a Running i Recent prikazuju niti
+- Pisanje: polje za pisanje na stranici Agent jedino je mjesto za pokretanje sesije, s oznakama zadataka ili jednom oznakom radnje, slobodnim tekstom kao promptom i izbornikom plus za datoteke, trud, subagente, MCP poslužitelje i Computer use
+- Pretraga zadataka: upišite # bilo gdje gdje pišete da biste pronašli zadatak po broju ili naslovu, s istom pretragom u svakoj aplikaciji
+- Prvi koraci: popis za provjeru na stranici Agent vodi novi tim kroz njegovu prvu ploču, prvi uređaj i prvu sesiju
+- Povratne informacije: neuspjela radnja prikazuje obavijest, neispravan unos označava se na mjestu, a popisi prikazuju kosture dok se učitavaju
+- Sesije: tijekovi rada, poslovi i subagenti dijele jednu Work card, skripta načina koda prikazuje Script card, a komentar koji agent objavi pravi je komentar
+- MCP poslužitelji: timskim MCP poslužiteljima upravlja se u Postavkama, a svaki prazan popis izgleda jednako u cijeloj aplikaciji
+- Računi: prijava agenta je jedan profil po adresi e-pošte, prijava poznatom adresom osvježava taj profil, a sesija nikad ne koristi zadanu prijavu računala
+- Ispravci: sesija koja se nije otvarala na iOS-u ponovno se otvara, a polje za pisanje zadržava pravi račun nakon promjene uređaja

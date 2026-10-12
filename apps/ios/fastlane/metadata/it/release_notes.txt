@@ -1,19 +1,9 @@
-- Guide: Changes e Results di un'issue ora sono un unico Guide; ogni sezione del report dell'agente apre il proprio diff, Show complete diff è in fondo e Merge resta nella barra inferiore finché la pull request è aperta
-- Esecuzioni: un'esecuzione si apre come thread con una riga di stato (dispositivo, tempo trascorso, ultimo strumento) e si legge turno per turno con i tuoi messaggi in mezzo; Show work apre la trascrizione completa, una freccia salta al messaggio più recente e l'elenco attività mostra l'avanzamento
-- Esecuzioni: il logo dell'agente gira mentre lavora, ambra aspetta te, verde ha una pull request aperta, blu ha finito e un'esecuzione mostra Working finché l'agente non ha davvero finito
-- Composer: il pulsante + apre un solo menu (implementare un'issue, avviare un'azione, aggiungere un file o un'immagine fino a 50 MB, impegno, subagenti, server MCP, Computer use); i suggerimenti sono righe discrete sotto il campo
-- Link: un link a un'esecuzione o a un'issue in una risposta dell'agente o in un Guide si apre nell'app, gli altri nel browser integrato, e gli URL semplici sono toccabili
-- Stack: un'issue bloccata può partire come Stacked PR, che costruisce l'intera serie di pull request dal basso verso l'alto, e una pull request impilata si unisce con un solo controllo Merge stack
-- Azioni: le automazioni ora sono trigger sull'azione che eseguono, ogni azione è una pagina con prompt, trigger ed esecuzioni, un merge fallito propone Fix merge conflicts, Tidy up riordina una board ed eliminare un'azione chiede conferma
-- Navigazione: l'app si apre sulla pagina Agent con le schede Inbox, Devices, Reviews, Agent e Actions; Reviews, esecuzioni, azioni e dispositivi includono tutti i tuoi team, e Inbox, My issues e Drafts scorrono di lato
-- Reviews: una pull request da una chat o da un'azione apre il suo Guide nell'app, e una pull request il cui repository è collegato in un altro team indica la sua issue
-- Nuova issue: creare un'issue apre una pagina completa con ogni proprietà, salvata come bozza mentre scrivi; un'issue creata da una bozza su un altro dispositivo arriva qui sull'issue, e lasciare una bozza con contenuto chiede Create, Keep as draft o Discard
-- Issue: Start coding apre una checklist Ready to code quando manca qualcosa, una sotto-issue indica la sua issue madre e mostra l'avanzamento con un anello, le relazioni si raggruppano in sezioni comprimibili e il titolo entra nell'intestazione scorrendo
-- GitHub: una pagina guidata collega il tuo account GitHub, installa l'app ed elenca i repository su cui puoi fare push
-- Feedback: un invio dal widget è un'issue; rispondi a chi l'ha segnalata dal campo commenti e le sue risposte tornano come commenti
-- Account: cambia la tua email con un codice, collega o scollega gli accessi Google, Apple e OIDC finché resta un altro modo di entrare, e gestisci le passkey
-- Server MCP: collega una volta sul web il tuo account a un server MCP del team, e ogni esecuzione che avvii su qualsiasi macchina lo usa
-- Dispositivi: il blocco di prontezza dice cosa manca ancora a una macchina, Computer use si attiva per dispositivo e ogni accesso dell'agente offre Sign out
-- Dialoghi e notifiche: ogni conferma e scelta usa la stessa scheda, Return non sceglie mai una risposta distruttiva e le notifiche si impilano, tocca per espandere, scorri per chiudere
-- Entrare in un team: l'invito propone il passaggio del dispositivo se non ne hai ancora uno, e la registrazione con codice email chiede il tuo nome
-- Correzioni: le board mostrano un indicatore finché arrivano le issue, il testo della sessione non si sovrappone più, un pulsante doppio è sparito, un'esecuzione su un repository vuoto parte e un giro di rifinitura allinea righe, spazi e testi in tutta l'app
+- Thread: una sessione ora vive in un thread che raccoglie le issue e le sessioni di un lavoro; l'agente collega le issue che crea o prende in carico, una ripresa continua la conversazione, e Running e Recent elencano i thread
+- Composer: il composer della pagina Agent è l'unico punto da cui avviare una sessione, con chip di issue o un chip di azione, testo libero come prompt e un menu più per file, impegno, subagenti, server MCP e Computer use
+- Ricerca issue: digita # ovunque scrivi per trovare un'issue per numero o titolo, con la stessa ricerca in ogni app
+- Primi passi: una checklist nella pagina Agent guida un nuovo team attraverso la sua prima board, il primo dispositivo e la prima sessione
+- Feedback: un'azione non riuscita mostra un avviso, l'input non valido viene segnalato sul posto, e le liste mostrano scheletri durante il caricamento
+- Sessioni: workflow, task e subagenti condividono una sola Work card, uno script della modalità codice mostra una Script card, e un commento pubblicato dall'agente è il vero commento
+- Server MCP: i server MCP del team si gestiscono nelle Impostazioni, e ogni lista vuota si legge allo stesso modo in tutta l'app
+- Account: un login dell'agente è un profilo per email, accedere con un'email nota aggiorna quel profilo, e una sessione non usa mai il login predefinito della macchina
+- Correzioni: una sessione che non si apriva su iOS si apre di nuovo, e il composer mantiene l'account giusto dopo il cambio di dispositivo
