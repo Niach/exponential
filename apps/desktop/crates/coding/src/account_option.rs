@@ -76,10 +76,12 @@ impl AccountOption {
     }
 
     /// What a launch puts on the wire: the id VERBATIM (an absent account
-    /// means "the last used login"). Always `Some`; the `Option` is the
-    /// launch slot's own type.
+    /// means "the last used login"). The unpinned row of a machine that
+    /// reports no profiles carries an EMPTY id, which the server refuses
+    /// (`account` = min 1 char): that row goes out as `None`, like web,
+    /// iOS and Android fold a blank id to "no account".
     pub fn wire_account(&self) -> Option<String> {
-        Some(self.id.clone())
+        Some(self.id.clone()).filter(|id| !id.is_empty())
     }
 }
 
@@ -423,8 +425,18 @@ mod tests {
             Some(("codex".to_string(), "main".to_string()))
         );
         assert_eq!(parse_account_option_key("nope"), None);
-        // The option's id rides the wire verbatim.
+        // The option's id rides the wire verbatim; the unpinned row of a
+        // machine without profiles (an empty id) goes out as "no account".
         assert_eq!(by_id("main").wire_account(), Some("main".to_string()));
+        let unpinned = AccountOption {
+            id: String::new(),
+            agent: CodingAgent::Claude,
+            email: "Claude".to_string(),
+            is_last_used: true,
+            health: Health::Unknown,
+            limits: None,
+        };
+        assert_eq!(unpinned.wire_account(), None);
     }
 
     #[test]
