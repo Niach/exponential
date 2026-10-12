@@ -10,6 +10,7 @@ import {
 } from "@/lib/team-membership"
 import { boardVisible } from "@/lib/board-visibility"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { eventOrigin } from "@/lib/integrations/event-origin"
 
 export const issueLabelsRouter = router({
   add: authedProcedure
@@ -46,6 +47,7 @@ export const issueLabelsRouter = router({
             issueId: input.issueId,
             teamId: label!.teamId,
             actorUserId: ctx.session.user.id,
+            origin: eventOrigin(ctx),
             type: `label_added`,
             payload: { labelId: input.labelId },
           })
@@ -88,6 +90,7 @@ export const issueLabelsRouter = router({
             issueId: input.issueId,
             teamId: label!.teamId,
             actorUserId: ctx.session.user.id,
+            origin: eventOrigin(ctx),
             type: `label_removed`,
             payload: { labelId: input.labelId },
           })
@@ -154,6 +157,7 @@ export const issueLabelsRouter = router({
             issueId: row.issueId,
             teamId: label.teamId,
             actorUserId: ctx.session.user.id,
+            origin: eventOrigin(ctx),
             type: `label_added`,
             payload: { labelId: input.labelId },
           })
@@ -214,6 +218,7 @@ export const issueLabelsRouter = router({
             issueId: row.issueId,
             teamId: label.teamId,
             actorUserId: ctx.session.user.id,
+            origin: eventOrigin(ctx),
             type: `label_removed`,
             payload: { labelId: input.labelId },
           })

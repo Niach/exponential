@@ -29,7 +29,8 @@ import kotlinx.serialization.json.JsonPrimitive
  *
  * "Field" derives from the event type: `status_changed` → status,
  * `assignee_changed` → assignee, `priority_changed` → priority,
- * `estimate_changed` → estimate, `board_moved` → board, `label_added` /
+ * `estimate_changed` → estimate, `title_changed` → title,
+ * `board_moved` → board, `label_added` /
  * `label_removed` → that ONE label (`payload.labelId`; an add and a remove
  * of the same label cancel), `relation_added` / `relation_removed` → that
  * one relation (`payload.type` + `payload.relatedIssueId`).
@@ -204,6 +205,7 @@ object ActivityFold {
         "assignee_changed" -> "assignee"
         "priority_changed" -> "priority"
         "estimate_changed" -> "estimate"
+        "title_changed" -> "title"
         "board_moved" -> "board"
         "label_added", "label_removed" ->
             optionalString(payload["labelId"])?.let { "label:$it" }
@@ -229,7 +231,8 @@ object ActivityFold {
         return when (step.event.type) {
             "status_changed" ->
                 asString(payload["fromStatusId"]) ?: asString(payload["from"]) ?: ""
-            "assignee_changed", "priority_changed", "estimate_changed" -> asString(payload["from"]) ?: ""
+            "assignee_changed", "priority_changed", "estimate_changed", "title_changed" ->
+                asString(payload["from"]) ?: ""
             "board_moved" -> asString(payload["fromBoardId"]) ?: ""
             "label_added", "relation_added" -> "absent"
             "label_removed", "relation_removed" -> "present"
@@ -242,7 +245,8 @@ object ActivityFold {
         return when (step.event.type) {
             "status_changed" ->
                 asString(payload["toStatusId"]) ?: asString(payload["to"]) ?: ""
-            "assignee_changed", "priority_changed", "estimate_changed" -> asString(payload["to"]) ?: ""
+            "assignee_changed", "priority_changed", "estimate_changed", "title_changed" ->
+                asString(payload["to"]) ?: ""
             "board_moved" -> asString(payload["toBoardId"]) ?: ""
             "label_added", "relation_added" -> "present"
             "label_removed", "relation_removed" -> "absent"

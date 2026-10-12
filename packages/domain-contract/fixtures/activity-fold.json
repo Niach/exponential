@@ -311,6 +311,19 @@
     ]
   },
   {
+    "name": "renames fold to first → last and a round trip cancels",
+    "events": [
+      { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "title_changed", "payload": { "from": "Old", "to": "Draft" }, "createdAt": "2026-09-19T10:00:00Z" },
+      { "id": "e2", "issueId": "i1", "actorUserId": "A", "type": "title_changed", "payload": { "from": "Draft", "to": "New" }, "createdAt": "2026-09-19T10:01:00Z" },
+      { "id": "e3", "issueId": "i2", "actorUserId": "A", "type": "title_changed", "payload": { "from": "Same", "to": "Typo" }, "createdAt": "2026-09-19T10:02:00Z" },
+      { "id": "e4", "issueId": "i2", "actorUserId": "A", "type": "title_changed", "payload": { "from": "Typo", "to": "Same" }, "createdAt": "2026-09-19T10:03:00Z" }
+    ],
+    "barriers": [],
+    "expected": [
+      { "id": "e2", "type": "title_changed", "payload": { "from": "Old", "to": "New" }, "createdAt": "2026-09-19T10:01:00Z" }
+    ]
+  },
+  {
     "name": "legacy status payloads compare on the enum",
     "events": [
       { "id": "e1", "issueId": "i1", "actorUserId": "A", "type": "status_changed", "payload": { "from": "backlog", "to": "in_progress" }, "createdAt": "2026-09-19T10:00:00Z" },

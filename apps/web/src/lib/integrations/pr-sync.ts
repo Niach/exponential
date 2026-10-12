@@ -383,6 +383,9 @@ export async function applyPrLifecycleStatusInTx(
       toStatusId: target?.id ?? null,
       fromName: fromRow?.fromName ?? null,
       toName: target?.name ?? null,
+      // FEED-87: the team's PR automation moved it, not the actor (who
+      // opened/merged the PR): exponential_issues_activity says `automation`.
+      automation: true,
     },
   })
 }

@@ -298,6 +298,16 @@ class EventPhrasesTest {
         assertEquals("removed the estimate", phrase(event("estimate_changed", null)))
     }
 
+    // FEED-87: a rename reads with the new title (×4 wording).
+    @Test
+    fun titleChangedReadsTheNewTitle() {
+        assertEquals(
+            "changed the title to New title",
+            phrase(event("title_changed", """{"from":"Old","to":"New title"}""")),
+        )
+        assertEquals("changed the title", phrase(event("title_changed", null)))
+    }
+
     // ── EXP-595: timeline glyphs (web `EventRow` / desktop `EventGlyph` parity) ──
 
     @Test
@@ -314,6 +324,7 @@ class EventPhrasesTest {
         assertSame(ExpIcons.eventRelationAdded, plain("relation_added"))
         assertSame(ExpIcons.eventRelationRemoved, plain("relation_removed"))
         assertSame(ExpIcons.eventEstimateChanged, plain("estimate_changed"))
+        assertSame(ExpIcons.eventTitleChanged, plain("title_changed"))
     }
 
     /** EXP-525 parity: the TARGET status's real row wins over the anchor. */

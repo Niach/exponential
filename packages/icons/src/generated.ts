@@ -483,6 +483,7 @@ export const SEMANTIC_ICONS = {
   "event-relation-added": `link`,
   "event-relation-removed": `unlink`,
   "event-status-changed": `circle-dot`,
+  "event-title-changed": `pencil`,
   "guide-changes": `code`,
   "media-fast-forward": `fast-forward`,
   "media-rewind": `rewind`,

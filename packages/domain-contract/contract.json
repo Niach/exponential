@@ -353,7 +353,8 @@
       "priority_changed",
       "relation_added",
       "relation_removed",
-      "estimate_changed"
+      "estimate_changed",
+      "title_changed"
     ]
   },
   "issueRelationType": {
@@ -779,6 +780,17 @@
         "doneMany": "Unlinked issues {n} times",
         "subjectKey": "issueId",
         "result": "issue"
+      },
+      {
+        "name": "issues_activity",
+        "title": "Read issue activity",
+        "blurb": "Reads who changed an issue's fields and when, oldest first.",
+        "progressive": "Reading activity",
+        "done": "Read activity",
+        "progressiveMany": "Reading activity {n} times",
+        "doneMany": "Read activity {n} times",
+        "subjectKey": "issueId",
+        "result": "none"
       },
       {
         "name": "issues_create",
@@ -1406,6 +1418,7 @@
       { "name": "issue_labels_remove", "refs": "issue@$issueId label@$labelId" },
       { "name": "issue_relations_add", "refs": "issue@$issueId issue@$relatedIssueId" },
       { "name": "issue_relations_remove", "refs": "issue@$issueId issue@$relatedIssueId" },
+      { "name": "issues_activity", "refs": "issue@$issueId" },
       { "name": "issues_create", "refs": "issue@" },
       { "name": "issues_delete", "refs": "" },
       { "name": "issues_get", "refs": "issue@" },

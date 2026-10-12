@@ -219,6 +219,7 @@
     "event-board-moved": "move",
     "event-priority-changed": "signal-high",
     "event-estimate-changed": "gauge",
+    "event-title-changed": "pencil",
     "event-relation-added": "link",
     "event-relation-removed": "unlink",
 

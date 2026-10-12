@@ -20,6 +20,7 @@ import {
 } from "@/lib/domain"
 import { applyStatusDerivations } from "@/lib/status-derivations"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { eventOrigin } from "@/lib/integrations/event-origin"
 import { syncDuplicateMirror } from "@/lib/issue-relations"
 import { isUniqueViolation } from "@/lib/trpc/db-errors"
 
@@ -433,6 +434,7 @@ export const statusesRouter = router({
               issueId: issue.id,
               teamId: input.teamId,
               actorUserId: ctx.session.user.id,
+              origin: eventOrigin(ctx),
               type: `status_changed`,
               payload: {
                 fromStatusId: row.id,

@@ -32,6 +32,7 @@ import {
   asc,
   desc,
   eq,
+  gt,
   gte,
   inArray,
   isNotNull,
@@ -52,6 +53,7 @@ import {
   comments,
   devices,
   deviceWorktrees,
+  issueEvents,
   issueLabels,
   issueRelations,
   issues,
@@ -167,6 +169,7 @@ import {
 } from "@/lib/integrations/github-pr"
 import { resolveRepoInstallationTokenInfo } from "@/lib/integrations/github-app"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { activityWire } from "@/lib/activity/wire"
 import { applyPrLifecycleStatusInTx } from "@/lib/integrations/pr-sync"
 import {
   fireAndForgetPrNotify,
@@ -2318,6 +2321,51 @@ export function registerExponentialTools(
     }
   )
 
+  // FEED-87: the issue's activity log (the timeline's events, unfolded) as
+  // per-field history: who changed what and when, agent runs included.
+  server.registerTool(
+    `exponential_issues_activity`,
+    {
+      annotations: READ_ONLY,
+      description: `Issue activity history, oldest first: {field, from, to, actorId, actorKind user|agent|automation, sessionId, at} per change (status ids, assignee, label, priority, estimate, title, board, pr, relation). since: ISO, strictly after.`,
+      inputSchema: strictInput({
+        issueId: z.string().min(1),
+        since: isoDateTime.optional(),
+        limit: z.number().int().min(1).max(500).default(200),
+      }),
+    },
+    async ({ issueId: issueIdInput, since, limit }) => {
+      try {
+        const issueId = await resolveIssueId(issueIdInput, user.id, access)
+        const ctxIssue = await getIssueTeamContext(issueId)
+        assertBoardGranted(access, ctxIssue.boardId, ctxIssue.teamId)
+        await resolveTeamAccess(user.id, ctxIssue.teamId)
+        const rows = await db
+          .select({
+            id: issueEvents.id,
+            type: issueEvents.type,
+            payload: issueEvents.payload,
+            actorUserId: issueEvents.actorUserId,
+            viaMcp: issueEvents.viaMcp,
+            sessionId: issueEvents.sessionId,
+            createdAt: issueEvents.createdAt,
+          })
+          .from(issueEvents)
+          .where(
+            and(
+              eq(issueEvents.issueId, issueId),
+              since ? gt(issueEvents.createdAt, new Date(since)) : undefined
+            )
+          )
+          .orderBy(asc(issueEvents.createdAt), asc(issueEvents.id))
+          .limit(limit)
+        return ok(rows.map(activityWire))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
   server.registerTool(
     `exponential_comments_create`,
     {
@@ -3070,6 +3118,7 @@ export function registerExponentialTools(
               issueId: id,
               teamId: teamIdByIssue.get(id)!,
               actorUserId: user.id,
+              origin: { viaMcp: true, sessionId },
               type: `pr_opened`,
               payload: {
                 prUrl: created.url,

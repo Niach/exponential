@@ -129,6 +129,7 @@ internal fun eventGlyph(
     "relation_added" -> EventGlyph.Plain(ExpIcons.eventRelationAdded)
     "relation_removed" -> EventGlyph.Plain(ExpIcons.eventRelationRemoved)
     "estimate_changed" -> EventGlyph.Plain(ExpIcons.eventEstimateChanged)
+    "title_changed" -> EventGlyph.Plain(ExpIcons.eventTitleChanged)
     else -> null
 }
 
@@ -145,6 +146,7 @@ internal fun eventVerb(type: String): String = when (type) {
     "board_moved" -> "moved this to another board"
     "relation_added" -> "added a relation"
     "relation_removed" -> "removed a relation"
+    "title_changed" -> "changed the title"
     else -> type.replace('_', ' ')
 }
 
@@ -222,6 +224,8 @@ internal fun eventPhrase(
             payload,
             estimationType ?: DomainContract.issueEstimationFibonacci,
         )
+        // FEED-87: ×4 "changed the title to {to}".
+        "title_changed" -> field("to")?.let { "changed the title to $it" } ?: eventVerb(event.type)
         else -> eventVerb(event.type)
     }
 }

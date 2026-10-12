@@ -19,7 +19,8 @@
 //
 // "Field" derives from the event type: `status_changed` → status,
 // `assignee_changed` → assignee, `priority_changed` → priority,
-// `estimate_changed` → estimate, `board_moved` → board,
+// `estimate_changed` → estimate, `title_changed` → title,
+// `board_moved` → board,
 // `label_added`/`label_removed` → that ONE label (`payload.labelId`; an add
 // and a remove of the same label cancel),
 // `relation_added`/`relation_removed` → that one relation
@@ -69,6 +70,8 @@ export function foldFieldKey(event: ActivityEvent): string | null {
       return `priority`
     case `estimate_changed`:
       return `estimate`
+    case `title_changed`:
+      return `title`
     case `board_moved`:
       return `board`
     case `label_added`:
@@ -104,6 +107,7 @@ function beforeOf(event: ActivityEvent): string {
     case `assignee_changed`:
     case `priority_changed`:
     case `estimate_changed`:
+    case `title_changed`:
       return String(payload.from ?? ``)
     case `board_moved`:
       return String(payload.fromBoardId ?? ``)
@@ -126,6 +130,7 @@ function afterOf(event: ActivityEvent): string {
     case `assignee_changed`:
     case `priority_changed`:
     case `estimate_changed`:
+    case `title_changed`:
       return String(payload.to ?? ``)
     case `board_moved`:
       return String(payload.toBoardId ?? ``)

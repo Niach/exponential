@@ -88,6 +88,12 @@ describe(`issueEventPhrase`, () => {
     expect(issueEventPhrase(`relation_removed`, {})).toBe(`unlinked an issue`)
   })
 
+  it(`phrases the FEED-87 rename`, () => {
+    expect(
+      issueEventPhrase(`title_changed`, { from: `Old`, to: `New title` })
+    ).toBe(`changed the title to New title`)
+  })
+
   it(`falls back to the munged type for unknown kinds`, () => {
     expect(issueEventPhrase(`something_new`, {})).toBe(`something new`)
   })

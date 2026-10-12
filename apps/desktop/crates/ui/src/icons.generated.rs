@@ -499,6 +499,8 @@ pub const EVENT_RELATION_ADDED: ExpIcon = ExpIcon::Link;
 pub const EVENT_RELATION_REMOVED: ExpIcon = ExpIcon::Unlink;
 /// Registry concept `event-status-changed` -> Lucide `circle-dot`.
 pub const EVENT_STATUS_CHANGED: ExpIcon = ExpIcon::CircleDot;
+/// Registry concept `event-title-changed` -> Lucide `pencil`.
+pub const EVENT_TITLE_CHANGED: ExpIcon = ExpIcon::Pencil;
 /// Registry concept `guide-changes` -> Lucide `code`.
 pub const GUIDE_CHANGES: ExpIcon = ExpIcon::Code;
 /// Registry concept `media-fast-forward` -> Lucide `fast-forward`.
@@ -965,6 +967,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "event-relation-added" => EVENT_RELATION_ADDED,
         "event-relation-removed" => EVENT_RELATION_REMOVED,
         "event-status-changed" => EVENT_STATUS_CHANGED,
+        "event-title-changed" => EVENT_TITLE_CHANGED,
         "guide-changes" => GUIDE_CHANGES,
         "media-fast-forward" => MEDIA_FAST_FORWARD,
         "media-rewind" => MEDIA_REWIND,
