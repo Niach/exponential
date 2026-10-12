@@ -1753,6 +1753,46 @@ impl RemoteRunSubject {
     }
 }
 
+/// EXP-1259 (start surfaces): ONE press of a remote start. The press stamps
+/// a fresh `startId` (unless the input already names one, the composer's
+/// draft id); every send of the intent, its Retries included, carries that
+/// same id, so the server (`forwardStartOnce`) and the device drop a repeat
+/// instead of starting twice. A new press is a new intent and a new id.
+#[derive(Clone, Debug)]
+pub(crate) struct RemoteStartIntent {
+    input: api::steer::StartSessionInput,
+}
+
+impl RemoteStartIntent {
+    /// A press: the input with its startId (a fresh one when it has none).
+    pub(crate) fn press(mut input: api::steer::StartSessionInput) -> Self {
+        if input.start_id.as_deref().is_none_or(|id| id.trim().is_empty()) {
+            input.start_id = Some(api::steer::new_start_id());
+        }
+        Self { input }
+    }
+
+    /// The request every send of this intent posts (the same startId).
+    pub(crate) fn input(&self) -> &api::steer::StartSessionInput {
+        &self.input
+    }
+
+    pub(crate) fn start_id(&self) -> &str {
+        self.input.start_id.as_deref().unwrap_or_default()
+    }
+}
+
+/// Final review B3: whether a FAILED `steer.startSession` may still have
+/// put the frame on the device: a relay timeout (REV-34 `relay_timeout`,
+/// a 5xx) or an answer lost on the way back. A refusal (4xx) never did.
+pub(crate) fn may_have_reached_device(err: &api::ApiError) -> bool {
+    match err {
+        api::ApiError::Http { status, .. } => *status >= 500,
+        api::ApiError::Transport { .. } => true,
+        _ => false,
+    }
+}
+
 /// EXP-818: follow a remote start INTO the run, exactly as a local start lands
 /// in its session screen.
 ///
@@ -1763,12 +1803,25 @@ impl RemoteRunSubject {
 /// be on the same machine can never be mistaken for this one; the newest
 /// matching row wins, and nothing happens at all if none arrives within
 /// [`REMOTE_OPEN_WAIT`] (the toast already told the user where the run went).
+/// EXP-1259: `start_id` = the start's [`RemoteStartIntent`] id; a Retry of
+/// a start already followed spawns no second follower.
 pub(crate) fn follow_remote_start(
     device_id: String,
     subject: RemoteRunSubject,
+    start_id: Option<String>,
     window: &Window,
     cx: &mut App,
 ) {
+    if let Some(start_id) = &start_id {
+        if !cx.default_global::<FollowedStarts>().0.insert(start_id.clone()) {
+            return;
+        }
+    }
+    let unfollow = move |cx: &mut App| {
+        if let Some(start_id) = &start_id {
+            cx.default_global::<FollowedStarts>().0.remove(start_id);
+        }
+    };
     let known: HashSet<String> = session_ids(cx);
     // EXP-1075: the run lands on the team the launch was made from. The
     // predicate is TOLERANT — a row whose `team_id` has not decoded is never
@@ -1786,6 +1839,7 @@ pub(crate) fn follow_remote_start(
             if let Some(session_id) =
                 cx.update(|cx| fresh_remote_run(&known, &device_id, &subject, team.as_deref(), cx))
             {
+                let _ = cx.update(|cx| unfollow(cx));
                 // The window may have closed while we waited; there is nothing
                 // else to do with the run then (its tab opens on the next
                 // visit to the Agent page).
@@ -1795,6 +1849,7 @@ pub(crate) fn follow_remote_start(
                 return;
             }
             if std::time::Instant::now() >= deadline {
+                let _ = cx.update(|cx| unfollow(cx));
                 return;
             }
         }
@@ -1808,7 +1863,7 @@ pub(crate) fn follow_remote_start(
 /// the same window the server and the device dedupe a startId in.
 pub(crate) const REMOTE_LATE_WAIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
-/// The composer starts being followed right now, by `startId` — a Retry
+/// The remote starts being followed right now, by `startId` — a Retry
 /// (same startId) never spawns a second follower.
 #[derive(Default)]
 struct FollowedStarts(HashSet<String>);
@@ -2969,6 +3024,56 @@ mod tests {
         };
         assert_eq!(RemoteRunSubject::of(&batch), RemoteRunSubject::Any);
         assert!(RemoteRunSubject::of(&batch).matches(&row(None, None)));
+    }
+
+    /// EXP-1259: a press mints its startId once and every send of that
+    /// intent (a Retry is a clone) carries it; a new press mints a new one;
+    /// a composer input that already names its draft id keeps it.
+    #[test]
+    fn a_press_mints_one_start_id_and_its_retry_reuses_it() {
+        use api::steer::StartSessionInput;
+        let input = || StartSessionInput {
+            resume_session_id: Some("old".to_string()),
+            device_id: "dev".to_string(),
+            ..Default::default()
+        };
+        let press = RemoteStartIntent::press(input());
+        assert_eq!(press.start_id().len(), 36);
+        assert_eq!(press.input().start_id.as_deref(), Some(press.start_id()));
+        let retry = press.clone();
+        assert_eq!(retry.input().start_id, press.input().start_id);
+        let again = RemoteStartIntent::press(input());
+        assert_ne!(again.start_id(), press.start_id());
+        let drafted = RemoteStartIntent::press(StartSessionInput {
+            start_id: Some("draft-1".to_string()),
+            ..input()
+        });
+        assert_eq!(drafted.start_id(), "draft-1");
+        let blank = RemoteStartIntent::press(StartSessionInput {
+            start_id: Some(" ".to_string()),
+            ..input()
+        });
+        assert_eq!(blank.start_id().len(), 36);
+    }
+
+    /// Final review B3: a relay timeout (the server's 5xx) or a lost answer
+    /// may have delivered the start, so it stays followed and its Retry
+    /// repeats the startId; a refusal never did.
+    #[test]
+    fn a_failed_start_is_followed_only_when_it_may_have_arrived() {
+        let http = |status| api::ApiError::Http {
+            status,
+            message: "Steer relay error (504)".into(),
+        };
+        assert!(may_have_reached_device(&http(500)));
+        assert!(may_have_reached_device(&http(504)));
+        assert!(may_have_reached_device(&api::ApiError::Transport {
+            message: "timed out".into(),
+            offline: true,
+        }));
+        assert!(!may_have_reached_device(&http(412)));
+        assert!(!may_have_reached_device(&http(404)));
+        assert!(!may_have_reached_device(&api::ApiError::Unauthorized));
     }
 
     /// A bare row the subject matcher can vary one field of.

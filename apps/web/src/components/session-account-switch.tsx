@@ -21,17 +21,15 @@
 // `domain/SessionAccountSwitch.kt`, iOS `Domain/SessionAccountSwitch.swift`,
 // desktop `ui/src/account_switch.rs`); `session-account-switch.test.ts` locks
 // them against the native sources.
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
 import type { CodingSession, Device, DeviceAgentHealth } from "@/db/schema"
 import { conceptIcon, Button, IconTooltip, ListRow, useIsMobile, toast } from "@exp/ui"
-import { codingSessionCollection, deviceCollection } from "@/lib/collections"
+import { deviceCollection } from "@/lib/collections"
 import { useNow } from "@/hooks/use-now"
 import { runHasEnded } from "@/lib/past-runs"
-import { useOpenSession } from "@/hooks/use-open-session"
-import { trpc } from "@/lib/trpc-client"
+import { useResumeStart } from "@/hooks/use-resume-start"
 import { trpcErrorMessage } from "@/lib/trpc-error"
-import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   agentProfileUsageRows,
   healthBadgeLabel,
@@ -44,11 +42,6 @@ import {
   deviceCanSwitchAccount,
   deviceRowIsOnline,
 } from "@/lib/steer-devices"
-import {
-  findStartedRun,
-  STARTED_RUN_DEADLINE_MS,
-  STARTED_RUN_SKEW_MS,
-} from "@/lib/started-run-match"
 import { AgentUsageWindows } from "@/components/agent-usage-windows"
 
 const SwapIcon = conceptIcon(`ui-swap`)
@@ -209,7 +202,6 @@ export function useSessionAccountSwitch(
   }
 ): SessionAccountSwitch {
   const now = useNow(30_000)
-  const openSession = useOpenSession()
   const { data: deviceRows } = useLiveQuery((query) =>
     query.from({ d: deviceCollection })
   )
@@ -221,18 +213,6 @@ export function useSessionAccountSwitch(
     // through a shared server row (`resolveSessionDevice`).
     return rows.find((row) => row.userId === session.userId) ?? rows[0] ?? null
   }, [deviceRows, session.deviceId, session.userId])
-
-  const [pending, setPending] = useState<{
-    profileId: string
-    sentAt: number
-  } | null>(null)
-  const deadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(
-    () => () => {
-      if (deadlineRef.current) clearTimeout(deadlineRef.current)
-    },
-    []
-  )
 
   const mine = session.userId === currentUserId
   const online = deviceRow ? deviceRowIsOnline(deviceRow.lastSeenAt, now) : false
@@ -289,75 +269,39 @@ export function useSessionAccountSwitch(
     canSwitch,
   ])
 
-  // The continuation's own row: watched only while a switch is in flight.
-  const watching = pending !== null
-  const { data: sessionRows } = useLiveQuery(
-    (query) => (watching ? query.from({ s: codingSessionCollection }) : undefined),
-    [watching]
-  )
-  useEffect(() => {
-    if (!pending) return
-    const match = findStartedRun(
-      (sessionRows ?? []) as CodingSession[],
-      { kind: `resumed`, fromId: session.id },
-      session.userId,
-      pending.sentAt - STARTED_RUN_SKEW_MS
-    )
-    if (!match) return
-    // Open it exactly once — clearing `pending` stops this effect matching
-    // again.
-    if (deadlineRef.current) clearTimeout(deadlineRef.current)
-    setPending(null)
-    openSession(match)
-  }, [sessionRows, pending, session.id, session.userId, openSession])
-
-  // A toast's Retry runs the LATEST switch (fresh options and pending).
-  const switchRef = useRef<(profileId: string) => void>(() => {})
-  const switchTo = (profileId: string) => {
-    if (pending) return
+  // EXP-1259: ONE resume send (`useResumeStart`): a press mints a startId,
+  // its Retries re-send it, after re-checking the account is still on offer.
+  const isBlocked = (profileId: string | undefined) => {
     const option = options.find((entry) => entry.profileId === profileId)
-    if (!option || option.blockedReason) return
+    return !option || Boolean(option.blockedReason)
+  }
+  const { pending, resume } = useResumeStart({
+    sessionId: session.id,
+    userId: session.userId,
+    deviceId: session.deviceId,
+    deadlineTitle: () => `That machine never continued this session`,
+    failure: {
+      verb: `switch`,
+      thing: `the account`,
+      description: (error) =>
+        trpcErrorMessage(
+          error,
+          `The machine refused to continue this session on that account.`
+        ),
+    },
+    canRetry: (profileId) => !isBlocked(profileId),
+    onBeforeSend: onBeforeSwitch,
+  })
+  const switchTo = (profileId: string) => {
+    if (pending || isBlocked(profileId)) return
     if (!session.deviceId) return
-    const sentAt = Date.now()
-    setPending({ profileId, sentAt })
-    onBeforeSwitch?.()
-    trpc.steer.startSession
-      .mutate(
-        {
-          resumeSessionId: session.id,
-          deviceId: session.deviceId,
-          // The picked profile VERBATIM: the server reads the PRESENCE of
-          // `account` as "this resume is a switch", and it is
-          // the only thing that lets a resume ride a LIVE run.
-          account: profileId,
-        },
-        SKIP_ERROR_TOAST
-      )
-      .then(() => {
-        if (deadlineRef.current) clearTimeout(deadlineRef.current)
-        deadlineRef.current = setTimeout(() => {
-          setPending(null)
-          toast.error(`That machine never continued this session`, {
-            description: `Open the Exponential desktop app there to see why.`,
-          })
-        }, STARTED_RUN_DEADLINE_MS)
-      })
-      .catch((error: unknown) => {
-        setPending(null)
-        // FEED-79: nothing started, so Retry asks the machine again.
-        failedAction(`switch`, `the account`, error, {
-          description: trpcErrorMessage(
-            error,
-            `The machine refused to continue this session on that account.`
-          ),
-          retry: () => switchRef.current(profileId),
-        })
-      })
+    // The picked profile VERBATIM: the server reads the PRESENCE of
+    // `account` as "this resume is a switch", and it is the only thing that
+    // lets a resume ride a LIVE run.
+    resume(profileId)
   }
 
-  switchRef.current = switchTo
-
-  return { options, switchingTo: pending?.profileId ?? null, switchTo }
+  return { options, switchingTo: pending?.account ?? null, switchTo }
 }
 
 /** The account rows the usage overlay lists (EXP-863: the OTHER accounts —

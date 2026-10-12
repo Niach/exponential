@@ -2452,7 +2452,7 @@ impl ChatScreenView {
                         this.arm_deadline(generation, window, cx);
                         this.follow_start(device_id, subject, start_id, handoff, window, cx);
                     }
-                    Err(err) if may_have_reached_device(&err) => {
+                    Err(err) if coding_flow::may_have_reached_device(&err) => {
                         // Final review B3: a relay timeout (REV-34) or a
                         // lost answer may have delivered the frame anyway:
                         // the failure toast, but the start stays followed
@@ -4594,17 +4594,6 @@ struct DraftStart {
     fingerprint: DraftFingerprint,
 }
 
-/// Final review B3: whether a FAILED `steer.startSession` may still have
-/// put the frame on the device: a relay timeout (REV-34 `relay_timeout`,
-/// a 5xx) or an answer lost on the way back. A refusal (4xx) never did.
-fn may_have_reached_device(err: &api::ApiError) -> bool {
-    match err {
-        api::ApiError::Http { status, .. } => *status >= 500,
-        api::ApiError::Transport { .. } => true,
-        _ => false,
-    }
-}
-
 /// Review #3 — a remote start out of the composer's hands but still
 /// followed (timed out, or failed where the frame may have arrived): its
 /// `startId`, its tab handoff and the error toast a late landing takes back.
@@ -4679,26 +4668,6 @@ impl RemoteSubject<'_> {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    /// Final review B3: a relay timeout (the server's 5xx) or a lost answer
-    /// may have delivered the start, so it stays followed and its Retry
-    /// repeats the startId; a refusal never did.
-    #[test]
-    fn a_failed_start_is_followed_only_when_it_may_have_arrived() {
-        let http = |status| api::ApiError::Http {
-            status,
-            message: "Steer relay error (504)".into(),
-        };
-        assert!(may_have_reached_device(&http(500)));
-        assert!(may_have_reached_device(&http(504)));
-        assert!(may_have_reached_device(&api::ApiError::Transport {
-            message: "timed out".into(),
-            offline: true,
-        }));
-        assert!(!may_have_reached_device(&http(412)));
-        assert!(!may_have_reached_device(&http(404)));
-        assert!(!may_have_reached_device(&api::ApiError::Unauthorized));
-    }
 
     /// EXP-1249 — `fixtures/composer-menu.json` is the "+" menu's ×4 spec:
     /// the words and concept icons row by row, the Effort row's codex label,

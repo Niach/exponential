@@ -16,6 +16,7 @@ const h = vi.hoisted(() => ({
   openSession: vi.fn(),
   toastError: vi.fn(),
   toastDismiss: vi.fn(),
+  failedAction: vi.fn(),
 }))
 
 vi.mock(`@tanstack/react-db`, async (importOriginal) => ({
@@ -45,6 +46,10 @@ vi.mock(`@/lib/trpc-client`, () => ({
 }))
 vi.mock(`@/hooks/use-open-session`, () => ({
   useOpenSession: () => h.openSession,
+}))
+vi.mock(`@/lib/action-error`, () => ({
+  SKIP_ERROR_TOAST: {},
+  failedAction: h.failedAction,
 }))
 vi.mock(`@exp/ui`, async (importOriginal) => ({
   ...(await importOriginal<typeof import("@exp/ui")>()),
@@ -95,6 +100,7 @@ beforeEach(() => {
   h.openSession.mockReset()
   h.toastError.mockReset()
   h.toastDismiss.mockReset()
+  h.failedAction.mockReset()
 })
 afterEach(() => {
   vi.useRealTimers()
@@ -250,5 +256,74 @@ describe(`useRemoteStart watch`, () => {
     sync(earlier)
     expect(result.current.openedId).toBeNull()
     expect(h.openSession).not.toHaveBeenCalled()
+  })
+})
+
+// EXP-1259 (start surfaces): a send without a caller startId is a new
+// press-intent and mints one; its failure toast's Retry hands that id to the
+// caller's re-submit of the same subject on the same device.
+describe(`useRemoteStart startId (EXP-1259)`, () => {
+  const sentIds = () =>
+    h.mutate.mock.calls.map((call) => (call[0] as { startId?: string }).startId)
+
+  it(`mints a startId per press when the caller passes none`, async () => {
+    h.mutate.mockResolvedValue({ ok: true })
+    const { result } = mount()
+    await act(() => result.current.runAction(device, action, {} as never))
+    await act(() => result.current.startIssues(device, {} as never, [`i-1`]))
+    expect(sentIds()[0]).toMatch(/^[0-9a-f-]{36}$/)
+    expect(sentIds()[1]).toMatch(/^[0-9a-f-]{36}$/)
+    expect(sentIds()[1]).not.toBe(sentIds()[0])
+  })
+
+  it(`the failure toast's Retry re-sends the same startId, a new press a new one`, async () => {
+    h.mutate.mockRejectedValueOnce(new Error(`relay timeout`))
+    h.mutate.mockResolvedValue({ ok: true })
+    const { result } = mount()
+    let retry: (() => void) | undefined
+    const press = (onRetry?: () => void) =>
+      result.current.startIssues(
+        device,
+        {} as never,
+        [`i-1`],
+        undefined,
+        onRetry
+      )
+    // The caller's own Retry re-submits the same subject, id-less.
+    const resubmit = () => void press(resubmit)
+    h.failedAction.mockImplementation(
+      (_verb: string, _thing: string, _error: unknown, options?: { retry?: () => void }) => {
+        retry = options?.retry
+      }
+    )
+    await act(() => press(resubmit).catch(() => {}))
+    expect(retry).toBeDefined()
+    await act(async () => retry!())
+    expect(sentIds()).toHaveLength(2)
+    expect(sentIds()[1]).toBe(sentIds()[0])
+    await act(() => press())
+    expect(sentIds()[2]).not.toBe(sentIds()[0])
+  })
+
+  it(`a handed-over id never rides a different subject`, async () => {
+    h.mutate.mockRejectedValueOnce(new Error(`relay timeout`))
+    h.mutate.mockResolvedValue({ ok: true })
+    const { result } = mount()
+    let retry: (() => void) | undefined
+    h.failedAction.mockImplementation(
+      (_verb: string, _thing: string, _error: unknown, options?: { retry?: () => void }) => {
+        retry = options?.retry
+      }
+    )
+    const other = () =>
+      void result.current.startIssues(device, {} as never, [`i-2`])
+    await act(() =>
+      result.current
+        .startIssues(device, {} as never, [`i-1`], undefined, other)
+        .catch(() => {})
+    )
+    await act(async () => retry!())
+    expect(sentIds()).toHaveLength(2)
+    expect(sentIds()[1]).not.toBe(sentIds()[0])
   })
 })

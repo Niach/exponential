@@ -890,6 +890,25 @@ fn resume_remote_inner(
     window: &mut Window,
     cx: &mut App,
 ) {
+    // EXP-1259: the press is ONE intent: one startId, reused by its Retry.
+    let intent = crate::coding_flow::RemoteStartIntent::press(api::steer::StartSessionInput {
+        resume_session_id: Some(session_id),
+        device_id,
+        account,
+        ..Default::default()
+    });
+    send_resume(intent, device_label, window, cx);
+}
+
+/// Send (or, from the failure toast's Retry, re-send) a resume intent. A
+/// failure that may have reached the machine (a relay timeout) is still
+/// followed; the Retry repeats the startId, so the machine resumes once.
+fn send_resume(
+    intent: crate::coding_flow::RemoteStartIntent,
+    device_label: String,
+    window: &mut Window,
+    cx: &mut App,
+) {
     let Some(trpc) = crate::queries::trpc_client(cx) else {
         crate::toast::show(
             crate::action_error::failed_toast(
@@ -902,12 +921,9 @@ fn resume_remote_inner(
         );
         return;
     };
-    let input = api::steer::StartSessionInput {
-        resume_session_id: Some(session_id),
-        device_id: device_id.clone(),
-        account,
-        ..Default::default()
-    };
+    let input = intent.input().clone();
+    let device_id = input.device_id.clone();
+    let start_id = intent.start_id().to_string();
     let subject = crate::coding_flow::RemoteRunSubject::of(&input);
     let handle = window.window_handle();
     cx.spawn(async move |cx| {
@@ -915,21 +931,38 @@ fn resume_remote_inner(
             .background_executor()
             .spawn(async move { api::steer::start_session(&trpc, &input) })
             .await;
-        let sent = result.is_ok();
-        let note = match result {
-            Ok(()) => Toast::success(format!(
-                "Resume sent to {device_label}."
-            )),
-            Err(err) => crate::action_error::failed_toast(
-                "resume",
-                "the session",
-                crate::action_error::action_error_description(&err),
-            ),
-        };
         let _ = handle.update(cx, |_, window, cx| {
-            crate::toast::show(note, window, cx);
-            if sent {
-                crate::coding_flow::follow_remote_start(device_id, subject, window, cx);
+            let follow = match result {
+                Ok(()) => {
+                    crate::toast::show(
+                        Toast::success(format!("Resume sent to {device_label}.")),
+                        window,
+                        cx,
+                    );
+                    true
+                }
+                Err(err) => {
+                    let retry_label = device_label.clone();
+                    let toast = crate::action_error::failed_toast(
+                        "resume",
+                        "the session",
+                        crate::action_error::action_error_description(&err),
+                    )
+                    .action(crate::feedback::RETRY, move |window, cx| {
+                        send_resume(intent.clone(), retry_label.clone(), window, cx)
+                    });
+                    crate::toast::show(toast, window, cx);
+                    crate::coding_flow::may_have_reached_device(&err)
+                }
+            };
+            if follow {
+                crate::coding_flow::follow_remote_start(
+                    device_id,
+                    subject,
+                    Some(start_id),
+                    window,
+                    cx,
+                );
             }
         });
     })

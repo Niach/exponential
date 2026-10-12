@@ -30,6 +30,7 @@ import {
   STARTED_RUN_SKEW_MS,
   type StartedRunKey,
 } from "@/lib/started-run-match"
+import { newStartId, startIntentKey } from "@/lib/start-intent"
 
 /** Final review: how long the watch follows a sent start (feedback-states.json
  *  `starting.watchMs`, 30 min, the server's and the devices' dedupe window).
@@ -142,6 +143,10 @@ export interface RemoteStart {
   sentTo: string | null
   /** Resolves on delivery, rejects on failure (toast already shown; its
    * Retry runs `retry`, the caller's re-submit).
+   * EXP-1259: every send carries a `startId`. Absent = this call is a new
+   * press-intent and mints one; the failure toast's Retry hands that id to
+   * the caller's re-submit of the SAME subject on the SAME device
+   * (`startIntentKey`), so the server and the device drop a repeat.
    * EXP-825: `prompt` is the composer's free text (with its image embeds,
    * `buildSteerImageMessage`) — the run's "Additional instructions". */
   startIssues: (
@@ -244,6 +249,29 @@ export function useRemoteStart(
   const openSession = useOpenSession()
   const onOpenedRef = useRef(options.onOpened)
   onOpenedRef.current = options.onOpened
+  // EXP-1259: the startId a failure toast's Retry hands to the caller's
+  // re-submit (consumed by the next send of the same intent, dropped by any
+  // other send).
+  const retryIdRef = useRef<{ key: string; startId: string } | null>(null)
+  /** The send's id: the caller's, else the pending Retry's for this same
+   *  intent, else a fresh one (a new press). */
+  const resolveStartId = (key: string, startId?: string): string => {
+    const handed = retryIdRef.current
+    retryIdRef.current = null
+    if (startId) return startId
+    return handed?.key === key ? handed.startId : newStartId()
+  }
+  /** The caller's Retry, re-sending under `startId`. */
+  const retryUnder = (
+    key: string,
+    startId: string,
+    retry: (() => void) | undefined
+  ) =>
+    retry &&
+    (() => {
+      retryIdRef.current = { key, startId }
+      retry()
+    })
 
   // EXP-481: device rows off the synced shape (already server-scoped to own
   // rows + team-shared servers); user rows resolve shared owners' names.
@@ -416,7 +444,9 @@ export function useRemoteStart(
   ) => {
     const key = startedRunKeyForIssues(issueIds)
     if (!key) return
-    const send = beginSend(startId)
+    const intent = startIntentKey(device.deviceId, { issueIds })
+    const id = resolveStartId(intent, startId)
+    const send = beginSend(id)
     setStarting(true)
     try {
       // EXP-481: `resume` rides SINGLE-issue starts only (a batch has no
@@ -428,7 +458,7 @@ export function useRemoteStart(
         // A blank prompt is OMITTED — the server drops whitespace-only
         // anyway, and older relays never see the key.
         ...(prompt && prompt.trim() ? { prompt } : {}),
-        ...(startId ? { startId } : {}),
+        startId: id,
       }
       await trpc.steer.startSession.mutate(
         // 1 issue → plain single-issue session; 2+ → one batch session on a
@@ -444,7 +474,12 @@ export function useRemoteStart(
       )
       markSent(device.deviceLabel, key, send)
     } catch (error) {
-      startFailureToast(error, device, options.agent, retry)
+      startFailureToast(
+        error,
+        device,
+        options.agent,
+        retryUnder(intent, id, retry)
+      )
       throw error
     } finally {
       setStarting(false)
@@ -460,7 +495,9 @@ export function useRemoteStart(
     retry?: () => void,
     startId?: string
   ) => {
-    const send = beginSend(startId)
+    const intent = startIntentKey(device.deviceId, { actionId: action.id })
+    const id = resolveStartId(intent, startId)
+    const send = beginSend(id)
     setStarting(true)
     try {
       // Action runs never resume an issue worktree (EXP-481).
@@ -474,7 +511,7 @@ export function useRemoteStart(
           ...(isBuiltinActionId(action.id) ? { teamId: action.teamId } : {}),
           ...(inputs ? { inputs } : {}),
           ...(prompt && prompt.trim() ? { prompt } : {}),
-          ...(startId ? { startId } : {}),
+          startId: id,
           ...rest,
         },
         SKIP_ERROR_TOAST
@@ -485,7 +522,12 @@ export function useRemoteStart(
         send
       )
     } catch (error) {
-      startFailureToast(error, device, options.agent, retry)
+      startFailureToast(
+        error,
+        device,
+        options.agent,
+        retryUnder(intent, id, retry)
+      )
       throw error
     } finally {
       setStarting(false)
