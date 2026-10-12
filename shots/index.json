@@ -366,8 +366,8 @@
         "file": "shots/chat/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 36932,
-        "sha256": "0bd0487435c636bfe0dea03d0790e6a50278676bd8b418a0928c8103c5a195de"
+        "bytes": 34178,
+        "sha256": "f634c9406d0864fbc2d38da069bc329d09d946016090c1960b50fac116fe1b42"
       },
       "ios": {
         "file": "shots/chat/ios.webp",
@@ -2786,8 +2786,8 @@
         "file": "shots/guide/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 39444,
-        "sha256": "8e3cf083d09bd624a7fa0e1b3486b84b511cc3894b59d9333e599c5c26d0e0d8"
+        "bytes": 68584,
+        "sha256": "f034e499e76815733db9ef21d6655cea2e071c3af679e5c7109a57662c97d9a6"
       },
       "ios": {
         "file": "shots/guide/ios.webp",
@@ -2987,8 +2987,8 @@
         "file": "shots/issue-detail/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 72358,
-        "sha256": "d2fad13a6cb0e9f0940616929b2b1108af017f322085082bf6d7222bb5793d98"
+        "bytes": 71556,
+        "sha256": "6db6710a03a5ad5d89b71559d4594fe13d487ca745a3328801d5c51cfd0959b0"
       },
       "ios": {
         "file": "shots/issue-detail/ios.webp",
@@ -3375,8 +3375,8 @@
         "file": "shots/run-changes/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 33296,
-        "sha256": "e8020cb6483f19167eb458ea31cbc41c23e440bc8dab73bac2c419eda0ba2c14"
+        "bytes": 103064,
+        "sha256": "03e7e268ae0c82ccaed5ed71054756b5f2d1ae615226f45150b3b5446645e37d"
       },
       "ios": {
         "file": "shots/run-changes/ios.webp",
@@ -3997,8 +3997,8 @@
         "file": "shots/thread/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 64616,
-        "sha256": "567700680277a86c86e9780ffa0cf9841c74f9435f3d6a5c73d8644101b892c7"
+        "bytes": 86274,
+        "sha256": "75b2cceead09d3a58ef66429486b10e728be445696e36f7dcb2b033805a45e85"
       },
       "ios": {
         "file": "shots/thread/ios.webp",
@@ -4034,8 +4034,8 @@
         "file": "shots/thread-runs/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 50148,
-        "sha256": "6eb8914ccad62e8f786497a783aeebb9c6d9854444aac2aea0c3ccb8944ea316"
+        "bytes": 50230,
+        "sha256": "0ccdbf78d6ff619eeaba76c89ee124c43be515061d53bea677357cb1bf9fc251"
       },
       "ios": {
         "file": "shots/thread-runs/ios.webp",
