@@ -708,6 +708,31 @@ public object ExpIcons {
         }.build()
     }
 
+    public val `braces`: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "braces",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f,
+        ).apply {
+            addPath(
+                addPathNodes("M8 3H7a2 2 0 0 0-2 2v5a2 2 0 0 1-2 2 2 2 0 0 1 2 2v5c0 1.1.9 2 2 2h1"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+            addPath(
+                addPathNodes("M16 21h1a2 2 0 0 0 2-2v-5c0-1.1.9-2 2-2a2 2 0 0 1-2-2V5a2 2 0 0 0-2-2h-1"),
+                stroke = SolidColor(Color.Black),
+                strokeLineWidth = 2f,
+                strokeLineCap = StrokeCap.Round,
+                strokeLineJoin = StrokeJoin.Round,
+            )
+        }.build()
+    }
+
     public val `brain`: ImageVector by lazy {
         ImageVector.Builder(
             name = "brain",
@@ -8300,6 +8325,7 @@ public object ExpIcons {
         "bookmark" -> `bookmark`
         "bot" -> `bot`
         "boxes" -> `boxes`
+        "braces" -> `braces`
         "brain" -> `brain`
         "briefcase" -> `briefcase`
         "brush-cleaning" -> `brush-cleaning`
@@ -8829,6 +8855,8 @@ public object ExpIcons {
     public val supportOpen: ImageVector get() = `circle-dot`
     /** Concept `support-resolved`. */
     public val supportResolved: ImageVector get() = `circle-check`
+    /** Concept `tool-script`. */
+    public val toolScript: ImageVector get() = `braces`
     /** Concept `trigger-event`. */
     public val triggerEvent: ImageVector get() = `zap`
     /** Concept `trigger-schedule`. */
@@ -8887,6 +8915,8 @@ public object ExpIcons {
     public val uiDeviceDefault: ImageVector get() = `star`
     /** Concept `ui-device-offline`. */
     public val uiDeviceOffline: ImageVector get() = `monitor-off`
+    /** Concept `ui-docs`. */
+    public val uiDocs: ImageVector get() = `book-open`
     /** Concept `ui-download`. */
     public val uiDownload: ImageVector get() = `download`
     /** Concept `ui-due-date`. */

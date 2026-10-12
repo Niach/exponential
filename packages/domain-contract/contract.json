@@ -319,6 +319,7 @@
       "fetch",
       "switch_mode",
       "wait",
+      "script",
       "other"
     ],
     "editKinds": ["edit", "delete", "move"]

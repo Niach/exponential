@@ -213,5 +213,24 @@
     ],
     "allowUnsynced": true,
     "expected": ["e2", "e1", "e9"]
+  },
+  {
+    "name": "the # typeahead takes the default limit: twelve matches all come back (no 6/8 cap)",
+    "rows": [
+      { "id": "t0", "identifier": "EXP-1240", "title": "sidebar thing 0", "createdAt": "2026-10-01T00:00:00Z", "updatedAt": "2026-10-01T00:00:00Z" },
+      { "id": "t1", "identifier": "EXP-1241", "title": "sidebar thing 1", "createdAt": "2026-10-02T00:00:00Z", "updatedAt": "2026-10-02T00:00:00Z" },
+      { "id": "t2", "identifier": "EXP-1242", "title": "sidebar thing 2", "createdAt": "2026-10-03T00:00:00Z", "updatedAt": "2026-10-03T00:00:00Z" },
+      { "id": "t3", "identifier": "EXP-1243", "title": "sidebar thing 3", "createdAt": "2026-10-04T00:00:00Z", "updatedAt": "2026-10-04T00:00:00Z" },
+      { "id": "t4", "identifier": "EXP-1244", "title": "sidebar thing 4", "createdAt": "2026-10-05T00:00:00Z", "updatedAt": "2026-10-05T00:00:00Z" },
+      { "id": "t5", "identifier": "EXP-1245", "title": "sidebar thing 5", "createdAt": "2026-10-06T00:00:00Z", "updatedAt": "2026-10-06T00:00:00Z" },
+      { "id": "t6", "identifier": "EXP-1246", "title": "sidebar thing 6", "createdAt": "2026-10-07T00:00:00Z", "updatedAt": "2026-10-07T00:00:00Z" },
+      { "id": "t7", "identifier": "EXP-1247", "title": "sidebar thing 7", "createdAt": "2026-10-08T00:00:00Z", "updatedAt": "2026-10-08T00:00:00Z" },
+      { "id": "t8", "identifier": "EXP-1248", "title": "sidebar thing 8", "createdAt": "2026-10-09T00:00:00Z", "updatedAt": "2026-10-09T00:00:00Z" },
+      { "id": "t9", "identifier": "EXP-1249", "title": "sidebar thing 9", "createdAt": "2026-10-10T00:00:00Z", "updatedAt": "2026-10-10T00:00:00Z" },
+      { "id": "t10", "identifier": "EXP-1250", "title": "sidebar thing 10", "createdAt": "2026-10-11T00:00:00Z", "updatedAt": "2026-10-11T00:00:00Z" },
+      { "id": "t11", "identifier": "EXP-1251", "title": "sidebar thing 11", "createdAt": "2026-10-12T00:00:00Z", "updatedAt": "2026-10-12T00:00:00Z" }
+    ],
+    "query": "sid",
+    "expected": ["t11", "t10", "t9", "t8", "t7", "t6", "t5", "t4", "t3", "t2", "t1", "t0"]
   }
 ]

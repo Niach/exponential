@@ -1,0 +1,791 @@
+{
+  "$comment": "EXP-1240 (EXP-1259 D12): THE Work card, ONE card x4 for a claude workflow, a task list (the run's `task_list` state) and a subagent (the items carrying one `subagentId`), replacing WorkflowCard, TaskListBlock and SubagentGroupRow on web (components/agent-session), desktop (crates/ui workflow_card.rs + the task list + subagent group rows), iOS and Android. Model = pure `workCard(input)` (TS reference packages/domain-contract/src/work-card.ts; mirrors desktop steer::work_card, iOS ExpCore WorkCard.swift, Android domain/WorkCard.kt), every mirror replays `cases` and compares the WHOLE expected object. Paint: a card at radius lg with the card hairline (no shadow). HEADER row `header` px: the kind icon (concept `icons`), the name (medium, truncates), the muted kind word, then trailing the progress and the elapsed time joined by ' · ' (muted, tabular figures), a 12px spinner in front of them while `running`. SEGMENT BAR under the header (workflow phases, tasks; never a subagent): `segments` equal-width capsules `segmentHeight` px high, `segmentGap` apart, the track = the muted fill, `fill` of each painted in the foreground (failed = rose, running segments fill the same foreground). ROWS `row` px each, divided by the hairline: `folded` = a check glyph, the joined phase titles, the muted lane count, trailing duration + a chevron (opens the folded phases' lanes in place); `phase` = a state glyph (running = the 12px spinner, done = check, failed = rose x, pending = the dashed circle), the title, the muted detail, trailing duration, then for running/failed phases its `lanes`, each a `lane` px line indented `laneIndent` px: a 6px dot (done = muted, running = green with the spinner trailing instead of a duration, error = rose, queued = hollow), the label, the muted model, trailing the duration; `task` = the state glyph + the label; `status` = one muted line. No report text, no token counts, no JSON anywhere on the card. A lane row (and a subagent card) opens that lane's transcript in the client's existing nested transcript view; a task row does nothing. The session-list caption keeps workflow-caption.json (a different surface). Mirrors compare `fill` within 1e-9.",
+  "copy": {
+    "workflow": "Workflow",
+    "tasks": "Tasks",
+    "subagent": "Subagent",
+    "phase": "Phase",
+    "loosePhase": "Agents",
+    "agent": "Agent",
+    "lane": "lane",
+    "lanes": "lanes",
+    "call": "call",
+    "calls": "calls",
+    "running": "running",
+    "done": "done",
+    "failed": "failed"
+  },
+  "icons": {
+    "workflow": "session-tree",
+    "tasks": "ui-checklist",
+    "subagent": "coding-subagent"
+  },
+  "testIds": {
+    "card": "work-card",
+    "lane": "work-card-lane",
+    "folded": "work-card-folded"
+  },
+  "geometry": {
+    "header": 40,
+    "row": 32,
+    "lane": 28,
+    "laneIndent": 28,
+    "segmentHeight": 3,
+    "segmentGap": 4
+  },
+  "cases": [
+    {
+      "name": "a workflow mid-review folds its finished phases and lists the running phase's lanes",
+      "input": {
+        "kind": "workflow",
+        "name": "exponential-ui-renderer-hardening",
+        "status": "running",
+        "elapsedMs": 4320000,
+        "phases": [
+          {
+            "index": 1,
+            "title": "Contract"
+          },
+          {
+            "index": 2,
+            "title": "Implement"
+          },
+          {
+            "index": 3,
+            "title": "Conformance"
+          },
+          {
+            "index": 4,
+            "title": "Review"
+          },
+          {
+            "index": 5,
+            "title": "Verify"
+          }
+        ],
+        "agents": [
+          {
+            "index": 1,
+            "label": "contract",
+            "phaseIndex": 1,
+            "model": "opus",
+            "state": "done",
+            "durationMs": 600000
+          },
+          {
+            "index": 2,
+            "label": "impl:react",
+            "phaseIndex": 2,
+            "model": "opus",
+            "state": "done",
+            "durationMs": 1200000
+          },
+          {
+            "index": 3,
+            "label": "impl:gpui",
+            "phaseIndex": 2,
+            "model": "opus",
+            "state": "done",
+            "durationMs": 1500000
+          },
+          {
+            "index": 4,
+            "label": "conf:swift",
+            "phaseIndex": 3,
+            "model": "opus",
+            "state": "done",
+            "durationMs": 480000
+          },
+          {
+            "index": 5,
+            "label": "conf:compose",
+            "phaseIndex": 3,
+            "model": "opus",
+            "state": "done",
+            "durationMs": 300000
+          },
+          {
+            "index": 6,
+            "label": "review:catalog",
+            "phaseIndex": 4,
+            "model": "claude-opus-5-5",
+            "state": "done",
+            "durationMs": 509000
+          },
+          {
+            "index": 7,
+            "label": "fix:react",
+            "phaseIndex": 4,
+            "model": "opus",
+            "state": "done",
+            "durationMs": 1900000
+          },
+          {
+            "index": 8,
+            "label": "recheck:core",
+            "phaseIndex": 4,
+            "model": "opus",
+            "state": "done",
+            "durationMs": 103000
+          },
+          {
+            "index": 9,
+            "label": "recheck:react",
+            "phaseIndex": 4,
+            "model": "opus",
+            "state": "running"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "workflow",
+        "icon": "session-tree",
+        "name": "exponential-ui-renderer-hardening",
+        "kindWord": "Workflow",
+        "progress": "8 / 9",
+        "elapsed": "1h 12m",
+        "running": true,
+        "segments": [
+          {
+            "state": "done",
+            "fill": 1
+          },
+          {
+            "state": "done",
+            "fill": 1
+          },
+          {
+            "state": "done",
+            "fill": 1
+          },
+          {
+            "state": "running",
+            "fill": 0.75
+          },
+          {
+            "state": "pending",
+            "fill": 0
+          }
+        ],
+        "rows": [
+          {
+            "type": "folded",
+            "label": "Contract · Implement · Conformance",
+            "lanes": "5 lanes",
+            "duration": "43m"
+          },
+          {
+            "type": "phase",
+            "title": "Review",
+            "state": "running",
+            "detail": "3 done · 1 running",
+            "duration": null,
+            "lanes": [
+              {
+                "label": "review:catalog",
+                "model": "opus",
+                "state": "done",
+                "duration": "8m 29s"
+              },
+              {
+                "label": "fix:react",
+                "model": "opus",
+                "state": "done",
+                "duration": "31m 40s"
+              },
+              {
+                "label": "recheck:core",
+                "model": "opus",
+                "state": "done",
+                "duration": "1m 43s"
+              },
+              {
+                "label": "recheck:react",
+                "model": "opus",
+                "state": "running",
+                "duration": null
+              }
+            ]
+          },
+          {
+            "type": "phase",
+            "title": "Verify",
+            "state": "pending",
+            "detail": null,
+            "duration": null,
+            "lanes": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "a workflow with no agents yet has no progress and pending phases",
+      "input": {
+        "kind": "workflow",
+        "name": "wire-probe",
+        "status": "running",
+        "elapsedMs": 4000,
+        "phases": [
+          {
+            "index": 1,
+            "title": "Alpha"
+          },
+          {
+            "index": 2,
+            "title": "Beta"
+          }
+        ],
+        "agents": []
+      },
+      "expected": {
+        "kind": "workflow",
+        "icon": "session-tree",
+        "name": "wire-probe",
+        "kindWord": "Workflow",
+        "progress": null,
+        "elapsed": "4s",
+        "running": true,
+        "segments": [
+          {
+            "state": "pending",
+            "fill": 0
+          },
+          {
+            "state": "pending",
+            "fill": 0
+          }
+        ],
+        "rows": [
+          {
+            "type": "phase",
+            "title": "Alpha",
+            "state": "pending",
+            "detail": null,
+            "duration": null,
+            "lanes": []
+          },
+          {
+            "type": "phase",
+            "title": "Beta",
+            "state": "pending",
+            "detail": null,
+            "duration": null,
+            "lanes": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "a completed workflow folds into one row",
+      "input": {
+        "kind": "workflow",
+        "name": "wire-probe",
+        "status": "completed",
+        "elapsedMs": 7260000,
+        "phases": [
+          {
+            "index": 1,
+            "title": "Alpha"
+          },
+          {
+            "index": 2,
+            "title": "Beta"
+          }
+        ],
+        "agents": [
+          {
+            "index": 1,
+            "label": "a",
+            "phaseIndex": 1,
+            "state": "done",
+            "durationMs": 3600000
+          },
+          {
+            "index": 2,
+            "label": "b",
+            "phaseIndex": 2,
+            "state": "done",
+            "durationMs": 3540000
+          }
+        ]
+      },
+      "expected": {
+        "kind": "workflow",
+        "icon": "session-tree",
+        "name": "wire-probe",
+        "kindWord": "Workflow",
+        "progress": "2 / 2",
+        "elapsed": "2h 1m",
+        "running": false,
+        "segments": [
+          {
+            "state": "done",
+            "fill": 1
+          },
+          {
+            "state": "done",
+            "fill": 1
+          }
+        ],
+        "rows": [
+          {
+            "type": "folded",
+            "label": "Alpha · Beta",
+            "lanes": "2 lanes",
+            "duration": "1h 59m"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a failed phase lists its lanes, queued lanes count, a later done phase stays collapsed",
+      "input": {
+        "kind": "workflow",
+        "name": "dup-probe",
+        "status": "running",
+        "elapsedMs": 59000,
+        "phases": [
+          {
+            "index": 1,
+            "title": "Survey"
+          },
+          {
+            "index": 2,
+            "title": ""
+          },
+          {
+            "index": 3,
+            "title": "Write"
+          }
+        ],
+        "agents": [
+          {
+            "index": 1,
+            "label": "survey:a",
+            "phaseIndex": 1,
+            "state": "error",
+            "durationMs": 42000
+          },
+          {
+            "index": 2,
+            "label": "survey:b",
+            "phaseIndex": 1,
+            "state": "done",
+            "durationMs": 30000
+          },
+          {
+            "index": 3,
+            "label": "",
+            "phaseIndex": 2,
+            "state": "running"
+          },
+          {
+            "index": 4,
+            "label": "p2:b",
+            "phaseIndex": 2,
+            "state": "queued"
+          },
+          {
+            "index": 5,
+            "label": "write",
+            "phaseIndex": 3,
+            "model": "sonnet",
+            "state": "done",
+            "durationMs": 12000
+          }
+        ]
+      },
+      "expected": {
+        "kind": "workflow",
+        "icon": "session-tree",
+        "name": "dup-probe",
+        "kindWord": "Workflow",
+        "progress": "3 / 5",
+        "elapsed": "59s",
+        "running": true,
+        "segments": [
+          {
+            "state": "failed",
+            "fill": 1
+          },
+          {
+            "state": "running",
+            "fill": 0
+          },
+          {
+            "state": "done",
+            "fill": 1
+          }
+        ],
+        "rows": [
+          {
+            "type": "phase",
+            "title": "Survey",
+            "state": "failed",
+            "detail": "1 done · 1 failed",
+            "duration": "42s",
+            "lanes": [
+              {
+                "label": "survey:a",
+                "model": null,
+                "state": "error",
+                "duration": "42s"
+              },
+              {
+                "label": "survey:b",
+                "model": null,
+                "state": "done",
+                "duration": "30s"
+              }
+            ]
+          },
+          {
+            "type": "phase",
+            "title": "Phase 2",
+            "state": "running",
+            "detail": "1 running · 1 queued",
+            "duration": null,
+            "lanes": [
+              {
+                "label": "Agent 3",
+                "model": null,
+                "state": "running",
+                "duration": null
+              },
+              {
+                "label": "p2:b",
+                "model": null,
+                "state": "queued",
+                "duration": null
+              }
+            ]
+          },
+          {
+            "type": "phase",
+            "title": "Write",
+            "state": "done",
+            "detail": "1 lane",
+            "duration": "12s",
+            "lanes": []
+          }
+        ]
+      }
+    },
+    {
+      "name": "agents outside every declared phase gather in a trailing Agents phase",
+      "input": {
+        "kind": "workflow",
+        "name": "loose",
+        "status": "running",
+        "phases": [],
+        "agents": [
+          {
+            "index": 2,
+            "label": "two",
+            "state": "running"
+          },
+          {
+            "index": 1,
+            "label": "one",
+            "phaseIndex": 9,
+            "state": "done",
+            "durationMs": 3725000
+          }
+        ]
+      },
+      "expected": {
+        "kind": "workflow",
+        "icon": "session-tree",
+        "name": "loose",
+        "kindWord": "Workflow",
+        "progress": "1 / 2",
+        "elapsed": null,
+        "running": true,
+        "segments": [
+          {
+            "state": "running",
+            "fill": 0.5
+          }
+        ],
+        "rows": [
+          {
+            "type": "phase",
+            "title": "Agents",
+            "state": "running",
+            "detail": "1 done · 1 running",
+            "duration": null,
+            "lanes": [
+              {
+                "label": "one",
+                "model": null,
+                "state": "done",
+                "duration": "1h 2m"
+              },
+              {
+                "label": "two",
+                "model": null,
+                "state": "running",
+                "duration": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "name": "a task list shows the task in progress",
+      "input": {
+        "kind": "tasks",
+        "tasks": [
+          {
+            "content": "Survey",
+            "status": "completed"
+          },
+          {
+            "content": "Draft",
+            "status": "completed"
+          },
+          {
+            "content": "Fixtures",
+            "status": "completed"
+          },
+          {
+            "content": "Wire the Review face",
+            "status": "in_progress"
+          },
+          {
+            "content": "Desktop",
+            "status": "pending"
+          },
+          {
+            "content": "iOS",
+            "status": "pending"
+          },
+          {
+            "content": "Android",
+            "status": "pending"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "tasks",
+        "icon": "ui-checklist",
+        "name": "Tasks",
+        "kindWord": null,
+        "progress": "3 / 7",
+        "elapsed": null,
+        "running": true,
+        "segments": [
+          {
+            "state": "done",
+            "fill": 1
+          },
+          {
+            "state": "done",
+            "fill": 1
+          },
+          {
+            "state": "done",
+            "fill": 1
+          },
+          {
+            "state": "running",
+            "fill": 0.5
+          },
+          {
+            "state": "pending",
+            "fill": 0
+          },
+          {
+            "state": "pending",
+            "fill": 0
+          },
+          {
+            "state": "pending",
+            "fill": 0
+          }
+        ],
+        "rows": [
+          {
+            "type": "task",
+            "label": "Wire the Review face",
+            "state": "running"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a task list with nothing in progress shows the next pending task",
+      "input": {
+        "kind": "tasks",
+        "tasks": [
+          {
+            "content": "One",
+            "status": "completed"
+          },
+          {
+            "content": "  Two ",
+            "status": "pending"
+          },
+          {
+            "content": "Three",
+            "status": "pending"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "tasks",
+        "icon": "ui-checklist",
+        "name": "Tasks",
+        "kindWord": null,
+        "progress": "1 / 3",
+        "elapsed": null,
+        "running": false,
+        "segments": [
+          {
+            "state": "done",
+            "fill": 1
+          },
+          {
+            "state": "pending",
+            "fill": 0
+          },
+          {
+            "state": "pending",
+            "fill": 0
+          }
+        ],
+        "rows": [
+          {
+            "type": "task",
+            "label": "Two",
+            "state": "pending"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a finished task list has no rows",
+      "input": {
+        "kind": "tasks",
+        "tasks": [
+          {
+            "content": "One",
+            "status": "completed"
+          }
+        ]
+      },
+      "expected": {
+        "kind": "tasks",
+        "icon": "ui-checklist",
+        "name": "Tasks",
+        "kindWord": null,
+        "progress": "1 / 1",
+        "elapsed": null,
+        "running": false,
+        "segments": [
+          {
+            "state": "done",
+            "fill": 1
+          }
+        ],
+        "rows": []
+      }
+    },
+    {
+      "name": "an empty task list",
+      "input": {
+        "kind": "tasks",
+        "tasks": []
+      },
+      "expected": {
+        "kind": "tasks",
+        "icon": "ui-checklist",
+        "name": "Tasks",
+        "kindWord": null,
+        "progress": null,
+        "elapsed": null,
+        "running": false,
+        "segments": [],
+        "rows": []
+      }
+    },
+    {
+      "name": "a finished subagent",
+      "input": {
+        "kind": "subagent",
+        "title": "Survey UI code",
+        "state": "done",
+        "toolCalls": 127,
+        "elapsedMs": 600000
+      },
+      "expected": {
+        "kind": "subagent",
+        "icon": "coding-subagent",
+        "name": "Survey UI code",
+        "kindWord": "Subagent",
+        "progress": "127 calls",
+        "elapsed": "10m",
+        "running": false,
+        "segments": [],
+        "rows": [
+          {
+            "type": "status",
+            "label": "Subagent · done"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a running subagent with one call and no title",
+      "input": {
+        "kind": "subagent",
+        "title": " ",
+        "state": "running",
+        "toolCalls": 1,
+        "elapsedMs": 5000
+      },
+      "expected": {
+        "kind": "subagent",
+        "icon": "coding-subagent",
+        "name": "Subagent",
+        "kindWord": "Subagent",
+        "progress": "1 call",
+        "elapsed": "5s",
+        "running": true,
+        "segments": [],
+        "rows": [
+          {
+            "type": "status",
+            "label": "Subagent · running"
+          }
+        ]
+      }
+    },
+    {
+      "name": "a failed subagent",
+      "input": {
+        "kind": "subagent",
+        "title": "Probe",
+        "state": "error",
+        "toolCalls": 0
+      },
+      "expected": {
+        "kind": "subagent",
+        "icon": "coding-subagent",
+        "name": "Probe",
+        "kindWord": "Subagent",
+        "progress": "0 calls",
+        "elapsed": null,
+        "running": false,
+        "segments": [],
+        "rows": [
+          {
+            "type": "status",
+            "label": "Subagent · failed"
+          }
+        ]
+      }
+    }
+  ]
+}

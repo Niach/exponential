@@ -1,0 +1,589 @@
+{
+  "$comment": "EXP-1270 (EXP-1259 D6): Getting started x4 = ONE block: a header row (the title `title`, the muted `{done} of {total}`, a `meter` px wide progress meter, trailing a Docs button (`docs.label`, concept `docs.icon`, opens `docs.url`)) over ONE row of square cards in `steps` order (pointer: wrapping never, the row scrolls horizontally when narrower than its cards; phones: a horizontal scroll strip of the same cards). A card is `card.width`x`card.height` at radius lg with the card hairline: the step icon top-left, top-right a green check when done or the muted step NUMBER (its 1-based position in the visible list) when not, the title bottom-left (13px medium, two lines max); the NEXT step (first not done) is highlighted (filled with the hover fill + a foreground hairline at 30%), done cards keep the check and stay clickable (do it again); no descriptions, no locked state, no per-card buttons. A click runs the step's `target` (a step with `needsDevice` and no device opens `add-device` instead); targets: create-board = the create-board dialog, github = the GitHub connect step (web /integrations/github, desktop Settings > Repositories, phones open the web page), add-device = the ONE device-setup block, agent = the Agent page with the composer focused, invite = the invite dialog, add-server = the device-setup block on its server tab, mcp = Settings > MCP servers' connect section (web + IDE), widget = Settings > Widget. Visibility: `visibleWhen` names a permission (owner-only surfaces); `phones: false` steps never render on iOS/Android. Where it shows: on an EMPTY board (under the empty state), on the Agent home while the team has NO board (composer-home.json), and behind the sidebar entry `Getting started` (web + IDE rail; phones: the More tab row), which opens the same block in a centred dialog (phones: a bottom sheet); the web right sheet is gone. The block (and the entry) disappears once `complete`. Removed x4 with it: the lightbulb suggestion surfaces (action-suggestion concept rows), the action suggestion seeds (action-suggestions.ts + the natives) and the composer's suggestion rows. Model = pure `deriveGettingStarted(signals, permissions, platform)` (web components/getting-started/getting-started-model.ts, desktop getting_started.rs, iOS GettingStartedProgress.swift, Android GettingStartedModel.kt), every mirror replays `cases` (compare the WHOLE expected object).",
+  "title": "Getting started",
+  "progress": "{done} of {total}",
+  "meter": 160,
+  "docs": {
+    "label": "Docs",
+    "icon": "ui-docs",
+    "url": "https://exponential.at/docs/getting-started/"
+  },
+  "card": {
+    "width": 104,
+    "height": 112,
+    "padding": 12,
+    "icon": 16,
+    "gap": 8
+  },
+  "testIds": {
+    "block": "getting-started",
+    "card": "getting-started-card-{key}",
+    "docs": "getting-started-docs",
+    "entry": "getting-started-entry"
+  },
+  "steps": [
+    {
+      "key": "board",
+      "title": "Create a board",
+      "icon": "ui-folder",
+      "target": "create-board",
+      "phones": true,
+      "doneWhen": "hasBoard"
+    },
+    {
+      "key": "github",
+      "title": "Connect GitHub",
+      "icon": "ui-github",
+      "target": "github",
+      "phones": true,
+      "doneWhen": "githubInstalled"
+    },
+    {
+      "key": "device",
+      "title": "Add a device",
+      "icon": "ui-device",
+      "target": "add-device",
+      "phones": true,
+      "doneWhen": "hasDesktopDevice || hasServerDevice"
+    },
+    {
+      "key": "run",
+      "title": "Start a run",
+      "icon": "action-run",
+      "target": "agent",
+      "needsDevice": true,
+      "phones": true,
+      "doneWhen": "hasCodingSession"
+    },
+    {
+      "key": "invite",
+      "title": "Invite your team",
+      "icon": "ui-invite",
+      "target": "invite",
+      "visibleWhen": "canManageMembers",
+      "phones": true,
+      "doneWhen": "hasInvitedTeam"
+    },
+    {
+      "key": "server",
+      "title": "Set up a server",
+      "icon": "ui-server",
+      "target": "add-server",
+      "phones": true,
+      "doneWhen": "hasServerDevice"
+    },
+    {
+      "key": "mcp",
+      "title": "Connect your tools",
+      "icon": "ui-mcp",
+      "target": "mcp",
+      "phones": false,
+      "doneWhen": "mcpConnected"
+    },
+    {
+      "key": "widget",
+      "title": "Feedback widget",
+      "icon": "ui-widget",
+      "target": "widget",
+      "visibleWhen": "canManageWidgets",
+      "phones": false,
+      "doneWhen": "hasWidget"
+    }
+  ],
+  "cases": [
+    {
+      "name": "a fresh owner's team: Create a board is next, Start a run opens the device step",
+      "signals": {
+        "hasBoard": false,
+        "githubInstalled": false,
+        "hasDesktopDevice": false,
+        "hasServerDevice": false,
+        "hasCodingSession": false,
+        "hasInvitedTeam": false,
+        "mcpConnected": false,
+        "hasWidget": false
+      },
+      "permissions": {
+        "canManageMembers": true,
+        "canManageWidgets": true
+      },
+      "platform": "pointer",
+      "expected": {
+        "entries": [
+          {
+            "key": "board",
+            "done": false,
+            "target": "create-board",
+            "next": true
+          },
+          {
+            "key": "github",
+            "done": false,
+            "target": "github",
+            "next": false
+          },
+          {
+            "key": "device",
+            "done": false,
+            "target": "add-device",
+            "next": false
+          },
+          {
+            "key": "run",
+            "done": false,
+            "target": "add-device",
+            "next": false
+          },
+          {
+            "key": "invite",
+            "done": false,
+            "target": "invite",
+            "next": false
+          },
+          {
+            "key": "server",
+            "done": false,
+            "target": "add-server",
+            "next": false
+          },
+          {
+            "key": "mcp",
+            "done": false,
+            "target": "mcp",
+            "next": false
+          },
+          {
+            "key": "widget",
+            "done": false,
+            "target": "widget",
+            "next": false
+          }
+        ],
+        "done": 0,
+        "total": 8,
+        "progress": "0 of 8",
+        "complete": false
+      }
+    },
+    {
+      "name": "four done: Invite your team is next",
+      "signals": {
+        "hasBoard": true,
+        "githubInstalled": true,
+        "hasDesktopDevice": true,
+        "hasServerDevice": false,
+        "hasCodingSession": true,
+        "hasInvitedTeam": false,
+        "mcpConnected": false,
+        "hasWidget": false
+      },
+      "permissions": {
+        "canManageMembers": true,
+        "canManageWidgets": true
+      },
+      "platform": "pointer",
+      "expected": {
+        "entries": [
+          {
+            "key": "board",
+            "done": true,
+            "target": "create-board",
+            "next": false
+          },
+          {
+            "key": "github",
+            "done": true,
+            "target": "github",
+            "next": false
+          },
+          {
+            "key": "device",
+            "done": true,
+            "target": "add-device",
+            "next": false
+          },
+          {
+            "key": "run",
+            "done": true,
+            "target": "agent",
+            "next": false
+          },
+          {
+            "key": "invite",
+            "done": false,
+            "target": "invite",
+            "next": true
+          },
+          {
+            "key": "server",
+            "done": false,
+            "target": "add-server",
+            "next": false
+          },
+          {
+            "key": "mcp",
+            "done": false,
+            "target": "mcp",
+            "next": false
+          },
+          {
+            "key": "widget",
+            "done": false,
+            "target": "widget",
+            "next": false
+          }
+        ],
+        "done": 4,
+        "total": 8,
+        "progress": "4 of 8",
+        "complete": false
+      }
+    },
+    {
+      "name": "a server alone counts as a device, Start a run opens the composer",
+      "signals": {
+        "hasBoard": false,
+        "githubInstalled": false,
+        "hasDesktopDevice": false,
+        "hasServerDevice": true,
+        "hasCodingSession": false,
+        "hasInvitedTeam": false,
+        "mcpConnected": false,
+        "hasWidget": false
+      },
+      "permissions": {
+        "canManageMembers": true,
+        "canManageWidgets": true
+      },
+      "platform": "pointer",
+      "expected": {
+        "entries": [
+          {
+            "key": "board",
+            "done": false,
+            "target": "create-board",
+            "next": true
+          },
+          {
+            "key": "github",
+            "done": false,
+            "target": "github",
+            "next": false
+          },
+          {
+            "key": "device",
+            "done": true,
+            "target": "add-device",
+            "next": false
+          },
+          {
+            "key": "run",
+            "done": false,
+            "target": "agent",
+            "next": false
+          },
+          {
+            "key": "invite",
+            "done": false,
+            "target": "invite",
+            "next": false
+          },
+          {
+            "key": "server",
+            "done": true,
+            "target": "add-server",
+            "next": false
+          },
+          {
+            "key": "mcp",
+            "done": false,
+            "target": "mcp",
+            "next": false
+          },
+          {
+            "key": "widget",
+            "done": false,
+            "target": "widget",
+            "next": false
+          }
+        ],
+        "done": 2,
+        "total": 8,
+        "progress": "2 of 8",
+        "complete": false
+      }
+    },
+    {
+      "name": "a member never sees Invite or the widget",
+      "signals": {
+        "hasBoard": true,
+        "githubInstalled": false,
+        "hasDesktopDevice": false,
+        "hasServerDevice": false,
+        "hasCodingSession": false,
+        "hasInvitedTeam": false,
+        "mcpConnected": false,
+        "hasWidget": false
+      },
+      "permissions": {
+        "canManageMembers": false,
+        "canManageWidgets": false
+      },
+      "platform": "pointer",
+      "expected": {
+        "entries": [
+          {
+            "key": "board",
+            "done": true,
+            "target": "create-board",
+            "next": false
+          },
+          {
+            "key": "github",
+            "done": false,
+            "target": "github",
+            "next": true
+          },
+          {
+            "key": "device",
+            "done": false,
+            "target": "add-device",
+            "next": false
+          },
+          {
+            "key": "run",
+            "done": false,
+            "target": "add-device",
+            "next": false
+          },
+          {
+            "key": "server",
+            "done": false,
+            "target": "add-server",
+            "next": false
+          },
+          {
+            "key": "mcp",
+            "done": false,
+            "target": "mcp",
+            "next": false
+          }
+        ],
+        "done": 1,
+        "total": 6,
+        "progress": "1 of 6",
+        "complete": false
+      }
+    },
+    {
+      "name": "phones list the first six for an owner",
+      "signals": {
+        "hasBoard": true,
+        "githubInstalled": false,
+        "hasDesktopDevice": false,
+        "hasServerDevice": false,
+        "hasCodingSession": false,
+        "hasInvitedTeam": false,
+        "mcpConnected": true,
+        "hasWidget": true
+      },
+      "permissions": {
+        "canManageMembers": true,
+        "canManageWidgets": true
+      },
+      "platform": "phone",
+      "expected": {
+        "entries": [
+          {
+            "key": "board",
+            "done": true,
+            "target": "create-board",
+            "next": false
+          },
+          {
+            "key": "github",
+            "done": false,
+            "target": "github",
+            "next": true
+          },
+          {
+            "key": "device",
+            "done": false,
+            "target": "add-device",
+            "next": false
+          },
+          {
+            "key": "run",
+            "done": false,
+            "target": "add-device",
+            "next": false
+          },
+          {
+            "key": "invite",
+            "done": false,
+            "target": "invite",
+            "next": false
+          },
+          {
+            "key": "server",
+            "done": false,
+            "target": "add-server",
+            "next": false
+          }
+        ],
+        "done": 1,
+        "total": 6,
+        "progress": "1 of 6",
+        "complete": false
+      }
+    },
+    {
+      "name": "done steps stay listed out of order, the first open one is next",
+      "signals": {
+        "hasBoard": false,
+        "githubInstalled": true,
+        "hasDesktopDevice": false,
+        "hasServerDevice": true,
+        "hasCodingSession": false,
+        "hasInvitedTeam": false,
+        "mcpConnected": true,
+        "hasWidget": false
+      },
+      "permissions": {
+        "canManageMembers": true,
+        "canManageWidgets": true
+      },
+      "platform": "pointer",
+      "expected": {
+        "entries": [
+          {
+            "key": "board",
+            "done": false,
+            "target": "create-board",
+            "next": true
+          },
+          {
+            "key": "github",
+            "done": true,
+            "target": "github",
+            "next": false
+          },
+          {
+            "key": "device",
+            "done": true,
+            "target": "add-device",
+            "next": false
+          },
+          {
+            "key": "run",
+            "done": false,
+            "target": "agent",
+            "next": false
+          },
+          {
+            "key": "invite",
+            "done": false,
+            "target": "invite",
+            "next": false
+          },
+          {
+            "key": "server",
+            "done": true,
+            "target": "add-server",
+            "next": false
+          },
+          {
+            "key": "mcp",
+            "done": true,
+            "target": "mcp",
+            "next": false
+          },
+          {
+            "key": "widget",
+            "done": false,
+            "target": "widget",
+            "next": false
+          }
+        ],
+        "done": 4,
+        "total": 8,
+        "progress": "4 of 8",
+        "complete": false
+      }
+    },
+    {
+      "name": "everything done: complete, nothing is next",
+      "signals": {
+        "hasBoard": true,
+        "githubInstalled": true,
+        "hasDesktopDevice": true,
+        "hasServerDevice": true,
+        "hasCodingSession": true,
+        "hasInvitedTeam": true,
+        "mcpConnected": true,
+        "hasWidget": true
+      },
+      "permissions": {
+        "canManageMembers": true,
+        "canManageWidgets": true
+      },
+      "platform": "pointer",
+      "expected": {
+        "entries": [
+          {
+            "key": "board",
+            "done": true,
+            "target": "create-board",
+            "next": false
+          },
+          {
+            "key": "github",
+            "done": true,
+            "target": "github",
+            "next": false
+          },
+          {
+            "key": "device",
+            "done": true,
+            "target": "add-device",
+            "next": false
+          },
+          {
+            "key": "run",
+            "done": true,
+            "target": "agent",
+            "next": false
+          },
+          {
+            "key": "invite",
+            "done": true,
+            "target": "invite",
+            "next": false
+          },
+          {
+            "key": "server",
+            "done": true,
+            "target": "add-server",
+            "next": false
+          },
+          {
+            "key": "mcp",
+            "done": true,
+            "target": "mcp",
+            "next": false
+          },
+          {
+            "key": "widget",
+            "done": true,
+            "target": "widget",
+            "next": false
+          }
+        ],
+        "done": 8,
+        "total": 8,
+        "progress": "8 of 8",
+        "complete": true
+      }
+    }
+  ]
+}
