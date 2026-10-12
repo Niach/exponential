@@ -232,8 +232,8 @@
         "file": "shots/board/desktop.webp",
         "width": 1800,
         "height": 1126,
-        "bytes": 75702,
-        "sha256": "c1fc27f4e762ef9671c74c48f033316a7ac75e14c9dccdf03cffa5ec3d421f71"
+        "bytes": 76760,
+        "sha256": "2405a997fed102cd69f0257f01382055e24d8c70854170965c37560267f3d140"
       },
       "ios": {
         "file": "shots/board/ios.webp",
@@ -2906,8 +2906,8 @@
         "file": "shots/issue-comments/android.webp",
         "width": 810,
         "height": 1800,
-        "bytes": 60108,
-        "sha256": "0ab59b58401524825b1cfc4023bf7a4d75600871e8caae0f53367eae8fc626fd"
+        "bytes": 60450,
+        "sha256": "a2034f8c09bc568578b6fee137c76a31357023bff99270065182d314a5361fe8"
       },
       "desktop": {
         "file": "shots/issue-comments/desktop.webp",
