@@ -2,13 +2,19 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-825: the team's AGENT page — the ONE launcher on every client. The
-/// subject headline (EXP-1038, `AgentComposerHeadline`: the contract verb
-/// plus the action or issue chips), the composer card (`AgentComposerCard`:
-/// the message, images, the labelled submit), the `@`/`#`/`:` candidate menu
-/// under it, the options line (`AgentOptionsRow`), the start captions, then
-/// the caller's Running and Recent sessions (`AgentSessionsList`, moved here
-/// from the Devices tab, which keeps machines only — web parity, EXP-818).
+/// EXP-825: the team's AGENT page — the ONE launcher on every client.
+/// EXP-1253 (EXP-1259 D1): it is HOME (composer-home.json): the headline (the
+/// disc mark + the time-of-day greeting, `HomeGreeting`, computed once per
+/// mount) while nothing is picked, else the subject headline (EXP-1038,
+/// `AgentComposerHeadline`: the contract verb plus the action or issue
+/// chips); the composer card (`AgentComposerCard`: placeholder "What do you
+/// want to build?", the starting row after Start); the `@`/`:` candidate
+/// menu under it (`#` opens THE search list in a sheet, SLOP-28); the options
+/// line (`AgentOptionsRow`); then RECENT (my last three top-level runs in
+/// this team, small session rows, no band when empty), Getting started while
+/// the team has no board, and the caller's Running sessions
+/// (`AgentSessionsList`, the phones' list under the composer, web parity).
+/// The suggestion rows and the brand-mark watermark are gone ×4.
 ///
 /// Two shapes: the Agent ROOT (`isTabRoot`, an empty seed as the stack's
 /// root — EXP-1210: a tab root like its siblings, no back — the app's
@@ -43,9 +49,12 @@ struct AgentPageView: View {
     @State private var pendingRecent: String?
     /// The seed's team has been made the active one (once per push).
     @State private var alignedSeedTeam = false
-    /// EXP-820: the chips THIS mount shows — drawn once, never reshuffled
-    /// under the reader's finger (web `useState(() => pickChatSuggestions())`).
-    @State private var suggestions = ChatSuggestions.pick()
+    /// EXP-1253: the greeting THIS mount shows — computed once, it never
+    /// flips while you type (web `useState(() => homeGreeting(...))`).
+    @State private var greeting: String?
+    /// EXP-1270: Getting started's signals for the active team (the block
+    /// follows Recent while the team has no board).
+    @State private var gettingStarted = GettingStartedProgress()
     @State private var keyboardVisible = false
     /// EXP-1196: the not-ready row's Sign in pill → the remote sign-in.
     @State private var loginTarget: AgentLoginTarget?
@@ -70,11 +79,13 @@ struct AgentPageView: View {
                 // EXP-923: only the RUNNING rows count now — history moved
                 // into its own sheet, so an empty Running band is an empty
                 // page.
-                let centred = sessions.rows.isEmpty
+                let centred = sessions.rows.isEmpty && sessions.homeRecentRows.isEmpty
                 GeometryReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         if steerEnabled == false {
+                            homeHeadline
+                                .padding(.bottom, CGFloat(HomeGreeting.Geometry.headlineToCard) - 12)
                             relayOffNote
                         } else if steerEnabled == true {
                             // EXP-1038: the run's SUBJECT heads the page —
@@ -89,6 +100,10 @@ struct AgentPageView: View {
                             // heading.
                             if composer.subject != AgentComposerPrompt.Subject.none {
                                 AgentComposerHeadline(model: composer)
+                            } else {
+                                // EXP-1253: nothing picked = the greeting leads.
+                                homeHeadline
+                                    .padding(.bottom, CGFloat(HomeGreeting.Geometry.headlineToCard) - 12)
                             }
                             AgentComposerCard(model: composer) { issueId in
                                 deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
@@ -101,11 +116,11 @@ struct AgentPageView: View {
                                 EditorAutocompleteMenu(model: composer.draftEditor)
                             }
                             AgentOptionsRow(model: composer)
-                            // EXP-1249: quiet suggestion rows BELOW the options
-                            // line (the pool is byte-identical ×4).
-                            suggestionRows(composer)
                             captions(composer)
                         }
+
+                        homeRecent(sessions)
+                        homeGettingStarted
 
                         AgentSessionsList(
                             vm: sessions,
@@ -139,7 +154,10 @@ struct AgentPageView: View {
                 .tabBarBottomInset(reservesTabBar)
                 }
             } else {
-                ProgressView().tint(.white)
+                // EXP-1275: the first load is a placeholder, not a spinner.
+                SkeletonRows()
+                    .padding()
+                    .frame(maxHeight: .infinity, alignment: .top)
             }
         }
         .navigationTitle("Agent")
@@ -190,12 +208,23 @@ struct AgentPageView: View {
             steerEnabled = config.enabled
         }
         .onAppear {
+            if greeting == nil {
+                greeting = HomeGreeting.greeting(name: deps.auth.userName)
+            }
             alignActiveTeamToSeed()
             ensureModels()
             sessions?.activeTeamId = teamState.activeTeam?.id
             // Re-arm on every appear: pushing the session stops the
             // observation (onDisappear), popping back must resume it.
             sessions?.startObserving()
+        }
+        // EXP-1270: Getting started's signals follow the active team.
+        .task(id: "\(accountId)/\(teamState.activeTeam?.id ?? "")") {
+            if let teamId = teamState.activeTeam?.id {
+                gettingStarted.bind(accountId: accountId, teamId: teamId, deps: deps)
+            } else {
+                gettingStarted.stop()
+            }
         }
         .onChange(of: teamState.activeTeam?.id) { _, teamId in
             sessions?.activeTeamId = teamId
@@ -213,6 +242,9 @@ struct AgentPageView: View {
         .onDisappear {
             sessions?.stopObserving()
             composer?.startWatcher.stop()
+            // EXP-1271: nothing watches for the row any more, so the card
+            // must not stay "Starting" (`abandonStarting`).
+            composer?.abandonStarting()
         }
         // The resolved machine can change underneath the options (a
         // heartbeat dropping it, the pool arriving): reseed off the new one.
@@ -224,6 +256,9 @@ struct AgentPageView: View {
         .onChange(of: composer?.startWatcher.startedSession) { _, started in
             if let started {
                 composer?.startWatcher.startedSession = nil
+                // EXP-1271: the row landed: the starting state ends and the
+                // draft clears as the run opens.
+                composer?.runLanded()
                 sessionTarget = started
             }
         }
@@ -301,34 +336,85 @@ struct AgentPageView: View {
         return model
     }
 
-    // MARK: - Suggestions (EXP-820, EXP-1249)
+    // MARK: - Home (EXP-1253)
 
-    /// The rows under an EMPTY composer: no subject and nothing typed, exactly
-    /// web's gate (`launch-composer.tsx` `showSuggestions`). A tap inserts the
-    /// suggestion at the caret and, for one carrying a `#` placeholder, parks
-    /// the caret right behind that `#` so the issue-ref autocomplete opens on
-    /// the spot (`ChatSuggestions.caretOffset`).
+    /// The disc mark + ONE line of Inter semibold (composer-home.json
+    /// `geometry`, phones: `markPhone` / `headlinePhone`), centred.
+    private var homeHeadline: some View {
+        HStack(spacing: CGFloat(HomeGreeting.Geometry.gap)) {
+            ExpLogoMark(size: CGFloat(HomeGreeting.Geometry.markPhone), color: .white)
+                .accessibilityIdentifier(HomeGreeting.TestId.mark)
+            Text(greeting ?? "")
+                .font(.system(size: CGFloat(HomeGreeting.Geometry.headlinePhone), weight: .semibold))
+                .tracking(-0.3)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier(HomeGreeting.TestId.greeting)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    /// RECENT: my last `recentCount` top-level runs in the active team, any
+    /// status, each a SMALL session row that opens the run; no band at all
+    /// with zero runs.
     @ViewBuilder
-    private func suggestionRows(_ composer: AgentComposerModel) -> some View {
-        if composer.subject == AgentComposerPrompt.Subject.none, composer.trimmedDraft.isEmpty {
-            ComposerSuggestionRows(suggestions: suggestions) { suggestion in
-                composer.draftEditor.insertTextAtCaret(
-                    suggestion,
-                    caretOffset: ChatSuggestions.caretOffset(suggestion)
-                )
+    private func homeRecent(_ sessions: AgentsViewModel) -> some View {
+        let rows = sessions.homeRecentRows
+        if !rows.isEmpty {
+            VStack(alignment: .leading, spacing: 0) {
+                GlassSectionBand(HomeGreeting.recentLabel)
+                ForEach(rows) { row in
+                    Button {
+                        sessionTarget = .init(sessionId: row.session.id)
+                    } label: {
+                        SessionListRow(
+                            session: row.session,
+                            identifier: sessionRowIdentifier(
+                                issue: row.issue, session: row.session, batchIssues: row.batchIssues
+                            ),
+                            title: sessionRowTitle(
+                                issue: row.issue, session: row.session, batchIssues: row.batchIssues
+                            ),
+                            prState: row.issue?.prState ?? row.session.prState,
+                            device: row.device,
+                            deviceIcon: SessionListRow.deviceIcon(row.session, devices: sessions.devices),
+                            size: .small
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier(HomeGreeting.TestId.recentRow)
+                }
             }
-            .padding(.horizontal, 4)
+            .padding(.top, CGFloat(HomeGreeting.Geometry.optionsToRecent) - 12)
             .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("chat-suggestions")
+            .accessibilityIdentifier(HomeGreeting.TestId.recent)
         }
     }
 
+    /// EXP-1270: while the team has NO board, Getting started follows
+    /// Recent ("Start a run" focuses this page's composer).
+    @ViewBuilder
+    private var homeGettingStarted: some View {
+        if let teamId = teamState.activeTeam?.id,
+           gettingStarted.entries.contains(where: { $0.key == .board && !$0.done }) {
+            GettingStartedCards(
+                progress: gettingStarted,
+                accountId: accountId,
+                teamId: teamId,
+                onStartRun: { composer?.draftEditor.focusEnd() }
+            )
+            .padding(.top, CGFloat(HomeGreeting.Geometry.optionsToRecent) - 12)
+        }
+    }
 
     // MARK: - Captions
 
     /// What keeps the composer from starting (no machine, an agent the
-    /// machine cannot drive, a multi-repo batch…), the "start sent" caption
-    /// while the desktop picks the run up, and a refused send.
+    /// machine cannot drive, a multi-repo batch…). EXP-1271: the wait for the
+    /// desktop is the card's starting row now, and a refused or timed-out
+    /// start a toast (FEED-79).
     @ViewBuilder
     private func captions(_ composer: AgentComposerModel) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -361,19 +447,6 @@ struct AgentPageView: View {
                     .font(.caption2)
                     .foregroundStyle(DesignTokens.Semantic.yellow)
                     .accessibilityIdentifier("launch-device-request-note")
-            }
-            if let sentCaption = composer.startWatcher.sentCaption {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small).tint(.white)
-                    Text(sentCaption)
-                        .font(.caption2)
-                }
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            if let failure = composer.startWatcher.failure {
-                Text(failure)
-                    .font(.caption2)
-                    .foregroundStyle(DesignTokens.Semantic.red)
             }
         }
         .padding(.horizontal, 4)

@@ -21,6 +21,7 @@ import UIKit
 struct SearchListTextField: UIViewRepresentable {
     @Binding var text: String
     let placeholder: String
+    var identifier: String = SearchList.TestId.input
     let autofocus: Bool
     let onSubmit: () -> Void
     let onBackspaceEmpty: (() -> Void)?
@@ -68,7 +69,7 @@ struct SearchListTextField: UIViewRepresentable {
             string: placeholder,
             attributes: [.foregroundColor: UIColor.white.withAlphaComponent(TextOpacity.tertiary)]
         )
-        field.accessibilityIdentifier = SearchList.TestId.input
+        field.accessibilityIdentifier = identifier
         field.setContentHuggingPriority(.defaultLow, for: .horizontal)
         field.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         field.addTarget(context.coordinator, action: #selector(Coordinator.changed(_:)), for: .editingChanged)
@@ -99,6 +100,9 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
     /// True = the list filters `items` itself (`PickerSearch`); false = the
     /// caller already ranked them for `query` (the issue engine, EXP-892).
     let filters: Bool
+    /// The input's accessibility identifier (a host's own, e.g. the
+    /// composer's submenu search); `search-list-input` by default.
+    let inputIdentifier: String
     let autofocus: Bool
     let loading: Bool
     let emptyText: String?
@@ -113,6 +117,7 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
         mode: PickerMode = .single,
         value: Set<Value> = [],
         filters: Bool = false,
+        inputIdentifier: String = SearchList.TestId.input,
         autofocus: Bool = false,
         loading: Bool = false,
         emptyText: String? = nil,
@@ -126,6 +131,7 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
         self.mode = mode
         self.value = value
         self.filters = filters
+        self.inputIdentifier = inputIdentifier
         self.autofocus = autofocus
         self.loading = loading
         self.emptyText = emptyText
@@ -159,6 +165,7 @@ public struct SearchListView<Value: Hashable & Sendable>: View {
             SearchListTextField(
                 text: $query,
                 placeholder: placeholder,
+                identifier: inputIdentifier,
                 autofocus: autofocus,
                 onSubmit: {
                     if let top = visible.first(where: { !$0.disabled }) { onPick(top.value) }

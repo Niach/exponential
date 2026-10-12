@@ -73,6 +73,8 @@ public enum GettingStarted {
 
     public struct Step: Equatable, Sendable {
         public let key: Key
+        /// The card's ONE line of copy (fixture `steps[].title`).
+        public let title: String
         /// Concept id (`packages/icons/icons.json`).
         public let icon: String
         public let target: Target
@@ -87,14 +89,14 @@ public enum GettingStarted {
 
     /// The eight steps in display order (fixture `steps`).
     public static let steps: [Step] = [
-        Step(key: .board, icon: "ui-folder", target: .createBoard, needsDevice: false, visibleWhen: nil, phones: true),
-        Step(key: .github, icon: "ui-github", target: .github, needsDevice: false, visibleWhen: nil, phones: true),
-        Step(key: .device, icon: "ui-device", target: .addDevice, needsDevice: false, visibleWhen: nil, phones: true),
-        Step(key: .run, icon: "action-run", target: .agent, needsDevice: true, visibleWhen: nil, phones: true),
-        Step(key: .invite, icon: "ui-invite", target: .invite, needsDevice: false, visibleWhen: .canManageMembers, phones: true),
-        Step(key: .server, icon: "ui-server", target: .addServer, needsDevice: false, visibleWhen: nil, phones: true),
-        Step(key: .mcp, icon: "ui-mcp", target: .mcp, needsDevice: false, visibleWhen: nil, phones: false),
-        Step(key: .widget, icon: "ui-widget", target: .widget, needsDevice: false, visibleWhen: .canManageWidgets, phones: false),
+        Step(key: .board, title: "Create a board", icon: "ui-folder", target: .createBoard, needsDevice: false, visibleWhen: nil, phones: true),
+        Step(key: .github, title: "Connect GitHub", icon: "ui-github", target: .github, needsDevice: false, visibleWhen: nil, phones: true),
+        Step(key: .device, title: "Add a device", icon: "ui-device", target: .addDevice, needsDevice: false, visibleWhen: nil, phones: true),
+        Step(key: .run, title: "Start a run", icon: "action-run", target: .agent, needsDevice: true, visibleWhen: nil, phones: true),
+        Step(key: .invite, title: "Invite your team", icon: "ui-invite", target: .invite, needsDevice: false, visibleWhen: .canManageMembers, phones: true),
+        Step(key: .server, title: "Set up a server", icon: "ui-server", target: .addServer, needsDevice: false, visibleWhen: nil, phones: true),
+        Step(key: .mcp, title: "Connect your tools", icon: "ui-mcp", target: .mcp, needsDevice: false, visibleWhen: nil, phones: false),
+        Step(key: .widget, title: "Feedback widget", icon: "ui-widget", target: .widget, needsDevice: false, visibleWhen: .canManageWidgets, phones: false),
     ]
 
     public struct Entry: Equatable, Sendable, Identifiable {
@@ -148,6 +150,11 @@ public enum GettingStarted {
     }
 
     public static func progress(done: Int, total: Int) -> String { "\(done) of \(total)" }
+
+    /// The card title for `key`.
+    public static func title(_ key: Key) -> String {
+        steps.first { $0.key == key }?.title ?? key.rawValue
+    }
 
     static func isDone(_ key: Key, _ s: Signals) -> Bool {
         switch key {

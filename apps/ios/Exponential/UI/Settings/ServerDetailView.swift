@@ -283,30 +283,34 @@ struct ServerDetailView: View {
                 if account?.token != nil {
                     Button {
                         Task {
-                            // Capture the URL + token BEFORE removeAccount —
-                            // `account` is a computed lookup that returns nil
-                            // once removed.
-                            let url = account?.instanceUrl
-                            let token = account?.token
-                            // Unregister while the credentials still exist — the
-                            // request needs the bearer token removeAccount drops.
-                            await deps.pushTokenManager.unregister(accountId: accountId)
-                            // Revoke the server session AFTER the unregister
-                            // (which needs it live) and BEFORE the token drops.
-                            if let url, let token {
-                                await deps.authApi.signOut(instanceUrl: url, token: token)
-                            }
-                            await deps.syncManager.signOut(accountId: accountId)
-                            deps.auth.removeAccount(id: accountId)
-                            // Delete the local DB so a signed-out account leaves
-                            // no user data at rest (mirrors the Remove-server path).
-                            deps.db.closePool(forAccountId: accountId)
-                            DatabaseManager.deleteFiles(forAccountId: accountId)
-                            SharedBoardMirror.remove(accountId: accountId)
-                            // Re-add the URL so the user can re-auth via the login
-                            // flow without losing the entry.
-                            if let url {
-                                deps.auth.setInstanceUrl(url)
+                            // EXP-1275 (D8 BLOCKING): signing out is one of the
+                            // three waits that cover the window.
+                            await BlockingFeedback.shared.run(FeedbackStates.Blocking.signOut) {
+                                // Capture the URL + token BEFORE removeAccount —
+                                // `account` is a computed lookup that returns nil
+                                // once removed.
+                                let url = account?.instanceUrl
+                                let token = account?.token
+                                // Unregister while the credentials still exist — the
+                                // request needs the bearer token removeAccount drops.
+                                await deps.pushTokenManager.unregister(accountId: accountId)
+                                // Revoke the server session AFTER the unregister
+                                // (which needs it live) and BEFORE the token drops.
+                                if let url, let token {
+                                    await deps.authApi.signOut(instanceUrl: url, token: token)
+                                }
+                                await deps.syncManager.signOut(accountId: accountId)
+                                deps.auth.removeAccount(id: accountId)
+                                // Delete the local DB so a signed-out account leaves
+                                // no user data at rest (mirrors the Remove-server path).
+                                deps.db.closePool(forAccountId: accountId)
+                                DatabaseManager.deleteFiles(forAccountId: accountId)
+                                SharedBoardMirror.remove(accountId: accountId)
+                                // Re-add the URL so the user can re-auth via the login
+                                // flow without losing the entry.
+                                if let url {
+                                    deps.auth.setInstanceUrl(url)
+                                }
                             }
                             dismiss()
                         }

@@ -2,193 +2,252 @@ import ExpUI
 import ExpCore
 import SwiftUI
 
-/// The getting-started checklist, mounted under an empty board or an empty
-/// team (EXP-698 r5).
+/// EXP-1270 (EXP-1259 D6, `getting-started.json`): Getting started ×4 = ONE
+/// block: a header (the title, `N of M`, the meter, the Docs button) over ONE
+/// horizontal strip of square cards (`GettingStarted.Card`, 104×112) in the
+/// fixture's order. A card is the step's icon top-left, a green check (done)
+/// or its muted number top-right, the title bottom-left; the NEXT step is
+/// highlighted; done cards stay tappable; no descriptions, no locked state,
+/// no per-card buttons (web `@exp/ui` `GettingStartedStrip`, desktop
+/// `getting_started.rs`, Android `GettingStartedStrip.kt`).
 ///
-/// It is the same block web renders in its sidebar and the IDE renders on its
-/// welcome page: a section header with the `{done}/{total}` readout, then one
-/// glass card per step carrying a state glyph, the step's own icon, its title,
-/// a one-line description and the action pill that starts it. The copy lives
-/// in `GettingStartedCopy` and is byte-identical on all four clients.
-///
-/// An empty board is exactly where a new team lands first, and it used to say
-/// nothing but "No issues yet" — the checklist turns that dead end into the
-/// list of things worth doing next, and disappears on its own once they are
-/// all done.
+/// Shown on an EMPTY board (under "No issues yet"), on the Agent home while
+/// the team has NO board, and in the bottom sheet behind Settings' "Getting
+/// started" row (`GettingStartedSheet`). It hides while the signals load and
+/// once every step is done.
 struct GettingStartedCards: View {
     let progress: GettingStartedProgress
     let accountId: String
     let teamId: String
-    /// Opens the create-board sheet on the host (it owns the team resolve and
-    /// the sheet's `onCreated` landing).
-    let onCreateBoard: () -> Void
+    /// Opens the host's create-board sheet; nil = this block presents
+    /// `CreateBoardSheet` itself.
+    var onCreateBoard: (() -> Void)?
+    /// Runs "Start a run" on a host that IS the Agent page (focus its
+    /// composer); nil = push the Agent page.
+    var onStartRun: (() -> Void)?
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.pushRoute) private var pushRoute
     @Environment(\.openURL) private var openURL
 
-    /// Flips for a moment after the server step copies its install command —
-    /// the pasteboard is silent otherwise.
-    @State private var copiedInstall = false
+    @State private var showAddDevice = false
+    @State private var showInvite = false
+    @State private var showCreateBoard = false
 
     var body: some View {
-        if !progress.entries.isEmpty && !progress.complete {
-            VStack(alignment: .leading, spacing: 8) {
-                GlassSectionHeader(GettingStartedCopy.sectionTitle) {
-                    Text(GettingStartedCopy.progress(done: progress.done, total: progress.total))
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        if !progress.loading, !progress.complete, let state = progress.state, !state.entries.isEmpty {
+            GettingStartedStrip(state: state, onSelect: run)
+                .sheet(isPresented: $showAddDevice) {
+                    AddDeviceSheet(accountId: accountId)
                 }
-
-                ForEach(Array(progress.entries.enumerated()), id: \.element.id) { index, entry in
-                    card(entry, stepNumber: index + 1)
+                .sheet(isPresented: $showInvite) {
+                    GlassSheetChrome(title: GettingStarted.title(.invite)) {
+                        InviteLinkCreator(accountId: accountId, teamId: teamId)
+                            .padding(16)
+                    }
+                    .accessibilityIdentifier("getting-started-invite-sheet")
                 }
-            }
-            .accessibilityIdentifier("getting-started")
+                .sheet(isPresented: $showCreateBoard) {
+                    CreateBoardSheet(accountId: accountId, teamId: teamId)
+                }
         }
     }
 
-    @ViewBuilder
-    private func card(_ entry: GettingStartedProgress.Entry, stepNumber: Int) -> some View {
-        // While the signals are still loading, nothing is done or locked yet:
-        // every card reads as a plain numbered step.
-        let state: GettingStartedProgress.EntryState = progress.loading ? .available : entry.state
-        let locked = state == .locked
-
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 10) {
-                stateGlyph(state: state, stepNumber: stepNumber)
-
-                AppIcon(entryIcon(entry.key), size: AppIcon.Size.medium)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-
-                Text(entry.key.title)
-                    .font(.subheadline.weight(.medium))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-
-                Spacer(minLength: 8)
+    /// A card's target (the model already turned a device-needing step
+    /// without a device into `add-device`).
+    private func run(_ entry: GettingStarted.Entry) {
+        switch entry.target {
+        case .createBoard:
+            if let onCreateBoard { onCreateBoard() } else { showCreateBoard = true }
+        case .github:
+            // Phones open the ONE guided web page (SLOP-7).
+            if let url = githubPageUrl { openURL(url) }
+        case .addDevice, .addServer:
+            // ONE device-setup block: both cards (the desktop app and the
+            // server one-liner) are always there.
+            showAddDevice = true
+        case .agent:
+            if let onStartRun {
+                onStartRun()
+            } else {
+                pushRoute(.agent(accountId: accountId, seed: .empty))
             }
-
-            // Two lines, and the CARD grows to hold them (Android's
-            // `maxLines = 2`, web wraps freely). At one line every description
-            // and every locked hint ended in an ellipsis a third of the way
-            // through its sentence — the shot showed "Runs coding sessions on
-            // your machine and registers it as one of y…", which tells a new
-            // user nothing. `fixedSize` is what stops the VStack from
-            // compressing the label back to one line inside a fixed-height
-            // card.
-            Text(locked ? lockedHint(entry) : entry.key.entryDescription)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-            if state != .done {
-                GlassPill(
-                    actionLabel(entry.key),
-                    size: .sm,
-                    mode: .action { perform(entry.key) },
-                    enabled: !locked
-                )
-            }
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .glassCard()
-        .opacity(locked ? 0.6 : 1)
-    }
-
-    @ViewBuilder
-    private func stateGlyph(
-        state: GettingStartedProgress.EntryState,
-        stepNumber: Int
-    ) -> some View {
-        switch state {
-        case .done:
-            AppIcon(AppIcons.uiSelected, size: AppIcon.Size.medium)
-                .foregroundStyle(DesignTokens.Semantic.green)
-                .frame(width: 22, height: 22)
-        case .locked:
-            AppIcon(AppIcons.uiPrivate, size: AppIcon.Size.small)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .frame(width: 22, height: 22)
-        case .available:
-            Text("\(stepNumber)")
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .frame(width: 22, height: 22)
-                .overlay(
-                    Circle().stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
-                )
+        case .invite:
+            showInvite = true
+        case .mcp, .widget:
+            // Web + IDE only (`phones: false`): never listed here.
+            break
         }
     }
 
-    /// The action pill's label — the copy constant, except while the server
-    /// step is flashing its copy confirmation.
-    private func actionLabel(_ key: GettingStartedEntryKey) -> String {
-        if key == .server && copiedInstall { return "Copied" }
-        return key.actionLabel
+    private var githubPageUrl: URL? {
+        guard let instance = deps.auth.accounts.first(where: { $0.id == accountId })?.instanceUrl else {
+            return nil
+        }
+        let base = instance.hasSuffix("/") ? String(instance.dropLast()) : instance
+        return URL(string: "\(base)/integrations/github")
+    }
+}
+
+/// The block's face: the header and the strip, drawn from a derived state.
+/// Pure presentation, so the styleguide screen draws the same one.
+struct GettingStartedStrip: View {
+    let state: GettingStarted.State
+    let onSelect: (GettingStarted.Entry) -> Void
+
+    @Environment(\.openURL) private var openURL
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            header
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: CGFloat(GettingStarted.Card.gap)) {
+                    ForEach(Array(state.entries.enumerated()), id: \.element.id) { index, entry in
+                        GettingStartedCard(entry: entry, number: index + 1) { onSelect(entry) }
+                    }
+                }
+                .padding(.vertical, 1)
+            }
+            .scrollClipDisabled()
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier(GettingStarted.TestId.block)
     }
 
-    /// EXP-548 concepts, not glyphs: the same registry names web and the IDE
-    /// resolve, so the four checklists render identical icons.
-    private func entryIcon(_ key: GettingStartedEntryKey) -> String {
+    private var header: some View {
+        HStack(spacing: 12) {
+            Text(GettingStarted.title)
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.white)
+                .fixedSize()
+            Text(state.progress)
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                .fixedSize()
+            meter
+            Spacer(minLength: 0)
+            GlassPill(
+                GettingStarted.docsLabel,
+                icon: AppIcons.uiDocs,
+                mode: .action { openURL(GettingStarted.docsUrl) }
+            )
+            .accessibilityIdentifier(GettingStarted.TestId.docs)
+        }
+    }
+
+    /// The progress meter: `meterWidth` wide at most, shrinking first.
+    private var meter: some View {
+        let fraction = state.total > 0 ? Double(state.done) / Double(state.total) : 0
+        return GeometryReader { proxy in
+            ZStack(alignment: .leading) {
+                Capsule().fill(GlassTokens.fillActive)
+                Capsule()
+                    .fill(.white.opacity(TextOpacity.secondary))
+                    .frame(width: proxy.size.width * fraction)
+            }
+        }
+        .frame(maxWidth: CGFloat(GettingStarted.meterWidth))
+        .frame(height: 4)
+        .accessibilityHidden(true)
+    }
+}
+
+/// One square card.
+struct GettingStartedCard: View {
+    let entry: GettingStarted.Entry
+    /// The 1-based position in the visible list.
+    let number: Int
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .top) {
+                    AppIcon(Self.icon(entry.key), size: CGFloat(GettingStarted.Card.icon))
+                        .foregroundStyle(.white.opacity(entry.done ? TextOpacity.tertiary : TextOpacity.primary))
+                    Spacer(minLength: 0)
+                    if entry.done {
+                        AppIcon(AppIcons.uiCheck, size: 16)
+                            .foregroundStyle(DesignTokens.Semantic.green)
+                            .accessibilityLabel("Done")
+                    } else {
+                        Text("\(number)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    }
+                }
+                Spacer(minLength: 0)
+                Text(GettingStarted.title(entry.key))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundStyle(.white.opacity(entry.done ? TextOpacity.tertiary : TextOpacity.primary))
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(CGFloat(GettingStarted.Card.padding))
+            .frame(
+                width: CGFloat(GettingStarted.Card.width),
+                height: CGFloat(GettingStarted.Card.height),
+                alignment: .topLeading
+            )
+            .background(
+                entry.next ? GlassTokens.fillActive : Color.clear,
+                in: RoundedRectangle(cornerRadius: DesignTokens.Radius.lg)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: DesignTokens.Radius.lg)
+                    .strokeBorder(
+                        entry.next ? Color.white.opacity(0.3) : GlassTokens.strokeCard,
+                        lineWidth: GlassTokens.hairline
+                    )
+            )
+            .contentShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.lg))
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier(GettingStarted.TestId.card(entry.key))
+    }
+
+    /// The fixture's concept ids → this client's generated icon names.
+    static func icon(_ key: GettingStarted.Key) -> String {
         switch key {
-        case .desktop: AppIcons.uiDevice
+        case .board: AppIcons.uiFolder
         case .github: AppIcons.uiGithub
+        case .device: AppIcons.uiDevice
+        case .run: AppIcons.actionRun
         case .invite: AppIcons.uiInvite
-        case .board: AppIcons.navBoards
-        case .coding: AppIcons.navTerminal
-        case .action: AppIcons.actionCreate
         case .server: AppIcons.uiServer
+        case .mcp: AppIcons.uiMcp
+        case .widget: AppIcons.uiWidget
         }
     }
+}
 
-    private func lockedHint(_ entry: GettingStartedProgress.Entry) -> String {
-        guard let lockedBy = entry.lockedBy else { return entry.key.entryDescription }
-        return gettingStartedLockedHint(entry: entry.key, lockedBy: lockedBy)
-    }
+/// Settings' "Getting started" row (the phones' entry, web's sidebar entry):
+/// the same block in a bottom sheet, bound to the active team.
+struct GettingStartedSheet: View {
+    let progress: GettingStartedProgress
+    let accountId: String
+    let teamId: String
 
-    private func perform(_ key: GettingStartedEntryKey) {
-        switch key {
-        case .desktop:
-            openURL(AppConstants.desktopReleasesUrl)
-        case .github, .invite:
-            // Both live in team settings: repositories connect the GitHub App,
-            // members mint the invite link.
-            pushRoute(.teamSettings(accountId: accountId, teamId: teamId))
-        case .board:
-            onCreateBoard()
-        case .coding:
-            pushRoute(.agents)
-        case .action:
-            pushRoute(.actions)
-        case .server:
-            copyInstallSnippet()
+    var body: some View {
+        GlassSheetChrome(title: nil) {
+            GettingStartedCards(progress: progress, accountId: accountId, teamId: teamId)
+                .padding(.horizontal, 16)
+                .padding(.top, GlassSheetTokens.headerTopPadding)
+                .padding(.bottom, 24)
         }
-    }
-
-    private func copyInstallSnippet() {
-        // EXP-725: shared with the wizard's devices step.
-        guard ServerInstallSnippet.copy(accountId: accountId, auth: deps.auth) else { return }
-        copiedInstall = true
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            copiedInstall = false
-        }
+        .accessibilityIdentifier("getting-started-sheet")
     }
 }
 
 // MARK: - Environment
 
-/// What a screen needs to render the checklist: the live progress, the team it
+/// What a screen needs to render the block: the live progress, the team it
 /// is scoped to, and the host's create-board entry point (the board step opens
 /// the very same `CreateBoardSheet` the empty-team state does).
 ///
 /// `IssuesHomeView` owns it and publishes it into the environment, so the
-/// Issues ROOT list renders the checklist under its empty state while a pushed
+/// Issues ROOT list renders the block under its empty state while a pushed
 /// `.board` — a second board on a team that already has one — does not.
 /// Like `PushRouteAction`, it owns its progress model and takes its handler
 /// after construction, so the host holds ONE instance in `@State` and hands
@@ -208,7 +267,7 @@ private struct GettingStartedContextKey: EnvironmentKey {
 }
 
 extension EnvironmentValues {
-    /// nil on every surface that does not host the checklist.
+    /// nil on every surface that does not host the block.
     var gettingStarted: GettingStartedContext? {
         get { self[GettingStartedContextKey.self] }
         set { self[GettingStartedContextKey.self] = newValue }

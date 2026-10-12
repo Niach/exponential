@@ -6,16 +6,26 @@ import SwiftUI
 /// of the same rows web's dropdown draws (`ComposerMenu.composerMenuLayout`,
 /// fixture `composer-menu.json` ×4): Implement issue ›, Run action ›, Add
 /// file or image | Effort ›, Subagents ›, Ultracode | MCP servers ›, Computer
-/// use. A submenu row closes this sheet and hands off to its picker (a sheet
-/// cannot present while its sibling is still animating away, so the host
-/// opens the picker on this sheet's dismiss); a toggle flips in place.
+/// use. SLOP-28 (EXP-1259 D5): Implement issue › and Run action › PUSH their
+/// page inside this sheet, THE search list (`AgentIssuePickerPage`,
+/// `AgentActionPickerPage`) with a back row; the other submenu rows close
+/// this sheet and hand off to their picker (a sheet cannot present while its
+/// sibling is still animating away, so the host opens the picker on this
+/// sheet's dismiss); a toggle flips in place.
 struct ComposerPlusMenu: View {
     let model: AgentComposerModel
     /// The team's MCP servers (empty = the row hides).
     let mcpServers: [McpServerRow]
-    /// A submenu / item row was picked: the host closes the sheet and opens
-    /// what the row names.
+    /// A hand-off row was picked: the host closes the sheet and opens what
+    /// the row names.
     let onPick: (ComposerMenu.RowId) -> Void
+    /// A page finished (an action picked, Implement N issues): the host
+    /// closes the sheet.
+    let onClose: () -> Void
+
+    /// The pushed page (Implement issue or Run action), nil = the rows.
+    @State private var page: ComposerMenu.RowId?
+    @Environment(\.motion) private var motion
 
     private var launch: LaunchOptionsState { model.launch }
 
@@ -35,6 +45,19 @@ struct ComposerPlusMenu: View {
     }
 
     var body: some View {
+        Group {
+            if let page {
+                pageView(page)
+                    .transition(.move(edge: .trailing))
+            } else {
+                rows
+                    .transition(.move(edge: .leading))
+            }
+        }
+        .animation(motion.standard, value: page)
+    }
+
+    private var rows: some View {
         GlassSheetChrome(title: nil) {
             VStack(spacing: 0) {
                 ForEach(Array(ComposerMenu.composerMenuLayout(conditions).enumerated()), id: \.offset) { _, entry in
@@ -70,7 +93,11 @@ struct ComposerPlusMenu: View {
             let disabled = row.id == .effort && launch.agent == "claude" && launch.ultracode
                 || row.id == .addFile && (model.attachFull || model.sending)
             Button {
-                onPick(row.id)
+                if row.id == .implementIssue || row.id == .runAction {
+                    page = row.id
+                } else {
+                    onPick(row.id)
+                }
             } label: {
                 HStack(spacing: 12) {
                     rowLabel(row, label: label)
@@ -95,6 +122,42 @@ struct ComposerPlusMenu: View {
             .opacity(disabled ? 0.45 : 1)
             .accessibilityIdentifier(ComposerMenu.rowTestId(row.id))
         }
+    }
+
+    /// A pushed page: a back row naming the submenu over THE search list,
+    /// at the large detent (the list scrolls under its input).
+    private func pageView(_ id: ComposerMenu.RowId) -> some View {
+        VStack(spacing: 0) {
+            Button {
+                page = nil
+            } label: {
+                HStack(spacing: 8) {
+                    AppIcon(AppIcons.uiChevronLeft, size: 14)
+                    Text(id == .implementIssue ? "Implement issue" : "Run action")
+                        .font(.headline)
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.white)
+                .padding(.horizontal, GlassSheetTokens.headerHPadding)
+                .padding(.top, GlassSheetTokens.headerTopPadding)
+                .padding(.bottom, GlassSheetTokens.headerBottomPadding)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Back")
+            .accessibilityIdentifier("agent-composer-submenu-back")
+            if id == .implementIssue {
+                AgentIssuePickerPage(model: model, onClose: onClose)
+            } else {
+                AgentActionPickerPage(model: model, onClose: onClose)
+            }
+        }
+        .frame(maxHeight: .infinity, alignment: .top)
+        .presentationDetents([.large])
+        .presentationBackground(GlassSheetTokens.background)
+        .presentationCornerRadius(GlassSheetTokens.cornerRadius)
+        .presentationDragIndicator(.visible)
+        .presentationContentInteraction(.scrolls)
     }
 
     private func rowIcon(_ row: ComposerMenu.Row) -> some View {
@@ -156,38 +219,5 @@ struct ComposerPlusMenu: View {
         case "nav-computer": AppIcons.navComputer
         default: AppIcons.uiAdd
         }
-    }
-}
-
-/// EXP-1249: the composer's quiet suggestion rows UNDER the options line —
-/// muted 13pt text behind a faint `action-default` glyph, no pill, no border;
-/// `ComposerMenu.suggestionCount` of them, only with no subject and an empty
-/// field.
-struct ComposerSuggestionRows: View {
-    let suggestions: [String]
-    let onPick: (String) -> Void
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(suggestions.prefix(ComposerMenu.suggestionCount).enumerated()), id: \.offset) { _, text in
-                Button { onPick(text) } label: {
-                    HStack(spacing: 10) {
-                        AppIcon(ComposerPlusMenu.icon(ComposerMenu.suggestionIcon), size: 13)
-                            .foregroundStyle(.white.opacity(0.28))
-                        Text(text)
-                            .font(.system(size: 13))
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.vertical, 6)
-                    .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier(ComposerMenu.suggestionTestId)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

@@ -16,9 +16,9 @@ import UIKit
 /// - strip: the pending images (the steer composer's tiles + markers) and,
 ///   since wave D, the pending files (a file tile each);
 /// - tools: EXP-1249 — the ONE "+" (`ComposerPlusMenu`, a bottom sheet of the
-///   `composer-menu.json` rows: Implement issue › · Run action › · Add file or
-///   image | Effort › · Subagents › · Ultracode | MCP servers › · Computer
-///   use); the submit is the round send GLYPH (EXP-827: icon-only
+///   `composer-menu.json` rows: Implement issue › · Run action › (SLOP-28:
+///   pushed search-list pages) · Add file or image | Effort › · Subagents ›
+///   · Ultracode | MCP servers › · Computer use); the submit is the round send GLYPH (EXP-827: icon-only
 ///   on every client), whose contract title ("Start chat" / "Start coding" /
 ///   "Start batch · N" / "Run action") is its accessibility name.
 struct AgentComposerCard: View {
@@ -28,8 +28,6 @@ struct AgentComposerCard: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
-    @State private var showIssuePicker = false
-    @State private var showActionPicker = false
     @State private var showPhotoPicker = false
     @State private var photoItems: [PhotosPickerItem] = []
     /// Wave D: "Add file or image" = the Photo | File sub-choice, floated
@@ -99,16 +97,15 @@ struct AgentComposerCard: View {
                 plusAnchor = frame
             }
             .sheet(isPresented: $showMenu, onDismiss: promoteMenuPick) {
-                ComposerPlusMenu(model: model, mcpServers: mcpServers) { id in
-                    menuPick = id
-                    showMenu = false
-                }
-            }
-            .background {
-                AgentIssuePickerSheet(model: model, isPresented: $showIssuePicker)
-            }
-            .background {
-                AgentActionPickerSheet(model: model, isPresented: $showActionPicker)
+                ComposerPlusMenu(
+                    model: model,
+                    mcpServers: mcpServers,
+                    onPick: { id in
+                        menuPick = id
+                        showMenu = false
+                    },
+                    onClose: { showMenu = false }
+                )
             }
             .background { effortPicker }
             .background { subagentPicker }
@@ -152,7 +149,9 @@ struct AgentComposerCard: View {
             GlassComposerSubmitButton(
                 AppIcons.uiSubmit,
                 accessibilityLabel: model.submitTitle,
-                enabled: model.canSubmit
+                enabled: model.canSubmit,
+                // EXP-1271 (D8 PENDING): from the press until the run lands.
+                pending: model.sending || model.starting != nil
             ) {
                 model.submit()
             }
@@ -178,8 +177,6 @@ struct AgentComposerCard: View {
         guard let pick = menuPick else { return }
         menuPick = nil
         switch pick {
-        case .implementIssue: showIssuePicker = true
-        case .runAction: showActionPicker = true
         case .addFile:
             var transaction = Transaction()
             transaction.disablesAnimations = true
@@ -187,7 +184,8 @@ struct AgentComposerCard: View {
         case .effort: showEffortPicker = true
         case .subagents: showSubagentPicker = true
         case .mcpServers: showMcpPicker = true
-        case .ultracode, .computerUse: break
+        // Implement issue and Run action are pages of the sheet itself.
+        case .implementIssue, .runAction, .ultracode, .computerUse: break
         }
     }
 
@@ -256,6 +254,13 @@ struct AgentComposerCard: View {
     /// with the field they are filled next to.
     @ViewBuilder
     private var leading: some View {
+        // EXP-1271 (EXP-1259 D11): after Start the card LEADS with the
+        // starting row until the run's row lands.
+        if let starting = model.starting {
+            ComposerStartingRow(starting: starting)
+                .padding(.horizontal, 12)
+                .padding(.top, 12)
+        }
         if let action = model.selectedAction, let inputs = action.inputs, !inputs.isEmpty {
             ActionInputFieldsView(model: model, inputs: inputs)
                 .padding(.horizontal, 12)
@@ -336,6 +341,39 @@ struct AgentComposerCard: View {
             return
         }
         model.queueImage(normalized)
+    }
+}
+
+// MARK: - Starting (EXP-1271)
+
+/// The composer card's starting row (feedback-states.json `starting`): the
+/// mark, "Starting on <device>" and the seconds since the press, ticking in
+/// tenths (web `StartingRow`).
+struct ComposerStartingRow: View {
+    let starting: AgentComposerModel.Starting
+
+    var body: some View {
+        HStack(spacing: 8) {
+            FeedbackMark(size: CGFloat(FeedbackStates.Mark.inlineSize))
+            Text(FeedbackStates.Starting.label(device: starting.deviceLabel))
+                .font(.subheadline)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .truncationMode(.tail)
+            Spacer(minLength: 8)
+            TimelineView(.periodic(from: starting.since, by: 0.1)) { context in
+                Text(Self.elapsed(context.date.timeIntervalSince(starting.since)))
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier(FeedbackStates.TestId.starting)
+    }
+
+    /// "1.4 s" (web `startingElapsed`).
+    static func elapsed(_ seconds: TimeInterval) -> String {
+        String(format: "%.1f s", max(seconds, 0))
     }
 }
 

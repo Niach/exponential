@@ -262,8 +262,11 @@ struct OnboardingView: View {
     private func signOut() {
         guard let accountId = deps.auth.activeAccountId else { return }
         Task {
-            await deps.syncManager.signOut(accountId: accountId)
-            deps.auth.signOutLocally(accountId: accountId)
+            // EXP-1275 (D8 BLOCKING): signing out covers the window.
+            await BlockingFeedback.shared.run(FeedbackStates.Blocking.signOut) {
+                await deps.syncManager.signOut(accountId: accountId)
+                deps.auth.signOutLocally(accountId: accountId)
+            }
         }
     }
 

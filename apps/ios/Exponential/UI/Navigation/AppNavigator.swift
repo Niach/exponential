@@ -169,6 +169,15 @@ struct AppNavigator: View {
             MainActor.assumeIsolated { toastBannerHeight = height }
         }
         .environment(\.toaster, toaster)
+        // EXP-1275 (D8 BLOCKING): ONE overlay over the whole window, above
+        // the `.id(activeAccountId)` screens so an account switch or a
+        // sign-out never tears it down mid-wait.
+        .blockingOverlayHost()
+        // EXP-1275: the styleguide suite's Feedback states screen (capture
+        // only, `-uiTesting -uiTestingStyleguide feedback-states`).
+        .fullScreenCover(isPresented: .constant(UITestingStyleguide.requested == "feedback-states")) {
+            FeedbackStatesScreen()
+        }
         .toastHost(toaster, bannerHeight: toastBannerHeight)
     }
 
@@ -1115,6 +1124,28 @@ struct MainNavigator: View {
         // Remember the choice so the Share Extension defaults its picker to it
         // and the next launch lands back in it.
         SharedBoardMirror.writeLastUsed(accountId: accountId, boardId: boardId)
+        // EXP-1275 (D8 BLOCKING): a pick that switches ACCOUNT or TEAM covers
+        // the window with the mark and one line while it lands.
+        if accountId != (deps.auth.activeAccountId ?? "") {
+            let account = deps.auth.accounts.first { $0.id == accountId }
+            let name = account?.userEmail ?? account?.displayName ?? ""
+            BlockingFeedback.shared.show(FeedbackStates.Blocking.switchAccount(name)) {
+                applyBoardSelection(accountId: accountId, boardId: boardId)
+            }
+            return
+        }
+        if let teamId = teamState.boards.first(where: { $0.id == boardId })?.teamId,
+           teamId != teamState.activeTeamId,
+           let team = teamState.teams.first(where: { $0.id == teamId }) {
+            BlockingFeedback.shared.show(FeedbackStates.Blocking.switchTeam(team.name)) {
+                applyBoardSelection(accountId: accountId, boardId: boardId)
+            }
+            return
+        }
+        applyBoardSelection(accountId: accountId, boardId: boardId)
+    }
+
+    private func applyBoardSelection(accountId: String, boardId: String) {
         currentBoard = CurrentBoardRef(accountId: accountId, boardId: boardId)
         // EXP-400: the tab bar's team-scoped surfaces (Reviews, the
         // Agents start pool, Actions) key off the active team — without a

@@ -129,6 +129,8 @@ final class GettingStartedTests: XCTestCase {
         XCTAssertEqual(GettingStarted.steps.count, steps.count)
         for (mine, want) in zip(GettingStarted.steps, steps) {
             XCTAssertEqual(mine.key.rawValue, want.key)
+            XCTAssertEqual(mine.title, want.title)
+            XCTAssertEqual(GettingStarted.title(mine.key), want.title)
             XCTAssertEqual(mine.icon, want.icon)
             XCTAssertEqual(mine.target.rawValue, want.target)
             XCTAssertEqual(mine.needsDevice, want.needsDevice ?? false)
