@@ -74,7 +74,7 @@ struct AgentPageView: View {
         ZStack {
             AppBackground()
 
-            if let sessions, let composer {
+            if sessions != nil, let composer {
                 // EXP-862: with nothing running and nothing in Recent, the
                 // composer column is CENTRED in the page (×4: web's
                 // `justify-center`, the IDE's `min_h_full`) — a lone prompt box

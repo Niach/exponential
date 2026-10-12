@@ -295,6 +295,8 @@ struct ThreadConversationView: View {
                         statusColor: nil,
                         size: .sm
                     )
+                    // The identifier never truncates; the name gives way.
+                    .fixedSize()
                 }
                 Spacer(minLength: 4)
                 Text([device, age].filter { !$0.isEmpty }.joined(separator: " · "))

@@ -86,7 +86,7 @@ struct ThreadStyleguideScreen: View {
             .frame(minWidth: GlassMenuTokens.minWidth, maxWidth: GlassMenuTokens.maxWidth, alignment: .leading)
             .fixedSize(horizontal: true, vertical: true)
         }
-        .padding(.top, 118)
+        .padding(.top, 90)
         .padding(.trailing, 16)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
         .accessibilityIdentifier("thread-styleguide-menu")
