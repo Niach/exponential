@@ -3,6 +3,7 @@ import { Button, Spinner, Textarea, conceptIcon, cn, toast } from "@exp/ui"
 import type { CodingSession } from "@/db/schema"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { acquireSteerSession } from "@/lib/steer-session-store"
+import { newStartId } from "@/lib/start-intent"
 import type { ThreadReplyTarget } from "@/lib/thread-page"
 import { trpc } from "@/lib/trpc-client"
 
@@ -122,7 +123,7 @@ export function ThreadReplyComposer({
     // The batch's idempotent start id: this press mints one, its Retry
     // reuses it (the device ignores a start it already ran). A resume never
     // names a thread: it stays in its predecessor's.
-    const startId = reuseStartId ?? crypto.randomUUID()
+    const startId = reuseStartId ?? newStartId()
     try {
       await trpc.steer.startSession.mutate(
         { resumeSessionId: resumeRun.id, deviceId: resumeRun.deviceId, startId },

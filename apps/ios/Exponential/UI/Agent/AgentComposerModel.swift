@@ -71,10 +71,21 @@ final class AgentComposerModel {
         let deviceLabel: String
         let since: Date
     }
-    /// Review #3 (feedback-states.json `starting`): the uuid of the current
-    /// Start press, carried by `steer.startSession`; Retry REUSES it (the
-    /// device starts an id once), a new press mints a fresh one.
-    private var startId: String?
+    /// Final review (feedback-states.json `starting`): the pending draft
+    /// start, its `startId` carried by `steer.startSession`. Every Retry and
+    /// every later Start of the SAME draft on the SAME device reuses it (the
+    /// server and the device start an id once); a landing or a changed draft
+    /// or device retires it (`DraftStart`).
+    private var draftStart: DraftStart?
+    /// When `draftStart` was FIRST sent: a reused id's row is the original
+    /// one (the device dedupes the re-send), so the watch cuts off there.
+    private var draftStartSentAt: Date?
+    /// The draft start `startWatcher` is watching for.
+    private var watchedStartId: String?
+    /// The session a landing opens (the page pushes it while visible and
+    /// consumes it). Nil when the draft changed after its send: the field
+    /// stays as left and nothing navigates.
+    var landedSession: StartedRunWatcher.StartedSession?
     /// The timeout toast still up, dismissed when the late row lands.
     private var timeoutToastId: UUID?
     /// EXP-897: the blocked-start prompt, up while the reader chooses between
@@ -792,11 +803,15 @@ final class AgentComposerModel {
     /// an action run and a chat never do, and neither does a RESUME (it
     /// re-enters a run whose blockers were answered when it started, the
     /// desktop's rule since EXP-897).
-    /// A Start press (a fresh `startId`); `retrying` = the error toast's
-    /// Retry, which re-sends under the SAME id.
-    func submit(retrying: Bool = false) {
-        guard canSubmit, !sending else { return }
-        if !retrying || startId == nil { startId = UUID().uuidString.lowercased() }
+    /// A Start press or the error toast's Retry: the same draft on the same
+    /// device re-sends under the SAME `startId`, anything else mints one.
+    func submit() {
+        guard canSubmit, !sending, let device else { return }
+        let resolved = DraftStart.resolve(
+            pending: draftStart, deviceId: device.deviceId, fingerprint: draftFingerprint
+        )
+        if resolved.startId != draftStart?.startId { draftStartSentAt = nil }
+        draftStart = resolved
         if !resumeActive {
             let blockers = openBlockers
             if !blockers.isEmpty {
@@ -896,11 +911,18 @@ final class AgentComposerModel {
         sending = true
         error = nil
         imageError = nil
-        startWatcher.sending()
+        let watched = draftStart
+        // A different draft start supersedes the quiet watch of the previous
+        // one (its late row must never clear this draft); a re-send of the
+        // SAME start keeps it running, so a failed re-send still lands the
+        // original.
+        if watchedStartId != watched?.startId {
+            startWatcher.sending()
+            watchedStartId = nil
+        }
         let deviceLabel = LaunchVocabulary.deviceName(device)
         starting = Starting(deviceLabel: deviceLabel, since: Date())
         dismissTimeoutToast()
-        let startId = self.startId
         Task {
             defer { sending = false }
             for index in pendingImages.indices where pendingImages[index].uploadedId == nil {
@@ -946,13 +968,19 @@ final class AgentComposerModel {
                 files: pendingFiles.compactMap(\.wireFile)
             )
             do {
+                let sentAt = Date()
                 let key = try await dispatch(
                     device: device, teamId: teamId, prompt: prompt,
-                    issueIds: stacked.map { [$0.issueId] }, startId: startId
+                    issueIds: stacked.map { [$0.issueId] }, startId: watched?.startId
                 )
                 touched = true
+                if draftStartSentAt == nil, draftStart?.startId == watched?.startId {
+                    draftStartSentAt = sentAt
+                }
                 // The deadline arms HERE, once the start request is sent
-                // (uploads done), never at the press.
+                // (uploads done), never at the press. The watch outlives the
+                // page (it lives on this model), bounded by its window.
+                watchedStartId = watched?.startId
                 startWatcher.begin(
                     key: key,
                     userId: deps.auth.userId,
@@ -960,7 +988,11 @@ final class AgentComposerModel {
                     db: deps.db,
                     accountId: accountId,
                     deadline: TimeInterval(FeedbackStates.Starting.timeoutMs) / 1000,
-                    onTimeout: { self.startTimedOut(deviceLabel: deviceLabel) }
+                    cutoff: draftStartSentAt ?? sentAt,
+                    onTimeout: { [weak self] in self?.startTimedOut(deviceLabel: deviceLabel) },
+                    onLanded: { [weak self] sessionId in
+                        self?.runLanded(sessionId: sessionId, start: watched)
+                    }
                 )
             } catch {
                 // FEED-79 (EXP-1259 D10): a failed start is a toast with
@@ -976,29 +1008,39 @@ final class AgentComposerModel {
         }
     }
 
-    /// EXP-1271: the run's synced row landed (the host pushes it): the
-    /// starting state ends and the draft clears. Review #3: a row landing
-    /// AFTER the timeout also clears the timeout toast.
-    func runLanded() {
+    /// EXP-1271: the run's synced row landed: the starting state ends and
+    /// the error clears. Final review: the draft clears and the session opens
+    /// (`landedSession`) only when the draft is unchanged since its send; a
+    /// draft the person changed after the timeout stays exactly as they left
+    /// it and nothing navigates (the session shows in Running).
+    private func runLanded(sessionId: String, start: DraftStart?) {
         starting = nil
-        startId = nil
+        error = nil
+        watchedStartId = nil
         dismissTimeoutToast()
+        if let start, draftStart?.startId == start.startId {
+            draftStart = nil
+            draftStartSentAt = nil
+        }
+        guard start?.landsInto(draftFingerprint) ?? true else { return }
         clearDraft()
+        landedSession = StartedRunWatcher.StartedSession(sessionId: sessionId)
+    }
+
+    /// The draft as a start is bound to it: text, subject, attachments.
+    private var draftFingerprint: DraftStart.Fingerprint {
+        DraftStart.Fingerprint(
+            text: draftText,
+            issueIds: checked,
+            actionId: actionId,
+            attachments: pendingImages.map(\.id.uuidString) + pendingFiles.map(\.id.uuidString)
+        )
     }
 
     private func dismissTimeoutToast() {
         guard let id = timeoutToastId else { return }
         timeoutToastId = nil
         Toaster.shared.dismiss(id)
-    }
-
-    /// EXP-1271: the page stopped watching (it left the screen). A start
-    /// already DELIVERED clears the draft the way a landed one does (it is
-    /// running somewhere); one still uploading or sending keeps it.
-    func abandonStarting() {
-        guard starting != nil else { return }
-        starting = nil
-        if !sending { clearDraft() }
     }
 
     private func clearDraft() {
@@ -1018,7 +1060,7 @@ final class AgentComposerModel {
     /// timeout toast (`starting.timeoutToast`) and the composer back to idle.
     /// Nothing is aborted: the watcher keeps watching, so a late row still
     /// lands (`runLanded`); Retry re-sends the kept draft under the same
-    /// `startId`.
+    /// `startId` (`DraftStart`).
     private func startTimedOut(deviceLabel: String) {
         starting = nil
         let toast = ToastItem(
@@ -1035,7 +1077,8 @@ final class AgentComposerModel {
     /// are idempotent: a retry never sends a finished one twice); the draft
     /// and the strip stay.
     private func uploadFailed(_ message: String) {
-        startWatcher.failed(message)
+        // A re-send of a start already being watched keeps that watch.
+        if watchedStartId == nil { startWatcher.failed(message) }
         starting = nil
         Toaster.shared.error(
             FeedbackStates.Errors.title(verb: "upload", thing: "the attachment"),
@@ -1046,7 +1089,7 @@ final class AgentComposerModel {
 
     private func retryAction() -> ToastAction {
         ToastAction(label: FeedbackStates.Starting.timeoutAction) { [weak self] in
-            Task { @MainActor in self?.submit(retrying: true) }
+            Task { @MainActor in self?.submit() }
         }
     }
 

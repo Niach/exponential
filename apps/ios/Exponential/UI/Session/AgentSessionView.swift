@@ -296,10 +296,21 @@ struct AgentSessionView: View {
                 toaster.info(caption)
             }
             // FEED-79: a failed resume is the error toast on an ended run too
-            // (it used to be a red line over the transcript).
+            // (it used to be a red line over the transcript). EXP-1259: its
+            // Retry re-sends the press under the same `startId`.
             .onChange(of: continuation.watcher.failure) { _, failure in
                 guard let failure else { return }
-                toaster.error(FeedbackStates.Errors.title(verb: "resume", thing: "the session"), description: failure)
+                let retrying = continuation
+                let toast = ToastItem(
+                    kind: .error,
+                    title: FeedbackStates.Errors.title(verb: "resume", thing: "the session"),
+                    description: failure,
+                    action: ToastAction(label: FeedbackStates.Errors.retry) { [weak retrying] in
+                        Task { @MainActor in retrying?.retry() }
+                    }
+                )
+                continuation.failureToastId = toast.id
+                toaster.show(toast)
             }
             .photosPicker(
                 isPresented: $showPhotoPicker,
@@ -560,15 +571,32 @@ struct AgentSessionView: View {
     /// desktop inserts (linked by `resumed_from_id`) and hands that session to
     /// the screen, which swaps it in as this run's continuation. The wall
     /// notice that prompted the switch goes with it.
-    private func switchAccount(_ model: AgentSessionModel, _ option: SessionAccountOption) {
+    ///
+    /// EXP-1259: the press mints a `startId`; the failure toast's Retry
+    /// (`retry` true) re-sends the same one.
+    private func switchAccount(
+        _ model: AgentSessionModel, _ option: SessionAccountOption, retry: Bool = false
+    ) {
         guard model.accountSwitchRefusal(option) == nil, !continuation.isPending else {
             return
         }
         guard let device = model.switchDevice else { return }
+        // The picked profile VERBATIM, `system` included: the server reads
+        // the PRESENCE of `account` as "this resume is a switch", which is
+        // the only thing that lets a resume ride a LIVE run — the ×4
+        // `wireAccount` rule.
+        let account = SessionAccountSwitch.wireAccount(option)
         // EXP-935: the hold is the screen's and stays up until the successor
         // lands (or the watch's deadline passes) — not until this call
         // returns, which is what let the ended edge pop the screen.
-        continuation.sending(.accountSwitch)
+        let startId = continuation.sending(
+            .accountSwitch,
+            target: StartIntent.resumeTarget(
+                sessionId: session.id, deviceId: device.deviceId, account: account
+            ),
+            retry: retry,
+            onRetry: { switchAccount(model, option, retry: true) }
+        )
         model.clearRateLimit()
         Task {
             do {
@@ -576,11 +604,8 @@ struct AgentSessionView: View {
                     accountId: accountId,
                     sessionId: session.id,
                     deviceId: device.deviceId,
-                    // The picked profile VERBATIM, `system` included: the server
-                    // reads the PRESENCE of `account` as "this resume is a
-                    // switch", which is the only thing that lets a resume ride
-                    // a LIVE run — the ×4 `wireAccount` rule.
-                    account: SessionAccountSwitch.wireAccount(option)
+                    account: account,
+                    startId: startId
                 )
                 continuation.sent(
                     key: .resumed(fromId: session.id),

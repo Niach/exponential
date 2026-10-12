@@ -64,6 +64,9 @@ struct ThreadScreen: View {
     @State private var claimedRunId: String?
     /// A reply that RESUMED my ended run, waiting for the successor's socket.
     @State private var pendingReply: String?
+    /// The reply's resume press (EXP-1259 `StartIntent`): ONE `startId` per
+    /// press, re-sent by its Retry, so the server and the device start it once.
+    @State private var resumeIntent: StartIntent?
 
     init(threadId: String, initialPage: ThreadPage = .conversation) {
         self.threadId = threadId
@@ -357,10 +360,10 @@ struct ThreadScreen: View {
     }
 
     private var replyBox: some View {
-        ThreadReplyBox(text: $reply, sending: replying, onSend: sendReply)
+        ThreadReplyBox(text: $reply, sending: replying, onSend: { sendReply() })
     }
 
-    private func sendReply() {
+    private func sendReply(retry: Bool = false) {
         let text = reply.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty, !replying, let rows, let target = replyTarget else { return }
         switch target {
@@ -387,11 +390,19 @@ struct ThreadScreen: View {
                 reply = ""
                 return
             }
+            let target = StartIntent.resumeTarget(sessionId: runId, deviceId: device.deviceId, account: nil)
+            let intent = retry
+                ? StartIntent.retry(pending: resumeIntent, target: target)
+                : StartIntent.press(target: target)
+            resumeIntent = intent
             replying = true
             Task {
                 do {
                     try await deps.steerApi.resumeSession(
-                        accountId: accountId, sessionId: runId, deviceId: device.deviceId
+                        accountId: accountId,
+                        sessionId: runId,
+                        deviceId: device.deviceId,
+                        startId: intent.startId
                     )
                     // The resume stays in the thread; the text follows it
                     // once its socket is up (`claimReplyRun`). T10/T-N4: no
@@ -403,7 +414,10 @@ struct ThreadScreen: View {
                 } catch {
                     toaster.error(
                         FeedbackStates.Errors.title(verb: "resume", thing: "the session"),
-                        description: error.userFacingMessage
+                        description: error.userFacingMessage,
+                        action: ToastAction(label: FeedbackStates.Errors.retry) {
+                            Task { @MainActor in sendReply(retry: true) }
+                        }
                     )
                 }
                 replying = false
@@ -429,7 +443,7 @@ struct ThreadScreen: View {
             toaster.error(
                 FeedbackStates.Errors.title(verb: "resume", thing: "the session"),
                 action: ToastAction(label: FeedbackStates.Errors.retry) {
-                    Task { @MainActor in sendReply() }
+                    Task { @MainActor in sendReply(retry: true) }
                 }
             )
         }
@@ -452,6 +466,8 @@ struct ThreadScreen: View {
         }
         guard let text = pendingReply, let runId = wanted, let session = rows?.session(id: runId) else { return }
         pendingReply = nil
+        // The resume landed: its press is spent.
+        resumeIntent = nil
         let steer = deps.attachSteerModel(accountId: accountId, session: session)
         Task {
             defer { deps.steerSessions.detach(accountId: accountId, sessionId: runId) }

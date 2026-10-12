@@ -210,4 +210,18 @@ class SteerStartInputWireTest {
         assertTrue(encoded.contains(""""threadId":"t-1""""))
         assertFalse(json.encodeToString(CreateIssueInput.serializer(), CreateIssueInput(boardId = "b-1", title = "Bug")).contains("threadId"))
     }
+
+    @Test
+    fun `a resume carries its startId only when set`() {
+        val pressed = json.encodeToString(
+            ResumeSessionInput.serializer(),
+            ResumeSessionInput(resumeSessionId = "s-1", deviceId = "d-1", startId = "start-1"),
+        )
+        assertEquals("""{"resumeSessionId":"s-1","deviceId":"d-1","startId":"start-1"}""", pressed)
+        val plain = json.encodeToString(
+            ResumeSessionInput.serializer(),
+            ResumeSessionInput(resumeSessionId = "s-1", deviceId = "d-1"),
+        )
+        assertEquals("""{"resumeSessionId":"s-1","deviceId":"d-1"}""", plain)
+    }
 }

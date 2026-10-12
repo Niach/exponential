@@ -20,7 +20,8 @@
   },
   "recent": {
     "label": "Recent",
-    "count": 3
+    "count": 3,
+    "$comment": "The Recent rows: the caller's own (userId) top-level (no parentSessionId) sessions of the active team (teamId), a resume succession (resumedFromId chain) folded into its NEWEST member, sorted updatedAt desc, then createdAt desc, then id asc, first `count`. Every client replays `recentCases` (ids in order)."
   },
   "dayStartsAtHour": 5,
   "buckets": [
@@ -159,6 +160,166 @@
       "local": "2026-10-12T19:30",
       "user": "$&x Smith",
       "expected": "Evening, $&x"
+    }
+  ],
+  "recentCases": [
+    {
+      "name": "newest updated first, then created, then id",
+      "userId": "me",
+      "teamId": "t1",
+      "sessions": [
+        {
+          "id": "a",
+          "userId": "me",
+          "teamId": "t1",
+          "parentSessionId": null,
+          "resumedFromId": null,
+          "createdAt": "2026-10-12T08:00:00Z",
+          "updatedAt": "2026-10-12T09:00:00Z"
+        },
+        {
+          "id": "b",
+          "userId": "me",
+          "teamId": "t1",
+          "parentSessionId": null,
+          "resumedFromId": null,
+          "createdAt": "2026-10-12T08:00:00Z",
+          "updatedAt": "2026-10-12T10:00:00Z"
+        },
+        {
+          "id": "c",
+          "userId": "me",
+          "teamId": "t1",
+          "parentSessionId": null,
+          "resumedFromId": null,
+          "createdAt": "2026-10-12T08:30:00Z",
+          "updatedAt": "2026-10-12T09:00:00Z"
+        },
+        {
+          "id": "d",
+          "userId": "me",
+          "teamId": "t1",
+          "parentSessionId": null,
+          "resumedFromId": null,
+          "createdAt": "2026-10-12T08:00:00Z",
+          "updatedAt": "2026-10-12T09:00:00Z"
+        }
+      ],
+      "expected": [
+        "b",
+        "c",
+        "a"
+      ]
+    },
+    {
+      "name": "only own top-level sessions of the active team",
+      "userId": "me",
+      "teamId": "t1",
+      "sessions": [
+        {
+          "id": "mine",
+          "userId": "me",
+          "teamId": "t1",
+          "parentSessionId": null,
+          "resumedFromId": null,
+          "createdAt": "2026-10-12T08:00:00Z",
+          "updatedAt": "2026-10-12T08:00:00Z"
+        },
+        {
+          "id": "other",
+          "userId": "you",
+          "teamId": "t1",
+          "parentSessionId": null,
+          "resumedFromId": null,
+          "createdAt": "2026-10-12T08:00:00Z",
+          "updatedAt": "2026-10-12T08:00:00Z"
+        },
+        {
+          "id": "child",
+          "userId": "me",
+          "teamId": "t1",
+          "parentSessionId": "mine",
+          "resumedFromId": null,
+          "createdAt": "2026-10-12T08:00:00Z",
+          "updatedAt": "2026-10-12T08:00:00Z"
+        },
+        {
+          "id": "elsewhere",
+          "userId": "me",
+          "teamId": "t2",
+          "parentSessionId": null,
+          "resumedFromId": null,
+          "createdAt": "2026-10-12T08:00:00Z",
+          "updatedAt": "2026-10-12T08:00:00Z"
+        }
+      ],
+      "expected": [
+        "mine"
+      ]
+    },
+    {
+      "name": "a resume succession is one row, its newest member",
+      "userId": "me",
+      "teamId": "t1",
+      "sessions": [
+        {
+          "id": "r1",
+          "userId": "me",
+          "teamId": "t1",
+          "parentSessionId": null,
+          "resumedFromId": null,
+          "createdAt": "2026-10-12T08:00:00Z",
+          "updatedAt": "2026-10-12T08:10:00Z"
+        },
+        {
+          "id": "r2",
+          "userId": "me",
+          "teamId": "t1",
+          "parentSessionId": null,
+          "resumedFromId": "r1",
+          "createdAt": "2026-10-12T08:00:00Z",
+          "updatedAt": "2026-10-12T08:20:00Z"
+        },
+        {
+          "id": "r3",
+          "userId": "me",
+          "teamId": "t1",
+          "parentSessionId": null,
+          "resumedFromId": "r2",
+          "createdAt": "2026-10-12T08:00:00Z",
+          "updatedAt": "2026-10-12T08:30:00Z"
+        },
+        {
+          "id": "x",
+          "userId": "me",
+          "teamId": "t1",
+          "parentSessionId": null,
+          "resumedFromId": null,
+          "createdAt": "2026-10-12T08:00:00Z",
+          "updatedAt": "2026-10-12T08:25:00Z"
+        },
+        {
+          "id": "y",
+          "userId": "me",
+          "teamId": "t1",
+          "parentSessionId": null,
+          "resumedFromId": null,
+          "createdAt": "2026-10-12T08:00:00Z",
+          "updatedAt": "2026-10-12T08:05:00Z"
+        }
+      ],
+      "expected": [
+        "r3",
+        "x",
+        "y"
+      ]
+    },
+    {
+      "name": "no sessions, no rows",
+      "userId": "me",
+      "teamId": "t1",
+      "sessions": [],
+      "expected": []
     }
   ]
 }

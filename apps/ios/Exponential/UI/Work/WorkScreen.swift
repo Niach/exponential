@@ -1270,6 +1270,11 @@ struct WorkScreen: View {
             .onChange(of: continuation.watcher.startedSession) { _, started in
                 if let started {
                     continuation.watcher.startedSession = nil
+                    // A late landing (EXP-1259): its failure toast goes.
+                    if let toastId = continuation.failureToastId {
+                        continuation.failureToastId = nil
+                        toaster.dismiss(toastId)
+                    }
                     continuation.landed(started.sessionId)
                     swapIn(started.sessionId)
                 }
@@ -1537,17 +1542,28 @@ struct WorkScreen: View {
     /// `steer.startSession({resumeSessionId})` the list rows used to send.
     /// A start is a COMMAND, so the watcher waits for the row the desktop
     /// inserts and the screen swaps that session in.
-    private func resumeRun() {
+    ///
+    /// EXP-1259: the press mints a `startId`; the failure toast's Retry
+    /// (`retry` true) re-sends the same one, so the device resumes it once.
+    private func resumeRun(retry: Bool = false) {
         guard let shownSession, let device = resumeDevice, !resuming else { return }
         resuming = true
-        continuation.sending(.resume)
         let sessionId = shownSession.id
+        let startId = continuation.sending(
+            .resume,
+            target: StartIntent.resumeTarget(
+                sessionId: sessionId, deviceId: device.deviceId, account: nil
+            ),
+            retry: retry,
+            onRetry: { resumeRun(retry: true) }
+        )
         Task {
             do {
                 try await deps.steerApi.resumeSession(
                     accountId: accountId,
                     sessionId: sessionId,
-                    deviceId: device.deviceId
+                    deviceId: device.deviceId,
+                    startId: startId
                 )
                 continuation.sent(
                     key: .resumed(fromId: sessionId),

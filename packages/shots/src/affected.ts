@@ -287,9 +287,12 @@ const DESKTOP_FAMILIES: { test: RegExp; views: RegExp; why: string }[] = [
     // the steer crate's viewer/feed/wire types, and the two ui modules that
     // draw the tab (`session_screen.rs` renders it, `steer_viewer.rs` is the
     // relay-fed feed behind it when this process hosts no engine — which is
-    // exactly how the shot is captured, EXP-732).
+    // exactly how the shot is captured, EXP-732). EXP-1259: `work-card` and
+    // `comment-call-card` are the same session's transcript (Show work on),
+    // their cards built off the same feed (`script-card` has no desktop
+    // drive: its card sits above the fold).
     test: /^apps\/desktop\/crates\/(engine\/src\/|steer\/src\/(viewer|feed|frames|journal)\.rs)/,
-    views: /^steering$/,
+    views: /^(steering|work-card|comment-call-card)$/,
     why: `the coding-session screen and its feed`,
   },
   {
@@ -297,9 +300,10 @@ const DESKTOP_FAMILIES: { test: RegExp; views: RegExp; why: string }[] = [
     // is the SAME screen on its Diff face (`steer_viewer.rs`'s
     // `load_pr_changes` fetches an issue-less run's PR files, `session_screen`
     // frames it), so a change to either claims both shots; the engine and the
-    // feed above never reach that face.
+    // feed above never reach that face. EXP-1259: the transcript's cards
+    // (Show work on) are drawn by the same two modules.
     test: /^apps\/desktop\/crates\/ui\/src\/(session_screen|steer_viewer)\.rs/,
-    views: /^(steering|run-changes)$/,
+    views: /^(steering|run-changes|work-card|comment-call-card)$/,
     why: `the coding-session screen on both its faces`,
   },
   {

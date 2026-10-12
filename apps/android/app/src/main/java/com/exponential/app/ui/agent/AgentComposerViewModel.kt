@@ -36,6 +36,7 @@ import com.exponential.app.domain.ActionInputValues
 import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.AgentComposerSeed
 import com.exponential.app.domain.ComposerMenu
+import com.exponential.app.domain.DraftStart
 import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.FixConflictsPr
 import com.exponential.app.domain.resolveFixConflictsPr
@@ -49,6 +50,7 @@ import com.exponential.app.domain.uploadedImageIds
 import com.exponential.app.domain.uploadedSteerFiles
 import com.exponential.app.domain.PendingAttachment
 import com.exponential.app.domain.RunResumeTarget
+import com.exponential.app.domain.StartedRunMatch
 import com.exponential.app.domain.batchRunIssueIds
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.isInlineImage
@@ -64,7 +66,6 @@ import com.exponential.app.ui.markdown.MentionMember
 import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.ui.steer.SteerLaunchDelegate
 import dagger.hilt.android.lifecycle.HiltViewModel
-import java.util.UUID
 import javax.inject.Inject
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -216,12 +217,17 @@ class AgentComposerViewModel @Inject constructor(
     // ── The shared launch rails ─────────────────────────────────────────────
     val steerEnabled: StateFlow<Boolean?> get() = steerLaunch.enabled
     val runState: StateFlow<ActionRunState> get() = steerLaunch.runState
-    val startedSessionId: StateFlow<String?> get() = steerLaunch.startedSessionId
+    /**
+     * The session the screen opens, consumed once: a resume's row, or a
+     * composer start's row when the draft was unchanged since its send (a
+     * draft changed after the timeout stays and nothing navigates).
+     */
+    private val _openSessionId = MutableStateFlow<String?>(null)
+    val startedSessionId: StateFlow<String?> = _openSessionId
     val startCandidates: StateFlow<List<IssueOption>> get() = steerLaunch.startCandidates
 
     fun consumeStartedSession() {
-        steerLaunch.consumeStartedSession()
-        landStarted()
+        _openSessionId.value = null
     }
 
     /** EXP-773: Resume an ended run from the Recent list — the same rails. */
@@ -488,14 +494,16 @@ class AgentComposerViewModel @Inject constructor(
     private var startingDeadline: Job? = null
 
     /**
-     * Review #3 (feedback-states.json `starting`): the uuid of the current
-     * Start press, carried by `steer.startSession`; Retry REUSES it (the
-     * device starts an id once), a new press mints a fresh one.
+     * Final review (feedback-states.json `starting`): the pending draft
+     * start, its `startId` carried by `steer.startSession`. Every Retry and
+     * every later Start of the SAME draft on the SAME device reuses it (the
+     * server and the device start an id once); a landing or a changed draft
+     * or device retires it ([DraftStart]).
      */
-    private var startId: String? = null
+    private var draftStart: DraftStart? = null
 
-    /** A start timed out but is still watched: its late row lands normally. */
-    private var awaitingLate = false
+    /** When [draftStart] was FIRST sent: the watch of a re-send cuts off there. */
+    private var draftStartSentAtMs: Long? = null
 
     /** The timeout toast on screen, dismissed when the late row lands. */
     private var timeoutToastId: String? = null
@@ -515,20 +523,38 @@ class AgentComposerViewModel @Inject constructor(
     fun clearRunFailure() = steerLaunch.clearFailure()
 
     /**
-     * The start's row landed (the page opens it): the kept draft goes now.
-     * Review #3: a row landing AFTER the timeout lands the same way and takes
-     * the timeout toast down.
+     * A row landed. A resume's (no startId) just opens. A composer start's
+     * ends the starting state and takes the error down; the draft clears and
+     * the session opens only when the draft is unchanged since its send.
+     * Review #3: a row landing AFTER the timeout lands the same way.
      */
-    private fun landStarted() {
-        if (_starting.value == null && !awaitingLate) return
+    private fun landed(sessionId: String, startId: String?) {
+        if (startId == null) {
+            _openSessionId.value = sessionId
+            return
+        }
+        val start = draftStart?.takeIf { it.startId == startId } ?: return
         startingDeadline?.cancel()
         _starting.value = null
-        awaitingLate = false
-        startId = null
+        draftStart = null
+        draftStartSentAtMs = null
         _startTimedOut.value = null
         timeoutToastId?.let { _dismissToast.value = it }
         timeoutToastId = null
+        if (!start.landsInto(draftFingerprint())) return
         clearSentDraft()
+        _openSessionId.value = sessionId
+    }
+
+    /** The draft as a start is bound to it: text, subject, attachments. */
+    private fun draftFingerprint(): DraftStart.Fingerprint {
+        val subject = _subject.value
+        return DraftStart.Fingerprint(
+            text = _draft.value,
+            issueIds = (subject as? ComposerSubject.Issues)?.ids.orEmpty(),
+            actionId = (subject as? ComposerSubject.Action)?.id,
+            attachments = _images.value.map { it.uri.toString() },
+        )
     }
 
     init {
@@ -536,7 +562,12 @@ class AgentComposerViewModel @Inject constructor(
         // hands over the row, not when the screen consumes it: a landing
         // while the Agent screen is off-screen is never a false timeout.
         viewModelScope.launch {
-            steerLaunch.startedSessionId.collect { id -> if (id != null) landStarted() }
+            steerLaunch.startedSessionId.collect { id ->
+                if (id == null) return@collect
+                val startId = steerLaunch.landedStartId
+                steerLaunch.consumeStartedSession()
+                landed(id, startId)
+            }
         }
     }
 
@@ -1035,12 +1066,16 @@ class AgentComposerViewModel @Inject constructor(
      * [action] is the resolved row for an action subject (null while its
      * synced row is missing — the gate already blocks that); [resumeOffered]
      * whether the single issue's worktree exists on the picked machine.
-     * A Start press mints a fresh `startId`; [retrying] = the error toast's
-     * Retry, which re-sends under the SAME id.
+     * A Start press and the error toast's Retry alike: the same draft on the
+     * same device re-sends under the SAME `startId`, anything else mints one.
      */
-    fun submit(action: ActionDto?, resumeOffered: Boolean, retrying: Boolean = false) {
+    fun submit(action: ActionDto?, resumeOffered: Boolean) {
         if (_sending.value) return
-        if (!retrying || startId == null) startId = UUID.randomUUID().toString()
+        device.value?.let { target ->
+            val resolved = DraftStart.resolve(draftStart, target.deviceId, draftFingerprint())
+            if (resolved.startId != draftStart?.startId) draftStartSentAtMs = null
+            draftStart = resolved
+        }
         // EXP-980: a blocked start asks first — start anyway, or cancel. A
         // RESUME re-enters a run that already has its branch, so there is
         // nothing to ask (desktop parity).
@@ -1144,11 +1179,13 @@ class AgentComposerViewModel @Inject constructor(
         val accountId = auth.activeAccountId.value ?: return
         val subject = _subject.value
         val label = target.deviceLabel.ifBlank { target.deviceId }
-        val sendStartId = this.startId
+        val sendStartId = draftStart?.startId
+        // B6: a DIFFERENT start supersedes the quiet watch of the previous one
+        // BEFORE its uploads, so that start's late row can never clear this
+        // draft mid-send; a re-send of the same start keeps watching.
+        steerLaunch.supersede(sendStartId)
         viewModelScope.launch {
             _sending.value = true
-            // A new send supersedes a timed-out one still being watched.
-            awaitingLate = false
             timeoutToastId?.let { _dismissToast.value = it }
             timeoutToastId = null
             _starting.value = ComposerStarting(label, System.currentTimeMillis())
@@ -1176,6 +1213,10 @@ class AgentComposerViewModel @Inject constructor(
                     _uploadFailure.value = trpcErrorMessage(t, "")
                     return@launch
                 }
+                // The original row of a re-sent start landed during the
+                // uploads: it already cleared what it had to, send nothing.
+                if (sendStartId != null && draftStart?.startId != sendStartId) return@launch
+                val sentAtMs = draftStartSentAtMs ?: System.currentTimeMillis()
                 val text = stacked?.let { BlockedStart.stackedStartPrompt(it.plan, _draft.value) }
                     ?: _draft.value
                 val uploadedSet = _images.value
@@ -1204,6 +1245,8 @@ class AgentComposerViewModel @Inject constructor(
                             ),
                             prompt,
                             sendStartId,
+                            sentAtMs,
+                            StartedRunMatch.WATCH_MS,
                         )
                     }
                     is ComposerSubject.Issues ->
@@ -1213,6 +1256,8 @@ class AgentComposerViewModel @Inject constructor(
                             options,
                             prompt,
                             sendStartId,
+                            sentAtMs,
+                            StartedRunMatch.WATCH_MS,
                         )
                     is ComposerSubject.Action -> {
                         val row = action ?: return@launch
@@ -1223,10 +1268,15 @@ class AgentComposerViewModel @Inject constructor(
                             ActionInputValues.wireValues(row.inputs.orEmpty(), subject.inputs),
                             prompt,
                             sendStartId,
+                            sentAtMs,
+                            StartedRunMatch.WATCH_MS,
                         )
                     }
                 }
                 if (accepted) {
+                    if (draftStartSentAtMs == null && draftStart?.startId == sendStartId) {
+                        draftStartSentAtMs = sentAtMs
+                    }
                     // EXP-1271: the draft stays until the row lands (a
                     // timeout keeps it to retry). Review #3: the deadline
                     // counts from HERE, the request SENT (uploads done); on
@@ -1238,7 +1288,6 @@ class AgentComposerViewModel @Inject constructor(
                         if (_starting.value != null) {
                             steerLaunch.quietWatch()
                             _starting.value = null
-                            awaitingLate = true
                             _startTimedOut.value = label
                         }
                     }

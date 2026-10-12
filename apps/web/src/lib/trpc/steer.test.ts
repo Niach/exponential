@@ -467,18 +467,75 @@ describe(`steer.startSession — client startId (EXP-1259 review #3)`, () => {
     expect(lastStartBody().startId).toBe(startId)
   })
 
-  it(`a Retry with the same startId sends the same id again`, async () => {
+  // Final review B8: the server dedupes (device, startId) within
+  // `starting.dedupeMs`: a repeat is not forwarded and answers the same.
+  it(`a repeat of a forwarded startId is not forwarded again`, async () => {
     const startId = crypto.randomUUID()
     queueOwnDevice()
-    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+    const first = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    const again = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    expect(again).toEqual(first)
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  it(`a repeat while the first is in flight waits for its answer`, async () => {
+    const startId = crypto.randomUUID()
+    let answer: (value: { ok: true }) => void = () => {}
+    h.relayPostStart.mockImplementationOnce(
+      () => new Promise((resolve) => (answer = resolve))
+    )
+    queueOwnDevice()
+    const first = caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+    const again = caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+    await vi.waitFor(() => expect(h.relayPostStart).toHaveBeenCalledTimes(1))
+    answer({ ok: true })
+    expect(await again).toEqual(await first)
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+  })
+
+  it(`a refused or failed forward is forwarded again on Retry`, async () => {
+    const startId = crypto.randomUUID()
+    h.relayPostStart.mockResolvedValueOnce({ ok: false, status: 504, reason: `relay_timeout` })
+    queueOwnDevice()
+    await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+    )
     queueOwnDevice()
     const again = await caller.startSession({
       issueId: ISSUE_A,
       deviceId: `dev-1`,
       startId,
     })
-    expect(again.startId).toBe(startId)
+    expect(again).toEqual({ ok: true, startId })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(2)
     expect(lastStartBody().startId).toBe(startId)
+  })
+
+  it(`forwards the same startId to another device, and again after 30 minutes`, async () => {
+    vi.useFakeTimers({ toFake: [`Date`] })
+    try {
+      const startId = crypto.randomUUID()
+      queueOwnDevice()
+      await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+      queueOwnDevice({ deviceId: `dev-2` })
+      await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-2`, startId })
+      expect(h.relayPostStart).toHaveBeenCalledTimes(2)
+      vi.setSystemTime(Date.now() + 30 * 60 * 1000 + 1)
+      queueOwnDevice({ lastSeenAt: new Date() })
+      await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+      expect(h.relayPostStart).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it(`carries it on an action start too`, async () => {
@@ -2958,6 +3015,34 @@ describe(`steer.startSession — threadId (EXP-1284)`, () => {
     expect(
       takeStartThread({ ownerId: `actor`, deviceId: `dev-1`, subject: { issueId: ISSUE_A } })
     ).toBeNull()
+  })
+
+  // A deduped repeat of the same Start (forwardStartOnce answers it from the
+  // first forward, no new frame) never remembers the thread a second time:
+  // the ONE start the device runs takes it once.
+  it(`a deduped repeat of a start remembers its thread once`, async () => {
+    _clearStartThreads()
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-1` })
+    const startId = crypto.randomUUID()
+    queueOwnDevice()
+    const first = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      threadId: THREAD_ID,
+      startId,
+    })
+    const repeat = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      threadId: THREAD_ID,
+      startId,
+    })
+    expect(repeat).toEqual(first)
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+    const take = () =>
+      takeStartThread({ ownerId: `actor`, deviceId: `dev-1`, subject: { issueId: ISSUE_A } })
+    expect(take()).toBe(THREAD_ID)
+    expect(take()).toBeNull()
   })
 
   it(`sends no threadId when none was asked for`, async () => {

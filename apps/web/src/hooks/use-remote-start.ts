@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { actionErrorTitle, toast } from "@exp/ui"
+import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
 import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import { useLiveQuery } from "@tanstack/react-db"
@@ -29,6 +30,39 @@ import {
   STARTED_RUN_SKEW_MS,
   type StartedRunKey,
 } from "@/lib/started-run-match"
+import { newStartId, startIntentKey } from "@/lib/start-intent"
+
+/** Final review: how long the watch follows a sent start (feedback-states.json
+ *  `starting.watchMs`, 30 min, the server's and the devices' dedupe window).
+ *  The "never started" toast still fires at `STARTED_RUN_DEADLINE_MS`. */
+const WATCH_MS = FEEDBACK_STATES.starting.watchMs
+
+/** One send's watch state, created BEFORE the request goes out so a
+ *  `quietWatch` while the mutation is still in flight applies to it. */
+interface WatchedSend {
+  quiet: boolean
+  /** The caller's say on a late landing: false = do not navigate. */
+  canOpen: (() => boolean) | null
+  /** The draft start's id (none = every send is its own start). */
+  startId: string | undefined
+  /** `Date.now()` as the FIRST request of this startId went out: the
+   *  watch's cutoff (a re-send's device drops it, the original row lands). */
+  requestedAt: number
+}
+
+/** Final review (B6): a synced row created before the send went out is
+ *  never its run (rows carry no startId: an earlier start's late row on the
+ *  same subject would otherwise land here). `created_at` is server-stamped;
+ *  the cutoff is taken BEFORE the request, so the run's own row is always
+ *  younger by the round trip plus the launcher's spin-up. Fails closed on
+ *  an unparseable stamp, like `matchesStartedRun`. */
+export function createdSince(
+  session: { createdAt: Date | string },
+  sinceMs: number
+): boolean {
+  const createdAt = new Date(session.createdAt).getTime()
+  return Number.isFinite(createdAt) && createdAt >= sinceMs
+}
 
 // Remote "Start on my desktop" (EXP-106/EXP-253, merged in EXP-257): the
 // caller's machines, then a start command through the relay control socket —
@@ -109,6 +143,10 @@ export interface RemoteStart {
   sentTo: string | null
   /** Resolves on delivery, rejects on failure (toast already shown; its
    * Retry runs `retry`, the caller's re-submit).
+   * EXP-1259: every send carries a `startId`. Absent = this call is a new
+   * press-intent and mints one; the failure toast's Retry hands that id to
+   * the caller's re-submit of the SAME subject on the SAME device
+   * (`startIntentKey`), so the server and the device drop a repeat.
    * EXP-825: `prompt` is the composer's free text (with its image embeds,
    * `buildSteerImageMessage`) — the run's "Additional instructions". */
   startIssues: (
@@ -117,8 +155,8 @@ export interface RemoteStart {
     issueIds: string[],
     prompt?: string,
     retry?: () => void,
-    /** Review #3: the Start press's id (Retry reuses it); the device ignores
-     *  one it already started. */
+    /** Review #3: the draft start's id (Retry and a later Start of the
+     *  same draft reuse it); the server and the device drop a repeat. */
     startId?: string
   ) => Promise<void>
   /** Resolves on delivery, rejects on failure (toast already shown; its
@@ -134,14 +172,22 @@ export interface RemoteStart {
     retry?: () => void,
     startId?: string
   ) => Promise<void>
+  /** Final review (B6): called at the TOP of a send (before its uploads).
+   *  A DIFFERENT start (another startId, or none) cancels the previous
+   *  send's watch: its run, if it lands later, only shows in Running and
+   *  never opens or reaches the composer. A re-send of the SAME startId
+   *  keeps the watch (the device drops the duplicate; the original row is
+   *  the landing). `startIssues`/`runAction` call it too. */
+  supersede: (startId?: string) => void
   /** Review #3: the composer's own 30 s starting deadline gave up on the
    * last start and toasted. Nothing is aborted: the watch keeps looking for
-   * the run (a late row still opens it) but its own deadline toast never
-   * fires. */
-  quietWatch: () => void
-  /** The id of the last run the watch opened (null until one did): the
+   * the run for `starting.watchMs` but its own deadline toast never fires.
+   * Final review: `canOpen` = asked when the late row lands; false = the
+   * row only counts as landed (`openedId`), nothing navigates. */
+  quietWatch: (canOpen?: () => boolean) => void
+  /** The id of the last run the watch matched (null until one did): the
    * composer's landing signal, distinct from `sentTo` falling at the
-   * watch's deadline. */
+   * watch's deadline. Opened unless a quiet watch's `canOpen` said no. */
   openedId: string | null
   /** Re-fetch `latestVersions` now (device rows themselves are synced —
    * mutations stream in without any refetch). */
@@ -202,11 +248,18 @@ export function useRemoteStart(
     sentAt: number
     /** What the session watch below is looking for in the synced rows. */
     key: StartedRunKey
-    /** EXP-1284: the delivered start's id, handed to `onOpened`. */
+    send: WatchedSend
+    /** Past `STARTED_RUN_DEADLINE_MS`: still followed, no longer "sent". */
+    lapsed: boolean
+    /** EXP-1284: the delivered start's id, handed to `onOpened` (the New
+     *  session tab lands as the thread's tab by it). */
     startId: string | null
   } | null>(null)
-  const resetTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const quietRef = useRef(false)
+  const timersRef = useRef<ReturnType<typeof setTimeout>[]>([])
+  // The latest send (in flight or watched): what `quietWatch` quiets.
+  const sendRef = useRef<WatchedSend | null>(null)
+  const deadlineToastRef = useRef<string | number | null>(null)
+  const mountedRef = useRef(true)
   const [openedId, setOpenedId] = useState<string | null>(null)
   const openStarted = useOpenStartedSession()
   const onOpenedRef = useRef(options.onOpened)
@@ -215,6 +268,29 @@ export function useRemoteStart(
   onSentRef.current = options.onSent
   const threadIdRef = useRef(options.threadId ?? null)
   threadIdRef.current = options.threadId ?? null
+  // EXP-1259: the startId a failure toast's Retry hands to the caller's
+  // re-submit (consumed by the next send of the same intent, dropped by any
+  // other send).
+  const retryIdRef = useRef<{ key: string; startId: string } | null>(null)
+  /** The send's id: the caller's, else the pending Retry's for this same
+   *  intent, else a fresh one (a new press). */
+  const resolveStartId = (key: string, startId?: string): string => {
+    const handed = retryIdRef.current
+    retryIdRef.current = null
+    if (startId) return startId
+    return handed?.key === key ? handed.startId : newStartId()
+  }
+  /** The caller's Retry, re-sending under `startId`. */
+  const retryUnder = (
+    key: string,
+    startId: string,
+    retry: (() => void) | undefined
+  ) =>
+    retry &&
+    (() => {
+      retryIdRef.current = { key, startId }
+      retry()
+    })
 
   // EXP-481: device rows off the synced shape (already server-scoped to own
   // rows + team-shared servers); user rows resolve shared owners' names.
@@ -259,12 +335,17 @@ export function useRemoteStart(
     }
   }, [enabled, refreshTick])
 
-  useEffect(
-    () => () => {
-      if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
-    },
-    []
-  )
+  const clearTimers = () => {
+    for (const timer of timersRef.current) clearTimeout(timer)
+    timersRef.current = []
+  }
+  useEffect(() => {
+    mountedRef.current = true
+    return () => {
+      mountedRef.current = false
+      clearTimers()
+    }
+  }, [])
 
   // Watch the synced coding_sessions rows for the desktop picking the start
   // up. The whole (team-scoped, short) collection is read rather than a
@@ -280,25 +361,36 @@ export function useRemoteStart(
   useEffect(() => {
     if (!pending || !currentUserId) return
     const match = findStartedRun(
-      (sessionRows ?? []) as CodingSession[],
+      ((sessionRows ?? []) as CodingSession[]).filter((session) =>
+        createdSince(session, pending.sentAt)
+      ),
       pending.key,
       currentUserId,
       pending.sentAt - STARTED_RUN_SKEW_MS
     )
     if (!match) return
     // EXP-740: navigate to the run exactly once — clearing `pending` stops
-    // this effect from ever matching again for this send.
-    // EXP-1284: `onOpened` answers true when it opened the run itself (its
-    // thread's page); otherwise the run opens as before.
+    // this effect from ever matching again for this send. Final review: a
+    // late row clears the deadline's error, and a quiet watch's caller may
+    // keep it from navigating (the person changed the draft meanwhile).
+    clearTimers()
+    setPending(null)
+    if (deadlineToastRef.current !== null) {
+      toast.dismiss(deadlineToastRef.current)
+      deadlineToastRef.current = null
+    }
+    const { canOpen } = pending.send
+    const open = !canOpen || canOpen()
+    setOpenedId(match.id)
+    if (!open) return
+    // EXP-1284: `onOpened` answers true when it opened the session itself
+    // (the New session tab landing as its THREAD's tab, by start id);
+    // otherwise (review T11) the start lands on its thread's page.
     const handled =
       onOpenedRef.current?.(match, { startId: pending.startId }) === true
-    setOpenedId(match.id)
-    // EXP-1284 (review T11): an unhandled start lands on its THREAD.
     if (!handled) {
       openStarted(match, { ...openOptions, knownThreadId: threadIdRef.current })
     }
-    if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
-    setPending(null)
   }, [sessionRows, pending, currentUserId, openStarted, openOptions])
 
   // The desktop inserts the coding_sessions row when the launcher spins up.
@@ -306,22 +398,70 @@ export function useRemoteStart(
   // conflicted worktree, a failed doctor — would otherwise be indistinguishable
   // from one still starting, the caption would just vanish and no session would
   // ever open. The desktop holds the reason (it notifies there); say so.
+  // Final review: the watch itself follows the send for `WATCH_MS` (a late
+  // row still lands and clears the toast); a quieted send never toasts, and
+  // a send that resolves after unmount arms nothing.
+  // Final review (B6): a different start drops the previous send outright
+  // (in flight or watched); the same startId keeps it.
+  const supersede = (startId?: string) => {
+    const previous = sendRef.current
+    if (!previous) return
+    if (startId !== undefined && previous.startId === startId) return
+    sendRef.current = null
+    clearTimers()
+    setPending((current) => (current?.send === previous ? null : current))
+  }
+  const beginSend = (startId?: string): WatchedSend => {
+    supersede(startId)
+    const previous = sendRef.current
+    const send: WatchedSend = {
+      quiet: false,
+      canOpen: null,
+      startId,
+      requestedAt: previous?.requestedAt ?? Date.now(),
+    }
+    sendRef.current = send
+    return send
+  }
   const markSent = (
     deviceLabel: string,
     key: StartedRunKey,
-    startId: string | null
+    send: WatchedSend,
+    /** EXP-1284: the id the start was delivered under (the server echoes
+     *  it), so the New session tab can wait on THIS start. */
+    deliveredId: string | null
   ) => {
-    if (resetTimerRef.current) clearTimeout(resetTimerRef.current)
-    quietRef.current = false
-    setPending({ deviceLabel, sentAt: Date.now(), key, startId })
-    if (startId) onSentRef.current?.({ startId })
-    resetTimerRef.current = setTimeout(() => {
-      setPending(null)
-      if (quietRef.current) return
-      toast.error(`${deviceLabel} never started this session`, {
-        description: `Open the Exponential desktop app there to see why.`,
-      })
-    }, STARTED_RUN_DEADLINE_MS)
+    // A later start superseded this one while its request was in flight.
+    if (!mountedRef.current || sendRef.current !== send) return
+    clearTimers()
+    if (deadlineToastRef.current !== null) {
+      toast.dismiss(deadlineToastRef.current)
+      deadlineToastRef.current = null
+    }
+    setPending({
+      deviceLabel,
+      sentAt: send.requestedAt,
+      key,
+      send,
+      lapsed: false,
+      startId: deliveredId,
+    })
+    if (deliveredId) onSentRef.current?.({ startId: deliveredId })
+    timersRef.current = [
+      setTimeout(() => {
+        setPending((current) =>
+          current?.send === send ? { ...current, lapsed: true } : current
+        )
+        if (send.quiet) return
+        deadlineToastRef.current = toast.error(
+          `${deviceLabel} never started this session`,
+          { description: `Open the Exponential desktop app there to see why.` }
+        )
+      }, STARTED_RUN_DEADLINE_MS),
+      setTimeout(() => {
+        setPending((current) => (current?.send === send ? null : current))
+      }, WATCH_MS),
+    ]
   }
 
   const startIssues = async (
@@ -334,6 +474,9 @@ export function useRemoteStart(
   ) => {
     const key = startedRunKeyForIssues(issueIds)
     if (!key) return
+    const intent = startIntentKey(device.deviceId, { issueIds })
+    const id = resolveStartId(intent, startId)
+    const send = beginSend(id)
     setStarting(true)
     try {
       // EXP-481: `resume` rides SINGLE-issue starts only (a batch has no
@@ -346,7 +489,7 @@ export function useRemoteStart(
         // A blank prompt is OMITTED — the server drops whitespace-only
         // anyway, and older relays never see the key.
         ...(prompt && prompt.trim() ? { prompt } : {}),
-        ...(startId ? { startId } : {}),
+        startId: id,
       }
       const sent = await trpc.steer.startSession.mutate(
         // 1 issue → plain single-issue session; 2+ → one batch session on a
@@ -360,9 +503,14 @@ export function useRemoteStart(
           : { issueIds, ...base },
         SKIP_ERROR_TOAST
       )
-      markSent(device.deviceLabel, key, sent?.startId ?? startId ?? null)
+      markSent(device.deviceLabel, key, send, sent?.startId ?? id)
     } catch (error) {
-      startFailureToast(error, device, options.agent, retry)
+      startFailureToast(
+        error,
+        device,
+        options.agent,
+        retryUnder(intent, id, retry)
+      )
       throw error
     } finally {
       setStarting(false)
@@ -378,6 +526,9 @@ export function useRemoteStart(
     retry?: () => void,
     startId?: string
   ) => {
+    const intent = startIntentKey(device.deviceId, { actionId: action.id })
+    const id = resolveStartId(intent, startId)
+    const send = beginSend(id)
     setStarting(true)
     try {
       // Action runs never resume an issue worktree (EXP-481).
@@ -392,7 +543,7 @@ export function useRemoteStart(
           ...(inputs ? { inputs } : {}),
           ...(prompt && prompt.trim() ? { prompt } : {}),
           ...threadIdPayload(threadIdRef.current),
-          ...(startId ? { startId } : {}),
+          startId: id,
           ...rest,
         },
         SKIP_ERROR_TOAST
@@ -400,10 +551,16 @@ export function useRemoteStart(
       markSent(
         device.deviceLabel,
         { kind: `action`, actionName: action.name },
-        sent?.startId ?? startId ?? null
+        send,
+        sent?.startId ?? id
       )
     } catch (error) {
-      startFailureToast(error, device, options.agent, retry)
+      startFailureToast(
+        error,
+        device,
+        options.agent,
+        retryUnder(intent, id, retry)
+      )
       throw error
     } finally {
       setStarting(false)
@@ -413,11 +570,15 @@ export function useRemoteStart(
   return {
     devices,
     starting,
-    sentTo: pending?.deviceLabel ?? null,
+    sentTo: pending && !pending.lapsed ? pending.deviceLabel : null,
     startIssues,
     runAction,
-    quietWatch: () => {
-      quietRef.current = true
+    supersede,
+    quietWatch: (canOpen) => {
+      const send = sendRef.current
+      if (!send) return
+      send.quiet = true
+      send.canOpen = canOpen ?? null
     },
     openedId,
     refresh: () => setRefreshTick((tick) => tick + 1),

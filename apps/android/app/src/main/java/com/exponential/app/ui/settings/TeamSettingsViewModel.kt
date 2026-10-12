@@ -256,8 +256,10 @@ class TeamSettingsViewModel @Inject constructor(
     // after a GitHub reconnect lands, or on screen resume as the deep-link
     // fallback (EXP-365 — a swallowed deep link left the row stale forever).
     // Failures keep the last good value (the toast shows only when there is
-    // none) — also the toast's Retry.
-    fun refreshGithub() {
+    // none) — also the toast's Retry. [retried] = the person's own Retry tap
+    // on the failed line: its failure toasts (D10), the automatic re-reads
+    // stay quiet.
+    fun refreshGithub(retried: Boolean = false) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             val teamId = selection.selectedId.value ?: return@launch
@@ -265,14 +267,14 @@ class TeamSettingsViewModel @Inject constructor(
             try {
                 runCatching { repositoriesApi.list(accountId, teamId) }
                     .onSuccess { _repos.value = it }
-                loadGithubStatus(accountId, teamId)
+                loadGithubStatus(accountId, teamId, retried)
             } finally {
                 _reposRefreshing.value = false
             }
         }
     }
 
-    private suspend fun loadGithubStatus(accountId: String, teamId: String) {
+    private suspend fun loadGithubStatus(accountId: String, teamId: String, retried: Boolean = false) {
         // FEED-79: re-read on open and on every resume, so a failure is quiet,
         // never a toast: the last good value stays, and with none the block
         // reads the failed line with Retry (iOS `githubStatusFailed`).
@@ -284,6 +286,7 @@ class TeamSettingsViewModel @Inject constructor(
             .onFailure {
                 if (it is CancellationException) throw it
                 _githubStatusFailed.value = true
+                if (retried) fail("load", "GitHub", it) { refreshGithub(retried = true) }
             }
     }
 

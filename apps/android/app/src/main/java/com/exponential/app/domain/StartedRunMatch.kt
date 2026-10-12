@@ -54,6 +54,15 @@ object StartedRunMatch {
      * with no explanation, one that outlived it would spin forever. */
     const val DEADLINE_MS: Long = 180_000L
 
+    /**
+     * The Agent composer's QUIET watch (feedback-states.json
+     * `starting.watchMs`): past its own 30 s timeout toast it keeps looking
+     * for a late row this long after the send, the same 30 minutes the server
+     * and the device dedupe a `startId` for, so a Retry the device ignores can
+     * still land the original row.
+     */
+    const val WATCH_MS: Long = FeedbackStates.STARTING_WATCH_MS
+
     fun matches(
         session: CodingSessionEntity,
         key: StartedRunKey,
@@ -78,15 +87,18 @@ object StartedRunMatch {
      * Suspend until [sessions] carries the row for THIS start, or the
      * deadline passes (null). [sessions] is the caller's live coding_sessions
      * flow — already scoped to the account, so a switch mid-watch just stops
-     * emitting.
+     * emitting. [sentAtMs] = the FIRST send of a reused startId (the device
+     * dedupes a re-send, so the row that lands is the original one).
      */
     suspend fun await(
         sessions: Flow<List<CodingSessionEntity>>,
         key: StartedRunKey,
         userId: String,
+        sentAtMs: Long = System.currentTimeMillis(),
+        timeoutMs: Long = DEADLINE_MS,
     ): String? {
-        val cutoffMs = System.currentTimeMillis() - SKEW_MS
-        return withTimeoutOrNull(DEADLINE_MS) {
+        val cutoffMs = sentAtMs - SKEW_MS
+        return withTimeoutOrNull(timeoutMs) {
             sessions.mapNotNull { rows ->
                 rows.firstOrNull { matches(it, key, userId, cutoffMs) }
             }.first().id

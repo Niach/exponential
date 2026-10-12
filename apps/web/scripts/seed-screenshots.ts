@@ -77,6 +77,8 @@ import {
   DEMO_API_KEYS,
   DEMO_ATTACHMENT_DATES,
   DEMO_ACTION_ID,
+  DEMO_AGENT_COMMENT_ID,
+  DEMO_AGENT_COMMENT_MINUTES_AGO,
   DEMO_DEVICE_ID,
   DEMO_SERVER_DEVICE_ID,
   DEMO_DEVICE_LABEL,
@@ -1404,6 +1406,21 @@ async function main() {
       createdAt: daysAgo(4),
     })
     .returning()
+
+  // EXP-1259: the comment the steered session's scripted
+  // `exponential_comments_create` call posted (screenshot-desktop.ts names it
+  // in the settle's preview), so `comment-call-card` renders the real row.
+  // On the image-cache issue, never APP-5 (its thread is a photographed view).
+  await db.insert(comments).values({
+    id: DEMO_AGENT_COMMENT_ID,
+    issueId: cacheIssue.id,
+    teamId: ws.id,
+    boardId: cacheIssue.boardId,
+    authorId: demoId,
+    source: `mcp`,
+    body: `From APP-5: the board snapshot cache now persists on \`ON_STOP\` (\`BoardSnapshotCache.persistOnStop\`), so the LRU can reuse its directory and eviction hook instead of opening a second one.\n\nCold start after the change: **740 ms** p50 on the Pixel 6a.`,
+    createdAt: new Date(now - DEMO_AGENT_COMMENT_MINUTES_AGO * 60_000),
+  })
 
   const seedAttachments: Array<{
     id: string

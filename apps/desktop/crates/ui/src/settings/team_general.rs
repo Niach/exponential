@@ -110,13 +110,293 @@ fn prompt_counter(bytes: usize) -> String {
 /// The team prompt when its load failed (web `general-section.tsx`).
 const PROMPT_UNAVAILABLE: &str = "Prompt unavailable";
 
-/// ONE team prompt write: the team it belongs to, the fetch generation it
-/// was typed under, and exactly the text to send.
+/// ONE team prompt write: the team it belongs to and exactly the text to
+/// send.
 #[derive(Clone)]
 struct PromptSave {
     team_id: String,
-    generation: u64,
     text: String,
+}
+
+/// Final review B7 — ONE team's prompt writes, serialized: one save in
+/// flight, the LAST text asked for while it is out queued behind it (an
+/// older queued one is replaced), and the newest text asked for at all (a
+/// failed save's Retry sends that, never the failed snapshot). Pure, so the
+/// ordering is testable without a window.
+#[derive(Default)]
+struct TeamPromptQueue {
+    /// The write on the wire: its sequence number.
+    in_flight: Option<u64>,
+    /// The latest text asked for while one was in flight.
+    queued: Option<String>,
+    /// The newest text asked for at all.
+    latest: Option<String>,
+    /// What the server last confirmed (trailing whitespace dropped, like it
+    /// does), and when.
+    confirmed: Option<String>,
+    confirmed_at: Option<Instant>,
+    /// The last sequence number handed out.
+    seq: u64,
+}
+
+impl TeamPromptQueue {
+    /// Ask for `text` to be saved: `Some((seq, text))` = send it now; `None`
+    /// = a write is out (it waits, the newest text winning) or there is
+    /// nothing new to say.
+    fn ask(&mut self, text: String) -> Option<(u64, String)> {
+        self.latest = Some(text.clone());
+        if self.in_flight.is_some() {
+            self.queued = Some(text);
+            return None;
+        }
+        self.begin(text)
+    }
+
+    fn begin(&mut self, text: String) -> Option<(u64, String)> {
+        if self.confirmed.as_deref() == Some(text.trim_end()) {
+            return None;
+        }
+        self.seq += 1;
+        self.in_flight = Some(self.seq);
+        Some((self.seq, text))
+    }
+
+    /// Write `seq` (of `text`) settled: the next write to send, if any.
+    fn settled(&mut self, seq: u64, text: &str, ok: bool, now: Instant) -> Option<(u64, String)> {
+        if self.in_flight == Some(seq) {
+            self.in_flight = None;
+        }
+        if ok {
+            self.confirmed = Some(text.trim_end().to_string());
+            self.confirmed_at = Some(now);
+        }
+        let next = self.queued.take()?;
+        self.begin(next)
+    }
+
+    /// Whether a write is out or waiting (the `Saving` caption).
+    fn busy(&self) -> bool {
+        self.in_flight.is_some() || self.queued.is_some()
+    }
+
+    /// A failed save's Retry once no editor shows the team: its newest text,
+    /// unless that is already what the server holds.
+    fn retry_text(&self) -> Option<String> {
+        self.latest
+            .clone()
+            .filter(|latest| self.confirmed.as_deref() != Some(latest.trim_end()))
+    }
+}
+
+/// Final review B7 — every team's prompt write queue, app-wide so it
+/// outlives the pane: a release flush joins the same queue as the save in
+/// flight instead of racing it, and ⌘Q drains it
+/// ([`flush_prompt_saves_on_quit`]).
+#[derive(Default)]
+struct PromptSaves {
+    teams: std::collections::HashMap<String, TeamPromptSlot>,
+    /// ⌘Q is in progress: the foreground runs no more tasks, so asks only
+    /// queue and the quit hook sends them.
+    quitting: bool,
+}
+
+impl gpui::Global for PromptSaves {}
+
+#[derive(Default)]
+struct TeamPromptSlot {
+    queue: TeamPromptQueue,
+    /// The pane showing this team's prompt, the source of its CURRENT text.
+    editor: Option<gpui::WeakEntity<GeneralPane>>,
+    /// The highest write sequence number that settled, for the quit hook to
+    /// wait behind the write in flight.
+    wire: std::sync::Arc<(std::sync::Mutex<u64>, std::sync::Condvar)>,
+}
+
+/// How long ⌘Q waits for the team prompt's last writes (the same budget the
+/// session ends get, `coding_flow::QUIT_END_TIMEOUT`).
+const PROMPT_QUIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The queue global, installed once with its quit hook.
+fn prompt_saves(cx: &mut App) -> &mut PromptSaves {
+    if !cx.has_global::<PromptSaves>() {
+        cx.set_global(PromptSaves::default());
+        cx.on_app_quit(|cx| {
+            flush_prompt_saves_on_quit(cx);
+            async {}
+        })
+        .detach();
+    }
+    cx.global_mut::<PromptSaves>()
+}
+
+/// Save `text` as team `team_id`'s prompt, through that team's queue.
+fn queue_prompt_save(team_id: String, text: String, cx: &mut App) {
+    let saves = prompt_saves(cx);
+    let quitting = saves.quitting;
+    let slot = saves.teams.entry(team_id.clone()).or_default();
+    if quitting {
+        slot.queue.latest = Some(text.clone());
+        slot.queue.queued = Some(text);
+        return;
+    }
+    if let Some((seq, text)) = slot.queue.ask(text) {
+        send_prompt_write(team_id, seq, text, cx);
+    }
+}
+
+/// Put write `seq` on the wire; its answer settles the queue
+/// ([`prompt_write_settled`]), which sends the next one.
+fn send_prompt_write(team_id: String, seq: u64, text: String, cx: &mut App) {
+    let wire = prompt_saves(cx)
+        .teams
+        .get(&team_id)
+        .map(|slot| slot.wire.clone())
+        .unwrap_or_default();
+    let Some(trpc) = crate::queries::trpc_client(cx) else {
+        // Signed out mid-edit: nothing can be sent; the queue moves on.
+        prompt_write_settled(team_id, seq, text, Err(None), cx);
+        return;
+    };
+    let mut input = api::teams::TeamsUpdateInput::new(team_id.clone());
+    input.agent_prompt = Some(text.clone());
+    cx.spawn(async move |cx| {
+        let result = cx
+            .background_executor()
+            .spawn(async move {
+                let result = api::teams::teams_update(&trpc, &input).map(|_| ());
+                let (done, wake) = &*wire;
+                if let Ok(mut done) = done.lock() {
+                    *done = (*done).max(seq);
+                }
+                wake.notify_all();
+                result
+            })
+            .await;
+        let _ = cx.update(|cx| prompt_write_settled(team_id, seq, text, result.map_err(Some), cx));
+    })
+    .detach();
+}
+
+/// Write `seq` of team `team_id` settled: a failure toasts (its Retry sends
+/// the team's CURRENT text, [`retry_prompt_save`]); then the next queued
+/// write goes out. Every open pane repaints off the global.
+fn prompt_write_settled(
+    team_id: String,
+    seq: u64,
+    text: String,
+    result: Result<(), Option<api::ApiError>>,
+    cx: &mut App,
+) {
+    if let Err(Some(err)) = &result {
+        log::warn!("[ui] teams.update(agentPrompt) failed: {err}");
+        let retry_team = team_id.clone();
+        let note = Toast::error("Couldn't save the team prompt")
+            .description(err.user_message())
+            .action(feedback::RETRY, move |_, cx| retry_prompt_save(&retry_team, cx));
+        toast::show_in_active_window(note, cx);
+    }
+    let saves = prompt_saves(cx);
+    let quitting = saves.quitting;
+    let Some(slot) = saves.teams.get_mut(&team_id) else {
+        return;
+    };
+    let next = slot.queue.settled(seq, &text, result.is_ok(), Instant::now());
+    if let (Some((seq, text)), false) = (next, quitting) {
+        send_prompt_write(team_id, seq, text, cx);
+    }
+}
+
+/// A failed save's Retry (review B7): the team's CURRENT text, never the
+/// snapshot that failed. A pane showing that team's loaded prompt sends
+/// what its field holds (nothing, when that is already saved); otherwise
+/// the newest text asked for.
+fn retry_prompt_save(team_id: &str, cx: &mut App) {
+    let editor = prompt_saves(cx)
+        .teams
+        .get(team_id)
+        .and_then(|slot| slot.editor.as_ref())
+        .and_then(gpui::WeakEntity::upgrade)
+        .filter(|pane| pane.read(cx).shows_loaded_prompt(team_id));
+    if let Some(pane) = editor {
+        pane.update(cx, |pane, cx| pane.save_prompt(cx));
+        return;
+    }
+    let text = prompt_saves(cx)
+        .teams
+        .get(team_id)
+        .and_then(|slot| slot.queue.retry_text());
+    if let Some(text) = text {
+        queue_prompt_save(team_id.to_string(), text, cx);
+    }
+}
+
+/// ⌘Q (review #8 / B7): gpui runs this BEFORE it stops the foreground, and
+/// grants returned futures only `SHUTDOWN_TIMEOUT` (200 ms), so the writes
+/// go out from here, synchronously, on their own threads: every open pane's
+/// unsaved text joins its team's queue, then each team's last text is sent
+/// once the write already in flight for it settled (never before it, so an
+/// older text cannot land last), all within [`PROMPT_QUIT_TIMEOUT`].
+fn flush_prompt_saves_on_quit(cx: &mut App) {
+    let editors: Vec<Entity<GeneralPane>> = prompt_saves(cx)
+        .teams
+        .values()
+        .filter_map(|slot| slot.editor.as_ref().and_then(gpui::WeakEntity::upgrade))
+        .collect();
+    prompt_saves(cx).quitting = true;
+    for pane in editors {
+        if let Some(save) = pane.read(cx).pending_prompt_save(cx) {
+            queue_prompt_save(save.team_id, save.text, cx);
+        }
+    }
+    let Some(trpc) = crate::queries::trpc_client(cx).map(std::sync::Arc::new) else {
+        return;
+    };
+    let writes: Vec<_> = prompt_saves(cx)
+        .teams
+        .iter_mut()
+        .filter_map(|(team_id, slot)| {
+            let text = slot.queue.queued.take()?;
+            let behind = slot.queue.in_flight.unwrap_or(0);
+            Some((team_id.clone(), text, behind, slot.wire.clone()))
+        })
+        .collect();
+    if writes.is_empty() {
+        return;
+    }
+    let deadline = Instant::now() + PROMPT_QUIT_TIMEOUT;
+    let (sent, done) = std::sync::mpsc::channel::<()>();
+    let count = writes.len();
+    for (team_id, text, behind, wire) in writes {
+        let trpc = std::sync::Arc::clone(&trpc);
+        let sent = sent.clone();
+        std::thread::spawn(move || {
+            let (settled, wake) = &*wire;
+            let mut guard = settled.lock().unwrap_or_else(|poison| poison.into_inner());
+            while *guard < behind {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    return;
+                }
+                guard = wake
+                    .wait_timeout(guard, left)
+                    .unwrap_or_else(|poison| poison.into_inner())
+                    .0;
+            }
+            drop(guard);
+            let mut input = api::teams::TeamsUpdateInput::new(team_id);
+            input.agent_prompt = Some(text);
+            if let Err(err) = api::teams::teams_update(&trpc, &input) {
+                log::warn!("[ui] teams.update(agentPrompt) on quit failed: {err}");
+            }
+            let _ = sent.send(());
+        });
+    }
+    for _ in 0..count {
+        let left = deadline.saturating_duration_since(Instant::now());
+        if done.recv_timeout(left).is_err() {
+            break;
+        }
+    }
 }
 
 #[derive(Default)]
@@ -132,17 +412,15 @@ struct PromptState {
     saved: String,
     /// ISO stamp of the last write, for the "Edited …" caption.
     updated_at: Option<String>,
-    saving: bool,
-    /// EXP-1275 (review #7): the saves asked for while one was in flight,
-    /// each with ITS team and text, sent in order when that one settles —
-    /// a team switch mid-save never drops or misroutes the left team's edit.
-    queued: Vec<PromptSave>,
     /// EXP-1275: the autosave debounce — each keystroke replaces it
     /// (dropping the previous timer cancels it).
     debounce: Option<Task<()>>,
     /// EXP-1275: the last save landed at — the caption reads `Saved` for
     /// `feedback::AUTOSAVE_SAVED_HOLD` after it.
     saved_at: Option<Instant>,
+    /// The queue's last confirmation this pane took over (`PromptSaves`):
+    /// a newer one is a save that landed.
+    seen_confirm: Option<Instant>,
     /// Bumped per fetch so a slow reply for the previous team is dropped.
     generation: u64,
 }
@@ -217,6 +495,11 @@ impl GeneralPane {
         // Review #8: leaving Settings (or closing the window) drops the pane
         // — an edit still in its debounce is sent on the way out.
         cx.on_release(|this, cx| this.flush_prompt_on_release(cx)).detach();
+        // Final review B7: the writes run in the app-wide queue; the pane
+        // follows it for `Saving` / `Saved`.
+        prompt_saves(cx);
+        let mut subscriptions = subscriptions;
+        subscriptions.push(cx.observe_global::<PromptSaves>(|this, cx| this.sync_prompt_saves(cx)));
 
         let mut this = Self {
             nav,
@@ -322,6 +605,12 @@ impl GeneralPane {
         self.prompt.generation += 1;
         let generation = self.prompt.generation;
         self.prompt.team_id = Some(team_id.clone());
+        // This pane is now where that team's CURRENT text lives (a failed
+        // save's Retry reads it); confirmations from before do not apply.
+        let editor = cx.entity().downgrade();
+        let slot = prompt_saves(cx).teams.entry(team_id.clone()).or_default();
+        slot.editor = Some(editor);
+        self.prompt.seen_confirm = slot.queue.confirmed_at;
         self.prompt.loading = true;
         self.prompt.load_failed = false;
         self.prompt.saved.clear();
@@ -422,7 +711,6 @@ impl GeneralPane {
         }
         Some(PromptSave {
             team_id,
-            generation: self.prompt.generation,
             text: self.prompt_input.read(cx).value().to_string(),
         })
     }
@@ -435,118 +723,67 @@ impl GeneralPane {
         }
     }
 
-    /// Send `save`, or queue it behind the write in flight. A queued write
-    /// for the same team generation is replaced (its newer text wins); one
-    /// for another team keeps its slot.
+    /// Send `save` through its team's queue (final review B7: one write in
+    /// flight per team, the newest text waiting behind it).
     fn send_prompt(&mut self, save: PromptSave, cx: &mut gpui::Context<Self>) {
-        if self.prompt.saving {
-            match self
-                .prompt
-                .queued
-                .iter_mut()
-                .find(|queued| queued.generation == save.generation)
-            {
-                Some(queued) => *queued = save,
-                None => self.prompt.queued.push(save),
-            }
-            return;
-        }
-        let Some(trpc) = crate::queries::trpc_client(cx) else {
-            return;
-        };
-        let saved = save.text.trim_end().to_string();
-        let generation = save.generation;
-        let retry = save.clone();
-        let mut input = api::teams::TeamsUpdateInput::new(save.team_id);
-        input.agent_prompt = Some(save.text);
-
-        self.prompt.saving = true;
         self.prompt.saved_at = None;
+        queue_prompt_save(save.team_id, save.text, cx);
         cx.notify();
-
-        cx.spawn(async move |this, cx| {
-            let result = cx
-                .background_executor()
-                .spawn(async move { api::teams::teams_update(&trpc, &input) })
-                .await;
-            let _ = this.update(cx, |this, cx| {
-                this.prompt.saving = false;
-                // A team switch while the write was out: the reply belongs
-                // to the team that was left (its Retry resends exactly what
-                // failed, to that team).
-                let current = this.prompt.generation == generation;
-                match result {
-                    Ok(_) if current => {
-                        this.prompt.saved = saved;
-                        this.prompt.updated_at = Some(chrono::Utc::now().to_rfc3339());
-                        this.prompt.saved_at = Some(Instant::now());
-                        // Repaint once the `Saved` hold is over.
-                        cx.spawn(async move |this, cx| {
-                            cx.background_executor().timer(feedback::AUTOSAVE_SAVED_HOLD).await;
-                            let _ = this.update(cx, |_, cx| cx.notify());
-                        })
-                        .detach();
-                    }
-                    Ok(_) => {}
-                    Err(err) => {
-                        log::warn!("[ui] teams.update(agentPrompt) failed: {err}");
-                        let pane = cx.entity().downgrade();
-                        let note = Toast::error("Couldn't save the team prompt")
-                            .description(err.user_message())
-                            .action(feedback::RETRY, move |_, cx| {
-                                let retry = retry.clone();
-                                let _ = pane.update(cx, |this, cx| this.send_prompt(retry, cx));
-                            });
-                        toast::show_in_active_window(note, cx);
-                    }
-                }
-                this.send_next_queued(cx);
-                cx.notify();
-            });
-        })
-        .detach();
     }
 
-    /// The write in flight settled: send the next queued one. A queued
-    /// write for the CURRENT team that equals what is now saved is dropped.
-    fn send_next_queued(&mut self, cx: &mut gpui::Context<Self>) {
-        while !self.prompt.queued.is_empty() {
-            let next = self.prompt.queued.remove(0);
-            let stale = next.generation == self.prompt.generation
-                && next.text.trim_end() == self.prompt.saved;
-            if !stale {
-                self.send_prompt(next, cx);
-                return;
-            }
-        }
+    /// Whether this pane shows team `team_id`'s prompt, loaded (its field
+    /// is that team's current text).
+    fn shows_loaded_prompt(&self, team_id: &str) -> bool {
+        self.prompt.team_id.as_deref() == Some(team_id)
+            && !self.prompt.loading
+            && !self.prompt.load_failed
     }
 
-    /// Review #8: the pane is going away (Settings left, window closed):
-    /// a dirty, under-cap edit is sent now, fire-and-forget (there is no
-    /// view left to show `Saved` or a failure in).
-    fn flush_prompt_on_release(&mut self, cx: &mut App) {
-        let mut saves = std::mem::take(&mut self.prompt.queued);
-        if let Some(save) = self.pending_prompt_save(cx) {
-            saves.retain(|queued| queued.generation != save.generation);
-            saves.push(save);
-        }
-        if saves.is_empty() {
-            return;
-        }
-        let Some(trpc) = crate::queries::trpc_client(cx) else {
+    /// A write for this pane's team is out or waiting (the `Saving` caption).
+    fn prompt_saving(&self, cx: &App) -> bool {
+        let Some(team_id) = self.prompt.team_id.as_deref() else {
+            return false;
+        };
+        cx.try_global::<PromptSaves>()
+            .and_then(|saves| saves.teams.get(team_id))
+            .is_some_and(|slot| slot.queue.busy())
+    }
+
+    /// The queue moved (`PromptSaves`): a save of this pane's team that
+    /// landed since the pane last looked becomes the saved text and the
+    /// `Saved` caption.
+    fn sync_prompt_saves(&mut self, cx: &mut gpui::Context<Self>) {
+        let Some(team_id) = self.prompt.team_id.as_deref() else {
             return;
         };
-        cx.background_executor()
-            .spawn(async move {
-                for save in saves {
-                    let mut input = api::teams::TeamsUpdateInput::new(save.team_id);
-                    input.agent_prompt = Some(save.text);
-                    if let Err(err) = api::teams::teams_update(&trpc, &input) {
-                        log::warn!("[ui] teams.update(agentPrompt) on close failed: {err}");
-                    }
-                }
-            })
-            .detach();
+        let confirmed = cx
+            .try_global::<PromptSaves>()
+            .and_then(|saves| saves.teams.get(team_id))
+            .and_then(|slot| Some((slot.queue.confirmed.clone()?, slot.queue.confirmed_at?)));
+        if let Some((text, at)) = confirmed {
+            if self.prompt.seen_confirm != Some(at) {
+                self.prompt.seen_confirm = Some(at);
+                self.prompt.saved = text;
+                self.prompt.updated_at = Some(chrono::Utc::now().to_rfc3339());
+                self.prompt.saved_at = Some(at);
+                // Repaint once the `Saved` hold is over.
+                cx.spawn(async move |this, cx| {
+                    cx.background_executor().timer(feedback::AUTOSAVE_SAVED_HOLD).await;
+                    let _ = this.update(cx, |_, cx| cx.notify());
+                })
+                .detach();
+            }
+        }
+        cx.notify();
+    }
+
+    /// Review #8: the pane is going away (Settings left, window closed): a
+    /// dirty, under-cap edit joins its team's queue now (behind a write in
+    /// flight, never racing it; the queue outlives the pane).
+    fn flush_prompt_on_release(&mut self, cx: &mut App) {
+        if let Some(save) = self.pending_prompt_save(cx) {
+            queue_prompt_save(save.team_id, save.text, cx);
+        }
     }
 
     /// EXP-1025: the team prompt section — header with the save caption, the
@@ -570,7 +807,7 @@ impl GeneralPane {
         // stays disabled), never a "Loading…" placeholder.
         let trailing = if self.prompt.loading {
             Some(feedback::inline_status(feedback::WORD_LOADING, true, cx))
-        } else if self.prompt.saving {
+        } else if self.prompt_saving(cx) {
             Some(feedback::inline_status(feedback::AUTOSAVE_SAVING, true, cx))
         } else if just_saved {
             Some(feedback::inline_status(feedback::AUTOSAVE_SAVED, false, cx))
@@ -1022,6 +1259,47 @@ impl Render for GeneralPane {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Final review B7: one write in flight per team, the newest text
+    /// waiting behind it (an older queued one replaced), and a save equal
+    /// to what the server holds never sent.
+    #[test]
+    fn prompt_writes_are_serialized_and_the_last_text_wins() {
+        let now = Instant::now();
+        let mut queue = TeamPromptQueue::default();
+        let (first, text) = queue.ask("a".into()).expect("sent at once");
+        assert_eq!(text, "a");
+        assert!(queue.ask("ab".into()).is_none(), "waits behind the write out");
+        assert!(queue.ask("abc".into()).is_none());
+        assert!(queue.busy());
+        let (second, text) = queue.settled(first, "a", true, now).expect("the newest text next");
+        assert_eq!(text, "abc");
+        assert_eq!(queue.settled(second, "abc", true, now), None);
+        assert!(!queue.busy());
+        assert_eq!(queue.confirmed.as_deref(), Some("abc"));
+        // Nothing new to say: equal (trailing whitespace aside) to the saved.
+        assert_eq!(queue.ask("abc \n".into()), None);
+    }
+
+    /// Final review B7: a failed save's Retry sends the team's CURRENT
+    /// text, not the snapshot that failed — and nothing once a later save
+    /// already holds it.
+    #[test]
+    fn a_failed_prompt_save_retries_the_current_text() {
+        let now = Instant::now();
+        let mut queue = TeamPromptQueue::default();
+        let (first, _) = queue.ask("abc".into()).expect("sent");
+        assert!(queue.ask("abcd".into()).is_none());
+        // "abc" fails, "abcd" goes out next and lands.
+        let (second, text) = queue.settled(first, "abc", false, now).expect("next");
+        assert_eq!(text, "abcd");
+        assert_eq!(queue.settled(second, "abcd", true, now), None);
+        assert_eq!(queue.retry_text(), None, "the current text is already saved");
+        // A later edit that fails: the Retry sends THAT text.
+        let (third, _) = queue.ask("abcde".into()).expect("sent");
+        assert_eq!(queue.settled(third, "abcde", false, now), None);
+        assert_eq!(queue.retry_text().as_deref(), Some("abcde"));
+    }
 
     /// FEED-79: the byte cap's inline line is the fixture's
     /// "a prompt over its byte cap stays under its field" message.

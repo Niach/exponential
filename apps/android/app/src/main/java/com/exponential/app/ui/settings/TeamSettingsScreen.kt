@@ -446,7 +446,7 @@ private fun RepositoriesSection(
         GithubStatusBlock(
             status = state.githubStatus,
             failed = state.githubStatusFailed,
-            onRetry = viewModel::refreshGithub,
+            onRetry = { viewModel.refreshGithub(retried = true) },
             connecting = state.githubConnecting,
             onConnect = {
                 viewModel.connectGithub { url ->

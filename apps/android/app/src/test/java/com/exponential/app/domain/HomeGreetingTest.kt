@@ -122,6 +122,34 @@ class HomeGreetingTest {
         )
     }
 
+    /** The final review: every client replays composer-home.json `recentCases` (ids in order). */
+    @Test
+    fun `recent replays the fixture cases`() {
+        val cases = fixture.getValue("recentCases").jsonArray.map { it.jsonObject }
+        assertTrue(cases.isNotEmpty())
+        for (case in cases) {
+            val sessions = case.getValue("sessions").jsonArray.map { it.jsonObject }.map { row ->
+                fun opt(key: String) = row[key]?.takeIf { it !is JsonNull }?.jsonPrimitive?.content
+                CodingSessionEntity(
+                    id = row.string("id"),
+                    teamId = row.string("teamId"),
+                    userId = row.string("userId"),
+                    parentSessionId = opt("parentSessionId"),
+                    resumedFromId = opt("resumedFromId"),
+                    status = "ended",
+                    startedAt = row.string("createdAt"),
+                    createdAt = row.string("createdAt"),
+                    updatedAt = row.string("updatedAt"),
+                )
+            }
+            assertEquals(
+                case.string("name"),
+                case.getValue("expected").jsonArray.map { it.jsonPrimitive.content },
+                AgentHome.recentRuns(sessions, case.string("teamId"), case.string("userId")).map { it.id },
+            )
+        }
+    }
+
     @Test
     fun `no team or no user lists nothing`() {
         val sessions = listOf(run("a", "2026-10-01T10:00:00Z"))

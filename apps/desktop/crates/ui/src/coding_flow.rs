@@ -1542,7 +1542,11 @@ impl gpui::Global for NewRunHandoffs {}
 /// The composer in New session tab `new_run_id` is starting a run in
 /// `window`: the run that start lands lands in that tab.
 pub(crate) fn hand_off_new_run_tab(window: &Window, new_run_id: String, cx: &mut App) -> StartHandoff {
+    // A start whose window closed before it settled (a local prepare's
+    // answer has nowhere to go) never takes its claim back: drop those.
+    let open: HashSet<gpui::WindowId> = cx.windows().iter().map(|handle| handle.window_id()).collect();
     let handoffs = cx.default_global::<NewRunHandoffs>();
+    handoffs.tabs.retain(|_, (owner, _)| open.contains(owner));
     handoffs.next += 1;
     let handoff = StartHandoff(handoffs.next);
     handoffs
@@ -1822,6 +1826,46 @@ impl RemoteRunSubject {
     }
 }
 
+/// EXP-1259 (start surfaces): ONE press of a remote start. The press stamps
+/// a fresh `startId` (unless the input already names one, the composer's
+/// draft id); every send of the intent, its Retries included, carries that
+/// same id, so the server (`forwardStartOnce`) and the device drop a repeat
+/// instead of starting twice. A new press is a new intent and a new id.
+#[derive(Clone, Debug)]
+pub(crate) struct RemoteStartIntent {
+    input: api::steer::StartSessionInput,
+}
+
+impl RemoteStartIntent {
+    /// A press: the input with its startId (a fresh one when it has none).
+    pub(crate) fn press(mut input: api::steer::StartSessionInput) -> Self {
+        if input.start_id.as_deref().is_none_or(|id| id.trim().is_empty()) {
+            input.start_id = Some(api::steer::new_start_id());
+        }
+        Self { input }
+    }
+
+    /// The request every send of this intent posts (the same startId).
+    pub(crate) fn input(&self) -> &api::steer::StartSessionInput {
+        &self.input
+    }
+
+    pub(crate) fn start_id(&self) -> &str {
+        self.input.start_id.as_deref().unwrap_or_default()
+    }
+}
+
+/// Final review B3: whether a FAILED `steer.startSession` may still have
+/// put the frame on the device: a relay timeout (REV-34 `relay_timeout`,
+/// a 5xx) or an answer lost on the way back. A refusal (4xx) never did.
+pub(crate) fn may_have_reached_device(err: &api::ApiError) -> bool {
+    match err {
+        api::ApiError::Http { status, .. } => *status >= 500,
+        api::ApiError::Transport { .. } => true,
+        _ => false,
+    }
+}
+
 /// EXP-818: follow a remote start INTO the run, exactly as a local start lands
 /// in its session screen.
 ///
@@ -1832,12 +1876,25 @@ impl RemoteRunSubject {
 /// be on the same machine can never be mistaken for this one; the newest
 /// matching row wins, and nothing happens at all if none arrives within
 /// [`REMOTE_OPEN_WAIT`] (the toast already told the user where the run went).
+/// EXP-1259: `start_id` = the start's [`RemoteStartIntent`] id; a Retry of
+/// a start already followed spawns no second follower.
 pub(crate) fn follow_remote_start(
     device_id: String,
     subject: RemoteRunSubject,
+    start_id: Option<String>,
     window: &Window,
     cx: &mut App,
 ) {
+    if let Some(start_id) = &start_id {
+        if !cx.default_global::<FollowedStarts>().0.insert(start_id.clone()) {
+            return;
+        }
+    }
+    let unfollow = move |cx: &mut App| {
+        if let Some(start_id) = &start_id {
+            cx.default_global::<FollowedStarts>().0.remove(start_id);
+        }
+    };
     let known: HashSet<String> = session_ids(cx);
     // EXP-1075: the run lands on the team the launch was made from. The
     // predicate is TOLERANT — a row whose `team_id` has not decoded is never
@@ -1855,6 +1912,7 @@ pub(crate) fn follow_remote_start(
             if let Some(session_id) =
                 cx.update(|cx| fresh_remote_run(&known, &device_id, &subject, team.as_deref(), cx))
             {
+                let _ = cx.update(|cx| unfollow(cx));
                 // The window may have closed while we waited; there is nothing
                 // else to do with the run then (its tab opens on the next
                 // visit to the Agent page).
@@ -1864,6 +1922,7 @@ pub(crate) fn follow_remote_start(
                 return;
             }
             if std::time::Instant::now() >= deadline {
+                let _ = cx.update(|cx| unfollow(cx));
                 return;
             }
         }
@@ -1873,10 +1932,11 @@ pub(crate) fn follow_remote_start(
 
 /// How long a COMPOSER's remote start keeps watching for its row after the
 /// composer's own 30 s deadline gave up on it (feedback-states.json
-/// `starting`: a late landing still lands, clears the error and the draft).
-const REMOTE_LATE_WAIT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+/// `starting.watchMs`: a late landing still lands and clears the error) —
+/// the same window the server and the device dedupe a startId in.
+pub(crate) const REMOTE_LATE_WAIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
-/// The composer starts being followed right now, by `startId` — a Retry
+/// The remote starts being followed right now, by `startId` — a Retry
 /// (same startId) never spawns a second follower.
 #[derive(Default)]
 struct FollowedStarts(HashSet<String>);
@@ -1885,14 +1945,16 @@ impl gpui::Global for FollowedStarts {}
 
 /// Review #3 — what a COMPOSER's remote start hands its follower: the start
 /// (its `startId`), the New session tab it lands in, and what to tell the
-/// composer once the row landed (`landed`, with the run's id).
+/// composer once the row landed (`landed`, with the run's id), which answers
+/// whether the run opens: a LATE landing whose draft the person changed
+/// opens nothing (D11; it shows in Running).
 pub(crate) struct ComposerStartWatch {
     pub(crate) start_id: String,
     pub(crate) handoff: Option<StartHandoff>,
     /// EXP-1284: the thread the start asked to join (a thread's composer);
     /// `None` = wait briefly for the session's own `thread_items` row.
     pub(crate) thread_id: Option<String>,
-    pub(crate) landed: Box<dyn FnOnce(String, &mut Window, &mut App)>,
+    pub(crate) landed: Box<dyn FnOnce(String, &mut Window, &mut App) -> bool>,
 }
 
 /// EXP-1284 — how long a landed remote start waits for its session's
@@ -1902,9 +1964,10 @@ const THREAD_ITEM_WAIT: std::time::Duration = std::time::Duration::from_secs(6);
 
 /// [`follow_remote_start`] for the composer's own start (review #3): it
 /// follows until the row lands — past the composer's 30 s deadline, up to
-/// [`REMOTE_LATE_WAIT`] — and lands it in the start's own New session tab.
-/// `false` (nothing spawned) when `watch.start_id` is already followed:
-/// that follower lands the Retry's run too (the device ignored the repeat).
+/// [`REMOTE_LATE_WAIT`] — and, when the composer says so, lands it in the
+/// start's own New session tab. `false` (nothing spawned) when
+/// `watch.start_id` is already followed: that follower lands the Retry's
+/// run too (the device ignored the repeat).
 pub(crate) fn follow_composer_start(
     device_id: String,
     subject: RemoteRunSubject,
@@ -1934,7 +1997,8 @@ pub(crate) fn follow_composer_start(
                 cx.update(|cx| fresh_remote_run(&known, &device_id, &subject, team.as_deref(), cx))
             {
                 let _ = cx.update(|cx| done(cx));
-                // The placement rides its own shape: give it a moment.
+                // EXP-1284: the placement rides its own shape: give it a
+                // moment, so the start lands on its THREAD.
                 let mut thread_id = thread_id.clone();
                 let item_deadline = std::time::Instant::now() + THREAD_ITEM_WAIT;
                 while thread_id.is_none() && std::time::Instant::now() < item_deadline {
@@ -1943,12 +2007,16 @@ pub(crate) fn follow_composer_start(
                         cx.background_executor().timer(REMOTE_OPEN_TICK).await;
                     }
                 }
-                let landed_in_window = handle.update(cx, |_, window, cx| {
-                    open_landed_session(&session_id, thread_id, handoff, window, cx);
-                    landed(session_id.clone(), window, cx);
+                let opened = handle.update(cx, |_, window, cx| {
+                    let open = landed(session_id.clone(), window, cx);
+                    if open {
+                        open_landed_session(&session_id, thread_id, handoff, window, cx);
+                    }
+                    open
                 });
-                // The window closed while we waited: nothing to land in.
-                if landed_in_window.is_err() {
+                // Not opened (the draft moved on, or the window closed while
+                // we waited): the New session tab keeps its slot.
+                if !matches!(opened, Ok(true)) {
                     if let Some(handoff) = handoff {
                         let _ = cx.update(|cx| take_back_new_run_tab(handoff, cx));
                     }
@@ -3081,6 +3149,56 @@ mod tests {
         };
         assert_eq!(RemoteRunSubject::of(&batch), RemoteRunSubject::Any);
         assert!(RemoteRunSubject::of(&batch).matches(&row(None, None)));
+    }
+
+    /// EXP-1259: a press mints its startId once and every send of that
+    /// intent (a Retry is a clone) carries it; a new press mints a new one;
+    /// a composer input that already names its draft id keeps it.
+    #[test]
+    fn a_press_mints_one_start_id_and_its_retry_reuses_it() {
+        use api::steer::StartSessionInput;
+        let input = || StartSessionInput {
+            resume_session_id: Some("old".to_string()),
+            device_id: "dev".to_string(),
+            ..Default::default()
+        };
+        let press = RemoteStartIntent::press(input());
+        assert_eq!(press.start_id().len(), 36);
+        assert_eq!(press.input().start_id.as_deref(), Some(press.start_id()));
+        let retry = press.clone();
+        assert_eq!(retry.input().start_id, press.input().start_id);
+        let again = RemoteStartIntent::press(input());
+        assert_ne!(again.start_id(), press.start_id());
+        let drafted = RemoteStartIntent::press(StartSessionInput {
+            start_id: Some("draft-1".to_string()),
+            ..input()
+        });
+        assert_eq!(drafted.start_id(), "draft-1");
+        let blank = RemoteStartIntent::press(StartSessionInput {
+            start_id: Some(" ".to_string()),
+            ..input()
+        });
+        assert_eq!(blank.start_id().len(), 36);
+    }
+
+    /// Final review B3: a relay timeout (the server's 5xx) or a lost answer
+    /// may have delivered the start, so it stays followed and its Retry
+    /// repeats the startId; a refusal never did.
+    #[test]
+    fn a_failed_start_is_followed_only_when_it_may_have_arrived() {
+        let http = |status| api::ApiError::Http {
+            status,
+            message: "Steer relay error (504)".into(),
+        };
+        assert!(may_have_reached_device(&http(500)));
+        assert!(may_have_reached_device(&http(504)));
+        assert!(may_have_reached_device(&api::ApiError::Transport {
+            message: "timed out".into(),
+            offline: true,
+        }));
+        assert!(!may_have_reached_device(&http(412)));
+        assert!(!may_have_reached_device(&http(404)));
+        assert!(!may_have_reached_device(&api::ApiError::Unauthorized));
     }
 
     /// A bare row the subject matcher can vary one field of.

@@ -764,6 +764,10 @@ mod tests {
         assert_eq!(s(&st["deadlineFrom"]), "sent");
         assert_eq!(st["remoteOnly"].as_bool(), Some(true));
         assert_eq!(s(&st["startIdKey"]), "startId");
+        // Final review: the composer's follower watches as long as the
+        // server and the device dedupe a startId.
+        assert_eq!(num(&st["watchMs"]) as u128, crate::coding_flow::REMOTE_LATE_WAIT.as_millis());
+        assert_eq!(num(&st["dedupeMs"]), num(&st["watchMs"]));
         assert_eq!(s(&f["errors"]["retry"]), RETRY);
 
         let a = &f["autosave"];

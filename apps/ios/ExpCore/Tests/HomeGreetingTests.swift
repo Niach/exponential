@@ -40,6 +40,24 @@ final class HomeGreetingTests: XCTestCase {
         let buckets: [Bucket]
         let cases: [Case]
         let testIds: [String: String]
+        let recentCases: [RecentCase]
+    }
+
+    private struct RecentCase: Decodable {
+        struct Session: Decodable {
+            let id: String
+            let userId: String
+            let teamId: String
+            let parentSessionId: String?
+            let resumedFromId: String?
+            let createdAt: String
+            let updatedAt: String
+        }
+        let name: String
+        let userId: String
+        let teamId: String
+        let sessions: [Session]
+        let expected: [String]
     }
 
     private func fixture() throws -> Fixture {
@@ -152,6 +170,26 @@ final class HomeGreetingTests: XCTestCase {
             HomeGreeting.recentRuns(rows, userId: "me", teamId: "t1").map(\.id),
             ["a", "b", "c"]
         )
+    }
+
+    /// The final review: every client replays composer-home.json
+    /// `recentCases` (ids in order).
+    func testRecentReplaysTheFixtureCases() throws {
+        let cases = try fixture().recentCases
+        XCTAssertFalse(cases.isEmpty)
+        for c in cases {
+            let rows = c.sessions.map {
+                run(
+                    $0.id, userId: $0.userId, teamId: $0.teamId, parent: $0.parentSessionId,
+                    resumedFrom: $0.resumedFromId, updatedAt: $0.updatedAt, createdAt: $0.createdAt
+                )
+            }
+            XCTAssertEqual(
+                HomeGreeting.recentRuns(rows, userId: c.userId, teamId: c.teamId).map(\.id),
+                c.expected,
+                c.name
+            )
+        }
     }
 
     func testRecentBreaksUpdatedTiesOnCreatedAndDedupes() {

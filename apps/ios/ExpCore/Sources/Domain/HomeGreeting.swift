@@ -141,7 +141,7 @@ public enum HomeGreeting {
 
     /// RECENT: the caller's last `recentCount` OWN top-level runs (no parent
     /// run) in the active team, any status, newest first by `updatedAt`, then
-    /// `createdAt`. Rows are deduped by id (a live and an ended read can
+    /// `createdAt`, then `id` ascending (composer-home.json `recentCases`). Rows are deduped by id (a live and an ended read can
     /// overlap while a run flips). Review #20 (composer-home.json): a resume
     /// succession (`resumed_from_id`) is ONE row, its newest member, the way
     /// every session list draws it (`SessionTree.sessionTree`).
@@ -164,7 +164,9 @@ public enum HomeGreeting {
         return Array(newest.sorted { a, b in
             let au = stamp(a.updatedAt), bu = stamp(b.updatedAt)
             if au != bu { return au > bu }
-            return stamp(a.createdAt) > stamp(b.createdAt)
+            let ac = stamp(a.createdAt), bc = stamp(b.createdAt)
+            if ac != bc { return ac > bc }
+            return a.id < b.id
         }.prefix(count))
     }
 }

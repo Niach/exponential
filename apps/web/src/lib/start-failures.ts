@@ -13,6 +13,8 @@
 // `integrations/pr-actor-claims.ts`): a miss (restart, another replica)
 // degrades to the old timeout message, never a crash.
 
+import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
+
 interface StartEntry {
   // Who may report a failure for this start: the device owner (the daemon
   // authenticates as them). Equal to `requesterId` on an own-device start.
@@ -109,7 +111,71 @@ export function takeStartFailure(
   return entry.failure
 }
 
+// Final review B8: the server's start dedupe (feedback-states.json
+// `starting.dedupeMs`, 30 min). A client re-sends ONE draft start under the
+// same `startId` (Retry, a later Start of the same draft); a start already
+// forwarded for that (requester, device, startId) is not forwarded again and
+// answers what the first one answered. Devices below the startId build
+// ignore the id, so this is what keeps a Retry from starting a second run
+// there. Only a SUCCESSFUL forward is remembered (a refusal or relay error
+// re-forwards on Retry: the device's own dedupe covers a frame that did
+// arrive); a repeat while the first is still in flight awaits it.
+// Per-process like the registry above: another replica or a restart
+// forwards again, and the device dedupe is the backstop.
+
+const DEDUPE_MS = FEEDBACK_STATES.starting.dedupeMs
+
+interface ForwardedStart {
+  answer: Promise<unknown>
+  // Null while in flight; set once the first forward succeeded.
+  expiresAt: number | null
+}
+
+const forwarded = new Map<string, ForwardedStart>()
+
+function pruneForwarded(now: number): void {
+  for (const [key, entry] of forwarded) {
+    if (entry.expiresAt !== null && entry.expiresAt <= now) {
+      forwarded.delete(key)
+    }
+  }
+}
+
+/** Runs `forward` once per (requesterId, deviceId, startId) within
+ *  `starting.dedupeMs`; a start without a client `startId` always runs. */
+export function forwardStartOnce<T>(
+  key: { requesterId: string; deviceId: string; startId?: string },
+  forward: () => Promise<T>
+): Promise<T> {
+  if (!key.startId) return forward()
+  const now = Date.now()
+  pruneForwarded(now)
+  const id = JSON.stringify([key.requesterId, key.deviceId, key.startId])
+  const prior = forwarded.get(id)
+  if (prior) return prior.answer as Promise<T>
+  while (forwarded.size >= MAX_STARTS) {
+    const oldest = forwarded.keys().next().value
+    if (oldest === undefined) break
+    forwarded.delete(oldest)
+  }
+  const entry: ForwardedStart = { answer: Promise.resolve(), expiresAt: null }
+  const answer = forward().then(
+    (result) => {
+      entry.expiresAt = Date.now() + DEDUPE_MS
+      return result
+    },
+    (error: unknown) => {
+      if (forwarded.get(id) === entry) forwarded.delete(id)
+      throw error
+    }
+  )
+  entry.answer = answer
+  forwarded.set(id, entry)
+  return answer
+}
+
 // Test hook.
 export function _clearStartFailures(): void {
   starts.clear()
+  forwarded.clear()
 }

@@ -701,6 +701,16 @@
       "title": "Search list",
       "blurb": "THE search list (SLOP-28, search-list.json): typing `#` in any editor opens it with a focused input prefilled with the token, no result cap, the list scrolls with a bottom fade; ↑↓ Enter inserts `#IDENT`. A popover at the caret on a pointer, a bottom sheet on phones; the + menu’s submenus and global search draw the same rows.",
       "order": 11,
+      "web": {
+        "route": "/t/$teamSlug/agent",
+        "anchor": {
+          "testId": "search-list",
+          "timeoutMs": 20000
+        },
+        "recipe": "typeIssueRef",
+        "settleMs": 600
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_search-list",
         "lane": "styleguide"
@@ -709,10 +719,21 @@
         "shot": "sg_search-list",
         "lane": "styleguide"
       },
+      "desktop": {
+        "drive": {
+          "kind": "dialog",
+          "value": "search"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_TOOL": "board",
+          "EXP_DEV_SEARCH_QUERY": "APP"
+        }
+      },
       "notes": {
-        "web": "The styleguide entry `search-list` (apps/styleguide/src/entries/search-list.tsx) draws the popover on the real component; the `search` view photographs the same list behind Cmd+K. No web recipe types `#` into an editor yet.",
-        "web-mobile": "See web: on phones the list is a bottom sheet with the input focused.",
-        "desktop": "The desktop styleguide entry `search_list.rs`; the `search` view’s dialog (Cmd+K) is the same list. No `EXP_DEV_*` value opens the `#` popover."
+        "web": "The `#` typeahead itself: `typeIssueRef` types `Explain #` into the Agent composer and then `APP` (the seeded board's key), which lands in the list's own focused input, so the shot is the popover at the caret with every seeded issue, uncapped, under its bottom fade.",
+        "web-mobile": "Inherits web: on phones the same `#` opens the list as a bottom sheet with its input focused.",
+        "desktop": "The ⌘K dialog IS the search list (`search_sheet.rs` on `picker::search_list`); the query `APP` matches every seeded identifier, so the shot shows the uncapped list scrolling under its bottom fade, which `search` (one hit) does not. No `EXP_DEV_*` value opens the `#` popover in an editor."
       }
     },
     {
@@ -950,9 +971,15 @@
         "shot": "sg_agent-home",
         "lane": "styleguide"
       },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "chat"
+        }
+      },
       "notes": {
         "web": "The team index redirects to the Agent page (a replace), so this is the landing a team URL gets; the anchor waits for Recent, which needs the seeded sessions.",
-        "desktop": "The IDE starts on Agent (EXP-1192) and the dev screen for it is `chat`, so `chat`’s desktop capture is this page; a second drive would photograph the same pixels."
+        "desktop": "Same drive as `chat` (`EXP_DEV_SCREEN=chat`): the IDE starts on Agent (EXP-1192) and that page IS the home column (greeting, composer, Recent), so the two desktop shots are one surface filed under both names, like issue-detail and issue-comments."
       }
     },
     {
@@ -4446,6 +4473,15 @@
       "title": "Composer + menu",
       "blurb": "The composer’s ONE \"+\" menu (EXP-1249, fixture composer-menu.json): Implement issue › and Run action › (SLOP-28: submenus on THE search list), Add file or image, Effort ›, Subagents ›, Ultracode, MCP servers ›, Computer use; a dropdown at desktop widths and a bottom sheet on phones, submenus pushed as pages.",
       "order": 12,
+      "web": {
+        "route": "/t/$teamSlug/agent",
+        "anchor": {
+          "testId": "agent-composer-menu",
+          "timeoutMs": 20000
+        },
+        "recipe": "openComposerMenuImplement",
+        "settleMs": 600
+      },
       "ios": {
         "shot": "sg_composer-menu",
         "lane": "styleguide"
@@ -4455,9 +4491,9 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "The styleguide `composer-dialog` and `menu-submenu` entries show the open menu and a submenu; the app view is `chat`.",
-        "web-mobile": "See web: on phones the same entries open as a bottom sheet.",
-        "desktop": "The desktop styleguide `menu_submenu` entry draws the real \"+\" menu and a submenu; the app view is `chat`."
+        "web": "`openComposerMenuImplement` opens the Agent composer's \"+\" dropdown and hovers Implement issue, so its submenu (THE search list, SLOP-28) is open beside the menu.",
+        "web-mobile": "No app capture: on phones the menu is a bottom sheet and Implement issue pushes a page, which no hover reaches; the open sheet is the natives' `sg_composer-menu`.",
+        "desktop": "No app capture: no `EXP_DEV_*` value opens the \"+\" menu (`EXP_DEV_SCREEN=chat` is the closed composer). The desktop styleguide `menu_submenu` entry draws the real \"+\" menu and a submenu."
       }
     },
     {
@@ -4631,6 +4667,16 @@
       "title": "Work card",
       "blurb": "ONE card ×4 for a workflow, a task list and a subagent (EXP-1240, work-card.json): kind icon, name, kind word, progress and elapsed over a segment bar; finished phases fold to one row, the running phase lists its lanes one line each.",
       "order": 13,
+      "web": {
+        "route": "/t/$teamSlug/sessions/$sessionId",
+        "anchor": {
+          "testId": "work-card",
+          "timeoutMs": 30000
+        },
+        "recipe": "showWorkCards",
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_work-card",
         "lane": "styleguide"
@@ -4639,10 +4685,20 @@
         "shot": "sg_work-card",
         "lane": "styleguide"
       },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "session:$steeredSession"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_SHOW_WORK": "1"
+        }
+      },
       "notes": {
-        "web": "The styleguide entry `work-card` (apps/styleguide/src/entries/work-card.tsx) draws it on the real component; the app view is `steering`.",
-        "web-mobile": "See web: the phone thread draws the same card at full width.",
-        "desktop": "The desktop styleguide entry `work_card.rs`; the app view is a session’s thread."
+        "web": "The `steering` session with Show work on: `showWorkCards` sets the per-user pref (localStorage `exp.showWork:<userId>`), reloads and centres the last subagent's Work card of the relay-fed demo feed (apps/web/scripts/screenshot-desktop.ts: two subagents and a task list, whose card sits in the strip under the transcript). Needs `bun run screenshots:desktop`, like `steering`.",
+        "web-mobile": "Inherits web: the phone transcript draws the same cards at full width.",
+        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1`: the transcript opens on its tail, where the relay-fed demo feed's task list (apps/web/scripts/screenshot-desktop.ts) is the Work card in the strip under the transcript; the two subagent cards sit above the fold. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
       }
     },
     {
@@ -4651,6 +4707,16 @@
       "title": "Script card",
       "blurb": "A code-mode call (EXP-1279, script-card.json): “Ran a script · N calls · T” with the nested calls grouped by tool, failures in rose, the script itself behind a Script disclosure.",
       "order": 14,
+      "web": {
+        "route": "/t/$teamSlug/sessions/$sessionId",
+        "anchor": {
+          "testId": "script-card",
+          "timeoutMs": 30000
+        },
+        "recipe": "showScriptCard",
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_script-card",
         "lane": "styleguide"
@@ -4660,9 +4726,9 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "The styleguide entry `script-card` (apps/styleguide/src/entries/script-card.tsx) draws it on the real component; the app view is `steering`.",
-        "web-mobile": "See web: the phone thread draws the same card at full width.",
-        "desktop": "The desktop styleguide entry `script_card.rs`; the app view is a session’s thread."
+        "web": "The `steering` session with Show work on: the demo feed (apps/web/scripts/screenshot-desktop.ts) carries a code-mode `exec` call (`mcp__codemode__exec`, toolKind `script`, its settle carrying a 13-call log with one failure and the script source); `showScriptCard` sets the Show work pref, reloads and centres the card. Needs `bun run screenshots:desktop`, like `steering`.",
+        "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
+        "desktop": "No app capture: the `steering` drive with `EXP_DEV_SHOW_WORK=1` opens the transcript on its tail, where the demo feed's code-mode `exec` call sits just above the fold (only the card's last row shows under the status row) and no `EXP_DEV_*` value scrolls the feed. The desktop styleguide entry `script_card.rs` draws the card."
       }
     },
     {
@@ -4671,6 +4737,16 @@
       "title": "Comment card",
       "blurb": "An `exponential_comments_create` call drawn as the real comment (EXP-1241): the author row with the agent mark and “via MCP”, the markdown clamped to three lines with Show more; a click opens the issue scrolled to that comment.",
       "order": 15,
+      "web": {
+        "route": "/t/$teamSlug/sessions/$sessionId",
+        "anchor": {
+          "testId": "comment-call-row",
+          "timeoutMs": 30000
+        },
+        "recipe": "showCommentCard",
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
       "ios": {
         "shot": "sg_comment-call-card",
         "lane": "styleguide"
@@ -4679,10 +4755,20 @@
         "shot": "sg_comment-call-card",
         "lane": "styleguide"
       },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "session:$steeredSession"
+        },
+        "anchorDelayMs": 2500,
+        "env": {
+          "EXP_DEV_SHOW_WORK": "1"
+        }
+      },
       "notes": {
-        "web": "The styleguide entry `comment-call-card` (apps/styleguide/src/entries/comment-call-card.tsx) draws it on the real component; the app view is `steering`.",
-        "web-mobile": "See web: the phone thread draws the same card at full width.",
-        "desktop": "The desktop styleguide entry `comment_card.rs`; the app view is a session’s thread."
+        "web": "The `steering` session with Show work on: the demo feed (apps/web/scripts/screenshot-desktop.ts) carries a `exponential_comments_create` call whose settle names the seeded `mcp` comment (DEMO_AGENT_COMMENT_ID), so the card is the real synced row; `showCommentCard` sets the Show work pref, reloads and centres the card. Needs `bun run screenshots:desktop`, like `steering`.",
+        "web-mobile": "Inherits web: the phone transcript draws the same card at full width.",
+        "desktop": "The `steering` drive with `EXP_DEV_SHOW_WORK=1`: the transcript opens on its tail, where the demo feed's `exponential_comments_create` call draws the seeded `mcp` comment as its card. Needs `bun run screenshots:desktop` and the steer relay, like `steering`."
       }
     },
     {
@@ -4700,9 +4786,9 @@
         "lane": "styleguide"
       },
       "notes": {
-        "web": "The styleguide entry `feedback-states` (apps/styleguide/src/entries/feedback-states.tsx) draws every kind on its real primitive; in the app they show wherever work is pending (the composer’s “Starting on <device>”, list skeletons, toasts).",
+        "web": "No app capture: the six kinds only show one at a time and only while work is pending or has failed (the composer's \"Starting on <device>\", list skeletons, a failed action's toast), so no route or recipe holds them still. The styleguide entry `feedback-states` (apps/styleguide/src/entries/feedback-states.tsx) draws every kind on its real primitive.",
         "web-mobile": "See web.",
-        "desktop": "The desktop styleguide entry `feedback_states.rs`."
+        "desktop": "No app capture, for the same reason as web. The desktop styleguide entry `feedback_states.rs`."
       }
     }
   ]

@@ -183,6 +183,10 @@ public enum FeedbackStates {
     public enum Starting {
         public static func label(device: String) -> String { "Starting on \(device)" }
         public static let timeoutMs = 30_000
+        /// How long the watch keeps looking for a late row after the send.
+        public static let watchMs = 1_800_000
+        /// The server and device dedupe a (deviceId, startId) this long.
+        public static let dedupeMs = 1_800_000
         public static let timeoutTitle = "The session did not start"
         public static func timeoutDescription(device: String) -> String { "\(device) did not answer." }
         public static let timeoutAction = "Retry"

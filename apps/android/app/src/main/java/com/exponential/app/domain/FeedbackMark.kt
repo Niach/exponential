@@ -108,6 +108,10 @@ object FeedbackStates {
     /** The composer after Start, until the run's row lands. */
     const val STARTING_LABEL = "Starting on {device}"
     const val STARTING_TIMEOUT_MS = 30_000L
+    /** How long the watch keeps looking for a late row after the send. */
+    const val STARTING_WATCH_MS = 1_800_000L
+    /** The server and device dedupe a (deviceId, startId) this long. */
+    const val STARTING_DEDUPE_MS = 1_800_000L
     const val STARTING_TIMEOUT_TITLE = "The session did not start"
     const val STARTING_TIMEOUT_DESCRIPTION = "{device} did not answer."
     const val RETRY = "Retry"

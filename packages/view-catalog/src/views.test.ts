@@ -83,6 +83,11 @@ const PINNED_RECIPES = [
   `openTriggerEditor`,
   `openThreadChildMenu`,
   `openGettingStarted`,
+  `typeIssueRef`,
+  `openComposerMenuImplement`,
+  `showWorkCards`,
+  `showScriptCard`,
+  `showCommentCard`,
 ]
 
 // ---------------------------------------------------------------- 1. shape
