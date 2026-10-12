@@ -103,6 +103,10 @@ class GettingStartedViewModel @Inject constructor(
         // so their signals stay false here.
         GettingStartedSignals(
             hasBoard = boardRows.isNotEmpty(),
+            // A repo-backed board proves a teammate connected GitHub for the
+            // team: the step is done for everyone, not only for whoever
+            // linked it (OR'd with the status read below).
+            githubInstalled = boardRows.any { it.repositoryId != null },
             hasDesktopDevice = devices.any { it.kind == "desktop" },
             hasServerDevice = devices.any { it.kind == "server" },
             hasCodingSession = sessions.isNotEmpty(),
@@ -132,7 +136,7 @@ class GettingStartedViewModel @Inject constructor(
         } else {
             GettingStartedState(
                 model = GettingStarted.derive(
-                    base.copy(githubInstalled = github),
+                    base.copy(githubInstalled = github || base.githubInstalled),
                     GettingStartedPermissions(canManageMembers = owner, canManageWidgets = owner),
                     GettingStartedPlatform.Phone,
                 ),

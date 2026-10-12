@@ -1474,7 +1474,7 @@ pub(crate) fn trigger_devices(cx: &App) -> Vec<DeviceOption> {
     };
     let collection = store.collections().devices.clone();
     let now_ms = chrono::Utc::now().timestamp_millis();
-    let me = crate::queries::active_account(cx).map(|account| account.id);
+    let me = crate::queries::active_account(cx).map(|account| account.user_id);
     let mut devices: Vec<DeviceOption> = collection
         .read(cx)
         .iter()

@@ -37,6 +37,9 @@ final class GettingStartedProgress {
     var complete: Bool { state?.complete ?? false }
 
     private var signals = Signals()
+    /// The one-shot `integrations.github.status` answer, kept apart from the
+    /// observed board rule so a re-emission never drops it.
+    private var githubStatusInstalled = false
     private var boundKey: String?
     /// What the GitHub retry needs to re-run itself after a transient failure.
     private var boundAccountId: String?
@@ -66,6 +69,7 @@ final class GettingStartedProgress {
         boundKey = key
         loading = true
         signals = Signals()
+        githubStatusInstalled = false
         recompute()
 
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
@@ -88,7 +92,12 @@ final class GettingStartedProgress {
                     if device.kind == "server" { next.model.hasServerDevice = true }
                 }
             }
-            next.model.hasBoard = try BoardEntity.fetchAll(db).contains { $0.teamId == teamId }
+            let boards = try BoardEntity.fetchAll(db).filter { $0.teamId == teamId }
+            next.model.hasBoard = !boards.isEmpty
+            // A repo-backed board proves a teammate connected GitHub for the
+            // team: the step is done for everyone, not only for whoever
+            // linked it.
+            next.model.githubInstalled = boards.contains { $0.repositoryId != nil }
             next.model.hasCodingSession = try CodingSessionEntity.fetchAll(db).contains { $0.teamId == teamId }
             let members = try TeamMemberEntity.fetchAll(db).filter { $0.teamId == teamId }
             let invites = try TeamInviteEntity.fetchAll(db).filter { $0.teamId == teamId }
@@ -101,9 +110,9 @@ final class GettingStartedProgress {
             do {
                 for try await next in observation.values(in: pool) {
                     guard let self else { return }
-                    // The one-shot GitHub read below owns that flag; keep it.
+                    // The one-shot GitHub read below counts too; keep it.
                     var merged = next
-                    merged.model.githubInstalled = self.signals.model.githubInstalled
+                    merged.model.githubInstalled = next.model.githubInstalled || self.githubStatusInstalled
                     self.signals = merged
                     self.loading = false
                     self.recompute()
@@ -136,6 +145,7 @@ final class GettingStartedProgress {
         tasks.add(Task { [weak self] in
             let status = try? await api.githubStatus(accountId: accountId, teamId: teamId)
             guard let self, let status, status.installed else { return }
+            self.githubStatusInstalled = true
             self.signals.model.githubInstalled = true
             self.recompute()
         })

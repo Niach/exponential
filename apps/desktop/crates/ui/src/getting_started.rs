@@ -610,7 +610,9 @@ impl GettingStartedProgress {
         if !devices.is_ready() {
             return None;
         }
-        let me = queries::active_account(cx)?.id;
+        // `devices.user_id` = the Better Auth user id, never `Account::id`
+        // (the per-instance account key).
+        let me = queries::active_account(cx)?.user_id;
         let mut desktop = false;
         let mut server = false;
         for row in devices
@@ -628,7 +630,8 @@ impl GettingStartedProgress {
 
     fn signals(&self, team_id: &str, cx: &App) -> Signals {
         let collections = Store::global(cx).collections();
-        let has_board = !collections.boards_in_team(team_id, cx).is_empty();
+        let boards = collections.boards_in_team(team_id, cx);
+        let has_board = !boards.is_empty();
         let has_coding_session = collections
             .coding_sessions
             .read(cx)
@@ -650,7 +653,11 @@ impl GettingStartedProgress {
             Self::device_kinds(cx).unwrap_or((false, false));
         Signals {
             has_board,
-            github_installed: answers.and_then(|a| a.github_installed) == Some(true),
+            // A repo-backed board proves a teammate connected GitHub for the
+            // team: the step is done for everyone, not only for whoever
+            // linked it.
+            github_installed: answers.and_then(|a| a.github_installed) == Some(true)
+                || boards.iter().any(|board| board.repository_id.is_some()),
             has_desktop_device,
             has_server_device,
             has_coding_session,
