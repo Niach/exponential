@@ -80,6 +80,14 @@ CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON coding_sessions FOR
     AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
     AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
   EXECUTE FUNCTION update_updated_at();
+-- EXP-1284: thread_items carries the issue-child board context on issue
+-- items (run items keep it NULL), guarded like every issue-child table.
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON thread_items FOR EACH ROW
+  WHEN (NEW.board_deleted_at IS NOT DISTINCT FROM OLD.board_deleted_at
+    AND NEW.board_archived_at IS NOT DISTINCT FROM OLD.board_archived_at
+    AND NEW.board_id IS NOT DISTINCT FROM OLD.board_id)
+  EXECUTE FUNCTION update_updated_at();
+CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON threads FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON repositories FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON actions FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 CREATE OR REPLACE TRIGGER update_updated_at BEFORE UPDATE ON user_notification_prefs FOR EACH ROW EXECUTE FUNCTION update_updated_at();
@@ -266,6 +274,13 @@ CREATE OR REPLACE TRIGGER populate_issue_relation_team_id
   BEFORE INSERT ON issue_relations
   FOR EACH ROW EXECUTE FUNCTION populate_issue_child_team_id();
 
+-- thread_items (EXP-1284): an ISSUE item takes its team from the issue (the
+-- writer refuses a thread of another team); a RUN item (issue_id NULL)
+-- keeps the explicitly-written thread team.
+CREATE OR REPLACE TRIGGER populate_thread_item_team_id
+  BEFORE INSERT ON thread_items
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_team_id();
+
 -- 6. coding_sessions (the live "coding now" record, the 14th synced shape):
 --    team_id denormalized from issue→board via the shared
 --    populate_issue_child_team_id, so its Electric shape filter stays
@@ -354,6 +369,12 @@ CREATE OR REPLACE TRIGGER populate_notification_board_id
   BEFORE INSERT OR UPDATE OF board_id ON notifications
   FOR EACH ROW EXECUTE FUNCTION populate_issue_child_board_id();
 
+-- EXP-1284: issue items only; run items keep the board context NULL and
+-- always sync (the run itself is trash-scoped by its own shape).
+CREATE OR REPLACE TRIGGER populate_thread_item_board_id
+  BEFORE INSERT OR UPDATE OF board_id ON thread_items
+  FOR EACH ROW EXECUTE FUNCTION populate_issue_child_board_id();
+
 -- 8. Auto-populate team_id + board_deleted_at + board_archived_at on issues
 --    from the parent board (REV2-5, EXP-500). team_id makes the issues shape
 --    TEAM-scoped (stable across board create/trash/archive); the two mirrors
@@ -419,6 +440,8 @@ BEGIN
     WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
   UPDATE notifications SET board_deleted_at = NEW.deleted_at
     WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
+  UPDATE thread_items SET board_deleted_at = NEW.deleted_at
+    WHERE board_id = NEW.id AND board_deleted_at IS DISTINCT FROM NEW.deleted_at;
   RETURN NULL;
 END;
 $$ LANGUAGE plpgsql;
@@ -457,6 +480,8 @@ BEGIN
   UPDATE coding_sessions SET board_archived_at = NEW.archived_at
     WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
   UPDATE notifications SET board_archived_at = NEW.archived_at
+    WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
+  UPDATE thread_items SET board_archived_at = NEW.archived_at
     WHERE board_id = NEW.id AND board_archived_at IS DISTINCT FROM NEW.archived_at;
   RETURN NULL;
 END;

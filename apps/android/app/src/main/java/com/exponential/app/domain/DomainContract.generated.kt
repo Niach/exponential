@@ -37,6 +37,8 @@ object DomainContract {
     val issueRelationTypeForwardLabels: List<String> = listOf("blocks", "parent of", "duplicate of", "related to")
     val issueRelationTypeInverseLabels: List<String> = listOf("blocked by", "sub-issue of", "duplicated by", "related to")
     val issueRelationSourceValues: List<String> = listOf("user", "reference")
+    val threadItemKindValues: List<String> = listOf("issue", "run")
+    val threadItemSourceValues: List<String> = listOf("user", "agent")
     val codingAgentValues: List<String> = listOf("claude", "codex")
     val codingModelValues: List<String> = listOf("fable", "opus", "sonnet")
     val codingEffortValues: List<String> = listOf("low", "medium", "high", "xhigh", "max")
@@ -69,7 +71,7 @@ object DomainContract {
     val expToolSubjectKeys: List<String> = listOf("name", "id", "", "id", "id", "id", "issueId", "filename", "name", "id", "id", "", "id", "id", "issueId", "id", "issueId", "id", "deviceId", "", "email", "", "id", "issueId", "issueId", "issueId", "issueId", "title", "id", "id", "", "id", "", "id", "id", "id", "id", "name", "id", "id", "", "id", "url", "", "id", "", "", "", "title", "issueId", "title", "issueId", "issueId", "title", "fullName", "", "", "question", "reason", "", "id", "topic", "id", "", "id", "id", "topic", "issueId", "name", "id", "", "id", "name", "id", "", "id")
     val expToolResults: List<String> = listOf("action", "none", "list", "action", "none", "none", "list", "none", "board", "none", "board", "list", "board", "board", "comment", "none", "list", "comment", "none", "list", "none", "list", "none", "issue", "issue", "issue", "issue", "issue", "none", "issue", "list", "none", "list", "issue", "issue", "issue", "issue", "none", "none", "none", "list", "none", "none", "list", "none", "list", "list", "none", "none", "pr", "pr", "pr", "pr", "none", "none", "none", "list", "none", "none", "none", "session", "results", "none", "list", "session", "session", "picture", "session", "none", "none", "list", "none", "none", "none", "list", "none")
     val turnStateValues: List<String> = listOf("started", "ended")
-    val entityRefKindValues: List<String> = listOf("issue", "board", "action", "comment", "session", "label", "status", "device", "member", "repository", "team", "invite", "notification", "attachment", "list")
+    val entityRefKindValues: List<String> = listOf("issue", "board", "action", "comment", "session", "label", "status", "device", "member", "repository", "team", "invite", "notification", "attachment", "list", "thread")
     const val expToolPreviewMaxRefs: Int = 8
     const val expToolPreviewTextMax: Int = 200
     val subagentStatusValues: List<String> = listOf("started", "completed", "duplicate")
@@ -231,4 +233,8 @@ object DomainContract {
     const val issueRelationTypeRelated: String = "related"
     const val issueRelationSourceUser: String = "user"
     const val issueRelationSourceReference: String = "reference"
+    const val threadItemKindIssue: String = "issue"
+    const val threadItemKindRun: String = "run"
+    const val threadItemSourceUser: String = "user"
+    const val threadItemSourceAgent: String = "agent"
 }

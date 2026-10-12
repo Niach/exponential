@@ -38,6 +38,8 @@ public enum DomainContract {
     public static let issueRelationTypeForwardLabels: [String] = ["blocks", "parent of", "duplicate of", "related to"]
     public static let issueRelationTypeInverseLabels: [String] = ["blocked by", "sub-issue of", "duplicated by", "related to"]
     public static let issueRelationSourceValues: [String] = ["user", "reference"]
+    public static let threadItemKindValues: [String] = ["issue", "run"]
+    public static let threadItemSourceValues: [String] = ["user", "agent"]
     public static let codingAgentValues: [String] = ["claude", "codex"]
     public static let codingModelValues: [String] = ["fable", "opus", "sonnet"]
     public static let codingEffortValues: [String] = ["low", "medium", "high", "xhigh", "max"]
@@ -70,7 +72,7 @@ public enum DomainContract {
     public static let expToolSubjectKeys: [String] = ["name", "id", "", "id", "id", "id", "issueId", "filename", "name", "id", "id", "", "id", "id", "issueId", "id", "issueId", "id", "deviceId", "", "email", "", "id", "issueId", "issueId", "issueId", "issueId", "title", "id", "id", "", "id", "", "id", "id", "id", "id", "name", "id", "id", "", "id", "url", "", "id", "", "", "", "title", "issueId", "title", "issueId", "issueId", "title", "fullName", "", "", "question", "reason", "", "id", "topic", "id", "", "id", "id", "topic", "issueId", "name", "id", "", "id", "name", "id", "", "id"]
     public static let expToolResults: [String] = ["action", "none", "list", "action", "none", "none", "list", "none", "board", "none", "board", "list", "board", "board", "comment", "none", "list", "comment", "none", "list", "none", "list", "none", "issue", "issue", "issue", "issue", "issue", "none", "issue", "list", "none", "list", "issue", "issue", "issue", "issue", "none", "none", "none", "list", "none", "none", "list", "none", "list", "list", "none", "none", "pr", "pr", "pr", "pr", "none", "none", "none", "list", "none", "none", "none", "session", "results", "none", "list", "session", "session", "picture", "session", "none", "none", "list", "none", "none", "none", "list", "none"]
     public static let turnStateValues: [String] = ["started", "ended"]
-    public static let entityRefKindValues: [String] = ["issue", "board", "action", "comment", "session", "label", "status", "device", "member", "repository", "team", "invite", "notification", "attachment", "list"]
+    public static let entityRefKindValues: [String] = ["issue", "board", "action", "comment", "session", "label", "status", "device", "member", "repository", "team", "invite", "notification", "attachment", "list", "thread"]
     public static let expToolPreviewMaxRefs: Int = 8
     public static let expToolPreviewTextMax: Int = 200
     public static let subagentStatusValues: [String] = ["started", "completed", "duplicate"]
@@ -232,4 +234,8 @@ public enum DomainContract {
     public static let issueRelationTypeRelated: String = "related"
     public static let issueRelationSourceUser: String = "user"
     public static let issueRelationSourceReference: String = "reference"
+    public static let threadItemKindIssue: String = "issue"
+    public static let threadItemKindRun: String = "run"
+    public static let threadItemSourceUser: String = "user"
+    public static let threadItemSourceAgent: String = "agent"
 }

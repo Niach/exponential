@@ -29,6 +29,8 @@ import {
   issueEventTypeValues,
   issueRelationTypeValues,
   issueRelationSourceValues,
+  threadItemKindValues,
+  threadItemSourceValues,
   ISSUE_RELATION_LABELS,
   issueStatusOrder,
   CODING_SESSION_STALE_HOURS,
@@ -237,6 +239,13 @@ describe(`domain-contract parity`, () => {
   // EXP-736: the relation vocabulary AND both label halves — every client
   // renders its side's label from the generated contract, so a reordered
   // values list or a reworded label would silently desync four UIs.
+  it(`thread item kinds and sources match the contract (EXP-1284)`, () => {
+    expect([...threadItemKindValues]).toEqual([...contract.threadItemKind.values])
+    expect([...threadItemSourceValues]).toEqual([
+      ...contract.threadItemSource.values,
+    ])
+  })
+
   it(`issue relation types, sources and labels match the contract`, () => {
     expect([...issueRelationTypeValues]).toEqual([
       ...contract.issueRelationType.values,

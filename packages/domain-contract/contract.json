@@ -364,6 +364,12 @@
   "issueRelationSource": {
     "values": ["user", "reference"]
   },
+  "threadItemKind": {
+    "values": ["issue", "run"]
+  },
+  "threadItemSource": {
+    "values": ["user", "agent"]
+  },
   "codingAgent": {
     "values": ["claude", "codex"]
   },
@@ -1372,7 +1378,7 @@
     "values": [
       "issue", "board", "action", "comment", "session", "label",
       "status", "device", "member", "repository", "team", "invite",
-      "notification", "attachment", "list"
+      "notification", "attachment", "list", "thread"
     ]
   },
   "expToolPreview": {
