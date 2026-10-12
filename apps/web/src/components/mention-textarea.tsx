@@ -215,11 +215,22 @@ export const MentionTextarea = forwardRef<
   /** Which autocomplete (if any) the text before `caret` is in the middle
    *  of. Runs on every keystroke, and (EXP-790) after a programmatic insert,
    *  so a chip that drops a trailing `#` opens the issue picker at once.
-   *  True when it opened the `#` search (whose input takes the focus). */
-  const detect = (next: string, caret: number, canSearch = true): boolean => {
+   *  True when it opened the `#` search (whose input takes the focus).
+   *  `forceHash` = an explicit `#` insert (the `#` button): a bare `#` at a
+   *  line start opens the search too, where a TYPED one waits for a token
+   *  (search-list.json, so `# Title` stays a heading). */
+  const detect = (
+    next: string,
+    caret: number,
+    canSearch = true,
+    forceHash = false
+  ): boolean => {
     const before = next.slice(0, caret)
     const mention = before.match(MENTION_AT_CARET)
-    const issueRef = issueRefs ? typeaheadPrefill(next, caret) : null
+    const issueRef = issueRefs
+      ? (typeaheadPrefill(next, caret) ??
+        (forceHash && before.endsWith(`#`) ? { start: caret - 1, query: `` } : null))
+      : null
     const emoji = matchEmojiToken(before)
     if (!issueRef) dismissedHashRef.current = null
     if (mention) {
@@ -234,7 +245,9 @@ export const MentionTextarea = forwardRef<
       const field = textareaRef.current
       setIssueSearch({
         start: issueRef.start,
-        end: caret,
+        // Exactly `#` + the recorded token: a pick or a Backspace never
+        // touches text after it.
+        end: issueRef.start + 1 + issueRef.query.length,
         query: issueRef.query,
         anchor: field ? textareaCaretAnchor(field, next, issueRef.start) : null,
       })
@@ -258,7 +271,8 @@ export const MentionTextarea = forwardRef<
     start: number,
     end: number,
     text: string,
-    caretOffset: number = text.length
+    caretOffset: number = text.length,
+    forceHash = false
   ) => {
     const el = textareaRef.current
     const next = `${value.slice(0, start)}${text}${value.slice(end)}`
@@ -267,7 +281,7 @@ export const MentionTextarea = forwardRef<
     // An insert that opened the `#` search (the `#` button, a chip's
     // trailing `#`) leaves the focus to the search's input: pulling it back
     // would dismiss the popover as a focus-outside.
-    const searching = detect(next, nextCaret)
+    const searching = detect(next, nextCaret, true, forceHash)
     requestAnimationFrame(() => {
       if (el) {
         if (!searching) el.focus()
@@ -349,7 +363,8 @@ export const MentionTextarea = forwardRef<
       // knows where the caret was.
       const start = el?.selectionStart ?? value.length
       const end = el?.selectionEnd ?? start
-      splice(start, end, text, caretOffset)
+      // An inserted `#` (the `#` button) asks for the search outright.
+      splice(start, end, text, caretOffset, text.endsWith(`#`))
     },
     charBeforeCaret: () => {
       const el = textareaRef.current

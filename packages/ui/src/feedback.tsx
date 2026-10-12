@@ -253,7 +253,7 @@ export async function whileBlocking<T>(label: string, work: () => Promise<T>): P
 
 /** Fill a blocking line's `{team}` / `{account}`. */
 export function blockingLabel(kind: keyof typeof BLOCKING_COPY, name = ``): string {
-  return BLOCKING_COPY[kind].replace(`{team}`, name).replace(`{account}`, name)
+  return BLOCKING_COPY[kind].replace(`{team}`, () => name).replace(`{account}`, () => name)
 }
 
 // FEED-79 (EXP-1259 D10): THE error rule, feedback-states.json `errors`. A

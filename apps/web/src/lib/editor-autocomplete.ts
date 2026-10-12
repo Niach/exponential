@@ -41,8 +41,16 @@ export interface EditorAutocompleteOptions {
   onKeyDown: (event: KeyboardEvent) => boolean
 }
 
+/** Transaction meta for an EXPLICIT `#` insert (the formatting rail's `#`
+ *  button): it opens the search even where a typed `#` waits for a token
+ *  (the start of a line, so `# Title` stays a heading when typed). */
+export const FORCE_ISSUE_REF_META = `editorAutocompleteForceIssueRef`
+
+const autocompleteKey = new PluginKey<boolean>(`editorAutocomplete`)
+
 export function findAutocompleteAtCaret(
-  state: EditorState
+  state: EditorState,
+  forceIssueRef = false
 ): EditorAutocompleteActive | null {
   const { $from, empty } = state.selection
   if (!empty || !$from.parent.isTextblock) return null
@@ -69,8 +77,15 @@ export function findAutocompleteAtCaret(
     }
   }
   // SLOP-28: the `#` trigger + prefill rule is the search list's
-  // (`typeaheadPrefill`, search-list.json ×4): after whitespace or `(` too.
-  const issueRef = typeaheadPrefill(textBefore, textBefore.length)
+  // (`typeaheadPrefill`, search-list.json ×4): after whitespace or `(` at
+  // once, at a paragraph's start only once a token character follows (a
+  // typed `# ` stays the heading input rule's). The rail's `#` button
+  // opens it on the bare `#` anyway.
+  const issueRef =
+    typeaheadPrefill(textBefore, textBefore.length) ??
+    (forceIssueRef && textBefore.endsWith(`#`)
+      ? { start: textBefore.length - 1, query: `` }
+      : null)
   if (issueRef) {
     return {
       kind: `issueRef`,
@@ -126,15 +141,23 @@ export const EditorAutocompleteExtension =
         options.onStateChange(next)
       }
       return [
-        new Plugin({
-          key: new PluginKey(`editorAutocomplete`),
+        new Plugin<boolean>({
+          key: autocompleteKey,
+          // True only for the state an explicit `#` insert produced.
+          state: {
+            init: () => false,
+            apply: (tr) => tr.getMeta(FORCE_ISSUE_REF_META) === true,
+          },
           view: () => ({
             update: (view, prevState) => {
               if (!view.editable) {
                 emit(null)
                 return
               }
-              const next = findAutocompleteAtCaret(view.state)
+              const next = findAutocompleteAtCaret(
+                view.state,
+                autocompleteKey.getState(view.state) === true
+              )
               // Only typing may OPEN the menu. A pure caret move (clicking
               // right after an existing `#EXP-42` token, arrowing onto it)
               // matches the same at-caret regex, and used to pop the picker

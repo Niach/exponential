@@ -367,6 +367,10 @@ export const steerRouter = router({
           // new run is unattended, so its close-out ends it. The parent
           // linkage itself is stamped server-side by the MCP tool.
           parentSessionId: z.string().uuid().optional(),
+          // Review #3: the client's id for THIS Start press (Retry reuses
+          // it). Rides the relay frame as `startId`; the device ignores an
+          // id it already started, so a late start never duplicates.
+          startId: z.string().uuid().optional(),
         })
         .refine(
           (value) =>
@@ -901,7 +905,7 @@ export const steerRouter = router({
           session.startedReason === `agent` ? { startedReason: `agent` } : {}
         // FEED-63: names this start so the device can report a launch
         // failure back (steer.reportStartFailure).
-        const startId = mintStartId(ownerId, userId)
+        const startId = mintStartId(ownerId, userId, input.startId)
         const result = await relayPostStart(config, {
           userId: ownerId,
           deviceId: input.deviceId,
@@ -1182,7 +1186,7 @@ export const steerRouter = router({
         const actionAccount = resolveLaunchAccount(device, actionAgent)
         requireUsageHeadroom(device, actionAgent, actionAccount, input.model)
         requireStartPromptCap(device, prompt)
-        const startId = mintStartId(ownerId, userId)
+        const startId = mintStartId(ownerId, userId, input.startId)
         const result = await relayPostStart(config, {
           userId: ownerId,
           deviceId: input.deviceId,
@@ -1328,7 +1332,7 @@ export const steerRouter = router({
         account,
       }
 
-      const startId = mintStartId(ownerId, userId)
+      const startId = mintStartId(ownerId, userId, input.startId)
       const result = input.issueId
         ? await relayPostStart(config, {
             userId: ownerId,

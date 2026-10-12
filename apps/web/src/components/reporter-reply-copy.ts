@@ -19,7 +19,7 @@ export function reporterDisplayName(
 
 /** The composer placeholder while the toggle is ON. */
 export function reporterReplyPlaceholder(name: string): string {
-  return REPORTER_REPLY_COPY.placeholderOn.replace(`{name}`, name)
+  return REPORTER_REPLY_COPY.placeholderOn.replace(`{name}`, () => name)
 }
 
 /** `comments.create`'s `reporterEmailed`: true → emailed, false → saved but

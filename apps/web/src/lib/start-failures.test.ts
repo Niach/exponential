@@ -79,4 +79,55 @@ describe(`start failures (FEED-63)`, () => {
       false
     )
   })
+
+  it(`registers a client-minted id as is (Review #3)`, () => {
+    const id = crypto.randomUUID()
+    expect(mintStartId(`u1`, `u1`, id)).toBe(id)
+    expect(recordStartFailure({ startId: id, userId: `u1`, reason: `x` })).toBe(
+      true
+    )
+    expect(takeStartFailure(id, `u1`)?.reason).toBe(`x`)
+  })
+
+  it(`a Retry with the same id refreshes its expiry and clears the failure`, () => {
+    vi.useFakeTimers()
+    const id = crypto.randomUUID()
+    mintStartId(`owner`, `teammate`, id)
+    recordStartFailure({ startId: id, userId: `owner`, reason: `old` })
+    vi.advanceTimersByTime(9 * 60 * 1000)
+    expect(mintStartId(`owner`, `teammate`, id)).toBe(id)
+    expect(takeStartFailure(id, `teammate`)).toBeNull()
+    vi.advanceTimersByTime(9 * 60 * 1000)
+    expect(
+      recordStartFailure({ startId: id, userId: `owner`, reason: `new` })
+    ).toBe(true)
+    expect(takeStartFailure(id, `teammate`)?.reason).toBe(`new`)
+  })
+
+  it(`an id held by another owner or requester gets a fresh one`, () => {
+    const id = crypto.randomUUID()
+    mintStartId(`u1`, `u1`, id)
+    const otherOwner = mintStartId(`u2`, `u2`, id)
+    expect(otherOwner).not.toBe(id)
+    const otherRequester = mintStartId(`u1`, `u3`, id)
+    expect(otherRequester).not.toBe(id)
+    expect(recordStartFailure({ startId: id, userId: `u1`, reason: `x` })).toBe(
+      true
+    )
+    expect(takeStartFailure(id, `u1`)?.reason).toBe(`x`)
+    expect(recordStartFailure({ startId: otherOwner, userId: `u2`, reason: `y` })).toBe(
+      true
+    )
+  })
+
+  it(`a consumed id registers again on Retry`, () => {
+    const id = crypto.randomUUID()
+    mintStartId(`u1`, `u1`, id)
+    recordStartFailure({ startId: id, userId: `u1`, reason: `x` })
+    takeStartFailure(id, `u1`)
+    expect(mintStartId(`u1`, `u1`, id)).toBe(id)
+    expect(recordStartFailure({ startId: id, userId: `u1`, reason: `y` })).toBe(
+      true
+    )
+  })
 })

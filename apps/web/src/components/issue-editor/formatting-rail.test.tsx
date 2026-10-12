@@ -6,6 +6,7 @@ import {
   FormattingRail,
   issueRefInsertionText,
 } from "@/components/issue-editor/formatting-rail"
+import { FORCE_ISSUE_REF_META } from "@/lib/editor-autocomplete"
 
 // EXP-568 — the rail replaces the always-on toolbar on all four clients, so
 // its button ORDER is a cross-client contract, not a styling detail. These
@@ -15,6 +16,7 @@ import {
 interface Recorder {
   commands: string[]
   inserted: string[]
+  meta: string[]
 }
 
 function makeEditor(options?: {
@@ -23,10 +25,13 @@ function makeEditor(options?: {
   charBefore?: string
   linkHref?: string
 }) {
-  const rec: Recorder = { commands: [], inserted: [] }
+  const rec: Recorder = { commands: [], inserted: [], meta: [] }
   const tr = {
     insertText: (text: string) => {
       rec.inserted.push(text)
+    },
+    setMeta: (key: string) => {
+      rec.meta.push(key)
     },
   }
   const chain: Record<string, unknown> = {}
@@ -460,6 +465,9 @@ describe(`FormattingRail issue-ref button`, () => {
     )
     fireEvent.click(screen.getByLabelText(`Insert issue reference`))
     expect(rec.inserted).toEqual([`#`])
+    // Review #5: the button asks for the search even on a line-start `#`
+    // (a TYPED one waits for a token there).
+    expect(rec.meta).toEqual([FORCE_ISSUE_REF_META])
   })
 
   it(`prepends a space when the caret sits against a word`, () => {

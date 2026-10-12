@@ -41,7 +41,26 @@ import {
 //   5. EXP-1255: Alt/Option+T opens the New run tab (the strip's "+"), even
 //      with no strip up yet. Browsers keep Cmd/Ctrl+T (and Cmd/Ctrl+W) for
 //      their own tabs and never hand them to a page, so the web's chord is
-//      Alt/Option+T.
+//      Alt/Option+T. Never while typing (a field, an IME composition) or
+//      behind a dialog: Option+T there is the person's keystroke.
+
+/** Alt/Option+T outside a field, a composition and any open dialog. */
+export function isNewTabChord(event: KeyboardEvent): boolean {
+  // `code`, not `key`: Option+T types "†" on a Mac keyboard.
+  if (event.code !== `KeyT` || !event.altKey) return false
+  if (event.metaKey || event.ctrlKey || event.shiftKey) return false
+  if (event.isComposing) return false
+  const target = event.target
+  if (
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      target.closest(`input, textarea, select, [contenteditable=""], [contenteditable="true"]`) !==
+        null)
+  ) {
+    return false
+  }
+  return document.querySelector(`[role="dialog"], [role="alertdialog"]`) === null
+}
 
 export function WorkTabsSync({
   teamId,
@@ -170,9 +189,7 @@ export function WorkTabsSync({
   useEffect(() => {
     if (!teamSlug) return
     const onKeyDown = (event: KeyboardEvent) => {
-      // `code`, not `key`: Option+T types "†" on a Mac keyboard.
-      if (event.code !== `KeyT` || !event.altKey) return
-      if (event.metaKey || event.ctrlKey || event.shiftKey) return
+      if (!isNewTabChord(event)) return
       event.preventDefault()
       openNewRunPage(teamId, teamSlug, navigate)
     }

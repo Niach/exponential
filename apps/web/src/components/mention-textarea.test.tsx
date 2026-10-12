@@ -231,6 +231,63 @@ describe(`MentionTextarea #issue search`, () => {
     expect(screen.queryByTestId(`ref-search`)).toBeNull()
   })
 
+  // Review #5 (search-list.json): a line-start `#` waits for a token, so a
+  // typed `# Title` stays a heading; `#E` opens with `E`.
+  it(`a line-start # waits for a token character`, () => {
+    withRefs()
+    render(<Harness />)
+    const el = screen.getByLabelText(`Reply`) as HTMLTextAreaElement
+    type(el, `#`)
+    expect(screen.queryByTestId(`ref-search`)).toBeNull()
+    type(el, `# `)
+    type(el, `# Title`)
+    expect(screen.queryByTestId(`ref-search`)).toBeNull()
+    type(el, `Line one\n#`)
+    expect(screen.queryByTestId(`ref-search`)).toBeNull()
+    type(el, `Line one\n#E`)
+    const search = screen.getByTestId(`ref-search`)
+    expect(search.getAttribute(`data-start`)).toBe(`9`)
+    expect(search.getAttribute(`data-query`)).toBe(`E`)
+  })
+
+  it(`punctuation ends the token`, () => {
+    withRefs()
+    render(<Harness />)
+    const el = screen.getByLabelText(`Reply`) as HTMLTextAreaElement
+    type(el, `see #a.`)
+    expect(screen.queryByTestId(`ref-search`)).toBeNull()
+  })
+
+  it(`a pick and a Backspace replace exactly # + the recorded token, never text after the caret`, () => {
+    withRefs()
+    const values: string[] = []
+    render(<Harness onValue={(v) => values.push(v)} />)
+    const el = screen.getByLabelText(`Reply`) as HTMLTextAreaElement
+    fireEvent.change(el, {
+      target: { value: `see #ab docs`, selectionStart: 7, selectionEnd: 7 },
+    })
+    expect(screen.getByTestId(`ref-search`).getAttribute(`data-query`)).toBe(`ab`)
+    fireEvent.click(screen.getByText(`pick`))
+    expect(values.at(-1)).toBe(`see #EXP-7  docs`)
+
+    fireEvent.change(el, { target: { value: ``, selectionStart: 0, selectionEnd: 0 } })
+    fireEvent.change(el, {
+      target: { value: `see #ab docs`, selectionStart: 7, selectionEnd: 7 },
+    })
+    fireEvent.click(screen.getByText(`backspace`))
+    expect(values.at(-1)).toBe(`see  docs`)
+  })
+
+  it(`the # button opens the search on a bare line-start #`, () => {
+    withRefs()
+    const handle = createRef<MentionTextareaHandle>()
+    render(<Harness handle={handle} />)
+    const el = screen.getByLabelText(`Reply`) as HTMLTextAreaElement
+    act(() => el.blur())
+    act(() => handle.current!.insertText(`#`))
+    expect(screen.getByTestId(`ref-search`).getAttribute(`data-start`)).toBe(`0`)
+  })
+
   it(`a # glued to a word is no trigger`, () => {
     withRefs()
     render(<Harness />)

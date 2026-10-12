@@ -367,7 +367,7 @@ function AgentPage() {
 /** EXP-1253: the home column under the page chrome: the headline + composer
  *  (or the relay-less line), Recent, and Getting started while the team has
  *  no board. The greeting is computed ONCE per mount. */
-function HomeColumn({
+export function HomeColumn({
   team,
   currentUserId,
   userName,

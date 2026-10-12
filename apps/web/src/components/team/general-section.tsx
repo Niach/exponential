@@ -105,6 +105,9 @@ export function TeamGeneralSection({ team }: { team: Team }) {
   const [promptLoadFailed, setPromptLoadFailed] = useState(false)
   const [promptLoadAttempt, setPromptLoadAttempt] = useState(0)
   const promptRetried = useRef(false)
+  // The team the loaded draft belongs to (the unmount flush sends it there,
+  // never to a team switched to since).
+  const promptTeamIdRef = useRef<string | null>(null)
   const retryPromptLoad = () => {
     promptRetried.current = true
     setPromptLoadAttempt((attempt) => attempt + 1)
@@ -118,6 +121,7 @@ export function TeamGeneralSection({ team }: { team: Team }) {
       .query({ teamId: team.id })
       .then((res) => {
         if (cancelled) return
+        promptTeamIdRef.current = team.id
         setPrompt(res.agentPrompt)
         setSavedPrompt(res.agentPrompt)
         setPromptUpdatedAt(
@@ -143,11 +147,13 @@ export function TeamGeneralSection({ team }: { team: Team }) {
   // The draft whose save just failed: the timer never retries it on its own
   // (that would toast every debounce); a new keystroke, blur or Retry does.
   const failedPromptRef = useRef<string | null>(null)
+  const inFlightPromptRef = useRef<string | null>(null)
 
   const handleSavePrompt = async () => {
     if (prompt === null || !promptDirty || promptOver || promptSaving) return
     setPromptSaving(true)
     setPromptJustSaved(false)
+    inFlightPromptRef.current = prompt
     try {
       await trpc.teams.update.mutate({ teamId: team.id, agentPrompt: prompt }, SKIP_ERROR_TOAST)
       const saved = prompt.trimEnd()
@@ -159,6 +165,7 @@ export function TeamGeneralSection({ team }: { team: Team }) {
       failedPromptRef.current = prompt
       failedAction(`save`, `the team prompt`, e, { retry: () => void savePromptRef.current() })
     } finally {
+      inFlightPromptRef.current = null
       setPromptSaving(false)
     }
   }
@@ -177,6 +184,36 @@ export function TeamGeneralSection({ team }: { team: Team }) {
     )
     return () => clearTimeout(timer)
   }, [prompt, promptDirty, promptOver, promptSaving])
+
+  // Review #8: leaving the page (or switching team) inside the debounce
+  // window must not drop the edit: the cleanup sends a dirty, under-cap
+  // draft to the team it was typed for, unless that exact text is already
+  // in flight or its save just failed (its toast holds the Retry).
+  const unsavedPromptRef = useRef<{ teamId: string; prompt: string } | null>(null)
+  unsavedPromptRef.current =
+    prompt !== null &&
+    promptDirty &&
+    !promptOver &&
+    promptTeamIdRef.current !== null &&
+    prompt !== inFlightPromptRef.current &&
+    prompt !== failedPromptRef.current
+      ? { teamId: promptTeamIdRef.current, prompt }
+      : null
+  useEffect(
+    () => () => {
+      const unsaved = unsavedPromptRef.current
+      if (!unsaved || unsaved.teamId !== team.id) return
+      unsavedPromptRef.current = null
+      const send = () =>
+        trpc.teams.update
+          .mutate({ teamId: unsaved.teamId, agentPrompt: unsaved.prompt }, SKIP_ERROR_TOAST)
+          .catch((e: unknown) =>
+            failedAction(`save`, `the team prompt`, e, { retry: () => void send() })
+          )
+      void send()
+    },
+    [team.id]
+  )
 
   useEffect(() => {
     if (!promptJustSaved) return
