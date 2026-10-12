@@ -164,8 +164,9 @@ pub(crate) struct StartActionArgs {
     /// The window the run's session tab lands in (`None` = the first shell
     /// window — the relay path).
     pub target: Option<gpui::AnyWindowHandle>,
-    /// EXP-1271: where the run lands — [`RunLanding::ThisWindow`] only for
-    /// a person's start in `target`'s own composer; relay and trigger starts
+    /// EXP-1271: where the run lands — [`RunLanding::Composer`] only for
+    /// a person's start in `target`'s own composer ([`RunLanding::ThisWindow`]
+    /// for the run's own Resume); relay and trigger starts
     /// stay in Running (and never foreground the app).
     pub landing: RunLanding,
     /// EXP-505: the remote start's duplicate-delivery claim (see

@@ -223,6 +223,14 @@ describe(`MentionTextarea #issue search`, () => {
     expect(el.selectionStart).toBe(5)
   })
 
+  it(`a Backspace that lands after an existing #IDENT never opens it`, () => {
+    withRefs()
+    render(<Harness initial="see #EXP-7 " />)
+    const el = screen.getByLabelText(`Reply`) as HTMLTextAreaElement
+    type(el, `see #EXP-7`)
+    expect(screen.queryByTestId(`ref-search`)).toBeNull()
+  })
+
   it(`a # glued to a word is no trigger`, () => {
     withRefs()
     render(<Harness />)

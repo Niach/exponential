@@ -1853,10 +1853,16 @@ pub fn switch_team_blocking(window: &Window, cx: &mut App, team_id: String) {
     window
         .spawn(cx, async move |cx| {
             crate::queries::await_row_visible(&teams, &team_id, cx).await;
-            let _ = cx.update(|window, cx| {
+            let switched = cx.update(|window, cx| {
                 crate::feedback::Blocking::end(cx);
                 switch_team(window, cx, team_id);
             });
+            // The window closed meanwhile: the wait covers EVERY window, so
+            // it still ends.
+            if switched.is_err() {
+                let app: &gpui::AsyncApp = cx;
+                let _ = app.update(crate::feedback::Blocking::end);
+            }
         })
         .detach();
 }

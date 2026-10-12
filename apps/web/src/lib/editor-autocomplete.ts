@@ -142,6 +142,17 @@ export const EditorAutocompleteExtension =
               // still tracks/dismisses on caret moves.
               const docChanged = !view.state.doc.eq(prevState.doc)
               if (next && last === null && !docChanged) return
+              // SLOP-28: the `#` search takes the focus, so only TYPING
+              // opens it: never a deletion that lands after an existing
+              // `#EXP-42`, never mid IME composition.
+              if (
+                next?.kind === `issueRef` &&
+                last === null &&
+                (view.composing ||
+                  view.state.doc.content.size < prevState.doc.content.size)
+              ) {
+                return
+              }
               emit(next)
             },
             destroy: () => {

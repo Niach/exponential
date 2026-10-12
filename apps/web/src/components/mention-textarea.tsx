@@ -204,16 +204,19 @@ export const MentionTextarea = forwardRef<
     }
   }, [menu, candidateCount])
 
-  const sync = (next: string, caret: number) => {
+  // Only TYPING (an insert outside an IME composition) opens the `#` search:
+  // a Backspace that lands the caret after an existing `#EXP-12` must not
+  // pull the focus into the list.
+  const sync = (next: string, caret: number, inserted: boolean) => {
     onValueChange(next)
-    detect(next, caret)
+    detect(next, caret, inserted)
   }
 
   /** Which autocomplete (if any) the text before `caret` is in the middle
    *  of. Runs on every keystroke, and (EXP-790) after a programmatic insert,
    *  so a chip that drops a trailing `#` opens the issue picker at once.
    *  True when it opened the `#` search (whose input takes the focus). */
-  const detect = (next: string, caret: number): boolean => {
+  const detect = (next: string, caret: number, canSearch = true): boolean => {
     const before = next.slice(0, caret)
     const mention = before.match(MENTION_AT_CARET)
     const issueRef = issueRefs ? typeaheadPrefill(next, caret) : null
@@ -227,7 +230,7 @@ export const MentionTextarea = forwardRef<
       })
     } else if (issueRef) {
       setMenu(null)
-      if (dismissedHashRef.current === issueRef.start) return false
+      if (!canSearch || dismissedHashRef.current === issueRef.start) return false
       const field = textareaRef.current
       setIssueSearch({
         start: issueRef.start,
@@ -400,7 +403,14 @@ export const MentionTextarea = forwardRef<
         {...props}
         ref={textareaRef}
         value={value}
-        onChange={(e) => sync(e.target.value, e.target.selectionStart ?? 0)}
+        onChange={(e) =>
+          sync(
+            e.target.value,
+            e.target.selectionStart ?? 0,
+            e.target.value.length > value.length &&
+              !(e.nativeEvent as InputEvent).isComposing
+          )
+        }
         onKeyDown={handleKeyDown}
       />
       {menu && candidateCount > 0 && (

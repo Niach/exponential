@@ -2007,7 +2007,7 @@ impl ChatScreenView {
                         // EXP-1037: the run's tab lands in the window the ▶
                         // was pressed in — a dialog composer closes itself.
                         target: Some(navigation::deferred_open_window(window, cx)),
-                        landing: coding_flow::RunLanding::ThisWindow,
+                        landing: coding_flow::RunLanding::Composer,
                         reservation: None,
                         // A person pressed Run — never a trigger firing.
                         trigger: None,
@@ -2318,15 +2318,18 @@ impl ChatScreenView {
                 .await;
             let _ = this.update_in(cx, |this, window, cx| {
                 this.launching = false;
-                this.end_starting(generation, window, cx);
+                // EXP-1255: the start settles AFTER the spawn — ending it
+                // first would take back the New run tab's handoff, and the
+                // run would open beside the tab instead of in it.
                 let outcome: Result<(), SharedString> = match prepared {
                     Ok(Prepared::Ready(prepared)) => {
-                        coding_flow::spawn_into_window(prepared, subject, coding_flow::RunLanding::ThisWindow, window, cx)
+                        coding_flow::spawn_into_window(prepared, subject, coding_flow::RunLanding::Composer, window, cx)
                             .map_err(SharedString::from)
                     }
                     Ok(Prepared::Disabled(reason)) => Err(reason.message().into()),
                     Err(err) => Err(err.to_string().into()),
                 };
+                this.end_starting(generation, window, cx);
                 match outcome {
                     Ok(()) => this.after_started(window, cx),
                     Err(message) => this.start_failed(message, cx),

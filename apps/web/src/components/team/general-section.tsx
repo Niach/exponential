@@ -132,6 +132,10 @@ export function TeamGeneralSection({ team }: { team: Team }) {
   const promptOver = promptBytes > TEAM_PROMPT_MAX_BYTES
   const promptDirty = prompt !== null && prompt.trimEnd() !== savedPrompt
 
+  // The draft whose save just failed: the timer never retries it on its own
+  // (that would toast every debounce); a new keystroke, blur or Retry does.
+  const failedPromptRef = useRef<string | null>(null)
+
   const handleSavePrompt = async () => {
     if (prompt === null || !promptDirty || promptOver || promptSaving) return
     setPromptSaving(true)
@@ -142,7 +146,9 @@ export function TeamGeneralSection({ team }: { team: Team }) {
       setSavedPrompt(saved)
       setPromptUpdatedAt(new Date())
       setPromptJustSaved(true)
+      failedPromptRef.current = null
     } catch (e) {
+      failedPromptRef.current = prompt
       failedAction(`save`, `the team prompt`, e, { retry: () => void savePromptRef.current() })
     } finally {
       setPromptSaving(false)
@@ -152,14 +158,17 @@ export function TeamGeneralSection({ team }: { team: Team }) {
   const savePromptRef = useRef(handleSavePrompt)
   savePromptRef.current = handleSavePrompt
 
+  // Re-armed when a save settles too: keystrokes typed while it was in
+  // flight (whose timer found it busy) still save.
   useEffect(() => {
-    if (!promptDirty || promptOver) return
+    if (!promptDirty || promptOver || promptSaving) return
+    if (prompt === failedPromptRef.current) return
     const timer = setTimeout(
       () => void savePromptRef.current(),
       FEEDBACK_STATES.autosave.debounceMs
     )
     return () => clearTimeout(timer)
-  }, [prompt, promptDirty, promptOver])
+  }, [prompt, promptDirty, promptOver, promptSaving])
 
   useEffect(() => {
     if (!promptJustSaved) return

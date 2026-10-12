@@ -22,6 +22,7 @@ import { issueMemoryOwner } from "@/lib/work-tab-memory"
 import { useRememberedScroll } from "@/hooks/use-remembered-scroll"
 import { useMeasuredSize, useTitleCollapsed } from "@/hooks/use-detail-chrome"
 import { MOBILE_DETAIL_SCREEN_CLASS } from "@/components/team/mobile-detail-header"
+import { TRPCClientError } from "@trpc/client"
 import { trpc } from "@/lib/trpc-client"
 import {
   getIssueDescriptionText,
@@ -400,6 +401,13 @@ export function IssueDetailView({
     }
   }
 
+  // FEED-79: an upload's failure toast. A tRPC error here is the description
+  // save that follows the upload, which the mutation link already toasted.
+  const failedUpload = (thing: string, error: unknown) => {
+    if (error instanceof TRPCClientError) return
+    failedAction(`upload`, thing, error)
+  }
+
   const handleImageFiles = async (files: File[]) => {
     try {
       await enqueueUploadTask(async () => {
@@ -413,7 +421,7 @@ export function IssueDetailView({
         }
       })
     } catch (error) {
-      failedAction(`upload`, `the image`, error)
+      failedUpload(`the image`, error)
     }
   }
 
@@ -457,7 +465,7 @@ export function IssueDetailView({
         }
       })
     } catch (error) {
-      failedAction(`upload`, `the file`, error)
+      failedUpload(`the file`, error)
     }
   }
 
@@ -475,7 +483,7 @@ export function IssueDetailView({
         }
       })
     } catch (error) {
-      failedAction(`upload`, `the file`, error)
+      failedUpload(`the file`, error)
     }
   }
 

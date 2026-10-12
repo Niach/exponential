@@ -1471,7 +1471,7 @@ pub fn spawn_into_window(
     // EXP-478: only now (see the PTY arm).
     drop(launch_hold);
     if should_open_session(landing) {
-        open_landed_session(&session_id, window, cx);
+        open_landed_session(&session_id, landing == RunLanding::Composer, window, cx);
     } else {
         announce_remote_start(announce, window, cx);
     }
@@ -1487,8 +1487,11 @@ pub fn spawn_into_window(
 /// EXP-1271 — where a freshly spawned run LANDS.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RunLanding {
-    /// A person started it IN this window: its composer (page, dialog or a
-    /// New run tab), or the run's own Resume / account switch. It opens.
+    /// A person started it in THIS window's composer (page, dialog or a New
+    /// run tab). It opens, in place of the New run tab that started it.
+    Composer,
+    /// A person started it IN this window from the run itself: its Resume or
+    /// account switch. It opens as an ordinary open.
     ThisWindow,
     /// Everything else: a relay start (my own from another device, a
     /// teammate's on a shared device, an agent's `sessions_start`), a remote
@@ -1503,7 +1506,7 @@ pub enum RunLanding {
 /// ONLY a start made in this window. The person may be mid-edit anywhere
 /// else, and a background run is one click away in Running (or the toast).
 pub(crate) fn should_open_session(landing: RunLanding) -> bool {
-    landing == RunLanding::ThisWindow
+    matches!(landing, RunLanding::Composer | RunLanding::ThisWindow)
 }
 
 /// EXP-1255 — the New run tab a start from this window is about to turn
@@ -1535,12 +1538,14 @@ pub(crate) fn take_back_new_run_tab(window: &Window, new_run_id: &str, cx: &mut 
     }
 }
 
-/// Open a run that landed in `window`: in place of the New run tab that
-/// started it ([`hand_off_new_run_tab`]), else as an ordinary open.
-pub(crate) fn open_landed_session(session_id: &str, window: &mut Window, cx: &mut App) {
-    let new_run = cx
-        .try_global::<NewRunHandoffs>()
-        .is_some_and(|handoffs| handoffs.0.contains_key(&window.window_handle().window_id()))
+/// Open a run that landed in `window`: a composer's start in place of the
+/// New run tab that started it ([`hand_off_new_run_tab`]), else as an
+/// ordinary open (a Resume never takes a New run tab's pending handoff).
+pub(crate) fn open_landed_session(session_id: &str, from_composer: bool, window: &mut Window, cx: &mut App) {
+    let new_run = (from_composer
+        && cx
+            .try_global::<NewRunHandoffs>()
+            .is_some_and(|handoffs| handoffs.0.contains_key(&window.window_handle().window_id())))
         .then(|| {
             cx.global_mut::<NewRunHandoffs>()
                 .0
@@ -1767,7 +1772,8 @@ pub(crate) fn follow_remote_start_then(
                 // else to do with the run then (its tab opens on the next
                 // visit to the Agent page).
                 let _ = handle.update(cx, |_, window, cx| {
-                    open_landed_session(&session_id, window, cx);
+                    // Only the composer's own start follows with `settled`.
+                    open_landed_session(&session_id, settled.is_some(), window, cx);
                     if let Some(settled) = settled {
                         settled(Some(session_id.clone()), window, cx);
                     }
@@ -2610,6 +2616,7 @@ mod tests {
     /// background start (relay, remote resume, trigger) stays in Running.
     #[test]
     fn only_a_start_from_this_window_navigates() {
+        assert!(should_open_session(RunLanding::Composer));
         assert!(should_open_session(RunLanding::ThisWindow));
         assert!(!should_open_session(RunLanding::Background));
     }

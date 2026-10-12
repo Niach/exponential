@@ -2380,6 +2380,14 @@ impl ScreensPanel {
         if ix >= self.tabs.len() {
             return;
         }
+        // EXP-1255: a New run tab whose start is in flight stays (the
+        // composer dialog's close gate): closing it would drop the view the
+        // launch reports back to, ghosting the run it already created.
+        if let Screen::NewRun { id } = &self.tabs[ix].screen {
+            if self.new_runs.get(id).is_some_and(|view| view.read(cx).starting()) {
+                return;
+            }
+        }
         self.remove_tab(ix, true, window, cx);
     }
 
