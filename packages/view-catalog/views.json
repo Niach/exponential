@@ -1059,6 +1059,72 @@
       }
     },
     {
+      "id": "thread",
+      "group": "coding",
+      "title": "Thread",
+      "blurb": "A thread (EXP-1284, thread-view.json): the unit of work holding n issues and m runs. The child strip reads Conversation, each linked issue, the \"+\" and Guide; the conversation shows Run 1 live with the issues its agent linked as rows (Linked, Filed and linked) and the reply box under it.",
+      "order": 17,
+      "web": {
+        "route": "/t/$teamSlug/threads/$threadId",
+        "anchor": {
+          "text": "Filed and linked",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_thread",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_thread",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "thread:$thread"
+        }
+      },
+      "notes": {
+        "web": "`$threadId` resolves to DEMO_THREAD_ID (apps/web/scripts/screenshot-demo.ts): the steered showcase run plus the issue its agent filed into the thread. Needs the relay like `steering` for the live run's feed."
+      }
+    },
+    {
+      "id": "thread-runs",
+      "group": "coding",
+      "title": "Thread with several runs",
+      "blurb": "A thread with m runs (EXP-1284): ended runs fold to one line with Show work, a resume continues the thread as the next run, and the two runs one parent started share ONE card, each naming its issue. A child's menu offers Link an issue, New issue in this thread, Start a run here and Unlink.",
+      "order": 18,
+      "web": {
+        "route": "/t/$teamSlug/threads/$threadRunsId",
+        "anchor": {
+          "text": "started by Run 2",
+          "timeoutMs": 30000
+        },
+        "settleMs": 1200
+      },
+      "webMobile": "inherit",
+      "ios": {
+        "shot": "sg_thread-runs",
+        "lane": "styleguide"
+      },
+      "android": {
+        "shot": "sg_thread-runs",
+        "lane": "styleguide"
+      },
+      "desktop": {
+        "drive": {
+          "kind": "screen",
+          "value": "thread:$threadRuns"
+        }
+      },
+      "notes": {
+        "web": "`$threadRunsId` resolves to DEMO_THREAD_RUNS_ID: two ended runs (the second a resume) and two live children of Run 2."
+      }
+    },
+    {
       "id": "chat-from-issue",
       "group": "coding",
       "title": "Start coding from an issue (mobile)",

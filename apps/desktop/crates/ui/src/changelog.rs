@@ -46,18 +46,17 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
-    id: "2026-10-12-home-and-feedback",
+    id: "2026-10-12-threads",
     date: "2026-10-12",
-    title: "The Agent page is home, one issue search, Getting started in a row, and one way to wait and fail",
-    summary: "Every app opens on the Agent page with a greeting and your recent runs, # opens a real issue search with every match, Getting started is a row of cards, runs started elsewhere no longer take over the desktop app, and loading and errors look the same everywhere.",
-    body: r#"- **Home**: web, desktop, iOS and Android open on the Agent page. It greets you by time of day, asks what you want to build and lists your last three runs. The suggestion rows are gone.
-- **Tabs**: on the web and the desktop app the close button shows on hover, and a plus button after the last tab opens a New run tab that becomes the run's tab once it starts.
-- **Issue search**: typing # opens a search box at the cursor (a bottom sheet on phones) that takes spaces and lists every match, not six. The plus menu's Implement issue and Run action open the same list beside the menu.
-- **Getting started**: one row of eight square cards in the order you need them, with a Docs button. It shows on an empty board and on the Agent page of a team without boards; done steps stay clickable. Action suggestions are gone.
-- **Starting a run**: after Start the composer shows the Exponential mark and where the run is starting until it lands. A run started from another device, a teammate or an agent no longer takes over the desktop app; it appears in Running with a toast to open it.
-- **Loading and errors**: skeleton rows replace loading text, buttons show a spinner while they work, and a failed action is a toast with Retry. Mistakes in a form still show under the field. The team prompt saves as you type.
-- **Run threads**: workflows, task lists and subagents share one Work card, a code-mode script shows the tools it called, and a comment the agent posted shows the real comment and opens it on the issue.
-- **Polish**: the run thread's fades no longer tint or blur the card border, the desktop diff page scrolls as one page, and menus, popovers and buttons follow one set of motion rules."#,
+    title: "Threads: one place for a piece of work, its issues and its runs",
+    summary: "A thread holds the issues and runs of one piece of work. The agent links the issues it files or picks up, the thread shows every run and link as one conversation, and lists show threads instead of single runs.",
+    body: r#"- **Threads**: every run starts in a thread. A run on an issue joins that issue's thread, a resume continues its thread, and anything else opens a new one.
+- **The agent links its work**: the agent files new issues into its thread, links existing ones and detaches what does not belong. Each link shows as a row in the conversation.
+- **One page**: the tabs across the top read Conversation, each linked issue, a plus button and Guide. On phones they are the pager.
+- **Many runs**: resumes continue the conversation, ended runs fold to one line with Show work, and runs one run started side by side share one card.
+- **One PR, one Guide**: a thread's PR covers every issue in it by default, and its Guide is the PR body.
+- **Menus**: link an issue, file a new issue into the thread, start a run in it or unlink an issue from the plus button or an issue's menu.
+- **Lists**: Running and Recent show threads with their issue and run counts, and an issue names the threads it sits in."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

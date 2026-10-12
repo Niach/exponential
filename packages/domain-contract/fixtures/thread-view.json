@@ -1,0 +1,843 @@
+{
+  "$comment": "EXP-1284: the THREAD view model, mirrored x4 (web lib/thread-view.ts, desktop domain/src/thread_view.rs, iOS ExpCore Domain/ThreadView.swift, Android domain/ThreadView.kt). buildThreadView({thread, items, issues, runs}) -> title (stored title, else the first run's name unless it is the generic 'Chat', else the first linked issue's title, else the first run's name, else 'Thread'; titleDerived when not stored), strip (Conversation, one issue chip per linked issue in sort order, the '+' and the Guide with a dot when the thread's results are non-empty; phones use it as the pager), headerCaption ('<n> run(s) · <device | k devices>'), listCaption ('<no issues | n issue(s)> · <n run(s)>' plus the LIVE runs' device part while any run is live), live/needsInput/busy, conversation (runs in start order as 'Run N' blocks: caption = device, 'resumed' when it resumes a run, 'started by Run K' when an in-thread run started it; ended runs fold; two or more non-resume children of the same in-thread parent become ONE parallel block 'Runs 3 and 4' at the first child's place; issues an agent linked sit under the run that linked them, 'Filed and linked' when the issue was created at most 120 s before the link, else 'Linked'; issues a person linked show only in the strip), runIds, issueIds. Items whose issue or run is not synced drop out. partitionThreadList: running = mineLive, recent = the rest, both by updatedAt desc.",
+  "views": [
+    {
+      "name": "two issues the agent linked, one live run (draft 1)",
+      "input": {
+        "thread": {
+          "id": "t1",
+          "title": null,
+          "results": null,
+          "updatedAt": "2026-10-12T11:00:00.000Z"
+        },
+        "items": [
+          {
+            "id": "i-r1",
+            "kind": "run",
+            "issueId": null,
+            "sessionId": "r1",
+            "source": "user",
+            "addedBySessionId": null,
+            "sortOrder": 1,
+            "createdAt": "2026-10-12T10:00:00.000Z"
+          },
+          {
+            "id": "i-a",
+            "kind": "issue",
+            "issueId": "a",
+            "sessionId": null,
+            "source": "agent",
+            "addedBySessionId": "r1",
+            "sortOrder": 2,
+            "createdAt": "2026-10-12T10:02:00.000Z"
+          },
+          {
+            "id": "i-b",
+            "kind": "issue",
+            "issueId": "b",
+            "sessionId": null,
+            "source": "agent",
+            "addedBySessionId": "r1",
+            "sortOrder": 3,
+            "createdAt": "2026-10-12T10:04:00.000Z"
+          }
+        ],
+        "issues": [
+          {
+            "id": "a",
+            "identifier": "EXP-1276",
+            "title": "ios keyboard",
+            "createdAt": "2026-10-12T05:00:00.000Z"
+          },
+          {
+            "id": "b",
+            "identifier": "EXP-1277",
+            "title": "ios run error",
+            "createdAt": "2026-10-12T10:03:30.000Z"
+          }
+        ],
+        "runs": [
+          {
+            "id": "r1",
+            "name": "iOS keyboard and model picker",
+            "userId": "u1",
+            "deviceLabel": "macbook",
+            "status": "running",
+            "needsInput": false,
+            "agentBusy": true,
+            "issueId": null,
+            "parentSessionId": null,
+            "resumedFromId": null,
+            "startedAt": "2026-10-12T10:00:00.000Z",
+            "endedAt": null
+          }
+        ]
+      },
+      "expected": {
+        "title": "iOS keyboard and model picker",
+        "titleDerived": true,
+        "strip": [
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "issue",
+            "issueId": "a",
+            "identifier": "EXP-1276",
+            "title": "ios keyboard"
+          },
+          {
+            "kind": "issue",
+            "issueId": "b",
+            "identifier": "EXP-1277",
+            "title": "ios run error"
+          },
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "guide",
+            "dot": false
+          }
+        ],
+        "headerCaption": "1 run · macbook",
+        "listCaption": "2 issues · 1 run · macbook",
+        "live": true,
+        "needsInput": false,
+        "busy": true,
+        "conversation": [
+          {
+            "kind": "run",
+            "runId": "r1",
+            "label": "Run 1",
+            "caption": [
+              "macbook"
+            ],
+            "state": "live",
+            "folded": false,
+            "links": [
+              {
+                "itemId": "i-a",
+                "issueId": "a",
+                "identifier": "EXP-1276",
+                "title": "ios keyboard",
+                "label": "Linked"
+              },
+              {
+                "itemId": "i-b",
+                "issueId": "b",
+                "identifier": "EXP-1277",
+                "title": "ios run error",
+                "label": "Filed and linked"
+              }
+            ]
+          }
+        ],
+        "runIds": [
+          "r1"
+        ],
+        "issueIds": [
+          "a",
+          "b"
+        ]
+      }
+    },
+    {
+      "name": "m runs: a resume, then two children of Run 2 in one card (draft 2)",
+      "input": {
+        "thread": {
+          "id": "t1",
+          "title": "UI batch plan",
+          "results": [
+            {
+              "topic": "Summary",
+              "text": "x"
+            }
+          ],
+          "updatedAt": "2026-10-12T11:00:00.000Z"
+        },
+        "items": [
+          {
+            "id": "i-r1",
+            "kind": "run",
+            "issueId": null,
+            "sessionId": "r1",
+            "source": "user",
+            "addedBySessionId": null,
+            "sortOrder": 1,
+            "createdAt": "2026-10-12T10:00:00.000Z"
+          },
+          {
+            "id": "i-a",
+            "kind": "issue",
+            "issueId": "a",
+            "sessionId": null,
+            "source": "user",
+            "addedBySessionId": null,
+            "sortOrder": 2,
+            "createdAt": "2026-10-12T10:00:00.000Z"
+          },
+          {
+            "id": "i-b",
+            "kind": "issue",
+            "issueId": "b",
+            "sessionId": null,
+            "source": "agent",
+            "addedBySessionId": "r1",
+            "sortOrder": 3,
+            "createdAt": "2026-10-12T10:10:00.000Z"
+          },
+          {
+            "id": "i-r2",
+            "kind": "run",
+            "issueId": null,
+            "sessionId": "r2",
+            "source": "user",
+            "addedBySessionId": null,
+            "sortOrder": 4,
+            "createdAt": "2026-10-12T10:30:00.000Z"
+          },
+          {
+            "id": "i-r3",
+            "kind": "run",
+            "issueId": null,
+            "sessionId": "r3",
+            "source": "user",
+            "addedBySessionId": null,
+            "sortOrder": 5,
+            "createdAt": "2026-10-12T10:40:00.000Z"
+          },
+          {
+            "id": "i-r4",
+            "kind": "run",
+            "issueId": null,
+            "sessionId": "r4",
+            "source": "user",
+            "addedBySessionId": null,
+            "sortOrder": 6,
+            "createdAt": "2026-10-12T10:41:00.000Z"
+          },
+          {
+            "id": "i-c",
+            "kind": "issue",
+            "issueId": "c",
+            "sessionId": null,
+            "source": "agent",
+            "addedBySessionId": "r4",
+            "sortOrder": 7,
+            "createdAt": "2026-10-12T10:42:00.000Z"
+          }
+        ],
+        "issues": [
+          {
+            "id": "a",
+            "identifier": "EXP-1259",
+            "title": "UX batch 2",
+            "createdAt": "2026-10-11T17:20:00.000Z"
+          },
+          {
+            "id": "b",
+            "identifier": "EXP-1284",
+            "title": "Threads",
+            "createdAt": "2026-10-12T10:09:00.000Z"
+          },
+          {
+            "id": "c",
+            "identifier": "EXP-1270",
+            "title": "getting started",
+            "createdAt": "2026-10-12T09:10:00.000Z"
+          }
+        ],
+        "runs": [
+          {
+            "id": "r1",
+            "name": "Chat",
+            "userId": "u1",
+            "deviceLabel": "macbook",
+            "status": "ended",
+            "needsInput": false,
+            "agentBusy": false,
+            "issueId": null,
+            "parentSessionId": null,
+            "resumedFromId": null,
+            "startedAt": "2026-10-12T10:00:00.000Z",
+            "endedAt": "2026-10-12T10:20:00.000Z"
+          },
+          {
+            "id": "r2",
+            "name": "Chat",
+            "userId": "u1",
+            "deviceLabel": "macbook",
+            "status": "ended",
+            "needsInput": false,
+            "agentBusy": false,
+            "issueId": null,
+            "parentSessionId": null,
+            "resumedFromId": "r1",
+            "startedAt": "2026-10-12T10:30:00.000Z",
+            "endedAt": "2026-10-12T10:38:00.000Z"
+          },
+          {
+            "id": "r3",
+            "name": "Threads schema + MCP",
+            "userId": "u1",
+            "deviceLabel": "mint",
+            "status": "running",
+            "needsInput": false,
+            "agentBusy": false,
+            "issueId": "b",
+            "parentSessionId": "r2",
+            "resumedFromId": null,
+            "startedAt": "2026-10-12T10:40:00.000Z",
+            "endedAt": null
+          },
+          {
+            "id": "r4",
+            "name": "Getting started cards",
+            "userId": "u1",
+            "deviceLabel": "macbook",
+            "status": "running",
+            "needsInput": true,
+            "agentBusy": false,
+            "issueId": "c",
+            "parentSessionId": "r2",
+            "resumedFromId": null,
+            "startedAt": "2026-10-12T10:41:00.000Z",
+            "endedAt": null
+          }
+        ]
+      },
+      "expected": {
+        "title": "UI batch plan",
+        "titleDerived": false,
+        "strip": [
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "issue",
+            "issueId": "a",
+            "identifier": "EXP-1259",
+            "title": "UX batch 2"
+          },
+          {
+            "kind": "issue",
+            "issueId": "b",
+            "identifier": "EXP-1284",
+            "title": "Threads"
+          },
+          {
+            "kind": "issue",
+            "issueId": "c",
+            "identifier": "EXP-1270",
+            "title": "getting started"
+          },
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "guide",
+            "dot": true
+          }
+        ],
+        "headerCaption": "4 runs · 2 devices",
+        "listCaption": "3 issues · 4 runs · 2 devices",
+        "live": true,
+        "needsInput": true,
+        "busy": false,
+        "conversation": [
+          {
+            "kind": "run",
+            "runId": "r1",
+            "label": "Run 1",
+            "caption": [
+              "macbook"
+            ],
+            "state": "ended",
+            "folded": true,
+            "links": [
+              {
+                "itemId": "i-b",
+                "issueId": "b",
+                "identifier": "EXP-1284",
+                "title": "Threads",
+                "label": "Filed and linked"
+              }
+            ]
+          },
+          {
+            "kind": "run",
+            "runId": "r2",
+            "label": "Run 2",
+            "caption": [
+              "macbook",
+              "resumed"
+            ],
+            "state": "ended",
+            "folded": true,
+            "links": []
+          },
+          {
+            "kind": "parallel",
+            "label": "Runs 3 and 4",
+            "caption": [
+              "started by Run 2"
+            ],
+            "state": "needs_input",
+            "runs": [
+              {
+                "runId": "r3",
+                "name": "Threads schema + MCP",
+                "issueId": "b",
+                "deviceLabel": "mint",
+                "state": "live",
+                "startedAt": "2026-10-12T10:40:00.000Z"
+              },
+              {
+                "runId": "r4",
+                "name": "Getting started cards",
+                "issueId": "c",
+                "deviceLabel": "macbook",
+                "state": "needs_input",
+                "startedAt": "2026-10-12T10:41:00.000Z"
+              }
+            ],
+            "links": [
+              {
+                "itemId": "i-c",
+                "issueId": "c",
+                "identifier": "EXP-1270",
+                "title": "getting started",
+                "label": "Linked"
+              }
+            ]
+          }
+        ],
+        "runIds": [
+          "r1",
+          "r2",
+          "r3",
+          "r4"
+        ],
+        "issueIds": [
+          "a",
+          "b",
+          "c"
+        ]
+      }
+    },
+    {
+      "name": "a chat with no issues that ended: the run names the thread",
+      "input": {
+        "thread": {
+          "id": "t1",
+          "title": "  ",
+          "results": null,
+          "updatedAt": "2026-10-12T11:00:00.000Z"
+        },
+        "items": [
+          {
+            "id": "i-r1",
+            "kind": "run",
+            "issueId": null,
+            "sessionId": "r1",
+            "source": "user",
+            "addedBySessionId": null,
+            "sortOrder": 1,
+            "createdAt": "2026-10-12T10:00:00.000Z"
+          }
+        ],
+        "issues": [],
+        "runs": [
+          {
+            "id": "r1",
+            "name": "Label and relate every open issue",
+            "userId": "u1",
+            "deviceLabel": null,
+            "status": "ended",
+            "needsInput": false,
+            "agentBusy": false,
+            "issueId": null,
+            "parentSessionId": null,
+            "resumedFromId": null,
+            "startedAt": "2026-10-12T10:00:00.000Z",
+            "endedAt": "2026-10-12T10:09:00.000Z"
+          }
+        ]
+      },
+      "expected": {
+        "title": "Label and relate every open issue",
+        "titleDerived": true,
+        "strip": [
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "guide",
+            "dot": false
+          }
+        ],
+        "headerCaption": "1 run",
+        "listCaption": "no issues · 1 run",
+        "live": false,
+        "needsInput": false,
+        "busy": false,
+        "conversation": [
+          {
+            "kind": "run",
+            "runId": "r1",
+            "label": "Run 1",
+            "caption": [],
+            "state": "ended",
+            "folded": true,
+            "links": []
+          }
+        ],
+        "runIds": [
+          "r1"
+        ],
+        "issueIds": []
+      }
+    },
+    {
+      "name": "unresolved children drop out; a lone child is a plain run started by its parent",
+      "input": {
+        "thread": {
+          "id": "t1",
+          "title": null,
+          "results": [],
+          "updatedAt": "2026-10-12T11:00:00.000Z"
+        },
+        "items": [
+          {
+            "id": "i-r1",
+            "kind": "run",
+            "issueId": null,
+            "sessionId": "r1",
+            "source": "user",
+            "addedBySessionId": null,
+            "sortOrder": 1,
+            "createdAt": "2026-10-12T10:00:00.000Z"
+          },
+          {
+            "id": "i-gone",
+            "kind": "issue",
+            "issueId": "gone",
+            "sessionId": null,
+            "source": "agent",
+            "addedBySessionId": "r1",
+            "sortOrder": 2,
+            "createdAt": "2026-10-12T10:01:00.000Z"
+          },
+          {
+            "id": "i-r2",
+            "kind": "run",
+            "issueId": null,
+            "sessionId": "r2",
+            "source": "user",
+            "addedBySessionId": null,
+            "sortOrder": 3,
+            "createdAt": "2026-10-12T10:05:00.000Z"
+          },
+          {
+            "id": "i-purged",
+            "kind": "run",
+            "issueId": null,
+            "sessionId": "purged",
+            "source": "user",
+            "addedBySessionId": null,
+            "sortOrder": 4,
+            "createdAt": "2026-10-12T10:06:00.000Z"
+          }
+        ],
+        "issues": [],
+        "runs": [
+          {
+            "id": "r1",
+            "name": "Chat",
+            "userId": "u1",
+            "deviceLabel": "macbook",
+            "status": "in_review",
+            "needsInput": false,
+            "agentBusy": false,
+            "issueId": null,
+            "parentSessionId": null,
+            "resumedFromId": null,
+            "startedAt": "2026-10-12T10:00:00.000Z",
+            "endedAt": null
+          },
+          {
+            "id": "r2",
+            "name": "Chat",
+            "userId": "u1",
+            "deviceLabel": "mint",
+            "status": "running",
+            "needsInput": false,
+            "agentBusy": false,
+            "issueId": null,
+            "parentSessionId": "r1",
+            "resumedFromId": null,
+            "startedAt": "2026-10-12T10:05:00.000Z",
+            "endedAt": null
+          }
+        ]
+      },
+      "expected": {
+        "title": "Chat",
+        "titleDerived": true,
+        "strip": [
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "guide",
+            "dot": false
+          }
+        ],
+        "headerCaption": "2 runs · 2 devices",
+        "listCaption": "no issues · 2 runs · 2 devices",
+        "live": true,
+        "needsInput": false,
+        "busy": false,
+        "conversation": [
+          {
+            "kind": "run",
+            "runId": "r1",
+            "label": "Run 1",
+            "caption": [
+              "macbook"
+            ],
+            "state": "live",
+            "folded": false,
+            "links": []
+          },
+          {
+            "kind": "run",
+            "runId": "r2",
+            "label": "Run 2",
+            "caption": [
+              "mint",
+              "started by Run 1"
+            ],
+            "state": "live",
+            "folded": false,
+            "links": []
+          }
+        ],
+        "runIds": [
+          "r1",
+          "r2"
+        ],
+        "issueIds": []
+      }
+    },
+    {
+      "name": "a chat still named Chat takes its first issue's title",
+      "input": {
+        "thread": {
+          "id": "t1",
+          "title": null,
+          "results": null,
+          "updatedAt": "2026-10-12T11:00:00.000Z"
+        },
+        "items": [
+          {
+            "id": "i-r1",
+            "kind": "run",
+            "issueId": null,
+            "sessionId": "r1",
+            "source": "user",
+            "addedBySessionId": null,
+            "sortOrder": 1,
+            "createdAt": "2026-10-12T10:00:00.000Z"
+          },
+          {
+            "id": "i-a",
+            "kind": "issue",
+            "issueId": "a",
+            "sessionId": null,
+            "source": "agent",
+            "addedBySessionId": "r1",
+            "sortOrder": 2,
+            "createdAt": "2026-10-12T10:01:00.000Z"
+          }
+        ],
+        "issues": [
+          {
+            "id": "a",
+            "identifier": "EXP-9",
+            "title": "Fix the picker",
+            "createdAt": "2026-10-12T10:00:30.000Z"
+          }
+        ],
+        "runs": [
+          {
+            "id": "r1",
+            "name": "Chat",
+            "userId": "u1",
+            "deviceLabel": "macbook",
+            "status": "running",
+            "needsInput": false,
+            "agentBusy": true,
+            "issueId": null,
+            "parentSessionId": null,
+            "resumedFromId": null,
+            "startedAt": "2026-10-12T10:00:00.000Z",
+            "endedAt": null
+          }
+        ]
+      },
+      "expected": {
+        "title": "Fix the picker",
+        "titleDerived": true,
+        "strip": [
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "issue",
+            "issueId": "a",
+            "identifier": "EXP-9",
+            "title": "Fix the picker"
+          },
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "guide",
+            "dot": false
+          }
+        ],
+        "headerCaption": "1 run · macbook",
+        "listCaption": "1 issue · 1 run · macbook",
+        "live": true,
+        "needsInput": false,
+        "busy": true,
+        "conversation": [
+          {
+            "kind": "run",
+            "runId": "r1",
+            "label": "Run 1",
+            "caption": [
+              "macbook"
+            ],
+            "state": "live",
+            "folded": false,
+            "links": [
+              {
+                "itemId": "i-a",
+                "issueId": "a",
+                "identifier": "EXP-9",
+                "title": "Fix the picker",
+                "label": "Filed and linked"
+              }
+            ]
+          }
+        ],
+        "runIds": [
+          "r1"
+        ],
+        "issueIds": [
+          "a"
+        ]
+      }
+    },
+    {
+      "name": "no children at all",
+      "input": {
+        "thread": {
+          "id": "t1",
+          "title": null,
+          "results": null,
+          "updatedAt": "2026-10-12T11:00:00.000Z"
+        },
+        "items": [],
+        "issues": [],
+        "runs": []
+      },
+      "expected": {
+        "title": "Thread",
+        "titleDerived": true,
+        "strip": [
+          {
+            "kind": "conversation"
+          },
+          {
+            "kind": "add"
+          },
+          {
+            "kind": "guide",
+            "dot": false
+          }
+        ],
+        "headerCaption": "0 runs",
+        "listCaption": "no issues · 0 runs",
+        "live": false,
+        "needsInput": false,
+        "busy": false,
+        "conversation": [],
+        "runIds": [],
+        "issueIds": []
+      }
+    }
+  ],
+  "partitions": [
+    {
+      "name": "running = a live run of mine, newest activity first; recent = the rest",
+      "input": [
+        {
+          "threadId": "t-old-live",
+          "updatedAt": "2026-10-12T10:01:00.000Z",
+          "mineLive": true
+        },
+        {
+          "threadId": "t-recent",
+          "updatedAt": "2026-10-12T10:05:00.000Z",
+          "mineLive": false
+        },
+        {
+          "threadId": "t-new-live",
+          "updatedAt": "2026-10-12T10:09:00.000Z",
+          "mineLive": true
+        },
+        {
+          "threadId": "t-older",
+          "updatedAt": "2026-10-12T10:02:00.000Z",
+          "mineLive": false
+        }
+      ],
+      "expected": {
+        "running": [
+          {
+            "threadId": "t-new-live",
+            "updatedAt": "2026-10-12T10:09:00.000Z",
+            "mineLive": true
+          },
+          {
+            "threadId": "t-old-live",
+            "updatedAt": "2026-10-12T10:01:00.000Z",
+            "mineLive": true
+          }
+        ],
+        "recent": [
+          {
+            "threadId": "t-recent",
+            "updatedAt": "2026-10-12T10:05:00.000Z",
+            "mineLive": false
+          },
+          {
+            "threadId": "t-older",
+            "updatedAt": "2026-10-12T10:02:00.000Z",
+            "mineLive": false
+          }
+        ]
+      }
+    }
+  ]
+}
