@@ -41,8 +41,18 @@ export const entry: StyleguideEntry = {
       file: `apps/desktop/crates/ui/src/comments.rs`,
       note: `steer_viewer::render_comment_call; styleguide/entries/comment_card.rs`,
     },
-    ios: { state: `n/a`, note: `EXP-1259 wave B (I2) ports it.` },
-    android: { state: `n/a`, note: `EXP-1259 wave B (A2) ports it.` },
+    ios: {
+      state: `ok`,
+      symbol: `CommentCallCardView`,
+      file: `apps/ios/ExpUI/Sources/CommentCallCardView.swift`,
+      note: `row: CommentCallRow in UI/Session/AgentWorkflowViews.swift`,
+    },
+    android: {
+      state: `ok`,
+      symbol: `CommentCallCard`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/session/CommentCallCard.kt`,
+      note: `tap: ui/issue/CommentFocus.kt`,
+    },
   },
   island: () => (
     <div className="max-w-2xl text-sm">

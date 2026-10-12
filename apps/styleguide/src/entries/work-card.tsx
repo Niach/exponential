@@ -65,8 +65,18 @@ export const entry: StyleguideEntry = {
       file: `apps/desktop/crates/ui/src/work_card.rs`,
       note: `styleguide/entries/work_card.rs`,
     },
-    ios: { state: `n/a`, note: `EXP-1259 wave B (I2) ports it.` },
-    android: { state: `n/a`, note: `EXP-1259 wave B (A2) ports it.` },
+    ios: {
+      state: `ok`,
+      symbol: `WorkCardView`,
+      file: `apps/ios/ExpUI/Sources/WorkCardView.swift`,
+      note: `model: ExpCore WorkCard.swift`,
+    },
+    android: {
+      state: `ok`,
+      symbol: `WorkCard`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/session/WorkCard.kt`,
+      note: `model: domain/WorkCard.kt`,
+    },
   },
   island: () => (
     <div className="flex max-w-2xl flex-col gap-3 text-sm">

@@ -1240,7 +1240,7 @@ export const APP_PARITY: readonly AppParity[] = [
     }
   },
   {
-    "id": "search-list",
+    "id": "searchable-list",
     "title": "Search list",
     "blurb": "EXP-1259 (search-list.json): THE search list. An input row (40 px, the search glyph, the result count once a query is typed) over the picker rows, at most eight visible, the rest scrolling under a 24 px bottom fade. The top row is highlighted, arrows move it, Enter or Tab pick it. It is the `#` typeahead, the issue pickers, the global search and the composer menu's searchable submenus. The catalog's `SearchList` and `menuItem.searchable`.",
     "components": [

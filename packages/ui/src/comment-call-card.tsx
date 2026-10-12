@@ -22,6 +22,9 @@ export const COMMENT_CALL_COPY = {
 
 /** Three body lines at the chat markdown's 1.5 line height. */
 const CLAMP_CLASS = `max-h-[4.5em] overflow-hidden`
+// A clamp cuts mid-line when the body holds a heading or a list; the fade
+// makes the cut read as "there is more" instead of a clipped line.
+const CLAMP_FADE_CLASS = `[mask-image:linear-gradient(to_bottom,black_55%,transparent)]`
 
 export function CommentCallCard({
   issue,
@@ -110,7 +113,11 @@ export function CommentCallCard({
           </div>
           <div
             ref={bodyRef}
-            className={cn(`mt-1 min-w-0 text-sm text-foreground`, !expanded && CLAMP_CLASS)}
+            className={cn(
+              `mt-1 min-w-0 text-sm text-foreground`,
+              !expanded && CLAMP_CLASS,
+              !expanded && overflows && CLAMP_FADE_CLASS
+            )}
           >
             {body}
           </div>

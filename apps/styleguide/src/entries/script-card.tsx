@@ -37,8 +37,18 @@ export const entry: StyleguideEntry = {
       file: `apps/desktop/crates/ui/src/script_card.rs`,
       note: `styleguide/entries/script_card.rs`,
     },
-    ios: { state: `n/a`, note: `EXP-1259 wave B (I2) ports it.` },
-    android: { state: `n/a`, note: `EXP-1259 wave B (A2) ports it.` },
+    ios: {
+      state: `ok`,
+      symbol: `ScriptCardView`,
+      file: `apps/ios/ExpUI/Sources/ScriptCardView.swift`,
+      note: `model: ExpCore ScriptCard.swift`,
+    },
+    android: {
+      state: `ok`,
+      symbol: `ScriptCard`,
+      file: `apps/android/app/src/main/java/com/exponential/app/ui/session/ScriptCard.kt`,
+      note: `model: domain/ScriptCard.kt`,
+    },
   },
   island: () => (
     <div className="flex max-w-2xl flex-col gap-3 text-sm">
