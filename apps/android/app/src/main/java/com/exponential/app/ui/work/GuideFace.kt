@@ -26,13 +26,13 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -45,6 +45,11 @@ import androidx.compose.foundation.layout.calculateEndPadding
 import androidx.compose.foundation.layout.calculateStartPadding
 import androidx.compose.ui.platform.LocalLayoutDirection
 import com.exponential.app.ui.components.detailHazeSource
+import com.exponential.app.ui.components.EmptyState
+import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.SkeletonRows
+import com.exponential.app.ui.components.failedAction
+import com.exponential.app.domain.EmptyStateCopy
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -467,35 +472,24 @@ private fun GuideRow(
 }
 
 /**
- * EXP-1154: an open PR with no run report while its GitHub body loads (a
- * spinner) or after the fetch failed (the refusal). The loaded body is a
- * Guide group ([prDescriptionGroups]).
+ * EXP-1154: an open PR with no run report while its GitHub body loads
+ * (skeleton rows, EXP-1275) or after the fetch failed (FEED-79: the empty
+ * state plus ONE toast). The loaded body is a Guide group
+ * ([prDescriptionGroups]).
  */
 @Composable
 private fun PrFallbackSection(state: PrDescriptionState) {
+    val toaster = LocalToaster.current
+    LaunchedEffect(state) {
+        if (state is PrDescriptionState.Failed) toaster.failedAction("load", "the pull request", state.message)
+    }
     Column(
         modifier = Modifier.testTag("results-pr-fallback"),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         when (state) {
-            PrDescriptionState.Loading -> Row(
-                modifier = Modifier.padding(vertical = 12.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-                Text(
-                    "Loading the pull request…",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-                )
-            }
-            is PrDescriptionState.Failed -> Text(
-                state.message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier.padding(vertical = 12.dp),
-            )
+            PrDescriptionState.Loading -> SkeletonRows(dot = false)
+            is PrDescriptionState.Failed -> EmptyState(EmptyStateCopy.changedFiles)
             is PrDescriptionState.Loaded -> Unit
         }
     }

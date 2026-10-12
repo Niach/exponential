@@ -440,8 +440,17 @@ class AgentComposerViewModel @Inject constructor(
     private val _images = MutableStateFlow<List<PendingAttachment>>(emptyList())
     val images: StateFlow<List<PendingAttachment>> = _images
 
+    /** A refused pick (count / size caps): invalid input, under the composer. */
     private val _imageError = MutableStateFlow<String?>(null)
     val imageError: StateFlow<String?> = _imageError
+
+    /** FEED-79: a start's attachment upload failed (the server's message); a toast. */
+    private val _uploadFailure = MutableStateFlow<String?>(null)
+    val uploadFailure: StateFlow<String?> = _uploadFailure
+
+    fun clearUploadFailure() {
+        _uploadFailure.value = null
+    }
 
     /**
      * EXP-615/739: the chat's OPTIONAL repository — "" = none, and the run
@@ -1114,7 +1123,7 @@ class AgentComposerViewModel @Inject constructor(
                     }
                 } catch (t: Throwable) {
                     if (t is CancellationException) throw t
-                    _imageError.value = trpcErrorMessage(t, "Couldn't upload attachment")
+                    _uploadFailure.value = trpcErrorMessage(t, "")
                     return@launch
                 }
                 val text = stacked?.let { BlockedStart.stackedStartPrompt(it.plan, _draft.value) }

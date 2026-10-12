@@ -57,6 +57,8 @@ import com.exponential.app.domain.CodingReadiness.Fix
 import com.exponential.app.domain.CodingReadiness.StepKey
 import com.exponential.app.domain.CodingReadiness.StepState
 import com.exponential.app.domain.CodingReadinessRepoPicker
+import com.exponential.app.ui.components.FailedActionToast
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.AddDeviceSheet
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassSheet
@@ -119,6 +121,7 @@ fun CodingReadinessSheet(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val setting by viewModel.setting.collectAsStateWithLifecycle()
     val setError by viewModel.setError.collectAsStateWithLifecycle()
+    FailedActionToast(setError, onShown = viewModel::clearSetError)
     val readiness = state.readiness
     var page by rememberSaveable { mutableStateOf(ReadinessPage.Checklist) }
     var addFromGithub by remember { mutableStateOf(false) }
@@ -135,7 +138,6 @@ fun CodingReadinessSheet(
     val onFix: (Fix) -> Unit = { fix ->
         when (fix) {
             Fix.CHOOSE_REPOSITORY -> {
-                viewModel.clearSetError()
                 page = ReadinessPage.Picker
             }
             Fix.GET_DESKTOP_APP -> runCatching {
@@ -167,7 +169,6 @@ fun CodingReadinessSheet(
                 RepositoryPicker(
                     state = state,
                     settingId = setting,
-                    error = setError,
                     canAdd = state.accountId != null && state.board != null,
                     onBack = { page = ReadinessPage.Checklist },
                     onPick = { repo -> viewModel.setRepository(repo.id) { page = ReadinessPage.Checklist } },
@@ -441,7 +442,6 @@ private fun StartFooter(ready: Boolean, onStart: () -> Unit) {
 private fun ColumnScope.RepositoryPicker(
     state: CodingReadinessViewModel.UiState,
     settingId: String?,
-    error: String?,
     canAdd: Boolean,
     onBack: () -> Unit,
     onPick: (CodingReadinessRepoPicker.Repo) -> Unit,
@@ -489,21 +489,12 @@ private fun ColumnScope.RepositoryPicker(
         placeholder = CodingReadiness.Copy.PICKER_SEARCH,
     )
     Spacer(Modifier.height(8.dp))
-    error?.let { message ->
-        Text(
-            message,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.error,
-            modifier = Modifier.padding(horizontal = GlassSheetDefaults.HorizontalPadding, vertical = 4.dp),
-        )
-    }
     when {
-        repos == null -> Box(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
-            contentAlignment = Alignment.Center,
-        ) {
-            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = Color.White)
-        }
+        // EXP-1275: the first load = skeleton rows in the sheet row's geometry.
+        repos == null -> SkeletonRows(
+            modifier = Modifier.padding(horizontal = GlassSheetDefaults.HorizontalPadding - 12.dp),
+            rowHeight = 44.dp,
+        )
         repos.isEmpty() -> Text(
             CodingReadiness.Copy.PICKER_EMPTY,
             style = MaterialTheme.typography.bodyMedium,

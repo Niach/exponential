@@ -60,7 +60,9 @@ fun feedItemBytes(item: AgentFeedItem): Long {
                     // EXP-846: the folded Exponential-tool preview weighs too.
                     (item.preview?.weight() ?: 0) +
                     // EXP-895: and so does the command output its settle carried.
-                    (item.output?.length ?: 0)
+                    (item.output?.length ?: 0) +
+                    // EXP-1279: and a code-mode call's log.
+                    (item.script?.weight() ?: 0)
                 ).toLong()
         is AgentFeedItem.Permission -> (item.tool.length + (item.detail?.length ?: 0)).toLong()
         is AgentFeedItem.Subagent ->
@@ -168,6 +170,13 @@ sealed interface AgentFeedItem {
         val diff: String? = null,
         val preview: ToolResultPreview? = null,
         val output: String? = null,
+        /** EXP-1279: a code-mode call's log, off its settling `tool_update`
+         *  (`script`, STEER-WIRE §1b). Null until it settles, and on a
+         *  publisher that sends none. */
+        val script: ScriptLog? = null,
+        /** EXP-1241: the relay's `at` of the settling `tool_update` (the
+         *  comment card's time until the synced comment row lands). */
+        val settledAt: Long? = null,
     ) : AgentFeedItem
 
     /** A human turn (EXP-78): the initial prompt or a steered message.
@@ -432,6 +441,20 @@ fun rateLimitExpired(state: SessionRateLimitState, nowMs: Long): Boolean =
  *  screen re-reads it on its 30s activity clock. */
 fun rateLimitBannerShows(state: SessionRateLimitState, nowMs: Long): Boolean =
     rateLimitIsWall(state) && !rateLimitExpired(state, nowMs)
+
+/** EXP-1279: a code-mode `exec` call (contract toolKind `script`, or a name
+ *  ending in `codemode__exec` / codex `codemode.exec`): its own Script card. */
+val AgentFeedItem.Tool.isScriptCall: Boolean
+    get() = ScriptCards.isScriptCall(name, toolKind)
+
+/** The Script card's input for one tool row. Without a log (an older
+ *  codemode) it is the bare "Ran a script". Web `scriptCardInput`. */
+fun AgentFeedItem.Tool.scriptCardInput(): ScriptCardInput = ScriptCardInput(
+    running = !settled,
+    count = script?.count,
+    calls = script?.calls.orEmpty(),
+    elapsedMs = script?.elapsedMs,
+)
 
 /** EXP-785: a wire `toolKind`, or null for anything this build does not know. */
 fun parseToolKind(raw: String?): String? = raw?.takeIf { it in DomainContract.toolKindValues }
@@ -1134,6 +1157,12 @@ private fun projectFeedRows(
                 if (editRunHasRows(run)) rows.add(AgentFeedRow.Edits(run))
                 i = end + 1
             }
+            // EXP-1279: a code-mode call is its own Script card, never a
+            // member of a run (the way our own MCP calls are, EXP-948).
+            item is AgentFeedItem.Tool && item.isScriptCall -> {
+                rows.add(AgentFeedRow.Single(item))
+                i++
+            }
             // EXP-948: one of OURS opens a group of its own — a lone call is
             // the single row it always was, ≥2 of the SAME tool are one
             // captioned run. Scanned before the plain-tool branch, so our call
@@ -1156,7 +1185,9 @@ private fun projectFeedRows(
                         next.subagentId == null &&
                         !EditCard.isEditCall(next, workflowIds) &&
                         // EXP-948: our own call breaks a run like an edit does.
-                        !ExpToolGroup.isExpToolCall(next, workflowIds)
+                        !ExpToolGroup.isExpToolCall(next, workflowIds) &&
+                        // EXP-1279: and so does a code-mode call.
+                        !next.isScriptCall
                     ) {
                         end++
                     } else {
@@ -1635,6 +1666,9 @@ fun ActivityFeedState.applyActivityEvent(
                 preview = toolPreview(event["preview"]) ?: row.preview,
                 // EXP-895: the settle's command output, same rule.
                 output = event.str("output")?.takeIf { it.isNotBlank() } ?: row.output,
+                // EXP-1279: a code-mode call's log, same rule.
+                script = toolScript(event["script"]) ?: row.script,
+                settledAt = row.settledAt ?: event.long("at")?.takeIf { settles },
             )
             withFeed(feed.toMutableList().also { it[at] = next })
         }
@@ -2124,6 +2158,35 @@ private fun toolPreview(raw: JsonElement?): ToolResultPreview? {
     )
     return preview.takeIf { it != ToolResultPreview() }
 }
+
+/** EXP-1279: one `tool_update.script` log (STEER-WIRE §1b), decoded
+ *  tolerantly: a malformed call drops, never the log; the calls stop at the
+ *  contract `logCap`. Null when nothing usable came. Web `parseScriptLog`. */
+private fun toolScript(raw: JsonElement?): ScriptLog? {
+    val obj = raw as? JsonObject ?: return null
+    val calls = (obj["calls"] as? JsonArray).orEmptyList { call ->
+        val tool = call.str("tool")?.trim()?.takeIf { it.isNotEmpty() } ?: return@orEmptyList null
+        ScriptCall(
+            tool = tool.take(SCRIPT_TEXT_MAX),
+            subject = call.str("subject")?.trim()?.takeIf { it.isNotEmpty() }?.take(SCRIPT_TEXT_MAX),
+            ok = (call["ok"] as? JsonPrimitive)?.booleanOrNull != false,
+            ms = call.long("ms")?.takeIf { it >= 0 },
+        )
+    }.take(ScriptCardSpec.LOG_CAP)
+    val log = ScriptLog(
+        count = obj.int("count")?.takeIf { it >= 0 },
+        elapsedMs = obj.long("elapsedMs")?.takeIf { it >= 0 },
+        calls = calls,
+        source = obj.str("source")?.takeIf { it.isNotBlank() }?.take(DomainContract.steerFeedToolOutputMaxBytes),
+    )
+    return log.takeIf { it.calls.isNotEmpty() || it.count != null || it.elapsedMs != null || it.source != null }
+}
+
+private const val SCRIPT_TEXT_MAX = 200
+
+/** What a code-mode log adds to a tool row's [feedItemBytes] estimate. */
+private fun ScriptLog.weight(): Int =
+    (source?.length ?: 0) + calls.sumOf { it.tool.length + (it.subject?.length ?: 0) }
 
 /** One `values[]` array of a `config_state` option; anything unusable drops
  *  that entry, never the whole option (the `question.options` precedent). */

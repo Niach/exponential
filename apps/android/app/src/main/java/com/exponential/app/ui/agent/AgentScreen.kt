@@ -114,6 +114,7 @@ import com.exponential.app.ui.steer.ActionRunState
 import com.exponential.app.domain.ToastAction
 import com.exponential.app.ui.components.ExponentialMark
 import com.exponential.app.ui.components.CodingSessionRow
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.SessionRowSize
 import com.exponential.app.ui.gettingstarted.GettingStartedSection
@@ -464,6 +465,10 @@ fun AgentScreen(
         )
         viewModel.consumeStartTimedOut()
     }
+    // A start whose attachment upload failed: landed uploads are kept, so
+    // Retry uploads the rest and starts (web parity).
+    val uploadFailure by viewModel.uploadFailure.collectAsStateWithLifecycle()
+    FailedActionToast(uploadFailure, "upload", "the attachment", onShown = viewModel::clearUploadFailure, retry = { retryStart() })
 
     // ── Attachments (EXP-511, wave D): the system document picker, ANY type
     // (images included), feeds the pending list ─────────────────────────────

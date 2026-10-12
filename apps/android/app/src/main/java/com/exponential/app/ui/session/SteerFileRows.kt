@@ -20,6 +20,7 @@ import com.exponential.app.domain.SteerFile
 import com.exponential.app.domain.sanitizeFilename
 import com.exponential.app.ui.components.FileTile
 import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.issue.openFile
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
@@ -68,7 +69,7 @@ internal fun SteerFileRows(files: List<SteerFile>, modifier: Modifier = Modifier
                             // A failed download (401, offline) says so
                             // instead of a silent no-op tap.
                             val local = downloadSteerFile(context, file) ?: run {
-                                toaster.error("Could not download the file")
+                                toaster.failedAction("download", "the file")
                                 return@launch
                             }
                             openFile(context, local, steerFileContentType(file.name))

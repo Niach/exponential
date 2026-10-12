@@ -41,8 +41,8 @@ data class InviteLinkState(
     val remaining: Int? = null,
     val inviteUrl: String? = null,
     val generating: Boolean = false,
-    /** NON-plan failures only — a cap never prints anything. */
-    val error: String? = null,
+    /** NON-plan failures only (a cap never says anything): raised once as a toast (FEED-79). */
+    val failure: FailedAction? = null,
 ) {
     val hidden: Boolean get() = capacityKnown && remaining == 0
 }
@@ -112,12 +112,16 @@ class InviteLinkViewModel @Inject constructor(
      * the last seat between the capacity read and this call): the creator
      * hides itself and says nothing at all.
      */
+    fun clearFailure() {
+        _state.value = _state.value.copy(failure = null)
+    }
+
     fun generate() {
         val teamId = boundTeamId ?: return
         if (_state.value.generating) return
         val accountId = auth.activeAccountId.value ?: return
         viewModelScope.launch {
-            _state.value = _state.value.copy(generating = true, error = null)
+            _state.value = _state.value.copy(generating = true, failure = null)
             runCatching { invitesApi.create(accountId, teamId) }
                 .onSuccess { token ->
                     _state.value = _state.value.copy(
@@ -132,12 +136,12 @@ class InviteLinkViewModel @Inject constructor(
                             capacityKnown = true,
                             remaining = 0,
                             inviteUrl = null,
-                            error = null,
+                            failure = null,
                         )
                     } else {
                         _state.value.copy(
                             generating = false,
-                            error = trpcErrorMessage(err, "Couldn't create the invite"),
+                            failure = FailedAction("create", "the invite link", trpcErrorMessage(err, "")),
                         )
                     }
                 }

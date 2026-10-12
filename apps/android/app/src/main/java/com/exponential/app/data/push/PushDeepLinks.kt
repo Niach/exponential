@@ -29,6 +29,10 @@ object PushDeepLinks {
     /** EXP-933: query param naming the Work screen face an issue link opens on. */
     const val PARAM_FACE = "face"
 
+    /** EXP-1241: `exponential://issue/{id}?comment={commentId}` scrolls the
+     *  issue to that comment (web `?comment=`). */
+    const val PARAM_COMMENT = "comment"
+
     /** The [PARAM_FACE] value of the Guide face (EXP-1251). */
     const val FACE_GUIDE = "guide"
 

@@ -48,6 +48,7 @@ import com.exponential.app.domain.relationSortKey
 import com.exponential.app.domain.PreparedMedia
 import com.exponential.app.domain.isFileAttachment
 import com.exponential.app.domain.sanitizeFilename
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.session.PastRunRow
 import com.exponential.app.ui.session.issueRunRows
 import com.exponential.app.ui.markdown.AttachmentDims
@@ -479,7 +480,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                         inverse = pick.inverse,
                     ),
                 )
-            }.onFailure { reportMutationFailure(it, "The relation could not be added") }
+            }.onFailure { reportMutationFailure(it, "add", "the relation") }
         }
     }
 
@@ -492,7 +493,7 @@ class IssueDetailViewModel @AssistedInject constructor(
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching { relationsApi.delete(accountId, row.id) }
-                .onFailure { reportMutationFailure(it, "The relation could not be removed") }
+                .onFailure { reportMutationFailure(it, "remove", "the relation") }
         }
     }
 
@@ -596,8 +597,8 @@ class IssueDetailViewModel @AssistedInject constructor(
 
     // Surfaced when a move fails (snackbar in the screen) — a silently
     // dropped move would read as the issue "staying put" for no reason.
-    private val _moveError = MutableStateFlow<String?>(null)
-    val moveError: StateFlow<String?> = _moveError
+    private val _moveError = MutableStateFlow<FailedAction?>(null)
+    val moveError: StateFlow<FailedAction?> = _moveError
 
     fun consumeMoveError() {
         _moveError.value = null
@@ -605,8 +606,8 @@ class IssueDetailViewModel @AssistedInject constructor(
 
     // Surfaced when an inline label create fails (snackbar in the screen) —
     // e.g. the duplicate-name CONFLICT (EXP-254).
-    private val _labelError = MutableStateFlow<String?>(null)
-    val labelError: StateFlow<String?> = _labelError
+    private val _labelError = MutableStateFlow<FailedAction?>(null)
+    val labelError: StateFlow<FailedAction?> = _labelError
 
     fun consumeLabelError() {
         _labelError.value = null
@@ -617,16 +618,17 @@ class IssueDetailViewModel @AssistedInject constructor(
     // delete. The screen is driven by Electric sync, which never moves on a
     // failed write — without this the tap simply did nothing, with no way to
     // tell "didn't register" from "server refused".
-    private val _mutationError = MutableStateFlow<String?>(null)
-    val mutationError: StateFlow<String?> = _mutationError
+    private val _mutationError = MutableStateFlow<FailedAction?>(null)
+    val mutationError: StateFlow<FailedAction?> = _mutationError
 
     fun consumeMutationError() {
         _mutationError.value = null
     }
 
-    private fun reportMutationFailure(t: Throwable, fallback: String) {
+    /** FEED-79: `Couldn't <verb> <thing>` + the server's message, Retry when [retry] is safe. */
+    private fun reportMutationFailure(t: Throwable, verb: String, thing: String, retry: (() -> Unit)? = null) {
         if (t is CancellationException) throw t
-        _mutationError.value = trpcErrorMessage(t, fallback)
+        _mutationError.value = FailedAction(verb, thing, trpcErrorMessage(t, ""), retry)
     }
 
     /**
@@ -644,7 +646,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                 }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
-                    _moveError.value = trpcErrorMessage(t, "The issue could not be moved")
+                    _moveError.value = FailedAction("move", "the issue", trpcErrorMessage(t, "")) { moveToBoard(boardId) }
                 }
         }
     }
@@ -711,7 +713,7 @@ class IssueDetailViewModel @AssistedInject constructor(
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching { issuesApi.setDuplicateOf(accountId, issueId, canonicalId) }
-                .onFailure { reportMutationFailure(it, "The issue could not be marked duplicate") }
+                .onFailure { reportMutationFailure(it, "mark", "the issue as a duplicate") { markDuplicate(canonicalId) } }
         }
     }
 
@@ -720,7 +722,7 @@ class IssueDetailViewModel @AssistedInject constructor(
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching { issuesApi.setDuplicateOf(accountId, issueId, null) }
-                .onFailure { reportMutationFailure(it, "The duplicate mark could not be cleared") }
+                .onFailure { reportMutationFailure(it, "clear", "the duplicate mark") { unmarkDuplicate() } }
         }
     }
 
@@ -732,8 +734,8 @@ class IssueDetailViewModel @AssistedInject constructor(
     // Surfaced when a description save fails after retries (snackbar in the
     // screen). The draft stays in descriptionInput, so a later edit or flush
     // retries — the edit is never silently discarded.
-    private val _descriptionSaveError = MutableStateFlow<String?>(null)
-    val descriptionSaveError: StateFlow<String?> = _descriptionSaveError
+    private val _descriptionSaveError = MutableStateFlow<FailedAction?>(null)
+    val descriptionSaveError: StateFlow<FailedAction?> = _descriptionSaveError
 
     fun consumeDescriptionSaveError() {
         _descriptionSaveError.value = null
@@ -897,7 +899,7 @@ class IssueDetailViewModel @AssistedInject constructor(
             _lastSavedTitle.value = trimmed
             runCatching {
                 issuesApi.update(accountId, UpdateIssueInput(id = issueId, title = trimmed))
-            }.onFailure { reportMutationFailure(it, "The title could not be saved") }
+            }.onFailure { reportMutationFailure(it, "save", "the title") { updateTitle(title) } }
         }
     }
 
@@ -946,7 +948,7 @@ class IssueDetailViewModel @AssistedInject constructor(
             } catch (t: Throwable) {
                 if (attempt >= DESCRIPTION_SAVE_ATTEMPTS) {
                     _descriptionSaveError.value =
-                        trpcErrorMessage(t, "Description changes could not be saved")
+                        FailedAction("save", "the description", trpcErrorMessage(t, "")) { flushDescription() }
                     return
                 }
                 delay(DESCRIPTION_SAVE_RETRY_DELAY_MS * attempt)
@@ -972,7 +974,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                         statusId = status.rowId,
                     ),
                 )
-            }.onFailure { reportMutationFailure(it, "The status could not be changed") }
+            }.onFailure { reportMutationFailure(it, "change", "the status") { updateStatus(status) } }
         }
     }
 
@@ -981,7 +983,7 @@ class IssueDetailViewModel @AssistedInject constructor(
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
                 issuesApi.update(accountId, UpdateIssueInput(id = issueId, priority = priority.wire))
-            }.onFailure { reportMutationFailure(it, "The priority could not be changed") }
+            }.onFailure { reportMutationFailure(it, "change", "the priority") { updatePriority(priority) } }
         }
     }
 
@@ -991,7 +993,7 @@ class IssueDetailViewModel @AssistedInject constructor(
             runCatching {
                 // Explicit null on clear (see IssuesApi.setDueDate).
                 issuesApi.setDueDate(accountId, issueId, date)
-            }.onFailure { reportMutationFailure(it, "The due date could not be changed") }
+            }.onFailure { reportMutationFailure(it, "change", "the due date") { updateDueDate(date) } }
         }
     }
 
@@ -1002,7 +1004,7 @@ class IssueDetailViewModel @AssistedInject constructor(
             val accountId = auth.activeAccountId.value ?: return@launch
             runCatching {
                 issuesApi.setEstimate(accountId, issueId, estimate)
-            }.onFailure { reportMutationFailure(it, "The estimate could not be changed") }
+            }.onFailure { reportMutationFailure(it, "change", "the estimate") { updateEstimate(estimate) } }
         }
     }
 
@@ -1014,7 +1016,7 @@ class IssueDetailViewModel @AssistedInject constructor(
             // drops nulls — through update() this was a silent no-op.
             runCatching {
                 issuesApi.setAssignee(accountId, issueId, userId)
-            }.onFailure { reportMutationFailure(it, "The assignee could not be changed") }
+            }.onFailure { reportMutationFailure(it, "change", "the assignee") { updateAssignee(userId) } }
         }
     }
 
@@ -1024,7 +1026,7 @@ class IssueDetailViewModel @AssistedInject constructor(
             runCatching {
                 if (isCurrentlyAssigned) labelsApi.removeLabel(accountId, issueId, labelId)
                 else labelsApi.addLabel(accountId, issueId, labelId)
-            }.onFailure { reportMutationFailure(it, "The label could not be updated") }
+            }.onFailure { reportMutationFailure(it, "update", "the labels") }
         }
     }
 
@@ -1050,7 +1052,7 @@ class IssueDetailViewModel @AssistedInject constructor(
             }.onFailure { t ->
                 // Surface the server reject (e.g. the duplicate-name CONFLICT,
                 // EXP-254) — otherwise the sheet just closes and nothing happens.
-                _labelError.value = trpcErrorMessage(t, "Couldn't create the label")
+                _labelError.value = FailedAction("create", "the label", trpcErrorMessage(t, ""))
             }
         }
     }
@@ -1062,7 +1064,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                 .onSuccess { onDeleted() }
                 // The confirm dialog is already dismissed: without this a
                 // refused delete looks exactly like a successful one.
-                .onFailure { reportMutationFailure(it, "The issue could not be deleted") }
+                .onFailure { reportMutationFailure(it, "delete", "the issue") }
         }
     }
 
@@ -1251,7 +1253,7 @@ class IssueDetailViewModel @AssistedInject constructor(
                     holder.database(forAccountId = accountId).attachmentDao().deleteById(attachmentId)
                 }
             } catch (t: Throwable) {
-                reportMutationFailure(t, "The file could not be deleted")
+                reportMutationFailure(t, "delete", "the file")
             } finally {
                 _busyAttachmentIds.value = _busyAttachmentIds.value - attachmentId
             }
@@ -1283,7 +1285,7 @@ class IssueDetailViewModel @AssistedInject constructor(
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (t: Throwable) {
-            reportMutationFailure(t, "The file could not be downloaded")
+            reportMutationFailure(t, "download", "the file")
             null
         } finally {
             _busyAttachmentIds.value = _busyAttachmentIds.value - attachment.id

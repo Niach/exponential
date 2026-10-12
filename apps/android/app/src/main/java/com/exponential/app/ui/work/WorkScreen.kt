@@ -68,6 +68,7 @@ import com.exponential.app.ui.issue.rememberIssueFaceController
 import com.exponential.app.ui.issue.toDiffFile
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.IssueChip
 import com.exponential.app.ui.components.IssueChipSize
@@ -127,6 +128,9 @@ fun WorkScreen(
     // message's inbox row or push); null = the subject's default face. A face
     // not yet available falls back like any vanished face.
     initialFace: WorkFaceKind? = null,
+    /** EXP-1241: the comment the Issue face scrolls to and briefly
+     *  highlights (`issue/{id}?comment=`, a comment call's card). */
+    focusCommentId: String? = null,
 ) {
     // ── Screen state (survives rotation and process death) ─────────────────
     var faceName by rememberSaveable { mutableStateOf(initialFace?.name) }
@@ -563,7 +567,8 @@ fun WorkScreen(
             toastedMergeError = null
         } else if (mergeRefusal != toastedMergeError) {
             toastedMergeError = mergeRefusal
-            toaster.error(mergeRefusal)
+            // FEED-79: `Couldn't merge the PR` (or the stack) + the refusal.
+            toaster.failedAction("merge", if (mergeControl?.stackConfirm != null) "the stack" else "the PR", mergeRefusal)
         }
     }
     // A refused Close PR toasts once too (the merge control carries only
@@ -575,7 +580,7 @@ fun WorkScreen(
             toastedCloseError = null
         } else if (error != toastedCloseError) {
             toastedCloseError = error
-            toaster.error(error)
+            toaster.failedAction("close", "the PR", error)
         }
     }
     // EXP-1251: the Guide's Stack card — the subject's open stack, top first.
@@ -815,6 +820,7 @@ fun WorkScreen(
                             },
                             trailingBarSlot = issueTrailing,
                             mergeBarSlot = issueMergeSlot,
+                            focusCommentId = focusCommentId,
                             onAddSubIssue = onCreateSubIssue?.let { create ->
                                 issue?.let { parent -> { create(parent.boardId, parent.id) } }
                             },
@@ -855,6 +861,7 @@ fun WorkScreen(
                                 load = prLoad,
                                 merge = mergeControl,
                                 onBack = { guideSectionName = null },
+                                onRetry = changesVm?.let { vm -> vm::refresh },
                             )
                         } else {
                             GuideFace(

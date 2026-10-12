@@ -17,9 +17,11 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.CodingSessionDisplayState
+import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.domain.RunRowTone
 import com.exponential.app.domain.showWorkLabel
 import com.exponential.app.ui.components.AgentRunMark
+import com.exponential.app.ui.components.FeedbackMark
 import com.exponential.app.ui.components.SessionRowBadgeSize
 import com.exponential.app.ui.components.SessionRowLeadGap
 import com.exponential.app.ui.components.SessionRowMarkSize
@@ -34,7 +36,9 @@ import com.exponential.app.ui.theme.TextEmphasis
  * `runRowCaption` in its tone, the newest tool line muted under it (live runs
  * only), and the trailing `Show work` / `Hide work` switch. Fixture
  * `run-row.json` (×4). EXP-1245: the owner's thread draws one PER TURN
- * (`turnRowCaption`); with no [onToggle] the row draws no switch.
+ * (`turnRowCaption`); with no [onToggle] the row draws no switch. EXP-1271
+ * (EXP-1259 D8): before the run's first turn the row is [starting]: THE mark
+ * (`FeedbackMark`) in the run mark's slot over "Starting on <device>".
  */
 @Composable
 internal fun RunStatusRow(
@@ -47,6 +51,7 @@ internal fun RunStatusRow(
     showWork: Boolean,
     onToggle: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    starting: Boolean = false,
 ) {
     Row(
         modifier = modifier
@@ -55,13 +60,17 @@ internal fun RunStatusRow(
             .testTag("run-status-row"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        AgentRunMark(
-            agent = agent,
-            state = markState,
-            size = SessionRowMarkSize,
-            badgeSize = SessionRowBadgeSize,
-            ended = ended,
-        )
+        if (starting) {
+            FeedbackMark(size = FeedbackStates.MARK_SIZE_STATUS.dp)
+        } else {
+            AgentRunMark(
+                agent = agent,
+                state = markState,
+                size = SessionRowMarkSize,
+                badgeSize = SessionRowBadgeSize,
+                ended = ended,
+            )
+        }
         Spacer(Modifier.width(SessionRowLeadGap))
         Column(modifier = Modifier.weight(1f)) {
             Text(

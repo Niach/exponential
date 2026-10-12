@@ -2,6 +2,7 @@ package com.exponential.app.ui.session
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.data.api.DeviceCommandDto
 import com.exponential.app.data.api.DeviceLaunchDefaults
 import com.exponential.app.data.api.DevicesApi
@@ -135,26 +136,30 @@ class DeviceSettingsViewModel @Inject constructor(
         dbFlow.scopedQuery(emptyList<TeamEntity>()) { it.teamDao().observeAll() }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
-    // Per-section busy flags + inline errors (EXP-323 idiom — errors caption
-    // the triggering section, cleared by the next attempt).
+    // Per-section busy flags (EXP-323 idiom).
     private val _nameBusy = MutableStateFlow(false)
     val nameBusy: StateFlow<Boolean> = _nameBusy
-    private val _nameError = MutableStateFlow<String?>(null)
-    val nameError: StateFlow<String?> = _nameError
 
     private val _shareBusy = MutableStateFlow(false)
     val shareBusy: StateFlow<Boolean> = _shareBusy
-    private val _shareError = MutableStateFlow<String?>(null)
-    val shareError: StateFlow<String?> = _shareError
     private val _defaultBusy = MutableStateFlow(false)
     val defaultBusy: StateFlow<Boolean> = _defaultBusy
-    private val _defaultError = MutableStateFlow<String?>(null)
-    val defaultError: StateFlow<String?> = _defaultError
 
     private val _defaultsBusy = MutableStateFlow(false)
     val defaultsBusy: StateFlow<Boolean> = _defaultsBusy
-    private val _defaultsError = MutableStateFlow<String?>(null)
-    val defaultsError: StateFlow<String?> = _defaultsError
+
+    // FEED-79: a failed write or device command (rename, defaults, sharing,
+    // the default flag, update / import / sign-in) is ONE error toast. Several
+    // surfaces may watch one instance, so a host [claimFailure]s it first.
+    private val _failure = MutableStateFlow<FailedAction?>(null)
+    val failure: StateFlow<FailedAction?> = _failure
+
+    /** True for the ONE caller that takes [failure] (it then toasts it). */
+    fun claimFailure(failure: FailedAction): Boolean = _failure.compareAndSet(failure, null)
+
+    private fun fail(verb: String, thing: String, t: Throwable, retry: (() -> Unit)? = null) {
+        _failure.value = FailedAction(verb, thing, trpcErrorMessage(t, ""), retry)
+    }
 
     // Command progress, keyed by the issuing slot ([agentLoginCommandKey]);
     // a terminal state stays until the next command on the same key.
@@ -222,13 +227,12 @@ class DeviceSettingsViewModel @Inject constructor(
     private suspend fun saveRenameNow(pending: Pair<String, String>) {
         val accountId = auth.activeAccountId.value ?: return
         _nameBusy.value = true
-        _nameError.value = null
         runCatching { devicesApi.rename(accountId, pending.first, pending.second) }
             .fold(
                 onSuccess = { renameInput.compareAndSet(pending, null) },
                 onFailure = { t ->
                     if (t is CancellationException) throw t
-                    _nameError.value = trpcErrorMessage(t, "The device could not be renamed")
+                    fail("rename", "the device", t) { viewModelScope.launch { saveRenameNow(pending) } }
                 },
             )
         _nameBusy.value = false
@@ -237,13 +241,12 @@ class DeviceSettingsViewModel @Inject constructor(
     private suspend fun saveDefaultsNow(pending: Pair<String, DeviceLaunchDefaults>) {
         val accountId = auth.activeAccountId.value ?: return
         _defaultsBusy.value = true
-        _defaultsError.value = null
         runCatching { devicesApi.setLaunchDefaults(accountId, pending.first, pending.second) }
             .fold(
                 onSuccess = { defaultsInput.compareAndSet(pending, null) },
                 onFailure = { t ->
                     if (t is CancellationException) throw t
-                    _defaultsError.value = trpcErrorMessage(t, "The defaults could not be saved")
+                    fail("save", "the agent defaults", t) { viewModelScope.launch { saveDefaultsNow(pending) } }
                 },
             )
         _defaultsBusy.value = false
@@ -254,11 +257,10 @@ class DeviceSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _shareBusy.value = true
-            _shareError.value = null
             runCatching { devicesApi.setShared(accountId, deviceId, teamId, shared) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
-                    _shareError.value = trpcErrorMessage(t, "The share could not be changed")
+                    fail("update", "sharing", t) { setShared(deviceId, teamId, shared) }
                 }
             _shareBusy.value = false
         }
@@ -274,12 +276,10 @@ class DeviceSettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             _defaultBusy.value = true
-            _defaultError.value = null
             runCatching { devicesApi.setDefault(accountId, deviceId, isDefault) }
                 .onFailure { t ->
                     if (t is CancellationException) throw t
-                    _defaultError.value =
-                        trpcErrorMessage(t, "The default device could not be changed")
+                    fail("update", "the default device", t) { setDefault(deviceId, isDefault) }
                 }
             _defaultBusy.value = false
         }
@@ -312,6 +312,8 @@ class DeviceSettingsViewModel @Inject constructor(
             key = agentLoginCommandKey(deviceId, agent, profileId),
             command = agentLoginCommand(deviceId, agent, switchAccount, profileId),
             deviceOnline = deviceOnline,
+            verb = "start",
+            thing = "the sign-in",
         )
     }
 
@@ -327,6 +329,8 @@ class DeviceSettingsViewModel @Inject constructor(
             key = agentImportCommandKey(deviceId, agent),
             command = agentImportCommand(deviceId, agent),
             deviceOnline = deviceOnline,
+            verb = "import",
+            thing = "the login",
         )
     }
 
@@ -349,6 +353,8 @@ class DeviceSettingsViewModel @Inject constructor(
             key = agentLoginCodeCommandKey(deviceId, agent, profileId),
             command = agentLoginCodeCommand(deviceId, agent, code),
             deviceOnline = deviceOnline,
+            verb = "send",
+            thing = "the code",
         )
     }
 
@@ -363,16 +369,29 @@ class DeviceSettingsViewModel @Inject constructor(
             key = agentUpdateCommandKey(deviceId, agent),
             command = agentUpdateCommand(deviceId, agent),
             deviceOnline = deviceOnline,
+            verb = "update",
+            thing = "the agent",
+            retry = { agentUpdate(deviceId, agent, deviceOnline) },
         )
     }
 
     // Queue the command and follow it to a terminal state on the shared
     // [runDeviceCommand] rails. Everything this adds is the keyed slot and
     // the Done bookkeeping.
-    private fun issueCommand(key: String, command: kotlinx.serialization.json.JsonObject, deviceOnline: Boolean) {
+    // A Failed command is also the screen's ONE error toast ([verb] [thing],
+    // the device's or server's message), FEED-79.
+    private fun issueCommand(
+        key: String,
+        command: kotlinx.serialization.json.JsonObject,
+        deviceOnline: Boolean,
+        verb: String,
+        thing: String,
+        retry: (() -> Unit)? = null,
+    ) {
         viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             runDeviceCommand(devicesApi, accountId, command, deviceOnline) { state ->
+                if (state is DeviceCommandUiState.Failed) _failure.value = FailedAction(verb, thing, state.message, retry)
                 if (state is DeviceCommandUiState.Done) {
                     markDone(key, state.message)
                 } else {

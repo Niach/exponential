@@ -77,12 +77,20 @@ private fun fadeMask(edge: FadeEdge): Brush = when (edge) {
 /**
  * The FADING strip: the backdrop from full strength at [edge] to nothing at
  * the opposite side. Takes no touch (no pointer handling at all).
+ *
+ * EXP-1256 (EXP-1259 D15): [ground] = the surface's OWN ground instead — the
+ * page colour, opaque and unblurred: no scrim tint, no blur over what scrolls
+ * under it. The run thread's edges wear it (web/desktop clip it to the content
+ * card's inner radius; a phone's card is the page itself).
  */
 @Composable
-fun EdgeFade(edge: FadeEdge, modifier: Modifier = Modifier) {
+fun EdgeFade(edge: FadeEdge, modifier: Modifier = Modifier, ground: Boolean = false) {
     val color = if (edge == FadeEdge.Top) GlassTokens.BackgroundTop else GlassTokens.BackgroundBottom
     val state = LocalDetailHaze.current
-    val backdrop = if (state == null) {
+    val backdrop = if (ground) {
+        val stops = if (edge == FadeEdge.Top) listOf(color, Color.Transparent) else listOf(Color.Transparent, color)
+        Modifier.background(Brush.verticalGradient(stops))
+    } else if (state == null) {
         val scrim = color.copy(alpha = DetailChrome.SCRIM)
         val stops = if (edge == FadeEdge.Top) listOf(scrim, Color.Transparent) else listOf(Color.Transparent, scrim)
         Modifier.background(Brush.verticalGradient(stops))
@@ -132,11 +140,13 @@ fun FloatingBarEdge(
     bottomInset: Dp,
     modifier: Modifier = Modifier,
     visible: Boolean = true,
+    /** EXP-1256: the strip in the page's own ground ([EdgeFade] `ground`). */
+    ground: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     Layout(
         contents = listOf(
-            { if (visible) EdgeFade(FadeEdge.Bottom) },
+            { if (visible) EdgeFade(FadeEdge.Bottom, ground = ground) },
             content,
         ),
         modifier = modifier,

@@ -2,7 +2,9 @@ package com.exponential.app.ui.markdown
 
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
@@ -42,6 +44,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
@@ -64,6 +67,8 @@ import com.exponential.app.ui.markdown.model.InlineKind
 import com.exponential.app.ui.markdown.model.ListType
 import com.exponential.app.ui.theme.LocalReduceMotion
 import com.exponential.app.ui.theme.Motion
+import com.exponential.app.ui.theme.popoverEnter
+import com.exponential.app.ui.theme.popoverExit
 
 private val PillBg = Color.White.copy(alpha = 0.10f)
 private val IconInactive = Color.White.copy(alpha = 0.65f)
@@ -304,13 +309,22 @@ private fun RailMenuPopup(
         onDismissRequest = onDismiss,
         properties = PopupProperties(focusable = false),
     ) {
-        GlassMenuSurface {
-            // Match M3's DropdownMenuContent sizing so the GlassMenuItem rows
-            // keep today's metrics.
-            Column(
-                modifier = Modifier.width(IntrinsicSize.Max).padding(vertical = 8.dp),
-                content = content,
-            )
+        // EXP-1243 (D17): the menu scales in from 0.96 + fades, from the
+        // rail it rises off (its bottom edge).
+        val shown = remember { MutableTransitionState(false) }.apply { targetState = true }
+        AnimatedVisibility(
+            visibleState = shown,
+            enter = popoverEnter(LocalReduceMotion.current, TransformOrigin(0.5f, 1f)),
+            exit = popoverExit(),
+        ) {
+            GlassMenuSurface {
+                // Match M3's DropdownMenuContent sizing so the GlassMenuItem rows
+                // keep today's metrics.
+                Column(
+                    modifier = Modifier.width(IntrinsicSize.Max).padding(vertical = 8.dp),
+                    content = content,
+                )
+            }
         }
     }
 }

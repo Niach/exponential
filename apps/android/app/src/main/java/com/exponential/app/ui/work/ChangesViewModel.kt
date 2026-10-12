@@ -186,7 +186,7 @@ class ChangesViewModel @AssistedInject constructor(
                 _load.value = ChangesLoadState.Loaded(files)
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
-                _load.value = ChangesLoadState.Failed(trpcErrorMessage(t, "Failed to load changes"))
+                _load.value = ChangesLoadState.Failed(trpcErrorMessage(t, ""))
             }
         }
     }
@@ -209,7 +209,7 @@ class ChangesViewModel @AssistedInject constructor(
             } catch (t: Throwable) {
                 if (t is CancellationException) throw t
                 _prDescription.value = PrDescriptionState.Failed(
-                    trpcErrorMessage(t, "Failed to load the pull request"),
+                    trpcErrorMessage(t, ""),
                 )
             }
         }

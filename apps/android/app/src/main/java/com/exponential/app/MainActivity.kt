@@ -154,7 +154,11 @@ class MainActivity : ComponentActivity() {
                 // EXP-933: `?face=guide` = an agent message's report (old links
                 // say `results`; `navigateIssueDeepLink` normalises the face).
                 if (switchToPushAccount(linkUserId)) {
-                    deepLinkBus.openIssue(it, face = data.getQueryParameter(PushDeepLinks.PARAM_FACE))
+                    deepLinkBus.openIssue(
+                        it,
+                        face = data.getQueryParameter(PushDeepLinks.PARAM_FACE),
+                        comment = data.getQueryParameter(PushDeepLinks.PARAM_COMMENT),
+                    )
                 }
             }
             "invite" -> data.pathSegments.firstOrNull()?.let { deepLinkBus.openInvite(it) }

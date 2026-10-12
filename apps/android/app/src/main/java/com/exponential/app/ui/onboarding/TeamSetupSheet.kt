@@ -13,6 +13,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.GlassSheet
 
 /**
@@ -67,6 +68,8 @@ fun TeamSetupSheet(
                 // delay.
                 .testTag("team-setup-sheet"),
         ) {
+            // FEED-79: a failed create / join (not the field's own refusal).
+            FailedActionToast(state.failure, onShown = viewModel::clearFailure)
             if (state.showDeviceStep) {
                 OnboardingDevicesStep(
                     instanceOrigin = instanceOrigin,

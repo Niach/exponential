@@ -23,6 +23,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -44,7 +45,10 @@ import com.exponential.app.data.api.SignInProviderDto
 import com.exponential.app.data.api.canRemovePasskey
 import com.exponential.app.data.api.canUnlink
 import com.exponential.app.domain.WireTimestamps
+import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.GlassSheet
+import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.GlassSheetDefaults
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.GroupDivider
@@ -78,8 +82,11 @@ fun SignInMethodsSection(accountId: String, viewModel: ServerDetailViewModel) {
     Column(Modifier.fillMaxWidth()) {
         SectionHeader("Sign-in methods")
         when (val state = viewModel.methods) {
-            SignInMethodsState.Loading -> MethodsHint("Loading…")
-            is SignInMethodsState.Error -> MethodsHint(state.message, isError = true)
+            // EXP-1275: the first load is skeleton rows in the method row's
+            // geometry; a failed one leaves the section empty (FEED-79: the
+            // VM's failure toast says why).
+            SignInMethodsState.Loading -> SkeletonRows(rowHeight = 56.dp)
+            SignInMethodsState.Error -> Unit
             is SignInMethodsState.Ready -> {
                 val methods = state.methods
                 EmailCodeRow(methods, onChange = { viewModel.openChangeEmail() })
@@ -95,16 +102,18 @@ fun SignInMethodsSection(accountId: String, viewModel: ServerDetailViewModel) {
                                 CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
                             }
                         },
-                        onUnlink = {
-                            viewModel.removeError = null
-                            unlinkTarget = provider
-                        },
+                        onUnlink = { unlinkTarget = provider },
                     )
                 }
             }
         }
-        viewModel.methodsNotice?.let { notice ->
-            MethodsHint(notice.message, isError = notice.isError)
+    }
+    // A link outcome or email change is a success toast (web parity).
+    val toaster = LocalToaster.current
+    LaunchedEffect(viewModel.methodsNotice) {
+        viewModel.methodsNotice?.let {
+            toaster.success(it)
+            viewModel.methodsNotice = null
         }
     }
 
@@ -120,10 +129,7 @@ fun SignInMethodsSection(accountId: String, viewModel: ServerDetailViewModel) {
                     PasskeyRow(
                         passkey = passkey,
                         enabled = canRemovePasskey(ready),
-                        onRemove = {
-                            viewModel.removeError = null
-                            passkeyTarget = passkey
-                        },
+                        onRemove = { passkeyTarget = passkey },
                     )
                 }
             }
@@ -139,7 +145,6 @@ fun SignInMethodsSection(accountId: String, viewModel: ServerDetailViewModel) {
                 Prompts.UnlinkSignInMethod.prompt(target.name)
             },
             busy = viewModel.removing,
-            error = viewModel.removeError,
             onConfirm = { viewModel.unlink(accountId, target.id) { unlinkTarget = null } },
             onDismiss = { unlinkTarget = null },
         )
@@ -149,7 +154,6 @@ fun SignInMethodsSection(accountId: String, viewModel: ServerDetailViewModel) {
         ConfirmRemoveDialog(
             prompt = Prompts.RemovePasskey.prompt(target.name),
             busy = viewModel.removing,
-            error = viewModel.removeError,
             onConfirm = { viewModel.deletePasskey(accountId, target.id) { passkeyTarget = null } },
             onDismiss = { passkeyTarget = null },
         )
@@ -348,29 +352,14 @@ private fun RowButton(
 }
 
 @Composable
-private fun MethodsHint(text: String, isError: Boolean = false) {
-    Text(
-        text,
-        style = MaterialTheme.typography.bodySmall,
-        color = if (isError) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary)
-        },
-        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-    )
-}
-
-@Composable
 private fun ConfirmRemoveDialog(
     prompt: Prompts.Prompt,
     busy: Boolean,
-    error: String?,
     onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     // EXP-1215: the call is awaited in the card (the pill spins); a refusal
-    // stays in it as an inline error under the body.
+    // closes it and is a toast (FEED-79).
     // Every prompt here = Cancel + ONE destructive answer.
     val answer = prompt.actions.first { it.role != Prompts.Role.Cancel }.id
     PromptAlert(
@@ -378,15 +367,6 @@ private fun ConfirmRemoveDialog(
         onDismiss = onDismiss,
         handlers = mapOf(answer to onConfirm),
         loading = answer.takeIf { busy },
-        content = error?.let { message ->
-            {
-                Text(
-                    message,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        },
     )
 }
 
@@ -457,13 +437,8 @@ private fun ChangeEmailSheet(
                     modifier = Modifier.fillMaxWidth().testTag("change-email-field"),
                 )
             }
-            if (state.error != null) {
-                Text(
-                    state.error,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
+            // The refused address or code: invalid input, under its field.
+            FieldError(state.error)
             if (onCodeStep) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),

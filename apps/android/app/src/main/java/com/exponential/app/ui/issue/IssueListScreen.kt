@@ -105,6 +105,7 @@ import com.exponential.app.ui.components.TreeGuidesRow
 import com.exponential.app.ui.components.UserAvatar
 import com.exponential.app.ui.formatDueDate
 import com.exponential.app.ui.gettingstarted.GettingStartedSection
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.domain.TeamLiveRuns
 import com.exponential.app.ui.home.BoardSwitcherSheet
@@ -160,6 +161,8 @@ fun IssueListScreen(
     viewModel: IssueListViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // FEED-79: a failed row or bulk write (status, priority, delete...).
+    FailedActionToast(state.error, onShown = viewModel::consumeError)
     val permissions by viewModel.permissions.collectAsStateWithLifecycle()
     val syncBanner by viewModel.syncBanner.collectAsStateWithLifecycle()
     val syncingVisible by viewModel.syncingVisible.collectAsStateWithLifecycle()
@@ -250,6 +253,9 @@ fun IssueListScreen(
     val homeError = homeViewModel?.error?.collectAsStateWithLifecycle()?.value
     if (homeViewModel != null) {
         LaunchedEffect(Unit) { homeViewModel.bootstrap() }
+        // FEED-79: a failed team load is a toast (Retry re-runs the
+        // bootstrap); the root keeps drawing its empty / syncing state.
+        FailedActionToast(homeError, "load", "your team", onShown = {}, retry = homeViewModel::bootstrap)
     }
 
     // "Any signed-in account has a board" — gates the cross-account switcher
@@ -349,7 +355,6 @@ fun IssueListScreen(
                         // copy to iOS `IssuesHomeView.emptyStateHint`.
                         EmptyState(
                             EmptyStateCopy.noTeam,
-                            description = homeError ?: EmptyStateCopy.noTeam.description,
                             action = {
                                 GlassPill(
                                     "Create or join a team",
@@ -360,11 +365,10 @@ fun IssueListScreen(
                                 )
                             },
                         )
-                    } else if (stillSyncing || homeError != null) {
-                        EmptyState(
-                            title = homeError ?: "Syncing…",
-                            icon = ExpIcons.navBoards,
-                        )
+                    } else if (stillSyncing) {
+                        // EXP-1275: still syncing = skeleton rows, never a
+                        // "Syncing…" line.
+                        SkeletonRows(modifier = Modifier.padding(horizontal = ListGutter).padding(top = 4.dp))
                     } else {
                         // EXP-698 r5: the boardless team is the other place
                         // the getting-started checklist belongs — same empty

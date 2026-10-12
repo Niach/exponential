@@ -2,6 +2,10 @@ package com.exponential.app.ui.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.api.OFFLINE_MESSAGE
+import com.exponential.app.data.api.isOfflineError
+import com.exponential.app.data.api.isPlanLimitError
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.TeamInvitesApi
 import com.exponential.app.data.api.TeamsApi
@@ -56,8 +60,11 @@ class TeamSetupViewModel @Inject constructor(
     data class UiState(
         // ONE in-flight flag: both submits are disabled while either runs.
         val busy: Boolean = false,
+        // FEED-79: what stays under its field (the plan cap, a refused invite
+        // link); any other failure is [failure], an error toast.
         val createError: String? = null,
         val joinError: String? = null,
+        val failure: FailedAction? = null,
         // EXP-1169: joined by a caller who owns no device; the sheet shows the
         // devices step and [finishJoin] fires the Joined event.
         val showDeviceStep: Boolean = false,
@@ -65,6 +72,10 @@ class TeamSetupViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
+
+    fun clearFailure() {
+        _state.value = _state.value.copy(failure = null)
+    }
 
     private val _events = MutableSharedFlow<TeamSetupEvent>(extraBufferCapacity = 1)
     val events: SharedFlow<TeamSetupEvent> = _events.asSharedFlow()
@@ -100,10 +111,12 @@ class TeamSetupViewModel @Inject constructor(
                 // sheet, so it must not carry `busy` into the next opening.
                 _state.value = UiState()
             }.onFailure {
-                _state.value = _state.value.copy(
-                    busy = false,
-                    createError = trpcErrorMessage(it, "Couldn't create the team"),
-                )
+                val message = trpcErrorMessage(it, "")
+                _state.value = if (isPlanLimitError(it)) {
+                    _state.value.copy(busy = false, createError = message)
+                } else {
+                    _state.value.copy(busy = false, failure = FailedAction("create", "the team", message))
+                }
             }
         }
     }
@@ -136,10 +149,14 @@ class TeamSetupViewModel @Inject constructor(
                     _state.value = UiState()
                 }
             }.onFailure {
-                _state.value = _state.value.copy(
-                    busy = false,
-                    joinError = trpcErrorMessage(it, "Couldn't join the team"),
-                )
+                _state.value = if (isOfflineError(it)) {
+                    _state.value.copy(
+                        busy = false,
+                        failure = FailedAction("join", "the team", OFFLINE_MESSAGE) { joinTeam(input) },
+                    )
+                } else {
+                    _state.value.copy(busy = false, joinError = trpcErrorMessage(it, "Couldn't join the team"))
+                }
             }
         }
     }

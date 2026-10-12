@@ -1,8 +1,11 @@
 package com.exponential.app.ui.components
 
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -11,6 +14,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -21,6 +26,7 @@ import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.TextEmphasis
+import com.exponential.app.ui.theme.pressScale
 
 /**
  * Circular glass icon button (iOS .ultraThinMaterial nav circle) — same fill +
@@ -79,6 +85,9 @@ fun CircleIconButton(
             else -> TextEmphasis.Secondary
         },
     )
+    // EXP-1243 (D17): a PRIMARY circle (not the ghost) presses to 0.97.
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
     Box(
         modifier = modifier.size(size),
         contentAlignment = Alignment.Center,
@@ -86,6 +95,7 @@ fun CircleIconButton(
         Box(
             modifier = Modifier
                 .minimumInteractiveComponentSize()
+                .pressScale(pressed && enabled && !borderless)
                 .size(size)
                 .clip(CircleShape)
                 .then(
@@ -104,7 +114,12 @@ fun CircleIconButton(
                             )
                     },
                 )
-                .clickable(enabled = enabled, onClick = onClick),
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = LocalIndication.current,
+                    enabled = enabled,
+                    onClick = onClick,
+                ),
             contentAlignment = Alignment.Center,
         ) {
             Icon(

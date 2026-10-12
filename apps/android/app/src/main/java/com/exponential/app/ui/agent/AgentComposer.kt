@@ -42,6 +42,7 @@ import com.exponential.app.domain.AgentComposerPrompt
 import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.FeedbackStates
 import com.exponential.app.ui.components.FeedbackMark
+import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.rememberDelayedFlag
 import kotlinx.coroutines.delay
 import com.exponential.app.domain.FixConflictsPr
@@ -198,14 +199,8 @@ internal fun AgentComposer(
                     onRemoveImage(index)
                 },
             )
-            if (imageError != null) {
-                Text(
-                    imageError,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(bottom = 4.dp),
-                )
-            }
+            // A refused pick (caps): invalid input, under the field (FEED-79).
+            FieldError(imageError, modifier = Modifier.padding(bottom = 4.dp))
         },
         tools = {
             // EXP-1249 ×4: the "+" is the composer's ONLY tool.

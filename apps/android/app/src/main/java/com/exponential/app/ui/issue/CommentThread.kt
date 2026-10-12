@@ -98,6 +98,9 @@ fun CommentThread(
     // SLOP-4: a member may delete a reporter's comment (moderation); nobody
     // edits one.
     canModerate: Boolean = false,
+    // EXP-1241: the comment a `?comment=` link names — scrolled into view
+    // and washed briefly (its card, or the card its reply sits under).
+    focusCommentId: String? = null,
 ) {
     LaunchedEffect(issueId) { viewModel.bind(issueId) }
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -250,9 +253,13 @@ fun CommentThread(
                         // Stable identity per comment so list churn (e.g. an active
                         // Electric sync) doesn't re-key rows and force re-parse.
                         key(comment.id) {
+                            val replies = threads.repliesByParent[comment.id].orEmpty()
+                            val focused = focusCommentId != null &&
+                                (comment.id == focusCommentId || replies.any { it.id == focusCommentId })
+                            Box(Modifier.commentFocus(focused)) {
                             RegularCommentRow(
                                 comment = comment,
-                                replies = threads.repliesByParent[comment.id].orEmpty(),
+                                replies = replies,
                                 lineAbove = lineAbove,
                                 lineBelow = lineBelow,
                                 usersById = state.usersById,
@@ -325,6 +332,7 @@ fun CommentThread(
                                 onRemoveEditAttachment = viewModel::removeEditAttachment,
                                 mentionMembers = mentionMembers,
                             )
+                            }
                         }
                     }
                 }

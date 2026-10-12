@@ -1,5 +1,7 @@
 package com.exponential.app.ui.session
 
+import com.exponential.app.ui.components.ClaimedFailedActionToast
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.domain.EmptyStateCopy
 import androidx.compose.foundation.clickable
@@ -118,6 +120,9 @@ fun AgentsScreen(
     // while one is in flight and captions a refusal. Sign-ins are not here:
     // they round-trip a link and a code, which the login sheet owns.
     val accountCommandStates by viewModel.accountCommandStates.collectAsStateWithLifecycle()
+    // FEED-79: a failed device write or login command is ONE error toast.
+    val failure by viewModel.failure.collectAsStateWithLifecycle()
+    ClaimedFailedActionToast(failure, viewModel::claimFailure)
 
     // EXP-817: the machines list's own refresh round — on every change of the
     // logins and on the same 30s clock the countdowns re-read on (web `useNow`).
@@ -203,8 +208,11 @@ fun AgentsScreen(
                         }
                     }
                     when {
-                        // null = still loading; render nothing under the header.
-                        ownDevices == null -> Unit
+                        // null = still loading: skeleton rows in the machine
+                        // row's geometry (EXP-1275).
+                        ownDevices == null -> item(key = "__machines_loading__") {
+                            SkeletonRows(rows = 2, rowHeight = 56.dp, dot = false)
+                        }
                         ownDevices.isEmpty() -> item(key = "__no_machine__") {
                             EmptyState(EmptyStateCopy.devices)
                         }
@@ -930,17 +938,6 @@ private fun DeviceLoginRow(
             } else {
                 LoginHint(if (asOf != null) "No usage reported · $asOf" else "No usage reported")
             }
-        }
-        // The material outcome of a command arrives by SYNC (the machine
-        // re-reports its accounts), but a refusal would otherwise be silent —
-        // including the honest one a machine too old to know the command
-        // answers with.
-        (state as? DeviceCommandUiState.Failed)?.let { failure ->
-            Text(
-                failure.message,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
-            )
         }
     }
 }

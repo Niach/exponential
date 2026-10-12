@@ -84,8 +84,15 @@ fun NavHostController.navigateDeepLink(route: String) {
     navigate(route)
 }
 
-/** The issue Work screen's route pattern — `face` is an OPTIONAL query arg. */
-const val ISSUE_ROUTE = "issue/{issueId}?face={face}"
+/** The issue Work screen's route pattern — `face` and (EXP-1241) `comment`
+ *  are OPTIONAL query args. */
+const val ISSUE_ROUTE = "issue/{issueId}?face={face}&comment={comment}"
+
+/** EXP-1241: the issue route scrolled to [commentId] (null = the plain route). */
+fun issueRoute(issueId: String, face: String? = null, commentId: String? = null): String {
+    val query = listOfNotNull(face?.let { "face=$it" }, commentId?.let { "comment=$it" })
+    return if (query.isEmpty()) "issue/$issueId" else "issue/$issueId?${query.joinToString("&")}"
+}
 
 /**
  * [navigateDeepLink] for the issue route (EXP-933): its optional `face` query
@@ -93,14 +100,15 @@ const val ISSUE_ROUTE = "issue/{issueId}?face={face}"
  * incomplete fill (always push). So the re-tap check compares the ARGUMENTS
  * instead: the same issue on the same face is already on top.
  */
-fun NavHostController.navigateIssueDeepLink(issueId: String, rawFace: String?) {
+fun NavHostController.navigateIssueDeepLink(issueId: String, rawFace: String?, commentId: String? = null) {
     // EXP-1251: every face word goes through ONE parser (`results` / `changes`
     // / `diff` = the Guide), so the re-tap check compares canonical names.
     val face = workFaceFromParam(rawFace)?.name?.lowercase()
     val top = currentBackStackEntry
     val alreadyOnTop = top?.destination?.route == ISSUE_ROUTE &&
         top.arguments?.getString("issueId") == issueId &&
-        top.arguments?.getString("face") == face
+        top.arguments?.getString("face") == face &&
+        top.arguments?.getString("comment") == commentId
     if (alreadyOnTop) return
-    navigate(if (face == null) "issue/$issueId" else "issue/$issueId?face=$face")
+    navigate(issueRoute(issueId, face, commentId))
 }

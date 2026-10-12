@@ -27,6 +27,8 @@ import androidx.activity.compose.setContent
 import com.exponential.app.ui.gettingstarted.GettingStartedCopy
 import com.exponential.app.ui.styleguide.FeedbackStatesScreen
 import com.exponential.app.ui.styleguide.FeedbackStatesScreenTestId
+import com.exponential.app.ui.styleguide.ThreadCardsKind
+import com.exponential.app.ui.styleguide.ThreadCardsScreen
 import com.exponential.app.ui.theme.ExponentialTheme
 import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.ui.onboarding.OnboardingTestHooks
@@ -64,7 +66,8 @@ import tools.fastlane.screengrab.locale.LocaleTestRule
  *   sg_settings-root · sg_settings-team ·
  *   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
  *   sg_onboarding-devices · sg_agent-home · sg_search-list ·
- *   sg_getting-started · sg_feedback-states
+ *   sg_getting-started · sg_feedback-states · sg_work-card ·
+ *   sg_script-card · sg_comment-call-card
  *
  * EXP-1259 added the last four (iOS parity): the Agent HOME the app lands on
  * (the greeting, the composer, Recent), the `#` typeahead's search-list
@@ -853,6 +856,25 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag(FeedbackStatesScreenTestId), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_feedback-states")
+
+        // --- sg_work-card · sg_script-card · sg_comment-call-card: the run
+        // thread's cards (EXP-1240 / EXP-1279 / EXP-1241), each drawn by its
+        // real composable on a capture-only screen.
+        fun showThreadCards(kind: ThreadCardsKind) {
+            composeRule.runOnUiThread {
+                composeRule.activity.setContent {
+                    ExponentialTheme { ThreadCardsScreen(kind) }
+                }
+            }
+            flow.waitFor(hasTestTag(kind.testId), NAV_TIMEOUT)
+            flow.settle()
+        }
+        showThreadCards(ThreadCardsKind.Work)
+        flow.screenshot("sg_work-card")
+        showThreadCards(ThreadCardsKind.Script)
+        flow.screenshot("sg_script-card")
+        showThreadCards(ThreadCardsKind.Comment)
+        flow.screenshot("sg_comment-call-card")
 
         finished = true
     }

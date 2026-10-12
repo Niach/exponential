@@ -20,13 +20,14 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import com.exponential.app.ui.theme.DesignTokens
-import com.exponential.app.ui.theme.GlassTokens
-import com.exponential.app.ui.theme.TextEmphasis
 import at.exponential.ui.primitives.PillStyle
 import at.exponential.ui.primitives.PillView
+import com.exponential.app.ui.theme.DesignTokens
+import com.exponential.app.ui.theme.GlassTokens
 import com.exponential.app.ui.theme.PrimaryPressedAlpha
+import com.exponential.app.ui.theme.TextEmphasis
 import com.exponential.app.ui.theme.TintedStrokeAlpha
+import com.exponential.app.ui.theme.pressScale
 
 /** The two pill rungs — a 32dp control and a 24dp inline badge. */
 enum class PillSize { Md, Sm }
@@ -154,7 +155,8 @@ fun GlassPill(
     // capsule) centres instead of hugging the left edge.
     PillView(
         label = label,
-        modifier = modifier,
+        // EXP-1243 (D17): the primary capsule presses to 0.97.
+        modifier = if (emphatic) modifier.pressScale(pressed) else modifier,
         style = GlassPillDefaults.pillStyle(
             size = size,
             label = fg,

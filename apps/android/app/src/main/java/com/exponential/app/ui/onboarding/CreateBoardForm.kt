@@ -26,6 +26,8 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.exponential.app.data.api.BoardRepositoryChoice
+import com.exponential.app.ui.components.FieldError
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.BoardRepoField
 import com.exponential.app.ui.components.ColorPicker
 import com.exponential.app.ui.components.GlassSubmitButton
@@ -118,6 +120,8 @@ fun CreateBoardForm(
     viewModel: CreateBoardViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    // FEED-79: a failed repos load (Retry) or create is an error toast.
+    FailedActionToast(state.failure, onShown = viewModel::clearFailure)
 
     LaunchedEffect(teamId) {
         viewModel.loadRepos(teamId)
@@ -174,9 +178,8 @@ fun CreateBoardForm(
         }
 
         // Repository is ALWAYS optional on every board; the branch under it is
-        // the board's own (EXP-712). A failed registry load rides the field's
-        // error slot with a retry, so it can't read as "no repos connected"
-        // (EXP-46).
+        // the board's own (EXP-712). A failed registry load is a toast with
+        // Retry, so it can't read as "no repos connected" (EXP-46).
         BoardRepoField(
             accountId = accountId,
             teamId = teamId,
@@ -186,13 +189,10 @@ fun CreateBoardForm(
             onSelect = { form.selectRepository(it) },
             branch = form.branch,
             onBranchChange = { form.branch = it },
-            error = state.reposError,
-            onRetry = { viewModel.loadRepos(teamId) },
         )
 
-        state.error?.let { message ->
-            Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error)
-        }
+        // A taken name or prefix: invalid input, under the fields.
+        FieldError(state.fieldError)
         state.limitError?.let { message ->
             Row(
                 verticalAlignment = Alignment.Top,

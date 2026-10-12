@@ -62,6 +62,16 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.window.Popup
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.ui.unit.dp
 import com.exponential.app.domain.ToastAction
 import com.exponential.app.domain.ToastItem
@@ -100,6 +110,15 @@ class Toaster {
     internal val heights = mutableStateMapOf<String, Double>()
     internal val lastGeometry = HashMap<String, ToastStack.ItemGeometry>()
     private var counter = 0L
+
+    /**
+     * FEED-79 (EXP-1259 D10): the [OverlayToastHost]s open right now, newest
+     * last. A sheet or an alert is a window ABOVE the activity's, so a toast
+     * the screen's [ToastHost] draws would sit dimmed under its scrim with an
+     * untappable Retry; while any overlay is open the NEWEST one draws the
+     * stack instead, and the screen's host draws nothing.
+     */
+    internal val overlays: SnapshotStateList<Any> = mutableStateListOf()
 
     fun show(item: ToastItem): String {
         toasts.removeAll { it.id == item.id }
@@ -148,6 +167,10 @@ class Toaster {
 val LocalToaster = staticCompositionLocalOf<Toaster> {
     error("LocalToaster is not provided — AppNavHost provides it and mounts the ToastHost")
 }
+
+/** The same [Toaster], nullable: what a sheet or an alert reads to mount its
+ *  [OverlayToastHost] (null in a preview or a bare test composition). */
+val LocalOverlayToaster = staticCompositionLocalOf<Toaster?> { null }
 
 /** The host/card numbers, every one derived from [ToastStack.Constants] or a token. */
 object ToastDefaults {
@@ -293,6 +316,13 @@ fun ToastCard(
  */
 @Composable
 fun ToastHost(toaster: Toaster, modifier: Modifier = Modifier) {
+    // A sheet or an alert above the screen draws the stack (OverlayToastHost).
+    if (toaster.overlays.isNotEmpty()) return
+    ToastHostBody(toaster, modifier)
+}
+
+@Composable
+private fun ToastHostBody(toaster: Toaster, modifier: Modifier = Modifier) {
     BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
@@ -464,4 +494,42 @@ fun ToastStackBox(toaster: Toaster, modifier: Modifier = Modifier) {
             }
         }
     }
+}
+
+/**
+ * FEED-79 (EXP-1259 D10): the toast stack drawn from INSIDE a window above
+ * the activity's (a [GlassSheet], a [GlassAlert]), so a failed action's toast
+ * and its Retry stay on top of the scrim. A popup at the window's top centre,
+ * below the status bar; only the newest open overlay draws (see
+ * [Toaster.overlays]). Untouchable outside its cards, never focusable.
+ */
+@Composable
+fun OverlayToastHost() {
+    val toaster = LocalOverlayToaster.current ?: return
+    val owner = remember { Any() }
+    DisposableEffect(toaster, owner) {
+        toaster.overlays.add(owner)
+        onDispose { toaster.overlays.remove(owner) }
+    }
+    if (toaster.overlays.lastOrNull() !== owner || toaster.rendered.isEmpty()) return
+    val density = LocalDensity.current
+    val statusTop = with(density) { WindowInsets.statusBars.getTop(this).toDp() }
+    Popup(
+        popupPositionProvider = TopOfWindow,
+        properties = PopupProperties(focusable = false, dismissOnClickOutside = false, clippingEnabled = false),
+    ) {
+        Box(Modifier.padding(top = statusTop)) {
+            ToastHostBody(toaster, Modifier.consumeWindowInsets(WindowInsets.statusBars))
+        }
+    }
+}
+
+/** Pins a popup to its window's top edge, centred. */
+private object TopOfWindow : PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: IntRect,
+        windowSize: IntSize,
+        layoutDirection: LayoutDirection,
+        popupContentSize: IntSize,
+    ): IntOffset = IntOffset((windowSize.width - popupContentSize.width) / 2, 0)
 }

@@ -19,7 +19,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -46,6 +45,9 @@ import com.exponential.app.ui.components.BarCircle
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.FloatingBarCluster
 import com.exponential.app.ui.components.FloatingBarEdge
+import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.SkeletonRows
+import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.components.detailHazeSource
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.issue.DiffCounts
@@ -72,9 +74,18 @@ fun GuideSectionDiff(
     load: ChangesLoadState?,
     merge: ChangesMergeControl?,
     onBack: () -> Unit,
+    /** Re-runs the diff load: the failed load's toast Retry. */
+    onRetry: (() -> Unit)? = null,
 ) {
     BackHandler(onBack = onBack)
     val files = page?.files.orEmpty()
+    // FEED-79: a failed load = the empty state plus ONE toast (Retry reloads).
+    val toaster = LocalToaster.current
+    LaunchedEffect(load) {
+        if (load is ChangesLoadState.Failed && files.isEmpty()) {
+            toaster.failedAction("load", "the changes", load.message, onRetry)
+        }
+    }
     var sheetOpen by remember { mutableStateOf(false) }
     val expanded = remember(files) { mutableStateMapOf<String, Boolean>() }
     val listState = rememberLazyListState()
@@ -107,7 +118,6 @@ fun GuideSectionDiff(
                 item(key = "__state__") {
                     when (load) {
                         is ChangesLoadState.Loading -> ChangesLoadingRow()
-                        is ChangesLoadState.Failed -> ChangesFailureRow(load.message)
                         else -> ChangesEmptyRow()
                     }
                 }
@@ -215,30 +225,10 @@ internal fun FileListCircle(count: Int, onClick: () -> Unit) {
     }
 }
 
+/** EXP-1275: the diff's first load = skeleton rows in the file card's geometry. */
 @Composable
 internal fun ChangesLoadingRow() {
-    Row(
-        modifier = Modifier.padding(vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
-        Text(
-            "Loading changes…",
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
-        )
-    }
-}
-
-@Composable
-internal fun ChangesFailureRow(message: String) {
-    Text(
-        "Couldn’t load changes: $message",
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.error,
-        modifier = Modifier.padding(vertical = 12.dp),
-    )
+    SkeletonRows(dot = false)
 }
 
 @Composable

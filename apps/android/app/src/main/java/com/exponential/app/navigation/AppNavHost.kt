@@ -69,6 +69,7 @@ import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.BottomBarSuppression
 import com.exponential.app.ui.components.BottomNavBar
 import com.exponential.app.ui.components.LocalBottomBarSuppression
+import com.exponential.app.ui.components.LocalOverlayToaster
 import com.exponential.app.ui.components.LocalToaster
 import com.exponential.app.ui.components.ToastHost
 import com.exponential.app.ui.components.BlockingOverlayHost
@@ -158,7 +159,7 @@ fun AppNavHost() {
             // keeps the only thing single top bought us: a re-tap for what is
             // already on screen stays a no-op.
             is DeepLinkBus.Target.Issue -> guarded {
-                navController.navigateIssueDeepLink(target.id, target.face)
+                navController.navigateIssueDeepLink(target.id, target.face, target.comment)
             }
             is DeepLinkBus.Target.Invite -> guarded {
                 navController.navigateDeepLink("invite/${target.token}")
@@ -193,7 +194,12 @@ fun AppNavHost() {
                             // switch first; IssueDetail re-scopes reactively.
                             viewModel.switchAccount(resolution.accountId)
                         }
-                        navController.navigateIssueDeepLink(resolution.issueId, rawFace = null)
+                        // EXP-1241: a web link's `?comment=` lands on that comment.
+                        navController.navigateIssueDeepLink(
+                            resolution.issueId,
+                            rawFace = null,
+                            commentId = target.uri.getQueryParameter("comment"),
+                        )
                     }
                     WebLinkResolver.Resolution.NotFound ->
                         CustomTabsIntent.Builder().build().launchUrl(context, target.uri)
@@ -247,6 +253,8 @@ fun AppNavHost() {
         CompositionLocalProvider(
             LocalContentColor provides MaterialTheme.colorScheme.onSurface,
             LocalToaster provides toaster,
+            // FEED-79: sheets and alerts mount their own host off it.
+            LocalOverlayToaster provides toaster,
         ) {
         val updateRequired = state.updateRequired
         if (updateRequired != null) {
@@ -473,7 +481,7 @@ private fun AuthenticatedNav(
     val entityNavigator = remember(navController, tabSwitch) {
         EntityNavigator { target -> guarded {
             when (target) {
-                is EntityTarget.Issue -> navController.navigate("issue/${target.id}")
+                is EntityTarget.Issue -> navController.navigate(issueRoute(target.id, commentId = target.commentId))
                 is EntityTarget.Board -> navController.navigate("board/${target.id}")
                 is EntityTarget.Session -> navController.navigate("steer/${target.id}")
                 // SLOP-2: an `action` ref opens that action's page.
@@ -776,6 +784,12 @@ private fun AuthenticatedNav(
                     nullable = true
                     defaultValue = null
                 },
+                // EXP-1241: a comment call's card lands scrolled to its comment.
+                navArgument("comment") {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                },
             ),
         ) { entry ->
             // EXP-893: the Work screen on its Issue face — the run and the
@@ -789,6 +803,7 @@ private fun AuthenticatedNav(
             WorkScreen(
                 subject = WorkSubject.Issue(issueId),
                 initialFace = initialFace,
+                focusCommentId = entry.arguments?.getString("comment"),
                 onBack = { navController.popBackStack() },
                 onOpenIssue = { id -> navController.navigate("issue/$id") },
                 onOpenIssueChanges = { id -> navController.navigate("issue/$id?face=guide") },

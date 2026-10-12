@@ -66,7 +66,8 @@ import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
 import com.exponential.app.ui.components.GlassPill
 import com.exponential.app.ui.components.GlassSegmentedControl
-import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.components.FailedActionToast
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.TabPager
 import com.exponential.app.ui.components.TopBarBackButton
 import com.exponential.app.ui.components.actionGlyph
@@ -124,6 +125,8 @@ fun ActionDetailScreen(
     val isOwner by viewModel.isTeamOwner.collectAsStateWithLifecycle()
     val busy by viewModel.triggerBusy.collectAsStateWithLifecycle()
     val error by viewModel.triggerError.collectAsStateWithLifecycle()
+    // FEED-79: a refused trigger write is an error toast (the form stays open).
+    FailedActionToast(error, onShown = viewModel::clearTriggerError)
     val action = state.action
 
     // Saveable: Back from a run lands on the same tab.
@@ -197,7 +200,10 @@ fun ActionDetailScreen(
         },
     ) { padding ->
         when {
-            action == null && state.loading -> LoadingState(modifier = Modifier.padding(padding))
+            // EXP-1275: the first load = skeleton rows, never a spinner.
+            action == null && state.loading -> SkeletonRows(
+                modifier = Modifier.padding(padding).padding(horizontal = 16.dp, vertical = 8.dp),
+            )
             // Deleted meanwhile, or a ref to an action this account can't see.
             action == null -> EmptyState(EmptyStateCopy.actionUnavailable, modifier = Modifier.padding(padding))
             else -> TabPager(
@@ -224,18 +230,10 @@ fun ActionDetailScreen(
                         isOwner = isOwner,
                         blockedByInputs = action.hasRequiredInputs,
                         busy = busy,
-                        // The form shows a refusal itself while it is open.
-                        error = error.takeIf { !addingTrigger && editingTrigger == null },
                         onSetEnabled = viewModel::setTriggerEnabled,
                         onDelete = viewModel::deleteTrigger,
-                        onEdit = { trigger ->
-                            viewModel.clearTriggerError()
-                            editingTrigger = trigger
-                        },
-                        onAdd = {
-                            viewModel.clearTriggerError()
-                            addingTrigger = true
-                        },
+                        onEdit = { trigger -> editingTrigger = trigger },
+                        onAdd = { addingTrigger = true },
                     )
                     ACTION_TAB_RUNS -> RunsTab(
                         runs = runs,
@@ -257,7 +255,6 @@ fun ActionDetailScreen(
         TriggerFormSheet(
             devices = triggerDevices,
             busy = busy,
-            error = error,
             editing = editing,
             onSubmit = { result -> viewModel.saveTrigger(editing, result, onDone = close) },
             onDismiss = close,
@@ -275,7 +272,6 @@ private fun TriggersTab(
     // The action declares a required input: a trigger that is off stays off.
     blockedByInputs: Boolean,
     busy: Boolean,
-    error: String?,
     onSetEnabled: (String, Boolean) -> Unit,
     onDelete: (String) -> Unit,
     onEdit: (ActionTrigger) -> Unit,
@@ -301,16 +297,6 @@ private fun TriggersTab(
                         modifier = Modifier.testTag("add-trigger"),
                     )
                 }
-            }
-        }
-        if (error != null) {
-            item(key = "__trigger_error__") {
-                Text(
-                    error,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 4.dp),
-                )
             }
         }
         if (triggers.isEmpty()) {
