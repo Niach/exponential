@@ -453,12 +453,14 @@ fun AgentScreen(
     }
     LaunchedEffect(runState) {
         val failed = runState as? ActionRunState.Failed ?: return@LaunchedEffect
-        toaster.error(
+        val toastId = toaster.error(
             FeedbackStates.errorTitle("start", "the session"),
             failed.message,
             ToastAction(FeedbackStates.RETRY) { retryStart() },
         )
-        viewModel.clearRunFailure()
+        // Recheck R3: a start of unknown fate is still followed; its late
+        // row takes this toast down.
+        viewModel.clearRunFailure(toastId)
     }
     LaunchedEffect(startTimedOut) {
         val label = startTimedOut ?: return@LaunchedEffect

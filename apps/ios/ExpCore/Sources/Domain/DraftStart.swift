@@ -9,45 +9,127 @@ import Foundation
 /// (`domain/DraftStart.kt`).
 public struct DraftStart: Equatable, Sendable {
 
-    /// What a draft start is "the same" by: the text, the subject's issue /
-    /// action ids and the attachments (stable per-pick ids, never the
-    /// uploaded ones, which a send stamps).
+    /// What a draft start is "the same" by: every field of
+    /// `starting.fingerprint.fields` (recheck R2). Lists compare as SETS
+    /// (order-free), an absent list or map equals an empty one, text compares
+    /// verbatim. The attachments are stable per-pick ids, never the uploaded
+    /// ones, which a send stamps. The launch options are the WIRE form the
+    /// start sends (`SteerStartOptions`), so a pick that never reaches the
+    /// device never mints a new id.
     public struct Fingerprint: Equatable, Sendable {
+        public let deviceId: String
         public let text: String
-        public let issueIds: [String]
+        public let issueIds: Set<String>
         public let actionId: String?
-        public let attachments: [String]
+        public let actionInputs: [String: String]
+        /// The chat's repository (the hidden Chat builtin's `repo` input).
+        public let repositoryId: String?
+        public let attachments: Set<String>
+        public let agent: String?
+        public let model: String?
+        public let effort: String?
+        public let planMode: Bool?
+        public let account: String?
+        public let mcpServerIds: Set<String>
+        public let computerUse: Bool?
+        public let ultracode: Bool?
+        public let subagentModel: String?
+        /// The composer's Resume toggle (an absent one = off).
+        public let resume: Bool
 
-        public init(text: String, issueIds: [String], actionId: String?, attachments: [String]) {
+        public init(
+            deviceId: String,
+            text: String,
+            issueIds: [String] = [],
+            actionId: String? = nil,
+            actionInputs: [String: String]? = nil,
+            repositoryId: String? = nil,
+            attachments: [String] = [],
+            agent: String? = nil,
+            model: String? = nil,
+            effort: String? = nil,
+            planMode: Bool? = nil,
+            account: String? = nil,
+            mcpServerIds: [String]? = nil,
+            computerUse: Bool? = nil,
+            ultracode: Bool? = nil,
+            subagentModel: String? = nil,
+            resume: Bool = false
+        ) {
+            self.deviceId = deviceId
             self.text = text
-            self.issueIds = issueIds
+            self.issueIds = Set(issueIds)
             self.actionId = actionId
-            self.attachments = attachments
+            self.actionInputs = actionInputs ?? [:]
+            self.repositoryId = repositoryId
+            self.attachments = Set(attachments)
+            self.agent = agent
+            self.model = model
+            self.effort = effort
+            self.planMode = planMode
+            self.account = account
+            self.mcpServerIds = Set(mcpServerIds ?? [])
+            self.computerUse = computerUse
+            self.ultracode = ultracode
+            self.subagentModel = subagentModel
+            self.resume = resume
+        }
+
+        /// The draft with the launch options it would send.
+        public init(
+            deviceId: String,
+            text: String,
+            issueIds: [String] = [],
+            actionId: String? = nil,
+            actionInputs: [String: String]? = nil,
+            repositoryId: String? = nil,
+            attachments: [String] = [],
+            options: SteerStartOptions
+        ) {
+            self.init(
+                deviceId: deviceId,
+                text: text,
+                issueIds: issueIds,
+                actionId: actionId,
+                actionInputs: actionInputs,
+                repositoryId: repositoryId,
+                attachments: attachments,
+                agent: options.agent,
+                model: options.model,
+                effort: options.effort,
+                planMode: options.planMode,
+                account: options.account,
+                mcpServerIds: options.mcpServerIds,
+                computerUse: options.computerUse,
+                ultracode: options.ultracode,
+                subagentModel: options.subagentModel,
+                resume: options.resume == true
+            )
         }
     }
 
     public let startId: String
-    public let deviceId: String
     public let fingerprint: Fingerprint
 
-    public init(startId: String, deviceId: String, fingerprint: Fingerprint) {
+    /// The machine the start goes to (part of the fingerprint).
+    public var deviceId: String { fingerprint.deviceId }
+
+    public init(startId: String, fingerprint: Fingerprint) {
         self.startId = startId
-        self.deviceId = deviceId
         self.fingerprint = fingerprint
     }
 
-    /// The start a Start or Retry of `fingerprint` on `deviceId` sends: the
-    /// pending one while device and draft match, else a freshly minted one.
+    /// The start a Start or Retry of `fingerprint` sends: the pending one
+    /// while the draft (device included) matches, else a freshly minted one.
     public static func resolve(
         pending: DraftStart?,
-        deviceId: String,
         fingerprint: Fingerprint,
         mint: () -> String = { UUID().uuidString.lowercased() }
     ) -> DraftStart {
-        if let pending, pending.deviceId == deviceId, pending.fingerprint == fingerprint {
+        if let pending, pending.fingerprint == fingerprint {
             return pending
         }
-        return DraftStart(startId: mint(), deviceId: deviceId, fingerprint: fingerprint)
+        return DraftStart(startId: mint(), fingerprint: fingerprint)
     }
 
     /// A landing of this start clears the draft and opens the session only

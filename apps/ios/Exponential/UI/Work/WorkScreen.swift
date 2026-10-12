@@ -1521,7 +1521,13 @@ struct WorkScreen: View {
                     accountId: accountId
                 )
             } catch {
-                continuation.failed(error.userFacingMessage)
+                continuation.failed(
+                    error,
+                    key: .resumed(fromId: sessionId),
+                    userId: deps.auth.userId,
+                    db: deps.db,
+                    accountId: accountId
+                )
             }
             resuming = false
         }

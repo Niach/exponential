@@ -223,6 +223,9 @@ struct AgentPageView: View {
             }
             alignActiveTeamToSeed()
             ensureModels()
+            // A composer kept through a team change (its draft or start)
+            // follows the team once there is nothing left to lose.
+            rebindComposer(to: teamState.activeTeam?.id)
             sessions?.activeTeamId = teamState.activeTeam?.id
             // Re-arm on every appear: pushing the session stops the
             // observation (onDisappear), popping back must resume it.
@@ -238,16 +241,7 @@ struct AgentPageView: View {
         }
         .onChange(of: teamState.activeTeam?.id) { _, teamId in
             sessions?.activeTeamId = teamId
-            // The composer is bound to ONE team (its pools, its builtins'
-            // teamId) — a team switch under the page starts a fresh one. A
-            // composer nobody touched yet keeps the play button's seed (the
-            // team resolving AFTER onAppear on a cold launch must not drop
-            // the preselection); a touched one starts empty.
-            if let sessions, let composer, composer.teamId != teamId {
-                self.composer = makeComposer(
-                    sessions: sessions, seed: composer.isPristine ? seed : .empty
-                )
-            }
+            rebindComposer(to: teamId)
         }
         .onDisappear {
             visible = false
@@ -327,6 +321,23 @@ struct AgentPageView: View {
         }
         if composer == nil, let sessions {
             composer = makeComposer(sessions: sessions, seed: seed)
+        }
+    }
+
+    /// The composer is bound to ONE team (its pools, its builtins' teamId).
+    /// Recheck R3: a team change rebuilds it only when nothing is lost: a
+    /// PRISTINE composer keeps the play button's seed (the team resolving
+    /// AFTER onAppear on a cold launch must not drop the preselection), an
+    /// empty one starts fresh. A draft in progress stays exactly as it is,
+    /// and a start in flight or still followed keeps its watch (the composer
+    /// model owns it), so a late session still lands.
+    private func rebindComposer(to teamId: String?) {
+        guard let sessions, let composer, composer.teamId != teamId,
+              !composer.isFollowingStart else { return }
+        if composer.isPristine {
+            self.composer = makeComposer(sessions: sessions, seed: seed)
+        } else if composer.isEmptyDraft {
+            self.composer = makeComposer(sessions: sessions, seed: .empty)
         }
     }
 

@@ -110,6 +110,41 @@ final class StartedRunWatcher {
             onTimeout()
             self.quietWatchEnds(after: StartedRunMatch.watchWindow - deadline)
         }
+        watch(key: key, userId: userId, db: db, accountId: accountId, sentAt: sentAt, onLanded: onLanded)
+    }
+
+    /// Recheck R3 (feedback-states.json `starting.maybeDelivered`): a send
+    /// whose fate is unknown (a transport error, a client timeout, the
+    /// relay's timeout) may have reached the device. The host toasts the
+    /// failure with Retry; this follows the start QUIETLY (no caption, no
+    /// second error) for `StartedRunMatch.watchWindow` from `sentAt`, so a
+    /// late row still lands. `failure` carries the message for hosts that
+    /// toast off it.
+    func follow(
+        key: StartedRunKey,
+        userId: String?,
+        db: DatabaseManager,
+        accountId: String,
+        failure message: String? = nil,
+        cutoff sentAt: Date,
+        onLanded: (@MainActor (String) -> Void)? = nil
+    ) {
+        stop()
+        sentCaption = nil
+        failure = message
+        quietWatchEnds(after: StartedRunMatch.watchWindow - Date().timeIntervalSince(sentAt))
+        watch(key: key, userId: userId, db: db, accountId: accountId, sentAt: sentAt, onLanded: onLanded)
+    }
+
+    /// Observe the synced rows for the one this start produced.
+    private func watch(
+        key: StartedRunKey,
+        userId: String?,
+        db: DatabaseManager,
+        accountId: String,
+        sentAt: Date?,
+        onLanded: (@MainActor (String) -> Void)?
+    ) {
         guard let userId, let pool = try? db.pool(forAccountId: accountId) else { return }
         let cutoff = (sentAt ?? Date()).addingTimeInterval(-StartedRunMatch.skew)
         // The whole live table is observed rather than a filtered query: a

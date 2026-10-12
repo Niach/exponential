@@ -13,19 +13,40 @@ import java.util.UUID
  */
 data class DraftStart(
     val startId: String,
-    val deviceId: String,
     val fingerprint: Fingerprint,
 ) {
+    /** The machine the start goes to (part of the fingerprint). */
+    val deviceId: String get() = fingerprint.deviceId
+
     /**
-     * What a draft start is "the same" by: the text, the subject's issue /
-     * action ids and the attachments (stable per-pick ids, never the uploaded
-     * ones, which a send stamps).
+     * What a draft start is "the same" by: every field of
+     * `starting.fingerprint.fields` (recheck R2). Lists compare as SETS
+     * (order-free), an absent list or map equals an empty one, text compares
+     * verbatim. The attachments are stable per-pick ids, never the uploaded
+     * ones, which a send stamps. The launch options are the WIRE form the
+     * start sends, so a pick that never reaches the device never mints a new
+     * id.
      */
     data class Fingerprint(
+        val deviceId: String,
         val text: String,
-        val issueIds: List<String>,
-        val actionId: String?,
-        val attachments: List<String>,
+        val issueIds: Set<String> = emptySet(),
+        val actionId: String? = null,
+        val actionInputs: Map<String, String> = emptyMap(),
+        /** The chat's repository (the hidden Chat builtin's `repo` input). */
+        val repositoryId: String? = null,
+        val attachments: Set<String> = emptySet(),
+        val agent: String? = null,
+        val model: String? = null,
+        val effort: String? = null,
+        val planMode: Boolean? = null,
+        val account: String? = null,
+        val mcpServerIds: Set<String> = emptySet(),
+        val computerUse: Boolean? = null,
+        val ultracode: Boolean? = null,
+        val subagentModel: String? = null,
+        /** The composer's Resume toggle (an absent one = off). */
+        val resume: Boolean = false,
     )
 
     /**
@@ -33,21 +54,20 @@ data class DraftStart(
      * when the draft is unchanged since its send; a draft the person changed
      * after the timeout stays exactly as they left it (no navigation).
      */
-    fun landsInto(current: Fingerprint): Boolean = fingerprint == current
+    fun landsInto(current: Fingerprint?): Boolean = fingerprint == current
 
     companion object {
-        /** The start a Start or Retry of [fingerprint] on [deviceId] sends:
-         * the pending one while device and draft match, else a fresh one. */
+        /** The start a Start or Retry of [fingerprint] sends: the pending one
+         * while the draft (device included) matches, else a fresh one. */
         fun resolve(
             pending: DraftStart?,
-            deviceId: String,
             fingerprint: Fingerprint,
             mint: () -> String = { UUID.randomUUID().toString() },
         ): DraftStart =
-            if (pending != null && pending.deviceId == deviceId && pending.fingerprint == fingerprint) {
+            if (pending != null && pending.fingerprint == fingerprint) {
                 pending
             } else {
-                DraftStart(mint(), deviceId, fingerprint)
+                DraftStart(mint(), fingerprint)
             }
     }
 }
