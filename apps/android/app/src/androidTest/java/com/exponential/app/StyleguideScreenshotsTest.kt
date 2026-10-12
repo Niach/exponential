@@ -15,6 +15,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeUp
 import androidx.test.espresso.Espresso
@@ -467,10 +468,16 @@ class StyleguideScreenshotsTest {
         flow.screenshot("sg_composer-menu")
         composeRule.onNode(hasTestTag("agent-composer-menu-implement-issue")).performClick()
         flow.waitFor(hasTestTag("agent-composer-issues-picker"), NAV_TIMEOUT)
+        // SLOP-28: the page is THE search list (no cap, a lazy list), so a row
+        // below the fold is not composed yet — type its title to bring it up,
+        // then pick the row (never the input, which now carries the same text).
         for (title in listOf(CHAT_FIRST_ISSUE_TITLE, CHAT_SECOND_ISSUE_TITLE)) {
-            flow.waitFor(hasText(title, substring = true), SYNC_TIMEOUT)
-            composeRule.onAllNodes(hasText(title, substring = true)).onFirst().performClick()
+            composeRule.onNode(hasTestTag(SearchList.INPUT_TEST_ID)).performTextReplacement(title)
+            val row = hasText(title, substring = true) and !hasSetTextAction()
+            flow.waitFor(row, SYNC_TIMEOUT)
+            composeRule.onAllNodes(row).onFirst().performClick()
         }
+        composeRule.onNode(hasTestTag(SearchList.INPUT_TEST_ID)).performTextReplacement("")
         // The footer reads "Implement 2 issues" (composer-menu.json
         // `implementButton`) and only closes: the chips are on the composer already.
         flow.waitFor(hasTestTag(ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID), NAV_TIMEOUT)
@@ -521,8 +528,11 @@ class StyleguideScreenshotsTest {
         )
         flow.settle()
         flow.screenshot("sg_search-list")
+        // The sheet's input holds the keyboard: the first Back only closes it.
+        Espresso.closeSoftKeyboard()
         Espresso.pressBack()
         flow.waitForGone(hasTestTag("issue-ref-search-sheet"), NAV_TIMEOUT)
+        composeRule.onNode(hasTestTag("agent-composer-field")).performTextReplacement("")
         Espresso.closeSoftKeyboard()
         flow.settle()
         // A tab now (Back would leave the app): the Devices tab returns.
@@ -737,112 +747,117 @@ class StyleguideScreenshotsTest {
         flow.settle()
         flow.screenshot("sg_settings-account")
 
-        // --- Onboarding: LAST on purpose, because it switches the signed-in
-        // identity. Accounts are keyed per (instance, userId) —
-        // `ServerAccount.makeId` — so "Add server" pointed at the SAME instance
-        // signs the newcomer in ALONGSIDE the demo user rather than replacing
-        // them (AccountDeduplicator only prunes TOKENLESS duplicate rows), and
-        // nothing above has to be redone if this step ever regresses.
-        //
-        // The newcomer is a member of nothing with a null
-        // `onboardingCompletedAt`, so AppNavHost routes straight into the
-        // wizard. NOTHING is submitted: creating a team or accepting an invite
-        // would mutate the seed and burn the invite the other lanes photograph.
-        //
-        // EXP-1267: the newcomer's reused session is signed in in-process,
-        // beside the demo account (exactly what "Add server" did); the Add
-        // server + login form path is only the fallback.
-        if (!ScreenshotSession.signIn(
-                instanceUrl,
-                ScreenshotFlow.NEWCOMER_EMAIL,
-                ScreenshotFlow.NEWCOMER_PASSWORD,
-                keepOtherAccounts = true,
-            )
-        ) {
-            composeRule.onNode(hasContentDescription("Back")).performClick()
-            flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
-            composeRule.onAllNodes(hasText("Add server")).onFirst().performClick()
-            flow.chooseInstance(instanceUrl)
-            flow.awaitLoginScreen()
-            flow.submitLogin(ScreenshotFlow.NEWCOMER_EMAIL, ScreenshotFlow.NEWCOMER_PASSWORD)
-        }
-        flow.waitFor(hasText("Get started"), SYNC_TIMEOUT)
-        composeRule.onAllNodes(hasText("Get started")).onFirst().performClick()
-        // P3: the team step is web's choice page — the mark, "Welcome to
-        // Exponential", Create a team / Join a team.
-        flow.waitFor(hasText("Welcome to Exponential"), NAV_TIMEOUT)
-        flow.waitFor(hasTestTag("team-setup-join"), NAV_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_onboarding")
-
-        // --- Onboarding, the two later steps (EXP-725). Reaching them for
-        // real means creating a team AND a board, which would mutate the
-        // shared seed, so the wizard's capture seam presets the step instead
-        // (OnboardingTestHooks — inert outside this process) and the lane
-        // signs in as the STARTER: the seed's third identity, who owns a
-        // board-less team and never finished the wizard (a board would let
-        // the server backfill the flag). The newcomer above
-        // is a member of nothing, and the invite + devices steps both need a
-        // team to exist.
-        OnboardingTestHooks.startStep = "invite"
-        // The wizard's persistent escape hatch (every step carries it now) —
-        // signing the newcomer out frees the login flow to bring the starter
-        // in beside the still-signed-in demo account.
-        composeRule.onAllNodes(hasText("Sign out")).onFirst().performClick()
-        // EXP-1267: the starter's reused session, signed in in-process; the
-        // login form only as the fallback below.
-        if (!ScreenshotSession.signIn(
-                instanceUrl,
-                ScreenshotFlow.STARTER_EMAIL,
-                ScreenshotFlow.STARTER_PASSWORD,
-                keepOtherAccounts = true,
-            )
-        ) {
-            // Where the Sign out lands depends on what else holds a token.
-            // Invalidating the ACTIVE row's session keeps the row and flips
-            // AppNavHost's `needsAuth`, so the usual outcome is the login form
-            // for the same instance; the instance picker shows when no account
-            // is left at all, and the demo user's app when the router fell back
-            // to them — the servers list then adds one the same way as above.
-            when {
-                // EXP-857: the resolved login screen leads with "Continue with
-                // email"; awaitLoginScreen below opens the form behind it.
-                flow.waitForOptional(hasTestTag("login-continue-with-email"), NAV_TIMEOUT) -> Unit
-                flow.waitForOptional(hasText(ScreenshotFlow.SELF_HOST_LINK), NAV_TIMEOUT) ->
-                    flow.chooseInstance(instanceUrl)
-                else -> {
-                    composeRule.onNode(hasContentDescription("Issues")).performClick()
-                    flow.waitFor(hasContentDescription("Settings"), NAV_TIMEOUT)
-                    composeRule.onNode(hasContentDescription("Settings")).performClick()
-                    flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
-                    composeRule.onAllNodes(hasText("Add server")).onFirst().performClick()
-                    flow.chooseInstance(instanceUrl)
-                }
+        // A scoped run that wants none of the three onboarding shots skips the
+        // identity switch altogether: the capture-only screens below need
+        // nothing from the app.
+        if (ScreenshotFlow.anyRequested("sg_onboarding", "sg_onboarding-invite", "sg_onboarding-devices")) {
+            // --- Onboarding: LAST on purpose, because it switches the signed-in
+            // identity. Accounts are keyed per (instance, userId) —
+            // `ServerAccount.makeId` — so "Add server" pointed at the SAME instance
+            // signs the newcomer in ALONGSIDE the demo user rather than replacing
+            // them (AccountDeduplicator only prunes TOKENLESS duplicate rows), and
+            // nothing above has to be redone if this step ever regresses.
+            //
+            // The newcomer is a member of nothing with a null
+            // `onboardingCompletedAt`, so AppNavHost routes straight into the
+            // wizard. NOTHING is submitted: creating a team or accepting an invite
+            // would mutate the seed and burn the invite the other lanes photograph.
+            //
+            // EXP-1267: the newcomer's reused session is signed in in-process,
+            // beside the demo account (exactly what "Add server" did); the Add
+            // server + login form path is only the fallback.
+            if (!ScreenshotSession.signIn(
+                    instanceUrl,
+                    ScreenshotFlow.NEWCOMER_EMAIL,
+                    ScreenshotFlow.NEWCOMER_PASSWORD,
+                    keepOtherAccounts = true,
+                )
+            ) {
+                composeRule.onNode(hasContentDescription("Back")).performClick()
+                flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
+                composeRule.onAllNodes(hasText("Add server")).onFirst().performClick()
+                flow.chooseInstance(instanceUrl)
+                flow.awaitLoginScreen()
+                flow.submitLogin(ScreenshotFlow.NEWCOMER_EMAIL, ScreenshotFlow.NEWCOMER_PASSWORD)
             }
-            flow.awaitLoginScreen()
-            flow.submitLogin(ScreenshotFlow.STARTER_EMAIL, ScreenshotFlow.STARTER_PASSWORD)
-        }
-        // The welcome page is step 0 for everyone; the preset only takes
-        // effect once the team step has resolved a team.
-        if (flow.waitForOptional(hasText("Get started"), SYNC_TIMEOUT)) {
+            flow.waitFor(hasText("Get started"), SYNC_TIMEOUT)
             composeRule.onAllNodes(hasText("Get started")).onFirst().performClick()
+            // P3: the team step is web's choice page — the mark, "Welcome to
+            // Exponential", Create a team / Join a team.
+            flow.waitFor(hasText("Welcome to Exponential"), NAV_TIMEOUT)
+            flow.waitFor(hasTestTag("team-setup-join"), NAV_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_onboarding")
+
+            // --- Onboarding, the two later steps (EXP-725). Reaching them for
+            // real means creating a team AND a board, which would mutate the
+            // shared seed, so the wizard's capture seam presets the step instead
+            // (OnboardingTestHooks — inert outside this process) and the lane
+            // signs in as the STARTER: the seed's third identity, who owns a
+            // board-less team and never finished the wizard (a board would let
+            // the server backfill the flag). The newcomer above
+            // is a member of nothing, and the invite + devices steps both need a
+            // team to exist.
+            OnboardingTestHooks.startStep = "invite"
+            // The wizard's persistent escape hatch (every step carries it now) —
+            // signing the newcomer out frees the login flow to bring the starter
+            // in beside the still-signed-in demo account.
+            composeRule.onAllNodes(hasText("Sign out")).onFirst().performClick()
+            // EXP-1267: the starter's reused session, signed in in-process; the
+            // login form only as the fallback below.
+            if (!ScreenshotSession.signIn(
+                    instanceUrl,
+                    ScreenshotFlow.STARTER_EMAIL,
+                    ScreenshotFlow.STARTER_PASSWORD,
+                    keepOtherAccounts = true,
+                )
+            ) {
+                // Where the Sign out lands depends on what else holds a token.
+                // Invalidating the ACTIVE row's session keeps the row and flips
+                // AppNavHost's `needsAuth`, so the usual outcome is the login form
+                // for the same instance; the instance picker shows when no account
+                // is left at all, and the demo user's app when the router fell back
+                // to them — the servers list then adds one the same way as above.
+                when {
+                    // EXP-857: the resolved login screen leads with "Continue with
+                    // email"; awaitLoginScreen below opens the form behind it.
+                    flow.waitForOptional(hasTestTag("login-continue-with-email"), NAV_TIMEOUT) -> Unit
+                    flow.waitForOptional(hasText(ScreenshotFlow.SELF_HOST_LINK), NAV_TIMEOUT) ->
+                        flow.chooseInstance(instanceUrl)
+                    else -> {
+                        composeRule.onNode(hasContentDescription("Issues")).performClick()
+                        flow.waitFor(hasContentDescription("Settings"), NAV_TIMEOUT)
+                        composeRule.onNode(hasContentDescription("Settings")).performClick()
+                        flow.waitFor(hasText("Servers", ignoreCase = true), NAV_TIMEOUT)
+                        composeRule.onAllNodes(hasText("Add server")).onFirst().performClick()
+                        flow.chooseInstance(instanceUrl)
+                    }
+                }
+                flow.awaitLoginScreen()
+                flow.submitLogin(ScreenshotFlow.STARTER_EMAIL, ScreenshotFlow.STARTER_PASSWORD)
+            }
+            // The welcome page is step 0 for everyone; the preset only takes
+            // effect once the team step has resolved a team.
+            if (flow.waitForOptional(hasText("Get started"), SYNC_TIMEOUT)) {
+                composeRule.onAllNodes(hasText("Get started")).onFirst().performClick()
+            }
+
+            // --- Invite step: header + the invite-link creator, before a link is
+            // minted (generating one would leave a live invite in the seed).
+            // The starter's teams resolve off a cold first sync.
+            flow.waitFor(hasTestTag("onboarding-invite-step"), FIRST_SYNC_TIMEOUT)
+            flow.waitFor(hasTestTag("invite-generate"), SYNC_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_onboarding-invite")
+
+            // --- Devices step: the two install cards plus "Your devices". The
+            // starter has no machine of their own, so this photographs the empty
+            // state, which is what a first-run user actually sees.
+            composeRule.onAllNodes(hasText("Skip for now")).onFirst().performClick()
+            flow.waitFor(hasTestTag("onboarding-devices-step"), NAV_TIMEOUT)
+            flow.settle()
+            flow.screenshot("sg_onboarding-devices")
         }
-
-        // --- Invite step: header + the invite-link creator, before a link is
-        // minted (generating one would leave a live invite in the seed).
-        // The starter's teams resolve off a cold first sync.
-        flow.waitFor(hasTestTag("onboarding-invite-step"), FIRST_SYNC_TIMEOUT)
-        flow.waitFor(hasTestTag("invite-generate"), SYNC_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_onboarding-invite")
-
-        // --- Devices step: the two install cards plus "Your devices". The
-        // starter has no machine of their own, so this photographs the empty
-        // state, which is what a first-run user actually sees.
-        composeRule.onAllNodes(hasText("Skip for now")).onFirst().performClick()
-        flow.waitFor(hasTestTag("onboarding-devices-step"), NAV_TIMEOUT)
-        flow.settle()
-        flow.screenshot("sg_onboarding-devices")
 
         // --- sg_feedback-states: the six feedback kinds (EXP-1275). A
         // capture-only screen, every kind drawn by its real primitive and the

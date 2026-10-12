@@ -379,8 +379,10 @@ final class StyleguideScreenshots: XCTestCase {
         expect(searchField, within: Wait.nav, "Search field missing")
         focus(searchField)
         searchField.typeText(Self.searchQuery)
+        // SLOP-28: the result is THE search-list row, labelled
+        // "IDENT Title" — match the title inside it.
         expect(
-            app.staticTexts[Self.showcaseTitle].firstMatch,
+            anyElement(app, containing: Self.showcaseTitle),
             within: Wait.sync,
             "Search never returned the seeded issue for \"\(Self.searchQuery)\""
         )
@@ -575,6 +577,14 @@ final class StyleguideScreenshots: XCTestCase {
         snapshot("sg_search-list", settle: 2)
         dismissSheet(app, whileVisible: refSheet)
         _ = refSheet.waitForNonExistence(timeout: Wait.nav)
+        // The composer keeps focus, and the keyboard hides the floating bar:
+        // empty it (nothing left behind) and drag the page to dismiss it.
+        clearText(of: composerField)
+        for _ in 0..<3 where app.keyboards.firstMatch.exists {
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3))
+                .press(forDuration: 0.05, thenDragTo: app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.9)))
+            usleep(600_000)
+        }
         // The Agent page is a bar root now (the chat arm switches to it) —
         // back to Devices through the bar.
         let devicesTabAgain = app.buttons["tab-devices"]
