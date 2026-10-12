@@ -108,6 +108,16 @@ final class IssueDetailViewModel {
     let editor = IssueEditorModel()
     var saving = false
     var error: String?
+    /// FEED-79: the failed action's toast title (`Couldn't <verb> <thing>`);
+    /// `error` is its description (the server's words).
+    private(set) var errorTitle: String?
+
+    /// FEED-79: one failed action — the host raises the error toast and
+    /// clears `error`.
+    private func fail(verb: String, thing: String, _ message: String?) {
+        errorTitle = FeedbackStates.Errors.title(verb: verb, thing: thing)
+        error = message ?? ""
+    }
     var permissions: TeamPermissions = .denied
     // True while a signed-in viewer looks like a non-member ONLY because the
     // team_members shape hasn't synced yet (drives a "Syncing team…"
@@ -266,7 +276,7 @@ final class IssueDetailViewModel {
             }
         }
         guard let pool = try? db.pool(forAccountId: accountId) else {
-            error = "Couldn't open local data store"
+            self.fail(verb: "open", thing: "the issue", nil)
             return
         }
         // Captured locally so the tracking closures don't retain self.
@@ -614,7 +624,7 @@ final class IssueDetailViewModel {
         do {
             try await issuesApi.move(accountId: accountId, id: issue.id, boardId: boardId)
         } catch {
-            self.error = error.userFacingMessage
+            self.fail(verb: "move", thing: "the issue", error.userFacingMessage)
         }
     }
 
@@ -637,7 +647,7 @@ final class IssueDetailViewModel {
 
         let allUploaded = await editor.commitPendingImages(uploader: makeImageUploader(issueId: issue.id))
         guard allUploaded, !editor.hasUncommittedDrafts else {
-            error = "Some images couldn't be uploaded. Tap an image to retry."
+            self.fail(verb: "upload", thing: "the images", "Tap an image to retry.")
             return
         }
         error = nil
@@ -823,7 +833,7 @@ final class IssueDetailViewModel {
         do {
             try await attachmentsApi.delete(accountId: accountId, attachmentId: id)
         } catch {
-            self.error = error.userFacingMessage
+            self.fail(verb: "delete", thing: "the file", error.userFacingMessage)
         }
     }
 
@@ -850,7 +860,7 @@ final class IssueDetailViewModel {
             try data.write(to: destination, options: .atomic)
             return destination
         } catch {
-            self.error = error.userFacingMessage
+            self.fail(verb: "download", thing: "the file", error.userFacingMessage)
             return nil
         }
     }
@@ -952,7 +962,7 @@ final class IssueDetailViewModel {
             )
             try await labelsApi.addToIssue(accountId: accountId, issueId: issue.id, labelId: labelId)
         } catch {
-            self.error = error.userFacingMessage
+            self.fail(verb: "create", thing: "the label", error.userFacingMessage)
         }
     }
 
@@ -965,7 +975,7 @@ final class IssueDetailViewModel {
                 try await labelsApi.addToIssue(accountId: accountId, issueId: issue.id, labelId: labelId)
             }
         } catch {
-            self.error = error.userFacingMessage
+            self.fail(verb: "update", thing: "the labels", error.userFacingMessage)
         }
     }
 
@@ -1115,7 +1125,7 @@ final class IssueDetailViewModel {
                 inverse: pick.inverse
             ))
         } catch {
-            self.error = error.userFacingMessage
+            self.fail(verb: "add", thing: "the relation", error.userFacingMessage)
         }
     }
 
@@ -1131,7 +1141,7 @@ final class IssueDetailViewModel {
         do {
             try await relationsApi.delete(accountId: accountId, id: row.id)
         } catch {
-            self.error = error.userFacingMessage
+            self.fail(verb: "remove", thing: "the relation", error.userFacingMessage)
         }
     }
 
@@ -1208,7 +1218,7 @@ final class IssueDetailViewModel {
             try await issuesApi.delete(accountId: accountId, id: issue.id)
             return true
         } catch {
-            self.error = error.userFacingMessage
+            self.fail(verb: "delete", thing: "the issue", error.userFacingMessage)
             return false
         }
     }
@@ -1222,7 +1232,7 @@ final class IssueDetailViewModel {
             try await issuesApi.update(accountId: accountId, input)
             return true
         } catch {
-            self.error = error.userFacingMessage
+            self.fail(verb: "save", thing: "the issue", error.userFacingMessage)
             return false
         }
     }

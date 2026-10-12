@@ -191,7 +191,10 @@ struct WorkMergePill: View {
                 if canFixConflicts(failure) {
                     openFixConflicts()
                 } else {
-                    toaster.error(failure.message)
+                    toaster.error(
+                        FeedbackStates.Errors.title(verb: "merge", thing: "the pull request"),
+                        description: failure.message
+                    )
                 }
             }
             state.merging = false
@@ -209,7 +212,10 @@ struct WorkMergePill: View {
                     accountId: accountId, issueId: issueId, mergeStack: true
                 )
             } catch {
-                toaster.error(MergeFailure(error: error, stackMerge: true).message)
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "merge", thing: "the stack"),
+                    description: MergeFailure(error: error, stackMerge: true).message
+                )
             }
             state.merging = false
         }
@@ -285,7 +291,10 @@ struct StackMergeThroughHost: ViewModifier {
                                 accountId: accountId, issueId: confirm.issueId, mergeStack: true
                             )
                         } catch {
-                            toaster.error(MergeFailure(error: error, stackMerge: true).message)
+                            toaster.error(
+                                FeedbackStates.Errors.title(verb: "merge", thing: "the stack"),
+                                description: MergeFailure(error: error, stackMerge: true).message
+                            )
                         }
                         state.merging = false
                     }

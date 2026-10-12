@@ -275,8 +275,8 @@ public struct GlassPillPrimaryPressStyle: ButtonStyle {
     public init() {}
 
     public func makeBody(configuration: Configuration) -> some View {
-        configuration.label
-            .opacity(configuration.isPressed ? 0.8 : 1)
+        // EXP-1243: the shared press — scale to 0.97, and the fill dims.
+        PressScaleButtonStyle(dims: true).makeBody(configuration: configuration)
     }
 }
 

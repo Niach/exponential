@@ -1,5 +1,6 @@
 import ExpCore
 import ExpUI
+import GRDB
 import SwiftUI
 
 // EXP-850 — the three transcript surfaces the steer wire's new slots draw:
@@ -111,134 +112,23 @@ struct AgentBottomStrip: View {
 }
 
 /// EXP-927 §2c: the agent's OWN task list (claude's TodoWrite, codex's plan) —
-/// the last block of the bottom strip (EXP-1191). Hidden while the list is empty or every
-/// entry is done. Collapsed by default: ONE line with the current entry and a
-/// trailing `{completed}/{total}`, the whole line toggling it open; expanded:
-/// one line per entry in wire order, eight tall at most and then it scrolls.
-/// The expansion is view state, never persisted. EXP-1213: on the queue
-/// strip's ground (`.glassRow(isOpaque: true)`, fill + hairline) — it floats
-/// over the scrolling transcript, so plain rows read as feed text.
+/// the last block of the bottom strip (EXP-1191), as THE Work card
+/// (EXP-1240): `Tasks · 3 / 7`, a segment per task, the task in progress.
+/// Hidden while the list is empty or every entry is done.
 struct AgentTaskListBlock: View {
     let entries: [AgentTaskListEntry]
 
-    /// A place in the strip, not session state (web `useState`, desktop the
-    /// same): a fresh screen opens collapsed.
-    @State private var expanded = false
-    @Environment(\.motion) private var motion
-
-    /// One expanded line, and how many of them the block shows before it
-    /// scrolls (§2c: "at most 8 lines tall").
-    private static let rowHeight: CGFloat = 20
-    private static let maxVisibleRows = 8
-
     var body: some View {
-        if let summary = AgentFeed.taskListSummary(entries) {
-            VStack(alignment: .leading, spacing: 0) {
-                Button {
-                    expanded.toggle()
-                } label: {
-                    collapsedLine(summary)
-                }
-                .buttonStyle(.plain)
-                .accessibilityIdentifier("agent-task-list-toggle")
-                if expanded {
-                    expandedList
-                }
-            }
-            .animation(motion.standard, value: expanded)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .glassRow(isOpaque: true)
-            .accessibilityIdentifier("agent-task-list")
+        if AgentFeed.taskListSummary(entries) != nil {
+            WorkCardView(card: AgentFeed.taskListWorkCard(entries))
+                // EXP-1213: it floats over the scrolling transcript, so the
+                // card sits on the opaque card ground.
+                .background(
+                    DesignTokens.Palette.card,
+                    in: RoundedRectangle(cornerRadius: GlassTokens.groupRadius)
+                )
+                .accessibilityIdentifier("agent-task-list")
         }
-    }
-
-    private func collapsedLine(_ summary: AgentTaskListSummary) -> some View {
-        HStack(spacing: 8) {
-            AppIcon(AppIcons.uiChecklist, size: 11)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text(summary.current)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 8)
-            // EXP-1191: the list's own segmented mark, then the count.
-            HStack(spacing: 6) {
-                TaskListProgress(statuses: entries.map(\.status))
-                Text("\(summary.completed)/\(summary.total)")
-                    .font(.caption)
-                    .monospacedDigit()
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            // The shared disclosure glyph: right while folded, down while open.
-            AppIcon(expanded ? AppIcons.uiChevronDown : AppIcons.uiChevronRight, size: 10)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-        }
-        .frame(height: Self.rowHeight)
-        .contentShape(Rectangle())
-    }
-
-    private var expandedList: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                // The list is positional — the agent rewrites it whole.
-                ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
-                    entryLine(entry)
-                }
-            }
-        }
-        .frame(height: Self.rowHeight * CGFloat(min(entries.count, Self.maxVisibleRows)))
-        .scrollDisabled(entries.count <= Self.maxVisibleRows)
-    }
-
-    private func entryLine(_ entry: AgentTaskListEntry) -> some View {
-        HStack(spacing: 8) {
-            glyph(entry)
-            Text(entry.content)
-                .font(.caption)
-                .strikethrough(entry.status == .completed)
-                .foregroundStyle(.white.opacity(
-                    entry.status == .inProgress ? TextOpacity.primary : TextOpacity.tertiary
-                ))
-                .lineLimit(1)
-                .truncationMode(.tail)
-            Spacer(minLength: 0)
-        }
-        .frame(height: Self.rowHeight)
-    }
-
-    @ViewBuilder
-    private func glyph(_ entry: AgentTaskListEntry) -> some View {
-        switch entry.status {
-        case .completed:
-            AppIcon(AppIcons.uiSelected, size: 11)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-        case .inProgress:
-            SpinningGlyph()
-        case .pending:
-            AppIcon(AppIcons.uiUnselected, size: 11)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-        }
-    }
-}
-
-/// EXP-927: the `ui-loading` concept, turning — what an `in_progress` task-list
-/// entry wears (web spins the same glyph). Static under Reduce Motion.
-private struct SpinningGlyph: View {
-    @Environment(\.motion) private var motion
-    @State private var turning = false
-
-    var body: some View {
-        AppIcon(AppIcons.uiLoading, size: 11)
-            .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            .rotationEffect(.degrees(turning ? 360 : 0))
-            .onAppear {
-                guard !motion.reduceMotion else { return }
-                withAnimation(.linear(duration: 1).repeatForever(autoreverses: false)) {
-                    turning = true
-                }
-            }
     }
 }
 
@@ -317,187 +207,220 @@ struct AgentDuplicateWarningRow: View {
     }
 }
 
-/// EXP-850 §3: a claude workflow, rendered IN PLACE of its `Workflow` tool row
-/// — the card the latest-wins `workflow` event paints: name and description, a
-/// phase strip with per-phase queued/running/done/error counts, one nested row
-/// per agent, and the summary once it finishes.
-///
-/// The card SUMMARISES its agents, one line each; EXP-1225: their rows live
-/// in their own subagent tabs, never folded in here.
-struct AgentWorkflowCardRow: View {
+/// EXP-850 §3 / EXP-1240: a claude workflow, rendered IN PLACE of its
+/// `Workflow` tool row as THE Work card — the phases as a segment bar, the
+/// finished ones folded into one row, the running phase's lanes one line
+/// each. A lane opens that agent's own tab (EXP-1225: a workflow agent is a
+/// conversation tab like any subagent). EXP-856: the duplicate warnings of
+/// its agents sit under the card's own rows.
+struct WorkflowWorkCardRow: View {
     let workflow: AgentWorkflow
     /// The run behind one agent id — the card reads its duplicate warning.
     let runFor: (String?) -> AgentSubagentRun?
+    /// Open one agent's conversation tab.
+    let onOpenAgent: (String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            header
-            if let description = workflow.description, !description.isEmpty {
-                Text(description)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            phaseStrip
-            VStack(alignment: .leading, spacing: 4) {
-                ForEach(workflow.agents) { agent in
-                    agentRow(agent)
+        let card = workflow.workCard
+        let folded = workflow.workCardFoldedPhases(card)
+        let duplicates = workflow.agents.compactMap { runFor($0.agentId)?.duplicateDetail }
+        WorkCardView(
+            card: card,
+            foldedPhases: folded.isEmpty ? nil : folded,
+            onOpenLane: { phase, lane in
+                if let agentId = workflow.workCardLaneAgentId(phase: phase, lane: lane) {
+                    onOpenAgent(agentId)
                 }
             }
-            if let summary = workflow.summary, !summary.isEmpty {
-                Text(summary)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                    .fixedSize(horizontal: false, vertical: true)
-            }
+        ) {
+            DuplicateWarnings(details: duplicates)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 10)
-        .glassRow()
-        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("agent-workflow-card")
     }
+}
 
-    private var header: some View {
-        HStack(spacing: 8) {
-            AppIcon(AppIcons.relationParent, size: 11)
-                .foregroundStyle(DesignTokens.Semantic.blue)
-            Text(workflow.name)
-                .transcriptToolText(.medium)
-                .foregroundStyle(.white)
-                .lineLimit(1)
-            Text(statusWord)
-                .font(.caption2)
-                .foregroundStyle(statusColor)
-            Spacer(minLength: 0)
+/// A subagent's work (protocol v2) as THE Work card (EXP-1240): its name, the
+/// calls it made, done or running. The card opens the subagent's own tab,
+/// where its rows live. EXP-748: the count is what the publisher reported
+/// (`toolCount`), not the rows that survived the replay buffer.
+struct SubagentWorkCardRow: View {
+    let run: AgentSubagentRun
+    let onOpen: () -> Void
+
+    var body: some View {
+        WorkCardView(card: AgentFeed.subagentWorkCard(run), onOpenSubagent: onOpen) {
+            // EXP-856: a second copy of this agent started while the first
+            // was still running — amber, verbatim, never folded away.
+            DuplicateWarnings(details: run.duplicateDetail.map { [$0] } ?? [])
+        }
+        .accessibilityIdentifier("agent-subagent-card")
+    }
+}
+
+/// EXP-856 §4: the duplicate warnings under a Work card's own rows.
+private struct DuplicateWarnings: View {
+    let details: [String]
+
+    var body: some View {
+        if !details.isEmpty {
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(details, id: \.self) { detail in
+                    AgentDuplicateWarningRow(detail: detail)
+                }
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .overlay(alignment: .top) { GlassDivider() }
         }
     }
+}
 
-    private var statusWord: String {
-        switch workflow.status {
-        case .running: "running…"
-        case .completed: "done"
-        case .failed: "failed"
-        case .stopped: "stopped"
-        }
+/// EXP-1279: a code-mode `exec` call as its Script card ("Ran a script · 59
+/// calls · 3.0 s", the calls grouped by tool, the script behind "Script").
+/// The model is ExpCore's (`ScriptCards.card`); an older codemode that logs
+/// nothing is the bare "Ran a script".
+struct ScriptCallRow: View {
+    let settled: Bool
+    let failed: Bool
+    let script: AgentScriptLog?
+
+    var body: some View {
+        ScriptCardView(
+            card: ScriptCards.card(ScriptCards.input(settled: settled, log: script)),
+            running: !settled,
+            failed: failed,
+            source: script?.source
+        )
+    }
+}
+
+/// EXP-1241 (EXP-1259 D14): a SETTLED, successful `exponential_comments_create`
+/// call renders the REAL comment — the synced row the result's comment ref
+/// names (its body, author and time), under "Commented on <issue chip>".
+/// Until the row syncs (or for a comment this phone cannot see) it is the
+/// result's own preview: the ref's title as the body, the run's owner (whose
+/// key posted it), "via MCP" and the settle's time. Tapping opens the issue
+/// scrolled to the comment, which flashes (web `?comment=<id>`).
+struct CommentCallRow: View {
+    let detail: String?
+    let preview: AgentToolPreview?
+    let settledAt: Int?
+    /// The run's coding agent, for the author row's mark.
+    let agent: String?
+    /// The run owner's name — the author until the row syncs.
+    let ownerName: String?
+    let context: AgentMarkdownContext
+
+    @Environment(AppDependencies.self) private var deps
+    @Environment(\.accountId) private var accountId
+    @State private var comment: CommentEntity?
+    @State private var authorName: String?
+    @State private var issueIdentifier: String?
+
+    /// The contract `expToolDisplay` row of `exponential_comments_create`.
+    static let tool = "comments_create"
+
+    private var commentRef: EntityRef? { preview?.refs.first { $0.kind == "comment" } }
+    private var issueRef: EntityRef? { preview?.refs.first { $0.kind == "issue" } }
+    private var commentId: String? { commentRef?.id ?? preview?.id }
+
+    /// The result's issue identifier, else the call's subject (its `issueId`
+    /// input — an identifier or a uuid).
+    private var issueKey: String? {
+        if let issueIdentifier { return issueIdentifier }
+        if let identifier = issueRef?.identifier { return identifier }
+        let subject = detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return subject.isEmpty ? issueRef?.id : subject
     }
 
-    private var statusColor: Color {
-        switch workflow.status {
-        case .running: .white.opacity(TextOpacity.tertiary)
-        case .completed: DesignTokens.Semantic.green
-        case .failed: DesignTokens.Semantic.red
-        case .stopped: .white.opacity(TextOpacity.tertiary)
-        }
+    @MainActor
+    private var chip: IssueRefLookup.Chip? {
+        guard let refs = context.issueRefs, let key = issueKey else { return nil }
+        return IssueRefChipCache.chip(key, scope: .team(id: refs.teamId), db: refs.db, accountId: accountId)
     }
 
-    /// The phase strip: one chip per phase with its agents' state counts.
-    @ViewBuilder
-    private var phaseStrip: some View {
-        if !workflow.phases.isEmpty {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(workflow.phases) { phase in
-                        phaseChip(phase)
+    private var bodyText: String? {
+        let text = comment?.body ?? commentRef?.title ?? preview?.title
+        let trimmed = text?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return trimmed.isEmpty ? nil : text
+    }
+
+    private var caption: String {
+        let source = ReporterReply.caption(
+            source: comment?.source ?? DomainContract.commentSourceMcp,
+            audience: comment?.audience ?? "team"
+        )
+        let time: String? = if let comment {
+            RelativeTime.long(wire: comment.createdAt)
+        } else if let settledAt {
+            RelativeTime.long(Date(timeIntervalSince1970: Double(settledAt) / 1000))
+        } else {
+            nil
+        }
+        return [source, time].compactMap { $0 }.joined(separator: " · ")
+    }
+
+    var body: some View {
+        let chip = self.chip
+        let issueId = comment?.issueId ?? chip?.issueId
+        CommentCallCardView(
+            author: comment == nil ? ownerName : authorName,
+            caption: caption,
+            running: false,
+            hasBody: bodyText != nil,
+            onOpen: issueId.flatMap { issueId in
+                commentId.map { commentId in
+                    {
+                        deps.deepLinkBus.navigateToIssue(
+                            issueId, accountId: accountId, commentId: commentId
+                        )
                     }
                 }
             }
-        }
-    }
-
-    private func phaseChip(_ phase: AgentWorkflowPhase) -> some View {
-        let counts = workflow.counts(inPhase: phase.index)
-        return HStack(spacing: 6) {
-            Text(phase.title.isEmpty ? "Phase \(phase.index)" : phase.title)
-                .font(.caption2.weight(.medium))
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            if counts.total > 0 {
-                Text(AgentFeed.workflowPhaseCaption(counts))
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+        ) {
+            if let key = issueKey {
+                IssueChip(
+                    identifier: key,
+                    title: chip?.title,
+                    iconName: chip?.status.iconName ?? AppIcons.uiIssue,
+                    statusColor: chip?.status.color,
+                    bodySize: DesignTokens.Transcript.bodySize,
+                    onTap: chip.map { chip in { context.issueRefs?.onOpen(chip.issueId) } }
+                )
+            }
+        } mark: {
+            if let image = AgentBrandMark.image(agent ?? "claude") {
+                image
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 14, height: 14)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+        } body: {
+            if let bodyText {
+                AgentMarkdownText(text: bodyText, context: context)
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.vertical, 4)
-        .background(GlassTokens.fillActive, in: RoundedRectangle(cornerRadius: DesignTokens.Radius.sm))
+        .task(id: commentId) { await observe() }
+        .accessibilityIdentifier("comment-call-row")
     }
 
-    @ViewBuilder
-    private func agentRow(_ agent: AgentWorkflowAgent) -> some View {
-        let run = runFor(agent.agentId)
-        VStack(alignment: .leading, spacing: 2) {
-            agentHeader(agent)
-            if let detail = agentDetail(agent) {
-                Text(detail)
-                    .font(.caption2)
-                    .foregroundStyle(detailColor(agent))
-                    .lineLimit(2)
-                    .padding(.leading, 19)
+    /// The synced comment (it lands after the call settles), its author's
+    /// name and its issue's identifier.
+    private func observe() async {
+        guard let commentId, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
+        let observation = ValueObservation.tracking { db -> (CommentEntity?, String?, String?) in
+            guard let row = try CommentEntity.fetchOne(db, key: commentId) else { return (nil, nil, nil) }
+            let author = try row.authorId.flatMap { try UserEntity.fetchOne(db, key: $0) }
+            let issue = try IssueEntity.fetchOne(db, key: row.issueId)
+            return (row, memberDisplayName(author, id: row.authorId), issue?.identifier)
+        }
+        do {
+            for try await (row, author, identifier) in observation.values(in: pool) {
+                comment = row
+                authorName = author
+                if let identifier { issueIdentifier = identifier }
             }
-            // EXP-856: the warning sits under the agent it is about.
-            if let duplicate = run?.duplicateDetail {
-                AgentDuplicateWarningRow(detail: duplicate)
-                    .padding(.leading, 19)
-            }
-        }
-    }
-
-    private func agentHeader(_ agent: AgentWorkflowAgent) -> some View {
-        HStack(spacing: 6) {
-            AppIcon(Self.stateGlyph(agent.state), size: 11)
-                .foregroundStyle(Self.stateColor(agent.state))
-            Text(agent.label)
-                .font(.caption.weight(.medium))
-                .foregroundStyle(.white)
-                .lineLimit(1)
-            if let model = agent.model, !model.isEmpty {
-                Text(model)
-                    .font(.caption2)
-                    .foregroundStyle(.white.opacity(TextOpacity.quaternary))
-                    .lineLimit(1)
-            }
-            Spacer(minLength: 0)
-            if let telemetry = AgentFeed.workflowAgentTelemetry(agent) {
-                Text(telemetry)
-                    .font(.caption2.monospacedDigit())
-                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    .lineLimit(1)
-            }
-        }
-    }
-
-    /// The agent's own second line: its error when it failed, its result once
-    /// done, and what it is doing while it runs.
-    private func agentDetail(_ agent: AgentWorkflowAgent) -> String? {
-        switch agent.state {
-        case .error: agent.error ?? agent.resultPreview
-        case .done: agent.resultPreview
-        case .running: agent.lastToolSummary ?? agent.lastTool
-        case .queued: nil
-        }
-    }
-
-    private func detailColor(_ agent: AgentWorkflowAgent) -> Color {
-        agent.state == .error
-            ? DesignTokens.Semantic.red
-            : .white.opacity(TextOpacity.tertiary)
-    }
-
-    static func stateGlyph(_ state: AgentWorkflowAgentState) -> String {
-        switch state {
-        case .queued: AppIcons.statusBacklog
-        case .running: AppIcons.codingRunning
-        case .done: AppIcons.uiSuccess
-        case .error: AppIcons.uiError
-        }
-    }
-
-    static func stateColor(_ state: AgentWorkflowAgentState) -> Color {
-        switch state {
-        case .queued: .white.opacity(TextOpacity.quaternary)
-        case .running: DesignTokens.Semantic.blue
-        case .done: DesignTokens.Semantic.green
-        case .error: DesignTokens.Semantic.red
-        }
+        } catch {}
     }
 }

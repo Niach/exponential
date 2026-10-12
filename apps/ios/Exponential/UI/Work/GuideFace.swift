@@ -167,6 +167,7 @@ private struct GuideBody: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
     @Environment(\.motion) private var motion
+    @Environment(\.toaster) private var toaster
 
     /// EXP-1172: the topics whose `Earlier` band is open.
     @State private var expandedEarlier: Set<String> = []
@@ -272,6 +273,14 @@ private struct GuideBody: View {
             .padding(.horizontal, horizontalPadding)
             .padding(.vertical, 12)
         }
+        .onChange(of: diffFailure, initial: true) { _, message in
+            guard let message else { return }
+            toaster.error(FeedbackStates.Errors.title(verb: "load", thing: "the changes"), description: message)
+        }
+        .onChange(of: prFailure, initial: true) { _, message in
+            guard let message else { return }
+            toaster.error(FeedbackStates.Errors.title(verb: "load", thing: "the pull request"), description: message)
+        }
         .onGeometryChange(for: CGFloat.self, of: { $0.size.width }) { width in
             contentWidth = width
         }
@@ -282,21 +291,25 @@ private struct GuideBody: View {
     private var diffStatusLine: some View {
         switch diffStatus {
         case .loading:
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small).tint(.white)
-                Text("Loading changes…")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-            .accessibilityIdentifier("guide-diff-loading")
-        case let .failed(message):
-            Text("Couldn't load changes: \(message)")
-                .font(.caption)
-                .foregroundStyle(DesignTokens.Semantic.red)
-                .accessibilityIdentifier("guide-diff-error")
-        case .ready:
+            // EXP-1275 (D8): the file rows' placeholder, not "Loading…".
+            SkeletonRows(rows: 3, rowHeight: 36)
+                .accessibilityIdentifier("guide-diff-loading")
+        case .failed, .ready:
+            // FEED-79: a failed load is the error toast (`body`'s onChange),
+            // the face keeps what it has.
             EmptyView()
         }
+    }
+
+    /// FEED-79: the failed loads, as the toasts they raise.
+    private var diffFailure: String? {
+        if case let .failed(message) = diffStatus { return message }
+        return nil
+    }
+
+    private var prFailure: String? {
+        if case let .failed(message)? = prFallback { return message }
+        return nil
     }
 
     /// One topic under its band (or as the lead): the text, its ONE Changes
@@ -333,19 +346,13 @@ private struct GuideBody: View {
         case .loaded:
             // Rendered as the PR-body group (`prDescriptionGroup`).
             EmptyView()
-        case let .failed(message):
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(DesignTokens.Palette.destructive)
-                .accessibilityIdentifier("results-pr-fallback-error")
+        case .failed:
+            // FEED-79: the toast (`body`'s onChange), no red line.
+            EmptyView()
         case .loading:
-            HStack(spacing: 8) {
-                ProgressView().tint(.white).controlSize(.small)
-                Text("Loading the pull request…")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-            .accessibilityIdentifier("results-pr-fallback-loading")
+            // EXP-1275 (D8): a placeholder, not "Loading…".
+            SkeletonRows(rows: 2, rowHeight: 28, dot: false, dividers: false)
+                .accessibilityIdentifier("results-pr-fallback-loading")
         }
     }
 

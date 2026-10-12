@@ -68,6 +68,15 @@ struct CommentThreadView: View {
     /// Horizontal padding of the hosting column, escaped by the top rule so the
     /// line runs edge to edge (EXP-327).
     var hostPadding: CGFloat = 20
+    /// EXP-1241: the comment the screen opened scrolled to (a run's comment
+    /// card tap, web `?comment=<id>`). Once the timeline holds it the host
+    /// scrolls there (`onFocusShown`) and the comment flashes briefly.
+    var focusCommentId: String? = nil
+    var onFocusShown: (String) -> Void = { _ in }
+
+    /// EXP-1241: the comment wearing the brief highlight right now.
+    @State private var highlightedCommentId: String?
+    @State private var focusHandled = false
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
@@ -222,12 +231,29 @@ struct CommentThreadView: View {
             }
         }
         .padding(.vertical, 8)
+        .environment(\.highlightedCommentId, highlightedCommentId)
         .onAppear { startObserving() }
         .onDisappear { stopObserving() }
+        // EXP-1241: land on the focused comment the first time it is here.
+        .onChange(of: comments.map(\.id), initial: true) { _, ids in
+            guard !focusHandled, let focus = focusCommentId, ids.contains(focus) else { return }
+            focusHandled = true
+            Task { @MainActor in
+                // One layout pass for the rows that just landed.
+                try? await Task.sleep(for: .milliseconds(100))
+                onFocusShown(focus)
+                withAnimation(motion.fast) { highlightedCommentId = focus }
+                try? await Task.sleep(for: .milliseconds(Self.highlightMs))
+                withAnimation(motion.slow) { highlightedCommentId = nil }
+            }
+        }
         // The Work screen can swap the issue under a live view (EXP-893), and
         // "show everything" is a decision about ONE issue's timeline.
         .onChange(of: issue.id) { _, _ in showAllActivity = false }
     }
+
+    /// How long a focused comment keeps its highlight.
+    private static let highlightMs = 1600
 
     // MARK: - Rows
 
@@ -691,6 +717,8 @@ private struct RegularCommentRow: View {
     let actions: (CommentEntity) -> CommentCardActions
     let onReply: () -> Void
 
+    @Environment(\.highlightedCommentId) private var highlightedCommentId
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             content(for: comment)
@@ -750,8 +778,18 @@ private struct RegularCommentRow: View {
             onOpenIssue: onOpenIssue,
             actions: actions(row)
         )
+        // EXP-1241: a focused deep link flashes this comment.
+        .background {
+            if highlightedCommentId == row.id {
+                RoundedRectangle(cornerRadius: GlassTokens.rowRadius)
+                    .fill(GlassTokens.fillActive)
+                    .padding(-6)
+                    .transition(.opacity)
+            }
+        }
         // Re-seed the per-comment @State (edit attachments, display model)
-        // when the row underneath changes identity.
+        // when the row underneath changes identity. Also the scroll target
+        // of a focused deep link (EXP-1241).
         .id(row.id)
     }
 }
@@ -796,7 +834,10 @@ private struct CommentCardContent: View {
     // until Save is pressed.
     @State private var keptAttachmentIds: Set<String> = []
     @State private var pendingAttachments: [PendingCommentAttachment] = []
+    // FEED-79: a rejected PICK (type, size, the per-comment cap) is input and
+    // stays inline; a failed UPLOAD on save is a toast.
     @State private var attachmentError: String?
+    @Environment(\.toaster) private var toaster
     @State private var showPhotoPicker = false
     @State private var photoItems: [PhotosPickerItem] = []
     @State private var showFileImporter = false
@@ -913,7 +954,7 @@ private struct CommentCardContent: View {
                 }
                 if let attachmentError {
                     Text(attachmentError)
-                        .font(.caption2)
+                        .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                         .foregroundStyle(DesignTokens.Semantic.red)
                 }
 
@@ -1071,7 +1112,10 @@ private struct CommentCardContent: View {
             )
             pendingAttachments = outcome.items
             if let failure = outcome.failure {
-                attachmentError = failure
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "upload", thing: "the attachments"),
+                    description: failure
+                )
                 return
             }
             attachmentIds += outcome.items.compactMap(\.uploadedId)
@@ -1154,4 +1198,17 @@ private func commentAvatarView(
 /// polish round); `RelativeTime` parses both Electric wire forms (EXP-169).
 private func relativeDate(_ s: String) -> String {
     RelativeTime.long(wire: s)
+}
+
+
+/// EXP-1241: the comment the timeline is flashing (a focused deep link).
+private struct HighlightedCommentIdKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
+extension EnvironmentValues {
+    var highlightedCommentId: String? {
+        get { self[HighlightedCommentIdKey.self] }
+        set { self[HighlightedCommentIdKey.self] = newValue }
+    }
 }

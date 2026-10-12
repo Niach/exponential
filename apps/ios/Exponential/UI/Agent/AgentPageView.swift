@@ -467,7 +467,10 @@ struct AgentPageView: View {
                         accountId: account, deviceId: device.deviceId, agent: row.key
                     )
                 } catch {
-                    toaster.error(error.userFacingMessage)
+                    toaster.error(
+                        FeedbackStates.Errors.title(verb: "update", thing: "the agent"),
+                        description: error.userFacingMessage
+                    )
                 }
                 updatingAgent = nil
             }

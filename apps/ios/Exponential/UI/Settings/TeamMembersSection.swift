@@ -257,7 +257,12 @@ struct TeamMembersSection: View {
                 try await membersApi.updateRole(accountId: accountId, memberId: member.id, role: role)
             }
         } catch {
-            toaster.error(error.trpcUserMessage)
+            // FEED-79: `Couldn't <verb> <thing>` + the server's message.
+            let title: String = switch c {
+            case .remove: FeedbackStates.Errors.title(verb: "remove", thing: "the member")
+            case .changeRole: FeedbackStates.Errors.title(verb: "change", thing: "the role")
+            }
+            toaster.error(title, description: error.trpcUserMessage)
         }
         confirm = nil
     }

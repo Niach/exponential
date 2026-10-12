@@ -100,7 +100,7 @@ public enum EditCard {
     public static func isEditCall(
         _ item: AgentFeedItem, workflowIds: Set<String> = []
     ) -> Bool {
-        guard case let .tool(_, _, _, _, callId, toolKind, _, _, _, _, _) = item,
+        guard case let .tool(_, _, _, _, callId, toolKind, _, _, _, _, _, _, _) = item,
               let toolKind, kinds.contains(toolKind)
         else { return false }
         if !workflowIds.isEmpty, let callId, workflowIds.contains(callId) { return false }
@@ -138,7 +138,7 @@ public enum EditCard {
         // `detail` — recorded while its patch is parsed once, never re-parsed.
         var lastPath: String?
         for (index, item) in items.enumerated() {
-            guard case let .tool(_, _, detail, _, _, _, settled, failed, diff, _, _) = item
+            guard case let .tool(_, _, detail, _, _, _, settled, failed, diff, _, _, _, _) = item
             else { continue }
             let isLast = index == items.count - 1
             let subject = detail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""

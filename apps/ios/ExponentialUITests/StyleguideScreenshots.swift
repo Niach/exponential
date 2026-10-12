@@ -25,13 +25,16 @@ import XCTest
 ///   sg_settings-root · sg_settings-team ·
 ///   sg_settings-account · sg_onboarding · sg_onboarding-invite ·
 ///   sg_onboarding-devices · sg_agent-home · sg_search-list ·
-///   sg_getting-started · sg_feedback-states
+///   sg_getting-started · sg_feedback-states · sg_work-card ·
+///   sg_script-card · sg_comment-call-card
 ///
 /// EXP-1259 added the last four: the Agent HOME the app lands on (the
 /// greeting, the composer, Recent), the `#` typeahead's search-list sheet,
 /// Getting started's block (Settings' entry sheet) and the Feedback states
 /// screen (`FeedbackStatesScreen`, opened by `-uiTestingStyleguide
-/// feedback-states` on a signed-out relaunch).
+/// feedback-states` on a signed-out relaunch). The run thread's three cards
+/// (`sg_work-card`, `sg_script-card`, `sg_comment-call-card`, EXP-1240/1279/
+/// 1241) ride the same seam (`ThreadCardsScreen`).
 ///
 /// EXP-909 retired `sg_usage`: the cross-device Accounts section it
 /// photographed is gone — every machine lists its own logins under its row, so
@@ -962,10 +965,32 @@ final class StyleguideScreenshots: XCTestCase {
         )
         snapshot("sg_feedback-states", settle: 2)
 
+        // ── sg_work-card · sg_script-card · sg_comment-call-card: the run
+        // thread's cards (EXP-1240/1279/1241) ─────────────────────────────────
+        // Capture-only specimens over the real views, one relaunch each. The
+        // names stay literal: views.test.ts reads them off the source.
+        openThreadCards(app, "work-card")
+        snapshot("sg_work-card", settle: 2)
+        openThreadCards(app, "script-card")
+        snapshot("sg_script-card", settle: 2)
+        openThreadCards(app, "comment-call-card")
+        snapshot("sg_comment-call-card", settle: 2)
+
         finished = true
     }
 
     // MARK: - Helpers
+
+    /// EXP-1259: relaunch signed out onto one run-thread card specimen.
+    @MainActor
+    private func openThreadCards(_ app: XCUIApplication, _ card: String) {
+        launchSignedOut(app, extraArguments: ["-uiTestingStyleguide", card])
+        expect(
+            anyElement(app, identified: "thread-cards-screen"),
+            within: Wait.launch,
+            "The \(card) screen never opened — is -uiTestingStyleguide wired?"
+        )
+    }
 
     /// Board switcher → the named board.
     ///

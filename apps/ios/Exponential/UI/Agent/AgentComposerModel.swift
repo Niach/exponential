@@ -897,9 +897,7 @@ final class AgentComposerModel {
                     )
                     pendingImages[index].uploadedId = uploaded.id
                 } catch {
-                    imageError = error.userFacingMessage
-                    startWatcher.failed(error.userFacingMessage)
-                    starting = nil
+                    uploadFailed(error.userFacingMessage)
                     return
                 }
             }
@@ -916,9 +914,7 @@ final class AgentComposerModel {
                     )
                     pendingFiles[index].stamp(uploaded)
                 } catch {
-                    imageError = error.userFacingMessage
-                    startWatcher.failed(error.userFacingMessage)
-                    starting = nil
+                    uploadFailed(error.userFacingMessage)
                     return
                 }
             }
@@ -997,6 +993,19 @@ final class AgentComposerModel {
         Toaster.shared.error(
             FeedbackStates.Starting.timeoutTitle,
             description: FeedbackStates.Starting.timeoutDescription(device: deviceLabel),
+            action: retryAction()
+        )
+    }
+
+    /// FEED-79: a failed upload is the error toast with Retry (the uploads
+    /// are idempotent: a retry never sends a finished one twice); the draft
+    /// and the strip stay.
+    private func uploadFailed(_ message: String) {
+        startWatcher.failed(message)
+        starting = nil
+        Toaster.shared.error(
+            FeedbackStates.Errors.title(verb: "upload", thing: "the attachment"),
+            description: message,
             action: retryAction()
         )
     }

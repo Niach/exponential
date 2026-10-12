@@ -8,8 +8,8 @@ import SwiftUI
 /// it backs ("used by" chips from `repositories.list().boards`). Member-visible
 /// since EXP-557 (per-user sharing): any member adds a repo (adding SHARES it
 /// with the team), removal is sharer-or-owner per row and blocked server-side
-/// (CONFLICT) while any board still points at it — that message is surfaced
-/// inline.
+/// (CONFLICT) while any board still points at it — that message rides a
+/// toast (FEED-79).
 ///
 /// SLOP-7/SLOP-26: the connection block above the list is the VIEWER's OWN
 /// GitHub connection (web `GithubStatusLine`, copy in ExpCore `GithubCopy`):
@@ -38,12 +38,9 @@ struct TeamRepositoriesSection: View {
     // EXP-1274: a reload over an already-loaded list spins the band's
     // loading glyph instead of blanking the rows.
     @State private var refreshing = false
-    // Mutation failures (remove/CONFLICT/disconnect). Kept SEPARATE from load
-    // failures so a failed mutation survives its own post-mutation reload
-    // (EXP-365).
-    @State private var errorText: String?
-    // repositories.list failures — rendered from the same inline slot.
-    @State private var loadErrorText: String?
+    // FEED-79: every failure (load, remove CONFLICT, disconnect, connect hop)
+    // is a toast, never a rose line in the section.
+    @Environment(\.toaster) private var toaster
     @State private var removeTarget: TeamRepo?
     // Disconnecting GitHub (unlinking the viewer's account) confirms first.
     @State private var disconnectConfirm = false
@@ -56,9 +53,6 @@ struct TeamRepositoriesSection: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var connectSession = GithubConnectSession()
     @State private var connecting = false
-    // A failed GitHub connect hop's message — separate from `errorText`,
-    // which belongs to mutations and is cleared by `mutate`.
-    @State private var connectError: String?
     // "Add repository" picker sheet (EXP-225): the add runs inside the sheet
     // (FEED-42), which shows its own failures.
     @State private var showAddRepo = false
@@ -77,14 +71,6 @@ struct TeamRepositoriesSection: View {
             // The status block sits BEFORE the list (FEED-42).
             githubStatusBlock
 
-            // Above the list so a failure is on-screen even for teams with
-            // many repos (EXP-365). `connectError` is the failed connect hop.
-            if let message = connectError ?? errorText ?? loadErrorText {
-                Text(message)
-                    .font(.caption)
-                    .foregroundStyle(.red.opacity(0.8))
-            }
-
             if !loading && repos.isEmpty {
                 EmptyState(title: GithubCopy.noRepositories, icon: AppIcons.settingsRepositories, size: .list)
             }
@@ -99,9 +85,11 @@ struct TeamRepositoriesSection: View {
         // error slug means the connect FAILED: surface it (EXP-390).
         .onReceive(NotificationCenter.default.publisher(for: .githubConnected)) { notification in
             if notification.userInfo?["error"] != nil {
-                connectError = GithubCopy.linkFailed
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "connect", thing: "GitHub"),
+                    description: GithubCopy.linkFailed
+                )
             } else {
-                connectError = nil
                 Task { await reload() }
             }
         }
@@ -131,7 +119,6 @@ struct TeamRepositoriesSection: View {
                     )
                     // Registry changed — drop the per-team name cache.
                     RepositoryDirectory.invalidate(accountId: accountId, teamId: teamId)
-                    errorText = nil
                     Task { await reload() }
                 }
             }
@@ -146,7 +133,7 @@ struct TeamRepositoriesSection: View {
                 .glassAlert(item: $removeTarget) { repo in
                     GlassAlert(prompt: Prompts.RemoveRepository.copy(fullName: repo.fullName), handlers: [
                         "remove": {
-                            Task { await mutate { try await repositoriesApi.remove(accountId: accountId, repositoryId: repo.id) } }
+                            Task { await mutate(thing: "the repository") { try await repositoriesApi.remove(accountId: accountId, repositoryId: repo.id) } }
                         },
                     ])
                 }
@@ -166,7 +153,7 @@ struct TeamRepositoriesSection: View {
                             GlassAlertAction(GithubCopy.cancel, role: .outline, isDefault: true, isCancel: true, id: "cancel") {},
                             GlassAlertAction(GithubCopy.disconnect, role: .destructive, id: "disconnect") {
                                 Task {
-                                    await mutate {
+                                    await mutate(verb: "disconnect", thing: "GitHub") {
                                         try await integrationsApi.githubDisconnect(accountId: accountId)
                                     }
                                 }
@@ -503,7 +490,6 @@ struct TeamRepositoriesSection: View {
     // outcome but a failure re-probes.
     private func connect(_ status: GithubStatusResult) {
         guard !connecting else { return }
-        connectError = nil
         connecting = true
         connectSession.start(deps: deps, accountId: accountId, connectUrl: status.connectUrl) { outcome in
             connecting = false
@@ -511,7 +497,7 @@ struct TeamRepositoriesSection: View {
             case .connected, .cancelled:
                 Task { await reload() }
             case let .failed(message):
-                connectError = message
+                toaster.error(FeedbackStates.Errors.title(verb: "connect", thing: "GitHub"), description: message)
             }
         }
     }
@@ -520,7 +506,6 @@ struct TeamRepositoriesSection: View {
     // on the web page, whose "Return to the app" deep-links back here.
     private func openInstall(_ urlString: String?) {
         guard let urlString, let url = URL(string: urlString) else { return }
-        connectError = nil
         openURL(url)
     }
 
@@ -536,11 +521,13 @@ struct TeamRepositoriesSection: View {
         }
         do {
             repos = try await repositoriesApi.list(accountId: accountId, teamId: teamId)
-            // Only the LOAD error clears here — a mutation failure must
-            // survive its own post-mutation reload (EXP-365).
-            loadErrorText = nil
         } catch {
-            loadErrorText = error.trpcUserMessage
+            // FEED-79: the section keeps its empty state (or the last good
+            // rows) and the failure is a toast.
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "load", thing: "repositories"),
+                description: error.trpcUserMessage
+            )
         }
         // Non-fatal: keep the last good value on failure; with nothing loaded
         // the failed line + Retry renders.
@@ -556,8 +543,7 @@ struct TeamRepositoriesSection: View {
         }
     }
 
-    private func mutate(_ operation: () async throws -> Void) async {
-        errorText = nil
+    private func mutate(verb: String = "remove", thing: String, _ operation: () async throws -> Void) async {
         do {
             try await operation()
             // Registry changed — drop the per-team name cache used by chips.
@@ -565,9 +551,9 @@ struct TeamRepositoriesSection: View {
                 RepositoryDirectory.invalidate(accountId: accountId, teamId: teamId)
             }
         } catch {
-            // Surfaces the server message (remove CONFLICT "repository backs N
-            // boards", unlink CONFLICT). Stays visible through the reload.
-            errorText = error.trpcUserMessage
+            // FEED-79: the server message (remove CONFLICT "repository backs N
+            // boards", unlink CONFLICT) rides the toast's description.
+            toaster.error(FeedbackStates.Errors.title(verb: verb, thing: thing), description: error.trpcUserMessage)
         }
         removeTarget = nil
         await reload()

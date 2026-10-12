@@ -117,7 +117,8 @@ public struct GlassSubmitButton: View {
             GlassSubmitLabel(label, enabled: enabled, loading: loading, pendingWord: pendingWord)
                 .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        // EXP-1243: the face presses to 0.97.
+        .buttonStyle(.pressScale)
         .disabled(!enabled || loading)
     }
 }

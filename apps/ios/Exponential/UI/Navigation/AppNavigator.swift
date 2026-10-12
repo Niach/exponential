@@ -26,6 +26,9 @@ enum AppRoute: Hashable {
     /// EXP-933: an issue's Work screen opened on a given face — an agent's
     /// targeted message (inbox row or push) lands on its Results.
     case issueFace(accountId: String, id: String, face: WorkFaceKind)
+    /// EXP-1241: an issue's Issue face scrolled to one comment, which briefly
+    /// highlights — a run's comment card tap (web `?comment=<id>`).
+    case issueComment(accountId: String, id: String, commentId: String)
     /// EXP-1170: the New issue page — a DRAFT in the issue face's layout.
     /// Every opener mints `draftId` at TAP time (a fresh lowercase uuid; the
     /// Drafts list passes the row's own), so the route names the draft it
@@ -177,6 +180,13 @@ struct AppNavigator: View {
         // only, `-uiTesting -uiTestingStyleguide feedback-states`).
         .fullScreenCover(isPresented: .constant(UITestingStyleguide.requested == "feedback-states")) {
             FeedbackStatesScreen()
+        }
+        // EXP-1259 D12-D14: the run-thread cards (capture only,
+        // `-uiTestingStyleguide work-card|script-card|comment-call-card`).
+        .fullScreenCover(isPresented: .constant(
+            UITestingStyleguide.requested.map(ThreadCardsScreen.kinds.contains) == true
+        )) {
+            ThreadCardsScreen(kind: UITestingStyleguide.requested ?? "work-card")
         }
         .toastHost(toaster, bannerHeight: toastBannerHeight)
     }
@@ -438,10 +448,12 @@ struct MainNavigator: View {
                     ?? issueAccountId(forUserId: deps.deepLinkBus.pendingIssueUserId)
                 let face = deps.deepLinkBus.pendingIssueFace
                 let replacesTop = deps.deepLinkBus.pendingIssueReplacesTop
+                let commentId = deps.deepLinkBus.pendingIssueCommentId
                 _ = deps.deepLinkBus.consume()
                 navigate {
                     appendIssueRoute(
-                        accountId: accountId, issueId: issueId, face: face, replacingTop: replacesTop
+                        accountId: accountId, issueId: issueId, face: face, replacingTop: replacesTop,
+                        commentId: commentId
                     )
                 }
             }
@@ -874,6 +886,11 @@ struct MainNavigator: View {
             WorkScreen(subject: .issue(id: id), initialFace: face)
                 .id(id)
                 .environment(\.accountId, accountId)
+        case let .issueComment(accountId, id, commentId):
+            // EXP-1241: the Issue face scrolled to one comment, which flashes.
+            WorkScreen(subject: .issue(id: id), focusCommentId: commentId)
+                .id(id)
+                .environment(\.accountId, accountId)
         case let .issueDraft(accountId, draftId, boardId, statusId, parentId):
             IssueDraftPageView(
                 draftId: draftId,
@@ -1196,13 +1213,18 @@ struct MainNavigator: View {
     /// `replacingTop` (a Stack card member tap) swaps an issue page on top in
     /// place, so Back returns to where the stack was opened from.
     private func appendIssueRoute(
-        accountId: String, issueId: String, face: WorkFaceKind = .issue, replacingTop: Bool = false
+        accountId: String, issueId: String, face: WorkFaceKind = .issue, replacingTop: Bool = false,
+        commentId: String? = nil
     ) {
-        let route = face == .issue
-            ? AppRoute.issue(accountId: accountId, id: issueId)
-            : AppRoute.issueFace(accountId: accountId, id: issueId, face: face)
+        let route: AppRoute = if let commentId {
+            .issueComment(accountId: accountId, id: issueId, commentId: commentId)
+        } else if face == .issue {
+            .issue(accountId: accountId, id: issueId)
+        } else {
+            .issueFace(accountId: accountId, id: issueId, face: face)
+        }
         switch path.last {
-        case .issue?, .issueFace?:
+        case .issue?, .issueFace?, .issueComment?:
             if replacingTop {
                 path[path.count - 1] = route
                 return

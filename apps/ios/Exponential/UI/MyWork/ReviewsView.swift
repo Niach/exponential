@@ -44,6 +44,12 @@ struct ReviewsListContent: View {
         Group {
             if viewModel == nil {
                 Color.clear
+            } else if snapshot.isEmpty, viewModel?.issuesSynced != true {
+                // EXP-1275 (D8): the first load is skeleton rows.
+                SkeletonRows()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else if snapshot.isEmpty {
                 emptyState
             } else {

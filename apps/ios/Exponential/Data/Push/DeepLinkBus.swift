@@ -19,6 +19,9 @@ final class DeepLinkBus: @unchecked Sendable {
     // A Stack card member tap: SWAP the issue on top of the stack instead of
     // pushing (web + desktop parity), so Back never walks the stack.
     var pendingIssueReplacesTop = false
+    // EXP-1241: the comment the issue opens scrolled to (and briefly
+    // highlights) — a run's comment card tap (web `?comment=<id>`).
+    var pendingIssueCommentId: String?
     var pendingInviteToken: String?
     // An agent_message push tap (EXP-801): the row lives in the My Work
     // inbox and nowhere else, so the tap lands there. Carries the recipient's
@@ -48,12 +51,14 @@ final class DeepLinkBus: @unchecked Sendable {
     }
 
     func navigateToIssue(
-        _ issueId: String, accountId: String, face: WorkFaceKind = .issue, replacingTop: Bool = false
+        _ issueId: String, accountId: String, face: WorkFaceKind = .issue, replacingTop: Bool = false,
+        commentId: String? = nil
     ) {
         pendingIssueUserId = nil
         pendingIssueAccountId = accountId
         pendingIssueFace = face
         pendingIssueReplacesTop = replacingTop
+        pendingIssueCommentId = commentId
         pendingIssueId = issueId
     }
 
@@ -87,6 +92,7 @@ final class DeepLinkBus: @unchecked Sendable {
         pendingIssueAccountId = nil
         pendingIssueFace = .issue
         pendingIssueReplacesTop = false
+        pendingIssueCommentId = nil
         return id
     }
 

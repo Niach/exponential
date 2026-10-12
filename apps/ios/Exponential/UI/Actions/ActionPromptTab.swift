@@ -43,7 +43,10 @@ struct ActionPromptTab: View {
     @State private var savedRow: ActionDto?
     @State private var loading = true
     @State private var saving = false
-    @State private var errorText: String?
+    /// FEED-79: a name already taken (CONFLICT) is INPUT, inline under the
+    /// name; every other load/save failure is a toast.
+    @State private var nameError: String?
+    @Environment(\.toaster) private var toaster
 
     private var loaded: Bool { loadedBody != nil }
 
@@ -112,14 +115,6 @@ struct ActionPromptTab: View {
             descriptionSection
             repositorySection
             promptSection
-            if let errorText {
-                Section {
-                    Text(errorText)
-                        .font(.caption)
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                }
-                .listRowBackground(glassFormRowFill)
-            }
         }
         // EXP-603: the page's own background shows through the grouped list;
         // rows carry the glass fill.
@@ -138,6 +133,12 @@ struct ActionPromptTab: View {
                 TextField("Name", text: $name)
                     .disabled(!canEdit)
                     .accessibilityIdentifier("edit-action-name")
+                    .onChange(of: name) { _, _ in nameError = nil }
+            }
+            if let nameError {
+                Text(nameError)
+                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .foregroundStyle(DesignTokens.Semantic.red)
             }
         }
         .listRowBackground(glassFormRowFill)
@@ -197,13 +198,8 @@ struct ActionPromptTab: View {
     private var promptSection: some View {
         Section {
             if loading {
-                HStack(spacing: 8) {
-                    ProgressView().controlSize(.small).tint(.white)
-                    Text("Loading prompt…")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    Spacer(minLength: 0)
-                }
+                // EXP-1275 (D8): the prompt's placeholder, not "Loading…".
+                SkeletonRows(rows: 3, rowHeight: 22, dot: false, dividers: false)
             } else {
                 GlassTextField(
                     "Prompt",
@@ -241,7 +237,10 @@ struct ActionPromptTab: View {
             prompt = fetched.body
             loadedBody = fetched.body
         } catch {
-            errorText = error.userFacingMessage
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "load", thing: "the prompt"),
+                description: error.userFacingMessage
+            )
         }
         loading = false
     }
@@ -250,7 +249,7 @@ struct ActionPromptTab: View {
         guard canSave else { return }
         let payload = patch
         saving = true
-        errorText = nil
+        nameError = nil
         Task {
             do {
                 let saved = try await deps.actionsApi.update(
@@ -262,7 +261,14 @@ struct ActionPromptTab: View {
                 if let body = payload.body { loadedBody = body }
                 saving = false
             } catch {
-                errorText = error.userFacingMessage
+                if error.trpcErrorCode == "CONFLICT" {
+                    nameError = error.userFacingMessage
+                } else {
+                    toaster.error(
+                        FeedbackStates.Errors.title(verb: "save", thing: "the action"),
+                        description: error.userFacingMessage
+                    )
+                }
                 saving = false
             }
         }

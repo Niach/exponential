@@ -108,3 +108,44 @@ public extension EnvironmentValues {
     /// `UIAccessibility.isReduceMotionEnabled` would not do.
     var motion: Motion { Motion(reduceMotion: accessibilityReduceMotion) }
 }
+
+// MARK: - Press (EXP-1243)
+
+/// EXP-1243 (EXP-1259 D17): THE press feedback of a button face — it scales
+/// to `DesignTokens.Motion.Scale.press` (0.97) under the finger, eased at the
+/// fast duration, and springs back on release. Reduce Motion: no scale, the
+/// face dims instead (opacity only). Used by the primary buttons
+/// (`GlassSubmitButton`, a primary `GlassPill`); a row is not a button face
+/// and never scales.
+public struct PressScaleButtonStyle: ButtonStyle {
+    /// The face also dims while pressed (a solid fill has no hairline to
+    /// brighten — the primary pill's old cue).
+    let dims: Bool
+
+    public init(dims: Bool = false) {
+        self.dims = dims
+    }
+
+    public func makeBody(configuration: Configuration) -> some View {
+        PressScaleBody(configuration: configuration, dims: dims)
+    }
+
+    private struct PressScaleBody: View {
+        let configuration: ButtonStyleConfiguration
+        let dims: Bool
+        @Environment(\.motion) private var motion
+
+        var body: some View {
+            let pressed = configuration.isPressed
+            configuration.label
+                .scaleEffect(pressed && !motion.reduceMotion ? DesignTokens.Motion.Scale.press : 1)
+                .opacity(pressed && (dims || motion.reduceMotion) ? 0.8 : 1)
+                .animation(motion.fast, value: pressed)
+        }
+    }
+}
+
+extension ButtonStyle where Self == PressScaleButtonStyle {
+    /// `.buttonStyle(.pressScale)` — a button face that presses to 0.97.
+    public static var pressScale: PressScaleButtonStyle { PressScaleButtonStyle() }
+}

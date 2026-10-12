@@ -18,21 +18,22 @@ struct AttachmentMarkdownPreviewSheet: View {
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    // FEED-79: a failed load or Download is a toast, never a rose line.
+    @Environment(\.toaster) private var toaster
 
     private enum Phase {
         case loading
         case ready(String)
         case tooLarge
-        case error(String)
+        /// The fetch failed: the body stays empty, the reason is a toast.
+        case failed
     }
 
     @State private var phase: Phase = .loading
     /// The fetched bytes, kept so Download writes them without a second request.
     @State private var data: Data?
+    /// A failed Download keeps the rendered file on screen and toasts.
     @State private var downloading = false
-    /// A failed Download keeps the rendered file on screen; the reason shows
-    /// under the subtitle instead.
-    @State private var downloadError: String?
     @State private var shareTarget: ShareTarget?
 
     private var title: String {
@@ -67,11 +68,6 @@ struct AttachmentMarkdownPreviewSheet: View {
                     Text(AttachmentFiles.markdownPreviewSubtitle(sizeBytes: attachment.sizeBytes))
                         .font(.caption)
                         .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                    if let downloadError {
-                        Text(downloadError)
-                            .font(.caption)
-                            .foregroundStyle(DesignTokens.Semantic.red)
-                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, GlassSheetTokens.headerHPadding)
@@ -122,11 +118,8 @@ struct AttachmentMarkdownPreviewSheet: View {
                 .font(.callout)
                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                 .padding(.vertical, 24)
-        case let .error(message):
-            Text(message)
-                .font(.callout)
-                .foregroundStyle(DesignTokens.Semantic.red)
-                .padding(.vertical, 24)
+        case .failed:
+            EmptyView()
         }
     }
 
@@ -151,7 +144,11 @@ struct AttachmentMarkdownPreviewSheet: View {
         } catch is CancellationError {
             return
         } catch {
-            phase = .error(AttachmentFiles.markdownPreviewErrorMessage(error))
+            phase = .failed
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "load", thing: "the file"),
+                description: AttachmentFiles.markdownPreviewErrorMessage(error)
+            )
         }
     }
 
@@ -160,7 +157,6 @@ struct AttachmentMarkdownPreviewSheet: View {
     private func download() {
         guard !downloading else { return }
         downloading = true
-        downloadError = nil
         Task {
             defer { downloading = false }
             let directory = FileManager.default.temporaryDirectory
@@ -184,7 +180,10 @@ struct AttachmentMarkdownPreviewSheet: View {
                 }
                 shareTarget = ShareTarget(url: destination, text: attachment.filename)
             } catch {
-                downloadError = AttachmentFiles.markdownPreviewErrorMessage(error)
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "download", thing: "the file"),
+                    description: AttachmentFiles.markdownPreviewErrorMessage(error)
+                )
             }
         }
     }

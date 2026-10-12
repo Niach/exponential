@@ -7,8 +7,8 @@ import SwiftUI
 // canonical spec, copy in ExpCore `GithubCopy`): lists the repos the VIEWER
 // can push to, LIVE off GitHub (`integrations.github.repos`), and ADDS the
 // tapped one (or a successful Add-by-name) through the host's `onAdd`,
-// performed INSIDE the sheet — a failure keeps the sheet open with the error
-// inline; success dismisses. When a prerequisite is missing it says which one
+// performed INSIDE the sheet — a failure keeps the sheet open and toasts
+// (FEED-79); success dismisses. When a prerequisite is missing it says which one
 // and offers the ONE fix — Connect GitHub (the link-ticket hop,
 // `GithubConnectSession`), Reconnect GitHub (the same hop), or Install the
 // app (`installUrl` in the system browser) — plus "I’ve done that" to
@@ -20,30 +20,29 @@ struct GithubRepoPicker: View {
     /// The team the pick is added to (every integrations query is team-scoped).
     let teamId: String
     let integrationsApi: IntegrationsApi
-    /// Adds the picked repo. Runs inside the sheet: a throw keeps it open with
-    /// the error inline, a return dismisses it.
+    /// Adds the picked repo. Runs inside the sheet: a throw keeps it open and
+    /// toasts the error, a return dismisses it.
     var onAdd: @MainActor (GithubPickerRepo) async throws -> Void
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.dismiss) private var dismiss
     @Environment(\.scenePhase) private var scenePhase
     @Environment(\.openURL) private var openURL
+    // FEED-79: a failed load, connect hop or add is a toast, never a rose
+    // line in the picker. Only the typed `owner/name` miss stays inline.
+    @Environment(\.toaster) private var toaster
     @State private var result: GithubReposResult?
     @State private var loading = true
     @State private var query = ""
-    @State private var error: String?
-    // A failed connect hop's message — separate from `error`, which belongs
-    // to the repos query and has its own lifecycle.
-    @State private var connectError: String?
     @State private var connectSession = GithubConnectSession()
     @State private var connecting = false
     // FEED-30: the footer's "Add by name" escape hatch.
     @State private var lookupName = ""
     @State private var lookupBusy = false
     @State private var lookupError: String?
-    // FEED-42: the in-sheet add — the row in flight and its failure.
+    // FEED-42: the in-sheet add — the row in flight, and whether the last
+    // failure was GitHub refusing the push grant (offers Reconnect).
     @State private var adding: String?
-    @State private var addError: String?
     @State private var addForbidden = false
 
     // Bottom-sheet presentation (EXP-390, Android parity): the shared glass
@@ -52,9 +51,6 @@ struct GithubRepoPicker: View {
         GlassSheetChrome(title: GithubCopy.pickerTitle) {
             VStack(alignment: .leading, spacing: 16) {
                 content
-                if let connectError {
-                    Text(connectError).font(.caption).foregroundStyle(.red)
-                }
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
@@ -70,9 +66,11 @@ struct GithubRepoPicker: View {
         // system browser. An error slug means the hop FAILED: say so.
         .onReceive(NotificationCenter.default.publisher(for: .githubConnected)) { notification in
             if notification.userInfo?["error"] != nil {
-                connectError = GithubCopy.linkFailed
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "connect", thing: "GitHub"),
+                    description: GithubCopy.linkFailed
+                )
             } else {
-                connectError = nil
                 Task { await load(refresh: true) }
             }
         }
@@ -103,13 +101,9 @@ struct GithubRepoPicker: View {
                 installedList(data)
             }
         } else {
-            // Not configured, or the fetch failed with nothing loaded.
-            VStack(alignment: .leading, spacing: 8) {
-                githubNotice(GithubCopy.pickerNotConfigured)
-                if let error {
-                    Text(error).font(.caption).foregroundStyle(.red.opacity(0.8))
-                }
-            }
+            // Not configured, or the fetch failed with nothing loaded (the
+            // failure itself is a toast, FEED-79).
+            githubNotice(GithubCopy.pickerNotConfigured)
         }
     }
 
@@ -164,7 +158,7 @@ struct GithubRepoPicker: View {
                 suspendedBanner(suspended)
             }
 
-            addErrorBox(data)
+            forbiddenBox(data)
 
             if !empty {
                 GlassSheetSearchField(placeholder: GithubCopy.searchPlaceholder, text: $query)
@@ -213,18 +207,16 @@ struct GithubRepoPicker: View {
         )
     }
 
-    // FEED-42: a failed add, inline — the (neutral) server message, or the
-    // FORBIDDEN arm with its Reconnect GitHub. No web upgrade pointer on a
-    // store app (EXP-216).
-    @ViewBuilder private func addErrorBox(_ data: GithubReposResult) -> some View {
-        if let addError {
+    // FEED-42/FEED-79: the failed add itself is a toast; the FORBIDDEN arm
+    // also leaves its ONE fix here, Reconnect GitHub, in neutral copy. No web
+    // upgrade pointer on a store app (EXP-216).
+    @ViewBuilder private func forbiddenBox(_ data: GithubReposResult) -> some View {
+        if addForbidden {
             VStack(alignment: .leading, spacing: 8) {
-                Text(addError)
+                Text(GithubCopy.addForbidden)
                     .font(.caption)
-                    .foregroundStyle(.red.opacity(0.8))
-                if addForbidden {
-                    GlassPill(GithubCopy.reconnectGithub, icon: AppIcons.uiRefresh, mode: .action { connect(data) }, enabled: !connecting)
-                }
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+                GlassPill(GithubCopy.reconnectGithub, icon: AppIcons.uiRefresh, mode: .action { connect(data) }, enabled: !connecting)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 12)
@@ -296,6 +288,13 @@ struct GithubRepoPicker: View {
                 .onChange(of: lookupName) { _, _ in
                     if lookupError != nil { lookupError = nil }
                 }
+                // FEED-79: the typed name is INPUT, its miss stays inline.
+                .overlay {
+                    if lookupError != nil {
+                        RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
+                            .strokeBorder(DesignTokens.Semantic.red, lineWidth: 1)
+                    }
+                }
                 GlassPill(
                     GithubCopy.lookUp,
                     mode: .action { Task { await lookup() } },
@@ -308,8 +307,8 @@ struct GithubRepoPicker: View {
             }
             if let lookupError {
                 Text(lookupError)
-                    .font(.caption)
-                    .foregroundStyle(.red.opacity(0.8))
+                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+                    .foregroundStyle(DesignTokens.Semantic.red)
             }
         }
         .githubBox(dashed: true)
@@ -335,12 +334,11 @@ struct GithubRepoPicker: View {
     }
 
     // FEED-42: tap adds, inside the sheet. Success dismisses; a failure stays
-    // open with the error inline. FORBIDDEN is checked FIRST so a dead GitHub
+    // open and toasts (FEED-79). FORBIDDEN is checked FIRST so a dead GitHub
     // connection is never misread as a plan limit (desktop parity).
     private func add(_ repo: GithubPickerRepo) async {
         guard adding == nil else { return }
         adding = repo.fullName
-        addError = nil
         addForbidden = false
         do {
             try await onAdd(repo)
@@ -349,12 +347,12 @@ struct GithubRepoPicker: View {
         } catch {
             adding = nil
             let message = error.trpcUserMessage
-            if GithubCopy.isGrantForbidden(code: error.trpcErrorCode, message: message) {
-                addForbidden = true
-                addError = GithubCopy.addForbidden
-            } else {
-                addError = message
-            }
+            let forbidden = GithubCopy.isGrantForbidden(code: error.trpcErrorCode, message: message)
+            addForbidden = forbidden
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "add", thing: repo.fullName),
+                description: forbidden ? GithubCopy.addForbidden : message
+            )
         }
     }
 
@@ -362,7 +360,6 @@ struct GithubRepoPicker: View {
     // the guided page as the fallback. Every outcome but a failure re-lists.
     private func connect(_ data: GithubReposResult) {
         guard !connecting else { return }
-        connectError = nil
         connecting = true
         connectSession.start(deps: deps, accountId: accountId, connectUrl: data.connectUrl) { outcome in
             connecting = false
@@ -370,7 +367,7 @@ struct GithubRepoPicker: View {
             case .connected, .cancelled:
                 Task { await load(refresh: true) }
             case let .failed(message):
-                connectError = message
+                toaster.error(FeedbackStates.Errors.title(verb: "connect", thing: "GitHub"), description: message)
             }
         }
     }
@@ -379,7 +376,6 @@ struct GithubRepoPicker: View {
     // on the web page, whose "Return to the app" deep-links back here.
     private func openInstall(_ urlString: String?) {
         guard let urlString, let url = URL(string: urlString) else { return }
-        connectError = nil
         openURL(url)
     }
 
@@ -388,11 +384,13 @@ struct GithubRepoPicker: View {
         do {
             let r = try await integrationsApi.githubRepos(accountId: accountId, teamId: teamId, refresh: refresh)
             result = r
-            error = nil
             loading = false
         } catch {
-            self.error = error.trpcUserMessage
             loading = false
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "load", thing: "your GitHub repositories"),
+                description: error.trpcUserMessage
+            )
         }
     }
 }

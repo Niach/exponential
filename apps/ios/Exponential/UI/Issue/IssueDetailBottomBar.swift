@@ -75,6 +75,8 @@ struct IssueDetailBottomBar: View {
     /// EXP-554: photos and files picked for THIS comment. They are never inlined
     /// into the markdown body — they upload on send and ride `attachmentIds`.
     @State private var pendingAttachments: [PendingCommentAttachment] = []
+    /// FEED-79: a rejected PICK (type, size, the per-comment cap) is input
+    /// and stays inline; a failed upload or send is a toast.
     @State private var attachmentError: String?
     // True while ANY keyboard is up (title, description, or a comment-edit
     // editor included — they all install the markdown toolbar as the keyboard
@@ -298,7 +300,7 @@ struct IssueDetailBottomBar: View {
 
             if let attachmentError {
                 Text(attachmentError)
-                    .font(.caption2)
+                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                     .foregroundStyle(DesignTokens.Semantic.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
@@ -447,7 +449,10 @@ struct IssueDetailBottomBar: View {
             )
             pendingAttachments = outcome.items
             if let failure = outcome.failure {
-                attachmentError = failure
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "upload", thing: "the attachments"),
+                    description: failure
+                )
                 return
             }
             attachmentIds = outcome.items.compactMap(\.uploadedId)
@@ -474,7 +479,10 @@ struct IssueDetailBottomBar: View {
             case nil: break
             }
         } catch {
-            attachmentError = error.userFacingMessage
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "send", thing: "the comment"),
+                description: error.userFacingMessage
+            )
         }
     }
 

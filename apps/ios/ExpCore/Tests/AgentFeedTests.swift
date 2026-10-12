@@ -976,7 +976,7 @@ final class AgentFeedTests: XCTestCase {
         XCTAssertEqual(settled?[2], feed[2])
         // A failed settle wins over the completed one; the diff stays.
         let failed = AgentFeed.applyToolUpdate(feed: settled!, event: ["id": "tc-1", "status": "failed"])
-        guard case let .tool(_, _, _, _, _, _, isSettled, isFailed, diff, _, _)? = failed?[0] else {
+        guard case let .tool(_, _, _, _, _, _, isSettled, isFailed, diff, _, _, _, _)? = failed?[0] else {
             return XCTFail("not a tool row")
         }
         XCTAssertTrue(isSettled)
@@ -1020,7 +1020,7 @@ final class AgentFeedTests: XCTestCase {
         let refailed = AgentFeed.applyToolUpdate(
             feed: settled!, event: ["id": "tc-1", "status": "failed"]
         )
-        guard case let .tool(_, _, _, _, _, _, _, isFailed, _, _, kept)? = refailed?[0] else {
+        guard case let .tool(_, _, _, _, _, _, _, isFailed, _, _, kept, _, _)? = refailed?[0] else {
             return XCTFail("not a tool row")
         }
         XCTAssertTrue(isFailed)
@@ -1028,7 +1028,7 @@ final class AgentFeedTests: XCTestCase {
         let blanked = AgentFeed.applyToolUpdate(
             feed: settled!, event: ["id": "tc-1", "output": "   "]
         )
-        guard case let .tool(_, _, _, _, _, _, _, _, _, _, still)? = blanked?[0] else {
+        guard case let .tool(_, _, _, _, _, _, _, _, _, _, still, _, _)? = blanked?[0] else {
             return XCTFail("not a tool row")
         }
         XCTAssertEqual(still, printed)
@@ -1636,7 +1636,7 @@ final class AgentFeedTests: XCTestCase {
             "id": "tc-1",
             "preview": ["identifier": "EXP-849", "title": "Drop pi", "count": 3],
         ])
-        guard case let .tool(_, _, _, _, _, _, settled, _, _, preview, _)? = previewed?[0] else {
+        guard case let .tool(_, _, _, _, _, _, settled, _, _, preview, _, _, _)? = previewed?[0] else {
             return XCTFail("not a tool row")
         }
         XCTAssertFalse(settled, "a preview alone never settles the call")
@@ -1649,7 +1649,7 @@ final class AgentFeedTests: XCTestCase {
         let settledNext = AgentFeed.applyToolUpdate(
             feed: previewed!, event: ["id": "tc-1", "status": "completed"]
         )
-        guard case let .tool(_, _, _, _, _, _, isSettled, _, _, kept, _)? = settledNext?[0] else {
+        guard case let .tool(_, _, _, _, _, _, isSettled, _, _, kept, _, _, _)? = settledNext?[0] else {
             return XCTFail("not a tool row")
         }
         XCTAssertTrue(isSettled)
@@ -1718,7 +1718,7 @@ final class AgentFeedTests: XCTestCase {
                 "refs": [["kind": "issue", "id": "i-1", "identifier": "EXP-1", "title": "One"]],
             ],
         ])
-        guard case let .tool(_, _, _, _, _, _, settled, _, _, preview, _)? = previewed?[0] else {
+        guard case let .tool(_, _, _, _, _, _, settled, _, _, preview, _, _, _)? = previewed?[0] else {
             return XCTFail("not a tool row")
         }
         XCTAssertTrue(settled)
@@ -1967,40 +1967,8 @@ final class AgentFeedTests: XCTestCase {
         )
     }
 
-    func testTheWorkflowCardsPhaseAndAgentCaptions() {
-        XCTAssertEqual(
-            AgentFeed.workflowPhaseCaption(
-                AgentWorkflowPhaseCounts(queued: 1, running: 2, done: 3, error: 1)
-            ),
-            "3 done · 2 running · 1 queued · 1 failed"
-        )
-        // Zero segments are omitted; nothing at all is an empty caption.
-        XCTAssertEqual(
-            AgentFeed.workflowPhaseCaption(AgentWorkflowPhaseCounts(done: 2)), "2 done"
-        )
-        XCTAssertEqual(AgentFeed.workflowPhaseCaption(AgentWorkflowPhaseCounts()), "")
-
-        XCTAssertEqual(
-            AgentFeed.workflowAgentTelemetry(AgentWorkflowAgent(
-                index: 1, label: "alpha", state: .done,
-                tokens: 12_400, toolCalls: 1, durationMs: 65_000
-            )),
-            "12.4k tokens · 1 tool · 1m 05s"
-        )
-        // A queued agent has reported nothing yet — no trailing telemetry.
-        XCTAssertNil(
-            AgentFeed.workflowAgentTelemetry(AgentWorkflowAgent(index: 2, label: "beta"))
-        )
-        XCTAssertEqual(
-            AgentFeed.workflowAgentTelemetry(AgentWorkflowAgent(
-                index: 3, label: "gamma", state: .running, toolCalls: 7
-            )),
-            "7 tools"
-        )
-    }
-
-    /// The card's phase counts come off its own agents, phase by phase.
-    func testPhaseCountsGroupTheCardsAgents() {
+    /// The card's agents group by phase, and the Work card reads them.
+    func testTheWorkflowsAgentsGroupByPhase() {
         let workflow = AgentWorkflow(
             id: "w1", name: "probe",
             phases: [
@@ -2014,12 +1982,15 @@ final class AgentFeedTests: XCTestCase {
                 AgentWorkflowAgent(index: 4, label: "d", phaseIndex: 2, state: .queued),
             ]
         )
-        XCTAssertEqual(workflow.counts(inPhase: 1), AgentWorkflowPhaseCounts(done: 1, error: 1))
-        XCTAssertEqual(
-            workflow.counts(inPhase: 2), AgentWorkflowPhaseCounts(queued: 1, running: 1)
-        )
-        XCTAssertEqual(workflow.counts(inPhase: 7).total, 0)
+        XCTAssertEqual(workflow.agents(inPhase: 1).map(\.label), ["a", "b"])
         XCTAssertEqual(workflow.agents(inPhase: 2).map(\.label), ["c", "d"])
+        XCTAssertTrue(workflow.agents(inPhase: 7).isEmpty)
+        // EXP-1240: the Work card reads the same agents, and a lane tap names
+        // the agent behind it.
+        let card = workflow.workCard
+        XCTAssertEqual(card.progress, "2 / 4")
+        XCTAssertEqual(card.segments.map(\.state), [.failed, .running])
+        XCTAssertNil(workflow.workCardLaneAgentId(phase: 1, lane: 0))
     }
 
     // MARK: - EXP-850 §5: the working caption

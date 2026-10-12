@@ -82,11 +82,7 @@ struct ActionsListView: View {
             Spacer()
         } else if vm.actions.isEmpty {
             Spacer()
-            if let error = vm.loadError {
-                errorState(error)
-            } else {
-                emptyState
-            }
+            emptyState
             Spacer()
         } else {
             ScrollView {
@@ -150,18 +146,6 @@ struct ActionsListView: View {
 
     private var emptyState: some View {
         EmptyState(.actions)
-    }
-
-    private func errorState(_ message: String) -> some View {
-        VStack(spacing: 12) {
-            AppIcon(AppIcons.uiWarning, size: 22)
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            Text(message)
-                .font(.caption)
-                .foregroundStyle(.white.opacity(TextOpacity.secondary))
-                .multilineTextAlignment(.center)
-        }
-        .padding(.horizontal, 40)
     }
 
     private func actionRow(_ action: ActionDto) -> some View {

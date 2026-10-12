@@ -66,7 +66,11 @@ struct RunChangesView: View {
                     }
                 }
             } else {
-                ProgressView().tint(.white)
+                // EXP-1275 (D8): a first load is skeleton rows.
+                SkeletonRows()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         }
         .navigationTitle(title)

@@ -76,9 +76,11 @@ struct AgentComposerCard: View {
                 .padding(.horizontal, 8)
                 .padding(.bottom, 4)
             }
+            // A pick refused for its size or type is INPUT: it stays inline
+            // (FEED-79), at the 13pt error size.
             if let imageError = model.imageError {
                 Text(imageError)
-                    .font(.caption2)
+                    .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
                     .foregroundStyle(DesignTokens.Semantic.red)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, 12)
