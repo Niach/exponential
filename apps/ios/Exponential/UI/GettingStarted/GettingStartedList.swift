@@ -265,8 +265,9 @@ struct GettingStartedSheet: View {
 
     var body: some View {
         GlassSheetChrome(title: nil) {
+            // Full width: the rows run edge to edge like the sheet's other
+            // lists (getting-started.json, Android's sheet).
             GettingStartedList(progress: progress, accountId: accountId, teamId: teamId, fullWidth: true)
-                .padding(.horizontal, 16)
                 .padding(.top, GlassSheetTokens.headerTopPadding)
                 .padding(.bottom, 24)
         }
