@@ -304,7 +304,7 @@ pub(crate) fn rows_viewport(
         .relative()
         .w_full()
         .min_h_0()
-        .flex_shrink()
+        .flex_shrink(1.)
         .child(
             v_flex()
                 .id(id)
@@ -424,7 +424,7 @@ impl SearchList {
                 .w_full()
                 .p_1()
                 .min_h_0()
-                .flex_shrink()
+                .flex_shrink(1.)
                 .child(rows_viewport(id, rows, row_count, &scroll, cx))
                 .into_any_element()
         };

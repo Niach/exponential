@@ -20,7 +20,7 @@ use serde::Deserialize;
 
 use sync::Store;
 
-use crate::coding_flow::{self, SessionSubject};
+use crate::coding_flow::{self, RunLanding, SessionSubject};
 use crate::queries;
 use api::actions::{
     is_builtin_action_id, BUILTIN_CHAT_ID, BUILTIN_CREATE_ACTION_ID, BUILTIN_FIX_CONFLICTS_ID,
@@ -164,8 +164,10 @@ pub(crate) struct StartActionArgs {
     /// The window the run's session tab lands in (`None` = the first shell
     /// window — the relay path).
     pub target: Option<gpui::AnyWindowHandle>,
-    /// Foreground the app first (remote starts surface the new tab).
-    pub activate_app: bool,
+    /// EXP-1271: where the run lands — [`RunLanding::ThisWindow`] only for
+    /// a person's start in `target`'s own composer; relay and trigger starts
+    /// stay in Running (and never foreground the app).
+    pub landing: RunLanding,
     /// EXP-505: the remote start's duplicate-delivery claim (see
     /// `steer_wiring::StartReservations`) — held across the WHOLE pipeline
     /// (fetch → prepare → spawn) and released on drop when it finishes or
@@ -207,7 +209,7 @@ pub(crate) fn start_action_run(args: StartActionArgs, cx: &mut App) {
         origin,
         inputs,
         target,
-        activate_app,
+        landing,
         reservation,
         trigger,
         trigger_id,
@@ -423,11 +425,6 @@ Update Exponential on this machine."
                 fire_settled(&mut on_settled, false, cx);
                 return;
             };
-            if activate_app {
-                // A remote start surfaces the freshly spawned tab.
-                cx.activate(true);
-            }
-
             let fix_branch = fix_kind.as_ref().map(|(branch, ..)| branch.clone());
             let kind = match fix_kind {
                 Some((branch, identifier, issue_id, board_id, board_branch)) => {
@@ -503,7 +500,7 @@ team settings → Repositories.";
                 options,
                 prompt,
             };
-            launch_action(request, window, reservation, on_settled, report, cx);
+            launch_action(request, window, landing, reservation, on_settled, report, cx);
         });
     })
     .detach();
@@ -566,11 +563,11 @@ fn take_over_branch(branch: &str, window: gpui::AnyWindowHandle, cx: &mut App) -
 pub(crate) fn resume_run(
     session_id: String,
     target: Option<gpui::AnyWindowHandle>,
-    activate_app: bool,
+    landing: RunLanding,
     origin: LaunchOrigin,
     cx: &mut App,
 ) {
-    resume_run_on_account(session_id, target, activate_app, origin, None, None, cx)
+    resume_run_on_account(session_id, target, landing, origin, None, None, cx)
 }
 
 /// [`resume_run`] on a DIFFERENT agent account (EXP-849, `crate::account_switch`).
@@ -587,7 +584,7 @@ pub(crate) fn resume_run(
 pub(crate) fn resume_run_on_account(
     session_id: String,
     target: Option<gpui::AnyWindowHandle>,
-    activate_app: bool,
+    landing: RunLanding,
     origin: LaunchOrigin,
     account: Option<String>,
     prompt: Option<String>,
@@ -596,7 +593,7 @@ pub(crate) fn resume_run_on_account(
     resume_run_reporting(
         session_id,
         target,
-        activate_app,
+        landing,
         origin,
         account,
         prompt,
@@ -612,7 +609,7 @@ pub(crate) fn resume_run_on_account(
 pub(crate) fn resume_run_reporting(
     session_id: String,
     target: Option<gpui::AnyWindowHandle>,
-    activate_app: bool,
+    landing: RunLanding,
     origin: LaunchOrigin,
     account: Option<String>,
     prompt: Option<String>,
@@ -670,9 +667,6 @@ history setting.";
         report.fail(crate::steer_wiring::NO_WINDOW_REASON, cx);
         return;
     };
-    if activate_app {
-        cx.activate(true);
-    }
     // EXP-662: an issue/batch resume registers under its SUBJECT, so the
     // header's Coding…/Stop flip and the launch guards see it.
     let subject_of = record.clone();
@@ -699,7 +693,7 @@ history setting.";
         let _ = window.update(cx, |_, window, cx| match prepared {
             Ok(Prepared::Ready(prepared)) => {
                 let subject = coding_flow::resume_subject(&subject_of, prepared.session_id.clone());
-                if let Err(message) = coding_flow::spawn_into_window(prepared, subject, window, cx)
+                if let Err(message) = coding_flow::spawn_into_window(prepared, subject, landing, window, cx)
                 {
                     log::warn!("actions: resume spawn failed: {message}");
                     report.fail(message.clone(), cx);
@@ -753,6 +747,7 @@ pub(crate) fn notify_target_error(
 fn launch_action(
     request: ActionLaunchRequest,
     target: gpui::AnyWindowHandle,
+    landing: RunLanding,
     reservation: Option<crate::steer_wiring::ReservationGuard>,
     on_settled: Option<ActionSettledHook>,
     report: crate::steer_wiring::StartReport,
@@ -781,7 +776,7 @@ fn launch_action(
                 // Subject = the SESSION row id (concurrent runs of one
                 // action must not share a registry key).
                 let subject = SessionSubject::Action(prepared.session_id.clone());
-                match coding_flow::spawn_into_window(prepared, subject, window, cx) {
+                match coding_flow::spawn_into_window(prepared, subject, landing, window, cx) {
                     // EXP-739: the agent is running — settle SUCCESSFULLY, so
                     // a caller whose progress line has no TabOpened edge to
                     // wait for (an ACP chat opens a center-panel session, not

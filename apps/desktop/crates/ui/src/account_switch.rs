@@ -542,6 +542,14 @@ pub(crate) fn end_then_resume_on_account(
     report: crate::steer_wiring::StartReport,
     cx: &mut App,
 ) -> bool {
+    // EXP-1271: a person's switch from the run's own window (`target`) opens
+    // the continuation there; a relay frame or a rotation hop stays in
+    // Running.
+    let landing = if target.is_some() {
+        crate::coding_flow::RunLanding::ThisWindow
+    } else {
+        crate::coding_flow::RunLanding::Background
+    };
     let live = crate::coding_flow::LocalSessions::global(cx)
         .read(cx)
         .session_for_id(&session_id)
@@ -550,7 +558,7 @@ pub(crate) fn end_then_resume_on_account(
         crate::action_run::resume_run_reporting(
             session_id,
             target,
-            false,
+            landing,
             origin,
             Some(profile_id),
             prompt,
@@ -587,7 +595,7 @@ pub(crate) fn end_then_resume_on_account(
                     crate::action_run::resume_run_reporting(
                         session_id.clone(),
                         target,
-                        false,
+                        landing,
                         origin,
                         Some(profile_id.clone()),
                         prompt.clone(),

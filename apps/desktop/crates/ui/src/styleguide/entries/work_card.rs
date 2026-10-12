@@ -13,7 +13,7 @@ use crate::work_card::WorkCardProps;
 pub(crate) const ID: &str = "work-card";
 pub(crate) const OWNER: &str = "EXP-1240";
 
-const FIXTURE: &str = include_str!("../../../../../../packages/domain-contract/fixtures/work-card.json");
+const FIXTURE: &str = include_str!("../../../../../../../packages/domain-contract/fixtures/work-card.json");
 
 /// The fixture cases the demo draws, by index: the workflow mid-review, the
 /// task list in progress, the finished subagent.

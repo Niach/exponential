@@ -13,7 +13,7 @@ pub(crate) const ID: &str = "script-card";
 pub(crate) const OWNER: &str = "EXP-1279";
 
 const FIXTURE: &str =
-    include_str!("../../../../../../packages/domain-contract/fixtures/script-card.json");
+    include_str!("../../../../../../../packages/domain-contract/fixtures/script-card.json");
 
 /// A short script, the shape an agent writes.
 const SOURCE: &str = "const ids = [\"EXP-1253\", \"EXP-1254\", \"EXP-1255\"];\nconst issues = await Promise.all(ids.map((id) => tools.exponential.exponential_issues_get({ id })));\nreturn issues.map((issue) => issue.title);";

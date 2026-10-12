@@ -844,7 +844,7 @@ pub(crate) fn coding_action_button(
                         crate::action_run::resume_run(
                             session_id.clone(),
                             Some(window.window_handle()),
-                            false,
+                            crate::coding_flow::RunLanding::ThisWindow,
                             coding::LaunchOrigin::Local,
                             cx,
                         );

@@ -674,7 +674,7 @@ impl SessionBar {
                 origin: coding::LaunchOrigin::Local,
                 inputs,
                 target: Some(window.window_handle()),
-                activate_app: false,
+                landing: crate::coding_flow::RunLanding::ThisWindow,
                 reservation: None,
                 trigger: None,
                 trigger_id: None,

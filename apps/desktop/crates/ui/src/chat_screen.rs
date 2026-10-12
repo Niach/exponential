@@ -1892,7 +1892,7 @@ impl ChatScreenView {
                         // EXP-1037: the run's tab lands in the window the ▶
                         // was pressed in — a dialog composer closes itself.
                         target: Some(navigation::deferred_open_window(window, cx)),
-                        activate_app: false,
+                        landing: coding_flow::RunLanding::ThisWindow,
                         reservation: None,
                         // A person pressed Run — never a trigger firing.
                         trigger: None,

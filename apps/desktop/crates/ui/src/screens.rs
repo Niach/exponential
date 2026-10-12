@@ -1004,7 +1004,7 @@ impl ChipLead {
             }),
             ChipLead::Status(status) => Some(crate::icons::resolved_status_icon(status, cx)),
             ChipLead::Shell => Some(Icon::new(registry::SESSION_SHELL)),
-            ChipLead::Concept(icon) => Some(Icon::new(*icon)),
+            ChipLead::Concept(icon) => Some(Icon::new(icon.clone())),
         }
     }
 }
