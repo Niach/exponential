@@ -30,7 +30,11 @@ import {
   STARTED_RUN_SKEW_MS,
   type StartedRunKey,
 } from "@/lib/started-run-match"
-import { newStartId, startIntentKey } from "@/lib/start-intent"
+import {
+  newStartId,
+  startIntentKey,
+  startMaybeDelivered,
+} from "@/lib/start-intent"
 
 /** Final review: how long the watch follows a sent start (feedback-states.json
  *  `starting.watchMs`, 30 min, the server's and the devices' dedupe window).
@@ -99,7 +103,7 @@ function startFailureToast(
   device: SteerDevice,
   agent: string,
   retry?: () => void
-) {
+): string | number {
   const title = actionErrorTitle(`start`, `the session`)
   const description = trpcErrorMessage(
     error,
@@ -111,10 +115,9 @@ function startFailureToast(
     deviceIsMine(device) &&
     deviceCanAgentLogin(device)
   if (!canSignIn) {
-    failedAction(`start`, `the session`, error, { description, retry })
-    return
+    return failedAction(`start`, `the session`, error, { description, retry })
   }
-  toast.error(title, {
+  return toast.error(title, {
     description,
     action: {
       label: `Sign in`,
@@ -434,6 +437,41 @@ export function useRemoteStart(
     ]
   }
 
+  /** Recheck R3 (feedback-states.json `starting.maybeDelivered`): a send
+   *  whose fate is unknown (transport error, client timeout, relay timeout)
+   *  failed with `errorToast` (its Retry re-sends the same startId) but may
+   *  still have reached the device: follow it QUIETLY for `WATCH_MS` (no
+   *  deadline toast, no "sent" caption); a late row clears the error and
+   *  lands like any other. A definite error arms nothing. */
+  const followMaybeDelivered = (
+    error: unknown,
+    errorToast: string | number,
+    deviceLabel: string,
+    key: StartedRunKey,
+    send: WatchedSend
+  ) => {
+    if (!startMaybeDelivered(error)) return
+    if (!mountedRef.current || sendRef.current !== send) return
+    clearTimers()
+    if (deadlineToastRef.current !== null) {
+      toast.dismiss(deadlineToastRef.current)
+    }
+    deadlineToastRef.current = errorToast ?? null
+    send.quiet = true
+    setPending({
+      deviceLabel,
+      sentAt: send.requestedAt,
+      key,
+      send,
+      lapsed: true,
+    })
+    timersRef.current = [
+      setTimeout(() => {
+        setPending((current) => (current?.send === send ? null : current))
+      }, WATCH_MS),
+    ]
+  }
+
   const startIssues = async (
     device: SteerDevice,
     options: StartCodingOptions,
@@ -474,12 +512,13 @@ export function useRemoteStart(
       )
       markSent(device.deviceLabel, key, send)
     } catch (error) {
-      startFailureToast(
+      const errorToast = startFailureToast(
         error,
         device,
         options.agent,
         retryUnder(intent, id, retry)
       )
+      followMaybeDelivered(error, errorToast, device.deviceLabel, key, send)
       throw error
     } finally {
       setStarting(false)
@@ -495,6 +534,7 @@ export function useRemoteStart(
     retry?: () => void,
     startId?: string
   ) => {
+    const actionKey: StartedRunKey = { kind: `action`, actionName: action.name }
     const intent = startIntentKey(device.deviceId, { actionId: action.id })
     const id = resolveStartId(intent, startId)
     const send = beginSend(id)
@@ -516,18 +556,15 @@ export function useRemoteStart(
         },
         SKIP_ERROR_TOAST
       )
-      markSent(
-        device.deviceLabel,
-        { kind: `action`, actionName: action.name },
-        send
-      )
+      markSent(device.deviceLabel, actionKey, send)
     } catch (error) {
-      startFailureToast(
+      const errorToast = startFailureToast(
         error,
         device,
         options.agent,
         retryUnder(intent, id, retry)
       )
+      followMaybeDelivered(error, errorToast, device.deviceLabel, actionKey, send)
       throw error
     } finally {
       setStarting(false)

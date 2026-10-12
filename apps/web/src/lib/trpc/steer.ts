@@ -36,6 +36,7 @@ import {
   mintSteerTicket,
   relayPostKill,
   relayPostStart,
+  type RelayStartResult,
   type SteerStartRepo,
 } from "@/lib/steer"
 import { resolveActionInputs } from "@/lib/action-inputs"
@@ -183,6 +184,24 @@ async function resolveStartPromptOrThrow(
     throw new TRPCError({ code: result.code, message: result.message })
   }
   return result.prompt
+}
+
+/** A refused relay start as the client reads it. Recheck R3 (feedback-states
+ *  .json `starting.maybeDelivered`): the relay timeout is the one 5xx whose
+ *  frame may still have reached the device, so it answers 504
+ *  (`GATEWAY_TIMEOUT`) and clients follow it; any other relay error is a
+ *  definite failure. */
+function relayStartError(
+  result: Extract<RelayStartResult, { ok: false }>
+): TRPCError {
+  if (result.status === 404) {
+    // Device offline (or otherwise unroutable) — surface the relay reason.
+    return new TRPCError({ code: `PRECONDITION_FAILED`, message: result.reason })
+  }
+  return new TRPCError({
+    code: result.reason === `relay_timeout` ? `GATEWAY_TIMEOUT` : `INTERNAL_SERVER_ERROR`,
+    message: `Steer relay error (${result.status})`,
+  })
 }
 
 export const steerRouter = router({
@@ -936,18 +955,7 @@ export const steerRouter = router({
               ...(session.branch ? { branch: session.branch } : {}),
               ...(input.account ? { account: input.account } : {}),
             })
-            if (!result.ok) {
-              if (result.status === 404) {
-                throw new TRPCError({
-                  code: `PRECONDITION_FAILED`,
-                  message: result.reason,
-                })
-              }
-              throw new TRPCError({
-                code: `INTERNAL_SERVER_ERROR`,
-                message: `Steer relay error (${result.status})`,
-              })
-            }
+            if (!result.ok) throw relayStartError(result)
             return { ok: true as const, startId }
           }
 
@@ -1224,18 +1232,7 @@ export const steerRouter = router({
               computerUse: input.computerUse ?? undefined,
               account: actionAccount,
             })
-            if (!result.ok) {
-              if (result.status === 404) {
-                throw new TRPCError({
-                  code: `PRECONDITION_FAILED`,
-                  message: result.reason,
-                })
-              }
-              throw new TRPCError({
-                code: `INTERNAL_SERVER_ERROR`,
-                message: `Steer relay error (${result.status})`,
-              })
-            }
+            if (!result.ok) throw relayStartError(result)
             return { ok: true as const, startId }
           }
 
@@ -1371,19 +1368,7 @@ export const steerRouter = router({
                 ...(prompt ? { prompt } : {}),
                 ...options,
               })
-          if (!result.ok) {
-            if (result.status === 404) {
-              // Device offline (or otherwise unroutable) — surface the relay reason.
-              throw new TRPCError({
-                code: `PRECONDITION_FAILED`,
-                message: result.reason,
-              })
-            }
-            throw new TRPCError({
-              code: `INTERNAL_SERVER_ERROR`,
-              message: `Steer relay error (${result.status})`,
-            })
-          }
+          if (!result.ok) throw relayStartError(result)
           return { ok: true as const, startId }
         }
       )

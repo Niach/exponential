@@ -90,6 +90,11 @@ export function recordStartFailure(input: {
   }
   if (entry.reporterId !== input.userId) return false
   entry.failure = { reason: input.reason, at: new Date() }
+  // Recheck R1: the device took the frame and could not launch it (a
+  // refused checkout, a failed doctor, a signed-out agent...), so the
+  // remembered forward is no answer any more: the next Start or Retry of
+  // the unchanged draft forwards again.
+  forgetForwarded(input.startId, entry.requesterId)
   return true
 }
 
@@ -119,7 +124,9 @@ export function takeStartFailure(
 // ignore the id, so this is what keeps a Retry from starting a second run
 // there. Only a SUCCESSFUL forward is remembered (a refusal or relay error
 // re-forwards on Retry: the device's own dedupe covers a frame that did
-// arrive); a repeat while the first is still in flight awaits it.
+// arrive), and only until the device reports that start as failed
+// (`recordStartFailure`, recheck R1); a repeat while the first is still in
+// flight awaits it.
 // Per-process like the registry above: another replica or a restart
 // forwards again, and the device dedupe is the backstop.
 
@@ -129,6 +136,10 @@ interface ForwardedStart {
   answer: Promise<unknown>
   // Null while in flight; set once the first forward succeeded.
   expiresAt: number | null
+  requesterId: string
+  // The client's id plus the one the frame carried, when `mintStartId`
+  // handed out another (a device reports a failure under the latter).
+  startIds: Set<string>
 }
 
 const forwarded = new Map<string, ForwardedStart>()
@@ -136,6 +147,16 @@ const forwarded = new Map<string, ForwardedStart>()
 function pruneForwarded(now: number): void {
   for (const [key, entry] of forwarded) {
     if (entry.expiresAt !== null && entry.expiresAt <= now) {
+      forwarded.delete(key)
+    }
+  }
+}
+
+/** Drops every remembered forward of `startId` for `requesterId` (any
+ *  device): a device reported that start as failed. */
+function forgetForwarded(startId: string, requesterId: string): void {
+  for (const [key, entry] of forwarded) {
+    if (entry.requesterId === requesterId && entry.startIds.has(startId)) {
       forwarded.delete(key)
     }
   }
@@ -158,10 +179,17 @@ export function forwardStartOnce<T>(
     if (oldest === undefined) break
     forwarded.delete(oldest)
   }
-  const entry: ForwardedStart = { answer: Promise.resolve(), expiresAt: null }
+  const entry: ForwardedStart = {
+    answer: Promise.resolve(),
+    expiresAt: null,
+    requesterId: key.requesterId,
+    startIds: new Set([key.startId]),
+  }
   const answer = forward().then(
     (result) => {
       entry.expiresAt = Date.now() + DEDUPE_MS
+      const sent = (result as { startId?: unknown } | null)?.startId
+      if (typeof sent === `string`) entry.startIds.add(sent)
       return result
     },
     (error: unknown) => {

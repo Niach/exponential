@@ -29,14 +29,15 @@ export function actionErrorDescription(error: unknown): string | undefined {
 }
 
 /** Toast a failed action: `Couldn't <verb> <thing>` + the server's message,
- *  Retry when `retry` is given (only when re-running the call is safe). */
+ *  Retry when `retry` is given (only when re-running the call is safe).
+ *  Returns the toast id. */
 export function failedAction(
   verb: string,
   thing: string,
   error?: unknown,
   options: { retry?: () => void; description?: string } = {}
-): void {
-  toastActionError(actionErrorTitle(verb, thing), {
+): string | number {
+  return toastActionError(actionErrorTitle(verb, thing), {
     description: options.description ?? actionErrorDescription(error),
     retry: options.retry,
   })

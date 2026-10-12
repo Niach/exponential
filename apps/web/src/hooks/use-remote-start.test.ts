@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { TRPCClientError } from "@trpc/client"
 import type { SteerDevice } from "@/lib/steer-devices"
 
 // Final review B8: the post-send watch. A quiet watch stays quiet however
@@ -326,4 +327,70 @@ describe(`useRemoteStart startId (EXP-1259)`, () => {
     expect(sentIds()).toHaveLength(2)
     expect(sentIds()[1]).not.toBe(sentIds()[0])
   })
+})
+
+// Recheck R3 (feedback-states.json `starting.maybeDelivered`): a failed send
+// whose fate is unknown toasts with Retry AND follows quietly for
+// `starting.watchMs`; a definite error only toasts.
+describe(`useRemoteStart maybe-delivered (recheck R3)`, () => {
+  const serverError = (code: string, httpStatus: number) => {
+    const error = new TRPCClientError(`Steer relay error (${httpStatus})`)
+    ;(error as { data?: unknown }).data = { code, httpStatus }
+    return error
+  }
+  const transport = () =>
+    new TRPCClientError(`Failed to fetch`, { cause: new TypeError(`Failed to fetch`) })
+
+  for (const [name, error] of [
+    [`a transport error`, transport],
+    [`the relay timeout`, () => serverError(`GATEWAY_TIMEOUT`, 504)],
+  ] as const) {
+    it(`${name}: toast + Retry, a quiet follow, a late row opens and clears the toast`, async () => {
+      h.mutate.mockRejectedValueOnce(error())
+      h.failedAction.mockReturnValue(`toast-3`)
+      const { result, sync, onOpened } = mount()
+      await act(() =>
+        result.current.runAction(device, action, {} as never, undefined, undefined, vi.fn()).catch(() => {})
+      )
+      expect(h.failedAction).toHaveBeenCalledTimes(1)
+      expect(h.failedAction.mock.calls[0]![3].retry).toEqual(expect.any(Function))
+      // Quiet: no "sent" caption and no "never started" toast.
+      expect(result.current.sentTo).toBeNull()
+      act(() => vi.advanceTimersByTime(20 * 60_000))
+      expect(h.toastError).not.toHaveBeenCalled()
+      sync(row(`run-1`))
+      expect(result.current.openedId).toBe(`run-1`)
+      expect(h.openSession).toHaveBeenCalledTimes(1)
+      expect(onOpened).toHaveBeenCalledTimes(1)
+      expect(h.toastDismiss).toHaveBeenCalledWith(`toast-3`)
+    })
+  }
+
+  it(`a quiet follow ends after starting.watchMs`, async () => {
+    h.mutate.mockRejectedValueOnce(transport())
+    const { result, sync } = mount()
+    await act(() =>
+      result.current.runAction(device, action, {} as never).catch(() => {})
+    )
+    act(() => vi.advanceTimersByTime(30 * 60_000))
+    sync(row(`run-1`))
+    expect(result.current.openedId).toBeNull()
+  })
+
+  for (const [name, error] of [
+    [`a 4xx`, () => serverError(`PRECONDITION_FAILED`, 412)],
+    [`a 5xx with another error body`, () => serverError(`INTERNAL_SERVER_ERROR`, 500)],
+  ] as const) {
+    it(`${name}: toast + Retry, no follower`, async () => {
+      h.mutate.mockRejectedValueOnce(error())
+      const { result, sync } = mount()
+      await act(() =>
+        result.current.runAction(device, action, {} as never, undefined, undefined, vi.fn()).catch(() => {})
+      )
+      expect(h.failedAction.mock.calls[0]![3].retry).toEqual(expect.any(Function))
+      sync(row(`run-1`))
+      expect(result.current.openedId).toBeNull()
+      expect(h.openSession).not.toHaveBeenCalled()
+    })
+  }
 })

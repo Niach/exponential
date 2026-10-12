@@ -1,5 +1,6 @@
 import { act, renderHook } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { TRPCClientError } from "@trpc/client"
 
 // EXP-1259 (start surfaces): a Resume / account-switch press mints ONE
 // startId; the failure toast's Retry and the "never started" toast's Retry
@@ -156,6 +157,50 @@ describe(`useResumeStart (EXP-1259)`, () => {
     act(() => result.current.resume())
     await flush()
     act(() => vi.advanceTimersByTime(30 * 60_000))
+    sync(resumedRow(`run-new`))
+    expect(h.openSession).not.toHaveBeenCalled()
+  })
+
+  // Recheck R3 (feedback-states.json `starting.maybeDelivered`).
+  it(`a maybe-delivered failure toasts and follows quietly: a late row opens and clears it`, async () => {
+    h.mutate.mockRejectedValueOnce(
+      new TRPCClientError(`Failed to fetch`, { cause: new TypeError(`Failed to fetch`) })
+    )
+    h.failedAction.mockReturnValue(`toast-9`)
+    const { result, sync } = mount()
+    act(() => result.current.resume())
+    await flush()
+    expect(result.current.pending).toBeNull()
+    expect(h.failedAction).toHaveBeenCalledTimes(1)
+    expect(h.failedAction.mock.calls[0]![3].retry).toEqual(expect.any(Function))
+    // No "never started" toast while it follows.
+    act(() => vi.advanceTimersByTime(20 * 60_000))
+    expect(h.toastActionError).not.toHaveBeenCalled()
+    sync(resumedRow(`run-new`))
+    expect(h.openSession).toHaveBeenCalledTimes(1)
+    expect(h.toastDismiss).toHaveBeenCalledWith(`toast-9`)
+  })
+
+  it(`the relay timeout is maybe-delivered too; the follow ends after starting.watchMs`, async () => {
+    const relayTimeout = new TRPCClientError(`Steer relay error (504)`)
+    ;(relayTimeout as { data?: unknown }).data = { code: `GATEWAY_TIMEOUT`, httpStatus: 504 }
+    h.mutate.mockRejectedValueOnce(relayTimeout)
+    const { result, sync } = mount()
+    act(() => result.current.resume())
+    await flush()
+    act(() => vi.advanceTimersByTime(30 * 60_000))
+    sync(resumedRow(`run-new`))
+    expect(h.openSession).not.toHaveBeenCalled()
+  })
+
+  it(`a definite error toasts with Retry and follows nothing`, async () => {
+    const refused = new TRPCClientError(`That machine is offline`)
+    ;(refused as { data?: unknown }).data = { code: `PRECONDITION_FAILED`, httpStatus: 412 }
+    h.mutate.mockRejectedValueOnce(refused)
+    const { result, sync } = mount()
+    act(() => result.current.resume())
+    await flush()
+    expect(h.failedAction.mock.calls[0]![3].retry).toEqual(expect.any(Function))
     sync(resumedRow(`run-new`))
     expect(h.openSession).not.toHaveBeenCalled()
   })

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
   _clearStartFailures,
+  forwardStartOnce,
   mintStartId,
   recordStartFailure,
   takeStartFailure,
@@ -129,5 +130,65 @@ describe(`start failures (FEED-63)`, () => {
     expect(recordStartFailure({ startId: id, userId: `u1`, reason: `y` })).toBe(
       true
     )
+  })
+})
+
+// Recheck R1: a forward the device then reported as failed is no answer any
+// more: the next Start/Retry of the same draft forwards again.
+describe(`forwardStartOnce after a device failure`, () => {
+  const forwardFor = (owner: string, requester: string, startId: string) =>
+    vi.fn(async () => ({ ok: true as const, startId: mintStartId(owner, requester, startId) }))
+
+  it(`accept, then the device fails it: Retry forwards again`, async () => {
+    const startId = crypto.randomUUID()
+    const key = { requesterId: `u1`, deviceId: `dev-1`, startId }
+    const forward = forwardFor(`u1`, `u1`, startId)
+    await forwardStartOnce(key, forward)
+    // Before the report the repeat is deduped.
+    await forwardStartOnce(key, forward)
+    expect(forward).toHaveBeenCalledTimes(1)
+    expect(
+      recordStartFailure({ startId, userId: `u1`, reason: `dirty tree` })
+    ).toBe(true)
+    await expect(forwardStartOnce(key, forward)).resolves.toEqual({ ok: true, startId })
+    expect(forward).toHaveBeenCalledTimes(2)
+    // The fresh forward is remembered again.
+    await forwardStartOnce(key, forward)
+    expect(forward).toHaveBeenCalledTimes(2)
+  })
+
+  it(`a shared-device start: the owner's report frees the requester's Retry`, async () => {
+    const startId = crypto.randomUUID()
+    const key = { requesterId: `teammate`, deviceId: `dev-1`, startId }
+    const forward = forwardFor(`owner`, `teammate`, startId)
+    await forwardStartOnce(key, forward)
+    expect(recordStartFailure({ startId, userId: `owner`, reason: `signed out` })).toBe(true)
+    await forwardStartOnce(key, forward)
+    expect(forward).toHaveBeenCalledTimes(2)
+  })
+
+  it(`an unaccepted report keeps the dedupe`, async () => {
+    const startId = crypto.randomUUID()
+    const key = { requesterId: `u1`, deviceId: `dev-1`, startId }
+    const forward = forwardFor(`u1`, `u1`, startId)
+    await forwardStartOnce(key, forward)
+    expect(recordStartFailure({ startId, userId: `u2`, reason: `x` })).toBe(false)
+    await forwardStartOnce(key, forward)
+    expect(forward).toHaveBeenCalledTimes(1)
+  })
+
+  it(`a failure under the id the frame carried frees the client's id`, async () => {
+    const startId = crypto.randomUUID()
+    // Another owner holds the client's id: the frame carries a fresh one.
+    mintStartId(`someone`, `someone`, startId)
+    const key = { requesterId: `u1`, deviceId: `dev-1`, startId }
+    const forward = forwardFor(`u1`, `u1`, startId)
+    const first = await forwardStartOnce(key, forward)
+    expect(first.startId).not.toBe(startId)
+    expect(
+      recordStartFailure({ startId: first.startId, userId: `u1`, reason: `x` })
+    ).toBe(true)
+    await forwardStartOnce(key, forward)
+    expect(forward).toHaveBeenCalledTimes(2)
   })
 })
