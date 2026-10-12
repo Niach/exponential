@@ -3,6 +3,7 @@ import { promptActions, trashBoardPrompt, WEB_PROMPTS } from "@/lib/prompts"
 import { useNavigate } from "@tanstack/react-router"
 import { Archive, Plus, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   getBoardIconName,
   Pill,
@@ -13,6 +14,8 @@ import {
   GlassSectionHeader,
   Prompt,
   BoardGlyph,
+  SkeletonRows,
+  Spinner,
 } from "@exp/ui"
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import {
@@ -57,7 +60,6 @@ export function BoardSettingsPage({
   const syncedRef = useRef<{ boardId: string; name: string } | null>(null)
   if (syncedRef.current?.boardId === board.id) syncedRef.current.name = board.name
   const [busyRepo, setBusyRepo] = useState(false)
-  const [repoError, setRepoError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [archiveOpen, setArchiveOpen] = useState(false)
@@ -69,7 +71,6 @@ export function BoardSettingsPage({
     syncedRef.current = { boardId, name: seeded }
     setName(seeded)
     setBusyRepo(false)
-    setRepoError(null)
     draftRef.current = null
     return () => {
       const draft = draftRef.current
@@ -106,14 +107,15 @@ export function BoardSettingsPage({
   // branch belongs to the repo it was picked in.
   const applyRepo = async (repositoryId: string | null) => {
     setBusyRepo(true)
-    setRepoError(null)
     try {
       await trpc.boards.setRepository.mutate(
         { boardId: board.id, repositoryId },
-        { context: { skipErrorToast: true } }
+        SKIP_ERROR_TOAST
       )
     } catch (err) {
-      setRepoError(err instanceof Error ? err.message : String(err))
+      failedAction(`change`, `the board's repository`, err, {
+        retry: () => void applyRepo(repositoryId),
+      })
     } finally {
       setBusyRepo(false)
     }
@@ -123,7 +125,6 @@ export function BoardSettingsPage({
   // the board at the returned repository id.
   const handleConnect = async (picked: PickerRepo) => {
     setBusyRepo(true)
-    setRepoError(null)
     try {
       const { repository } = await trpc.repositories.add.mutate(
         {
@@ -132,15 +133,15 @@ export function BoardSettingsPage({
           defaultBranch: picked.defaultBranch,
           private: picked.private,
         },
-        { context: { skipErrorToast: true } }
+        SKIP_ERROR_TOAST
       )
       if (repository) {
         await applyRepo(repository.id)
         return
       }
-      setRepoError(`Could not connect ${picked.fullName}.`)
+      failedAction(`connect`, picked.fullName)
     } catch (err) {
-      setRepoError(err instanceof Error ? err.message : String(err))
+      failedAction(`connect`, picked.fullName, err)
     } finally {
       setBusyRepo(false)
     }
@@ -212,15 +213,15 @@ export function BoardSettingsPage({
         onSelectRegistry={(repo) => void applyRepo(repo?.id ?? null)}
         onConnectNew={(picked) => void handleConnect(picked)}
         branch={board.defaultBranch}
-        onBranchChange={(defaultBranch) => {
-          setRepoError(null)
+        onBranchChange={function setBranch(defaultBranch) {
           trpc.boards.update
-            .mutate({ boardId: board.id, defaultBranch })
+            .mutate({ boardId: board.id, defaultBranch }, SKIP_ERROR_TOAST)
             .catch((err: unknown) =>
-              setRepoError(err instanceof Error ? err.message : String(err))
+              failedAction(`set`, `the branch`, err, {
+                retry: () => setBranch(defaultBranch),
+              })
             )
         }}
-        error={repoError}
       />
 
       {/* Archive is deliberately NOT destructive styling — it hides, it does
@@ -323,11 +324,13 @@ function ArchivedBoardsCard({ teamId }: { teamId: string }) {
   const [archived, setArchived] = useState<ArchivedBoard[] | null>(null)
   const [restoringId, setRestoringId] = useState<string | null>(null)
 
-  const refresh = useCallback(async () => {
+  // FEED-79: a failed load = the empty state + a toast with Retry.
+  const refresh = useCallback(async (): Promise<void> => {
     try {
       setArchived(await trpc.boards.listArchived.query({ teamId }))
-    } catch {
-      setArchived([])
+    } catch (err) {
+      setArchived((current) => current ?? [])
+      failedAction(`load`, `the archived boards`, err, { retry: () => void refresh() })
     }
   }, [teamId])
 
@@ -355,7 +358,9 @@ function ArchivedBoardsCard({ teamId }: { teamId: string }) {
         label="Archived boards"
       />
       <div className={SETTINGS_LIST_CLASS}>
-        {!archived || archived.length === 0 ? (
+        {archived === null ? (
+          <SkeletonRows />
+        ) : archived.length === 0 ? (
           <Empty id="archived-boards" />
         ) : (
           archived.map((board) => (
@@ -373,9 +378,11 @@ function ArchivedBoardsCard({ teamId }: { teamId: string }) {
               <Pill
                 mode="action"
                 disabled={restoringId === board.id}
+                aria-busy={restoringId === board.id || undefined}
                 onClick={() => void handleUnarchive(board.id)}
               >
-                {restoringId === board.id ? `Unarchiving…` : `Unarchive`}
+                {restoringId === board.id && <Spinner className="text-current" />}
+                Unarchive
               </Pill>
             </ListRow>
           ))
@@ -406,11 +413,12 @@ function PendingDeletionCard({ teamId }: { teamId: string }) {
   // Bumped every 60s so the purge countdown re-renders while the page stays open.
   const [, setTick] = useState(0)
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (): Promise<void> => {
     try {
       setTrashed(await trpc.boards.listDeleted.query({ teamId }))
-    } catch {
-      setTrashed([])
+    } catch (err) {
+      setTrashed((current) => current ?? [])
+      failedAction(`load`, `the deleted boards`, err, { retry: () => void refresh() })
     }
   }, [teamId])
 
@@ -463,9 +471,11 @@ function PendingDeletionCard({ teamId }: { teamId: string }) {
             <Pill
               mode="action"
               disabled={restoringId === board.id}
+              aria-busy={restoringId === board.id || undefined}
               onClick={() => void handleRestore(board.id)}
             >
-              {restoringId === board.id ? `Restoring…` : `Restore`}
+              {restoringId === board.id && <Spinner className="text-current" />}
+              Restore
             </Pill>
           </ListRow>
         ))}

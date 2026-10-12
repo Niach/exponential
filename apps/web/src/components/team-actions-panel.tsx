@@ -16,6 +16,7 @@ import {
   Prompt,
   Menu,
   getActionIcon,
+  SkeletonRows,
   type MenuEntry,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
@@ -395,7 +396,8 @@ function TeamActionsSection({
         <GlassSectionHeader label="Actions" trailing={trailing} />
       )}
       {sortedActions === null ? (
-        <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
+        // D8 first load: the ActionRow (ListRow, 44px, leading icon) geometry.
+        <SkeletonRows />
       ) : (
         <div className="flex flex-col gap-0">
           {sortedActions.map((action) => (

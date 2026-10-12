@@ -14,6 +14,7 @@ import {
   parseSessionResultGroups,
   PrGithubButton,
   sessionResultsForPr,
+  SkeletonRows,
   useIsMobile,
   type GuideChangesTarget,
 } from "@exp/ui"
@@ -391,13 +392,13 @@ function IssueDetailPage() {
         />
       )
     }
-    return <div className="text-muted-foreground text-sm p-6">Loading…</div>
+    return <IssueDetailPlaceholder />
   }
 
   if (!issue) {
     // Absent-because-still-syncing, not absent-because-gone (REV2-32).
     if (!issueReady) {
-      return <div className="text-muted-foreground text-sm p-6">Loading…</div>
+      return <IssueDetailPlaceholder />
     }
     return (
       <div className="flex flex-col items-start gap-3 p-6 text-sm">
@@ -668,5 +669,14 @@ function MobileIssuePage({
       origin={origin}
       mobileWork={{ tabs, swipe, merge: mergeCircle }}
     />
+  )
+}
+
+/** D8 first load: the detail page's placeholder (3 list rows in its padding). */
+function IssueDetailPlaceholder() {
+  return (
+    <div className="p-6">
+      <SkeletonRows />
+    </div>
   )
 }

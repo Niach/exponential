@@ -6,8 +6,10 @@
 // radius, the text colour and the open/close animation suite. Everything a
 // single surface owns on its own (its Radix transform-origin variable, its
 // height bound, its overflow rule) stays inline at the call site, because
-// those genuinely differ per menu.
-export const MENU_SURFACE_CLASS = `z-50 rounded-lg border border-glass-stroke-card bg-glass-card-opaque text-popover-foreground data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95`
+// those genuinely differ per menu. EXP-1243: the animation is the
+// `motion-popover` recipe (tailwind.css): scale from 0.96 + fade from the
+// trigger's origin, exit fade only.
+export const MENU_SURFACE_CLASS = `z-50 rounded-lg border border-glass-stroke-card bg-glass-card-opaque text-popover-foreground motion-popover`
 
 // EXP-1074 — and the ONE menu ROW recipe.
 //

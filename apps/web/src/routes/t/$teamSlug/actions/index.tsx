@@ -1,5 +1,6 @@
 import { useEffect } from "react"
 import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router"
+import { SkeletonRows } from "@exp/ui"
 import { TeamActionsPanel } from "@/components/team-actions-panel"
 import { useTeamBySlug } from "@/hooks/use-team-data"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
@@ -66,7 +67,8 @@ function ActionsPage() {
             grouped={scope.grouped}
           />
         ) : (
-          <div className="p-6 text-sm text-muted-foreground">Loading…</div>
+          // D8 first load: the ActionRow geometry (ListRow 44px, icon).
+          <SkeletonRows />
         )}
       </div>
     </div>

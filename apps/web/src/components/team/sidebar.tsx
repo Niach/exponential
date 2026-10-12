@@ -575,9 +575,19 @@ export function TeamSidebar({
                           <UserAvatar />
                           {/* First name only (EXP-311) — the full name + email
                               live in account settings. */}
-                          <span className="truncate text-sm">
-                            {userLabel ? firstName(userLabel) : `Loading...`}
-                          </span>
+                          {userLabel ? (
+                            <span className="truncate text-sm">
+                              {firstName(userLabel)}
+                            </span>
+                          ) : (
+                            // D8: a short placeholder bar (the skeleton's
+                            // 8px muted bar) until the name lands.
+                            <span
+                              aria-hidden
+                              data-testid="sidebar-user-placeholder"
+                              className="h-2 w-14 shrink-0 rounded bg-muted"
+                            />
+                          )}
                           <NavTeamSwitcherIcon className="ml-auto h-4 w-4" />
                         </SidebarMenuButton>
                       </DropdownMenuTrigger>

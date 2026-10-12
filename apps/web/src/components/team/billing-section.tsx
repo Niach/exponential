@@ -6,7 +6,16 @@ import {
   TriangleAlert,
   Users,
 } from "lucide-react"
-import { Button, GlassSectionHeader, Meter, Pill, toast } from "@exp/ui"
+import {
+  Button,
+  FEEDBACK_WORDS,
+  GlassSectionHeader,
+  Meter,
+  Pill,
+  Spinner,
+  toast,
+} from "@exp/ui"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { useBillingPlan, invalidateBillingCache } from "@/hooks/use-billing"
 import type { PlanTier } from "@/lib/billing"
 import { trpc } from "@/lib/trpc-client"
@@ -105,16 +114,12 @@ export function TeamBillingSection({
   const handleResume = async () => {
     setResuming(true)
     try {
-      await trpc.billing.resumeSubscription.mutate({ teamId })
+      await trpc.billing.resumeSubscription.mutate({ teamId }, SKIP_ERROR_TOAST)
       invalidateBillingCache()
       toast.success(`Subscription resumed`)
     } catch (err) {
       console.error(`[billing] resume failed:`, err)
-      toast.error(
-        err instanceof Error && err.message
-          ? err.message
-          : `Couldn't resume the subscription`
-      )
+      failedAction(`resume`, `the subscription`, err, { retry: () => void handleResume() })
     } finally {
       setResuming(false)
     }
@@ -130,15 +135,11 @@ export function TeamBillingSection({
   const handlePortal = async () => {
     setPortalLoading(true)
     try {
-      const { url } = await trpc.billing.createPortalSession.mutate({ teamId })
+      const { url } = await trpc.billing.createPortalSession.mutate({ teamId }, SKIP_ERROR_TOAST)
       window.location.href = url
     } catch (err) {
       console.error(`[billing] portal failed:`, err)
-      toast.error(
-        err instanceof Error && err.message
-          ? err.message
-          : `Couldn't open the billing portal. Try again.`
-      )
+      failedAction(`open`, `the billing portal`, err, { retry: () => void handlePortal() })
     } finally {
       setPortalLoading(false)
     }
@@ -170,9 +171,10 @@ export function TeamBillingSection({
                   mode="action"
                   onClick={handlePortal}
                   disabled={portalLoading}
+                  aria-busy={portalLoading || undefined}
                 >
-                  <ExternalLink />
-                  {portalLoading ? `Loading...` : `Invoices & billing`}
+                  {portalLoading ? <Spinner className="text-current" /> : <ExternalLink />}
+                  {portalLoading ? FEEDBACK_WORDS.inline.loading : `Invoices & billing`}
                 </Pill>
               )}
               {subscription && !pendingCancel && (
@@ -196,9 +198,10 @@ export function TeamBillingSection({
                 size="sm"
                 variant="outline"
                 onClick={handleResume}
-                disabled={resuming}
+                pending={resuming}
+                pendingLabel={FEEDBACK_WORDS.pending.start}
               >
-                {resuming ? `Resuming...` : `Resume`}
+                Resume
               </Button>
             </div>
           )}
@@ -245,13 +248,10 @@ export function TeamBillingSection({
                           // setShowPlans(true) was a no-op on this branch).
                           scrollToPlans()
                   }
-                  disabled={!canAdjustSeats && isPaid && portalLoading}
+                  pending={!canAdjustSeats && isPaid && portalLoading}
+                  pendingLabel={FEEDBACK_WORDS.inline.loading}
                 >
-                  {!isPaid
-                    ? `Upgrade`
-                    : !canAdjustSeats && portalLoading
-                      ? `Loading...`
-                      : `Add seats`}
+                  {!isPaid ? `Upgrade` : `Add seats`}
                 </Button>
               </div>
             </div>

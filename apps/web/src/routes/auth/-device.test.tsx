@@ -8,8 +8,13 @@ const mocks = vi.hoisted(() => {
     approve: vi.fn(),
     deny: vi.fn(),
   })
-  return { device, fetchSessionOnce: vi.fn() }
+  return { device, fetchSessionOnce: vi.fn(), toastError: vi.fn() }
 })
+
+vi.mock(`sonner`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("sonner")>()),
+  toast: { success: vi.fn(), error: mocks.toastError },
+}))
 
 vi.mock(`@/lib/auth/client`, () => ({
   authClient: { device: mocks.device },
@@ -23,6 +28,7 @@ const resolved = (data: unknown, error: unknown = null) =>
   Promise.resolve({ data, error })
 
 beforeEach(() => {
+  mocks.toastError.mockReset()
   mocks.device.mockReset()
   mocks.device.approve.mockReset()
   mocks.device.deny.mockReset()
@@ -117,8 +123,14 @@ describe(`DeviceVerificationView`, () => {
         `That code has expired. Run the login command again to get a new one.`
       )
     ).toBeTruthy()
-    // Still on the entry step — no approve button appeared.
+    // Still on the entry step — no approve button appeared. The refusal is
+    // about the typed code: inline under the field (FEED-79), not a toast.
     expect(screen.queryByRole(`button`, { name: `Approve` })).toBeNull()
+    expect(screen.getByRole(`alert`).textContent).toContain(`expired`)
+    expect(
+      screen.getByLabelText(`Code`).getAttribute(`aria-invalid`)
+    ).toBe(`true`)
+    expect(mocks.toastError).not.toHaveBeenCalled()
   })
 
   it(`treats an already-decided code as spent`, async () => {
@@ -134,5 +146,25 @@ describe(`DeviceVerificationView`, () => {
         `That code has already been used. Run the login command again.`
       )
     ).toBeTruthy()
+  })
+})
+
+describe(`DeviceVerificationView approve failure`, () => {
+  it(`toasts a failed approve and stays on the confirm step`, async () => {
+    mocks.device.mockReturnValue(
+      resolved({ user_code: `ABCD1234`, status: `pending` })
+    )
+    mocks.device.approve.mockReturnValue(
+      resolved(null, { error: `expired_token`, error_description: `expired` })
+    )
+
+    render(<DeviceVerificationView initialCode="ABCD1234" />)
+    fireEvent.click(screen.getByRole(`button`, { name: `Continue` }))
+    fireEvent.click(await screen.findByRole(`button`, { name: `Approve` }))
+
+    await waitFor(() => expect(mocks.toastError).toHaveBeenCalledTimes(1))
+    expect(mocks.toastError.mock.calls[0][0]).toBe(`Couldn't approve the device`)
+    expect(screen.queryByText(`Device connected.`)).toBeNull()
+    expect(screen.getByRole(`button`, { name: `Approve` })).toBeTruthy()
   })
 })

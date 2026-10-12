@@ -1,6 +1,7 @@
 import {
   AccountPicker,
   DevicePicker,
+  FieldError,
   Label,
   ModelPicker,
   RepositoryPicker,
@@ -195,20 +196,20 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
           className="rounded-md bg-glass-row"
         />
       )}
+      {/* The batch guards are about the PICKED issues (invalid input,
+          FEED-79): the field's own rose line, not a toast. */}
       {model.overCap && (
-        <p className="text-destructive">
+        <FieldError>
           {`At most ${MAX_ISSUES_PER_RUN} issues per run. Split the batch.`}
-        </p>
+        </FieldError>
       )}
       {model.spansRepos && (
-        <p className="text-destructive">
-          Pick issues from a single repository per run.
-        </p>
+        <FieldError>Pick issues from a single repository per run.</FieldError>
       )}
       {model.spansBranches && (
-        <p className="text-destructive">
+        <FieldError>
           Pick issues that branch from a single base branch per run.
-        </p>
+        </FieldError>
       )}
       {model.costHint && <p>Large batches are token-expensive.</p>}
     </div>

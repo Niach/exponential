@@ -22,6 +22,7 @@ import { conceptIcon } from "./icons.generated"
 import { MENU_SURFACE_CLASS } from "./menu-surface"
 import { PickerItemBody, pickerItemKeywords, type PickerItem } from "./picker/picker-item"
 import { Sheet, SheetContent, SheetTitle } from "./sheet"
+import { SkeletonRows } from "./skeleton"
 import type { TypeaheadAnchor } from "./typeahead"
 import { useKeyboardInset } from "./use-keyboard-inset"
 import { useIsMobile } from "./use-mobile"
@@ -281,7 +282,8 @@ export function SearchList<T extends string = string>(props: SearchListProps<T>)
         style={listStyle}
       >
         {loading ? (
-          <ListEmpty>Loading…</ListEmpty>
+          // D8: the placeholder in THIS list's row geometry (32/44px).
+          <SkeletonRows rowHeight={rowHeight} />
         ) : (
           <>
             <CommandEmpty className="">

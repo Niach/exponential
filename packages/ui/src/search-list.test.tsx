@@ -136,4 +136,22 @@ describe(`SearchList`, () => {
     )
     expect(rows()[0]!.className).toContain(`h-11`)
   })
+
+  it(`loading draws skeleton rows at the list's own row height, never the text`, () => {
+    render(
+      <SearchList
+        mode="single"
+        value={null}
+        onChange={vi.fn()}
+        items={ISSUES}
+        density="phone"
+        loading
+      />
+    )
+    expect(screen.queryAllByTestId(spec.testIds.row)).toHaveLength(0)
+    expect(screen.queryByText(`Loading…`)).toBeNull()
+    const skeleton = screen.getByTestId(`feedback-skeleton`)
+    const row = skeleton.querySelector<HTMLElement>(`[data-part=row]`)
+    expect(row?.style.height).toBe(`${spec.row.heightPhone}px`)
+  })
 })

@@ -32,7 +32,3 @@ export const DEVICE_CARD_COPY = {
     action: `Copy install command`,
   },
 } as const
-
-/** @deprecated The checklist's per-entry table is gone (EXP-1270); only the
- *  device-setup block still reads it by this name. Use `DEVICE_CARD_COPY`. */
-export const GETTING_STARTED_COPY = DEVICE_CARD_COPY

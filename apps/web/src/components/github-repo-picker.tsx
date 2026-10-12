@@ -1,10 +1,12 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import type { Board } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { READINESS_COPY, readinessRepoRows } from "@/lib/coding-readiness"
 import type { ReadinessRepoList } from "@/hooks/use-coding-readiness"
 import { isRepoFullName } from "@/lib/repo-full-name"
+import { failedAction } from "@/lib/action-error"
+import { isTransportError } from "@/lib/trpc-error"
 import {
   openGithubConnect,
   openGithubPopup,
@@ -22,7 +24,6 @@ import {
   GH_NO_MATCH,
   GH_NONE_PUSHABLE,
   GH_PICKER_CONNECTED_CHECK,
-  GH_PICKER_LOADING,
   GH_PICKER_NOT_CONFIGURED,
   GH_PICKER_NOT_INSTALLED,
   GH_PICKER_NOT_LINKED,
@@ -36,10 +37,13 @@ import {
 } from "@/lib/github-connect-copy"
 import {
   Button,
+  FieldError,
   Input,
   ListEmpty,
   Pill,
   RepositoryPickerList,
+  SkeletonRows,
+  Spinner,
   conceptIcon,
 } from "@exp/ui"
 
@@ -47,7 +51,6 @@ import {
 export { openGithubPopup, POPUP_BLOCKED_MESSAGE } from "@/lib/github-connect"
 
 const GithubGlyph = conceptIcon(`ui-github`)
-const LoadingGlyph = conceptIcon(`ui-loading`)
 const ExternalLinkGlyph = conceptIcon(`ui-external-link`)
 const AddGlyph = conceptIcon(`ui-add`)
 const RefreshGlyph = conceptIcon(`ui-refresh`)
@@ -146,12 +149,14 @@ function GithubSource({
 }: GithubSourceProps) {
   const [data, setData] = useState<ReposResult | null>(null)
   const [loading, setLoading] = useState(true)
-  const [popupBlocked, setPopupBlocked] = useState(false)
   // FEED-30: the "Add by name" escape hatch's own state.
   const [lookupName, setLookupName] = useState(``)
   const [lookupBusy, setLookupBusy] = useState(false)
   const [lookupError, setLookupError] = useState<string | null>(null)
 
+  // FEED-79: a failed load toasts ONCE per failing streak (every window
+  // focus re-lists, so a down server must not toast on each one).
+  const loadFailedRef = useRef(false)
   const refresh = useCallback(
     async (force = false) => {
       setLoading(true)
@@ -162,8 +167,15 @@ function GithubSource({
             ...(force ? { refresh: true } : {}),
           })
         )
-      } catch {
+        loadFailedRef.current = false
+      } catch (error) {
         // Leave `data` as-is; the configured/linked branches degrade safely.
+        if (!loadFailedRef.current) {
+          loadFailedRef.current = true
+          failedAction(`load`, `your GitHub repositories`, error, {
+            retry: () => void refresh(true),
+          })
+        }
       } finally {
         setLoading(false)
       }
@@ -183,17 +195,19 @@ function GithubSource({
     return () => window.removeEventListener(`focus`, onFocus)
   }, [refresh])
 
-  // The guided page (Connect GitHub, then Install the app) in a popup.
+  // The guided page (Connect GitHub, then Install the app) in a popup. A
+  // blocked popup is a failed connect: a toast whose Retry re-opens it (the
+  // click on Retry is a fresh user gesture).
   const openConnect = () => {
-    setPopupBlocked(!openGithubConnect({ teamId }))
+    if (openGithubConnect({ teamId })) return
+    failedAction(`connect`, `GitHub`, POPUP_BLOCKED_MESSAGE, { retry: openConnect })
   }
 
   // GitHub's account picker (installations/new) — the way to a second
   // account/org once the first one is installed.
   const openInstall = () => {
-    setPopupBlocked(
-      !openGithubPopup(data?.installUrl) && Boolean(data?.installUrl)
-    )
+    if (openGithubPopup(data?.installUrl) || !data?.installUrl) return
+    failedAction(`install`, `the GitHub app`, POPUP_BLOCKED_MESSAGE, { retry: openInstall })
   }
 
   const lookup = async () => {
@@ -209,18 +223,24 @@ function GithubSource({
       setLookupName(``)
       onSelect(repo)
     } catch (err) {
-      setLookupError(err instanceof Error ? err.message : String(err))
+      // The server's reason is about the typed name (not installed there,
+      // no push access): the field's own line. Offline is a failed action.
+      if (isTransportError(err)) {
+        failedAction(`look up`, `the repository`, err, { retry: () => void lookup() })
+      } else {
+        setLookupError(err instanceof Error ? err.message : String(err))
+      }
     } finally {
       setLookupBusy(false)
     }
   }
 
+  // First load: the list's rows as placeholders (EXP-1259 D8).
   if (loading && !data) {
     return (
-      <div className="flex items-center gap-2 rounded-md border px-3 py-6 text-sm text-muted-foreground">
-        <LoadingGlyph className="h-4 w-4 animate-spin" />
-        {GH_PICKER_LOADING}
-      </div>
+      <SkeletonRows
+        className={variant === `plain` ? undefined : `rounded-md border`}
+      />
     )
   }
 
@@ -272,9 +292,6 @@ function GithubSource({
             {GH_PICKER_CONNECTED_CHECK}
           </Pill>
         </div>
-        {popupBlocked && (
-          <p className="text-xs text-destructive">{POPUP_BLOCKED_MESSAGE}</p>
-        )}
       </div>
     )
   }
@@ -295,10 +312,6 @@ function GithubSource({
             {ghPickerSuspendedBanner(suspendedAccounts)}
           </span>
         </div>
-      )}
-
-      {popupBlocked && (
-        <p className="text-xs text-destructive">{POPUP_BLOCKED_MESSAGE}</p>
       )}
 
       {!empty && (
@@ -388,6 +401,7 @@ function GithubSource({
             }}
             placeholder={GH_LOOKUP_PLACEHOLDER}
             aria-label={GH_LOOKUP_A11Y}
+            aria-invalid={lookupError ? true : undefined}
             spellCheck={false}
             autoCapitalize="none"
             className="h-8 font-mono text-xs"
@@ -397,15 +411,11 @@ function GithubSource({
             disabled={!isRepoFullName(lookupName.trim()) || lookupBusy}
             onClick={() => void lookup()}
           >
-            {lookupBusy ? <LoadingGlyph className="animate-spin" /> : null}
+            {lookupBusy ? <Spinner /> : null}
             {GH_LOOK_UP}
           </Pill>
         </div>
-        {lookupError && (
-          <p className="text-destructive" data-testid="repo-lookup-error">
-            {lookupError}
-          </p>
-        )}
+        <FieldError data-testid="repo-lookup-error">{lookupError}</FieldError>
       </div>
     </div>
   )

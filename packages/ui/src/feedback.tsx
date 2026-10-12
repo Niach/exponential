@@ -1,3 +1,4 @@
+import type * as React from "react"
 import { useEffect, useId, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { createRoot } from "react-dom/client"
@@ -11,6 +12,7 @@ import {
 import { Spinner } from "@exponential-at/ui-react/primitives/spinner"
 
 import { cn } from "./cn"
+import { toast } from "./toast"
 import { useMediaQuery } from "./use-media-query"
 
 // EXP-1275 (EXP-1259 D8): THE feedback states on the web, one system ×4 off
@@ -252,4 +254,53 @@ export async function whileBlocking<T>(label: string, work: () => Promise<T>): P
 /** Fill a blocking line's `{team}` / `{account}`. */
 export function blockingLabel(kind: keyof typeof BLOCKING_COPY, name = ``): string {
   return BLOCKING_COPY[kind].replace(`{team}`, name).replace(`{account}`, name)
+}
+
+// FEED-79 (EXP-1259 D10): THE error rule, feedback-states.json `errors`. A
+// failed ACTION is a toast (`toastActionError`); INVALID INPUT is the
+// field's own 13px rose line (`FieldError`) next to a red field border
+// (`aria-invalid`). Nothing else draws an error inline.
+
+export const FEEDBACK_ERRORS = FEEDBACK_STATES.errors
+
+/** `Couldn't <verb> <thing>`, the failed action's toast title. */
+export function actionErrorTitle(verb: string, thing: string): string {
+  return FEEDBACK_ERRORS.titlePattern.replace(`{verb}`, verb).replace(`{thing}`, thing)
+}
+
+/** A failed action: `toast.error(title, { description, action: Retry })`.
+ *  Pass `retry` only when re-running the same call is safe. */
+export function toastActionError(
+  title: string,
+  options: { description?: string; retry?: () => void; id?: string | number } = {}
+): string | number {
+  const { description, retry, id } = options
+  return toast.error(title, {
+    id,
+    description,
+    action: retry ? { label: FEEDBACK_ERRORS.retry, onClick: () => retry() } : undefined,
+  })
+}
+
+/** INVALID INPUT: the line under its field, 13px in the rose foreground. Pair
+ *  it with `aria-invalid` on the field (the red border). Renders nothing
+ *  without a message. */
+export function FieldError({
+  children,
+  className,
+  style,
+  ...props
+}: Omit<React.ComponentProps<`p`>, `role`>) {
+  if (children === undefined || children === null || children === false || children === ``) return null
+  return (
+    <p
+      {...props}
+      data-slot="field-error"
+      role="alert"
+      className={cn(`leading-5 text-destructive`, className)}
+      style={{ fontSize: FEEDBACK_ERRORS.inline.size, ...style }}
+    >
+      {children}
+    </p>
+  )
 }

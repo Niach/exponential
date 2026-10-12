@@ -3,12 +3,21 @@ import {
   ArrowRightLeft,
   Check,
   CreditCard,
-  LoaderCircle,
   Minus,
   Plus,
 } from "lucide-react"
-import { Button, GlassGroup, Pill, Input, Label, Switch, toast } from "@exp/ui"
+import {
+  Button,
+  FEEDBACK_WORDS,
+  GlassGroup,
+  Pill,
+  Input,
+  Label,
+  Switch,
+  toast,
+} from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import type { PlanTier } from "@/lib/billing"
 import {
   invalidateBillingCache,
@@ -167,12 +176,10 @@ export function PlanComparison({
       await onCheckout(productId, quantity)
       return
     }
-    const { url } = await trpc.billing.createSeatCheckout.mutate({
-      teamId,
-      productId,
-      seats: quantity,
-      successUrl: window.location.href,
-    })
+    const { url } = await trpc.billing.createSeatCheckout.mutate(
+      { teamId, productId, seats: quantity, successUrl: window.location.href },
+      SKIP_ERROR_TOAST
+    )
     if (url) window.location.href = url
   }
 
@@ -184,11 +191,7 @@ export function PlanComparison({
       await startCheckout(productId, seats)
     } catch (err) {
       console.error(`[billing] checkout failed:`, err)
-      toast.error(
-        err instanceof Error && err.message
-          ? err.message
-          : `Couldn't start checkout. Try again.`
-      )
+      failedAction(`start`, `checkout`, err)
     } finally {
       setLoading(null)
     }
@@ -199,16 +202,12 @@ export function PlanComparison({
     if (!productId) return
     setLoading(tier)
     try {
-      await trpc.billing.changePlan.mutate({ teamId, productId })
+      await trpc.billing.changePlan.mutate({ teamId, productId }, SKIP_ERROR_TOAST)
       invalidateBillingCache()
       toast.success(`Plan updated`)
     } catch (err) {
       console.error(`[billing] plan change failed:`, err)
-      toast.error(
-        err instanceof Error && err.message
-          ? err.message
-          : `Couldn't change the plan`
-      )
+      failedAction(`change`, `the plan`, err)
     } finally {
       setLoading(null)
     }
@@ -324,16 +323,12 @@ export function PlanComparison({
                           size="sm"
                           onClick={() => handleCheckout(t.tier)}
                           disabled={loading !== null}
+                          pending={loading === t.tier}
+                          pendingLabel={FEEDBACK_WORDS.inline.loading}
                         >
-                          {loading === t.tier ? (
-                            <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />
-                          ) : (
-                            <CreditCard className="mr-1.5 size-3.5" />
-                          )}
+                          <CreditCard className="mr-1.5 size-3.5" />
                           <span className="truncate">
-                            {loading === t.tier
-                              ? `Loading...`
-                              : `Upgrade${seats > 1 ? ` · ${seats} seats` : ``}`}
+                            {`Upgrade${seats > 1 ? ` · ${seats} seats` : ``}`}
                           </span>
                         </Button>
                       </>
@@ -346,13 +341,11 @@ export function PlanComparison({
                           size="sm"
                           onClick={() => handleSwitchPlan(t.tier)}
                           disabled={loading !== null}
+                          pending={loading === t.tier}
+                          pendingLabel={FEEDBACK_WORDS.pending.save}
                         >
-                          {loading === t.tier ? (
-                            <LoaderCircle className="mr-1.5 size-3.5 animate-spin" />
-                          ) : (
-                            <ArrowRightLeft className="mr-1.5 size-3.5" />
-                          )}
-                          {loading === t.tier ? `Switching...` : `Switch plan`}
+                          <ArrowRightLeft className="mr-1.5 size-3.5" />
+                          Switch plan
                         </Button>
                         <p className="text-center text-[11px] leading-snug text-muted-foreground">
                           Applies now · billed at your next renewal

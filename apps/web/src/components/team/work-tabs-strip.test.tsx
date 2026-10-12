@@ -161,3 +161,24 @@ describe(`WorkTabsStrip New run (EXP-1255)`, () => {
     expect(screen.getByTestId(`work-tab-issue:i1`).getAttribute(`data-active`)).toBeNull()
   })
 })
+
+// EXP-1259 D8: a tab whose subject has not synced yet keeps its chip but
+// draws a short placeholder bar in the label slot, never "Loading…".
+describe(`WorkTabsStrip unloaded subject (D8)`, () => {
+  beforeEach(() => {
+    issues.value = []
+    pathname.value = `/t/acme/inbox`
+  })
+
+  it(`keeps the tab and draws the placeholder bar instead of text`, () => {
+    tabs.value = [
+      { kind: `issue`, issueId: `i9`, face: `issue`, runId: null, from: null, live: false },
+    ]
+    renderStrip()
+    const tab = screen.getByTestId(`work-tab-issue:i9`)
+    expect(
+      tab.querySelector(`[data-testid=work-tab-title-placeholder]`)
+    ).not.toBeNull()
+    expect(screen.queryByText(`Loading…`)).toBeNull()
+  })
+})

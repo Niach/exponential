@@ -154,7 +154,7 @@ function FoldedRow({
         {expandable && (
           <ChevronIcon
             className={cn(
-              `size-3.5 transition-transform duration-150 motion-reduce:transition-none`,
+              `size-3.5 transition-transform duration-fast ease-standard motion-reduce:transition-none`,
               open && `rotate-90`
             )}
           />

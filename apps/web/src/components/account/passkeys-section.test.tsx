@@ -1,11 +1,20 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { PasskeysSection } from "@/components/account/passkeys-section"
 
 // EXP-1209: the last passkey (waysIn <= 1) is blocked up front, with the
 // same "your only way to sign in" label the provider rows use.
 
-const mockState = vi.hoisted(() => ({ listUserPasskeys: vi.fn() }))
+const mockState = vi.hoisted(() => ({
+  listUserPasskeys: vi.fn(),
+  toastError: vi.fn(),
+}))
+
+// FEED-79: a failed load is a toast over the empty state, never a rose line.
+vi.mock(`sonner`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("sonner")>()),
+  toast: { success: vi.fn(), error: mockState.toastError },
+}))
 
 vi.mock(`@/lib/auth/client`, () => ({
   authClient: {
@@ -21,6 +30,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
 }))
 
 beforeEach(() => {
+  mockState.toastError.mockReset()
   mockState.listUserPasskeys.mockReset()
   mockState.listUserPasskeys.mockResolvedValue({
     data: [
@@ -50,5 +60,22 @@ describe(`PasskeysSection last way in`, () => {
     expect((remove as HTMLButtonElement).disabled).toBe(false)
     expect(screen.getByText(/synced across your devices/)).toBeTruthy()
     expect(screen.queryByText(/your only way to sign in/)).toBeNull()
+  })
+})
+
+describe(`PasskeysSection load failure`, () => {
+  it(`toasts once with Retry and draws the empty state`, async () => {
+    mockState.listUserPasskeys.mockResolvedValue({
+      data: null,
+      error: { message: `Server unavailable` },
+    })
+    render(<PasskeysSection passkeyEnabled waysIn={2} />)
+    await waitFor(() => expect(mockState.toastError).toHaveBeenCalledTimes(1))
+    const [title, options] = mockState.toastError.mock.calls[0]
+    expect(title).toBe(`Couldn't load your passkeys`)
+    expect(options.description).toBe(`Server unavailable`)
+    expect(options.action?.label).toBeTruthy()
+    expect(screen.queryByRole(`button`, { name: `Remove` })).toBeNull()
+    expect(screen.queryByRole(`alert`)).toBeNull()
   })
 })

@@ -108,6 +108,10 @@ html {
   --ease-standard: var(--motion-ease-standard);
   --ease-decelerate: var(--motion-ease-decelerate);
   --ease-accelerate: var(--motion-ease-accelerate);
+  /* EXP-1243: a bare `transition-*` (no duration class) runs on the `fast`
+     token + the `standard` curve instead of Tailwind's 150ms ease. */
+  --default-transition-duration: var(--motion-duration-fast);
+  --default-transition-timing-function: var(--motion-ease-standard);
 
   /* EXP-887 — the app face as a theme token: `font-sans` and Tailwind's own
      `--default-font-family` preflight now resolve to the stack the base
@@ -525,6 +529,115 @@ html {
 @utility duration-slow {
   --tw-duration: var(--motion-duration-slow);
   transition-duration: var(--motion-duration-slow);
+}
+
+/* EXP-1243 (EXP-1259 D17): the motion RECIPES, tokens.json `motion` $comment
+   (the animations.dev rules) in four utilities, so no call site spells a
+   duration, an easing or a scale. Enters decelerate at `standard`, exits
+   accelerate at `fast` with opacity only. Under reduce motion every one is a
+   plain fade: the scale and translate vars are pinned to identity (with
+   !important so a call site's `slide-in-from-*` cannot win).
+   - motion-popover: menus, popovers, selects, hover cards, tooltips. Enters
+     FROM the trigger (the call site's `origin-(--radix-*-transform-origin)`)
+     scaling from `scale.popoverFrom`, never from 0. A tooltip's
+     `instant-open` (moving between tooltips) does not animate.
+   - motion-dialog: the centred dialog panel, the same enter as a popover
+     from the centre.
+   - motion-sheet: drawers and bottom sheets; the call site's
+     `slide-in-from-<side>` / `slide-out-to-<side>` give the direction,
+     entering at `slow`.
+   - motion-press: a button pressing to `scale.press`.
+   - motion-enter / motion-enter-pop: a NON-Radix element mounting (a bar,
+     a swapped row, a pushed page): fade (+ the call site's `slide-in-*`),
+     `-pop` also scaling from `scale.popoverFrom`. */
+@utility motion-popover {
+  &:is([data-state="open"], [data-state="delayed-open"]) {
+    @apply animate-in;
+    --tw-duration: var(--motion-duration-standard);
+    --tw-ease: var(--motion-ease-decelerate);
+    --tw-enter-opacity: 0;
+    --tw-enter-scale: var(--motion-scale-popover-from);
+  }
+  &[data-state="closed"] {
+    @apply animate-out;
+    --tw-duration: var(--motion-duration-fast);
+    --tw-ease: var(--motion-ease-accelerate);
+    --tw-exit-opacity: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    --tw-enter-scale: 1 !important;
+  }
+}
+
+@utility motion-dialog {
+  &[data-state="open"] {
+    @apply animate-in;
+    --tw-duration: var(--motion-duration-standard);
+    --tw-ease: var(--motion-ease-decelerate);
+    --tw-enter-opacity: 0;
+    --tw-enter-scale: var(--motion-scale-popover-from);
+  }
+  &[data-state="closed"] {
+    @apply animate-out;
+    --tw-duration: var(--motion-duration-fast);
+    --tw-ease: var(--motion-ease-accelerate);
+    --tw-exit-opacity: 0;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    --tw-enter-scale: 1 !important;
+  }
+}
+
+@utility motion-sheet {
+  &[data-state="open"] {
+    @apply animate-in;
+    --tw-duration: var(--motion-duration-slow);
+    --tw-ease: var(--motion-ease-decelerate);
+    --tw-enter-opacity: 1;
+    --tw-enter-scale: 1;
+  }
+  &[data-state="closed"] {
+    @apply animate-out;
+    --tw-duration: var(--motion-duration-standard);
+    --tw-ease: var(--motion-ease-accelerate);
+    --tw-exit-opacity: 1;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    --tw-enter-opacity: 0 !important;
+    --tw-exit-opacity: 0 !important;
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 0 !important;
+    --tw-exit-translate-x: 0 !important;
+    --tw-exit-translate-y: 0 !important;
+  }
+}
+
+@utility motion-press {
+  &:active:not(:disabled, [aria-disabled="true"]) {
+    scale: var(--motion-scale-press);
+  }
+  @media (prefers-reduced-motion: reduce) {
+    &:active {
+      scale: none;
+    }
+  }
+}
+
+@utility motion-enter {
+  @apply animate-in;
+  --tw-duration: var(--motion-duration-standard);
+  --tw-ease: var(--motion-ease-decelerate);
+  --tw-enter-opacity: 0;
+  @media (prefers-reduced-motion: reduce) {
+    --tw-enter-scale: 1 !important;
+    --tw-enter-translate-x: 0 !important;
+    --tw-enter-translate-y: 0 !important;
+  }
+}
+
+@utility motion-enter-pop {
+  @apply motion-enter;
+  --tw-enter-scale: var(--motion-scale-popover-from);
 }
 
 @utility glass-panel {

@@ -436,7 +436,9 @@ describe(`Combobox — shell`, () => {
       />
     )
     open()
-    expect(screen.getByText(`Loading…`)).toBeTruthy()
+    // D8: skeleton rows in the list's geometry, never the text.
+    expect(screen.getByTestId(`feedback-skeleton`)).toBeTruthy()
+    expect(screen.queryByText(`Loading…`)).toBeNull()
     expect(rows()).toHaveLength(0)
 
     rerender(

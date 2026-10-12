@@ -23,7 +23,6 @@
 // them against the native sources.
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
-import { LoaderCircle } from "lucide-react"
 import type { CodingSession, Device, DeviceAgentHealth } from "@/db/schema"
 import { conceptIcon, Button, IconTooltip, ListRow, useIsMobile, toast } from "@exp/ui"
 import { codingSessionCollection, deviceCollection } from "@/lib/collections"
@@ -32,6 +31,7 @@ import { runHasEnded } from "@/lib/past-runs"
 import { useOpenSession } from "@/hooks/use-open-session"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorMessage } from "@/lib/trpc-error"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   agentProfileUsageRows,
   healthBadgeLabel,
@@ -311,6 +311,8 @@ export function useSessionAccountSwitch(
     openSession(match)
   }, [sessionRows, pending, session.id, session.userId, openSession])
 
+  // A toast's Retry runs the LATEST switch (fresh options and pending).
+  const switchRef = useRef<(profileId: string) => void>(() => {})
   const switchTo = (profileId: string) => {
     if (pending) return
     const option = options.find((entry) => entry.profileId === profileId)
@@ -329,7 +331,7 @@ export function useSessionAccountSwitch(
           // the only thing that lets a resume ride a LIVE run.
           account: profileId,
         },
-        { context: { skipErrorToast: true } }
+        SKIP_ERROR_TOAST
       )
       .then(() => {
         if (deadlineRef.current) clearTimeout(deadlineRef.current)
@@ -342,14 +344,18 @@ export function useSessionAccountSwitch(
       })
       .catch((error: unknown) => {
         setPending(null)
-        toast.error(`Couldn't switch the account`, {
+        // FEED-79: nothing started, so Retry asks the machine again.
+        failedAction(`switch`, `the account`, error, {
           description: trpcErrorMessage(
             error,
             `The machine refused to continue this run on that account.`
           ),
+          retry: () => switchRef.current(profileId),
         })
       })
   }
+
+  switchRef.current = switchTo
 
   return { options, switchingTo: pending?.profileId ?? null, switchTo }
 }
@@ -445,14 +451,11 @@ function SessionAccountRow({
               size="icon"
               className="shrink-0"
               disabled={blocked !== null || busy}
+              pending={switching}
               onClick={onSwitch}
               aria-label={SWITCH_LABEL}
             >
-              {switching ? (
-                <LoaderCircle className="animate-spin" />
-              ) : (
-                <SwapIcon />
-              )}
+              <SwapIcon />
             </Button>
           </span>
         </IconTooltip>

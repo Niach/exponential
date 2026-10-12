@@ -1,5 +1,5 @@
 import type { CodingSession } from "@/db/schema"
-import { conceptIcon, Pill } from "@exp/ui"
+import { conceptIcon, FEEDBACK_WORDS, Pill, Spinner } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import { useKillSession } from "@/hooks/use-kill-session"
 import { useResumeRun } from "@/hooks/use-resume-run"
@@ -13,7 +13,6 @@ import { useSessionDevice } from "@/hooks/use-session-device"
 
 const CodingStopIcon = conceptIcon(`coding-stop`)
 const RunResumeIcon = conceptIcon(`run-resume`)
-const UiLoadingIcon = conceptIcon(`ui-loading`)
 
 export const STOP_LABEL = `Stop`
 export const RESUME_LABEL = `Resume`
@@ -41,6 +40,11 @@ const HEADER_PILL_CLASS = `h-9`
 export const PLACEMENT_GLYPH: Record<RunPillPlacement, string> = {
   tray: `size-3`,
   header: `size-4`,
+}
+/** The pending Spinner in that glyph's slot (px). */
+const PLACEMENT_SPINNER: Record<RunPillPlacement, number> = {
+  tray: 12,
+  header: 16,
 }
 
 export function placementClass(placement: RunPillPlacement): string | undefined {
@@ -131,14 +135,14 @@ export function ResumeRunPill({
       title="Resume this run"
       data-testid="run-resume-pill"
     >
+      {/* The pending state (feedback-states D8.2): the Spinner in the glyph
+          slot and the progressive word, until the resumed row opens. */}
       {resuming ? (
-        <UiLoadingIcon
-          className={cn(PLACEMENT_GLYPH[placement], `animate-spin`)}
-        />
+        <Spinner size={PLACEMENT_SPINNER[placement]} className="text-current" />
       ) : (
         <RunResumeIcon className={PLACEMENT_GLYPH[placement]} />
       )}
-      {RESUME_LABEL}
+      {resuming ? FEEDBACK_WORDS.pending.start : RESUME_LABEL}
     </Pill>
   )
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { toast } from "@exp/ui"
+import { actionErrorTitle, toast } from "@exp/ui"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import { useLiveQuery } from "@tanstack/react-db"
 import type { CodingSession, Device, User } from "@/db/schema"
@@ -52,18 +53,20 @@ import {
  * used to be re-exported by the launch dialog, which is gone). */
 export type StartCodingOptions = CodingLaunchPrefs
 
-/** EXP-792 (EXP-747 A2): the failure toast, with a "Sign in" action when the
- * refusal is one a remote sign-in can fix — the agent signed out on the
- * machine, not installed there, or any other precondition the desktop
- * refuses on — and the machine can run `agent_login` for the caller: one of
- * their OWN devices with the cap (EXP-849: every agent has a device-code
- * flow). Everything else stays a plain toast. */
+/** EXP-792 (EXP-747 A2): the failure toast, `Couldn't start the run`
+ * (FEED-79), with a "Sign in" action when the refusal is one a remote
+ * sign-in can fix — the agent signed out on the machine, not installed
+ * there, or any other precondition the desktop refuses on — and the machine
+ * can run `agent_login` for the caller: one of their OWN devices with the
+ * cap (EXP-849: every agent has a device-code flow). Everything else offers
+ * the caller's Retry (nothing started, so starting again is safe). */
 function startFailureToast(
-  title: string,
   error: unknown,
   device: SteerDevice,
-  agent: string
+  agent: string,
+  retry?: () => void
 ) {
+  const title = actionErrorTitle(`start`, `the run`)
   const description = trpcErrorMessage(
     error,
     `The start command could not be delivered`
@@ -74,7 +77,7 @@ function startFailureToast(
     deviceIsMine(device) &&
     deviceCanAgentLogin(device)
   if (!canSignIn) {
-    toast.error(title, { description })
+    failedAction(`start`, `the run`, error, { description, retry })
     return
   }
   toast.error(title, {
@@ -104,16 +107,19 @@ export interface RemoteStart {
    * synced row appears (its session page opens) or once the watch deadline
    * passes without one. */
   sentTo: string | null
-  /** Resolves on delivery, rejects on failure (toast already shown).
+  /** Resolves on delivery, rejects on failure (toast already shown; its
+   * Retry runs `retry`, the caller's re-submit).
    * EXP-825: `prompt` is the composer's free text (with its image embeds,
    * `buildSteerImageMessage`) — the run's "Additional instructions". */
   startIssues: (
     device: SteerDevice,
     options: StartCodingOptions,
     issueIds: string[],
-    prompt?: string
+    prompt?: string,
+    retry?: () => void
   ) => Promise<void>
-  /** Resolves on delivery, rejects on failure (toast already shown).
+  /** Resolves on delivery, rejects on failure (toast already shown; its
+   * Retry runs `retry`).
    * EXP-825: `prompt` is REQUIRED for the Chat and Create action builtins
    * (it IS the request) and optional instructions for any other action. */
   runAction: (
@@ -121,7 +127,8 @@ export interface RemoteStart {
     action: RemoteStartAction,
     options: StartCodingOptions,
     inputs?: Record<string, string>,
-    prompt?: string
+    prompt?: string,
+    retry?: () => void
   ) => Promise<void>
   /** EXP-1271: stop watching for the last start's run (the composer's own
    * 30 s starting deadline gave up on it): `sentTo` clears, nothing opens and
@@ -278,7 +285,8 @@ export function useRemoteStart(
     device: SteerDevice,
     options: StartCodingOptions,
     issueIds: string[],
-    prompt?: string
+    prompt?: string,
+    retry?: () => void
   ) => {
     const key = startedRunKeyForIssues(issueIds)
     if (!key) return
@@ -304,16 +312,11 @@ export function useRemoteStart(
               ...(resume ? { resume } : {}),
             }
           : { issueIds, ...base },
-        { context: { skipErrorToast: true } }
+        SKIP_ERROR_TOAST
       )
       markSent(device.deviceLabel, key)
     } catch (error) {
-      startFailureToast(
-        `Couldn't start on your desktop`,
-        error,
-        device,
-        options.agent
-      )
+      startFailureToast(error, device, options.agent, retry)
       throw error
     } finally {
       setStarting(false)
@@ -325,7 +328,8 @@ export function useRemoteStart(
     action: RemoteStartAction,
     options: StartCodingOptions,
     inputs?: Record<string, string>,
-    prompt?: string
+    prompt?: string,
+    retry?: () => void
   ) => {
     setStarting(true)
     try {
@@ -342,16 +346,11 @@ export function useRemoteStart(
           ...(prompt && prompt.trim() ? { prompt } : {}),
           ...rest,
         },
-        { context: { skipErrorToast: true } }
+        SKIP_ERROR_TOAST
       )
       markSent(device.deviceLabel, { kind: `action`, actionName: action.name })
     } catch (error) {
-      startFailureToast(
-        `Couldn't run the action on your desktop`,
-        error,
-        device,
-        options.agent
-      )
+      startFailureToast(error, device, options.agent, retry)
       throw error
     } finally {
       setStarting(false)

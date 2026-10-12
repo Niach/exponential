@@ -6,9 +6,11 @@ import {
 } from "@tanstack/react-router"
 import { ShieldBan, ShieldCheck } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   Pill,
   Button,
+  FEEDBACK_WORDS,
   Input,
   ListEmpty,
   Select,
@@ -21,7 +23,11 @@ import {
   TabsList,
   TabsTrigger,
 } from "@exp/ui"
-import { AdminCard, EmailDeliveriesTable, formatRelative } from "./-shared"
+import {
+  AdminLoadFailure,
+  EmailDeliveriesTable,
+  formatRelative,
+} from "./-shared"
 import { pageTitle } from "@/lib/page-title"
 
 type BounceRow = Awaited<
@@ -119,24 +125,7 @@ export const Route = createFileRoute(`/_authenticated/admin/email`)({
 })
 
 function EmailError({ error }: ErrorComponentProps) {
-  const router = useRouter()
-  return (
-    <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
-      <h1 className="text-2xl font-bold">Email health</h1>
-      <AdminCard
-        title="Couldn’t load email data"
-        description={error instanceof Error ? error.message : String(error)}
-      >
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => void router.invalidate()}
-        >
-          Retry
-        </Button>
-      </AdminCard>
-    </div>
-  )
+  return <AdminLoadFailure heading="Email health" thing="email data" error={error} />
 }
 
 // All outbound email (the email_deliveries ledger) + bounce/complaint
@@ -147,7 +136,6 @@ function AdminEmail() {
   const { bounces, deliveries } = Route.useLoaderData()
   const search = Route.useSearch()
   const navigate = Route.useNavigate()
-  const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null)
 
   // Cursor pages fetched past the loader's first page. Reset whenever the
@@ -181,7 +169,6 @@ function AdminEmail() {
   const loadMore = async () => {
     const last = allRows[allRows.length - 1]
     if (!last) return
-    setError(null)
     setLoadingMore(true)
     try {
       const page = await trpc.admin.listEmailDeliveries.query({
@@ -195,20 +182,21 @@ function AdminEmail() {
       })
       setExtraPages((pages) => [...pages, page])
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      failedAction(`load`, `more emails`, err, { retry: () => void loadMore() })
     } finally {
       setLoadingMore(false)
     }
   }
 
   const handleSuppress = async (row: BounceRow) => {
-    setError(null)
     setBusy(row.id)
     try {
-      await trpc.admin.suppressEmailBounce.mutate({ bounceId: row.id })
+      await trpc.admin.suppressEmailBounce.mutate({ bounceId: row.id }, SKIP_ERROR_TOAST)
       await router.invalidate()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      failedAction(`suppress`, `the address`, err, {
+        retry: () => void handleSuppress(row),
+      })
     } finally {
       setBusy(null)
     }
@@ -223,12 +211,6 @@ function AdminEmail() {
           bounced or complained.
         </p>
       </div>
-
-      {error && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </div>
-      )}
 
       <Tabs
         value={search.tab ?? `sent`}
@@ -326,10 +308,11 @@ function AdminEmail() {
                 <Button
                   variant="outline"
                   size="sm"
-                  disabled={loadingMore}
+                  pending={loadingMore}
+                  pendingLabel={FEEDBACK_WORDS.inline.loading}
                   onClick={() => void loadMore()}
                 >
-                  {loadingMore ? `Loading…` : `Load more`}
+                  Load more
                 </Button>
               )}
             </>
@@ -420,6 +403,7 @@ function AdminEmail() {
                         <Button
                           variant="outline"
                           size="sm"
+                          pending={busy === row.id}
                           disabled={busy !== null}
                           onClick={() => handleSuppress(row)}
                         >

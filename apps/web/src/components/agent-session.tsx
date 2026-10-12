@@ -86,6 +86,7 @@ import {
   WorkCard,
   ScriptCard,
   STARTING_COPY,
+  SkeletonRows,
   type WorkCardLaneTarget,
 } from "@exp/ui"
 import { Empty } from "@/components/empty"
@@ -1865,8 +1866,13 @@ export function AgentSessionView({
                 (phase.kind === `connecting` ||
                   phase.kind === `starting` ||
                   phase.kind === `history_pending`) ? (
-                <CenteredState>
-                  <UiLoadingIcon className="size-4 animate-spin text-muted-foreground" />
+                /* EXP-1259 D8.3: the transcript's first load = placeholder
+                   rows in its own column, the phase as a muted caption. */
+                <div
+                  className={cn(TRANSCRIPT_COLUMN, `flex flex-col gap-2 py-4`)}
+                  data-testid="transcript-placeholder"
+                >
+                  <SkeletonRows rowHeight={36} className="-mx-3" />
                   <span className="text-xs text-muted-foreground">
                     {/* EXP-773: a finished run's transcript is a file on the
                         device — the relay is asking it to republish. */}
@@ -1876,7 +1882,7 @@ export function AgentSessionView({
                         ? `The agent is starting. Waiting for the live stream…`
                         : `Connecting…`}
                   </span>
-                </CenteredState>
+                </div>
               ) : feedPlaceholder && live && !latestDiff ? (
                 <CenteredState>
                   <EmptyState

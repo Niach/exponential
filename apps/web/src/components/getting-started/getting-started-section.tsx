@@ -16,6 +16,7 @@ import type { GettingStartedTarget } from "@/components/getting-started/getting-
 import { CreateBoardDialog } from "@/components/create-board-dialog"
 import { AddDeviceDialog } from "@/components/add-device-dialog"
 import { InviteMemberForm } from "@/components/team/invite-member-form"
+import { McpSetupDialog } from "@/components/getting-started/mcp-setup-tabs"
 import type { Team } from "@/db/schema"
 
 // EXP-1270 (EXP-1259 D6, `getting-started.json`): Getting started = ONE
@@ -67,7 +68,7 @@ export function GettingStartedBlock({
   const navigate = useNavigate()
   const openComposer = useOpenComposer()
   const [dialog, setDialog] = useState<
-    `create-board` | `add-device` | `invite` | null
+    `create-board` | `add-device` | `invite` | `mcp` | null
   >(null)
 
   const run = (target: GettingStartedTarget) => {
@@ -75,6 +76,9 @@ export function GettingStartedBlock({
       case `create-board`:
       case `add-device`:
       case `invite`:
+      // The per-client setup instructions (Claude, ChatGPT, Codex, Cursor…);
+      // the card turns done once an MCP grant or API key exists.
+      case `mcp`:
         setDialog(target)
         return
       // The device-setup block has no tabs on the web: both cards (the
@@ -93,13 +97,6 @@ export function GettingStartedBlock({
         onLeave?.()
         openComposer({}, { origin: null })
         focusComposerField()
-        return
-      case `mcp`:
-        onLeave?.()
-        void navigate({
-          to: `/t/$teamSlug/settings/mcp-servers`,
-          params: { teamSlug },
-        })
         return
       case `widget`:
         onLeave?.()
@@ -135,6 +132,10 @@ export function GettingStartedBlock({
         open={dialog === `add-device`}
         onOpenChange={(open) => setDialog(open ? `add-device` : null)}
         origin={origin}
+      />
+      <McpSetupDialog
+        open={dialog === `mcp`}
+        onOpenChange={(open) => setDialog(open ? `mcp` : null)}
       />
       <InviteDialog
         open={dialog === `invite`}

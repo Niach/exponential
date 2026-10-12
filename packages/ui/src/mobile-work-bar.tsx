@@ -107,7 +107,7 @@ export function MobileWorkBar({
           slots. */}
       <span aria-hidden className={DETAIL_EDGE_BOTTOM_CLASS} />
       {isExpanded ? (
-        <div className="pointer-events-auto min-w-0 flex-1 animate-in fade-in zoom-in-95 duration-fast ease-standard motion-reduce:animate-none">
+        <div className="pointer-events-auto min-w-0 flex-1 motion-enter-pop">
           {expanded}
         </div>
       ) : (

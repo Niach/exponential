@@ -14,13 +14,15 @@ import {
   conceptIcon,
   Button,
   FabButton,
+  FEEDBACK_WORDS,
   MOBILE_WORK_CAPSULE_CLASS,
   Pill,
   PILL_PRIMARY_PAINT,
   type buttonVariants,
   Prompt,
-  toast,
+  Spinner,
 } from "@exp/ui"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { contract } from "@exp/domain-contract"
 import { BUILTIN_FIX_CONFLICTS_ID } from "@/lib/builtin-actions"
 import { mergeFailure, type MergeFailure } from "@/lib/merge-failure"
@@ -70,7 +72,6 @@ export const MERGE_PR_LABEL = contract.diffUi.mergePr
 export { MERGE_STACK_LABEL }
 
 const PrMergedIcon = conceptIcon(`pr-merged`)
-const UiLoadingIcon = conceptIcon(`ui-loading`)
 
 // The session-scoped Merge control — the Agents list row (icon-only outline)
 // and the steering view's glass pill (EXP-678) share it. Merge always closes
@@ -134,12 +135,18 @@ function MergeControl({
   size,
   className,
   disabled,
+  pending = false,
+  pendingLabel,
   ariaLabel,
   title,
   onClick,
   children,
 }: {
   as: MergeControlShape
+  /** The Button shape's pending state (the pill and circle swap their glyph
+   *  for the Spinner in the caller). */
+  pending?: boolean
+  pendingLabel?: string
   pillSize?: MergePillSize
   variant?: VariantProps<typeof buttonVariants>[`variant`]
   size?: VariantProps<typeof buttonVariants>[`size`]
@@ -186,6 +193,8 @@ function MergeControl({
       size={size}
       className={className}
       disabled={disabled}
+      pending={pending}
+      pendingLabel={pendingLabel}
       aria-label={ariaLabel}
       title={title}
       onClick={onClick}
@@ -287,15 +296,9 @@ export function SessionMergeButton({
     setMerging(true)
     try {
       if (issueId) {
-        await trpc.issues.mergePr.mutate(
-          { issueId },
-          { context: { skipErrorToast: true } }
-        )
+        await trpc.issues.mergePr.mutate({ issueId }, SKIP_ERROR_TOAST)
       } else if (sessionId) {
-        await trpc.codingSessions.mergePr.mutate(
-          { sessionId },
-          { context: { skipErrorToast: true } }
-        )
+        await trpc.codingSessions.mergePr.mutate({ sessionId }, SKIP_ERROR_TOAST)
       }
       setConfirmOpen(false) // keep `merging` until the echo flips prState
       setStackConfirm(null)
@@ -322,8 +325,10 @@ export function SessionMergeButton({
           conflict: true,
         })
       } else {
-        toast.error(`Couldn't merge the pull request`, {
-          description: next.message,
+        // FEED-79: a merge re-runs safely (a merged PR just refuses), but a
+        // real conflict never clears by retrying, so it offers no Retry.
+        failedAction(`merge`, `the PR`, next.message, {
+          retry: next.conflict ? undefined : () => void merge(),
         })
       }
     }
@@ -335,15 +340,13 @@ export function SessionMergeButton({
   const mergeStack = async (input: StackMergeInput) => {
     setMerging(true)
     try {
-      await trpc.issues.mergePr.mutate(input, {
-        context: { skipErrorToast: true },
-      })
+      await trpc.issues.mergePr.mutate(input, SKIP_ERROR_TOAST)
       setStackConfirm(null) // keep `merging` until the echo flips prState
     } catch (error) {
       const next = mergeFailure(error, `The stack could not be merged`)
       setMerging(false)
       setStackConfirm(null)
-      toast.error(`Couldn't merge the stack`, { description: next.message })
+      failedAction(`merge`, `the stack`, next.message)
     }
   }
 
@@ -356,6 +359,8 @@ export function SessionMergeButton({
         size={size}
         className={className}
         disabled={merging}
+        pending={merging}
+        pendingLabel={shownLabel ? FEEDBACK_WORDS.pending.merge : undefined}
         ariaLabel={
           merging
             ? `Merging…`
@@ -369,11 +374,7 @@ export function SessionMergeButton({
           arm()
         }}
       >
-        {merging ? (
-          <UiLoadingIcon className="animate-spin" />
-        ) : (
-          <PrMergedIcon />
-        )}
+        {merging && as !== `button` ? <Spinner /> : <PrMergedIcon />}
         {shownLabel}
       </MergeControl>
       {issueId ? (
@@ -491,14 +492,12 @@ export function useMergeThrough(): {
   const run = async (input: StackMergeInput) => {
     setMerging(true)
     try {
-      await trpc.issues.mergePr.mutate(input, {
-        context: { skipErrorToast: true },
-      })
+      await trpc.issues.mergePr.mutate(input, SKIP_ERROR_TOAST)
       setConfirm(null)
     } catch (error) {
       const next = mergeFailure(error, `The stack could not be merged`)
       setConfirm(null)
-      toast.error(`Couldn't merge the stack`, { description: next.message })
+      failedAction(`merge`, `the stack`, next.message)
     } finally {
       setMerging(false)
     }

@@ -1,6 +1,6 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react"
 
-import { Button } from "../button"
+import { actionErrorTitle, toastActionError } from "../feedback"
 import { Picker, type PickerItem, type PickerSurfaceProps } from "./picker"
 import type { PickerTriggerVariant } from "./picker-trigger"
 
@@ -61,16 +61,22 @@ export function BranchPicker({
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
   const open = openProp ?? uncontrolledOpen
   const [branches, setBranches] = useState<string[] | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  const load = useCallback(async () => {
+  // FEED-79: a failed load is a toast (Retry loads again); the list shows
+  // its empty state, and the next open tries again too.
+  const load = useCallback(async (): Promise<void> => {
     setLoading(true)
-    setLoadError(null)
+    setLoadFailed(false)
     try {
       setBranches(await loadBranches())
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : String(err))
+      setLoadFailed(true)
+      toastActionError(actionErrorTitle(`load`, `branches`), {
+        description: err instanceof Error && err.message.trim() ? err.message : undefined,
+        retry: () => void load(),
+      })
     } finally {
       setLoading(false)
     }
@@ -107,19 +113,7 @@ export function BranchPicker({
       // Nothing has loaded and nothing failed = the first frame of the lazy
       // fetch; the empty copy there would read as "this repo has no
       // branches".
-      loading={loading || (open && names === null && loadError === null)}
-      error={
-        loadError ? (
-          <Button
-            variant="ghost"
-            size="sm"
-            className="w-full justify-start rounded-none text-destructive hover:text-destructive"
-            onClick={() => void load()}
-          >
-            Couldn&rsquo;t load branches — retry
-          </Button>
-        ) : undefined
-      }
+      loading={loading || (open && names === null && !loadFailed)}
       mobileTitle={label}
       trigger={trigger}
       triggerVariant={triggerVariant}

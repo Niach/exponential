@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { TRPCClientError } from "@trpc/client"
 import { MAX_ACTION_PROMPT_PLACEHOLDER, type BoardIcon } from "@exp/db-schema/domain"
 import type { SyncedAction } from "@/db/schema"
 import {
   BARE_FIELD_CLASS,
   BOARD_ICON_OPTIONS,
+  FEEDBACK_WORDS,
+  FieldError,
   IconPicker,
   Button,
   RepositoryPicker,
@@ -13,8 +15,10 @@ import {
   McpServerPicker,
   PickerTrigger,
   pickerSummary,
+  SkeletonRows,
   Textarea,
 } from "@exp/ui"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import type { BuiltinAction } from "@/lib/builtin-actions"
 import { trpc } from "@/lib/trpc-client"
 import { useMcpServers } from "@/hooks/use-mcp-servers"
@@ -54,6 +58,10 @@ export const GROUPED_FIELD = `rounded-none border-0 bg-transparent text-sm shado
 // and GlassToggleRow).
 export const GROUPED_FIELD_ROW = `${GROUPED_FIELD} px-4 py-3`
 
+/** The server's `MAX_ACTION_BODY` (`lib/trpc/actions.ts`, a zod `.max`, so
+ *  characters): over it is an input error under the prompt, never a save. */
+export const ACTION_BODY_MAX_CHARS = 64 * 1024
+
 export function ActionPromptForm({
   repos,
   action,
@@ -80,10 +88,9 @@ export function ActionPromptForm({
   // stays disabled until it lands so a save can never blank it.
   const [bodyLoading, setBodyLoading] = useState(false)
   const [submitting, setSubmitting] = useState(false)
-  // Duplicate-name CONFLICTs render next to the name field; everything else
-  // in the generic box above the footer.
+  // FEED-79: a duplicate-name CONFLICT renders under the name field (input);
+  // every other failed load/save is a toast.
   const [nameError, setNameError] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
   // The body as last loaded or saved — Save lights up once a field differs.
   const [savedBody, setSavedBody] = useState(``)
   // FEED-73: the action's MCP list (row ids), loaded with the body. Ids the
@@ -100,6 +107,43 @@ export function ActionPromptForm({
     mcpServerIds.includes(server.id)
   )
 
+  // The body (+ MCP list) fetch; a newer load or another action drops a
+  // stale answer. A failed load leaves the field empty and toasts, Retry
+  // fetches again.
+  const loadSeq = useRef(0)
+  // The action on screen (null once unmounted): a late Retry for another
+  // action, or after the page left, does nothing.
+  const shownId = useRef<string | null>(action.id)
+  shownId.current = action.id
+  const loadBody = useCallback(() => {
+    const id = action.id
+    if (shownId.current !== id) return
+    const seq = ++loadSeq.current
+    const stale = () => seq !== loadSeq.current || shownId.current !== id
+    setBodyLoading(true)
+    trpc.actions.get
+      .query({ id })
+      .then((res) => {
+        if (stale()) return
+        setBody(res.action.body)
+        setSavedBody(res.action.body)
+        setMcpServerIds([...res.action.mcpServerIds])
+        setSavedMcpServerIds([...res.action.mcpServerIds])
+        setBodyLoading(false)
+      })
+      .catch((err) => {
+        if (stale()) return
+        setBodyLoading(false)
+        failedAction(`load`, `the prompt`, err, { retry: loadBody })
+      })
+  }, [action.id])
+  useEffect(() => {
+    shownId.current = action.id
+    return () => {
+      shownId.current = null
+    }
+  }, [action.id])
+
   // Seed the fields when the ACTION changes (never on a resync of the same
   // one: that would wipe what is being typed); the body comes from tRPC.
   useEffect(() => {
@@ -112,29 +156,9 @@ export function ActionPromptForm({
     setSavedBody(``)
     setMcpServerIds([])
     setSavedMcpServerIds([])
-    setBodyLoading(true)
     setSubmitting(false)
     setNameError(null)
-    setError(null)
-    let active = true
-    trpc.actions.get
-      .query({ id: action.id })
-      .then((res) => {
-        if (!active) return
-        setBody(res.action.body)
-        setSavedBody(res.action.body)
-        setMcpServerIds([...res.action.mcpServerIds])
-        setSavedMcpServerIds([...res.action.mcpServerIds])
-        setBodyLoading(false)
-      })
-      .catch((err) => {
-        if (!active) return
-        setError(err instanceof Error ? err.message : String(err))
-        setBodyLoading(false)
-      })
-    return () => {
-      active = false
-    }
+    loadBody()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [action.id])
 
@@ -149,41 +173,53 @@ export function ActionPromptForm({
     icon !== ((action.icon as BoardIcon | null) ?? BOARD_ICON_OPTIONS[0].name) ||
     body !== savedBody ||
     mcpDirty
+  // Input errors under their fields (FEED-79): a blank name, a body over
+  // the server's cap (`MAX_ACTION_BODY`, characters).
+  const nameRequired = !readOnly && name.trim() === `` ? `Enter a name` : null
+  const bodyTooLong =
+    body.length > ACTION_BODY_MAX_CHARS
+      ? `Too long: ${body.length} of ${ACTION_BODY_MAX_CHARS} characters`
+      : null
   const canSubmit =
-    dirty && Boolean(name.trim()) && Boolean(body.trim()) && !bodyLoading
+    dirty &&
+    Boolean(name.trim()) &&
+    Boolean(body.trim()) &&
+    !bodyTooLong &&
+    !bodyLoading
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (readOnly || !canSubmit || submitting) return
+    await save({
+      id: action.id,
+      name: name.trim(),
+      description: description.trim() === `` ? null : description.trim(),
+      icon,
+      repositoryId: repoValue === NO_REPO ? null : repoValue,
+      body,
+      promptPlaceholder:
+        promptPlaceholder.trim() === `` ? null : promptPlaceholder.trim(),
+      ...(mcpDirty ? { mcpServerIds } : {}),
+    })
+  }
+
+  type ActionUpdate = Parameters<typeof trpc.actions.update.mutate>[0]
+  const save = async (input: ActionUpdate) => {
     setSubmitting(true)
     setNameError(null)
-    setError(null)
     try {
-      await trpc.actions.update.mutate(
-        {
-          id: action.id,
-          name: name.trim(),
-          description: description.trim() === `` ? null : description.trim(),
-          icon,
-          repositoryId: repoValue === NO_REPO ? null : repoValue,
-          body,
-          promptPlaceholder:
-            promptPlaceholder.trim() === `` ? null : promptPlaceholder.trim(),
-          ...(mcpDirty ? { mcpServerIds } : {}),
-        },
-        { context: { skipErrorToast: true } }
-      )
-      setSavedBody(body)
-      setSavedMcpServerIds(mcpServerIds)
+      await trpc.actions.update.mutate(input, SKIP_ERROR_TOAST)
+      setSavedBody(input.body ?? body)
+      if (input.mcpServerIds) setSavedMcpServerIds(input.mcpServerIds)
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err)
       if (
         err instanceof TRPCClientError &&
         (err.data as { code?: string } | undefined)?.code === `CONFLICT`
       ) {
-        setNameError(message)
+        setNameError(err.message)
       } else {
-        setError(message)
+        // An update is idempotent: Retry sends the same fields again.
+        failedAction(`save`, `the action`, err, { retry: () => void save(input) })
       }
     } finally {
       setSubmitting(false)
@@ -214,6 +250,8 @@ export function ActionPromptForm({
                   setNameError(null)
                 }}
                 placeholder="Name"
+                aria-invalid={Boolean(nameError ?? nameRequired) || undefined}
+                aria-describedby={nameError ?? nameRequired ? `action-name-error` : undefined}
                 className={BARE_FIELD_CLASS}
                 readOnly={readOnly}
               />
@@ -238,9 +276,9 @@ export function ActionPromptForm({
               readOnly={readOnly}
             />
           </GlassGroup>
-          {nameError && (
-            <p className="px-1 text-xs text-destructive">{nameError}</p>
-          )}
+          <FieldError id="action-name-error" className="px-1">
+            {nameError ?? nameRequired}
+          </FieldError>
 
           <GlassGroup>
             <RepositoryPicker
@@ -300,31 +338,40 @@ export function ActionPromptForm({
           )}
         </div>
 
-        <GlassGroup>
-          <Textarea
-            id="action-body"
-            value={body}
-            onChange={(e) => setBody(e.target.value)}
-            placeholder={bodyLoading ? `Loading prompt…` : `Prompt`}
-            disabled={bodyLoading}
-            readOnly={readOnly}
-            rows={12}
-            className={`${GROUPED_FIELD_ROW} h-full min-h-64 resize-none field-sizing-fixed font-mono text-xs`}
-          />
-        </GlassGroup>
-      </div>
-
-      {error && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
+        <div className="flex flex-col gap-2">
+          <GlassGroup className="flex-1">
+            {bodyLoading ? (
+              <SkeletonRows dot={false} className="min-h-64 py-1" />
+            ) : (
+              <Textarea
+                id="action-body"
+                value={body}
+                onChange={(e) => setBody(e.target.value)}
+                placeholder="Prompt"
+                readOnly={readOnly}
+                rows={12}
+                aria-invalid={Boolean(bodyTooLong) || undefined}
+                aria-describedby={bodyTooLong ? `action-body-error` : undefined}
+                className={`${GROUPED_FIELD_ROW} h-full min-h-64 resize-none field-sizing-fixed font-mono text-xs`}
+              />
+            )}
+          </GlassGroup>
+          <FieldError id="action-body-error" className="px-1">
+            {bodyTooLong}
+          </FieldError>
         </div>
-      )}
+      </div>
 
       {/* Read-only draws no save strip at all, like the native screens. */}
       {!readOnly && (
         <div className="flex justify-end">
-          <Button type="submit" disabled={!canSubmit || submitting}>
-            {submitting ? `Saving…` : `Save changes`}
+          <Button
+            type="submit"
+            disabled={!canSubmit}
+            pending={submitting}
+            pendingLabel={FEEDBACK_WORDS.pending.save}
+          >
+            Save changes
           </Button>
         </div>
       )}

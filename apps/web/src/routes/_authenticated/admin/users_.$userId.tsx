@@ -4,6 +4,7 @@ import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-r
 import { ArrowLeft, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
 import { useSession } from "@/hooks/use-session"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   Pill,
   Button,
@@ -48,33 +49,35 @@ function AdminUserDetail() {
   const { detail } = Route.useLoaderData()
   const { data: session } = useSession()
   const isSelf = session?.user?.id === detail.user.id
-  const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   const { user } = detail
 
   const handleToggleAdmin = async (next: boolean) => {
-    setError(null)
     setBusy(true)
     try {
-      await trpc.admin.setUserAdmin.mutate({ userId: user.id, isAdmin: next })
+      await trpc.admin.setUserAdmin.mutate(
+        { userId: user.id, isAdmin: next },
+        SKIP_ERROR_TOAST
+      )
       await router.invalidate()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      failedAction(`update`, `admin access`, err, {
+        retry: () => void handleToggleAdmin(next),
+      })
     } finally {
       setBusy(false)
     }
   }
 
   const handleDelete = async () => {
-    setError(null)
     setBusy(true)
     try {
-      await trpc.admin.deleteUser.mutate({ userId: user.id })
+      await trpc.admin.deleteUser.mutate({ userId: user.id }, SKIP_ERROR_TOAST)
       await navigate({ to: `/admin/users` })
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      failedAction(`delete`, `the user`, err)
       setBusy(false)
     }
   }
@@ -89,12 +92,6 @@ function AdminUserDetail() {
           All users
         </Link>
       </Button>
-
-      {error && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </div>
-      )}
 
       <AdminCard contentClassName="flex flex-col gap-4 md:flex-row md:items-center">
         <div className="flex items-center gap-4 min-w-0 flex-1">

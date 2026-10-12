@@ -1,7 +1,6 @@
 import {
   createFileRoute,
   Link,
-  useRouter,
   type ErrorComponentProps,
 } from "@tanstack/react-router"
 import { useCallback, useEffect, useState } from "react"
@@ -19,6 +18,7 @@ import {
 import { cn } from "@/lib/utils"
 import {
   AdminCard,
+  AdminLoadFailure,
   DayBars,
   EmailStatusBadge,
   formatRelative,
@@ -83,24 +83,7 @@ export const Route = createFileRoute(`/_authenticated/admin/performance`)({
 })
 
 function PerformanceError({ error }: ErrorComponentProps) {
-  const router = useRouter()
-  return (
-    <div className="mx-auto max-w-6xl space-y-4 p-4 md:p-6">
-      <h1 className="text-2xl font-bold">Performance</h1>
-      <AdminCard
-        title="Couldn’t load performance data"
-        description={error instanceof Error ? error.message : String(error)}
-      >
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => void router.invalidate()}
-        >
-          Retry
-        </Button>
-      </AdminCard>
-    </div>
-  )
+  return <AdminLoadFailure heading="Performance" thing="performance data" error={error} className="max-w-6xl" />
 }
 
 // ── Polling ───────────────────────────────────────────────────────────────────

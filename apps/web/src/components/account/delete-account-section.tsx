@@ -1,5 +1,6 @@
 import { useState } from "react"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { deleteAccountPrompt, promptActions } from "@/lib/prompts"
 import { authClient } from "@/lib/auth/client"
 import { useSession } from "@/hooks/use-session"
@@ -24,20 +25,18 @@ export function DeleteAccountSection() {
   const [showDialog, setShowDialog] = useState(false)
   const [confirmation, setConfirmation] = useState(``)
   const [deleting, setDeleting] = useState(false)
-  const [error, setError] = useState(``)
 
   const handleDelete = async () => {
     if (confirmation !== email) return
     setDeleting(true)
-    setError(``)
     try {
-      await trpc.users.deleteAccount.mutate({ confirm: true })
+      await trpc.users.deleteAccount.mutate({ confirm: true }, SKIP_ERROR_TOAST)
       // The users-row delete already cascaded the server session; this just
       // clears the local cookie before landing on the login page.
       await authClient.signOut().catch(() => {})
       window.location.href = `/auth/login`
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Account deletion failed`)
+      failedAction(`delete`, `your account`, err)
       setDeleting(false)
     }
   }
@@ -45,7 +44,6 @@ export function DeleteAccountSection() {
   const closeDialog = () => {
     setShowDialog(false)
     setConfirmation(``)
-    setError(``)
   }
 
   return (
@@ -128,7 +126,6 @@ export function DeleteAccountSection() {
             onChange={(e) => setConfirmation(e.target.value)}
             placeholder={email}
           />
-          {error && <p className="text-sm text-destructive">{error}</p>}
         </div>
       </Prompt>
     </>

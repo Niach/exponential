@@ -1,5 +1,5 @@
 import { useRef } from "react"
-import { LoaderCircle, Paperclip, type LucideIcon } from "lucide-react"
+import { Paperclip, type LucideIcon } from "lucide-react"
 import { acceptedImageContentTypes } from "@/lib/storage/issue-attachments"
 import { Button, Input, Tooltip, TooltipContent, TooltipTrigger } from "@exp/ui"
 
@@ -53,16 +53,13 @@ export function IssueEditorAttachmentButton({
         className="text-muted-foreground"
         type="button"
         aria-label={label}
-        disabled={isDisabled || uploading}
+        disabled={isDisabled}
+        pending={Boolean(uploading)}
         onClick={() => {
           inputRef.current?.click()
         }}
       >
-        {uploading ? (
-          <LoaderCircle className="size-3 animate-spin" />
-        ) : (
-          <Icon className="size-3" />
-        )}
+        <Icon className="size-3" />
       </Button>
     </>
   )

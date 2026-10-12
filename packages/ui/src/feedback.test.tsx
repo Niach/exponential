@@ -4,8 +4,10 @@ import { FEEDBACK_STATES, markStripeSpan } from "@exp/domain-contract/feedback-m
 
 import { Button } from "./button"
 import {
+  actionErrorTitle,
   BlockingOverlay,
   BlockingSurface,
+  FieldError,
   blockingLabel,
   blockWindow,
   FeedbackMark,
@@ -246,5 +248,23 @@ describe(`BlockingOverlay`, () => {
     release()
     vi.advanceTimersByTime(DELAY * 2)
     expect(document.querySelector(`[data-slot=blocking-host]`)).toBeNull()
+  })
+})
+
+// FEED-79: the error rule's two halves, feedback-states.json `errors`.
+describe(`errors`, () => {
+  it(`titles a failed action per the pattern`, () => {
+    for (const c of FEEDBACK_STATES.errors.cases.filter((c) => c.kind === `action`)) {
+      expect(actionErrorTitle(c.verb!, c.thing!)).toBe(c.title)
+    }
+  })
+
+  it(`draws invalid input as the 13px line under its field, nothing without a message`, () => {
+    const { container, rerender } = render(<FieldError data-testid="err">Enter a full email address</FieldError>)
+    const line = screen.getByTestId(`err`)
+    expect(line.getAttribute(`role`)).toBe(`alert`)
+    expect(line.style.fontSize).toBe(`${FEEDBACK_STATES.errors.inline.size}px`)
+    rerender(<FieldError>{null}</FieldError>)
+    expect(container.querySelector(`[data-slot=field-error]`)).toBeNull()
   })
 })

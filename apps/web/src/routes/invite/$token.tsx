@@ -2,12 +2,14 @@ import { useCallback, useState, useEffect, useRef } from "react"
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router"
 import { useSession } from "@/hooks/use-session"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   Button,
   GlassCard,
   IconDisc,
+  SkeletonRows,
 } from "@exp/ui"
-import { Users, LoaderCircle, CircleAlert, CircleCheck } from "lucide-react"
+import { Users, CircleAlert, CircleCheck } from "lucide-react"
 import { pageTitle } from "@/lib/page-title"
 import {
   clearPendingInviteFor,
@@ -33,6 +35,8 @@ function InviteAcceptPage() {
   // for a beat and be sent back to login.
   const { data: session, isPending: sessionPending } = useSession()
   const [accepting, setAccepting] = useState(false)
+  // The invite itself could not be read (bad/expired link): the page's
+  // "Invalid invite" state. A failed accept is a toast.
   const [error, setError] = useState<string | null>(null)
   // EXP-1169: the team this visit joined. Set on every successful accept;
   // `JoinedGate` then decides between the devices step and the team.
@@ -75,17 +79,18 @@ function InviteAcceptPage() {
 
   const handleAccept = async () => {
     setAccepting(true)
-    setError(null)
     try {
-      const { team } = await trpc.teamInvites.accept.mutate({
-        token,
-      })
+      const { team } = await trpc.teamInvites.accept.mutate(
+        { token },
+        SKIP_ERROR_TOAST
+      )
       clearPendingInviteFor(token)
       setJoined({ id: team.id, slug: team.slug })
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : `Failed to accept invite`
-      setError(message)
+      // An accept is idempotent (a member answers alreadyMember): Retry.
+      failedAction(`accept`, `the invite`, err, {
+        retry: () => void handleAccept(),
+      })
       setAccepting(false)
     }
   }
@@ -145,8 +150,8 @@ function InviteAcceptPage() {
 
   if (loading || sessionPending || (probing && !success)) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <LoaderCircle className="h-8 w-8 animate-spin text-muted-foreground" />
+      <div className="flex min-h-screen items-center justify-center p-4">
+        <SkeletonRows dot={false} className="w-full max-w-md" />
       </div>
     )
   }
@@ -196,24 +201,13 @@ function InviteAcceptPage() {
                   This invite has already been used
                 </div>
               ) : isLoggedIn ? (
-                <>
-                  {error && (
-                    <div className="flex items-center gap-2 text-sm text-destructive">
-                      <CircleAlert className="h-4 w-4" />
-                      {error}
-                    </div>
-                  )}
-                  <Button
-                    className="w-full"
-                    onClick={handleAccept}
-                    disabled={accepting}
-                  >
-                    {accepting && (
-                      <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-                    )}
-                    Accept invite
-                  </Button>
-                </>
+                <Button
+                  className="w-full"
+                  onClick={handleAccept}
+                  pending={accepting}
+                >
+                  Accept invite
+                </Button>
               ) : (
                 /* Signup and login are one merged page (EXP-188), so a
                    single button covers both. */

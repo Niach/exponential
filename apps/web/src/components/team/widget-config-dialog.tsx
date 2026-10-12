@@ -10,6 +10,7 @@ import type {
   WidgetLauncherPosition,
 } from "@exp/widget/types"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { labelCollection } from "@/lib/collections"
 import { cn } from "@/lib/utils"
 import {
@@ -20,6 +21,8 @@ import { WidgetPanelPreview } from "@/components/widget-panel-preview"
 import {
   IconPicker,
   Button,
+  FEEDBACK_WORDS,
+  FieldError,
   Pill,
   Dialog,
   DialogBody,
@@ -221,6 +224,7 @@ export function WidgetConfigDialog({
   const [formCustomFields, setFormCustomFields] = useState<CustomFieldRow[]>([])
   const [formLabelIds, setFormLabelIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
+  // Invalid input only (a required field missing); a failed save is a toast.
   const [formError, setFormError] = useState<string | null>(null)
 
   // Reset the form from the target every time the dialog opens.
@@ -348,21 +352,27 @@ export function WidgetConfigDialog({
     try {
       let created: WidgetListItem | null = null
       if (editTarget) {
-        await trpc.widgets.update.mutate({
-          widgetConfigId: editTarget.id,
-          name: formName.trim(),
-          boardId,
-          allowedDomains: parseDomains(formDomains),
-          formConfig: buildFormConfig(),
-        })
+        await trpc.widgets.update.mutate(
+          {
+            widgetConfigId: editTarget.id,
+            name: formName.trim(),
+            boardId,
+            allowedDomains: parseDomains(formDomains),
+            formConfig: buildFormConfig(),
+          },
+          SKIP_ERROR_TOAST
+        )
       } else {
-        const row = await trpc.widgets.create.mutate({
-          teamId,
-          boardId,
-          name: formName.trim(),
-          allowedDomains: parseDomains(formDomains),
-          formConfig: buildFormConfig(),
-        })
+        const row = await trpc.widgets.create.mutate(
+          {
+            teamId,
+            boardId,
+            name: formName.trim(),
+            allowedDomains: parseDomains(formDomains),
+            formConfig: buildFormConfig(),
+          },
+          SKIP_ERROR_TOAST
+        )
         created = {
           ...row,
           boardName:
@@ -373,9 +383,12 @@ export function WidgetConfigDialog({
       onOpenChange(false)
       await onSaved(created)
     } catch (saveError) {
-      setFormError(
-        saveError instanceof Error ? saveError.message : `Couldn't save widget`
-      )
+      // The dialog stays open; an edit is safe to re-run, a create is not.
+      if (editTarget) {
+        failedAction(`save`, `the widget`, saveError, { retry: () => void save() })
+      } else {
+        failedAction(`create`, `the widget`, saveError)
+      }
     } finally {
       setSaving(false)
     }
@@ -827,14 +840,17 @@ export function WidgetConfigDialog({
               </div>
             </TabsContent>
           </Tabs>
-          {formError && (
-            <p className="mt-3 text-sm text-destructive">{formError}</p>
-          )}
+          <FieldError className="mt-3">{formError}</FieldError>
         </DialogBody>
         <DialogFooter>
           <DialogCancel disabled={saving} />
-          <Button onClick={save} disabled={saving || !canSave}>
-            {saving ? `Saving…` : editTarget ? `Save` : `Create widget`}
+          <Button
+            onClick={save}
+            disabled={!canSave}
+            pending={saving}
+            pendingLabel={FEEDBACK_WORDS.pending.save}
+          >
+            {editTarget ? `Save` : `Create widget`}
           </Button>
         </DialogFooter>
       </DialogContent>

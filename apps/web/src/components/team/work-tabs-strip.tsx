@@ -76,8 +76,22 @@ interface ChipModel {
   key: string
   tab: WorkTab
   identifier: string | null
-  title: string
+  /** null = the tab's subject has not loaded yet (D8: a placeholder bar). */
+  title: string | null
   lead: React.ReactNode
+}
+
+/** A chip's title, or the skeleton's short muted bar while its subject loads
+ *  (D8: never the text "Loading…"). */
+function ChipTitle({ title }: { title: string | null }) {
+  if (title !== null) return <>{title}</>
+  return (
+    <span
+      aria-hidden
+      data-testid="work-tab-title-placeholder"
+      className="inline-block h-2 w-16 rounded bg-muted align-middle"
+    />
+  )
 }
 
 export function WorkTabsStrip({
@@ -188,7 +202,7 @@ export function WorkTabsStrip({
       ? sessionIdentity({ session: run, issue })
       : issue
         ? { identifier: issue.identifier, subject: issue.title }
-        : { identifier: null, subject: `Loading…` }
+        : { identifier: null, subject: null }
     return {
       key,
       tab,
@@ -351,7 +365,9 @@ export function WorkTabsStrip({
               {chip.identifier}
             </span>
           )}
-          <span className="min-w-0 truncate text-sm">{chip.title}</span>
+          <span className="min-w-0 truncate text-sm">
+            <ChipTitle title={chip.title} />
+          </span>
         </Button>
         <Button
           variant="ghost"
@@ -447,7 +463,7 @@ export function WorkTabsStrip({
                         {chip.identifier}
                       </span>
                     )}
-                    {chip.title}
+                    <ChipTitle title={chip.title} />
                   </>
                 ),
                 onSelect: () => open(chip.tab),

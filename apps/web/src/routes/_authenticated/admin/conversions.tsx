@@ -3,7 +3,6 @@ import {
   createFileRoute,
   Link,
   redirect,
-  useRouter,
   type ErrorComponentProps,
 } from "@tanstack/react-router"
 import { trpc } from "@/lib/trpc-client"
@@ -16,6 +15,7 @@ import {
 import { cn } from "@/lib/utils"
 import {
   AdminCard,
+  AdminLoadFailure,
   DayBars,
   formatDate,
   formatDateTime,
@@ -64,24 +64,7 @@ export const Route = createFileRoute(`/_authenticated/admin/conversions`)({
 })
 
 function ConversionsError({ error }: ErrorComponentProps) {
-  const router = useRouter()
-  return (
-    <div className="mx-auto max-w-5xl space-y-4 p-4 md:p-6">
-      <h1 className="text-2xl font-bold">Conversions</h1>
-      <AdminCard
-        title="Couldn’t load conversions"
-        description={error instanceof Error ? error.message : String(error)}
-      >
-        <Button
-          size="sm"
-          variant="secondary"
-          onClick={() => void router.invalidate()}
-        >
-          Retry
-        </Button>
-      </AdminCard>
-    </div>
-  )
+  return <AdminLoadFailure heading="Conversions" thing="conversions" error={error} />
 }
 
 function pct(part: number, whole: number): string | undefined {

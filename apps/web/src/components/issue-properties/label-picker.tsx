@@ -1,4 +1,5 @@
 import { useState } from "react"
+import { TRPCClientError } from "@trpc/client"
 import { useLiveQuery, eq } from "@tanstack/react-db"
 import { labelCollection } from "@/lib/collections"
 import {
@@ -9,8 +10,11 @@ import {
   LABEL_COLORS,
   ColorSwatchGrid,
   conceptIcon,
+  FEEDBACK_WORDS,
+  FieldError,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import type { Label } from "@/db/schema"
 
 interface LabelPickerProps {
@@ -72,11 +76,10 @@ export function LabelPicker({
     if (!newName.trim() || creating || newNameIsDuplicate) return
     setCreating(true)
     try {
-      const { txId, label } = await trpc.labels.create.mutate({
-        teamId,
-        name: newName.trim(),
-        color: newColor,
-      })
+      const { txId, label } = await trpc.labels.create.mutate(
+        { teamId, name: newName.trim(), color: newColor },
+        SKIP_ERROR_TOAST
+      )
       await labelCollection.utils.awaitTxId(txId)
       onToggle(label.id)
       setNewName(``)
@@ -84,9 +87,16 @@ export function LabelPicker({
       setCreateError(null)
       setView(`list`)
     } catch (err) {
-      setCreateError(
-        err instanceof Error ? err.message : `Failed to create label.`
-      )
+      // FEED-79: a name the server calls taken is the field's; anything else
+      // is a toast (a create: no Retry).
+      if (
+        err instanceof TRPCClientError &&
+        (err.data as { code?: string } | undefined)?.code === `CONFLICT`
+      ) {
+        setCreateError(err.message)
+      } else {
+        failedAction(`create`, `the label`, err)
+      }
     } finally {
       setCreating(false)
     }
@@ -149,6 +159,7 @@ export function LabelPicker({
                 setCreateError(null)
               }}
               placeholder="Label name"
+              aria-invalid={newNameIsDuplicate || Boolean(createError) || undefined}
               autoFocus
               className="h-8 text-sm"
               onKeyDown={(e) => {
@@ -158,13 +169,11 @@ export function LabelPicker({
                 }
               }}
             />
-            {(newNameIsDuplicate || createError) && (
-              <p className="text-xs text-destructive">
-                {newNameIsDuplicate
-                  ? `A label with this name already exists.`
-                  : createError}
-              </p>
-            )}
+            <FieldError>
+              {newNameIsDuplicate
+                ? `A label with this name already exists.`
+                : createError}
+            </FieldError>
             <div>
               <span className="text-xs text-muted-foreground mb-1.5 block">
                 Color
@@ -175,10 +184,12 @@ export function LabelPicker({
               size="xs"
               variant="default"
               className="w-full"
-              disabled={!newName.trim() || creating || newNameIsDuplicate}
+              disabled={!newName.trim() || newNameIsDuplicate}
+              pending={creating}
+              pendingLabel={FEEDBACK_WORDS.pending.save}
               onClick={() => void handleCreate()}
             >
-              {creating ? `Creating...` : `Create label`}
+              Create label
             </Button>
           </div>
         ) : undefined

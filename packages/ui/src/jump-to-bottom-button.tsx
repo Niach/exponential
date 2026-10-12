@@ -34,7 +34,7 @@ export function JumpToBottomButton({
       data-visible={visible}
       className={cn(
         FAB_CHROME_CLASS,
-        `flex size-8 items-center justify-center rounded-full text-foreground/70 outline-none transition-[opacity,scale,background-color,color] duration-fast ease-standard hover:text-foreground active:bg-glass-active focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:transition-none`,
+        `flex size-8 items-center justify-center rounded-full text-foreground/70 outline-none transition-[opacity,scale,background-color,color] duration-fast ease-standard hover:text-foreground active:bg-glass-active focus-visible:ring-[3px] focus-visible:ring-ring/50 motion-reduce:scale-100 motion-reduce:transition-opacity`,
         visible ? `scale-100 opacity-100` : `pointer-events-none scale-90 opacity-0`,
         className
       )}

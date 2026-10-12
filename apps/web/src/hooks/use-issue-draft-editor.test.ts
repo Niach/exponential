@@ -43,9 +43,10 @@ vi.mock(`@/lib/collections`, async (importOriginal) => ({
   issueCollection: { utils: { awaitTxId: mocks.awaitTxId } },
 }))
 
-vi.mock(`@exp/ui`, async (importOriginal) => ({
-  ...((await importOriginal()) as Record<string, unknown>),
-  toast: { error: mocks.toastError, message: vi.fn() },
+// FEED-79: failures toast through `failedAction` (verb, thing, error, opts).
+vi.mock(`@/lib/action-error`, () => ({
+  SKIP_ERROR_TOAST: { context: { skipErrorToast: true } },
+  failedAction: mocks.toastError,
 }))
 
 vi.mock(`@/hooks/use-issue-drafts`, () => ({
@@ -141,7 +142,7 @@ describe(`useIssueDraftEditor autosave`, () => {
     expect(mocks.upsert).not.toHaveBeenCalled()
     await advance(1)
     expect(mocks.upsert).toHaveBeenCalledTimes(1)
-    expect(mocks.upsert).toHaveBeenCalledWith({
+    expect(mocks.upsert.mock.calls[0][0]).toEqual({
       id: DRAFT_ID,
       teamId: TEAM_ID,
       boardId: BOARD_ID,
@@ -244,7 +245,7 @@ describe(`useIssueDraftEditor leaving`, () => {
     unmount()
     await settle()
     expect(mocks.draftDelete).toHaveBeenCalledTimes(1)
-    expect(mocks.draftDelete).toHaveBeenCalledWith({ id: DRAFT_ID })
+    expect(mocks.draftDelete.mock.calls[0][0]).toEqual({ id: DRAFT_ID })
     expect(mocks.upsert).not.toHaveBeenCalled()
   })
 
@@ -375,7 +376,12 @@ describe(`useIssueDraftEditor leaving`, () => {
     expect(ok).toBe(false)
     // The page's normal save error, once.
     expect(mocks.toastError).toHaveBeenCalledTimes(1)
-    expect(mocks.toastError).toHaveBeenCalledWith(`Could not save the draft`)
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      `save`,
+      `the draft`,
+      expect.any(Error),
+      expect.objectContaining({ retry: expect.any(Function) })
+    )
   })
 
   it(`writes on pagehide`, async () => {
@@ -432,7 +438,7 @@ describe(`useIssueDraftEditor create`, () => {
     expect(mocks.upsert.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.create.mock.invocationCallOrder[0]
     )
-    expect(mocks.create).toHaveBeenCalledWith(
+    expect(mocks.create.mock.calls[0][0]).toEqual(
       expect.objectContaining({
         boardId: BOARD_ID,
         title: `Fix login`,
@@ -468,7 +474,7 @@ describe(`useIssueDraftEditor create`, () => {
     expect(created).toBeNull()
     expect(result.current.creating).toBe(false)
     expect(result.current.canCreate).toBe(true)
-    expect(mocks.toastError).toHaveBeenCalledWith(`Nope`)
+    expect(mocks.toastError).toHaveBeenCalledWith(`create`, `the issue`, expect.any(Error))
     act(() => result.current.setTitle(`Fix login now`))
     unmount()
     await settle()

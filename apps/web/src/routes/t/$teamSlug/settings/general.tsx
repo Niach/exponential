@@ -11,6 +11,7 @@ import {
   Prompt,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   SettingsSectionGuard,
   useSettingsPage,
@@ -31,14 +32,12 @@ function SettingsGeneral() {
   const [showDeleteTeam, setShowDeleteTeam] = useState(false)
   const [deleteConfirmation, setDeleteConfirmation] = useState(``)
   const [deletingTeam, setDeletingTeam] = useState(false)
-  const [deleteError, setDeleteError] = useState(``)
 
   const handleDeleteTeam = async () => {
     if (!team || deleteConfirmation !== team.name) return
     setDeletingTeam(true)
-    setDeleteError(``)
     try {
-      await trpc.teams.delete.mutate({ teamId: team.id })
+      await trpc.teams.delete.mutate({ teamId: team.id }, SKIP_ERROR_TOAST)
       // Deleting a team rotates every shape's scope — hard-navigate so all
       // Electric collections restart cleanly. Deleting your LAST team is
       // allowed (EXP-188): the root redirect then lands on /onboarding.
@@ -46,12 +45,8 @@ function SettingsGeneral() {
     } catch (err) {
       // The server refuses a team with a live subscription (REV2-55) — that
       // message tells the owner to cancel in Billing first, so it must be
-      // shown rather than swallowed.
-      setDeleteError(
-        err instanceof Error && err.message
-          ? err.message
-          : `Couldn't delete this team`
-      )
+      // shown rather than swallowed (the toast's description).
+      failedAction(`delete`, `the team`, err)
       setDeletingTeam(false)
     }
   }
@@ -94,7 +89,6 @@ function SettingsGeneral() {
                 if (!open) {
                   setShowDeleteTeam(false)
                   setDeleteConfirmation(``)
-                  setDeleteError(``)
                 }
               }}
               busy={deletingTeam}
@@ -122,9 +116,6 @@ function SettingsGeneral() {
                   onChange={(e) => setDeleteConfirmation(e.target.value)}
                   placeholder={team.name}
                 />
-                {deleteError && (
-                  <p className="text-sm text-destructive">{deleteError}</p>
-                )}
               </div>
             </Prompt>
           </>

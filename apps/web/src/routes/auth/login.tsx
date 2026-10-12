@@ -6,6 +6,7 @@ import { captureOAuthResumeUrl } from "@/lib/auth/oauth-resume"
 import { withFirstTouchParams } from "@/lib/conversion/first-touch"
 import { sanitizeRedirectPath } from "@/lib/auth/safe-redirect"
 import { authErrorMessage } from "@/lib/auth/error-messages"
+import { failedAction } from "@/lib/action-error"
 import {
   ASK_NAME_HEADER,
   NAME_REQUIRED_CODE,
@@ -18,7 +19,16 @@ import {
   resolveLoginDestination,
 } from "@/lib/pending-invite"
 import { useState } from "react"
-import { conceptIcon, Button, Input, Label, AuthFormShell, PasswordInput } from "@exp/ui"
+import {
+  conceptIcon,
+  Button,
+  FEEDBACK_WORDS,
+  FieldError,
+  Input,
+  Label,
+  AuthFormShell,
+  PasswordInput,
+} from "@exp/ui"
 import {
   OAuthProviderButtons,
   useOAuthSignIn,
@@ -242,8 +252,9 @@ function LoginPage() {
       setSentTo(target)
       setCode(``)
       setStep(`code`)
-    } catch {
-      setError(`An unexpected error occurred`)
+    } catch (err) {
+      // Never reached the server: a toast, the typed address is fine.
+      failedAction(`send`, `the code`, err)
     } finally {
       setIsLoading(false)
     }
@@ -277,8 +288,9 @@ function LoginPage() {
           )
         )
       }
-    } catch {
-      setError(`An unexpected error occurred`)
+    } catch (err) {
+      if (isSignup) failedAction(`create`, `your account`, err)
+      else failedAction(`sign`, `you in`, err)
     } finally {
       setIsLoading(false)
     }
@@ -306,8 +318,8 @@ function LoginPage() {
         }
         setError(authErrorMessage(otpError, `Couldn't check the code. Try again.`))
       }
-    } catch {
-      setError(`An unexpected error occurred`)
+    } catch (err) {
+      failedAction(`check`, `the code`, err)
     } finally {
       setIsLoading(false)
     }
@@ -344,8 +356,8 @@ function LoginPage() {
       setError(
         authErrorMessage(passkeyError, `Couldn't sign you in with a passkey.`)
       )
-    } catch {
-      setError(`An unexpected error occurred`)
+    } catch (err) {
+      failedAction(`sign`, `you in with a passkey`, err)
     } finally {
       setPasskeyPending(false)
     }
@@ -443,15 +455,17 @@ function LoginPage() {
                 type="button"
                 variant="outline"
                 className="w-full"
-                disabled={busy}
+                pending={passkeyPending}
+                pendingLabel="Waiting for your passkey"
+                disabled={isLoading || pendingProvider !== null}
                 onClick={signInWithPasskey}
               >
                 <PasskeyIcon />
-                {passkeyPending ? `Waiting for your passkey…` : `Login with passkey`}
+                Login with passkey
               </Button>
             )}
 
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            <FieldError>{error}</FieldError>
           </div>
         )}
 
@@ -482,6 +496,7 @@ function LoginPage() {
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
+                aria-invalid={error && emailMode === `otp` ? true : undefined}
               />
             </div>
             {emailMode === `password` && (
@@ -504,24 +519,25 @@ function LoginPage() {
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   placeholder="Password"
+                  aria-invalid={error ? true : undefined}
                 />
               </div>
             )}
 
-            {error && <p className="text-sm text-destructive">{error}</p>}
+            <FieldError>{error}</FieldError>
 
-            <Button type="submit" className="w-full" disabled={busy}>
+            <Button
+              type="submit"
+              className="w-full"
+              pending={isLoading}
+              pendingLabel={emailMode === `otp` ? FEEDBACK_WORDS.pending.send : undefined}
+              disabled={passkeyPending || pendingProvider !== null}
+            >
               {emailMode === `otp`
-                ? isLoading
-                  ? `Sending code…`
-                  : `Send code`
+                ? `Send code`
                 : isSignup
-                  ? isLoading
-                    ? `Creating account…`
-                    : `Create account`
-                  : isLoading
-                    ? `Checking…`
-                    : `Continue`}
+                  ? `Create account`
+                  : `Continue`}
             </Button>
 
             <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -566,17 +582,18 @@ function LoginPage() {
                 onChange={(e) => setCode(e.target.value.replace(/\D/g, ``))}
                 placeholder="123456"
                 className="text-center text-lg tracking-[0.4em]"
+                aria-invalid={error ? true : undefined}
               />
+              <FieldError>{error}</FieldError>
             </div>
-
-            {error && <p className="text-sm text-destructive">{error}</p>}
 
             <Button
               type="submit"
               className="w-full"
-              disabled={busy || code.trim().length < 6}
+              pending={isLoading}
+              disabled={passkeyPending || pendingProvider !== null || code.trim().length < 6}
             >
-              {isLoading ? `Checking…` : `Continue`}
+              Continue
             </Button>
 
             <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">
@@ -620,13 +637,18 @@ function LoginPage() {
                   if (error) setError(``)
                 }}
                 placeholder={SIGN_UP_NAME_COPY.placeholder}
+                aria-invalid={error ? true : undefined}
               />
+              <FieldError>{error}</FieldError>
             </div>
 
-            {error && <p className="text-sm text-destructive">{error}</p>}
-
-            <Button type="submit" className="w-full" disabled={busy}>
-              {isLoading ? `Creating account…` : SIGN_UP_NAME_COPY.button}
+            <Button
+              type="submit"
+              className="w-full"
+              pending={isLoading}
+              disabled={passkeyPending || pendingProvider !== null}
+            >
+              {SIGN_UP_NAME_COPY.button}
             </Button>
 
             <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-xs text-muted-foreground">

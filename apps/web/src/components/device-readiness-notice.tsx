@@ -13,8 +13,8 @@ import {
   deviceIsOnline,
   type SteerDevice,
 } from "@/lib/steer-devices"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
-import { trpcErrorMessage } from "@/lib/trpc-error"
 
 /** How long an import waits for the machine to finish it before going quiet
  * (the row moves on the next heartbeat either way). */
@@ -42,11 +42,11 @@ export async function queueAgentImport(
         agent: agent as never,
         import: true,
       },
-      { context: { skipErrorToast: true } }
+      SKIP_ERROR_TOAST
     )
     commandId = queued.id
   } catch (error) {
-    toast.error(trpcErrorMessage(error, `Couldn't queue that on the device.`))
+    failedAction(`import`, `the login`, error)
     return
   }
   const deadline = Date.now() + IMPORT_WAIT_MS
@@ -61,7 +61,7 @@ export async function queueAgentImport(
     }
     if (command.status === `pending`) continue
     if (command.status === `failed`) {
-      toast.error(command.result ?? `The device reported a failure.`)
+      failedAction(`import`, `the login`, command.result ?? `The device reported a failure.`)
     } else if (known) {
       toast.warning(alreadyAddedCopy(email))
     } else {
@@ -89,15 +89,18 @@ export function useDeviceReadinessAction(
         return
       }
       if (action === `update`) {
-        void trpc.devices.createCommand
-          .mutate(
-            { deviceId: device.deviceId, kind: `agent_update`, agent: itemKey },
-            { context: { skipErrorToast: true } }
-          )
-          .then(() => toast.success(`Update queued on ${device.deviceLabel || device.deviceId}`))
-          .catch((error: unknown) =>
-            toast.error(trpcErrorMessage(error, `Couldn't queue that on the device.`))
-          )
+        const queueUpdate = () =>
+          void trpc.devices.createCommand
+            .mutate(
+              { deviceId: device.deviceId, kind: `agent_update`, agent: itemKey },
+              SKIP_ERROR_TOAST
+            )
+            .then(() => toast.success(`Update queued on ${device.deviceLabel || device.deviceId}`))
+            .catch((error: unknown) =>
+              // Queuing the same update again is safe.
+              failedAction(`queue`, `the update`, error, { retry: queueUpdate })
+            )
+        queueUpdate()
       }
     },
     [device]

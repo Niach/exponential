@@ -370,7 +370,8 @@ describe(`useLaunchComposer submit`, () => {
       expect.objectContaining({ agent: `claude`, planMode: false }),
       // The only repo pre-picks itself (EXP-822) and rides as the `repo` input.
       { repo: `repo-1` },
-      `Explain #I1`
+      `Explain #I1`,
+      expect.any(Function)
     )
     // EXP-1271: the draft stays while the run starts; it clears once the
     // run's row lands.
@@ -394,7 +395,8 @@ describe(`useLaunchComposer submit`, () => {
       device,
       expect.objectContaining({ agent: `claude`, planMode: true }),
       [`i1`, `i2`],
-      `Keep the API stable`
+      `Keep the API stable`,
+      expect.any(Function)
     )
     land()
     expect(result.current.subject).toBeNull()
@@ -410,7 +412,8 @@ describe(`useLaunchComposer submit`, () => {
       { id: BUILTIN_FIX_CONFLICTS_ID, name: `Fix merge conflicts`, teamId: `t1` },
       expect.objectContaining({ agent: `claude` }),
       { pr: `i1` },
-      undefined
+      undefined,
+      expect.any(Function)
     )
   })
 
@@ -437,7 +440,8 @@ describe(`useLaunchComposer submit`, () => {
       expect.anything(),
       expect.anything(),
       { repo: `repo-1` },
-      `see [Image #1] [Image #2]\n\n![image](/api/attachments/att-1)\n![image](/api/attachments/att-2)`
+      `see [Image #1] [Image #2]\n\n![image](/api/attachments/att-1)\n![image](/api/attachments/att-2)`,
+      expect.any(Function)
     )
     land()
     expect(result.current.images).toEqual([])
@@ -469,7 +473,8 @@ describe(`useLaunchComposer submit`, () => {
       expect.anything(),
       expect.anything(),
       { repo: `repo-1` },
-      `see [Image #1]\n\n![image](/api/attachments/att-1)\n[notes [v2\\].pdf](/api/attachments/att-2)`
+      `see [Image #1]\n\n![image](/api/attachments/att-1)\n[notes [v2\\].pdf](/api/attachments/att-2)`,
+      expect.any(Function)
     )
   })
 
@@ -513,8 +518,8 @@ describe(`useLaunchComposer submit`, () => {
     await act(() => result.current.submit())
     expect(remote.runAction).not.toHaveBeenCalled()
     expect(mockState.toastError).toHaveBeenCalledWith(
-      `Couldn't upload attachment`,
-      expect.anything()
+      `Couldn't upload the attachment`,
+      expect.objectContaining({ action: expect.objectContaining({ label: `Retry` }) })
     )
     expect(result.current.images[0]!.uploadedId).toBe(`att-1`)
     expect(result.current.images).toHaveLength(2)
@@ -843,7 +848,8 @@ describe(`useLaunchComposer blocked start`, () => {
       device,
       expect.anything(),
       [`i1`],
-      undefined
+      undefined,
+      expect.any(Function)
     )
   })
 
@@ -861,7 +867,8 @@ describe(`useLaunchComposer blocked start`, () => {
       device,
       expect.anything(),
       [`i1`, `i3`],
-      undefined
+      undefined,
+      expect.any(Function)
     )
   })
 
@@ -924,7 +931,8 @@ describe(`useLaunchComposer blocked start`, () => {
       stackedStartPrompt(
         { base: { identifier: `I2`, branch: `exp/I2` }, run: [`I1`] },
         `keep it small`
-      )
+      ),
+      expect.any(Function)
     )
   })
 
@@ -949,7 +957,8 @@ describe(`useLaunchComposer blocked start`, () => {
       device,
       expect.anything(),
       [`i3`],
-      stackedStartPrompt({ base: null, run: [`I3`, `I2`, `I1`] }, ``)
+      stackedStartPrompt({ base: null, run: [`I3`, `I2`, `I1`] }, ``),
+      expect.any(Function)
     )
   })
 

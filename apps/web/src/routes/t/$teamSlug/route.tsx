@@ -24,7 +24,6 @@ import {
 import { WorkTabsStrip } from "@/components/team/work-tabs-strip"
 import { WorkTabsSync } from "@/components/team/work-tabs-sync"
 import { useSidebarOccupant } from "@/hooks/use-sidebar-occupant"
-import { useWorkTabs } from "@/hooks/use-work-tabs"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { OfflineBanner } from "@/components/offline-banner"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
@@ -150,10 +149,10 @@ function TeamLayout() {
   const [sidebarWrapper, setSidebarWrapper] = useState<HTMLDivElement | null>(
     null
   )
-  // EXP-870: browser-like work tabs above the card, md+ only.
+  // EXP-870: browser-like work tabs above the card, md+ only. EXP-1255: the
+  // strip mounts with zero tabs too, so its "+" (a New run tab) is reachable.
   const isMobile = useIsMobile()
-  const { tabs } = useWorkTabs(team?.id)
-  const showWorkTabs = !isMobile && Boolean(team) && tabs.length > 0
+  const showWorkTabs = !isMobile && Boolean(team)
 
   return (
     <SidebarProvider ref={setSidebarWrapper}>

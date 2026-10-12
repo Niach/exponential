@@ -3,6 +3,7 @@ import { promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { Link } from "@tanstack/react-router"
 import { Check, Copy, Sparkles } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction } from "@/lib/action-error"
 import { buildWidgetSnippet } from "@/lib/widget-snippet"
 import { useBillingPlan } from "@/hooks/use-billing"
 import { useTeamBoards } from "@/hooks/use-team-data"
@@ -17,7 +18,7 @@ import {
   GlassSectionHeader,
   ListRow,
   SETTINGS_LIST_CLASS,
-  Skeleton,
+  SkeletonRows,
   Dialog,
   DialogBody,
   DialogContent,
@@ -52,7 +53,6 @@ export function TeamWidgetSection({ team }: { team: Team }) {
   const [loading, setLoading] = useState(true)
   // EXP-1274: a refetch over an already-shown list spins the band's glyph.
   const [reloading, setReloading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [copiedId, setCopiedId] = useState<string | null>(null)
   const [snippetTarget, setSnippetTarget] = useState<WidgetListItem | null>(
@@ -64,13 +64,13 @@ export function TeamWidgetSection({ team }: { team: Team }) {
   const [dialogOpen, setDialogOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<WidgetListItem | null>(null)
 
-  const refresh = useCallback(async () => {
+  // FEED-79: a failed load = the empty list + a toast with Retry.
+  const refresh = useCallback(async (): Promise<void> => {
     setReloading(true)
     try {
       setWidgets(await trpc.widgets.list.query({ teamId }))
-      setError(null)
-    } catch {
-      setError(`Couldn't load widgets. Are you an owner of this team?`)
+    } catch (error) {
+      failedAction(`load`, `the widgets`, error, { retry: () => void refresh() })
     } finally {
       setLoading(false)
       setReloading(false)
@@ -144,14 +144,8 @@ export function TeamWidgetSection({ team }: { team: Team }) {
         <div className="space-y-4">
           <div className={SETTINGS_LIST_CLASS}>
             {loading ? (
-              <div className="flex flex-col gap-2 px-3 py-2" aria-busy="true">
-                <Skeleton className="h-4 w-full" />
-                <Skeleton className="h-4 w-64" />
-              </div>
-            ) : error ? (
-              <div className="rounded-md border border-destructive/50 px-3 py-2 text-sm text-destructive">
-                {error}
-              </div>
+              // The two-line widget row: name + pills over the meta line.
+              <SkeletonRows rowHeight={60} dot={false} />
             ) : widgets.length === 0 ? (
               <Empty id="widgets" />
             ) : (

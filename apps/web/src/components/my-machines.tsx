@@ -30,6 +30,7 @@ import {
   Pill,
   GlassSectionHeader,
   ListRow,
+  SkeletonRows,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import {
@@ -176,7 +177,7 @@ export function MyMachines({
       />
 
       {mine === null ? (
-        <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
+        <SkeletonRows rowHeight={60} />
       ) : mine.length === 0 ? (
         <Empty id="devices" />
       ) : (

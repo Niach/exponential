@@ -2,10 +2,11 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { deleteFilePrompt, promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { Link } from "@tanstack/react-router"
 import { useLiveQuery } from "@tanstack/react-db"
-import { Eraser, LoaderCircle, Trash2 } from "lucide-react"
+import { Eraser, Trash2 } from "lucide-react"
 import type { Issue, Team } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { Empty } from "@/components/empty"
 import { useBillingPlan, invalidateBillingCache } from "@/hooks/use-billing"
 import { useTeamBoards, useTeamUsers } from "@/hooks/use-team-data"
@@ -26,6 +27,7 @@ import {
   ListRow,
   SETTINGS_LIST_CLASS,
   Prompt,
+  SkeletonRows,
   toast,
 } from "@exp/ui"
 
@@ -55,7 +57,8 @@ export function TeamStorageSection({
   teamSlug: string
 }) {
   const [list, setList] = useState<StorageList | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  // FEED-79: a failed load = the empty list + a toast with Retry.
+  const [loadFailed, setLoadFailed] = useState(false)
   const [pendingDelete, setPendingDelete] = useState<StorageRow | null>(null)
   const [previewRow, setPreviewRow] = useState<StorageRow | null>(null)
   const [deleting, setDeleting] = useState(false)
@@ -79,17 +82,16 @@ export function TeamStorageSection({
     [boards]
   )
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (): Promise<void> => {
     try {
       const result = await trpc.attachments.listForTeam.query({
         teamId: team.id,
       })
       setList(result)
-      setLoadError(null)
+      setLoadFailed(false)
     } catch (error) {
-      setLoadError(
-        error instanceof Error ? error.message : `Couldn't load attachments`
-      )
+      setLoadFailed(true)
+      failedAction(`load`, `the attachments`, error, { retry: () => void load() })
     }
   }, [team.id])
 
@@ -106,17 +108,13 @@ export function TeamStorageSection({
     if (!pendingDelete) return
     setDeleting(true)
     try {
-      await trpc.attachments.delete.mutate({ id: pendingDelete.id })
+      await trpc.attachments.delete.mutate({ id: pendingDelete.id }, SKIP_ERROR_TOAST)
       setPendingDelete(null)
       invalidateBillingCache()
       await load()
       toast.success(`Attachment deleted`)
     } catch (error) {
-      toast.error(
-        error instanceof Error && error.message
-          ? error.message
-          : `Couldn't delete the attachment`
-      )
+      failedAction(`delete`, `the attachment`, error)
     } finally {
       setDeleting(false)
     }
@@ -125,9 +123,10 @@ export function TeamStorageSection({
   const handleSweep = async () => {
     setSweeping(true)
     try {
-      const result = await trpc.attachments.sweepUnreferencedImages.mutate({
-        teamId: team.id,
-      })
+      const result = await trpc.attachments.sweepUnreferencedImages.mutate(
+        { teamId: team.id },
+        SKIP_ERROR_TOAST
+      )
       setSweepConfirmOpen(false)
       invalidateBillingCache()
       await load()
@@ -149,11 +148,7 @@ export function TeamStorageSection({
         }, freeing ${formatAttachmentSize(result.freedBytes)}.`
       )
     } catch (error) {
-      toast.error(
-        error instanceof Error && error.message
-          ? error.message
-          : `Couldn't sweep unreferenced images`
-      )
+      failedAction(`sweep`, `unreferenced images`, error)
     } finally {
       setSweeping(false)
     }
@@ -208,13 +203,8 @@ export function TeamStorageSection({
       </div>
 
       <div>
-        {loadError ? (
-          <p className="text-sm text-destructive">{loadError}</p>
-        ) : !list ? (
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <LoaderCircle className="size-3.5 animate-spin" />
-            Loading attachments...
-          </p>
+        {!list && !loadFailed ? (
+          <SkeletonRows />
         ) : rows.length === 0 ? (
           <Empty id="attachments" />
         ) : (

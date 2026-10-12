@@ -41,7 +41,7 @@ function SheetOverlay({
     <SheetPrimitive.Overlay
       data-slot="sheet-overlay"
       className={cn(
-        `fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0`,
+        `fixed inset-0 z-50 bg-black/60 backdrop-blur-sm data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:duration-standard data-[state=closed]:ease-accelerate data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:duration-slow data-[state=open]:ease-decelerate`,
         className
       )}
       {...props}
@@ -112,7 +112,7 @@ function SheetContent({
           // The mobile sheet radius (24px = rounded-*-3xl) on the leading
           // edge. Full-screen consumers (e.g. the search sheet) pass
           // rounded-none.
-          `group/sheet fixed z-50 flex flex-col gap-4 border-glass-stroke-card shadow-lg transition ease-in-out data-[state=closed]:animate-out data-[state=closed]:duration-300 data-[state=open]:animate-in data-[state=open]:duration-500`,
+          `group/sheet fixed z-50 flex flex-col gap-4 border-glass-stroke-card shadow-lg motion-sheet`,
           // Side/top drawers stay frosted glass (EXP-269); the BOTTOM sheet
           // is the opaque #18181B surface every client shares (EXP-687) — it
           // covers the screen edge to edge, so there is nothing to blur.

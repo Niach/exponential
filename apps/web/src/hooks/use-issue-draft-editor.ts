@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react"
-import { toast } from "@exp/ui"
 import type { Board, Issue, IssueDraft, User } from "@/db/schema"
 import { issueCollection } from "@/lib/collections"
 import { toIssueDescription, type IssuePriority } from "@/lib/domain"
@@ -16,6 +15,7 @@ import {
   type DraftSnapshot,
 } from "@/lib/issue-drafts"
 import { trpcErrorCode } from "@/lib/trpc-error"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { useIssueFromDraft } from "@/hooks/use-issue-drafts"
 import {
   isFallbackStatusOption,
@@ -233,7 +233,8 @@ export function useIssueDraftEditor({
       const input = toUpsertInput(snapshot)
       const key = JSON.stringify(input)
       if (rowExistsRef.current && key === lastWrittenRef.current) return
-      await trpc.issueDrafts.upsert.mutate(input)
+      // `flush` decides what a failure says (most fail quietly).
+      await trpc.issueDrafts.upsert.mutate(input, SKIP_ERROR_TOAST)
       rowExistsRef.current = true
       lastWrittenRef.current = key
       return
@@ -242,7 +243,7 @@ export function useIssueDraftEditor({
     // field is just a moment between two thoughts — and only once the
     // attachments are known to be none.
     if (mode === `leave` && rowExistsRef.current && filesLoadedRef.current) {
-      await trpc.issueDrafts.delete.mutate({ id: snapshot.id })
+      await trpc.issueDrafts.delete.mutate({ id: snapshot.id }, SKIP_ERROR_TOAST)
       rowExistsRef.current = false
       lastWrittenRef.current = null
       ensureDraftRef.current = null
@@ -275,7 +276,8 @@ export function useIssueDraftEditor({
         }
         failedWritesRef.current += 1
         if (mode === `leave` || failedWritesRef.current === 2) {
-          toast.error(`Could not save the draft`)
+          // FEED-79: an upsert is idempotent, so Retry writes it again.
+          failedAction(`save`, `the draft`, error, { retry: () => void flush(mode) })
         }
         return false
       }
@@ -427,7 +429,8 @@ export function useIssueDraftEditor({
         }
         if (rowExistsRef.current) return
         const input = toUpsertInput(snapshotRef.current)
-        await trpc.issueDrafts.upsert.mutate(input)
+        // The upload that needed the row toasts its failure.
+        await trpc.issueDrafts.upsert.mutate(input, SKIP_ERROR_TOAST)
         rowExistsRef.current = true
         lastWrittenRef.current = JSON.stringify(input)
       })
@@ -467,16 +470,15 @@ export function useIssueDraftEditor({
         dueDate: snapshot.dueDate ?? undefined,
         labelIds: snapshot.labelIds.length > 0 ? snapshot.labelIds : undefined,
         draftId: rowExistsRef.current ? draftId : undefined,
-      })
+      }, SKIP_ERROR_TOAST)
       created = result.issue
       txId = result.txId
     } catch (error) {
       creatingRef.current = false
       createInFlightRef.current = false
       setCreating(false)
-      toast.error(
-        error instanceof Error ? error.message : `Failed to create issue`
-      )
+      // A create could file the issue twice: no Retry.
+      failedAction(`create`, `the issue`, error)
       // EXP-1231: whatever the shape said while the Create was in flight
       // (the row gone or back, an issue claiming it) was not judged then;
       // and a grace that ran out meanwhile left the hold on. Judge it now.
@@ -509,10 +511,10 @@ export function useIssueDraftEditor({
     await writeChainRef.current
     if (!rowExistsRef.current) return true
     try {
-      await trpc.issueDrafts.delete.mutate({ id: draftId })
+      await trpc.issueDrafts.delete.mutate({ id: draftId }, SKIP_ERROR_TOAST)
       rowExistsRef.current = false
-    } catch {
-      toast.error(`Could not discard the draft`)
+    } catch (error) {
+      failedAction(`discard`, `the draft`, error)
     }
     return true
   }
@@ -591,9 +593,10 @@ export function useIssueDraftEditor({
       setFiles((previous) => [...previous, file])
       bumpChips()
     },
-    /** Rejects with the message the Files section shows. */
+    /** Rejects with the message the Files section toasts (its own toast,
+     *  so the link's generic one is skipped). */
     removeFile: async (file: FilesSectionFile) => {
-      await trpc.attachments.delete.mutate({ id: file.id })
+      await trpc.attachments.delete.mutate({ id: file.id }, SKIP_ERROR_TOAST)
       setFiles((previous) => previous.filter((row) => row.id !== file.id))
     },
     /** EXP-1212 (R2): a Create is in flight (read live, not from a render). */

@@ -64,6 +64,7 @@ import {
   type SteerDevice,
 } from "@/lib/steer-devices"
 import { uploadTeamSessionImageFile } from "@/lib/storage/issue-image-upload"
+import { failedAction } from "@/lib/action-error"
 import {
   useLaunchOptions,
   type LaunchOptions,
@@ -910,8 +911,10 @@ export function useLaunchComposer({
           setImages(current)
         }
       } catch (error) {
-        toast.error(`Couldn't upload attachment`, {
-          description: error instanceof Error ? error.message : undefined,
+        // FEED-79: landed uploads are kept, so Retry uploads the rest and
+        // starts (the kept draft, through the same gates as a click).
+        failedAction(`upload`, `the attachment`, error, {
+          retry: () => void submitRef.current(),
         })
         return
       }
@@ -930,7 +933,8 @@ export function useLaunchComposer({
         omitMcp: subjectOwnsMcpServers(subject),
       })
       // The remote hook toasts its own failures and rethrows; a refused start
-      // keeps the draft so it can be retried.
+      // keeps the draft, and the toast's Retry re-submits it (FEED-79).
+      const retry = () => void submitRef.current()
       if (subject === null) {
         await remote.runAction(
           device,
@@ -939,14 +943,16 @@ export function useLaunchComposer({
           { id: BUILTIN_CHAT_ID, name: BUILTIN_CHAT_NAME, teamId },
           options,
           chatStartInputs(repoId),
-          prompt
+          prompt,
+          retry
         )
       } else if (subject.kind === `issues`) {
         await remote.startIssues(
           device,
           options,
           stacked ? [stacked.issueId] : subject.ids,
-          prompt || undefined
+          prompt || undefined,
+          retry
         )
       } else if (selectedAction) {
         await remote.runAction(
@@ -958,7 +964,8 @@ export function useLaunchComposer({
           },
           options,
           buildInputsPayload(inputDefs, subject.inputs),
-          prompt || undefined
+          prompt || undefined,
+          retry
         )
       }
       // EXP-1271: delivered. The draft stays until the run's row lands

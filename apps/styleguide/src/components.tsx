@@ -1492,9 +1492,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tokens-motion`,
     title: `Motion`,
     kind: `Motion`,
-    blurb: `Three durations against three easings — hover a line to run it. Fast for micro-feedback, standard for most transitions, slow for whole surfaces.`,
+    blurb: `Three durations against three easings, then the rules (EXP-1243, tokens.json \`motion\`). Hover a line to run it; press the button.`,
     status: {
-      web: ok(`--motion-*`, `packages/ui/src/styles.css`),
+      web: ok(`--motion-* + motion-popover / motion-dialog / motion-sheet / motion-press`, `packages/ui/src/styles.css`),
       desktop: ok(`theme::motion::duration / ease`, `apps/desktop/crates/theme/src/tokens.generated.rs`),
       ios: ok(`GlassTokens`, `apps/ios/ExpUI/Sources/GlassTokens.swift`),
       android: ok(`GlassTokens`, ANDROID_GLASS, `aliases of DesignTokens.generated.kt`),
@@ -1516,7 +1516,23 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           lines.push(motionLine(`${durName} ${ms} · ${easeName}`, `${durClass} ${easeClass}`))
         }
       }
-      return `<div class="cmp-motion">${lines.join(``)}</div>`
+      const { fast, standard, slow } = motion.duration
+      const { press, popoverFrom } = motion.scale
+      const rules = [
+        [`Popover, menu, tooltip`, `enter · decelerate ${standard} · scale ${popoverFrom} → 1 + fade, from the trigger`, `<span class="cmp-motion-pop"></span>`],
+        [`Popover exit`, `accelerate ${fast} · fade only`, `<span class="cmp-motion-pop cmp-motion-pop-fade"></span>`],
+        [`Dialog`, `enter · decelerate ${standard} · scale ${popoverFrom} → 1 + fade`, `<span class="cmp-motion-pop cmp-motion-pop-centre"></span>`],
+        [`Sheet`, `enter · decelerate ${slow} · slide · exit accelerate ${standard}`, ``],
+        [`Button press`, `scale ${press}`, `<span class="cmp-motion-press">Start</span>`],
+        [`Keyboard, typeahead, tabs, toggles`, `none`, ``],
+        [`Toasts`, `toast-stack.json`, ``],
+        [`Reduce motion`, `opacity only`, ``],
+      ] as const
+      const ruleRows = rules.map(
+        ([label, value, stage]) =>
+          `<div class="cmp-motion-rule"><span class="label">${escapeHtml(label)}</span><span class="value">${escapeHtml(value)}</span><span class="cmp-motion-stage">${stage}</span></div>`
+      )
+      return `<div class="cmp-motion">${lines.join(``)}<div class="cmp-motion-rules">${ruleRows.join(``)}</div></div>`
     },
   },
   {
