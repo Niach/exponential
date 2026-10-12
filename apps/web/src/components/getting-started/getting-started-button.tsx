@@ -1,7 +1,8 @@
-import { useRef, useState } from "react"
+import { useRef, useState, type CSSProperties } from "react"
 import spec from "@exp/domain-contract/fixtures/getting-started.json"
 import {
   Dialog,
+  DialogBody,
   DialogContent,
   DialogTitle,
   SidebarMenuButton,
@@ -30,7 +31,7 @@ export function GettingStartedButton({
 }) {
   const { loading, complete } = useGettingStartedProgressContext()
   const [open, setOpen] = useState(false)
-  // A card that navigates (Start a run, the settings pages) closes the
+  // A row that navigates (Start a session, the settings pages) closes the
   // dialog; its focus then belongs to the new page, not back on this entry.
   const leaving = useRef(false)
 
@@ -49,9 +50,11 @@ export function GettingStartedButton({
       </SidebarMenuButton>
       <Dialog open={open} onOpenChange={setOpen}>
         {/* No corner close: the Docs button holds that corner; Escape and
-            a click outside close it. */}
+            a click outside close it. The dialog IS the block's box:
+            `maxWidth` wide, scrolling vertically only. */}
         <DialogContent
-          className="sm:max-w-fit"
+          className="gap-0 p-0 pb-[env(safe-area-inset-bottom)] sm:max-w-(--getting-started-max) sm:pb-0"
+          style={{ [`--getting-started-max`]: `${spec.maxWidth}px` } as CSSProperties}
           showCloseButton={false}
           aria-describedby={undefined}
           onCloseAutoFocus={(event) => {
@@ -60,14 +63,17 @@ export function GettingStartedButton({
           }}
         >
           <DialogTitle className="sr-only">{GETTING_STARTED_TITLE}</DialogTitle>
-          <GettingStartedBlock
-            team={team}
-            teamSlug={teamSlug}
-            onLeave={() => {
-              leaving.current = true
-              setOpen(false)
-            }}
-          />
+          <DialogBody className="overflow-x-hidden">
+            <GettingStartedBlock
+              team={team}
+              teamSlug={teamSlug}
+              framed={false}
+              onLeave={() => {
+                leaving.current = true
+                setOpen(false)
+              }}
+            />
+          </DialogBody>
         </DialogContent>
       </Dialog>
     </SidebarMenuItem>

@@ -196,8 +196,8 @@ fun AgentScreen(
     val mcpServers by viewModel.mcpServers.collectAsStateWithLifecycle()
     val mcpServerIds by viewModel.mcpServerIds.collectAsStateWithLifecycle()
     val computerUse by viewModel.computerUse.collectAsStateWithLifecycle()
-    // EXP-1253: the home around the card — the greeting's name, Recent, and
-    // whether Getting started still follows it (no board yet).
+    // EXP-1253: the home around the card — the greeting's name and whether
+    // Getting started still follows it (no board yet).
     val userName by viewModel.userName.collectAsStateWithLifecycle()
     val teamHasBoard by viewModel.teamHasBoard.collectAsStateWithLifecycle()
     // EXP-1271: the start in flight, until its row lands or it times out.
@@ -803,23 +803,9 @@ fun AgentScreen(
                             // starting row; a refused or lost start a toast.
                         }
                     }
-                    // EXP-1253: RECENT — my last three top-level runs in
-                    // this team, small session rows; no band when empty.
-                    // EXP-1284: the recent THREADS (title + listCaption).
-                    val recentThreads = threadList.recent.take(AgentHome.RECENT_COUNT)
-                    if (recentThreads.isNotEmpty()) {
-                        item(key = "__home_recent__") {
-                            HomeRecentThreads(
-                                rows = recentThreads.map { it.listRow() },
-                                teamIds = recentThreads.map { it.thread.teamId },
-                                teams = memberTeams,
-                                onOpen = onOpenThread,
-                                modifier = Modifier.padding(top = (AgentHome.OPTIONS_TO_RECENT - 6).dp),
-                            )
-                        }
-                    }
                     // EXP-1270: a board-less team's Getting started block
-                    // follows Recent.
+                    // follows the composer; nothing else renders beneath
+                    // the options line.
                     if (teamHasBoard == false) {
                         item(key = "__home_getting_started__") {
                             GettingStartedSection(
@@ -827,7 +813,7 @@ fun AgentScreen(
                                     runCatching { composerFocus.requestFocus() }
                                     keyboard?.show()
                                 },
-                                modifier = Modifier.padding(top = (AgentHome.OPTIONS_TO_RECENT - 6).dp),
+                                modifier = Modifier.padding(top = (AgentHome.COMPOSER_TO_GETTING_STARTED - 6).dp),
                             )
                         }
                     }
@@ -987,49 +973,6 @@ private fun HomeHeadline(greeting: String, modifier: Modifier = Modifier) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f, fill = false).testTag(AgentHome.GREETING_TEST_ID),
         )
-    }
-}
-
-/**
- * EXP-1284: RECENT on the home — the band label over my recent THREADS,
- * each a thread row that opens it.
- */
-@Composable
-private fun HomeRecentThreads(
-    rows: List<com.exponential.app.ui.thread.ThreadListRowModel>,
-    /** Each row's team (T6: every team, banded once there are several). */
-    teamIds: List<String>,
-    teams: List<com.exponential.app.data.db.TeamEntity>,
-    onOpen: (String) -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    Column(modifier = modifier.fillMaxWidth().testTag(AgentHome.RECENT_TEST_ID)) {
-        Text(
-            AgentHome.RECENT_LABEL.uppercase(),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.Medium,
-            letterSpacing = 0.6.sp,
-            color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-            modifier = Modifier.padding(start = 12.dp, bottom = 4.dp),
-        )
-        val bands = com.exponential.app.ui.components.teamBands(rows.zip(teamIds), teams) { it.second }
-        bands.forEach { band ->
-            band.team?.let { com.exponential.app.ui.components.TeamSectionHeader(it) }
-            band.items.forEach { (row, _) ->
-                Box(Modifier.testTag(AgentHome.RECENT_ROW_TEST_ID)) {
-                    com.exponential.app.ui.thread.ThreadListRow(
-                        title = row.title,
-                        caption = row.caption,
-                        live = row.live,
-                        busy = row.busy,
-                        needsInput = row.needsInput,
-                        agent = row.agent,
-                        markState = row.markState,
-                        onClick = { onOpen(row.threadId) },
-                    )
-                }
-            }
-        }
     }
 }
 

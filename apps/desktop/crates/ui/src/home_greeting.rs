@@ -8,27 +8,22 @@ use chrono::{NaiveDate, Timelike as _};
 
 /// The composer's placeholder with no subject picked.
 pub(crate) const HOME_PLACEHOLDER: &str = "What do you want to build?";
-/// The Recent band's label and how many runs it lists.
-pub(crate) const RECENT_LABEL: &str = "Recent";
-pub(crate) const RECENT_COUNT: usize = 3;
 
 /// The fixture's `testIds`: the IDE has no DOM, so they name the home's
 /// element ids (a capture or a test finds the same pieces as on the web).
 pub(crate) const TEST_ID_HOME: &str = "agent-home";
 pub(crate) const TEST_ID_GREETING: &str = "agent-home-greeting";
 pub(crate) const TEST_ID_MARK: &str = "agent-home-mark";
-pub(crate) const TEST_ID_RECENT: &str = "agent-home-recent";
-pub(crate) const TEST_ID_RECENT_ROW: &str = "agent-home-recent-row";
 
 /// The headline row's geometry (px): the disc mark, the gap to the
-/// greeting, the greeting's size + weight, then the gaps to the card and
-/// from the options line to Recent.
+/// greeting, the greeting's size + weight, then the gap to the card and
+/// (while the team has no board) from the options line to Getting started.
 pub(crate) const MARK_PX: f32 = 32.;
 pub(crate) const GAP_PX: f32 = 12.;
 pub(crate) const HEADLINE_PX: f32 = 30.;
 pub(crate) const HEADLINE_WEIGHT: f32 = 600.;
 pub(crate) const HEADLINE_TO_CARD_PX: f32 = 24.;
-pub(crate) const OPTIONS_TO_RECENT_PX: f32 = 32.;
+pub(crate) const COMPOSER_TO_GETTING_STARTED_PX: f32 = 32.;
 
 /// The greeting day starts at 05:00: one night keeps one variant.
 const DAY_STARTS_AT_HOUR: i64 = 5;
@@ -145,50 +140,6 @@ pub(crate) fn home_greeting_now(name: Option<&str>) -> String {
     home_greeting(now.date_naive(), now.hour(), name)
 }
 
-/// A row stamp as epoch milliseconds (unparseable = 0, sorts last). Synced
-/// rows carry Postgres `timestamptz` text (`2026-10-12 08:00:00.123+00`), not
-/// RFC 3339, so this goes through the tolerant [`crate::inbox::parse_timestamp`].
-#[cfg_attr(not(test), allow(dead_code))]
-fn stamp_ms(stamp: Option<&str>) -> i64 {
-    stamp
-        .and_then(crate::inbox::parse_timestamp)
-        .map(|at| at.timestamp_millis())
-        .unwrap_or(0)
-}
-
-/// RECENT: the caller's last [`RECENT_COUNT`] OWN top-level runs (no parent
-/// run) in `team_id`, any status, newest first by `updated_at` then
-/// `created_at`, then id ascending (`composer-home.json` `recentCases`). A
-/// resume succession (`resumed_from_id`) is ONE row, its
-/// newest member, the way every session list draws it (review #20,
-/// `domain::session_tree`). EXP-1284: the home lists THREADS now
-/// (`threads::team_thread_lists`); the run rule stays locked by its tests.
-#[cfg_attr(not(test), allow(dead_code))]
-pub(crate) fn home_recent_runs<'a>(
-    rows: impl Iterator<Item = &'a domain::rows::CodingSession>,
-    me: &str,
-    team_id: &str,
-) -> Vec<&'a domain::rows::CodingSession> {
-    let own: Vec<&domain::rows::CodingSession> = rows
-        .filter(|row| row.user_id.as_deref() == Some(me))
-        .filter(|row| row.team_id.as_deref() == Some(team_id))
-        .filter(|row| row.parent_session_id.is_none())
-        .collect();
-    let mut out: Vec<&domain::rows::CodingSession> =
-        domain::session_tree::session_tree(own, |row| domain::session_tree::coding_session_facts(row))
-            .into_iter()
-            .map(|node| *node.session())
-            .collect();
-    out.sort_by(|a, b| {
-        stamp_ms(b.updated_at.as_deref())
-            .cmp(&stamp_ms(a.updated_at.as_deref()))
-            .then_with(|| stamp_ms(b.created_at.as_deref()).cmp(&stamp_ms(a.created_at.as_deref())))
-            .then_with(|| a.id.cmp(&b.id))
-    });
-    out.truncate(RECENT_COUNT);
-    out
-}
-
 /// `YYYY-MM-DDTHH:mm` → (date, hour), the fixture's `local` form.
 #[cfg(test)]
 fn parse_local(local: &str) -> Option<(NaiveDate, u32)> {
@@ -250,8 +201,6 @@ mod tests {
     fn copy_and_geometry_are_the_fixture() {
         let fixture = fixture();
         assert_eq!(fixture["placeholder"].as_str().unwrap(), HOME_PLACEHOLDER);
-        assert_eq!(fixture["recent"]["label"].as_str().unwrap(), RECENT_LABEL);
-        assert_eq!(fixture["recent"]["count"].as_u64().unwrap() as usize, RECENT_COUNT);
         let g = &fixture["geometry"];
         let px = |key: &str| g[key].as_f64().unwrap() as f32;
         assert_eq!(px("mark"), MARK_PX);
@@ -259,148 +208,10 @@ mod tests {
         assert_eq!(px("headline"), HEADLINE_PX);
         assert_eq!(px("headlineWeight"), HEADLINE_WEIGHT);
         assert_eq!(px("headlineToCard"), HEADLINE_TO_CARD_PX);
-        assert_eq!(px("optionsToRecent"), OPTIONS_TO_RECENT_PX);
+        assert_eq!(px("composerToGettingStarted"), COMPOSER_TO_GETTING_STARTED_PX);
         let ids = &fixture["testIds"];
         assert_eq!(ids["home"].as_str().unwrap(), TEST_ID_HOME);
         assert_eq!(ids["greeting"].as_str().unwrap(), TEST_ID_GREETING);
         assert_eq!(ids["mark"].as_str().unwrap(), TEST_ID_MARK);
-        assert_eq!(ids["recent"].as_str().unwrap(), TEST_ID_RECENT);
-        assert_eq!(ids["recentRow"].as_str().unwrap(), TEST_ID_RECENT_ROW);
-    }
-
-    fn run(id: &str, user: &str, team: &str, parent: Option<&str>, updated: &str) -> domain::rows::CodingSession {
-        serde_json::from_value(serde_json::json!({
-            "id": id,
-            "user_id": user,
-            "team_id": team,
-            "parent_session_id": parent,
-            "updated_at": updated,
-        }))
-        .expect("a coding session row")
-    }
-
-    #[test]
-    fn recent_is_my_last_three_top_level_runs_in_the_team() {
-        let rows = vec![
-            run("a", "me", "t", None, "2026-10-12T08:00:00Z"),
-            run("b", "me", "t", None, "2026-10-12T09:00:00Z"),
-            run("child", "me", "t", Some("b"), "2026-10-12T12:00:00Z"),
-            run("other-user", "you", "t", None, "2026-10-12T12:00:00Z"),
-            run("other-team", "me", "u", None, "2026-10-12T12:00:00Z"),
-            run("c", "me", "t", None, "2026-10-12T10:00:00Z"),
-            run("d", "me", "t", None, "2026-10-12T07:00:00Z"),
-        ];
-        let ids: Vec<&str> = home_recent_runs(rows.iter(), "me", "t")
-            .into_iter()
-            .map(|row| row.id.as_str())
-            .collect();
-        assert_eq!(ids, ["c", "b", "a"]);
-        assert!(home_recent_runs(rows.iter(), "nobody", "t").is_empty());
-    }
-
-    fn stamped(id: &str, updated: &str, created: &str) -> domain::rows::CodingSession {
-        serde_json::from_value(serde_json::json!({
-            "id": id,
-            "user_id": "me",
-            "team_id": "t",
-            "updated_at": updated,
-            "created_at": created,
-        }))
-        .expect("a coding session row")
-    }
-
-    /// The synced Postgres text form (space separator, short offset) sorts by
-    /// time like RFC 3339 does, never by id.
-    #[test]
-    fn recent_sorts_the_synced_postgres_stamp_form() {
-        let rows = vec![
-            stamped("z-oldest", "2026-10-12 07:00:00.5+00", "2026-10-12 07:00:00+00"),
-            stamped("a-newest", "2026-10-12 11:00:00.25+00", "2026-10-12 06:00:00+00"),
-            stamped("m-middle", "2026-10-12T10:00:00Z", "2026-10-12T06:00:00Z"),
-            stamped("y-old", "2026-10-12 08:00:00+02", "2026-10-12 05:00:00+00"),
-        ];
-        let ids: Vec<&str> = home_recent_runs(rows.iter(), "me", "t")
-            .into_iter()
-            .map(|row| row.id.as_str())
-            .collect();
-        assert_eq!(ids, ["a-newest", "m-middle", "z-oldest"]);
-    }
-
-    /// Review #20: a resume succession is ONE row, its newest member.
-    #[test]
-    fn recent_folds_a_resume_succession_into_its_newest_row() {
-        let resumed = |id: &str, from: &str, updated: &str, created: &str| {
-            let mut row = stamped(id, updated, created);
-            row.resumed_from_id = Some(from.to_string());
-            row
-        };
-        let rows = vec![
-            stamped("first", "2026-10-12T08:00:00Z", "2026-10-12T08:00:00Z"),
-            resumed("second", "first", "2026-10-12T09:00:00Z", "2026-10-12T09:00:00Z"),
-            resumed("third", "second", "2026-10-12T10:00:00Z", "2026-10-12T10:00:00Z"),
-            stamped("other", "2026-10-12T07:00:00Z", "2026-10-12T07:00:00Z"),
-        ];
-        let ids: Vec<&str> = home_recent_runs(rows.iter(), "me", "t")
-            .into_iter()
-            .map(|row| row.id.as_str())
-            .collect();
-        assert_eq!(ids, ["third", "other"]);
-    }
-
-    /// Final review #20: every `recentCases` entry of `composer-home.json`
-    /// (the ×4 pin of the Recent rule), ids in order.
-    #[test]
-    fn recent_replays_the_fixture_cases() {
-        let fixture = fixture();
-        let cases = fixture["recentCases"].as_array().expect("recentCases");
-        assert!(!cases.is_empty());
-        for case in cases {
-            let rows: Vec<domain::rows::CodingSession> = case["sessions"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|session| {
-                    serde_json::from_value(serde_json::json!({
-                        "id": session["id"],
-                        "user_id": session["userId"],
-                        "team_id": session["teamId"],
-                        "parent_session_id": session["parentSessionId"],
-                        "resumed_from_id": session["resumedFromId"],
-                        "created_at": session["createdAt"],
-                        "updated_at": session["updatedAt"],
-                    }))
-                    .expect("a coding session row")
-                })
-                .collect();
-            let ids: Vec<&str> = home_recent_runs(
-                rows.iter(),
-                case["userId"].as_str().unwrap(),
-                case["teamId"].as_str().unwrap(),
-            )
-            .into_iter()
-            .map(|row| row.id.as_str())
-            .collect();
-            let want: Vec<&str> = case["expected"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .map(|id| id.as_str().unwrap())
-                .collect();
-            assert_eq!(ids, want, "{}", case["name"]);
-        }
-    }
-
-    /// A tie on `updated_at` falls back to `created_at`, newest first.
-    #[test]
-    fn recent_breaks_an_updated_tie_by_created() {
-        let rows = vec![
-            stamped("first", "2026-10-12 09:00:00+00", "2026-10-12 06:00:00+00"),
-            stamped("second", "2026-10-12 09:00:00+00", "2026-10-12 07:00:00+00"),
-        ];
-        let ids: Vec<&str> = home_recent_runs(rows.iter(), "me", "t")
-            .into_iter()
-            .map(|row| row.id.as_str())
-            .collect();
-        assert_eq!(ids, ["second", "first"]);
     }
 }

@@ -10,11 +10,13 @@ import SwiftUI
 /// chips); the composer card (`AgentComposerCard`: placeholder "What do you
 /// want to build?", the starting row after Start); the `@`/`:` candidate
 /// menu under it (`#` opens THE search list in a sheet, SLOP-28); the options
-/// line (`AgentOptionsRow`); then (EXP-1284) THREADS, not bare runs
-/// (`AgentThreadLists`: Running = a live run of mine, Recent = the team's
-/// other threads, `partitionThreadList`; a row opens the thread), then
-/// Getting started while the team has no board.
-/// The suggestion rows and the brand-mark watermark are gone ×4.
+/// line (`AgentOptionsRow`); then Getting started while the team has no
+/// board, and (EXP-1284) the caller's Running THREADS (`AgentThreadLists`:
+/// a live session of mine, every team, banded, plus my live sessions no
+/// thread names yet; a row opens the thread). No Recent band and no
+/// suggestion rows (Danny 2026-10-12): the toolbar's history sheet (threads,
+/// banded per team) is the one place for recent work. The brand-mark
+/// watermark is gone ×4.
 ///
 /// Two shapes: the Agent ROOT (`isTabRoot`, an empty seed as the stack's
 /// root — EXP-1210: a tab root like its siblings, no back — the app's
@@ -58,7 +60,7 @@ struct AgentPageView: View {
     /// flips while you type (web `useState(() => homeGreeting(...))`).
     @State private var greeting: String?
     /// EXP-1270: Getting started's signals for the active team (the block
-    /// follows Recent while the team has no board).
+    /// follows the composer while the team has no board).
     @State private var gettingStarted = GettingStartedProgress()
     @State private var keyboardVisible = false
     /// EXP-1196: the not-ready row's Sign in pill → the remote sign-in.
@@ -77,7 +79,7 @@ struct AgentPageView: View {
             AppBackground()
 
             if sessions != nil, let composer {
-                // EXP-862: with nothing running and nothing in Recent, the
+                // EXP-862: with nothing running, the
                 // composer column is CENTRED in the page (×4: web's
                 // `justify-center`, the IDE's `min_h_full`) — a lone prompt box
                 // pinned under the nav bar over an empty screen read as a page
@@ -85,7 +87,7 @@ struct AgentPageView: View {
                 // EXP-923: only the RUNNING rows count now — history moved
                 // into its own sheet, so an empty Running band is an empty
                 // page.
-                let centred = (threads?.running.isEmpty ?? true) && (threads?.recent.isEmpty ?? true)
+                let centred = (threads?.running.isEmpty ?? true) && (threads?.orphans.isEmpty ?? true)
                 GeometryReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
@@ -125,10 +127,12 @@ struct AgentPageView: View {
                             captions(composer)
                         }
 
-                        // EXP-1284: the threads (draft 3; T4/T6) — every
-                        // team, banded: Running = a live session of mine
-                        // (plus my live sessions no thread names yet),
-                        // Recent = my other threads; a row opens the thread.
+                        homeGettingStarted
+
+                        // EXP-1284 (draft 3; T4/T6): the Running THREADS —
+                        // every team, banded; my live sessions no thread
+                        // names yet as plain session rows. A row opens the
+                        // thread.
                         if let threads {
                             AgentThreadLists(
                                 model: threads,
@@ -139,9 +143,8 @@ struct AgentPageView: View {
                                     pushRoute(.runThread(accountId: accountId, sessionId: sessionId))
                                 }
                             )
-                            .padding(.top, CGFloat(HomeGreeting.Geometry.optionsToRecent) - 12)
+                            .padding(.top, 8)
                         }
-                        homeGettingStarted
                     }
                     .padding()
                     .frame(
@@ -412,19 +415,20 @@ struct AgentPageView: View {
         .frame(maxWidth: .infinity)
     }
 
-    /// EXP-1270: while the team has NO board, Getting started follows
-    /// Recent ("Start a run" focuses this page's composer).
+    /// EXP-1270: while the team has NO board, Getting started follows the
+    /// composer, `composerToGettingStarted` below the options line ("Start a
+    /// run" focuses this page's composer).
     @ViewBuilder
     private var homeGettingStarted: some View {
         if let teamId = teamState.activeTeam?.id,
            gettingStarted.entries.contains(where: { $0.key == .board && !$0.done }) {
-            GettingStartedCards(
+            GettingStartedList(
                 progress: gettingStarted,
                 accountId: accountId,
                 teamId: teamId,
                 onStartRun: { composer?.draftEditor.focusEnd() }
             )
-            .padding(.top, CGFloat(HomeGreeting.Geometry.optionsToRecent) - 12)
+            .padding(.top, CGFloat(HomeGreeting.Geometry.composerToGettingStarted) - 12)
         }
     }
 

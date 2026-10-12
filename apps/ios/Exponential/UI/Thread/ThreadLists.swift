@@ -40,14 +40,13 @@ struct ThreadListRow: View {
     }
 }
 
-/// EXP-1284: the Agent page's thread bands (draft 3; review T4/T6) — every
-/// member team, banded per team once the caller is in several:
-/// `Running` = the threads holding a live session of mine plus (T4) my live
-/// sessions no thread item names yet, as plain session rows (opening the
-/// session's thread once it lands); `Recent` = my other threads (a session
-/// of mine or created by me, never a Running one), newest activity first,
-/// capped at `HomeGreeting.recentCount` (no band when empty). A thread row
-/// opens the thread.
+/// EXP-1284: the Agent page's RUNNING threads (draft 3; review T4/T6) —
+/// every member team, banded per team once the caller is in several: the
+/// threads holding a live session of mine plus (T4) my live sessions no
+/// thread item names yet, as plain session rows (opening the session's
+/// thread once it lands). No Recent band under the composer (Danny
+/// 2026-10-12): recent threads live in the toolbar's history sheet
+/// (`RecentThreadsSheet`). A thread row opens the thread.
 struct AgentThreadLists: View {
     let model: ThreadListModel
     let onOpen: (String) -> Void
@@ -57,10 +56,7 @@ struct AgentThreadLists: View {
     @Environment(TeamState.self) private var teamState
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            running
-            recent
-        }
+        running
     }
 
     private var multiTeam: Bool { TeamGroups.isMultiTeam(teamState.teams) }
@@ -93,21 +89,6 @@ struct AgentThreadLists: View {
                 .accessibilityElement(children: .contain)
                 .accessibilityIdentifier("agent-threads-team-\(group.team.id)")
             }
-        }
-    }
-
-    @ViewBuilder
-    private var recent: some View {
-        let rows = Array(model.recent.prefix(HomeGreeting.recentCount))
-        if !rows.isEmpty {
-            VStack(alignment: .leading, spacing: 0) {
-                GlassSectionBand(HomeGreeting.recentLabel)
-                ThreadTeamBandedRows(entries: rows, multiTeam: multiTeam, teams: teamState.teams) { entry in
-                    ThreadEntryButton(entry: entry, onOpen: onOpen)
-                }
-            }
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier(HomeGreeting.TestId.recent)
         }
     }
 
@@ -226,7 +207,7 @@ struct RecentThreadsSheet: View {
     @Environment(TeamState.self) private var teamState
 
     var body: some View {
-        GlassSheetChrome(title: HomeGreeting.recentLabel) {
+        GlassSheetChrome(title: ThreadViews.recentLabel) {
             VStack(alignment: .leading, spacing: 0) {
                 if model.recent.isEmpty {
                     EmptyState(.recentRuns)

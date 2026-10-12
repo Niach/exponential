@@ -4,7 +4,7 @@ import Foundation
 
 /// The headless-CLI install one-liner, pointed at an account's own instance.
 ///
-/// Lifted out of `GettingStartedCards` (EXP-725) so the first-run wizard's
+/// Lifted out of `GettingStartedList` (EXP-725) so the first-run wizard's
 /// devices step copies the SAME string the checklist's "Set up a server" card
 /// does — a phone cannot run it, so both surfaces only ever put it on the
 /// pasteboard for the machine that can.

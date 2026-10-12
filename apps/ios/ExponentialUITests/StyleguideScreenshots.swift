@@ -38,10 +38,10 @@ import XCTest
 /// (the bottom sheet Android's shot shows).
 ///
 /// EXP-1259 added the last four: the Agent HOME the app lands on (the
-/// greeting, the composer, Recent), the `#` typeahead's search-list sheet,
-/// Getting started's block (Settings' entry sheet) and the Feedback states
-/// screen (`FeedbackStatesScreen`, opened by `-uiTestingStyleguide
-/// feedback-states` on a signed-out relaunch). The run thread's three cards
+/// greeting over the composer, nothing beneath it), the `#` typeahead's
+/// search-list sheet, Getting started's block (Settings' entry sheet) and the
+/// Feedback states screen (`FeedbackStatesScreen`, opened by
+/// `-uiTestingStyleguide feedback-states` on a signed-out relaunch). The run thread's three cards
 /// (`sg_work-card`, `sg_script-card`, `sg_comment-call-card`, EXP-1240/1279/
 /// 1241) ride the same seam (`ThreadCardsScreen`).
 ///
@@ -162,16 +162,13 @@ final class StyleguideScreenshots: XCTestCase {
         let injected = launchSignedIn(app)
 
         // ── sg_agent-home: the Agent page the app lands on (EXP-1253) ───────
-        // The disc mark + the greeting over the composer; Recent under it once
-        // the demo user's runs have synced.
+        // The disc mark + the greeting over the composer and its options
+        // line; nothing renders beneath it (Danny 2026-10-12).
         expect(
             anyElement(app, identified: "agent-home-greeting"),
             within: Wait.firstSync,
             "The app did not land on the Agent home's greeting"
         )
-        if !anyElement(app, identified: "agent-home-recent").waitForExistence(timeout: Wait.sync) {
-            print("EXP-1253 sg_agent-home: no Recent band — reseed with `bun run seed:screenshots`")
-        }
         snapshot("sg_agent-home", settle: 2)
 
         // The app lands on the Agent tab — switch to Issues for the board.
@@ -863,9 +860,9 @@ final class StyleguideScreenshots: XCTestCase {
         gettingStartedEntry.tap()
         let gettingStartedSheet = anyElement(app, identified: "getting-started-sheet")
         expect(
-            anyElement(app, identified: "getting-started-card-board"),
+            anyElement(app, identified: "getting-started-row-board"),
             within: Wait.nav,
-            "The Getting started sheet never drew its cards"
+            "The Getting started sheet never drew its rows"
         )
         snapshot("sg_getting-started", settle: 2)
         dismissSheet(app, whileVisible: gettingStartedSheet)

@@ -3879,7 +3879,7 @@ impl ScreensPanel {
         column = column.child(state);
         let cards = active_team
             .as_deref()
-            .and_then(|team_id| crate::getting_started::inline_cards(team_id, cx));
+            .and_then(|team_id| crate::getting_started::inline_list(team_id, cx));
         v_flex()
             .size_full()
             .min_h_0()

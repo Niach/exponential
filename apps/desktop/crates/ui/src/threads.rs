@@ -14,8 +14,8 @@
 //! * [`issue_threads`] — the threads holding an issue (the issue page's
 //!   `Threads` row);
 //! * [`team_thread_lists`] — the Running / Recent split every run list shows
-//!   now (`partition_thread_list`): the rail's Running section, the Agent
-//!   home's Recent and Agent › Recent.
+//!   now (`partition_thread_list`): the rail's Running section and Agent ›
+//!   Recent.
 //!
 //! Pure over the store: nothing here writes. The writes (`threads.link` …)
 //! live with the thread screen that issues them.

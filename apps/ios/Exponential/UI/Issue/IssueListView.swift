@@ -219,13 +219,13 @@ struct IssueListView: View {
                 // An empty board says so instead of
                 // rendering a blank list — and, since EXP-698 r5, carries the
                 // getting-started checklist underneath, exactly like web and
-                // the IDE. It scrolls: on a small phone the seven cards do not
+                // the IDE. It scrolls: on a small phone the step rows do not
                 // fit under the empty state.
                 ScrollView {
                     VStack(spacing: 24) {
                         emptyBoardState
                         if let context = gettingStarted, let teamId = vm.board?.teamId {
-                            GettingStartedCards(
+                            GettingStartedList(
                                 progress: context.progress,
                                 accountId: accountId,
                                 teamId: teamId,

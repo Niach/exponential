@@ -1,6 +1,6 @@
 package com.exponential.app.ui.gettingstarted
 
-// EXP-1270 (EXP-1259 D6): Getting started ×4 = ONE block of square cards in
+// EXP-1270 (EXP-1259 D6): Getting started ×4 = ONE block of rows (a vertical path) in
 // one linear order. The pure model, a port of web
 // `components/getting-started/getting-started-model.ts`
 // (`deriveGettingStarted`), locked to
@@ -20,7 +20,7 @@ enum class GettingStartedStepKey(val wire: String) {
     Widget("widget"),
 }
 
-/** What a card's tap opens (fixture `target`). */
+/** What a row's tap opens (fixture `target`). */
 enum class GettingStartedTarget(val wire: String) {
     CreateBoard("create-board"),
     Github("github"),
@@ -78,7 +78,7 @@ data class GettingStartedEntry(
     val key: GettingStartedStepKey,
     val done: Boolean,
     val target: GettingStartedTarget,
-    /** The first step not done — the highlighted card. */
+    /** The first step not done — the expanded row. */
     val next: Boolean,
 )
 

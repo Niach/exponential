@@ -16,7 +16,6 @@
 //! │ +                              ( Start batch · 2 ) │
 //! └───────────────────────────────────────────────┘
 //!  Device ▾ · Account ▾ · Model ▾ · Plan ○ · Resume ○ · Repository ▾
-//!  RECENT  (the last three own runs, home only)
 //! ```
 //!
 //! EXP-1249: the "+" is the composer's ONE tool — a menu (Implement issue ›,
@@ -48,10 +47,11 @@
 //!
 //! EXP-1253 (EXP-1259 D1): the page is HOME (`fixtures/composer-home.json`):
 //! the disc mark + the day's greeting over the card ([`home_greeting`]),
-//! "What do you want to build?" with no subject, and RECENT under the
-//! options line (the last three own top-level runs of the team, small run
-//! rows); while the team has no board the Getting started block follows.
-//! The suggestion rows and the watermark are gone. A New run tab
+//! "What do you want to build?" with no subject, and NOTHING under the
+//! options line: recent sessions live behind the history button and the
+//! Agent › Recent sidebar. While the team has no board the Getting started
+//! block follows the composer. The suggestion rows and the watermark are
+//! gone. A New run tab
 //! (EXP-1255) hosts the same column and turns into its run's tab.
 //!
 //! EXP-1271: after Start the send goes pending and the card's options line
@@ -466,13 +466,12 @@ pub(crate) fn fix_conflicts_card(
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Presentation {
     /// The Agent screen (`Screen::Chat`) and a New run tab: HOME, the
-    /// greeting over the centred column with Recent under it, and the
-    /// "Recent sessions" button.
+    /// greeting over the centred column and the "Recent sessions" button.
     Page,
     /// A dialog window opened by a play button ([`crate::composer_dialog`]):
     /// the launcher alone — headline, card, options, notes — and nothing of
     /// the page's chrome. It always has a subject, so it never shows
-    /// the greeting or Recent.
+    /// the greeting.
     Dialog,
 }
 
@@ -3497,10 +3496,11 @@ impl ChatScreenView {
             .into_any_element()
     }
 
-    /// EXP-923/EXP-1253 — the Agent SCREEN, HOME: the greeting headline,
-    /// the launcher, then Recent (and Getting started while the team has no
-    /// board), centred in the page's one scroll, with the "Recent sessions"
-    /// ghost button in the corner. A New run tab draws the same.
+    /// EXP-923/EXP-1253 — the Agent SCREEN, HOME: the greeting headline and
+    /// the launcher, nothing under its options line but Getting started
+    /// while the team has no board, centred in the page's one scroll, with
+    /// the "Recent sessions" ghost button in the corner. A New run tab
+    /// draws the same.
     ///
     /// The composer IS the page, so it sits in the middle of it (web
     /// `justify-center`) rather than pinned under the top edge.
@@ -3517,9 +3517,8 @@ impl ChatScreenView {
         // subject's own headline (inside the launcher) leads instead (web
         // `subject === null`, composer-home.json).
         let greeting = matches!(self.subject, Subject::None).then(|| self.render_greeting(cx));
-        let recent = self.render_recent(cx);
         // EXP-1270: a team with no board yet gets the Getting started block
-        // after Recent (its first card creates the board).
+        // under the composer (its first step creates the board).
         let getting_started = self
             .team_id
             .clone()
@@ -3529,7 +3528,7 @@ impl ChatScreenView {
                     .boards_in_team(team_id, cx)
                     .is_empty()
             })
-            .and_then(|team_id| crate::getting_started::inline_cards(&team_id, cx));
+            .and_then(|team_id| crate::getting_started::inline_list(&team_id, cx));
         let history_open = crate::navigation::recent_runs_open(window, cx);
         let (icon, tooltip) = if history_open {
             (registry::UI_BACK, "Back")
@@ -3561,16 +3560,10 @@ impl ChatScreenView {
                     .child(div().h(px(home_greeting::HEADLINE_TO_CARD_PX)))
             }))
             .child(launcher)
-            .children(recent.map(|recent| {
-                div()
-                    .w_full()
-                    .pt(px(home_greeting::OPTIONS_TO_RECENT_PX))
-                    .child(recent)
-            }))
             .children(getting_started.map(|block| {
                 div()
                     .w_full()
-                    .pt(px(home_greeting::OPTIONS_TO_RECENT_PX))
+                    .pt(px(home_greeting::COMPOSER_TO_GETTING_STARTED_PX))
                     .child(block)
             }));
         v_flex()
@@ -3620,40 +3613,6 @@ impl ChatScreenView {
             .map(|(text, _)| text.clone())
             .unwrap_or_default();
         home_headline(text, cx)
-    }
-
-    /// EXP-1253 — RECENT: the muted band label over the last three own
-    /// top-level pieces of work of the active team. EXP-1284: THREADS, not
-    /// bare sessions — Recent's half of `partition_thread_list` (Running is
-    /// the rail's), each the
-    /// thread's title over its `listCaption`; a row opens the thread. `None`
-    /// (no band at all) with nothing to list.
-    fn render_recent(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        let team_id = self.team_id.as_deref()?;
-        // Review T6: Recent excludes Running (those are the rail's), ×4.
-        let (_, recent) = crate::threads::team_thread_lists(team_id, cx);
-        let rows: Vec<crate::threads::ThreadListRow> =
-            recent.into_iter().take(home_greeting::RECENT_COUNT).collect();
-        if rows.is_empty() {
-            return None;
-        }
-        let items: Vec<AnyElement> = rows
-            .iter()
-            .enumerate()
-            .map(|(index, row)| {
-                crate::thread_screen::thread_list_row(
-                    home_greeting::TEST_ID_RECENT_ROW,
-                    index,
-                    row,
-                    row.display(),
-                    false,
-                    false,
-                    crate::thread_screen::ThreadRowOpen::Plain,
-                    cx,
-                )
-            })
-            .collect();
-        Some(recent_band(items, cx))
     }
 
     /// EXP-1037 — the composer in its DIALOG window: the launcher alone, in
@@ -4622,26 +4581,6 @@ pub(crate) fn home_headline(text: SharedString, cx: &App) -> AnyElement {
                 .text_color(foreground)
                 .child(text),
         )
-        .into_any_element()
-}
-
-/// EXP-1253 — RECENT: the muted uppercase band label over `rows` (small run
-/// rows). The styleguide's `agent-home` entry draws it too.
-pub(crate) fn recent_band(rows: Vec<AnyElement>, cx: &App) -> AnyElement {
-    v_flex()
-        .id(home_greeting::TEST_ID_RECENT)
-        .w_full()
-        .min_w_0()
-        .gap_1()
-        .child(
-            div()
-                .px_1()
-                .text_xs()
-                .font_weight(gpui::FontWeight::MEDIUM)
-                .text_color(cx.theme().muted_foreground)
-                .child(home_greeting::RECENT_LABEL.to_uppercase()),
-        )
-        .children(rows)
         .into_any_element()
 }
 

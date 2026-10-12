@@ -27,8 +27,8 @@ import { GETTING_STARTED_STEP_TITLES } from "@/components/getting-started/gettin
 
 // Per-client MCP setup instructions (EXP-141): concise numbered steps + one
 // copyable snippet per client; the full walkthroughs live in the docs.
-// EXP-1259 D6: Getting started's "Connect your tools" card opens them in
-// `McpSetupDialog` (the card is done once an MCP grant or API key exists).
+// EXP-1259 D6: Getting started's "Connect your tools" row opens them in
+// `McpSetupDialog` (the row is done once an MCP grant or API key exists).
 
 const CheckIcon = conceptIcon(`ui-check`)
 const CopyIcon = conceptIcon(`ui-copy`)

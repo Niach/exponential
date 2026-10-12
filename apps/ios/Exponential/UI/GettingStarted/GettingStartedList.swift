@@ -3,28 +3,30 @@ import ExpCore
 import SwiftUI
 
 /// EXP-1270 (EXP-1259 D6, `getting-started.json`): Getting started ×4 = ONE
-/// block: a header (the title, `N of M`, the meter, the Docs button) over ONE
-/// horizontal strip of square cards (`GettingStarted.Card`, 104×112) in the
-/// fixture's order. A card is the step's icon top-left, a green check (done)
-/// or its muted number top-right, the title bottom-left; the NEXT step is
-/// highlighted; done cards stay tappable; no descriptions, no locked state,
-/// no per-card buttons (web `@exp/ui` `GettingStartedStrip`, desktop
-/// `getting_started.rs`, Android `GettingStartedStrip.kt`).
+/// block in the list language: a group band (the title, `N of M`, the meter,
+/// Docs as an icon button) over flat hairline-divided ROWS in the fixture's
+/// order. A done row is muted with a green check and stays tappable; the ONE
+/// next row is expanded (the glass-active fill, `why` and ONE primary `cta`
+/// button); later rows are plain with a quiet chevron. No numbers, no locked
+/// state, no descriptions on the others (web `@exp/ui` `GettingStartedList`,
+/// desktop `getting_started.rs`, Android `GettingStartedList.kt`).
 ///
 /// Shown on an EMPTY board (under "No issues yet"), on the Agent home while
 /// the team has NO board, and in the bottom sheet behind Settings' "Getting
 /// started" row (`GettingStartedSheet`). It hides while the signals load and
 /// once every step is done.
-struct GettingStartedCards: View {
+struct GettingStartedList: View {
     let progress: GettingStartedProgress
     let accountId: String
     let teamId: String
     /// Opens the host's create-board sheet; nil = this block presents
     /// `CreateBoardSheet` itself.
     var onCreateBoard: (() -> Void)?
-    /// Runs "Start a run" on a host that IS the Agent page (focus its
+    /// Runs "Start a session" on a host that IS the Agent page (focus its
     /// composer); nil = push the Agent page.
     var onStartRun: (() -> Void)?
+    /// The phone sheet: fill its width instead of stopping at `maxWidth`.
+    var fullWidth = false
 
     @Environment(AppDependencies.self) private var deps
     @Environment(\.pushRoute) private var pushRoute
@@ -36,7 +38,7 @@ struct GettingStartedCards: View {
 
     var body: some View {
         if !progress.loading, !progress.complete, let state = progress.state, !state.entries.isEmpty {
-            GettingStartedStrip(state: state, onSelect: run)
+            GettingStartedListFace(state: state, fullWidth: fullWidth, onSelect: run)
                 .sheet(isPresented: $showAddDevice) {
                     AddDeviceSheet(accountId: accountId)
                 }
@@ -53,7 +55,7 @@ struct GettingStartedCards: View {
         }
     }
 
-    /// A card's target (the model already turned a device-needing step
+    /// A row's target (the model already turned a device-needing step
     /// without a device into `add-device`).
     private func run(_ entry: GettingStarted.Entry) {
         switch entry.target {
@@ -89,49 +91,50 @@ struct GettingStartedCards: View {
     }
 }
 
-/// The block's face: the header and the strip, drawn from a derived state.
-/// Pure presentation, so the styleguide screen draws the same one.
-struct GettingStartedStrip: View {
+/// The block's face: the band and the rows, drawn from a derived state.
+/// Pure presentation, so a styleguide surface can draw the same one.
+struct GettingStartedListFace: View {
     let state: GettingStarted.State
+    var fullWidth = false
     let onSelect: (GettingStarted.Entry) -> Void
 
     @Environment(\.openURL) private var openURL
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            header
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: CGFloat(GettingStarted.Card.gap)) {
-                    ForEach(Array(state.entries.enumerated()), id: \.element.id) { index, entry in
-                        GettingStartedCard(entry: entry, number: index + 1) { onSelect(entry) }
-                    }
+        VStack(alignment: .leading, spacing: 0) {
+            band
+            ForEach(Array(state.entries.enumerated()), id: \.element.id) { index, entry in
+                // Hairlines between plain rows; the expanded row draws its
+                // own top and bottom, so no divider doubles it.
+                if index > 0, !entry.next, !state.entries[index - 1].next {
+                    GlassDivider()
                 }
-                .padding(.vertical, 1)
+                GettingStartedRow(entry: entry) { onSelect(entry) }
             }
-            .scrollClipDisabled()
         }
+        .frame(maxWidth: fullWidth ? .infinity : CGFloat(GettingStarted.maxWidth), alignment: .leading)
+        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier(GettingStarted.TestId.block)
     }
 
-    private var header: some View {
-        HStack(spacing: 12) {
-            Text(GettingStarted.title)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.white)
-                .fixedSize()
-            Text(state.progress)
-                .font(.subheadline.monospacedDigit())
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-                .fixedSize()
-            meter
-            Spacer(minLength: 0)
-            GlassPill(
-                GettingStarted.docsLabel,
-                icon: AppIcons.uiDocs,
-                mode: .action { openURL(GettingStarted.docsUrl) }
-            )
-            .accessibilityIdentifier(GettingStarted.TestId.docs)
+    /// The group band: title, `N of M`, the meter, Docs as an icon button.
+    private var band: some View {
+        GlassSectionBand(GettingStarted.title) {
+            HStack(spacing: 12) {
+                Text(state.progress)
+                    .font(.subheadline.monospacedDigit())
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .fixedSize()
+                meter
+                Spacer(minLength: 0)
+                CircleIconButton(
+                    AppIcons.uiDocs,
+                    accessibilityLabel: GettingStarted.docsLabel
+                ) { openURL(GettingStarted.docsUrl) }
+                .accessibilityIdentifier(GettingStarted.TestId.docs)
+            }
+            .padding(.leading, 6)
         }
     }
 
@@ -152,59 +155,90 @@ struct GettingStartedStrip: View {
     }
 }
 
-/// One square card.
-struct GettingStartedCard: View {
+/// One step's row: done (muted + check), the expanded next one, or plain
+/// with a quiet chevron. Every row runs the step's target.
+struct GettingStartedRow: View {
     let entry: GettingStarted.Entry
-    /// The 1-based position in the visible list.
-    let number: Int
     let action: () -> Void
 
+    private static let iconSize = CGFloat(GettingStarted.Row.iconSize)
+
     var body: some View {
-        Button(action: action) {
-            VStack(alignment: .leading, spacing: 0) {
-                HStack(alignment: .top) {
-                    AppIcon(Self.icon(entry.key), size: CGFloat(GettingStarted.Card.icon))
+        if entry.next {
+            expanded
+        } else {
+            Button(action: action) {
+                HStack(spacing: 12) {
+                    AppIcon(Self.icon(entry.key), size: Self.iconSize)
+                        .foregroundStyle(.white.opacity(entry.done ? TextOpacity.tertiary : TextOpacity.secondary))
+                    Text(GettingStarted.title(entry.key))
+                        .font(.body)
                         .foregroundStyle(.white.opacity(entry.done ? TextOpacity.tertiary : TextOpacity.primary))
+                        .lineLimit(1)
                     Spacer(minLength: 0)
                     if entry.done {
-                        AppIcon(AppIcons.uiCheck, size: 16)
+                        AppIcon(AppIcons.uiCheck, size: Self.iconSize)
                             .foregroundStyle(DesignTokens.Semantic.green)
                             .accessibilityLabel("Done")
                     } else {
-                        Text("\(number)")
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                        // The quiet chevron: muted at 45%.
+                        AppIcon(AppIcons.uiChevronRight, size: 14)
+                            .foregroundStyle(.white.opacity(TextOpacity.secondary * 0.45))
                     }
                 }
-                Spacer(minLength: 0)
-                Text(GettingStarted.title(entry.key))
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(.white.opacity(entry.done ? TextOpacity.tertiary : TextOpacity.primary))
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-                    .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, CGFloat(GettingStarted.Row.padding))
+                .frame(minHeight: CGFloat(GettingStarted.Row.heightPhone))
+                .contentShape(Rectangle())
+                .flatRow()
             }
-            .padding(CGFloat(GettingStarted.Card.padding))
-            .frame(
-                width: CGFloat(GettingStarted.Card.width),
-                height: CGFloat(GettingStarted.Card.height),
-                alignment: .topLeading
-            )
-            .background(
-                entry.next ? GlassTokens.fillActive : Color.clear,
-                in: RoundedRectangle(cornerRadius: DesignTokens.Radius.lg)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: DesignTokens.Radius.lg)
-                    .strokeBorder(
-                        entry.next ? Color.white.opacity(0.3) : GlassTokens.strokeCard,
-                        lineWidth: GlassTokens.hairline
-                    )
-            )
-            .contentShape(RoundedRectangle(cornerRadius: DesignTokens.Radius.lg))
+            .buttonStyle(.plain)
+            .accessibilityIdentifier(GettingStarted.TestId.row(entry.key))
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier(GettingStarted.TestId.card(entry.key))
+    }
+
+    /// The ONE next row: the glass-active fill between two hairlines, the
+    /// title (medium) with `Next` trailing, the step's `why` and ONE primary
+    /// button. The row and the button both run the target.
+    private var expanded: some View {
+        HStack(alignment: .top, spacing: 12) {
+            AppIcon(Self.icon(entry.key), size: Self.iconSize)
+                .foregroundStyle(.white)
+                .padding(.top, 2)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 8) {
+                    Text(GettingStarted.title(entry.key))
+                        .font(.body.weight(.medium))
+                        .foregroundStyle(.white)
+                        .lineLimit(1)
+                    Spacer(minLength: 0)
+                    GlassPill(GettingStarted.nextLabel)
+                }
+                Text(GettingStarted.why(entry.key))
+                    .font(.system(size: 13))
+                    .foregroundStyle(.white.opacity(TextOpacity.tertiary))
+                    .fixedSize(horizontal: false, vertical: true)
+                GlassPill(
+                    GettingStarted.cta(entry.key),
+                    size: .md,
+                    mode: .action(action),
+                    primary: true
+                )
+                .accessibilityIdentifier(GettingStarted.TestId.cta)
+                .padding(.top, 8)
+            }
+        }
+        .padding(.horizontal, CGFloat(GettingStarted.Row.padding))
+        .padding(.vertical, CGFloat(GettingStarted.Row.expandedPadding))
+        .frame(minHeight: CGFloat(GettingStarted.Row.heightPhone), alignment: .topLeading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(GlassTokens.fillActive)
+        .overlay(alignment: .top) { GlassDivider() }
+        .overlay(alignment: .bottom) { GlassDivider() }
+        .contentShape(Rectangle())
+        .onTapGesture(perform: action)
+        .accessibilityElement(children: .contain)
+        .accessibilityAddTraits(.isButton)
+        .accessibilityIdentifier(GettingStarted.TestId.row(entry.key))
     }
 
     /// The fixture's concept ids → this client's generated icon names.
@@ -231,8 +265,9 @@ struct GettingStartedSheet: View {
 
     var body: some View {
         GlassSheetChrome(title: nil) {
-            GettingStartedCards(progress: progress, accountId: accountId, teamId: teamId)
-                .padding(.horizontal, 16)
+            // Full width: the rows run edge to edge like the sheet's other
+            // lists (getting-started.json, Android's sheet).
+            GettingStartedList(progress: progress, accountId: accountId, teamId: teamId, fullWidth: true)
                 .padding(.top, GlassSheetTokens.headerTopPadding)
                 .padding(.bottom, 24)
         }

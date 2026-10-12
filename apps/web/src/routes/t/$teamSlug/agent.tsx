@@ -13,7 +13,6 @@ import {
 } from "@exp/ui"
 import {
   HOME_GEOMETRY,
-  HOME_RECENT,
   HOME_TEST_IDS,
   homeGreeting,
   localWallClock,
@@ -22,8 +21,6 @@ import { useSteerConfig } from "@/components/agent-session"
 import { SessionsList } from "@/components/agent-shell"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
 import { LaunchComposer } from "@/components/launch-composer"
-import { useOpenThread } from "@/components/thread/thread-list"
-import { ThreadRow } from "@/components/thread/thread-row"
 import { useAgentsData } from "@/hooks/use-agents-data"
 import { useCrossTeamScope } from "@/hooks/use-cross-team-scope"
 import { useLaunchComposer } from "@/hooks/use-launch-composer"
@@ -31,7 +28,6 @@ import { useOpenSession } from "@/hooks/use-open-session"
 import {
   threadIdOfRun,
   useThreadBundle,
-  useThreadList,
   waitForThreadOfRun,
 } from "@/hooks/use-threads"
 import { useRemoteStart, type RemoteStart } from "@/hooks/use-remote-start"
@@ -77,9 +73,10 @@ const flag = (value: unknown): string | undefined =>
 // lands here, and the web New run tab (EXP-1255) hosts it. Top to bottom:
 // the headline (the disc mark + the time-of-day greeting, computed once per
 // mount) while no subject is picked (a subject's own headline leads instead),
-// the composer ("What do you want to build?") and its options line, then
-// RECENT (my last three top-level runs in this team, `lib/home-recent.ts`),
-// then, while the team has no board, the Getting started block.
+// the composer ("What do you want to build?") and its options line, then,
+// while the team has no board, the Getting started block. Nothing else sits
+// under the options line: recent sessions live behind the history button
+// (the Agent › Recent panel).
 //
 // EXP-1019: a play button no longer travels here for work it can already
 // name — a seed carrying a SUBJECT opens the same composer as a dialog over
@@ -412,7 +409,6 @@ function AgentPage() {
           )}
           <HomeColumn
             team={team}
-            currentUserId={currentUserId}
             userName={authSession?.user?.name ?? null}
             isMember={isMember}
             steerEnabled={steerEnabled}
@@ -486,11 +482,10 @@ function StartInThreadLine({
 const ClearThreadIcon = conceptIcon(`ui-close`)
 
 /** EXP-1253: the home column under the page chrome: the headline + composer
- *  (or the relay-less line), Recent, and Getting started while the team has
- *  no board. The greeting is computed ONCE per mount. */
+ *  (or the relay-less line), then Getting started while the team has no
+ *  board; nothing else. The greeting is computed ONCE per mount. */
 export function HomeColumn({
   team,
-  currentUserId,
   userName,
   isMember,
   steerEnabled,
@@ -501,7 +496,6 @@ export function HomeColumn({
   onActionChange,
 }: {
   team: Team
-  currentUserId: string
   userName: string | null
   isMember: boolean
   steerEnabled: boolean
@@ -540,11 +534,10 @@ export function HomeColumn({
           </p>
         </>
       )}
-      <HomeRecent teamId={team.id} currentUserId={currentUserId} />
       {/* EXP-1270: a board-less team's Getting started block (members only:
           meaningless before the viewer's own member row has synced). */}
       {isMember && boardsReady && boards.length === 0 && (
-        <div style={{ marginTop: HOME_GEOMETRY.optionsToRecent }}>
+        <div style={{ marginTop: HOME_GEOMETRY.composerToGettingStarted }}>
           <GettingStartedSection team={team} teamSlug={team.slug} />
         </div>
       )}
@@ -581,43 +574,6 @@ function HomeHeadline({ greeting }: { greeting: string }) {
         {greeting}
       </h1>
     </div>
-  )
-}
-
-/** RECENT: EXP-1284 — lists show THREADS: the team's last `recent.count`
- *  threads holding no live run of mine (`partitionThreadList`; the running
- *  ones are the sidebar's Running), each the thread's title over its list
- *  caption, opening the thread page; no band when empty. */
-function HomeRecent({
-  teamId,
-  currentUserId,
-}: {
-  teamId: string
-  currentUserId: string
-}) {
-  const { recent } = useThreadList(teamId, currentUserId)
-  const openThread = useOpenThread()
-  const rows = recent.slice(0, HOME_RECENT.count)
-  if (rows.length === 0) return null
-  return (
-    <section
-      data-testid={HOME_TEST_IDS.recent}
-      className="flex flex-col"
-      style={{ marginTop: HOME_GEOMETRY.optionsToRecent }}
-    >
-      <h2 className="px-3 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-        {HOME_RECENT.label}
-      </h2>
-      {rows.map((bundle) => (
-        <ThreadRow
-          key={bundle.thread.id}
-          bundle={bundle}
-          ringClassName="ring-background"
-          onOpen={() => openThread(bundle, { origin: { kind: `agent` } })}
-          testId={HOME_TEST_IDS.recentRow}
-        />
-      ))}
-    </section>
   )
 }
 

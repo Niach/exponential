@@ -1,11 +1,17 @@
 //! EXP-1270: `getting-started` (Special components): the ONE Getting started
-//! block — the REAL `getting_started::block` over the pure model's output for
-//! the contract's "four done" case (Invite your team is next), with no live
-//! data and inert cards.
+//! block — the REAL `getting_started::GettingStartedList` over the pure
+//! model's output, with no live data and inert rows, in two states: a fresh
+//! team (Create a board expanded) and the contract's "four done" case (done
+//! rows over the expanded Invite your team, later rows under it).
 
-use gpui::{div, px, App, Div, ParentElement as _, Styled as _, Window};
+use gpui::{
+    div, px, App, Div, InteractiveElement as _, IntoElement as _, ParentElement as _, Styled as _,
+    Window,
+};
 
-use crate::getting_started::{block, derive_getting_started, Permissions, Platform, Signals};
+use crate::getting_started::{
+    derive_getting_started, GettingStartedList, Model, Permissions, Platform, Signals, MAX_W,
+};
 
 pub(crate) const ID: &str = "getting-started";
 pub(crate) const OWNER: &str = "EXP-1270";
@@ -21,34 +27,48 @@ fn four_done() -> Signals {
     }
 }
 
-pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
-    let model = derive_getting_started(
-        &four_done(),
-        Permissions::for_role(true),
-        Platform::Pointer,
-    );
-    div().w(px(960.)).child(block(&model, None, cx))
+fn model(signals: &Signals) -> Model {
+    derive_getting_started(signals, Permissions::for_role(true), Platform::Pointer)
+}
+
+pub(crate) fn render(_window: &mut Window, _cx: &mut App) -> Div {
+    let specimen = |id: &'static str, signals: Signals| {
+        div()
+            .id(id)
+            .w_full()
+            .child(GettingStartedList::new(model(&signals), None))
+            .into_any_element()
+    };
+    div()
+        .w(px(MAX_W))
+        .flex()
+        .flex_col()
+        .gap_8()
+        .child(specimen("getting-started-fresh", Signals::default()))
+        .child(specimen("getting-started-mid-path", four_done()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn the_demo_is_mid_progress_with_invite_next() {
-        let model = derive_getting_started(
-            &four_done(),
-            Permissions::for_role(true),
-            Platform::Pointer,
-        );
-        assert_eq!(model.progress, "4 of 8");
-        let next: Vec<&str> = model
+    fn next_keys(model: &Model) -> Vec<&'static str> {
+        model
             .entries
             .iter()
             .filter(|entry| entry.next)
             .map(|entry| entry.key.as_str())
-            .collect();
-        assert_eq!(next, vec!["invite"]);
+            .collect()
+    }
+
+    #[test]
+    fn the_specimens_are_fresh_and_mid_path() {
+        let fresh = model(&Signals::default());
+        assert_eq!(fresh.progress, "0 of 8");
+        assert_eq!(next_keys(&fresh), vec!["board"]);
+        let mid = model(&four_done());
+        assert_eq!(mid.progress, "4 of 8");
+        assert_eq!(next_keys(&mid), vec!["invite"]);
     }
 
     /// The entry paints with the window and the app (the gallery test's

@@ -27,37 +27,14 @@ final class HomeGreetingTests: XCTestCase {
             let headlinePhone: Double
             let headlineWeight: Int
             let headlineToCard: Double
-            let optionsToRecent: Double
-        }
-        struct Recent: Decodable {
-            let label: String
-            let count: Int
+            let composerToGettingStarted: Double
         }
         let placeholder: String
         let geometry: Geometry
-        let recent: Recent
         let dayStartsAtHour: Int
         let buckets: [Bucket]
         let cases: [Case]
         let testIds: [String: String]
-        let recentCases: [RecentCase]
-    }
-
-    private struct RecentCase: Decodable {
-        struct Session: Decodable {
-            let id: String
-            let userId: String
-            let teamId: String
-            let parentSessionId: String?
-            let resumedFromId: String?
-            let createdAt: String
-            let updatedAt: String
-        }
-        let name: String
-        let userId: String
-        let teamId: String
-        let sessions: [Session]
-        let expected: [String]
     }
 
     private func fixture() throws -> Fixture {
@@ -90,8 +67,6 @@ final class HomeGreetingTests: XCTestCase {
         }
         XCTAssertEqual(HomeGreeting.placeholder, f.placeholder)
         XCTAssertEqual(HomeGreeting.dayStartsAtHour, f.dayStartsAtHour)
-        XCTAssertEqual(HomeGreeting.recentLabel, f.recent.label)
-        XCTAssertEqual(HomeGreeting.recentCount, f.recent.count)
         XCTAssertEqual(HomeGreeting.Geometry.mark, f.geometry.mark)
         XCTAssertEqual(HomeGreeting.Geometry.markPhone, f.geometry.markPhone)
         XCTAssertEqual(HomeGreeting.Geometry.gap, f.geometry.gap)
@@ -99,12 +74,11 @@ final class HomeGreetingTests: XCTestCase {
         XCTAssertEqual(HomeGreeting.Geometry.headlinePhone, f.geometry.headlinePhone)
         XCTAssertEqual(HomeGreeting.Geometry.headlineWeight, f.geometry.headlineWeight)
         XCTAssertEqual(HomeGreeting.Geometry.headlineToCard, f.geometry.headlineToCard)
-        XCTAssertEqual(HomeGreeting.Geometry.optionsToRecent, f.geometry.optionsToRecent)
+        XCTAssertEqual(HomeGreeting.Geometry.composerToGettingStarted, f.geometry.composerToGettingStarted)
         XCTAssertEqual(HomeGreeting.TestId.home, f.testIds["home"])
         XCTAssertEqual(HomeGreeting.TestId.greeting, f.testIds["greeting"])
         XCTAssertEqual(HomeGreeting.TestId.mark, f.testIds["mark"])
-        XCTAssertEqual(HomeGreeting.TestId.recent, f.testIds["recent"])
-        XCTAssertEqual(HomeGreeting.TestId.recentRow, f.testIds["recentRow"])
+        XCTAssertEqual(f.testIds.count, 3)
     }
 
     func testTheWallClockIsTheDevicesLocalTime() {
@@ -117,90 +91,5 @@ final class HomeGreetingTests: XCTestCase {
 
     func testAMalformedTimeGreetsNobody() {
         XCTAssertEqual(HomeGreeting.greeting(local: "yesterday", name: "Danny"), "")
-    }
-
-    // MARK: - Recent
-
-    private func run(
-        _ id: String,
-        userId: String = "me",
-        teamId: String = "t1",
-        status: String = "running",
-        parent: String? = nil,
-        resumedFrom: String? = nil,
-        updatedAt: String,
-        createdAt: String = "2026-10-01T00:00:00Z"
-    ) -> CodingSessionEntity {
-        CodingSessionEntity(
-            id: id, issueId: nil, teamId: teamId, userId: userId, deviceLabel: "macbook",
-            status: status, resumedFromId: resumedFrom, parentSessionId: parent,
-            startedAt: createdAt, endedAt: nil, createdAt: createdAt, updatedAt: updatedAt
-        )
-    }
-
-    /// Review #20: a session resumed twice is ONE Recent row (its newest
-    /// member), so the band still lists three distinct pieces of work.
-    func testRecentFoldsAResumeSuccessionIntoItsNewestRow() {
-        let rows = [
-            run("r1", status: "ended", updatedAt: "2026-10-05T10:00:00Z", createdAt: "2026-10-05T09:00:00Z"),
-            run("r2", status: "ended", resumedFrom: "r1", updatedAt: "2026-10-06T10:00:00Z",
-                createdAt: "2026-10-06T09:00:00Z"),
-            run("r3", resumedFrom: "r2", updatedAt: "2026-10-07T10:00:00Z", createdAt: "2026-10-07T09:00:00Z"),
-            run("a", updatedAt: "2026-10-04T10:00:00Z"),
-            run("b", updatedAt: "2026-10-03T10:00:00Z"),
-            run("c", updatedAt: "2026-10-02T10:00:00Z"),
-        ]
-        XCTAssertEqual(
-            HomeGreeting.recentRuns(rows, userId: "me", teamId: "t1").map(\.id),
-            ["r3", "a", "b"]
-        )
-    }
-
-    func testRecentIsTheLastThreeOwnTopLevelRunsOfTheTeam() {
-        let rows = [
-            run("old", status: "ended", updatedAt: "2026-10-01T10:00:00Z"),
-            run("a", updatedAt: "2026-10-05T10:00:00Z"),
-            run("b", status: "ended", updatedAt: "2026-10-04T10:00:00Z"),
-            run("child", parent: "a", updatedAt: "2026-10-06T10:00:00Z"),
-            run("theirs", userId: "other", updatedAt: "2026-10-07T10:00:00Z"),
-            run("elsewhere", teamId: "t2", updatedAt: "2026-10-07T10:00:00Z"),
-            run("c", status: "in_review", updatedAt: "2026-10-03T10:00:00Z"),
-        ]
-        XCTAssertEqual(
-            HomeGreeting.recentRuns(rows, userId: "me", teamId: "t1").map(\.id),
-            ["a", "b", "c"]
-        )
-    }
-
-    /// The final review: every client replays composer-home.json
-    /// `recentCases` (ids in order).
-    func testRecentReplaysTheFixtureCases() throws {
-        let cases = try fixture().recentCases
-        XCTAssertFalse(cases.isEmpty)
-        for c in cases {
-            let rows = c.sessions.map {
-                run(
-                    $0.id, userId: $0.userId, teamId: $0.teamId, parent: $0.parentSessionId,
-                    resumedFrom: $0.resumedFromId, updatedAt: $0.updatedAt, createdAt: $0.createdAt
-                )
-            }
-            XCTAssertEqual(
-                HomeGreeting.recentRuns(rows, userId: c.userId, teamId: c.teamId).map(\.id),
-                c.expected,
-                c.name
-            )
-        }
-    }
-
-    func testRecentBreaksUpdatedTiesOnCreatedAndDedupes() {
-        let same = "2026-10-05 10:00:00+00"
-        let rows = [
-            run("x", updatedAt: same, createdAt: "2026-10-01T00:00:00Z"),
-            run("y", updatedAt: same, createdAt: "2026-10-02T00:00:00Z"),
-            run("y", updatedAt: same, createdAt: "2026-10-02T00:00:00Z"),
-        ]
-        XCTAssertEqual(HomeGreeting.recentRuns(rows, userId: "me", teamId: "t1").map(\.id), ["y", "x"])
-        XCTAssertTrue(HomeGreeting.recentRuns(rows, userId: nil, teamId: "t1").isEmpty)
-        XCTAssertTrue(HomeGreeting.recentRuns(rows, userId: "me", teamId: nil).isEmpty)
     }
 }

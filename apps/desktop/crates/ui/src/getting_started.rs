@@ -1,12 +1,14 @@
 //! Getting started (EXP-1270, EXP-1259 D6) — the desktop mirror of the ONE
 //! block the contract `packages/domain-contract/fixtures/getting-started.json`
 //! specifies ×4: a header row (title, the muted `{done} of {total}`, a
-//! progress meter, a trailing Docs button) over ONE row of square step cards
-//! that scrolls sideways when the column is narrower than its cards.
+//! progress meter, a trailing Docs button) in the group band, over flat
+//! hairline-divided rows, one per visible step: done rows muted with a green
+//! check, the ONE next row expanded (its `why` + a primary `cta` button),
+//! later rows plain with a quiet chevron ([`GettingStartedList`]).
 //!
 //! [`derive_getting_started`] is the pure model (web `deriveGettingStarted`),
 //! replayed against every fixture case below. The block shows under the empty
-//! board's empty state and the no-board team center ([`inline_cards`]), on
+//! board's empty state and the no-board team center ([`inline_list`]), on
 //! the Agent home while the team has no board, and behind the rail's
 //! "Getting started" entry, which opens it in a centred dialog
 //! ([`open_dialog`]). It disappears once `complete`.
@@ -23,17 +25,17 @@ use std::time::{Duration, Instant};
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, relative, size, App, AppContext as _, ClickEvent, Entity, FontWeight, Global,
-    InteractiveElement as _, IntoElement, ParentElement, Render, SharedString,
+    InteractiveElement as _, IntoElement, ParentElement, Render, RenderOnce, SharedString,
     StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
-    button::Button,
+    button::{Button, ButtonVariants as _},
     h_flex, v_flex, ActiveTheme as _, Icon,
 };
 use sync::Store;
 use theme::tokens as t;
 
-use crate::controls::WebControl as _;
+use crate::controls::{ide_chrome, WebControl as _};
 use crate::icons::{registry, ExpIcon};
 use crate::navigation::{active_team_id, nav_for_window, Navigation};
 use crate::native_dialog::{self, DialogContent, DialogSpec};
@@ -72,11 +74,26 @@ pub(crate) const DOCS_ICON: &str = "ui-docs";
 pub(crate) const DOCS_URL: &str = "https://exponential.at/docs/getting-started/";
 /// The progress meter's width.
 pub(crate) const METER_W: f32 = 160.;
-pub(crate) const CARD_W: f32 = 104.;
-pub(crate) const CARD_H: f32 = 112.;
-pub(crate) const CARD_PADDING: f32 = 12.;
-pub(crate) const CARD_ICON: f32 = 16.;
-pub(crate) const CARD_GAP: f32 = 8.;
+/// The small label trailing the expanded next row.
+pub(crate) const NEXT_LABEL: &str = "Next";
+/// The block's max width; the dialog's content width.
+pub(crate) const MAX_W: f32 = 560.;
+/// `row`: the min row height, the step icon, the horizontal padding and the
+/// expanded row's vertical padding.
+pub(crate) const ROW_H: f32 = 44.;
+pub(crate) const ROW_ICON: f32 = 16.;
+pub(crate) const ROW_PADDING: f32 = 16.;
+pub(crate) const ROW_EXPANDED_PADDING: f32 = 14.;
+
+/// `testIds`.
+pub(crate) const TEST_ID_BLOCK: &str = "getting-started";
+pub(crate) const TEST_ID_DOCS: &str = "getting-started-docs";
+pub(crate) const TEST_ID_CTA: &str = "getting-started-cta";
+
+/// `testIds.row` for `key`.
+pub(crate) fn row_test_id(key: StepKey) -> String {
+    format!("getting-started-row-{}", key.as_str())
+}
 
 /// `progress`: `{done} of {total}`.
 pub(crate) fn progress_label(done: usize, total: usize) -> String {
@@ -110,7 +127,7 @@ impl StepKey {
     }
 }
 
-/// What a card click runs.
+/// What a row click runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Target {
     CreateBoard,
@@ -143,7 +160,7 @@ impl Target {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Platform {
     Pointer,
-    /// The phones' strip (the fixture's phone cases; the IDE is a pointer).
+    /// The phones' list (the fixture's phone cases; the IDE is a pointer).
     #[cfg_attr(not(test), allow(dead_code))]
     Phone,
 }
@@ -168,6 +185,10 @@ pub(crate) struct Step {
     /// The fixture's `doneWhen`, verbatim; [`step_done`] evaluates it.
     #[cfg_attr(not(test), allow(dead_code))]
     pub done_when: &'static str,
+    /// One sentence under the expanded next row's title.
+    pub why: &'static str,
+    /// The expanded next row's button label.
+    pub cta: &'static str,
 }
 
 /// The eight steps, in contract order.
@@ -181,6 +202,8 @@ pub(crate) const STEPS: [Step; 8] = [
         visible_when: None,
         phones: true,
         done_when: "hasBoard",
+        why: "A board holds the issues your agents work on.",
+        cta: "Create a board",
     },
     Step {
         key: StepKey::Github,
@@ -191,6 +214,8 @@ pub(crate) const STEPS: [Step; 8] = [
         visible_when: None,
         phones: true,
         done_when: "githubInstalled",
+        why: "Sessions branch, push and open pull requests on your repositories.",
+        cta: "Connect GitHub",
     },
     Step {
         key: StepKey::Device,
@@ -201,6 +226,8 @@ pub(crate) const STEPS: [Step; 8] = [
         visible_when: None,
         phones: true,
         done_when: "hasDesktopDevice || hasServerDevice",
+        why: "Sessions run on your computer. The desktop app registers it.",
+        cta: "Add a device",
     },
     Step {
         key: StepKey::Run,
@@ -211,6 +238,8 @@ pub(crate) const STEPS: [Step; 8] = [
         visible_when: None,
         phones: true,
         done_when: "hasCodingSession",
+        why: "Pick an issue or type what to build, then watch it work.",
+        cta: "Start a session",
     },
     Step {
         key: StepKey::Invite,
@@ -221,6 +250,8 @@ pub(crate) const STEPS: [Step; 8] = [
         visible_when: Some(Permission::CanManageMembers),
         phones: true,
         done_when: "hasInvitedTeam",
+        why: "Teammates see every board, session and review.",
+        cta: "Invite your team",
     },
     Step {
         key: StepKey::Server,
@@ -231,6 +262,8 @@ pub(crate) const STEPS: [Step; 8] = [
         visible_when: None,
         phones: true,
         done_when: "hasServerDevice",
+        why: "An always-on machine takes sessions while your laptop is closed.",
+        cta: "Set up a server",
     },
     Step {
         key: StepKey::Mcp,
@@ -241,6 +274,8 @@ pub(crate) const STEPS: [Step; 8] = [
         visible_when: None,
         phones: false,
         done_when: "mcpConnected",
+        why: "Claude, ChatGPT or Cursor read and file issues through MCP.",
+        cta: "Connect your tools",
     },
     Step {
         key: StepKey::Widget,
@@ -251,6 +286,8 @@ pub(crate) const STEPS: [Step; 8] = [
         visible_when: Some(Permission::CanManageWidgets),
         phones: false,
         done_when: "hasWidget",
+        why: "A snippet on your site turns feedback into issues.",
+        cta: "Feedback widget",
     },
 ];
 
@@ -337,7 +374,7 @@ pub(crate) struct Entry {
     /// The step's target, or `add-device` for a `needsDevice` step while no
     /// device exists.
     pub target: Target,
-    /// The first open step: the highlighted card.
+    /// The first open step: the expanded row.
     pub next: bool,
 }
 
@@ -712,7 +749,7 @@ pub(crate) fn getting_started_visible(nav: &Entity<Navigation>, cx: &mut App) ->
 // Targets
 // ---------------------------------------------------------------------------
 
-/// Run a card's target in `window`. From inside the dialog the dialog closes
+/// Run a row's target in `window`. From inside the dialog the dialog closes
 /// first and the target runs in the window that opened it (dialogs never
 /// nest, and a navigation needs the opener's screens).
 fn run_target(target: Target, team_id: String, window: &mut Window, cx: &mut App) {
@@ -759,103 +796,78 @@ fn run_target_here(target: Target, team_id: String, window: &mut Window, cx: &mu
 // The block
 // ---------------------------------------------------------------------------
 
-/// One square step card. `team_id` `None` = a demo (the styleguide): inert.
-fn step_card(index: usize, entry: &Entry, team_id: Option<&str>, cx: &App) -> gpui::AnyElement {
-    let theme = cx.theme();
-    let muted = theme.muted_foreground;
-    let foreground = theme.foreground;
-    let hover = theme.list_hover;
-    let step = step(entry.key);
-    let corner: gpui::AnyElement = if entry.done {
-        Icon::new(registry::UI_CHECK)
-            .size(px(14.))
-            .text_color(t::GREEN.to_hsla())
-            .into_any_element()
-    } else {
-        div()
-            .text_xs()
-            .text_color(muted)
-            .child(SharedString::from((index + 1).to_string()))
-            .into_any_element()
-    };
-    let target = entry.target;
-    let team = team_id.map(str::to_string);
-    div()
-        .id(SharedString::from(format!("getting-started-card-{}", entry.key.as_str())))
-        .flex_none()
-        .w(px(CARD_W))
-        .h(px(CARD_H))
-        .p(px(CARD_PADDING))
-        .flex()
-        .flex_col()
-        .justify_between()
-        .rounded(px(t::radius::LG))
-        .border_1()
-        .border_color(t::glass::STROKE_CARD.to_hsla())
-        .bg(t::glass::FILL_CARD.to_hsla())
-        .when(entry.next, |this| {
-            this.bg(hover).border_color(foreground.opacity(0.3))
-        })
-        .when_some(team, |this, team| {
-            this.cursor_pointer()
-                .hover(move |this| this.bg(hover))
-                .on_click(move |_: &ClickEvent, window, cx| {
-                    run_target(target, team.clone(), window, cx);
-                })
-        })
-        .child(
-            h_flex()
-                .w_full()
-                .items_start()
-                .justify_between()
-                .child(
-                    Icon::new(concept(step.icon))
-                        .size(px(CARD_ICON))
-                        .text_color(if entry.done { muted } else { foreground }),
-                )
-                .child(corner),
-        )
-        .child(
-            div()
-                .w_full()
-                .min_w_0()
-                .text_size(px(13.))
-                .font_weight(FontWeight::MEDIUM)
-                .line_clamp(2)
-                .text_color(if entry.done { muted } else { foreground })
-                .child(step.title),
-        )
-        .into_any_element()
+/// THE block (web `GettingStartedList`): the group band (title, progress,
+/// meter, Docs) over flat hairline-divided rows, one per entry, at most
+/// [`MAX_W`] wide and centred in its column. Pure over `model`, so the
+/// styleguide draws it from a fixture case with `team_id` `None` (inert).
+#[derive(IntoElement)]
+pub(crate) struct GettingStartedList {
+    model: Model,
+    team_id: Option<String>,
 }
 
-/// THE block: header row over the card row. Pure over `model`, so the
-/// styleguide draws it from a fixture case with `team_id` `None`.
-pub(crate) fn block(model: &Model, team_id: Option<&str>, cx: &App) -> gpui::AnyElement {
+impl GettingStartedList {
+    pub(crate) fn new(model: Model, team_id: Option<String>) -> Self {
+        Self { model, team_id }
+    }
+}
+
+impl RenderOnce for GettingStartedList {
+    fn render(self, _window: &mut Window, cx: &mut App) -> impl IntoElement {
+        let last = self.model.entries.len().saturating_sub(1);
+        let rows: Vec<gpui::AnyElement> = self
+            .model
+            .entries
+            .iter()
+            .enumerate()
+            .map(|(ix, entry)| step_row(ix, ix == last, entry, self.team_id.as_deref(), cx))
+            .collect();
+        v_flex()
+            .id(TEST_ID_BLOCK)
+            .w_full()
+            .max_w(px(MAX_W))
+            .mx_auto()
+            .min_w_0()
+            .child(band(&self.model, cx))
+            .children(rows)
+    }
+}
+
+/// The group band: title, `{done} of {total}`, the meter, Docs trailing.
+fn band(model: &Model, cx: &App) -> gpui::AnyElement {
     let theme = cx.theme();
-    let muted = theme.muted_foreground;
+    let chrome = ide_chrome();
     let fill = (model.done as f32 / model.total.max(1) as f32).min(1.);
-    let header = h_flex()
+    h_flex()
         .w_full()
         .min_w_0()
         .items_center()
         .gap_3()
+        .px_3()
+        .py_1p5()
+        .mb_1()
+        .rounded(px(chrome.radius_md))
+        .bg(chrome.fill_section)
         .child(
             div()
+                .flex_none()
                 .text_sm()
-                .font_weight(FontWeight::SEMIBOLD)
+                .font_weight(FontWeight::MEDIUM)
                 .whitespace_nowrap()
                 .child(TITLE),
         )
         .child(
             div()
+                .flex_none()
                 .text_sm()
                 .whitespace_nowrap()
-                .text_color(muted)
+                .text_color(theme.muted_foreground)
                 .child(SharedString::from(model.progress.clone())),
         )
         .child(
+            // Shrinks before the title does on a narrow column.
             div()
-                .flex_none()
+                .min_w_0()
                 .h(px(4.))
                 .w(px(METER_W))
                 .rounded_full()
@@ -864,127 +876,144 @@ pub(crate) fn block(model: &Model, team_id: Option<&str>, cx: &App) -> gpui::Any
         )
         .child(div().flex_1())
         .child(
-            Button::new("getting-started-docs")
+            Button::new(TEST_ID_DOCS)
                 .outline()
                 .web_sm()
                 .icon(Icon::new(concept(DOCS_ICON)))
                 .label(DOCS_LABEL)
                 .on_click(|_, _, cx| crate::settings::open_url(cx, DOCS_URL.to_string())),
-        );
-    let cards: Vec<gpui::AnyElement> = model
-        .entries
-        .iter()
-        .enumerate()
-        .map(|(index, entry)| step_card(index, entry, team_id, cx))
-        .collect();
-    v_flex()
-        .id("getting-started")
-        .w_full()
-        .min_w_0()
-        .gap_3()
-        .child(header)
-        .child(CardRow { cards })
+        )
         .into_any_element()
 }
 
-/// The width (px) of the card row's edge fades.
-const ROW_FADE_W: f32 = 32.;
-
-/// The card row. Never wraps: a column narrower than the cards scrolls
-/// sideways, and an edge with cards past it fades into the ground (right
-/// while more sit to the right, left once scrolled), so a cut card reads as
-/// "scroll for more" (web shows its scrollbar; gpui's only on scroll).
-#[derive(IntoElement)]
-struct CardRow {
-    cards: Vec<gpui::AnyElement>,
-}
-
-impl gpui::RenderOnce for CardRow {
-    fn render(self, window: &mut Window, cx: &mut App) -> impl IntoElement {
-        let scroll = window
-            .use_keyed_state("getting-started-cards-scroll", cx, |_, _| gpui::ScrollHandle::new())
-            .read(cx)
-            .clone();
-        let fades = scroll.clone();
-        div()
-            .relative()
+/// One step row. Every row but the first draws the hairline above itself;
+/// the expanded next row draws it on both edges.
+fn step_row(
+    ix: usize,
+    is_last: bool,
+    entry: &Entry,
+    team_id: Option<&str>,
+    cx: &App,
+) -> gpui::AnyElement {
+    let theme = cx.theme();
+    let muted = theme.muted_foreground;
+    let foreground = theme.foreground;
+    let hover = theme.list_hover;
+    let chrome = ide_chrome();
+    let step = step(entry.key);
+    let target = entry.target;
+    let team = team_id.map(str::to_string);
+    let icon = Icon::new(concept(step.icon))
+        .size(px(ROW_ICON))
+        .flex_none()
+        .text_color(if entry.done { muted } else { foreground });
+    let title = div()
+        .flex_1()
+        .min_w_0()
+        .truncate()
+        .text_sm()
+        .when(entry.next, |this| this.font_weight(FontWeight::MEDIUM))
+        .text_color(if entry.done { muted } else { foreground })
+        .child(step.title);
+    let row = if entry.next {
+        let next = div()
+            .flex_none()
+            .px_1p5()
+            .rounded(px(4.))
+            .bg(chrome.fill_section)
+            .text_xs()
+            .text_color(muted)
+            .child(NEXT_LABEL);
+        let cta_team = team.clone();
+        let cta = Button::new(TEST_ID_CTA)
+            .primary()
+            .web_sm()
+            .label(step.cta)
+            .when_some(cta_team, |this, team| {
+                this.on_click(move |_: &ClickEvent, window, cx| {
+                    // The row runs the same target: once per click.
+                    cx.stop_propagation();
+                    run_target(target, team.clone(), window, cx);
+                })
+            });
+        v_flex()
+            .id(SharedString::from(row_test_id(entry.key)))
             .w_full()
             .min_w_0()
+            .px(px(ROW_PADDING))
+            .py(px(ROW_EXPANDED_PADDING))
+            .gap_1()
+            .bg(chrome.fill_active)
+            .border_t_1()
+            .border_color(chrome.stroke_row)
+            .when(is_last, |this| this.border_b_1())
             .child(
-                // A flex row, so the card strip keeps its own width (a block
-                // parent would squeeze it to the column and leave nothing to
-                // scroll).
-                div()
-                    .id("getting-started-cards")
-                    .flex()
+                h_flex()
                     .w_full()
                     .min_w_0()
-                    .overflow_x_scroll()
-                    .track_scroll(&scroll)
-                    .child(h_flex().flex_none().gap(px(CARD_GAP)).children(self.cards)),
+                    .items_center()
+                    .gap_3()
+                    .child(icon)
+                    .child(title)
+                    .child(next),
             )
-            // Paint-only, after the row: reads the offset the row's own
-            // prepaint just settled, so the fades follow every scroll frame.
             .child(
-                gpui::canvas(
-                    |_, _, _| (),
-                    move |bounds, _, window, _| paint_row_fades(bounds, &fades, window),
-                )
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full(),
+                // Under the title: the icon's width and the gap in.
+                v_flex()
+                    .w_full()
+                    .min_w_0()
+                    .pl(px(ROW_ICON + 12.))
+                    .items_start()
+                    .gap_2p5()
+                    .child(
+                        div()
+                            .w_full()
+                            .min_w_0()
+                            .text_size(px(13.))
+                            .text_color(muted)
+                            .child(step.why),
+                    )
+                    .child(cta),
             )
-    }
-}
-
-fn paint_row_fades(bounds: gpui::Bounds<gpui::Pixels>, scroll: &gpui::ScrollHandle, window: &mut Window) {
-    let (left, right) = row_fades(
-        f32::from(scroll.offset().x),
-        f32::from(scroll.max_offset().x),
-    );
-    if !left && !right {
-        return;
-    }
-    // The panel's ground where the row sits on the window ramp.
-    let height = f32::from(window.viewport_size().height).max(1.);
-    let ground = crate::surface::panel_fill_at(f32::from(bounds.center().y) / height);
-    let clear = ground.opacity(0.);
-    let width = px(ROW_FADE_W).min(bounds.size.width);
-    let strip = |x| gpui::Bounds::new(gpui::point(x, bounds.origin.y), size(width, bounds.size.height));
-    if left {
-        window.paint_quad(gpui::fill(
-            strip(bounds.origin.x),
-            gpui::linear_gradient(
-                90.,
-                gpui::linear_color_stop(ground, 0.),
-                gpui::linear_color_stop(clear, 1.),
-            ),
-        ));
-    }
-    if right {
-        window.paint_quad(gpui::fill(
-            strip(bounds.right() - width),
-            gpui::linear_gradient(
-                90.,
-                gpui::linear_color_stop(clear, 0.),
-                gpui::linear_color_stop(ground, 1.),
-            ),
-        ));
-    }
-}
-
-/// Which edges of the card row fade at scroll offset `offset_x` (<= 0) with
-/// `max_x` (>= 0) to scroll: (cards past the left edge, cards past the right).
-fn row_fades(offset_x: f32, max_x: f32) -> (bool, bool) {
-    const SLACK: f32 = 0.5;
-    (offset_x < -SLACK, max_x > SLACK && -offset_x < max_x - SLACK)
+    } else {
+        let trailing: gpui::AnyElement = if entry.done {
+            Icon::new(registry::UI_CHECK)
+                .size(px(ROW_ICON))
+                .text_color(t::GREEN.to_hsla())
+                .into_any_element()
+        } else {
+            Icon::new(registry::UI_CHEVRON_RIGHT)
+                .size(px(14.))
+                .text_color(muted.opacity(0.45))
+                .into_any_element()
+        };
+        let row = h_flex()
+            .id(SharedString::from(row_test_id(entry.key)))
+            .w_full()
+            .min_w_0()
+            .min_h(px(ROW_H))
+            .px(px(ROW_PADDING))
+            .gap_3()
+            .items_center()
+            .child(icon)
+            .child(title)
+            .child(trailing)
+            .when(team.is_some(), |this| this.hover(move |this| this.bg(hover)));
+        crate::surface::list_row_divider(row, ix)
+    };
+    row.when_some(team, |this, team| {
+        this.cursor_pointer()
+            .on_click(move |_: &ClickEvent, window, cx| {
+                run_target(target, team.clone(), window, cx);
+            })
+    })
+    .into_any_element()
 }
 
 /// THE block's entry point for a team: under the empty board's empty state,
 /// the no-board team center and the Agent home while the team has no board.
 /// `None` while the signals are still loading and once complete.
-pub(crate) fn inline_cards(team_id: &str, cx: &mut App) -> Option<gpui::AnyElement> {
+pub(crate) fn inline_list(team_id: &str, cx: &mut App) -> Option<gpui::AnyElement> {
     let progress = GettingStartedProgress::global(cx);
     // The slow cadence: an empty board can sit on screen all day.
     let snapshot = progress.update(cx, |progress, cx| {
@@ -994,27 +1023,45 @@ pub(crate) fn inline_cards(team_id: &str, cx: &mut App) -> Option<gpui::AnyEleme
     if snapshot.loading || snapshot.complete() {
         return None;
     }
-    Some(block(&snapshot.model, Some(team_id), cx))
+    Some(GettingStartedList::new(snapshot.model, Some(team_id.to_string())).into_any_element())
 }
 
 // ---------------------------------------------------------------------------
 // The dialog (the rail entry)
 // ---------------------------------------------------------------------------
 
-/// The dialog's content width: eight cards and their gaps.
-fn dialog_content_w() -> f32 {
-    STEPS.len() as f32 * CARD_W + (STEPS.len() - 1) as f32 * CARD_GAP
+/// The expanded next row's height: its padding, the title line, the `why`
+/// line and the button.
+const EXPANDED_ROW_H: f32 = 2. * ROW_EXPANDED_PADDING + 20. + 4. + 18. + 10. + 28.;
+/// The band and its gap to the rows.
+const BAND_H: f32 = 44.;
+
+/// The dialog's content height for `entries` rows, one of them expanded
+/// while the list is not complete. The shell scrolls it vertically when the
+/// window is shorter.
+fn dialog_content_h(entries: usize, has_next: bool) -> f32 {
+    let collapsed = entries.saturating_sub(usize::from(has_next)) as f32;
+    BAND_H + collapsed * ROW_H + if has_next { EXPANDED_ROW_H } else { 0. }
 }
 
-/// The rail entry's target: the block in a centred dialog over `window`.
+/// The rail entry's target: the block in a centred dialog over `window`,
+/// [`MAX_W`] wide.
 pub(crate) fn open_dialog(window: &mut Window, cx: &mut App) {
     let nav = nav_for_window(window, cx);
     let Some(team_id) = active_team_id(&nav, cx) else {
         return;
     };
+    let model = GettingStartedProgress::global(cx)
+        .read(cx)
+        .snapshot(&team_id, cx)
+        .model;
+    let has_next = model.entries.iter().any(|entry| entry.next);
+    let viewport = window.viewport_size();
     // The shell pads the content by 16 on each side.
-    let width = (dialog_content_w() + 32.).min(f32::from(window.viewport_size().width) * 0.9);
-    let spec = DialogSpec::new(TITLE, size(px(width), px(200.)));
+    let width = (MAX_W + 32.).min(f32::from(viewport.width) * 0.9);
+    let height = (dialog_content_h(model.entries.len(), has_next) + 32.)
+        .min(f32::from(viewport.height) * 0.9);
+    let spec = DialogSpec::new(TITLE, size(px(width), px(height)));
     native_dialog::open_dialog_window(window, cx, spec, move |_window, cx| {
         let view = cx.new(|cx| GettingStartedDialog::new(team_id, cx));
         DialogContent::new(view)
@@ -1053,7 +1100,7 @@ impl Render for GettingStartedDialog {
             .min_w_0()
             .text_color(cx.theme().foreground)
             .when(!snapshot.loading, |this| {
-                this.child(block(&snapshot.model, Some(&team_id), cx))
+                this.child(GettingStartedList::new(snapshot.model, Some(team_id)))
             })
     }
 }
@@ -1062,16 +1109,6 @@ impl Render for GettingStartedDialog {
 mod tests {
     use super::*;
     use serde_json::{json, Value};
-
-    /// The card row fades the edge cards sit past: right while more sit to
-    /// the right, left once scrolled, none when everything fits.
-    #[test]
-    fn the_card_row_fades_the_edges_with_cards_past_them() {
-        assert_eq!(row_fades(0., 0.), (false, false));
-        assert_eq!(row_fades(0., 24.), (false, true));
-        assert_eq!(row_fades(-10., 24.), (true, true));
-        assert_eq!(row_fades(-24., 24.), (true, false));
-    }
 
     const FIXTURE: &str =
         include_str!("../../../../../packages/domain-contract/fixtures/getting-started.json");
@@ -1135,7 +1172,8 @@ mod tests {
         }
     }
 
-    /// The copy, the geometry and the eight steps, locked to the contract.
+    /// The copy, the geometry, the test ids and the eight steps (with their
+    /// `why` + `cta`), locked to the contract.
     #[test]
     fn constants_and_steps_match_the_contract() {
         let fixture = fixture();
@@ -1151,15 +1189,26 @@ mod tests {
         assert_eq!(fixture["docs"]["url"], DOCS_URL);
         assert_eq!(fixture["docs"]["icon"], DOCS_ICON);
         assert!(registry::concept_by_name(DOCS_ICON).is_some());
-        let card = &fixture["card"];
+        assert_eq!(fixture["nextLabel"], NEXT_LABEL);
+        assert_eq!(fixture["maxWidth"].as_f64().unwrap() as f32, MAX_W);
+        let row = &fixture["row"];
         for (key, value) in [
-            ("width", CARD_W),
-            ("height", CARD_H),
-            ("padding", CARD_PADDING),
-            ("icon", CARD_ICON),
-            ("gap", CARD_GAP),
+            ("height", ROW_H),
+            ("iconSize", ROW_ICON),
+            ("padding", ROW_PADDING),
+            ("expandedPadding", ROW_EXPANDED_PADDING),
         ] {
-            assert_eq!(card[key].as_f64().unwrap() as f32, value, "card.{key}");
+            assert_eq!(row[key].as_f64().unwrap() as f32, value, "row.{key}");
+        }
+        let ids = &fixture["testIds"];
+        assert_eq!(ids["block"], TEST_ID_BLOCK);
+        assert_eq!(ids["docs"], TEST_ID_DOCS);
+        assert_eq!(ids["cta"], TEST_ID_CTA);
+        for step in STEPS {
+            assert_eq!(
+                ids["row"].as_str().unwrap().replace("{key}", step.key.as_str()),
+                row_test_id(step.key)
+            );
         }
         let steps = fixture["steps"].as_array().unwrap();
         assert_eq!(steps.len(), STEPS.len());
@@ -1182,6 +1231,8 @@ mod tests {
             assert_eq!(expected["visibleWhen"].as_str(), visible_when, "{key}");
             assert_eq!(expected["phones"].as_bool(), Some(step.phones), "{key}");
             assert_eq!(expected["doneWhen"], step.done_when, "{key}");
+            assert_eq!(expected["why"], step.why, "{key}");
+            assert_eq!(expected["cta"], step.cta, "{key}");
         }
     }
 
@@ -1205,9 +1256,11 @@ mod tests {
         assert!(!step_done(StepKey::Server, &desktop));
     }
 
-    /// The dialog fits the eight cards side by side.
+    /// The dialog fits the band, the collapsed rows and the one expanded row.
     #[test]
-    fn dialog_fits_the_card_row() {
-        assert_eq!(dialog_content_w(), 8. * 104. + 7. * 8.);
+    fn dialog_fits_the_list() {
+        assert_eq!(dialog_content_h(8, true), BAND_H + 7. * ROW_H + EXPANDED_ROW_H);
+        assert_eq!(dialog_content_h(6, false), BAND_H + 6. * ROW_H);
+        assert!(EXPANDED_ROW_H > ROW_H);
     }
 }

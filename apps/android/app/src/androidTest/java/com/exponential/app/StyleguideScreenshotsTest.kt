@@ -26,6 +26,7 @@ import com.exponential.app.domain.ComposerMenu
 import com.exponential.app.domain.SearchList
 import androidx.activity.compose.setContent
 import com.exponential.app.ui.gettingstarted.GettingStartedCopy
+import com.exponential.app.ui.gettingstarted.GettingStartedStepKey
 import com.exponential.app.ui.styleguide.FeedbackStatesScreen
 import com.exponential.app.ui.styleguide.FeedbackStatesScreenTestId
 import com.exponential.app.ui.styleguide.ThreadCardsKind
@@ -249,15 +250,9 @@ class StyleguideScreenshotsTest {
         }
 
         // --- sg_agent-home: the Agent page the app lands on (EXP-1253) — the
-        // disc mark + the greeting over the composer, Recent under it once the
-        // demo user's runs have synced.
+        // disc mark + the greeting over the composer, nothing beneath its
+        // options line.
         flow.waitFor(hasTestTag(AgentHome.GREETING_TEST_ID), FIRST_SYNC_TIMEOUT)
-        if (!flow.waitForOptional(hasTestTag(AgentHome.RECENT_TEST_ID), SYNC_TIMEOUT)) {
-            android.util.Log.w(
-                "EXP-1253",
-                "sg_agent-home: no Recent band — reseed with `bun run seed:screenshots`",
-            )
-        }
         flow.settle()
         flow.screenshot("sg_agent-home")
 
@@ -716,7 +711,7 @@ class StyleguideScreenshotsTest {
         flow.waitFor(hasTestTag(GettingStartedCopy.ENTRY_TEST_ID), SYNC_TIMEOUT)
         composeRule.onNode(hasTestTag(GettingStartedCopy.ENTRY_TEST_ID)).performClick()
         flow.waitFor(hasTestTag("getting-started-sheet"), NAV_TIMEOUT)
-        flow.waitFor(hasTestTag("getting-started-card-board"), NAV_TIMEOUT)
+        flow.waitFor(hasTestTag(GettingStartedCopy.rowTestId(GettingStartedStepKey.Board)), NAV_TIMEOUT)
         flow.settle()
         flow.screenshot("sg_getting-started")
         Espresso.pressBack()

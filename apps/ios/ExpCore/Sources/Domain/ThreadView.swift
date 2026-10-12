@@ -380,6 +380,8 @@ public enum ThreadViews {
     public static let startRunLabel = "Start a session here"
     public static let replyPlaceholder = "Reply in this thread"
     public static let threadsLabel = "Threads"
+    /// The toolbar history sheet's title (its rows = my recent threads).
+    public static let recentLabel = "Recent"
     public static let showWorkLabel = "Show work"
 
     /// A "New issue in this thread" draft's line: `In <thread title>`.

@@ -755,9 +755,8 @@ pub(crate) fn title_row(title: &str, cx: &App) -> gpui::Div {
         )
 }
 
-/// One row of a THREAD LIST (the rail's Running, Agent home Recent, Agent ›
-/// Recent): the thread title over its `listCaption`, led by the newest run's
-/// mark (spinning while busy, amber while it needs input) on a live thread,
+/// One row of a THREAD LIST (the rail's Running, Agent › Recent): the thread
+/// title over its `listCaption`, led by the newest run's mark (spinning while busy, amber while it needs input) on a live thread,
 /// the thread glyph on a quiet one. The whole row opens the thread.
 pub(crate) struct ThreadRowSpec {
     pub(crate) id_prefix: &'static str,
@@ -887,8 +886,6 @@ pub(crate) enum ThreadRowOpen {
     LiveRail,
     /// A list that stays beside the thread (Agent › Recent).
     List(crate::navigation::TabOrigin),
-    /// A plain open (the Agent home's Recent).
-    Plain,
 }
 
 /// [`thread_row`] for a [`crate::threads::ThreadListRow`], opening its
@@ -934,7 +931,6 @@ pub(crate) fn thread_list_row(
                     ThreadRowOpen::List(origin) => {
                         crate::navigation::navigate_from(window, cx, screen, origin.clone())
                     }
-                    ThreadRowOpen::Plain => crate::navigation::navigate(window, cx, screen),
                 }
             }),
         },
