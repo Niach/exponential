@@ -10,7 +10,7 @@
 //   generated/ExponentialUICatalog.generated.kt      the same for the Compose painter (VAPP-89)
 //   generated/catalog.generated.rs                   the same for the Rust core (VAPP-86)
 //   docs/components.generated.json        one doc page per component, as data (VAPP-93 renders it)
-//   fixtures/catalog-components.json      every component × every enum/boolean value
+//   fixtures/catalog-components.json      every component × every enum/boolean value + state cases
 //   fixtures/catalog-macros.json          every macro case → the expanded tree
 //   fixtures/catalog-basic-map.json       the hand-written basic cases → expected trees
 //   fixtures/catalog-extension.json       the example extension's cases → expected trees
@@ -430,8 +430,16 @@ function boundMacroCases(): ComponentCase[] {
   return cases
 }
 
+/** States the sweep cannot reach: a prop that only shows in a state, set
+ *  together with it, with no custom child so the prop itself paints
+ *  (EXP-1259: the pending Button paints `pendingLabel`). */
+const STATE_CASES: Record<string, Record<string, Record<string, unknown>>> = {
+  Button: { "loading=true+pendingLabel": { loading: true, pendingLabel: `Submitting` } },
+}
+
 /** Every visible component: its example, then every enum value of every enum
- *  prop and both values of every boolean prop, over the example. */
+ *  prop and both values of every boolean prop, over the example, then its
+ *  STATE_CASES. */
 function componentCases(): ComponentCase[] {
   const cases: ComponentCase[] = []
   for (const [name, def] of visible) {
@@ -446,6 +454,7 @@ function componentCases(): ComponentCase[] {
         for (const value of [true, false]) cases.push(make(`${prop}=${value}`, { ...base, [prop]: value }))
       }
     }
+    for (const [suffix, props] of Object.entries(STATE_CASES[name] ?? {})) cases.push({ name: `${name}/${suffix}`, node: { id: kebab(name), component: name, props: { ...base, ...props } } })
   }
   return cases
 }
@@ -907,7 +916,7 @@ function renderFiles(): Record<string, string> {
     "../../apps/desktop/crates/exponential-ui/src/generated/themes.rs": themeOutputs[`generated/catalog.themes.generated.rs`],
     "docs/components.generated.json": json(renderDocs()),
     "fixtures/catalog-components.json": json({
-      $comment: `${HEADER} Every visible component × its example × every enum value of every enum prop × both values of every boolean prop. Each case validates against core.schema.json; a renderer suite paints each case once.`,
+      $comment: `${HEADER} Every visible component × its example × every enum value of every enum prop × both values of every boolean prop, then its state cases (a prop that only shows in a state: a pending Button's pendingLabel). Each case validates against core.schema.json; a renderer suite paints each case once.`,
       catalogId: CORE_CATALOG_ID,
       cases,
     }),
