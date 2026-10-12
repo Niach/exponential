@@ -1,5 +1,5 @@
 {
-  "$comment": "EXP-1284: the THREAD view model, mirrored x4 (web lib/thread-view.ts, desktop domain/src/thread_view.rs, iOS ExpCore Domain/ThreadView.swift, Android domain/ThreadView.kt). buildThreadView({thread, items, issues, runs}) -> title (stored title, else the first run's name unless it is the generic 'Chat', else the first linked issue's title, else the first run's name, else 'Thread'; titleDerived when not stored), strip (Conversation, one issue chip per linked issue in sort order, the '+' and the Guide with a dot when the thread's results are non-empty; phones use it as the pager), headerCaption ('<n> session(s) · <device | k devices>'), listCaption ('<no issues | n issue(s)> · <n session(s)>' plus the LIVE runs' device part while any run is live), live/needsInput/busy, conversation (runs in start order as 'Session N' blocks (the product says session, never run): caption = device, 'resumed' when it resumes a run, 'started by Session K' when an in-thread run started it; ended runs fold; two or more non-resume children of the same in-thread parent become ONE parallel block 'Sessions 3 and 4' at the first child's place; issues an agent linked sit under the run that linked them, 'Filed and linked' when the issue was created at most 120 s before the link, else 'Linked'; issues a person linked show only in the strip), runIds, issueIds. Items whose issue or run is not synced drop out. partitionThreadList: running = mineLive, recent = the rest, both by updatedAt desc.",
+  "$comment": "EXP-1284: the THREAD view model, mirrored x4 (web lib/thread-view.ts, desktop domain/src/thread_view.rs, iOS ExpCore Domain/ThreadView.swift, Android domain/ThreadView.kt). buildThreadView({thread, items, issues, runs}) -> title (stored title, else the first run's name unless it is the generic 'Chat', else the first linked issue's title, else the first run's name, else 'Thread'; titleDerived when not stored), strip (Conversation, one issue chip per linked issue in sort order, the '+' and the Guide with a dot when the thread's results are non-empty; phones use it as the pager), headerCaption ('<n> session(s) · <device | k devices>'), listCaption ('<no issues | n issue(s)> · <n session(s)>' plus the LIVE runs' device part while any run is live), live/needsInput/busy, conversation (runs in start order as 'Session N' blocks (the product says session, never run): caption = device, 'resumed' when it resumes a run, 'started by Session K' when an in-thread run started it; ended runs fold; two or more non-resume children of the same in-thread parent become ONE parallel block 'Sessions 3 and 4' at the first child's place; issues an agent linked sit under the run that linked them, 'Filed and linked' when the issue was created at most 120 s before the link, else 'Linked'; issues a person linked show only in the strip), runIds, issueIds. Items whose issue or run is not synced drop out. partitionThreadList(entries, scope): scope.teamId = the ACTIVE team (web, desktop) or null = every team (phones band rows per team); running = mineLive, recent = mine (a session of mine or created by me) and not running, both by updatedAt desc. threadPrTarget(candidates from the thread's sessions and issues): the newest open PR by at, else the newest merged one, else null. sessionGuideEntries(results, sessionId, firstSessionId): a session block's Guide entries = those stamped with its sessionId; unstamped entries belong to the first session.",
   "views": [
     {
       "name": "two issues the agent linked, one live run (draft 1)",
@@ -789,55 +789,385 @@
   ],
   "partitions": [
     {
-      "name": "running = a live run of mine, newest activity first; recent = the rest",
+      "name": "the ACTIVE team (web, desktop): running = a live session of mine, recent = my other threads, newest activity first; a teammate's thread is in neither",
       "input": [
         {
           "threadId": "t-old-live",
+          "teamId": "team-a",
           "updatedAt": "2026-10-12T10:01:00.000Z",
-          "mineLive": true
+          "mineLive": true,
+          "mine": true
         },
         {
           "threadId": "t-recent",
+          "teamId": "team-a",
           "updatedAt": "2026-10-12T10:05:00.000Z",
-          "mineLive": false
+          "mineLive": false,
+          "mine": true
         },
         {
           "threadId": "t-new-live",
+          "teamId": "team-a",
           "updatedAt": "2026-10-12T10:09:00.000Z",
-          "mineLive": true
+          "mineLive": true,
+          "mine": true
         },
         {
           "threadId": "t-older",
+          "teamId": "team-a",
           "updatedAt": "2026-10-12T10:02:00.000Z",
-          "mineLive": false
+          "mineLive": false,
+          "mine": true
+        },
+        {
+          "threadId": "t-teammates",
+          "teamId": "team-a",
+          "updatedAt": "2026-10-12T10:08:00.000Z",
+          "mineLive": false,
+          "mine": false
+        },
+        {
+          "threadId": "t-other-team",
+          "teamId": "team-b",
+          "updatedAt": "2026-10-12T10:07:00.000Z",
+          "mineLive": false,
+          "mine": true
+        },
+        {
+          "threadId": "t-other-team-live",
+          "teamId": "team-b",
+          "updatedAt": "2026-10-12T10:03:00.000Z",
+          "mineLive": true,
+          "mine": true
         }
       ],
+      "scope": {
+        "teamId": "team-a"
+      },
       "expected": {
         "running": [
           {
             "threadId": "t-new-live",
+            "teamId": "team-a",
             "updatedAt": "2026-10-12T10:09:00.000Z",
-            "mineLive": true
+            "mineLive": true,
+            "mine": true
           },
           {
             "threadId": "t-old-live",
+            "teamId": "team-a",
             "updatedAt": "2026-10-12T10:01:00.000Z",
-            "mineLive": true
+            "mineLive": true,
+            "mine": true
           }
         ],
         "recent": [
           {
             "threadId": "t-recent",
+            "teamId": "team-a",
             "updatedAt": "2026-10-12T10:05:00.000Z",
-            "mineLive": false
+            "mineLive": false,
+            "mine": true
           },
           {
             "threadId": "t-older",
+            "teamId": "team-a",
             "updatedAt": "2026-10-12T10:02:00.000Z",
-            "mineLive": false
+            "mineLive": false,
+            "mine": true
           }
         ]
       }
+    },
+    {
+      "name": "every team (phones, banded per team by the caller)",
+      "input": [
+        {
+          "threadId": "t-old-live",
+          "teamId": "team-a",
+          "updatedAt": "2026-10-12T10:01:00.000Z",
+          "mineLive": true,
+          "mine": true
+        },
+        {
+          "threadId": "t-recent",
+          "teamId": "team-a",
+          "updatedAt": "2026-10-12T10:05:00.000Z",
+          "mineLive": false,
+          "mine": true
+        },
+        {
+          "threadId": "t-new-live",
+          "teamId": "team-a",
+          "updatedAt": "2026-10-12T10:09:00.000Z",
+          "mineLive": true,
+          "mine": true
+        },
+        {
+          "threadId": "t-older",
+          "teamId": "team-a",
+          "updatedAt": "2026-10-12T10:02:00.000Z",
+          "mineLive": false,
+          "mine": true
+        },
+        {
+          "threadId": "t-teammates",
+          "teamId": "team-a",
+          "updatedAt": "2026-10-12T10:08:00.000Z",
+          "mineLive": false,
+          "mine": false
+        },
+        {
+          "threadId": "t-other-team",
+          "teamId": "team-b",
+          "updatedAt": "2026-10-12T10:07:00.000Z",
+          "mineLive": false,
+          "mine": true
+        },
+        {
+          "threadId": "t-other-team-live",
+          "teamId": "team-b",
+          "updatedAt": "2026-10-12T10:03:00.000Z",
+          "mineLive": true,
+          "mine": true
+        }
+      ],
+      "scope": {
+        "teamId": null
+      },
+      "expected": {
+        "running": [
+          {
+            "threadId": "t-new-live",
+            "teamId": "team-a",
+            "updatedAt": "2026-10-12T10:09:00.000Z",
+            "mineLive": true,
+            "mine": true
+          },
+          {
+            "threadId": "t-other-team-live",
+            "teamId": "team-b",
+            "updatedAt": "2026-10-12T10:03:00.000Z",
+            "mineLive": true,
+            "mine": true
+          },
+          {
+            "threadId": "t-old-live",
+            "teamId": "team-a",
+            "updatedAt": "2026-10-12T10:01:00.000Z",
+            "mineLive": true,
+            "mine": true
+          }
+        ],
+        "recent": [
+          {
+            "threadId": "t-other-team",
+            "teamId": "team-b",
+            "updatedAt": "2026-10-12T10:07:00.000Z",
+            "mineLive": false,
+            "mine": true
+          },
+          {
+            "threadId": "t-recent",
+            "teamId": "team-a",
+            "updatedAt": "2026-10-12T10:05:00.000Z",
+            "mineLive": false,
+            "mine": true
+          },
+          {
+            "threadId": "t-older",
+            "teamId": "team-a",
+            "updatedAt": "2026-10-12T10:02:00.000Z",
+            "mineLive": false,
+            "mine": true
+          }
+        ]
+      }
+    }
+  ],
+  "prTargets": [
+    {
+      "name": "the newest OPEN PR wins over a newer merged one",
+      "input": [
+        {
+          "url": "https://github.com/acme/app/pull/1",
+          "state": "open",
+          "at": "2026-10-12T10:01:00.000Z"
+        },
+        {
+          "url": "https://github.com/acme/app/pull/2",
+          "state": "merged",
+          "at": "2026-10-12T10:05:00.000Z"
+        }
+      ],
+      "expected": "https://github.com/acme/app/pull/1"
+    },
+    {
+      "name": "no open PR: the newest merged one; a closed PR never",
+      "input": [
+        {
+          "url": "https://github.com/acme/app/pull/1",
+          "state": "merged",
+          "at": "2026-10-12T10:01:00.000Z"
+        },
+        {
+          "url": "https://github.com/acme/app/pull/2",
+          "state": "merged",
+          "at": "2026-10-12T10:04:00.000Z"
+        },
+        {
+          "url": "https://github.com/acme/app/pull/3",
+          "state": "closed",
+          "at": "2026-10-12T10:09:00.000Z"
+        }
+      ],
+      "expected": "https://github.com/acme/app/pull/2"
+    },
+    {
+      "name": "only closed PRs: none",
+      "input": [
+        {
+          "url": "https://github.com/acme/app/pull/3",
+          "state": "closed",
+          "at": "2026-10-12T10:09:00.000Z"
+        }
+      ],
+      "expected": null
+    }
+  ],
+  "guideSlices": [
+    {
+      "name": "the first session takes its own entries plus the unstamped ones",
+      "input": {
+        "results": [
+          {
+            "topic": "Summary",
+            "text": "before threads",
+            "label": null,
+            "attachmentId": null,
+            "width": null,
+            "height": null
+          },
+          {
+            "topic": "Summary",
+            "text": "session 1",
+            "label": null,
+            "attachmentId": null,
+            "width": null,
+            "height": null,
+            "sessionId": "r1"
+          },
+          {
+            "topic": "Summary",
+            "text": "session 2",
+            "label": null,
+            "attachmentId": null,
+            "width": null,
+            "height": null,
+            "sessionId": "r2"
+          },
+          {
+            "topic": "web",
+            "label": "web",
+            "attachmentId": "a1",
+            "width": 10,
+            "height": 10,
+            "sessionId": "r2"
+          }
+        ],
+        "sessionId": "r1",
+        "firstSessionId": "r1"
+      },
+      "expected": [
+        {
+          "topic": "Summary",
+          "text": "before threads",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null
+        },
+        {
+          "topic": "Summary",
+          "text": "session 1",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "sessionId": "r1"
+        }
+      ]
+    },
+    {
+      "name": "a later session takes only its own entries",
+      "input": {
+        "results": [
+          {
+            "topic": "Summary",
+            "text": "before threads",
+            "label": null,
+            "attachmentId": null,
+            "width": null,
+            "height": null
+          },
+          {
+            "topic": "Summary",
+            "text": "session 1",
+            "label": null,
+            "attachmentId": null,
+            "width": null,
+            "height": null,
+            "sessionId": "r1"
+          },
+          {
+            "topic": "Summary",
+            "text": "session 2",
+            "label": null,
+            "attachmentId": null,
+            "width": null,
+            "height": null,
+            "sessionId": "r2"
+          },
+          {
+            "topic": "web",
+            "label": "web",
+            "attachmentId": "a1",
+            "width": 10,
+            "height": 10,
+            "sessionId": "r2"
+          }
+        ],
+        "sessionId": "r2",
+        "firstSessionId": "r1"
+      },
+      "expected": [
+        {
+          "topic": "Summary",
+          "text": "session 2",
+          "label": null,
+          "attachmentId": null,
+          "width": null,
+          "height": null,
+          "sessionId": "r2"
+        },
+        {
+          "topic": "web",
+          "label": "web",
+          "attachmentId": "a1",
+          "width": 10,
+          "height": 10,
+          "sessionId": "r2"
+        }
+      ]
+    },
+    {
+      "name": "no Guide yet",
+      "input": {
+        "results": null,
+        "sessionId": "r2",
+        "firstSessionId": "r1"
+      },
+      "expected": []
     }
   ]
 }

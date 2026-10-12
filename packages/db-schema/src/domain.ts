@@ -521,6 +521,12 @@ export interface CodingSessionResult {
   /** EXP-1251: on a TEXT entry, the PR its topic belongs to (a run that
    *  stacks a second PR scopes its topics); absent = every PR of the run. */
   prUrl?: string | null
+  /** EXP-1284: the session that wrote the entry (stamped server-side on
+   *  every write): a thread's ONE Guide holds every session's entries, so
+   *  a session block shows its own (`sessionGuideEntries`), a moved session
+   *  takes its own along, and a later session never overwrites another's
+   *  topic. Absent on entries filed before threads. */
+  sessionId?: string | null
 }
 
 // Tolerant for the same reason codingSessionBlockedSchema is: a malformed

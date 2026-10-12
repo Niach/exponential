@@ -328,21 +328,61 @@ export function buildThreadView(input: {
 
 export interface ThreadListEntry {
   threadId: string
+  teamId: string
   updatedAt: string
-  /** The viewer owns a live run in it. */
+  /** The viewer owns a live session in it. */
   mineLive: boolean
+  /** The viewer has a session in it or created it (Recent lists only these). */
+  mine: boolean
 }
 
-/** Running (a live run of mine, newest activity first) vs Recent (every
- *  other thread, newest activity first). */
+/** Running (a live session of mine) vs Recent (my other threads: a session of
+ *  mine or created by me), newest activity first. Scope: `teamId` = the
+ *  ACTIVE team (web, desktop); `null` = every team (phones, which band the
+ *  rows per team). */
 export function partitionThreadList<T extends ThreadListEntry>(
-  entries: T[]
+  entries: T[],
+  scope: { teamId: string | null } = { teamId: null }
 ): { running: T[]; recent: T[] } {
-  const byActivity = [...entries].sort(
-    (a, b) => time(b.updatedAt) - time(a.updatedAt) || a.threadId.localeCompare(b.threadId)
-  )
+  const byActivity = entries
+    .filter((entry) => scope.teamId === null || entry.teamId === scope.teamId)
+    .sort(
+      (a, b) => time(b.updatedAt) - time(a.updatedAt) || a.threadId.localeCompare(b.threadId)
+    )
   return {
     running: byActivity.filter((entry) => entry.mineLive),
-    recent: byActivity.filter((entry) => !entry.mineLive),
+    recent: byActivity.filter((entry) => !entry.mineLive && entry.mine),
   }
+}
+
+export interface ThreadPrCandidate {
+  url: string
+  /** `open` | `merged` | `closed` (any other value counts as closed). */
+  state: string | null
+  /** When the PR was stamped (its session's or issue's activity time). */
+  at: string
+}
+
+/** The PR a thread's Guide and Merge capsule target: the newest OPEN PR,
+ *  else the newest MERGED one, else none. Candidates = the PRs on the
+ *  thread's sessions and issues. */
+export function threadPrTarget(candidates: ThreadPrCandidate[]): string | null {
+  const newest = (state: string) =>
+    candidates
+      .filter((candidate) => candidate.state === state && candidate.url)
+      .sort((a, b) => time(b.at) - time(a.at) || a.url.localeCompare(b.url))[0]?.url ?? null
+  return newest(`open`) ?? newest(`merged`)
+}
+
+/** The Guide entries a session block shows: the ones that session wrote
+ *  (`sessionId`); entries filed before the stamp belong to the thread's
+ *  FIRST session. The thread's Guide face shows every entry. */
+export function sessionGuideEntries<T extends { sessionId?: string | null }>(
+  results: readonly T[] | null | undefined,
+  sessionId: string,
+  firstSessionId: string | null
+): T[] {
+  return (results ?? []).filter((entry) =>
+    entry.sessionId ? entry.sessionId === sessionId : sessionId === firstSessionId
+  )
 }
