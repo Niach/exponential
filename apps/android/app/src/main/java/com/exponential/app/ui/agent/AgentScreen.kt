@@ -464,9 +464,12 @@ fun AgentScreen(
     // landed are toasts; Retry re-submits the kept draft ────────────────────
     val toaster = LocalToaster.current
     // Retry re-sends the same draft under the SAME startId (the device
-    // starts an id once); a draft changed meanwhile is a fresh start.
+    // starts an id once); a draft changed meanwhile is a fresh start. It
+    // passes the Start button's gate (web `submitWith`: a no-op while
+    // `blocked`), so a draft emptied or made multi-repo after the failure
+    // never reaches the server to be refused a second time.
     val retryStart by rememberUpdatedState {
-        viewModel.submit(selectedAction, resumeCandidate != null)
+        if (canSubmit) viewModel.submit(selectedAction, resumeCandidate != null)
     }
     LaunchedEffect(runState) {
         val failed = runState as? ActionRunState.Failed ?: return@LaunchedEffect
