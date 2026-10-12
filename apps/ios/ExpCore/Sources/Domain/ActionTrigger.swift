@@ -169,12 +169,12 @@ public enum ActionRunTitle {
     /// it instead of repeating the action's name.
     public static func of(startedReason: String?) -> String {
         switch startedReason {
-        case "schedule": return "Scheduled run"
-        case "event": return "Event run"
+        case "schedule": return "Scheduled session"
+        case "event": return "Event session"
         // A person started it.
-        case nil, "": return "Manual run"
+        case nil, "": return "Manual session"
         // Another run started it (`agent`, or a reason added later).
-        default: return "Agent run"
+        default: return "Agent session"
         }
     }
 }
@@ -354,6 +354,6 @@ public enum TriggerNote {
             parts.append("\"effort\":\(TriggerWhen.jsonQuoted(effort))")
         }
         let payload = "{" + parts.joined(separator: ",") + "}"
-        return "\n\nTrigger — after creating the action, call exponential_actions_update with its id and `triggers` set to exactly this array: `[\(payload)]`. A triggered run fills no inputs, so declare none as required."
+        return "\n\nTrigger — after creating the action, call exponential_actions_update with its id and `triggers` set to exactly this array: `[\(payload)]`. A triggered session fills no inputs, so declare none as required."
     }
 }

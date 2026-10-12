@@ -101,7 +101,7 @@ pub fn connect_account(account: &api::Account, cx: &mut App) -> bool {
         base_url: account.instance_url.clone(),
         db_path: api::account_db_path(&auth.data_dir, &account.id),
         token: auth.auth.token_provider_fn(&account.id),
-        // The desktop syncs all 25 shapes; only the CLI daemon subsets.
+        // The desktop syncs all 23 shapes; only the CLI daemon subsets.
         shapes: None,
     };
     match store.connect(config, cx) {
@@ -208,30 +208,37 @@ pub fn sign_out_active(cx: &mut App) {
             .unwrap_or_default();
         let data_dir = auth.data_dir.clone();
         let client = Arc::clone(&auth.client);
-        cx.background_executor()
-            .spawn(async move {
-                if !session_ids.is_empty() {
-                    let trpc = api::TrpcClient::new(
-                        &account.instance_url,
-                        Arc::new(api::StaticToken(token.clone())),
-                    );
-                    for id in session_ids {
-                        let result = api::coding_sessions::end(&trpc, &id);
-                        if let Err(err) = &result {
-                            eprintln!(
-                                "[exp-desktop] session: sign-out end of coding session {id} failed: {err}"
-                            );
-                        }
-                        if crate::session_registry::end_outcome_resolves(&result) {
-                            crate::session_registry::remove(&data_dir, &id);
-                        }
+        // EXP-1275: the BLOCKING wait covers every window until the server
+        // round trips settle (offline included: they are best-effort, so
+        // no error toast).
+        crate::feedback::Blocking::begin(crate::feedback::BLOCKING_SIGN_OUT, cx);
+        let ends = cx.background_executor().spawn(async move {
+            if !session_ids.is_empty() {
+                let trpc = api::TrpcClient::new(
+                    &account.instance_url,
+                    Arc::new(api::StaticToken(token.clone())),
+                );
+                for id in session_ids {
+                    let result = api::coding_sessions::end(&trpc, &id);
+                    if let Err(err) = &result {
+                        eprintln!(
+                            "[exp-desktop] session: sign-out end of coding session {id} failed: {err}"
+                        );
+                    }
+                    if crate::session_registry::end_outcome_resolves(&result) {
+                        crate::session_registry::remove(&data_dir, &id);
                     }
                 }
-                if let Err(err) = client.sign_out(&account.instance_url, &token) {
-                    eprintln!("[exp-desktop] session: server-side sign-out failed: {err}");
-                }
-            })
-            .detach();
+            }
+            if let Err(err) = client.sign_out(&account.instance_url, &token) {
+                eprintln!("[exp-desktop] session: server-side sign-out failed: {err}");
+            }
+        });
+        cx.spawn(async move |cx| {
+            ends.await;
+            let _ = cx.update(|cx| crate::feedback::Blocking::end(cx));
+        })
+        .detach();
     }
 
     auth.auth.sign_out(&account_id);

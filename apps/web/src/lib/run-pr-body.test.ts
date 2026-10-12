@@ -10,11 +10,20 @@ const state = vi.hoisted(() => ({
   patch: vi.fn(async (_opts: unknown) => {}),
   // The stamp's row-locked read-modify-write: what it SET on the row.
   updates: [] as Array<Record<string, unknown>>,
+  thread: null as { id: string; teamId: string } | null,
+  // EXP-1284: the thread's runs holding an open PR (the sibling sync read).
+  siblings: [] as Array<{ id: string; prUrl: string | null }>,
+  // EXP-1284: the Guide owner read (the resume chain + the thread's first
+  // session); none = the session alone, owning the legacy entries.
+  owner: [] as Array<Record<string, unknown>>,
 }))
 
 vi.mock(`@/db/connection`, () => {
   const chain: Record<string, unknown> = {}
-  for (const name of [`from`, `leftJoin`, `where`]) chain[name] = () => chain
+  for (const name of [`from`, `leftJoin`, `innerJoin`, `where`]) chain[name] = () => chain
+  // Only the sibling read awaits the chain itself (no `.limit`).
+  chain.then = (resolve: (v: unknown) => unknown, reject: (e: unknown) => unknown) =>
+    Promise.resolve(state.siblings).then(resolve, reject)
   const read = async () => {
     if (state.selectThrows) throw new Error(`db down`)
     return state.row ? [state.row] : []
@@ -28,8 +37,10 @@ vi.mock(`@/db/connection`, () => {
     eager.catch(() => {})
     return Object.assign(eager, { for: () => read() })
   }
+  const execute = async () => ({ rows: state.owner })
   const tx = {
     select: () => chain,
+    execute,
     update: () => ({
       set: (values: Record<string, unknown>) => ({
         where: async () => {
@@ -41,6 +52,7 @@ vi.mock(`@/db/connection`, () => {
   return {
     db: {
       select: () => chain,
+      execute,
       transaction: async (fn: (tx: unknown) => Promise<unknown>) => fn(tx),
     },
   }
@@ -50,6 +62,10 @@ vi.mock(`@/lib/integrations/github-app`, () => ({
 }))
 vi.mock(`@/lib/trpc/pr-update`, () => ({
   patchPullDescription: (opts: unknown) => state.patch(opts),
+}))
+// EXP-1284: the run's thread; null = the run's own row is the Guide.
+vi.mock(`@/lib/threads`, () => ({
+  getThreadOfSession: async () => state.thread,
 }))
 
 import {
@@ -79,6 +95,9 @@ beforeEach(() => {
   state.token = { token: `tok`, installationId: 1, expiresAt: 0 }
   state.patch.mockReset()
   state.updates.length = 0
+  state.thread = null
+  state.siblings = []
+  state.owner = []
 })
 
 // EXP-1251: the untagged topics a run filed before its PR opened belong to
@@ -116,6 +135,24 @@ describe(`stampRunResultsPrUrl`, () => {
     expect(results.map((row) => row.prUrl)).toEqual([`https://github.com/acme/web/pull/7`])
   })
 
+  // EXP-1284 (review T1): the thread's Guide holds every session's entries;
+  // a new PR tags only the WRITING session's untagged ones.
+  it(`tags only the writing session's untagged topics`, async () => {
+    state.row = {
+      results: [
+        { ...untagged(`Summary`, `Mine`), sessionId: `s1` },
+        { ...untagged(`Summary`, `Another session's`), sessionId: `s2` },
+      ],
+    }
+    expect(await stampRunResultsPrUrl(`s1`, `https://github.com/acme/web/pull/7`)).toBe(true)
+    const results = state.updates[0]!.results as Array<{ prUrl?: string; sessionId?: string }>
+    expect(results).toEqual([
+      expect.objectContaining({ sessionId: `s1`, prUrl: `https://github.com/acme/web/pull/7` }),
+      expect.not.objectContaining({ prUrl: expect.anything() }),
+    ])
+    expect(results[1]!.sessionId).toBe(`s2`)
+  })
+
   it(`a blank prior url means a first PR`, async () => {
     state.row = { results: [untagged(`Summary`, `Did it`)] }
     await stampRunResultsPrUrl(`s1`, `https://github.com/acme/web/pull/9`, { priorPrUrl: ` ` })
@@ -133,6 +170,35 @@ describe(`stampRunResultsPrUrl`, () => {
     const warn = vi.spyOn(console, `warn`).mockImplementation(() => {})
     expect(await stampRunResultsPrUrl(`s1`, `https://github.com/acme/web/pull/7`)).toBe(false)
     warn.mockRestore()
+  })
+})
+
+// EXP-1284: the Guide is the run's THREAD's.
+describe(`the thread's Guide`, () => {
+  const untagged = { topic: `Summary`, label: null, attachmentId: null, text: `Did it` }
+
+  it(`the PR body reads the thread's Guide, the run's own results only without one`, async () => {
+    state.row = {
+      ...baseRow,
+      results: [{ ...untagged, text: `Stale mirror` }],
+      threadResults: [{ ...untagged, text: `The thread's words` }],
+    }
+    expect((await loadRunReport(`s1`))?.results).toEqual([
+      { ...untagged, text: `The thread's words` },
+    ])
+    state.row = { ...baseRow, threadResults: null }
+    expect((await loadRunReport(`s1`))?.results).toEqual(report)
+  })
+
+  it(`the prUrl stamp writes the thread's Guide and mirrors it onto the run`, async () => {
+    state.thread = { id: `th-1`, teamId: `t-1` }
+    state.row = { results: [untagged] }
+    expect(await stampRunResultsPrUrl(`s1`, `https://github.com/acme/web/pull/7`)).toBe(true)
+    expect(state.updates).toHaveLength(2)
+    expect(state.updates[0]!.results).toEqual(state.updates[1]!.results)
+    expect((state.updates[0]!.results as Array<{ prUrl?: string }>)[0]!.prUrl).toBe(
+      `https://github.com/acme/web/pull/7`
+    )
   })
 })
 
@@ -157,6 +223,26 @@ describe(`runPrBody`, () => {
     expect(out.fromResults).toBe(true)
     expect(out.body).toContain(`Did it\n\n- \`a.ts\``)
     expect(out.body).toContain(`(https://exp.example/t/acme/boards/web/issues/EXP-1?view=guide)`)
+  })
+
+  // EXP-1284 (review T1): a thread's Guide holds every session's entries;
+  // the body takes this session's (+ its resume chain's) and the legacy ones.
+  it(`takes this session's entries, never another session's of the thread`, async () => {
+    state.owner = [{ chain_ids: [`s1`, `s0`], first_session_id: `s0` }]
+    state.row = {
+      ...baseRow,
+      prUrl: null,
+      prState: null,
+      results: [
+        { topic: `Summary`, text: `Another session's summary`, sessionId: `s9` },
+        { topic: `Summary`, text: `Resumed from s0`, sessionId: `s0` },
+        { topic: `Notes`, text: `Filed before the stamp` },
+      ],
+    }
+    const out = await runPrBody(`s1`, `agent body`)
+    expect(out.body).toContain(`Resumed from s0`)
+    expect(out.body).toContain(`### Notes`)
+    expect(out.body).not.toContain(`Another session's summary`)
   })
 
   it(`keeps the fallback without a run, without report text or on a failed read`, async () => {
@@ -184,6 +270,28 @@ describe(`syncRunPrBody`, () => {
     expect(call.token).toBe(`tok`)
     expect(call.fields.title).toBeUndefined()
     expect(call.fields.body).toContain(`Did it`)
+  })
+
+  it(`also re-patches the thread's other open PRs, once per PR (EXP-1284)`, async () => {
+    state.thread = { id: `t1`, teamId: `team` }
+    state.siblings = [
+      { id: `s1`, prUrl: `https://github.com/acme/web/pull/7` },
+      { id: `s2`, prUrl: `https://github.com/acme/web/pull/8` },
+      { id: `s3`, prUrl: `https://github.com/acme/web/pull/8` },
+      { id: `s4`, prUrl: `https://github.com/acme/web/pull/7` },
+    ]
+    expect(await syncRunPrBody(`s1`)).toBe(`synced`)
+    await vi.waitFor(() => expect(state.patch).toHaveBeenCalledTimes(2))
+    await vi.waitFor(() => expect(pendingRunPrBodySyncs()).toBe(0))
+    expect(state.patch).toHaveBeenCalledTimes(2)
+  })
+
+  it(`a targeted sync (pr_open's expectPrUrl) stays on the run`, async () => {
+    state.thread = { id: `t1`, teamId: `team` }
+    state.siblings = [{ id: `s2`, prUrl: `https://github.com/acme/web/pull/8` }]
+    await syncRunPrBody(`s1`, { expectPrUrl: `https://github.com/acme/web/pull/7` })
+    await vi.waitFor(() => expect(pendingRunPrBodySyncs()).toBe(0))
+    expect(state.patch).toHaveBeenCalledTimes(1)
   })
 
   it(`skips without an open PR or report text`, async () => {

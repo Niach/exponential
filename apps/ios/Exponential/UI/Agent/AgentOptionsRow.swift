@@ -153,7 +153,7 @@ struct AgentOptionsRow: View {
                 "Resume",
                 mode: .select(isSelected: launch.resume) { launch.resume.toggle() }
             )
-            .accessibilityLabel("Resume previous run")
+            .accessibilityLabel("Resume previous session")
         }
     }
 }

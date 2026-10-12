@@ -197,13 +197,11 @@ extension GlassSectionHeader where Trailing == EmptyView {
     }
 }
 
-/// The band's refetch spinner (EXP-1274): `ProgressView` at `.mini`, muted.
+/// The band's refetch spinner (EXP-1274) — THE inline spinner (EXP-1275,
+/// `InlineSpinner`, feedback-states.json `inline`), muted.
 struct SectionLoadingGlyph: View {
     var body: some View {
-        ProgressView()
-            .controlSize(.mini)
-            .tint(.white.opacity(TextOpacity.tertiary))
-            .accessibilityLabel("Loading")
+        InlineSpinner()
             .accessibilityIdentifier("section-band-loading")
     }
 }

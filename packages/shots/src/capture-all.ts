@@ -103,9 +103,17 @@ const STEER_DEPENDENT_VIEWS = new Set([
   `chat-issues`,
   `chat-action`,
   `steering`,
+  // The steered session's transcript (Show work on) — `steering`'s feed and
+  // the cards it carries (EXP-1259).
+  `work-card`,
+  `script-card`,
+  `comment-call-card`,
   `issue-detail`,
   `board`,
   `machine-settings`,
+  // EXP-1284: the thread's live session renders its prompt, work and pending
+  // question off the stub's feed; without it the conversation reads "Paused".
+  `thread`,
 ])
 /**
  * Views that photograph the demo user's DEVICE FLEET: the Devices page, a
@@ -122,11 +130,15 @@ const FLEET_VIEWS = new Set([
   `add-server`,
   `onboarding-devices`,
   `chat`,
+  `agent-home`,
   `chat-issues`,
   `chat-action`,
   `chat-from-issue`,
   `composer-menu`,
   `steering`,
+  `work-card`,
+  `script-card`,
+  `comment-call-card`,
   `action-page`,
   `action-create`,
   `action-triggers`,
@@ -2090,7 +2102,7 @@ async function main(): Promise<number> {
 
     ids = await fetchDemoIds()
     console.log(
-      `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportToken ? `` : ` · NO reporter token (support-reporter will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}${ids.steeredSessionId ? `` : ` · NO showcase session (steering will skip)`}${ids.runChangesSessionId ? `` : ` · NO run-changes session (run-changes will skip)`}`
+      `\nids: team ${ids.teamId} · ${Object.keys(ids.issues).length} issues${ids.supportToken ? `` : ` · NO reporter token (support-reporter will skip)`}${ids.deviceId ? `` : ` · NO device row (machine-settings will skip)`}${ids.steeredSessionId ? `` : ` · NO showcase session (steering will skip)`}${ids.runChangesSessionId ? `` : ` · NO run-changes session (run-changes will skip)`}${ids.threadId && ids.threadRunsId ? `` : ` · NO demo threads (thread/thread-runs will skip)`}`
     )
   }
 

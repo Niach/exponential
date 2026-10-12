@@ -17,15 +17,25 @@ import SwiftUI
 /// band's own background.
 public struct EdgeScrim: View {
     let color: Color
+    /// EXP-1256 (EXP-1259 D15): the surface's OWN ground — the page colour,
+    /// opaque and unblurred: no scrim tint, no material over what scrolls
+    /// under it. The run thread's edges wear it (web/desktop: the content
+    /// card's ground inside its inner radius; a phone's card is the page).
+    let ground: Bool
 
-    public init(color: Color = GlassTokens.backgroundTop) {
+    public init(color: Color = GlassTokens.backgroundTop, ground: Bool = false) {
         self.color = color
+        self.ground = ground
     }
 
     public var body: some View {
         ZStack {
-            Rectangle().fill(.ultraThinMaterial)
-            color.opacity(DetailChrome.scrim)
+            if ground {
+                color
+            } else {
+                Rectangle().fill(.ultraThinMaterial)
+                color.opacity(DetailChrome.scrim)
+            }
         }
         .allowsHitTesting(false)
     }
@@ -42,13 +52,19 @@ public struct EdgeFade: View {
     }
 
     let edge: Edge
+    /// EXP-1256: the ground strip (`EdgeScrim.ground`).
+    let ground: Bool
 
-    public init(edge: Edge) {
+    public init(edge: Edge, ground: Bool = false) {
         self.edge = edge
+        self.ground = ground
     }
 
     public var body: some View {
-        EdgeScrim(color: edge == .top ? GlassTokens.backgroundTop : GlassTokens.backgroundBottom)
+        EdgeScrim(
+            color: edge == .top ? GlassTokens.backgroundTop : GlassTokens.backgroundBottom,
+            ground: ground
+        )
             .mask {
                 LinearGradient(
                     colors: [.black, .black.opacity(0)],
@@ -66,10 +82,11 @@ extension View {
     /// safe area) and the `edgeTop` strip hanging below its bottom edge, over
     /// whatever scrolls there. The strip is an overlay, so the band's layout
     /// — and the safe area it hands the content — is untouched.
-    public func headerEdgeChrome() -> some View {
-        background { EdgeScrim().ignoresSafeArea(edges: .top) }
+    /// `ground` (EXP-1256): band and strip in the page's own ground.
+    public func headerEdgeChrome(ground: Bool = false) -> some View {
+        background { EdgeScrim(ground: ground).ignoresSafeArea(edges: .top) }
             .overlay(alignment: .bottom) {
-                EdgeFade(edge: .top)
+                EdgeFade(edge: .top, ground: ground)
                     .frame(height: DetailChrome.edgeTop)
                     .offset(y: DetailChrome.edgeTop)
             }
@@ -83,9 +100,9 @@ extension View {
     /// draws past the bar is hidden behind the keys. `visible` hides it
     /// without touching the bar's identity (an expanded composer card wants
     /// none, and its draft must survive the swap).
-    public func floatingBarEdge(_ visible: Bool = true) -> some View {
+    public func floatingBarEdge(_ visible: Bool = true, ground: Bool = false) -> some View {
         background(alignment: .bottom) {
-            EdgeFade(edge: .bottom)
+            EdgeFade(edge: .bottom, ground: ground)
                 .padding(.top, -DetailChrome.edgeBottom)
                 .ignoresSafeArea(.container, edges: .bottom)
                 .opacity(visible ? 1 : 0)

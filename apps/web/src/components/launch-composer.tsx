@@ -9,24 +9,28 @@ import { BlockedStartDialog } from "@/components/blocked-start-dialog"
 import { ActionInputFields } from "@/components/launch-dialog/action-input-fields"
 import { FixConflictsCard } from "@/components/launch-dialog/fix-conflicts-card"
 import { ComposerPlusMenu } from "@/components/launch-dialog/composer-plus-menu"
-import {
-  COMPOSER_MENU_TEST_IDS,
-  COMPOSER_SUGGESTION_ICON,
-} from "@/components/launch-dialog/composer-menu"
 import { LaunchHeadline } from "@/components/launch-dialog/launch-headline"
 import { LaunchOptionsLine } from "@/components/launch-dialog/launch-options-line"
 import {
   AttachmentFileTile,
   AttachmentThumb,
-  Button,
   conceptIcon,
   Composer,
   ComposerSubmit,
+  FeedbackMark,
+  FEEDBACK_TEST_IDS,
+  FEEDBACK_WORDS,
+  Spinner,
+  useDelayedFlag,
 } from "@exp/ui"
-import type { IconConcept } from "@exp/icons"
 import { contract } from "@exp/domain-contract"
-import type { LaunchComposerModel } from "@/hooks/use-launch-composer"
-import { pickChatSuggestions } from "@/lib/chat-suggestions"
+import { HOME_PLACEHOLDER } from "@exp/domain-contract/home-greeting"
+import {
+  startingElapsed,
+  startingLabel,
+  type ComposerStarting,
+  type LaunchComposerModel,
+} from "@/hooks/use-launch-composer"
 import { cn } from "@/lib/utils"
 import { useSession } from "@/hooks/use-session"
 import { useIssuesCodingReadiness } from "@/hooks/use-coding-readiness"
@@ -45,38 +49,38 @@ import {
 // "+" menu (EXP-1249: Implement issue ›, Run action ›, Add file or image,
 // the run's options and tools — `launch-dialog/composer-plus-menu.tsx`), the
 // submit glyph carrying the contract label (Start chat / Start coding / Start
-// batch · N / Run action). Under the card: the options line, then the quiet
-// suggestion rows. All state is the hook's (`use-launch-composer.ts`); this
-// file owns chrome, the caret and the file plumbing. Test ids are
-// byte-identical with the native suites (`agent-composer*`).
+// batch · N / Run action). Under the card: the options line (EXP-1270: the
+// suggestion rows are gone; the HOME column owns what sits under it, see
+// `routes/t/$teamSlug/agent.tsx`). All state is the hook's
+// (`use-launch-composer.ts`); this file owns chrome, the caret and the file
+// plumbing. Test ids are byte-identical with the native suites
+// (`agent-composer*`).
+//
+// EXP-1271: after Start the submit goes PENDING (the spinner in its slot,
+// "Starting", only after `pending.delayMs`) and the card leads with the
+// starting row (the mark, "Starting on <device>", the elapsed seconds) until
+// the run's row lands; the hook owns the deadline.
 //
 // Icons are CONCEPTS — this is a multi-client surface (`lib/icons.test.ts`).
 
-const SuggestionIcon = conceptIcon(COMPOSER_SUGGESTION_ICON as IconConcept)
 const UiSubmitIcon = conceptIcon(`ui-submit`)
-const UiLoadingIcon = conceptIcon(`ui-loading`)
 
-/** EXP-827: a suggestion carrying a `#` placeholder lands the caret right
- *  behind that `#` (wherever it sits), so the issue-ref menu opens at once;
- *  a complete prompt lands it at the end. */
-export function suggestionCaretOffset(text: string): number | undefined {
-  const hash = text.indexOf(`#`)
-  return hash >= 0 ? hash + 1 : undefined
-}
-
-function insertSuggestion(
-  field: MentionTextareaHandle | null,
-  suggestion: string
-) {
-  field?.insertText(suggestion, suggestionCaretOffset(suggestion))
-}
+/** Where the composer sits: `home` = the Agent page / New run tab column
+ *  (composer-home.json: "What do you want to build?"), `dialog` = the
+ *  launch dialog, which keeps the contract's "Ask the agent…". */
+export type LaunchComposerVariant = `home` | `dialog`
 
 /** What the field asks for, per subject. EXP-1019: the two standing
  *  placeholders are the contract's (`composerUi`, ×4) — with a subject up in
- *  the headline, the field is the SECONDARY half and says so. */
-export function composerPlaceholder(model: LaunchComposerModel): string {
+ *  the headline, the field is the SECONDARY half and says so. EXP-1253: the
+ *  home column asks composer-home.json's question instead of the chat one. */
+export function composerPlaceholder(
+  model: LaunchComposerModel,
+  variant: LaunchComposerVariant = `dialog`
+): string {
   const { subject, selectedAction } = model
-  if (subject === null) return contract.composerUi.chatPlaceholder
+  if (subject === null)
+    return variant === `home` ? HOME_PLACEHOLDER : contract.composerUi.chatPlaceholder
   // EXP-825: an action can say what the requester should type here (its
   // `promptPlaceholder`, seeded from the retired free-text input); the
   // Create-action builtin carries its own.
@@ -88,17 +92,18 @@ export function composerPlaceholder(model: LaunchComposerModel): string {
 export function LaunchComposer({
   model,
   users,
+  variant = `dialog`,
   className,
 }: {
   model: LaunchComposerModel
   /** The team roster, for the field's `@` autocomplete. */
   users: User[]
+  variant?: LaunchComposerVariant
   className?: string
 }) {
   const { subject, text, images, busy, blocked } = model
-  // EXP-820: a few chips drawn from the pool per mount — the same range the
-  // getting-started cards show, not three fixed verbs.
-  const [suggestions] = useState(() => pickChatSuggestions())
+  const pending = model.starting !== null
+  const pendingShown = useDelayedFlag(pending)
   const fieldRef = useRef<MentionTextareaHandle>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   // A file chooser steals focus without moving it anywhere in the document —
@@ -152,10 +157,8 @@ export function LaunchComposer({
   }
 
   const actionSubject = subject?.kind === `action`
-  const hasSubject = subject !== null
   const inputDefs = model.selectedAction?.inputs ?? []
-  const showSuggestions = !hasSubject && text.length === 0
-  const submitLabel = model.submitLabel
+  const submitLabel = pendingShown ? FEEDBACK_WORDS.pending.start : model.submitLabel
 
   return (
     <div className={cn(`flex flex-col gap-2`, className)}>
@@ -167,6 +170,9 @@ export function LaunchComposer({
         data-testid="agent-composer"
         strip={
           <>
+            {model.starting && pendingShown && (
+              <StartingRow starting={model.starting} />
+            )}
             {actionSubject && subject && model.fixConflicts ? (
               /* EXP-1233: the Fix merge conflicts builtin wears its own
                  card — the PR's branch row (the picker) and, after a refused
@@ -184,7 +190,7 @@ export function LaunchComposer({
             ) : actionSubject && subject && inputDefs.length > 0 ? (
               /* The action's typed picks (repo / board / pr / icon) — the
                  free-text kinds are gone (EXP-825): what the requester types
-                 IS the run's instructions. */
+                 IS the session's instructions. */
               <div className="px-3 pt-3">
                 <ActionInputFields
                   defs={inputDefs}
@@ -285,11 +291,17 @@ export function LaunchComposer({
               aria-label={submitLabel}
               title={submitLabel}
               data-testid="agent-composer-submit"
+              data-pending={pendingShown || undefined}
+              aria-busy={pending || undefined}
               disabled={blocked}
               onClick={send}
             >
-              {busy ? (
-                <UiLoadingIcon className="!size-6 animate-spin" />
+              {pendingShown ? (
+                <Spinner
+                  size={FEEDBACK_STATES_PENDING_SPINNER}
+                  label={FEEDBACK_WORDS.pending.start}
+                  className="text-current"
+                />
               ) : (
                 <UiSubmitIcon className="!size-6" />
               )}
@@ -324,7 +336,7 @@ export function LaunchComposer({
             e.preventDefault()
             addFiles(Array.from(e.clipboardData.files))
           }}
-          placeholder={composerPlaceholder(model)}
+          placeholder={composerPlaceholder(model, variant)}
           className="min-h-20 resize-none border-0 bg-transparent px-3 pt-3 shadow-none focus-visible:ring-0"
           // Client parity with the server's cap, so a long paste is refused
           // at the field instead of at submit.
@@ -332,29 +344,6 @@ export function LaunchComposer({
         />
       </Composer>
       <LaunchOptionsLine model={model} />
-      {/* EXP-790/EXP-1249: the suggestions only while there is nothing
-          typed and no subject, as QUIET rows under everything else — muted
-          text behind a faint glyph, no pill, no border. */}
-      {showSuggestions && (
-        <div className="flex flex-col items-start px-1 pt-1">
-          {suggestions.map((suggestion) => (
-            <Button
-              key={suggestion}
-              type="button"
-              variant="ghost"
-              data-testid={COMPOSER_MENU_TEST_IDS.suggestion}
-              className="group h-auto max-w-full justify-start gap-2 px-0 py-1 text-[13px] font-normal text-muted-foreground hover:bg-transparent hover:text-foreground dark:hover:bg-transparent"
-              onClick={() => insertSuggestion(fieldRef.current, suggestion)}
-            >
-              <SuggestionIcon
-                aria-hidden
-                className="size-3.5 shrink-0 opacity-50 group-hover:opacity-80"
-              />
-              <span className="truncate">{suggestion}</span>
-            </Button>
-          ))}
-        </div>
-      )}
       {/* EXP-980: the submit on BLOCKED issues asks first (SLOP-3: Cancel ·
           Start anyway · Stacked PR). */}
       <BlockedStartDialog
@@ -372,6 +361,33 @@ export function LaunchComposer({
         onStartAnyway={() => void model.startAnyway()}
         onStartStacked={() => void model.startStacked()}
       />
+    </div>
+  )
+}
+
+/** The pending submit's spinner: the round 24px glyph's slot, so a bit
+ *  larger than a text button's `pending.spinner`. */
+const FEEDBACK_STATES_PENDING_SPINNER = 18
+
+/** EXP-1271: the card's starting row — the mark, "Starting on <device>",
+ *  and the seconds since the press, ticking in tenths. */
+export function StartingRow({ starting }: { starting: ComposerStarting }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 100)
+    return () => clearInterval(timer)
+  }, [])
+  return (
+    <div
+      data-testid={FEEDBACK_TEST_IDS.starting}
+      role="status"
+      className="flex items-center gap-2 px-3 pt-3 text-sm"
+    >
+      <FeedbackMark size={16} />
+      <span className="min-w-0 flex-1 truncate">{startingLabel(starting.deviceLabel)}</span>
+      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
+        {startingElapsed(now - starting.since)}
+      </span>
     </div>
   )
 }

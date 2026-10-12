@@ -3,6 +3,7 @@ import { deleteTeamPrompt, promptActions, WEB_PROMPTS } from "@/lib/prompts"
 import { createFileRoute, Link, useNavigate, useRouter } from "@tanstack/react-router"
 import { ArrowLeft, Trash2 } from "lucide-react"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   Pill,
   Button,
@@ -54,7 +55,6 @@ function AdminTeamDetail() {
   const router = useRouter()
   const navigate = useNavigate()
   const { detail } = Route.useLoaderData()
-  const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [pendingComp, setPendingComp] = useState<CompChoice | null>(null)
@@ -66,30 +66,33 @@ function AdminTeamDetail() {
 
   const handleSetComp = async () => {
     if (pendingComp === null) return
-    setError(null)
     setBusy(true)
     try {
-      await trpc.admin.setTeamCompTier.mutate({
-        teamId: ws.id,
-        compTier: pendingComp === `none` ? null : pendingComp,
-      })
+      await trpc.admin.setTeamCompTier.mutate(
+        {
+          teamId: ws.id,
+          compTier: pendingComp === `none` ? null : pendingComp,
+        },
+        SKIP_ERROR_TOAST
+      )
       setPendingComp(null)
       await router.invalidate()
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      failedAction(`update`, `the comp tier`, err, {
+        retry: () => void handleSetComp(),
+      })
     } finally {
       setBusy(false)
     }
   }
 
   const handleDelete = async () => {
-    setError(null)
     setBusy(true)
     try {
-      await trpc.admin.deleteTeam.mutate({ teamId: ws.id })
+      await trpc.admin.deleteTeam.mutate({ teamId: ws.id }, SKIP_ERROR_TOAST)
       await navigate({ to: `/admin/teams` })
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      failedAction(`delete`, `the team`, err)
       setBusy(false)
     }
   }
@@ -108,12 +111,6 @@ function AdminTeamDetail() {
           All teams
         </Link>
       </Button>
-
-      {error && (
-        <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-          {error}
-        </div>
-      )}
 
       {/* Header */}
       <AdminCard

@@ -20,6 +20,17 @@ import {
 } from "@exp/domain-contract/edit-card"
 import { expToolRunEnd, isExpToolCall } from "@exp/domain-contract/exp-tool-group"
 import {
+  workCard,
+  workDurationLong,
+  workDurationShort,
+  workModelLabel,
+  WORK_CARD_COPY,
+  type WorkCard,
+  type WorkCardLane,
+} from "@exp/domain-contract/work-card"
+import type { ScriptCall, ScriptCardInput } from "@exp/domain-contract/script-card"
+import scriptCardSpec from "@exp/domain-contract/fixtures/script-card.json"
+import {
   entityRefKinds,
   type EntityRef,
   type EntityRefKind,
@@ -120,6 +131,7 @@ export type ToolKind =
   | `fetch`
   | `switch_mode`
   | `wait`
+  | `script`
   | `other`
 
 export const TOOL_KINDS: readonly ToolKind[] = [
@@ -133,6 +145,7 @@ export const TOOL_KINDS: readonly ToolKind[] = [
   `fetch`,
   `switch_mode`,
   `wait`,
+  `script`,
   `other`,
 ]
 
@@ -943,7 +956,9 @@ function scanToolRuns<
     }
     return { row: { kind: `edits`, id: item.id, items }, end }
   }
-  if (item.kind !== `tool` || item.workflowId !== undefined) {
+  // EXP-1279: a code-mode call is its own Script card, never a member of a
+  // run (the way our own MCP calls are, EXP-948).
+  if (item.kind !== `tool` || item.workflowId !== undefined || isScriptCall(item)) {
     return { row: { kind: `single`, item }, end: i }
   }
   // EXP-948: one of OURS opens a group of its own — a lone call is the single
@@ -963,7 +978,8 @@ function scanToolRuns<
     // EXP-916: an edit BREAKS a command run and never joins it. EXP-948: so
     // does one of our own MCP calls.
     !isEditCall(feed[end + 1]) &&
-    !isExpToolCall(feed[end + 1])
+    !isExpToolCall(feed[end + 1]) &&
+    !isScriptCall(feed[end + 1])
   )
     end++
   if (end === i) return { row: { kind: `single`, item }, end }
@@ -2335,26 +2351,141 @@ export function runningWorkflow(
   return latest
 }
 
-/** Per-phase agent tallies for the card's phase strip: how many of that
- *  phase's agents are queued, running, done or errored. Phases with no agents
- *  still render (they are the plan). */
-export interface WorkflowPhaseCounts extends WorkflowPhase {
-  queued: number
-  running: number
-  done: number
-  error: number
+// ── The Work card's inputs (EXP-1240, EXP-1259 D12) ─────────────────────────
+// The card's MODEL is the contract's `workCard()` (fixture `work-card.json`
+// ×4); these only turn this client's folded state into its input, and map a
+// lane the card names back to the agent behind it.
+
+/** A workflow's agents grouped the way `workCard` groups them: the declared
+ *  phases by index, each one's agents by index, then the agents outside
+ *  every declared phase as a trailing `Agents` phase. Position N here is
+ *  segment N on the card. */
+export function workflowPhaseGroups(
+  workflow: Pick<WorkflowState, `phases` | `agents`>
+): { index: number | null; title: string; agents: WorkflowAgent[] }[] {
+  const agents = [...workflow.agents].sort((a, b) => a.index - b.index)
+  const declared = [...workflow.phases].sort((a, b) => a.index - b.index)
+  const groups: { index: number | null; title: string; agents: WorkflowAgent[] }[] =
+    declared.map((phase) => ({
+      index: phase.index,
+      title: phase.title.trim() || `${WORK_CARD_COPY.phase} ${phase.index}`,
+      agents: agents.filter((agent) => agent.phaseIndex === phase.index),
+    }))
+  const known = new Set(declared.map((phase) => phase.index))
+  const loose = agents.filter(
+    (agent) => agent.phaseIndex === undefined || !known.has(agent.phaseIndex)
+  )
+  if (loose.length > 0) {
+    groups.push({ index: null, title: WORK_CARD_COPY.loosePhase, agents: loose })
+  }
+  return groups
 }
 
-export function workflowPhaseCounts(
+/** The longest settled lane of a phase: its wall time, the phases running
+ *  one after the other. */
+function phaseSpanMs(agents: readonly WorkflowAgent[]): number | null {
+  let span: number | null = null
+  for (const agent of agents) {
+    if (agent.durationMs !== undefined) span = Math.max(span ?? 0, agent.durationMs)
+  }
+  return span
+}
+
+/** The workflow's elapsed time. The wire carries no start, so it is the sum
+ *  of its phases' spans (they run in sequence); null before any lane
+ *  settled. */
+export function workflowElapsedMs(
   workflow: Pick<WorkflowState, `phases` | `agents`>
-): WorkflowPhaseCounts[] {
-  return workflow.phases.map((phase) => {
-    const counts = { queued: 0, running: 0, done: 0, error: 0 }
-    for (const agent of workflow.agents) {
-      if (agent.phaseIndex !== phase.index) continue
-      counts[agent.state] += 1
-    }
-    return { ...phase, ...counts }
+): number | null {
+  let total: number | null = null
+  for (const group of workflowPhaseGroups(workflow)) {
+    const span = phaseSpanMs(group.agents)
+    if (span !== null) total = (total ?? 0) + span
+  }
+  return total
+}
+
+/** A workflow's Work card. */
+export function workflowWorkCard(workflow: WorkflowState): WorkCard {
+  return workCard({
+    kind: `workflow`,
+    name: workflow.name,
+    status: workflow.status,
+    phases: workflow.phases,
+    agents: workflow.agents.map((agent) => ({
+      index: agent.index,
+      label: agent.label ?? null,
+      phaseIndex: agent.phaseIndex ?? null,
+      model: agent.model ?? null,
+      state: agent.state,
+      durationMs: agent.durationMs ?? null,
+    })),
+    elapsedMs: workflowElapsedMs(workflow),
+  })
+}
+
+/** One lane line, the card's own wording (`workCard`'s lanes). */
+function workflowLane(agent: WorkflowAgent): WorkCardLane {
+  const label = (agent.label ?? ``).trim()
+  const settled = agent.state === `done` || agent.state === `error`
+  return {
+    label: label || `${WORK_CARD_COPY.agent} ${agent.index}`,
+    model: workModelLabel(agent.model),
+    state: agent.state,
+    duration:
+      settled && agent.durationMs !== undefined
+        ? workDurationLong(agent.durationMs)
+        : null,
+  }
+}
+
+/** The phases a card's leading folded row stands for, spelled out for its
+ *  in-place expansion (the model drops their lanes). Empty when nothing
+ *  folded. */
+export function workflowFoldedPhases(
+  workflow: WorkflowState,
+  card: WorkCard
+): { title: string; duration: string | null; lanes: WorkCardLane[] }[] {
+  if (card.rows[0]?.type !== `folded`) return []
+  const count = card.segments.length - (card.rows.length - 1)
+  return workflowPhaseGroups(workflow)
+    .slice(0, count)
+    .map((group) => {
+      const span = phaseSpanMs(group.agents)
+      return {
+        title: group.title,
+        duration: span === null ? null : workDurationShort(span),
+        lanes: group.agents.map(workflowLane),
+      }
+    })
+}
+
+/** The agent behind a lane the card named (`WorkCardLaneTarget`: phase
+ *  position, lane position), or null. */
+export function workflowLaneAgent(
+  workflow: Pick<WorkflowState, `phases` | `agents`>,
+  target: { phase: number; lane: number }
+): WorkflowAgent | null {
+  return workflowPhaseGroups(workflow)[target.phase]?.agents[target.lane] ?? null
+}
+
+/** The agent's own task list as a Work card. */
+export function taskListWorkCard(entries: readonly TaskListEntry[]): WorkCard {
+  return workCard({ kind: `tasks`, tasks: entries })
+}
+
+/** A subagent (its group of feed items) as a Work card. */
+export function subagentWorkCard(summary: {
+  agentType: string
+  title?: string
+  done: boolean
+  toolCount: number
+}): WorkCard {
+  return workCard({
+    kind: `subagent`,
+    title: subagentLabel(summary),
+    state: summary.done ? `done` : `running`,
+    toolCalls: summary.toolCount,
   })
 }
 
@@ -2463,4 +2594,93 @@ export function workflowSubagentIds(
     if (!byId.has(subagentId)) byId.set(subagentId, workflowId)
   }
   return byId
+}
+
+// ── Code mode (EXP-1279, EXP-1259 D13) ───────────────────────────────────────
+
+/** The settled call's code-mode log (`tool_update.script`, the engine's
+ *  distillation of codemode's `_meta` call log): the calls in order (capped
+ *  at `logCap`), the TOTAL the script made, its wall time and the script
+ *  itself when the publisher sent it. */
+export interface ScriptLog {
+  count?: number
+  elapsedMs?: number
+  calls: ScriptCall[]
+  source?: string
+}
+
+export const SCRIPT_TOOL_SUFFIX = scriptCardSpec.toolNameSuffix
+const SCRIPT_LOG_CAP = scriptCardSpec.logCap
+const SCRIPT_TEXT_MAX = 200
+/** The source is cut like a command's output by the publisher (bytes, so
+ *  this cap in UTF-16 units never cuts what the wire accepted). */
+const SCRIPT_SOURCE_MAX = contract.steerFeed.toolOutputMaxBytes
+
+/** Codex titles the same call `mcp.codemode.exec` (wire doc §1b). */
+const SCRIPT_TOOL_SUFFIX_CODEX = `codemode.exec`
+
+/** A code-mode `exec` call: contract toolKind `script`, or (a publisher that
+ *  predates the kind) a tool whose name ends in `codemode__exec` (claude) or
+ *  `codemode.exec` (codex). */
+export function isScriptCall(item: {
+  kind: string
+  name?: string
+  toolKind?: string
+}): boolean {
+  if (item.kind !== `tool`) return false
+  if (item.toolKind === `script`) return true
+  const name = item.name?.trim() ?? ``
+  return (
+    name.endsWith(SCRIPT_TOOL_SUFFIX) || name.endsWith(SCRIPT_TOOL_SUFFIX_CODEX)
+  )
+}
+
+/** Fold a wire `script` log. Null = nothing usable; a malformed call is
+ *  dropped, never the log. */
+export function parseScriptLog(value: unknown): ScriptLog | null {
+  if (!isEventRecord(value)) return null
+  const calls: ScriptCall[] = []
+  if (Array.isArray(value.calls)) {
+    for (const raw of value.calls) {
+      if (calls.length >= SCRIPT_LOG_CAP) break
+      if (!isEventRecord(raw)) continue
+      const tool = typeof raw.tool === `string` ? raw.tool.trim() : ``
+      if (!tool) continue
+      const subject =
+        typeof raw.subject === `string` && raw.subject.trim()
+          ? raw.subject.trim().slice(0, SCRIPT_TEXT_MAX)
+          : null
+      calls.push({
+        tool: tool.slice(0, SCRIPT_TEXT_MAX),
+        subject,
+        ok: raw.ok !== false,
+        ms: wireCount(raw.ms) ?? null,
+      })
+    }
+  }
+  const log: ScriptLog = { calls }
+  const count = wireCount(value.count)
+  if (count !== undefined) log.count = count
+  const elapsed = wireCount(value.elapsedMs)
+  if (elapsed !== undefined) log.elapsedMs = elapsed
+  if (typeof value.source === `string` && value.source.trim()) {
+    log.source = value.source.slice(0, SCRIPT_SOURCE_MAX)
+  }
+  return calls.length > 0 || count !== undefined || elapsed !== undefined || log.source
+    ? log
+    : null
+}
+
+/** The Script card's input for one tool row. Without a log (an older
+ *  codemode) it is the bare "Ran a script". */
+export function scriptCardInput(item: {
+  settled?: boolean
+  script?: ScriptLog
+}): ScriptCardInput {
+  return {
+    running: item.settled !== true,
+    count: item.script?.count ?? null,
+    calls: item.script?.calls ?? null,
+    elapsedMs: item.script?.elapsedMs ?? null,
+  }
 }

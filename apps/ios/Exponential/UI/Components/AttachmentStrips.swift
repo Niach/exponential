@@ -247,12 +247,12 @@ struct SteerFileLinkRow: View {
                 guard let data = try? await deps.attachmentsApi.download(
                     accountId: accountId, relativeUrl: "/api/attachments/\(file.id)"
                 ) else {
-                    toaster.error("Could not download the file")
+                    toaster.error(FeedbackStates.Errors.title(verb: "download", thing: "the file"))
                     return
                 }
                 try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
                 guard (try? data.write(to: destination, options: .atomic)) != nil else {
-                    toaster.error("Could not download the file")
+                    toaster.error(FeedbackStates.Errors.title(verb: "download", thing: "the file"))
                     return
                 }
             }

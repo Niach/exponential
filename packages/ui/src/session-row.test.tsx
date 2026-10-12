@@ -32,7 +32,7 @@ describe(`SessionRow`, () => {
             key={index}
             data-testid={`row-${index}`}
             agent="claude"
-            title={`Run ${index}`}
+            title={`Session ${index}`}
             depth={depth}
             guide={guides[index]}
           />

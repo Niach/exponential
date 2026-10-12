@@ -172,7 +172,9 @@ impl SurfaceView {
         // `native: true`: the platform control paints the part itself.
         let native = style.native && leaf && matches!((n.component.as_str(), n.part.as_deref()), ("Switch", Some("track")) | ("Checkbox", Some("box" | "checkbox")));
         let style = if native { PaintStyle { bg: None, border: [0.0; 4], shadows: Vec::new(), gradient: None, ..style } } else { style };
-        el = el.when_some(style.bg, |d, bg| d.bg(bg));
+        // A Skeleton leaf's fill is its pulse (`natives::skeleton`), not the box's.
+        let pulses = leaf && n.component == "Skeleton";
+        el = el.when_some(style.bg.filter(|_| !pulses), |d, bg| d.bg(bg));
         el = rounded(el, radii);
         if !style.shadows.is_empty() {
             el = el.shadow(style.shadows.clone());
@@ -1224,7 +1226,8 @@ impl SurfaceView {
             let inner = self.paint_node(root, Place { origin: (f.x, f.y), ..place }, window, cx);
             // The root div sits at its own frame inside a wrapper at (0,0);
             // the wrapper owns the occlusion and the outside press.
-            let rise = progress.map(|p| (1.0 - p) * if layer.position == "top" { -8.0 } else { 8.0 }).unwrap_or(0.0);
+            // The enter rises in; an exit is opacity only (EXP-1243).
+            let rise = progress.filter(|_| !ghost).map(|p| (1.0 - p) * if layer.position == "top" { -8.0 } else { 8.0 }).unwrap_or(0.0);
             let (dx, dy) = self.sheet_drag.as_ref().filter(|d| d.root == root && !ghost).map(|d| d.offset).unwrap_or((0.0, 0.0));
             let mut wrap = div().id(SharedString::from(format!("{}.{}.{k}", layer.owner, if ghost { "exit" } else { "layer" }))).absolute().left(px(f.x + dx)).top(px(f.y + rise + dy)).w(px(f.w)).h(px(f.h)).when(!ghost, |d| d.occlude()).when_some(progress, |d, p| d.opacity(p));
             if let Some(el) = inner {

@@ -443,8 +443,10 @@ private struct GlassAlertHost<C: View>: View {
             .accessibilityLabel("Dismiss")
             .accessibilityIdentifier("glass-alert-scrim")
 
+            // EXP-1243: the card enters from `popoverFrom` (Reduce Motion: the
+            // fade alone).
             alert
-                .scaleEffect(appeared ? 1 : 0.95)
+                .scaleEffect(appeared || motion.reduceMotion ? 1 : DesignTokens.Motion.Scale.popoverFrom)
                 .padding(.horizontal, GlassAlertMetrics.screenInset)
         }
         .opacity(appeared ? 1 : 0)

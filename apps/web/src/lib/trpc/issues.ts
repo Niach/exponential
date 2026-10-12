@@ -15,6 +15,7 @@ import {
   labels,
   notifications,
   boards,
+  threadItems,
 } from "@/db/schema"
 import { and, eq, inArray, sql } from "drizzle-orm"
 import {
@@ -106,6 +107,7 @@ import {
 import { resolveMentions } from "@/lib/integrations/mentions"
 import { ensureSubscribed } from "@/lib/integrations/subscriptions"
 import { recordIssueEvent } from "@/lib/integrations/activity"
+import { getThread, linkIssueToThread } from "@/lib/threads"
 import {
   eventOrigin,
   type IssueEventOrigin,
@@ -744,6 +746,10 @@ export const issuesRouter = router({
           // are reparented onto the new issue and the draft row is deleted,
           // all under this mutation's txId.
           draftId: z.string().uuid().optional(),
+          // EXP-1284: file the issue straight into this thread (the thread
+          // page's "new issue", MCP issues_create{threadId}), linked in the
+          // create transaction. Must be a thread of the board's team.
+          threadId: z.string().uuid().optional(),
         })
         // A brand-new issue has nothing to dedupe, and create has no canonical
         // issue to pair with — status='duplicate' + duplicateOfId=null breaks
@@ -790,9 +796,15 @@ export const issuesRouter = router({
       // is user-scoped, so a GUESSED id belonging to someone else reads as
       // absent here and can never have its attachments stolen below.
       let draftOwned = false
+      // EXP-1284: the thread a "New issue in this thread" draft files into.
+      let draftThreadId: string | null = null
       if (input.draftId) {
         const [draft] = await ctx.db
-          .select({ id: issueDrafts.id, teamId: issueDrafts.teamId })
+          .select({
+            id: issueDrafts.id,
+            teamId: issueDrafts.teamId,
+            threadId: issueDrafts.threadId,
+          })
           .from(issueDrafts)
           .where(
             and(
@@ -802,6 +814,7 @@ export const issuesRouter = router({
           )
           .limit(1)
         draftOwned = draft != null
+        draftThreadId = draft?.threadId ?? null
         // A draft is opened ON a board, so it carries that board's team. The
         // create must land in the same team: the reparent below would
         // otherwise carry its attachments (and their storage quota) across a
@@ -867,6 +880,27 @@ export const issuesRouter = router({
             message: `The parent issue must be in the same team`,
           })
         }
+      }
+
+      // EXP-1284: the thread must be the issue's team's — checked before the
+      // transaction opens like the parent, so a refusal leaves no issue. An
+      // explicit `threadId` wins; else the consumed draft's own thread (the
+      // draft page persisted it), under the same rule — but a thread that
+      // vanished (or moved out of the team) since the draft was written is
+      // simply no link: a stale draft never fails its create.
+      let linkThreadId: string | null = null
+      if (input.threadId) {
+        const thread = await getThread(ctx.db, input.threadId)
+        if (!thread || thread.teamId !== board.teamId) {
+          throw new TRPCError({
+            code: `BAD_REQUEST`,
+            message: `The thread must be in the same team`,
+          })
+        }
+        linkThreadId = thread.id
+      } else if (draftOwned && draftThreadId) {
+        const thread = await getThread(ctx.db, draftThreadId)
+        if (thread && thread.teamId === board.teamId) linkThreadId = thread.id
       }
 
       const statusWrite = await resolveStatusWrite(ctx.db, board.teamId, input)
@@ -1031,6 +1065,20 @@ export const issuesRouter = router({
             teamId: board.teamId,
             actorUserId: ctx.session.user.id,
           })
+        }
+
+        // EXP-1284: the thread link rides the create transaction too; an
+        // agent's create (MCP, `ctx.viaMcp`) is stamped `agent`.
+        if (linkThreadId) {
+          await linkIssueToThread(
+            tx,
+            { id: linkThreadId, teamId: board.teamId },
+            issue.id,
+            {
+              userId: ctx.session.user.id,
+              source: ctx.viaMcp ? `agent` : `user`,
+            }
+          )
         }
 
         return { issue, txId, mentionedUserIds }
@@ -1565,6 +1613,11 @@ export const issuesRouter = router({
           .update(notifications)
           .set({ boardId: input.boardId })
           .where(eq(notifications.issueId, input.id))
+        // EXP-1284: the issue's thread items (one per thread holding it).
+        await tx
+          .update(threadItems)
+          .set({ boardId: input.boardId })
+          .where(eq(threadItems.issueId, input.id))
 
         await recordIssueEvent(tx, {
           issueId: input.id,

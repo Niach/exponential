@@ -29,8 +29,8 @@ export type McpAppView = keyof typeof MCP_APP_RESOURCE_URIS
 
 const VIEW_TITLES: Record<McpAppView, string> = {
   issues: `Exponential issues`,
-  run: `Exponential run`,
-  runs: `Exponential runs`,
+  run: `Exponential session`,
+  runs: `Exponential sessions`,
   inbox: `Exponential inbox`,
   devices: `Exponential devices`,
 }

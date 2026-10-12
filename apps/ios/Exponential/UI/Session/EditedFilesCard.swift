@@ -198,7 +198,7 @@ final class EditCardMemo {
     func card(_ items: [AgentFeedItem], liveItemId: Int?) -> EditCard.View {
         var length = 0
         for item in items {
-            if case let .tool(_, _, _, _, _, _, settled, failed, diff, _, _) = item {
+            if case let .tool(_, _, _, _, _, _, settled, failed, diff, _, _, _, _) = item {
                 length += diff?.utf8.count ?? 0
                 if settled { length += 1 }
                 if failed { length += 2 }

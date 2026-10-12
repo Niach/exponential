@@ -8,47 +8,31 @@ import com.exponential.app.ui.components.picker.ActionPicker
 import com.exponential.app.ui.components.picker.ActionPickerAction
 
 /**
- * EXP-825: the composer's ▶ tool — a SINGLE-select action list (the
- * Start-coding sheet's Actions tab, EXP-257): "Fix merge conflicts" first,
- * then "Create action" (listed here now that the create sheet is gone — the
- * creator run is just another action to pick), then the team's rows in server
- * order; the hidden Chat row never (it is what "no subject" means). A tap
- * picks and closes; picking an action while issues are chipped SWAPS them out.
- *
- * EXP-1030: the sheet IS the shared [ActionPicker] — the curated glyph, the
- * name and the description, searched and marked the way every other pick on
- * this phone is. The loading and error states ride the primitive's ONE empty
- * text: with no row to offer, what the sheet has to say is why.
+ * EXP-825 → SLOP-28 (EXP-1259 D5): the "+" menu's Run action › PAGE — the
+ * shared [ActionPicker] drawn INLINE as THE search list, pushed inside the
+ * composer's menu sheet: action rows = the action's icon + its NAME only (no
+ * description), the builtins first, the hidden Chat row never (it is what
+ * "no subject" means). A tap picks, chips the action and closes the menu;
+ * picking an action while issues are chipped SWAPS them out.
  */
 @Composable
-internal fun AgentActionPickerSheet(
+internal fun AgentActionPickerPage(
     actions: List<ActionDto>?,
     error: String?,
     selectedId: String?,
     onPick: (String) -> Unit,
-    onDismiss: () -> Unit,
 ) {
+    // FEED-79: the list loads on its own, so a failed load is quiet: the
+    // empty state, never a toast.
     ActionPicker(
-        actions = actions.orEmpty().map { action ->
-            ActionPickerAction(
-                id = action.id,
-                name = action.name,
-                icon = action.icon,
-                description = action.description?.takeIf { it.isNotBlank() },
-            )
-        },
+        actions = actions.orEmpty().map { ActionPickerAction(id = it.id, name = it.name, icon = it.icon) },
         value = selectedId,
-        // A single pick closes the primitive's sheet, which is what dismisses
-        // this one (see `onOpenChange`) — the pick itself only chips it.
         onChange = onPick,
-        title = "Actions",
-        emptyText = when {
-            actions == null && error != null -> error
-            actions == null -> "Loading actions…"
-            else -> "No matching actions"
-        },
-        sheetModifier = Modifier.testTag("agent-composer-actions-picker"),
-        open = true,
-        onOpenChange = { open -> if (!open) onDismiss() },
+        // With no row to offer: skeleton rows while the list loads, else
+        // that nothing matched.
+        emptyText = "No matching actions",
+        loading = actions == null && error == null,
+        inline = true,
+        modifier = Modifier.testTag("agent-composer-actions-picker"),
     )
 }

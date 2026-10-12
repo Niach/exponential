@@ -12,7 +12,6 @@ import GRDB
 @MainActor @Observable
 final class DraftsViewModel {
     var rows: [IssueDraftRow] = []
-    var error: String?
 
     private let accountId: String
     private let db: DatabaseManager
@@ -52,14 +51,23 @@ final class DraftsViewModel {
     /// Delete a draft: the server row first (it owns the attachments), then
     /// the local mirror so the row leaves the list without waiting for sync.
     func delete(_ row: IssueDraftRow) async {
-        let id = row.draft.id
+        await delete(id: row.draft.id)
+    }
+
+    private func delete(id: String) async {
         do {
             try await api.delete(accountId: accountId, id: id)
         } catch {
-            self.error = error.userFacingMessage
+            // FEED-79: a failed delete is a toast; re-deleting is safe.
+            Toaster.shared.error(
+                FeedbackStates.Errors.title(verb: "delete", thing: "the draft"),
+                description: error.userFacingMessage,
+                action: ToastAction(label: FeedbackStates.Errors.retry) { [weak self] in
+                    Task { @MainActor in await self?.delete(id: id) }
+                }
+            )
             return
         }
-        error = nil
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
         _ = try? await pool.write { db in try IssueDraftEntity.deleteOne(db, key: id) }
     }

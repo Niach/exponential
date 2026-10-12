@@ -39,8 +39,9 @@ struct InviteLinkCreator: View {
     @State private var generating = false
     @State private var copied = false
     @State private var shareTarget: ShareTarget?
-    /// Non-plan failures only — a plan refusal has no copy on iOS.
-    @State private var errorText: String?
+    /// FEED-79: a failed mint (non-plan only; a plan refusal has no copy on
+    /// iOS) is a toast.
+    @Environment(\.toaster) private var toaster
     @State private var observationTask: Task<Void, Never>?
     @State private var copyFlashTask: Task<Void, Never>?
 
@@ -106,13 +107,6 @@ struct InviteLinkCreator: View {
                 }
                 .accessibilityIdentifier("invite-generate")
             }
-
-            if let errorText {
-                Text(errorText)
-                    .font(.caption)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            }
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -126,7 +120,6 @@ struct InviteLinkCreator: View {
     private func generate() async {
         guard !generating else { return }
         generating = true
-        errorText = nil
         defer { generating = false }
         do {
             let token = try await deps.teamInvitesApi.create(
@@ -134,7 +127,7 @@ struct InviteLinkCreator: View {
             )
             let instanceUrl = deps.auth.accounts.first { $0.id == accountId }?.instanceUrl
             guard let url = WebLinks.invite(instanceUrl: instanceUrl, token: token) else {
-                errorText = "Could not build the invite link."
+                toaster.error(FeedbackStates.Errors.title(verb: "create", thing: "the invite link"))
                 return
             }
             inviteURL = url
@@ -148,9 +141,11 @@ struct InviteLinkCreator: View {
                 // copy — the server's message carries purchase language.
                 capacity = .known(0)
                 inviteURL = nil
-                errorText = nil
             } else {
-                errorText = error.trpcUserMessage
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "create", thing: "the invite link"),
+                    description: error.trpcUserMessage
+                )
             }
         }
     }

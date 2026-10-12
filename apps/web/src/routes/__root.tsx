@@ -8,6 +8,7 @@ import {
 import { TanStackRouterDevtools } from "@tanstack/react-router-devtools"
 import { Toaster, TooltipProvider } from "@exp/ui"
 import { SessionProvider } from "@/hooks/use-session"
+import { APP_TITLE, appUrl } from "@/lib/page-title"
 
 import "../styles.css?url"
 
@@ -39,6 +40,22 @@ export const Route = createRootRoute({
         name: `robots`,
         content: `noindex`,
       },
+      // FEED-88: link unfurlers (Linear, Slack) fetch app URLs anonymously
+      // and read only the SSR shell, so the card names the product, never
+      // synced data (nothing is anonymously readable). Routes override
+      // `og:title` from their params alone.
+      { property: `og:site_name`, content: APP_TITLE },
+      { property: `og:type`, content: `website` },
+      { property: `og:title`, content: APP_TITLE },
+      {
+        property: `og:description`,
+        content: `Issues, support and coding agents in one realtime workspace`,
+      },
+      { property: `og:image`, content: appUrl(`/og-card.png`) },
+      { property: `og:image:width`, content: `1200` },
+      { property: `og:image:height`, content: `630` },
+      { name: `twitter:card`, content: `summary_large_image` },
+      { name: `twitter:image`, content: appUrl(`/og-card.png`) },
       {
         name: `apple-mobile-web-app-capable`,
         content: `yes`,
@@ -65,6 +82,13 @@ export const Route = createRootRoute({
       {
         rel: `manifest`,
         href: `/manifest.json`,
+      },
+      // Raster first: unfurlers that skip SVG favicons take the first PNG.
+      {
+        rel: `icon`,
+        type: `image/png`,
+        sizes: `192x192`,
+        href: `/icon-192.png`,
       },
       {
         rel: `icon`,

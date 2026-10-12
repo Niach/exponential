@@ -126,10 +126,20 @@ struct WorkScreen: View {
     @State private var issueTitleScrolledAway = false
     /// The two edges the collapse compares, outside SwiftUI's diffing.
     @State private var titleEdges = TitleCollapseTracker()
+    /// EXP-1284: the THREAD the shown run sits in — the header's link to it
+    /// (brief §7: a run screen offers its thread once the item synced).
+    @State private var shownThread: RunThreadLookup?
+    /// EXP-1284: the thread of the run whose Guide this screen reads — its
+    /// Guide is the THREAD's (`guideOfRun`: thread results ?? run results).
+    @State private var resultsThread: RunThreadLookup?
     /// `initialFace` opens an issue subject on that face (a deep link's
     /// Guide); unavailable faces fall back as usual.
-    init(subject: WorkSubject, initialFace: WorkFaceKind = .issue) {
+    /// EXP-1241: the comment the Issue face opens scrolled to (and flashes).
+    private let focusCommentId: String?
+
+    init(subject: WorkSubject, initialFace: WorkFaceKind = .issue, focusCommentId: String? = nil) {
         self.subject = subject
+        self.focusCommentId = focusCommentId
         changesRequested = initialFace == .guide
         switch subject {
         case .issue:
@@ -242,8 +252,30 @@ struct WorkScreen: View {
     /// topic's text, grouped — off its synced row. EXP-1251: an issue shows
     /// only its own PR's topics plus the untagged ones (`sessionResultsForPr`).
     private var sessionResultGroups: [SessionResultGroup] {
-        guard issueId != nil else { return parseSessionResultGroups(resultsSession?.results) }
-        return sessionResultGroupsForPr(resultsSession?.results, prUrl: issue?.prUrl)
+        guard issueId != nil else { return parseSessionResultGroups(resultsRaw) }
+        return sessionResultGroupsForPr(resultsRaw, prUrl: issue?.prUrl)
+    }
+
+    /// EXP-1284: the results run's Guide — its THREAD's once the run's item
+    /// synced (web `guideOfRun`), else the run's own row.
+    private var resultsRaw: String? {
+        let thread = resultsThread?.sessionId == resultsSession?.id ? resultsThread?.thread : nil
+        return ThreadViews.guideResults(threadResults: thread?.results, runResults: resultsSession?.results)
+    }
+
+    /// EXP-1284: the header's link to the shown run's thread.
+    @ViewBuilder
+    private var threadLink: some View {
+        if let thread = shownThread?.thread, shownThread?.sessionId == shownSessionId {
+            Button {
+                pushRoute(.thread(accountId: accountId, threadId: thread.id))
+            } label: {
+                AppIcon(AppIcons.workFaces, size: AppIcon.Size.medium, weight: .medium)
+                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
+            }
+            .accessibilityLabel("Open thread")
+            .accessibilityIdentifier("work-open-thread")
+        }
     }
 
     private var hasRunResults: Bool { !sessionResultGroups.isEmpty }
@@ -533,7 +565,7 @@ struct WorkScreen: View {
                 .workHeaderBand(onBottom: { bottom in
                     titleEdges.headerBottom = bottom
                     titleEdgesChanged()
-                }) { faceTabs }
+                }, ground: face == .run) { faceTabs }
                 .onPreferenceChange(IssueTitleRowBottomKey.self) { bottom in
                     titleEdges.titleBottom = bottom
                     titleEdgesChanged()
@@ -641,7 +673,11 @@ struct WorkScreen: View {
             if let shownSession {
                 sessionView(shownSession)
             } else {
-                ProgressView().tint(.white)
+                // EXP-1275 (D8): a first load is skeleton rows.
+                SkeletonRows()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
         case .guide:
             guideFace
@@ -657,12 +693,17 @@ struct WorkScreen: View {
                 barTrailing: issueBarTrailing,
                 onStartCoding: startCodingTapped,
                 onOpenChanges: { selectFace(.guide) },
-                mergeCircle: mergeCircle(on: .issue)
+                mergeCircle: mergeCircle(on: .issue),
+                focusCommentId: focusCommentId
             )
         } else if let vm = issueVM, vm.loadTimedOut {
             unavailableState(vm: vm)
         } else {
-            ProgressView().tint(.white)
+            // EXP-1275 (D8): a first load is skeleton rows.
+            SkeletonRows()
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
     }
 
@@ -846,6 +887,14 @@ struct WorkScreen: View {
                 } else {
                     ToolbarItem(placement: .topBarTrailing) { prGraphBadge }
                 }
+                // EXP-1284: the run's THREAD, always mounted like the badge
+                // (EXP-942); draws nothing until the run's item synced.
+                if #available(iOS 26.0, *) {
+                    ToolbarItem(placement: .topBarTrailing) { threadLink }
+                        .sharedBackgroundVisibility(.hidden)
+                } else {
+                    ToolbarItem(placement: .topBarTrailing) { threadLink }
+                }
                 // EXP-942: Stop / Resume is its OWN bar item, so the system
                 // gives it its own capsule instead of merging it with the
                 // `…` menu into one shared shape. Mounted for the whole Run
@@ -901,7 +950,7 @@ struct WorkScreen: View {
                 Text("Stop").fontWeight(.medium)
             }
             .tint(DesignTokens.Semantic.red)
-            .accessibilityLabel("Stop the agent and end the run")
+            .accessibilityLabel("Stop the agent and end the session")
             .accessibilityIdentifier("session-stop")
         case .resume:
             Button { showResumeConfirm = true } label: {
@@ -1198,6 +1247,11 @@ struct WorkScreen: View {
                 runChrome = RunChrome()
                 sawLiveSession = false
                 subjectModel?.observeShown(id: id)
+                shownThread?.follow(id)
+            }
+            // EXP-1284: the Guide follows the results run's THREAD.
+            .onChange(of: resultsSession?.id, initial: true) { _, id in
+                resultsThread?.follow(id)
             }
             // The ended edge: an issue-bound subject stays; an issue-less one
             // keeps the native auto-pop (EXP-696).
@@ -1216,6 +1270,11 @@ struct WorkScreen: View {
             .onChange(of: continuation.watcher.startedSession) { _, started in
                 if let started {
                     continuation.watcher.startedSession = nil
+                    // A late landing (EXP-1259): its failure toast goes.
+                    if let toastId = continuation.failureToastId {
+                        continuation.failureToastId = nil
+                        toaster.dismiss(toastId)
+                    }
                     continuation.landed(started.sessionId)
                     swapIn(started.sessionId)
                 }
@@ -1231,6 +1290,15 @@ struct WorkScreen: View {
                 db: deps.db
             )
         }
+        // EXP-1284: the run's thread (the header link + the Guide).
+        if shownThread == nil {
+            shownThread = RunThreadLookup(accountId: accountId, db: deps.db)
+        }
+        if resultsThread == nil {
+            resultsThread = RunThreadLookup(accountId: accountId, db: deps.db)
+        }
+        shownThread?.follow(shownSessionId)
+        resultsThread?.follow(resultsSession?.id)
         // Re-arm on every appear: pushing a child screen stops the
         // observations (onDisappear), popping back must resume them.
         subjectModel?.observeShown(id: shownSessionId)
@@ -1268,6 +1336,8 @@ struct WorkScreen: View {
         // first responder may outlive this screen (EXP-246).
         UIApplication.endEditing()
         subjectModel?.stop()
+        shownThread?.stop()
+        resultsThread?.stop()
         prGraphModel?.stop()
         readinessModel?.stop()
         prChangesModel?.stopObserving()
@@ -1472,17 +1542,28 @@ struct WorkScreen: View {
     /// `steer.startSession({resumeSessionId})` the list rows used to send.
     /// A start is a COMMAND, so the watcher waits for the row the desktop
     /// inserts and the screen swaps that session in.
-    private func resumeRun() {
+    ///
+    /// EXP-1259: the press mints a `startId`; the failure toast's Retry
+    /// (`retry` true) re-sends the same one, so the device resumes it once.
+    private func resumeRun(retry: Bool = false) {
         guard let shownSession, let device = resumeDevice, !resuming else { return }
         resuming = true
-        continuation.sending(.resume)
         let sessionId = shownSession.id
+        let startId = continuation.sending(
+            .resume,
+            target: StartIntent.resumeTarget(
+                sessionId: sessionId, deviceId: device.deviceId, account: nil
+            ),
+            retry: retry,
+            onRetry: { resumeRun(retry: true) }
+        )
         Task {
             do {
                 try await deps.steerApi.resumeSession(
                     accountId: accountId,
                     sessionId: sessionId,
-                    deviceId: device.deviceId
+                    deviceId: device.deviceId,
+                    startId: startId
                 )
                 continuation.sent(
                     key: .resumed(fromId: sessionId),
@@ -1492,7 +1573,13 @@ struct WorkScreen: View {
                     accountId: accountId
                 )
             } catch {
-                continuation.failed(error.userFacingMessage)
+                continuation.failed(
+                    error,
+                    key: .resumed(fromId: sessionId),
+                    userId: deps.auth.userId,
+                    db: deps.db,
+                    accountId: accountId
+                )
             }
             resuming = false
         }
@@ -1517,7 +1604,10 @@ struct WorkScreen: View {
             do {
                 try await deps.issuesApi.closePr(accountId: accountId, issueId: issueId)
             } catch {
-                toaster.error(MergeFailure(error: error).message)
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "close", thing: "the pull request"),
+                    description: MergeFailure(error: error).message
+                )
             }
             closingPr = false
         }

@@ -114,6 +114,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
             stack,
             fallback_lead: None,
             unnumbered: false,
+            scroll: None,
         },
         cx,
     );
@@ -122,7 +123,7 @@ pub(crate) fn render(window: &mut Window, cx: &mut App) -> Div {
     let back = crate::session_results::guide_page_header(&view, std::rc::Rc::new(|_, _| {}), cx);
     let fallback = pr_body_block(
         Some("EXP-1154: merge the review page into the issue"),
-        PrBodyContent::Ready("Opened before the run filed its report: the GitHub body, read as is."),
+        PrBodyContent::Ready("Opened before the session filed its report: the GitHub body, read as is."),
         None,
         cx,
     );

@@ -11,6 +11,7 @@
 // terminal escape codes and never persists anything.
 
 import { contract } from "@exp/domain-contract"
+import scriptCard from "@exp/domain-contract/fixtures/script-card.json" with { type: "json" }
 import { z } from "zod"
 
 // ── Client → relay control frames ────────────────────────────────────────────
@@ -108,7 +109,7 @@ export const setModeFrame = z.object({
 // audience, never interpreting a field.
 //   narration:         assistant prose        { kind, text, beforeQuestionId?, messageId?, subagentId? }
 //   tool:              tool-call headline     { kind, name, detail?, subagentId? }
-//   tool_update:       a settle / diff / output / MCP preview, folded into its tool row
+//   tool_update:       a settle / diff / output / MCP preview / script log, folded into its tool row
 //   diff:              worktree unified diff  { kind, diff }  (latest replaces prior)
 //   user_message:      a human turn           { kind, text, subagentId? }
 //   question:          interactive question   { kind, text, options[], id, askId?, … }
@@ -211,6 +212,32 @@ export const toolPreviewSchema = z.object({
   status: previewText().optional(),
   // EXP-920: the entities the answer named, chip by chip (≤ maxRefs).
   refs: z.array(entityRefSchema).max(contract.expToolPreview.maxRefs).optional(),
+})
+
+/** EXP-1279: a code-mode call's (`toolKind: script`) log on its settle —
+ *  every call the script made (`count`), its wall time, the calls in the
+ *  order it made them (at most the fixture's `logCap`; `tool` =
+ *  `<server>.<tool>`, `subject` = what the call was about) and the script
+ *  itself, cut like a command's output. Mirrored by `steer::frames::ScriptLog`,
+ *  which clamps every field first. */
+export const SCRIPT_LOG_MAX_CALLS = scriptCard.logCap
+export const SCRIPT_TOOL_MAX = 128
+
+export const scriptLogSchema = z.object({
+  count: z.number().int().nonnegative().max(4294967295).optional(),
+  elapsedMs: z.number().int().nonnegative().optional(),
+  calls: z
+    .array(
+      z.object({
+        tool: z.string().max(SCRIPT_TOOL_MAX),
+        subject: previewText().optional(),
+        ok: z.boolean(),
+        ms: z.number().int().nonnegative().optional(),
+      })
+    )
+    .max(SCRIPT_LOG_MAX_CALLS)
+    .optional(),
+  source: z.string().max(TOOL_OUTPUT_MAX_WIRE_BYTES).optional(),
 })
 
 /** EXP-850: every workflow / background-task string is cut to the contract's
@@ -330,6 +357,8 @@ export const activityEventSchema = z.discriminatedUnion(`kind`, [
     at: z.number().optional(),
     // EXP-846: the subject an `exponential_*` call settled on.
     preview: toolPreviewSchema.optional(),
+    // EXP-1279: a `script` call's log, on its settle only.
+    script: scriptLogSchema.optional(),
   }),
   z.object({
     kind: z.literal(`diff`),
@@ -824,10 +853,19 @@ export interface StartSessionOptions {
    * steer-image-message shape. Pass-through (the web server validated it);
    * never on a resume. */
   prompt?: string
-  /** FEED-63: the web server's id for THIS start request, on every subject
-   * incl. a resume. Verbatim pass-through: the device reports a failed start
-   * back to the web server under it. Absent from older web builds. */
+  /** FEED-63: the id of THIS start request, on every subject incl. a
+   * resume. Verbatim pass-through: the device reports a failed start back to
+   * the web server under it. EXP-1259: minted by the CLIENT per Start press
+   * (the server mints one only when the client sent none) and REUSED by its
+   * Retry; the device ignores a startId it already started, so the relay
+   * forwards repeats untouched (STEER-WIRE-EXP-850.md §14). Absent from
+   * older web builds. */
   startId?: string
+  /** EXP-1284: the thread the run starts into (composer "start a session here",
+   * MCP `sessions_start{threadId}`). Verbatim pass-through the device echoes
+   * into `codingSessions.start`; never on a resume (it stays in its
+   * predecessor's thread). The web server validated it. */
+  threadId?: string
 }
 
 /** Server-resolved repo group for a BATCH or ACTION remote start — the

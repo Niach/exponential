@@ -1,11 +1,12 @@
 import { useMemo, useState } from "react"
 import { deleteFilePrompt, promptActions } from "@/lib/prompts"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { Download, ExternalLink, Eye, LoaderCircle, Trash2 } from "lucide-react"
+import { Download, ExternalLink, Eye, Trash2 } from "lucide-react"
 import type { Attachment } from "@/db/schema"
 import { attachmentCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
 import { uploadIssueAttachment } from "@/lib/storage/issue-image-upload"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   buildAttachmentDownloadUrl,
   formatAttachmentSize,
@@ -19,6 +20,7 @@ import {
   GlassSectionHeader,
   IconTooltip,
   Prompt,
+  Spinner,
 } from "@exp/ui"
 import { IssueEditorAttachmentButton } from "@/components/issue-editor/attachment-button"
 import { AttachmentMarkdownPreviewDialog } from "@/components/attachment-markdown-preview"
@@ -60,11 +62,10 @@ export function IssueFilesSection({
   }, [data])
 
   const [uploading, setUploading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const handleFiles = async (selected: File[]) => {
-    setError(null)
     const failures: string[] = []
+    const failed: File[] = []
 
     setUploading(true)
     // EXP-1247: the paperclip is a FILE path — every pick, images and clips
@@ -75,6 +76,7 @@ export function IssueFilesSection({
       try {
         await uploadIssueAttachment(issueId, file, { asFile: true })
       } catch (uploadError) {
+        failed.push(file)
         failures.push(
           uploadError instanceof Error
             ? `${file.name}: ${uploadError.message}`
@@ -84,17 +86,28 @@ export function IssueFilesSection({
     }
     setUploading(false)
 
+    // FEED-79: a toast; Retry uploads only the files that failed.
     if (failures.length > 0) {
-      setError(
-        failures.length === selected.length
-          ? failures.join(` · `)
-          : `${failures.length} of ${selected.length} files failed: ${failures.join(` · `)}`
+      failedAction(
+        `upload`,
+        failed.length === 1 ? `the file` : `${failed.length} files`,
+        undefined,
+        {
+          description:
+            failures.length === selected.length
+              ? failures.join(` · `)
+              : `${failures.length} of ${selected.length} files failed: ${failures.join(` · `)}`,
+          retry: () => void handleFiles(failed),
+        }
       )
     }
   }
 
   const handleDelete = async (file: FilesSectionFile) => {
-    const { txId } = await trpc.attachments.delete.mutate({ id: file.id })
+    const { txId } = await trpc.attachments.delete.mutate(
+      { id: file.id },
+      SKIP_ERROR_TOAST
+    )
     await attachmentCollection.utils.awaitTxId(txId)
   }
 
@@ -105,7 +118,6 @@ export function IssueFilesSection({
       onAttach={handleFiles}
       onDelete={handleDelete}
       uploading={uploading}
-      error={error}
     />
   )
 }
@@ -125,7 +137,8 @@ export interface FilesSectionFile {
  * EXP-1170: the Files section's PRESENTATION — the issue detail
  * (`IssueFilesSection`, the synced shape) and the New issue page (a draft's
  * server-only attachments) render the same rows, the same attach button and
- * the same delete confirm. `onDelete` rejects with the message to show.
+ * the same delete confirm. `onDelete` rejects with the message to toast
+ * (its tRPC call passes `SKIP_ERROR_TOAST`: the confirm raises the toast).
  */
 export function FilesSectionView({
   files,
@@ -133,42 +146,33 @@ export function FilesSectionView({
   onAttach,
   onDelete,
   uploading = false,
-  error = null,
 }: {
   files: readonly FilesSectionFile[]
   readOnly?: boolean
   onAttach: (files: File[]) => void | Promise<void>
   onDelete: (file: FilesSectionFile) => Promise<void>
   uploading?: boolean
-  error?: string | null
 }) {
   const [pendingDelete, setPendingDelete] = useState<FilesSectionFile | null>(
     null
   )
   const [deleting, setDeleting] = useState(false)
-  const [deleteError, setDeleteError] = useState<string | null>(null)
   // EXP-955: the `.md` row being previewed in the markdown dialog.
   const [previewFile, setPreviewFile] = useState<FilesSectionFile | null>(null)
 
   const handleConfirmDelete = async () => {
     if (!pendingDelete) return
     setDeleting(true)
-    setDeleteError(null)
     try {
       await onDelete(pendingDelete)
       setPendingDelete(null)
     } catch (deleteFailure) {
-      setDeleteError(
-        deleteFailure instanceof Error
-          ? deleteFailure.message
-          : `Failed to delete file`
-      )
+      // A delete: the toast offers no Retry; the confirm stays open.
+      failedAction(`delete`, `the file`, deleteFailure)
     } finally {
       setDeleting(false)
     }
   }
-
-  const shownError = deleteError ?? error
 
   // Nothing to show — stay out of the way entirely. Attaching the first file
   // happens through the description toolbar's attach button (EXP-335), so an
@@ -280,12 +284,9 @@ export function FilesSectionView({
 
       {uploading && (
         <p className="mt-1.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <LoaderCircle className="size-3 animate-spin" />
-          Uploading...
+          <Spinner label="Uploading" />
+          Uploading
         </p>
-      )}
-      {shownError && (
-        <p className="mt-1.5 text-xs text-destructive">{shownError}</p>
       )}
 
       <AttachmentMarkdownPreviewDialog

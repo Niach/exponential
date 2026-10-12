@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react"
 import { createPortal } from "react-dom"
 import { useNavigate } from "@tanstack/react-router"
+import { SkeletonRows } from "@exp/ui"
 import { BulkActionBar } from "@/components/bulk-action-bar"
 import { Empty } from "@/components/empty"
 import { IssueList } from "@/components/issue-list"
@@ -56,7 +57,12 @@ export function MyIssuesView({
   )
 
   if (!team) {
-    return <div className="text-muted-foreground text-sm p-6">Loading…</div>
+    // D8 first load: the issue row geometry (IssueList rows, 40px at md+).
+    return (
+      <div className="p-6">
+        <SkeletonRows rowHeight={40} />
+      </div>
+    )
   }
 
   return (

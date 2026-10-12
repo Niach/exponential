@@ -343,7 +343,7 @@ export function BulkActionBar({
         // 360dp bar. `overflow-x-auto` is the safety net, not the plan: a
         // longer count or a translated label scrolls instead of pushing the
         // destructive button off the screen edge (EXP-698 r5 shot review).
-        className={`flex items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 motion-safe:animate-in motion-safe:slide-in-from-bottom-1 motion-safe:fade-in-0 motion-safe:zoom-in-95 duration-fast ease-decelerate max-md:h-[52px] max-md:max-w-[calc(100vw-2rem)] max-md:gap-0.5 max-md:overflow-x-auto shadow-lg shadow-black/40${
+        className={`flex items-center gap-1 rounded-3xl border border-glass-stroke-strong bg-glass-card-opaque px-2.5 py-2 motion-enter-pop slide-in-from-bottom-1 max-md:h-[52px] max-md:max-w-[calc(100vw-2rem)] max-md:gap-0.5 max-md:overflow-x-auto shadow-lg shadow-black/40${
           // EXP-1048: a column too narrow for one line folds instead of
           // clipping — the IDE's `wrap` arm.
           wrap ? ` max-w-full flex-wrap justify-center max-md:h-auto` : ``

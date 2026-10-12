@@ -224,8 +224,8 @@ export const CodeEverywhereSegment: React.FC<SegmentProps> = ({
                 }}
               >
                 {/* EXP-877: ONE fixed work header across both faces — the
-                    toggle pops in with the run, its capsule slides to Run as
-                    the transcript arrives, and the run's +N -M lands in it */}
+                    toggle pops in with the session, its capsule slides to Run as
+                    the transcript arrives, and the session's +N -M lands in it */}
                 <WorkHeader
                   frame={frame}
                   issue={CL_ISSUE}

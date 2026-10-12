@@ -13,7 +13,7 @@ struct DraftsListContent: View {
 
     @ViewBuilder
     var body: some View {
-        if viewModel.rows.isEmpty, viewModel.error == nil {
+        if viewModel.rows.isEmpty {
             // EXP-1274 `drafts`: the same page state Android and desktop draw.
             EmptyState(.drafts)
                 .frame(maxHeight: .infinity)
@@ -33,13 +33,6 @@ struct DraftsListContent: View {
 
                 ForEach(viewModel.rows) { row in
                     draftRow(row)
-                }
-
-                if let error = viewModel.error {
-                    Text(error)
-                        .font(.caption)
-                        .foregroundStyle(.red.opacity(0.8))
-                        .padding(.top, 8)
                 }
             }
             .padding(.horizontal, 16)

@@ -926,7 +926,7 @@ async function sessionRunName(session: {
     const name = batchRunName(session, covered).identifier
     if (name) return name
   }
-  return session.actionName?.trim() || `Agent run`
+  return session.actionName?.trim() || `Agent session`
 }
 
 // EXP-1005: the per-profile wall-notification window.

@@ -51,8 +51,11 @@ struct TeamSetupView: View {
     @State private var inviteInput = ""
     @State private var creating = false
     @State private var joining = false
+    // FEED-79: INPUT refusals only (a bad name, an unreadable or unknown
+    // invite), inline under their field; any other failure is a toast.
     @State private var createError: String?
     @State private var joinError: String?
+    @Environment(\.toaster) private var toaster
     @Environment(\.motion) private var motion
 
     private var busy: Bool { creating || joining }
@@ -105,11 +108,10 @@ struct TeamSetupView: View {
             fieldLabel(TeamSetupCopy.teamNameLabel)
             GlassTextField("e.g. Acme Inc", text: $teamName)
                 .font(.subheadline)
+                .overlay { invalidBorder(createError != nil) }
 
             if let createError {
-                Text(createError)
-                    .font(.caption)
-                    .foregroundStyle(.red.opacity(0.8))
+                inlineError(createError)
             }
 
             pageFooter(
@@ -131,11 +133,10 @@ struct TeamSetupView: View {
                 .font(.subheadline)
                 .autocorrectionDisabled()
                 .textInputAutocapitalization(.never)
+                .overlay { invalidBorder(joinError != nil) }
 
             if let joinError {
-                Text(joinError)
-                    .font(.caption)
-                    .foregroundStyle(.red.opacity(0.8))
+                inlineError(joinError)
             }
 
             pageFooter(
@@ -208,7 +209,14 @@ struct TeamSetupView: View {
             // Leave `creating` set — the caller swaps this view out.
             onCreated(team)
         } catch {
-            createError = error.trpcUserMessage
+            if error.trpcErrorCode == "BAD_REQUEST" {
+                createError = error.trpcUserMessage
+            } else {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "create", thing: "the team"),
+                    description: error.trpcUserMessage
+                )
+            }
             creating = false
         }
     }
@@ -227,8 +235,30 @@ struct TeamSetupView: View {
             // Leave `joining` set — the caller swaps this view out.
             onJoined()
         } catch {
-            joinError = error.trpcUserMessage
+            // An unknown token is the typed input's fault; anything else
+            // (network, server) is a failed join.
+            if error.trpcErrorCode == "NOT_FOUND" {
+                joinError = error.trpcUserMessage
+            } else {
+                toaster.error(
+                    FeedbackStates.Errors.title(verb: "join", thing: "the team"),
+                    description: error.trpcUserMessage
+                )
+            }
             joining = false
+        }
+    }
+
+    private func inlineError(_ message: String) -> some View {
+        Text(message)
+            .font(.system(size: CGFloat(FeedbackStates.Errors.inlineSize)))
+            .foregroundStyle(DesignTokens.Semantic.red)
+    }
+
+    @ViewBuilder private func invalidBorder(_ invalid: Bool) -> some View {
+        if invalid {
+            RoundedRectangle(cornerRadius: DesignTokens.Radius.md)
+                .strokeBorder(DesignTokens.Semantic.red, lineWidth: 1)
         }
     }
 }

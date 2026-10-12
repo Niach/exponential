@@ -1,12 +1,12 @@
 import { Extension } from "@tiptap/core"
 import { Plugin, PluginKey } from "@tiptap/pm/state"
 import type { EditorState } from "@tiptap/pm/state"
+import { typeaheadPrefill } from "@exp/ui"
 import { matchEmojiToken } from "@/lib/emoji"
-import { ISSUE_REF_AT_CARET } from "@/lib/issue-refs"
 import { MENTION_AT_CARET } from "@/lib/mention-refs"
 
 // Caret-anchored `@mention` / `#issueRef` / `:emoji` autocomplete for the
-// TipTap editor.
+// TipTap editor (`#` opens THE search list, SLOP-28, `IssueRefSearch`).
 // The extension only *detects* an in-progress token at the caret and reports
 // it — candidate lookup, menu rendering, and the final insertion live in
 // React (markdown-editor.tsx), mirroring how MentionTextarea drives the same
@@ -41,8 +41,16 @@ export interface EditorAutocompleteOptions {
   onKeyDown: (event: KeyboardEvent) => boolean
 }
 
+/** Transaction meta for an EXPLICIT `#` insert (the formatting rail's `#`
+ *  button): it opens the search even where a typed `#` waits for a token
+ *  (the start of a line, so `# Title` stays a heading when typed). */
+export const FORCE_ISSUE_REF_META = `editorAutocompleteForceIssueRef`
+
+const autocompleteKey = new PluginKey<boolean>(`editorAutocomplete`)
+
 export function findAutocompleteAtCaret(
-  state: EditorState
+  state: EditorState,
+  forceIssueRef = false
 ): EditorAutocompleteActive | null {
   const { $from, empty } = state.selection
   if (!empty || !$from.parent.isTextblock) return null
@@ -68,12 +76,21 @@ export function findAutocompleteAtCaret(
       to: $from.pos,
     }
   }
-  const issueRef = textBefore.match(ISSUE_REF_AT_CARET)
+  // SLOP-28: the `#` trigger + prefill rule is the search list's
+  // (`typeaheadPrefill`, search-list.json ×4): after whitespace or `(` at
+  // once, at a paragraph's start only once a token character follows (a
+  // typed `# ` stays the heading input rule's). The rail's `#` button
+  // opens it on the bare `#` anyway.
+  const issueRef =
+    typeaheadPrefill(textBefore, textBefore.length) ??
+    (forceIssueRef && textBefore.endsWith(`#`)
+      ? { start: textBefore.length - 1, query: `` }
+      : null)
   if (issueRef) {
     return {
       kind: `issueRef`,
-      query: issueRef[1],
-      from: $from.pos - issueRef[1].length - 1,
+      query: issueRef.query,
+      from: $from.pos - issueRef.query.length - 1,
       to: $from.pos,
     }
   }
@@ -124,15 +141,23 @@ export const EditorAutocompleteExtension =
         options.onStateChange(next)
       }
       return [
-        new Plugin({
-          key: new PluginKey(`editorAutocomplete`),
+        new Plugin<boolean>({
+          key: autocompleteKey,
+          // True only for the state an explicit `#` insert produced.
+          state: {
+            init: () => false,
+            apply: (tr) => tr.getMeta(FORCE_ISSUE_REF_META) === true,
+          },
           view: () => ({
             update: (view, prevState) => {
               if (!view.editable) {
                 emit(null)
                 return
               }
-              const next = findAutocompleteAtCaret(view.state)
+              const next = findAutocompleteAtCaret(
+                view.state,
+                autocompleteKey.getState(view.state) === true
+              )
               // Only typing may OPEN the menu. A pure caret move (clicking
               // right after an existing `#EXP-42` token, arrowing onto it)
               // matches the same at-caret regex, and used to pop the picker
@@ -140,6 +165,17 @@ export const EditorAutocompleteExtension =
               // still tracks/dismisses on caret moves.
               const docChanged = !view.state.doc.eq(prevState.doc)
               if (next && last === null && !docChanged) return
+              // SLOP-28: the `#` search takes the focus, so only TYPING
+              // opens it: never a deletion that lands after an existing
+              // `#EXP-42`, never mid IME composition.
+              if (
+                next?.kind === `issueRef` &&
+                last === null &&
+                (view.composing ||
+                  view.state.doc.content.size < prevState.doc.content.size)
+              ) {
+                return
+              }
               emit(next)
             },
             destroy: () => {

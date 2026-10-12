@@ -32,7 +32,7 @@ import com.exponential.app.domain.TreeGuides
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.IssueGraphSheet
-import com.exponential.app.ui.components.LoadingState
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.StatusIcon
 import com.exponential.app.ui.components.IssueGroupBand
 import com.exponential.app.ui.components.TreeGuidesRow
@@ -70,7 +70,8 @@ fun MyIssuesListContent(
     }
 
     when {
-        !state.loaded -> LoadingState(modifier = modifier)
+        // EXP-1275: the first load = skeleton rows in the issue row's geometry.
+        !state.loaded -> SkeletonRows(modifier = modifier.padding(horizontal = 16.dp).padding(top = 4.dp))
         state.groups.isEmpty() -> EmptyState(EmptyStateCopy.myIssues, modifier = modifier)
         else -> LazyColumn(
             modifier = modifier.fillMaxSize(),

@@ -37,6 +37,7 @@ import com.exponential.app.data.api.deviceUpdateAvailable
 import com.exponential.app.domain.DeviceReadiness
 import com.exponential.app.domain.DoctorRow
 import com.exponential.app.domain.DomainContract
+import com.exponential.app.ui.components.ClaimedFailedActionToast
 import com.exponential.app.ui.components.CLI_DEFAULT_EFFORT
 import com.exponential.app.ui.components.CLI_DEFAULT_MODEL
 import com.exponential.app.ui.components.COMPUTER_USE_MODEL_LABEL
@@ -116,15 +117,15 @@ fun DeviceSettingsSheet(
 
     val teams by viewModel.teams.collectAsStateWithLifecycle()
     val nameBusy by viewModel.nameBusy.collectAsStateWithLifecycle()
-    val nameError by viewModel.nameError.collectAsStateWithLifecycle()
     val shareBusy by viewModel.shareBusy.collectAsStateWithLifecycle()
-    val shareError by viewModel.shareError.collectAsStateWithLifecycle()
     val defaultBusy by viewModel.defaultBusy.collectAsStateWithLifecycle()
-    val defaultError by viewModel.defaultError.collectAsStateWithLifecycle()
-    val defaultsError by viewModel.defaultsError.collectAsStateWithLifecycle()
     val latestVersions by agentsViewModel.latestVersions.collectAsStateWithLifecycle()
     val deviceBusy by agentsViewModel.deviceBusy.collectAsStateWithLifecycle()
-    val iconError by agentsViewModel.deviceIconError.collectAsStateWithLifecycle()
+    // FEED-79: every failed write or command here is ONE error toast.
+    val failure by viewModel.failure.collectAsStateWithLifecycle()
+    ClaimedFailedActionToast(failure, viewModel::claimFailure)
+    val deviceFailure by agentsViewModel.failure.collectAsStateWithLifecycle()
+    ClaimedFailedActionToast(deviceFailure, agentsViewModel::claimFailure)
     val commandStates by viewModel.commandStates.collectAsStateWithLifecycle()
 
     // A rename/remove/update on THIS machine is in flight: its controls stay
@@ -237,8 +238,8 @@ fun DeviceSettingsSheet(
                 // EXP-924: ONE identity row — the icon picker then the name, the
                 // board form's layout (a machine IS its glyph and its name). A
                 // pick writes straight through and is drawn optimistically until
-                // the devices shape echoes it back; a failure reverts and captions
-                // this row, exactly where a failed rename lands.
+                // the devices shape echoes it back; a failure reverts and is an
+                // error toast, like a failed rename (FEED-79).
                 // P27: no "Name" header — the identity row needs none (web).
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -304,7 +305,6 @@ fun DeviceSettingsSheet(
                         }
                     }
                 }
-                ErrorCaption(nameError ?: iconError)
                 Spacer(Modifier.height(8.dp))
 
                 // ── Default machine (EXP-622) ───────────────────────────
@@ -318,7 +318,6 @@ fun DeviceSettingsSheet(
                         enabled = !defaultBusy,
                     )
                 }
-                ErrorCaption(defaultError)
                 Spacer(Modifier.height(8.dp))
 
                 // ── Sharing (server machines only, EXP-432/EXP-481/FEED-33) ─
@@ -344,13 +343,12 @@ fun DeviceSettingsSheet(
                         }
                     }
                     Text(
-                        "Teammates of a shared team can start runs on this " +
-                            "device. Runs are attributed to whoever starts them.",
+                        "Teammates of a shared team can start sessions on this " +
+                            "device. Sessions are attributed to whoever starts them.",
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
                         modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
                     )
-                    ErrorCaption(shareError)
                     Spacer(Modifier.height(8.dp))
                 }
 
@@ -397,12 +395,6 @@ fun DeviceSettingsSheet(
                             queueDefaults(nextComputerUseModel = next)
                         },
                     )
-                    doctor.items.firstNotNullOfOrNull { item ->
-                        (commandStates[agentUpdateCommandKey(device.deviceId, item.key)]
-                            as? DeviceCommandUiState.Failed)
-                            ?: (commandStates[agentImportCommandKey(device.deviceId, item.key)]
-                                as? DeviceCommandUiState.Failed)
-                    }?.let { ErrorCaption(it.message) }
                 } else {
                     OptionGroup {
                         SwitchRow(
@@ -475,7 +467,6 @@ fun DeviceSettingsSheet(
                 )
                 // Whatever follows (Update, else Remove) opens with its own
                 // 8dp gap — the card needs no second one.
-                ErrorCaption(defaultsError)
 
                 // ── Update (server daemons only) ─────────────────────────
                 // Self-update is a SERVER capability: the desktop app updates
@@ -546,8 +537,8 @@ fun DeviceSettingsSheet(
                     if (device.updateQueued) {
                         // FEED-36, the pinned sentence ×4 (web QUEUED_UPDATE_TOOLTIP).
                         Text(
-                            "Live runs hold this update — the device restarts itself once " +
-                                "every run ends or sits idle for 2 hours.",
+                            "Live sessions hold this update — the device restarts itself once " +
+                                "every session ends or sits idle for 2 hours.",
                             style = MaterialTheme.typography.labelSmall,
                             color = NeedsInputAmber,
                             modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
@@ -615,35 +606,21 @@ fun DeviceSettingsSheet(
     }
 }
 
-/** Inline command feedback (EXP-323 idiom — captions the triggering row). */
+/**
+ * Inline command feedback (EXP-323 idiom — captions the triggering row). A
+ * Failed command is the ViewModel's error toast instead (FEED-79).
+ */
 @Composable
 internal fun CommandCaption(state: DeviceCommandUiState?) {
-    val (text, isError) = when (state) {
-        is DeviceCommandUiState.Queued ->
-            "Queued — runs when the device comes online." to false
-        is DeviceCommandUiState.Done -> (state.message ?: "Done.") to false
-        is DeviceCommandUiState.Failed -> state.message to true
+    val text = when (state) {
+        is DeviceCommandUiState.Queued -> "Queued — runs when the device comes online."
+        is DeviceCommandUiState.Done -> state.message ?: "Done."
         else -> return
     }
     Text(
         text,
         style = MaterialTheme.typography.labelSmall,
-        color = if (isError) {
-            MaterialTheme.colorScheme.error
-        } else {
-            MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary)
-        },
-        modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
-    )
-}
-
-@Composable
-private fun ErrorCaption(message: String?) {
-    if (message == null) return
-    Text(
-        message,
-        style = MaterialTheme.typography.labelSmall,
-        color = MaterialTheme.colorScheme.error,
+        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Secondary),
         modifier = Modifier.padding(horizontal = 32.dp, vertical = 2.dp),
     )
 }

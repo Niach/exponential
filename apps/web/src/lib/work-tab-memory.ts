@@ -86,6 +86,12 @@ export function tabMemoryOwners(tab: WorkTab): string[] {
         : [issueMemoryOwner(tab.issueId)]
     case `run`:
       return [runMemoryOwner(tab.runId)]
+    // EXP-1284: a thread tab remembers through the run it is bound to.
+    case `thread`:
+      return tab.runId ? [runMemoryOwner(tab.runId)] : []
+    // EXP-1255: the New run tab owns no work item yet.
+    case `new`:
+      return []
   }
 }
 

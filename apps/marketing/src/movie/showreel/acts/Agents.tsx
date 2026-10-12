@@ -183,7 +183,7 @@ export const Agents: React.FC<{ l: number }> = ({ l }) => {
                 }}
               >
                 <span style={{ flex: 1, color: steerTyped ? C.text : C.dim }}>
-                  {steerTyped || `Steer the run…`}
+                  {steerTyped || `Steer the session…`}
                   {l >= STEER_AT - 6 && l < SEND_AT && l % 14 < 8 ? (
                     <span style={{ display: `inline-block`, width: 2, height: `1em`, background: C.text, verticalAlign: `-0.15em`, marginLeft: 1 }} />
                   ) : null}

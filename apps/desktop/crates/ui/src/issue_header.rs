@@ -33,9 +33,8 @@ use gpui::{
 use gpui_component::{
     button::{Button, ButtonVariants as _},
     calendar::{CalendarEvent, CalendarState, Date},
-    h_flex,
     menu::DropdownMenu as _,
-    v_flex, ActiveTheme as _, Icon, Sizable as _,
+    ActiveTheme as _, Icon, Sizable as _,
 };
 use sync::Store;
 
@@ -48,7 +47,6 @@ use crate::coding_flow::{LocalSessions, StartCodingControl};
 use crate::icons::{option_icon, registry, ExpIcon};
 use crate::pickers::{chip_button, PICKER_MENU_MIN_WIDTH};
 use crate::issue_detail::{issue_web_url, set_duplicate_of};
-use crate::work_header::WORK_GUTTER;
 use crate::navigation::go_back;
 use crate::queries;
 use crate::surface::{glass_pill, PillMode, PillSize};
@@ -114,6 +112,9 @@ impl IssueHeader {
             cx.observe(&collections.team_members, |_, _, cx| cx.notify()),
             cx.observe(&collections.boards, |_, _, cx| cx.notify()),
             cx.observe(&collections.coding_sessions, |_, _, cx| cx.notify()),
+            // EXP-1284: the tray's `Threads` row.
+            cx.observe(&collections.threads, |_, _, cx| cx.notify()),
+            cx.observe(&collections.thread_items, |_, _, cx| cx.notify()),
             // EXP-549/550: the card's machine name + paused state come from
             // the devices rows — heartbeats and renames re-render it.
             cx.observe(&collections.devices, |_, _, cx| cx.notify()),
@@ -582,72 +583,6 @@ impl IssueHeader {
         )
     }
 
-    /// The agent row (EXP-256/EXP-417, web `issue-coding-rows.tsx`): the
-    /// synced coding-now CARD on its OWN full-width line — its EXP-309
-    /// ellipsis chain needs one — above a wrapping row of the merge error and
-    /// the fix-conflicts offer. The Start-coding control itself moved into the
-    /// chip row (EXP-426). The card is skipped while a LOCAL session runs —
-    /// the control already shows the live indicator, and the synced row would
-    /// double it as soon as the Electric echo lands.
-    ///
-    /// EXP-698: the Merge button (EXP-268) is now a trailing action INSIDE the
-    /// card whenever both are showing — one tray holds the run and everything
-    /// to do about it — and only falls back to its own row when the PR is open
-    /// with no live session.
-    ///
-    /// `None` when the board has no repository, and when there is neither a
-    /// card nor an open PR — an empty row would only add padding.
-    pub(crate) fn agent_row(
-        &mut self,
-        issue: &Issue,
-        cx: &mut gpui::Context<Self>,
-    ) -> Option<gpui::AnyElement> {
-        if !self.start_coding.read(cx).is_visible(cx) {
-            return None;
-        }
-        // EXP-818: the coding-now CARD is gone — the tray's coding slot
-        // (`coding_now_slot`) carries Watch or the teammate caption. What is
-        // left here is the merge-error caption.
-        let pr_open = issue.pr_state.as_deref() == Some("open");
-        if !pr_open {
-            return None;
-        }
-        let mut column = v_flex().w_full().gap_2().px(px(WORK_GUTTER)).pb_2();
-        let has_card = false;
-
-        let mut controls = h_flex().w_full().flex_wrap().gap_2().items_center();
-        // EXP-760: Merge moved UP into the property tray beside Start coding
-        // (`chip_row`) — one place for the two actions, where the eye already
-        // is. EXP-1233: a real conflict there opens the fix-conflicts
-        // composer (`merge_button`). What is left here is the merge ERROR
-        // caption, so a refusal that offers no run (offline, stale base, no
-        // App) still has a visible message; empty, the row would render as
-        // bare padding.
-        let mut has_controls = false;
-        if pr_open {
-            let error = crate::pr_merge::MergeState::global(cx).read(cx).error(&issue.id);
-            if let Some(error) = error {
-                controls = controls.child(
-                    div()
-                        .min_w_0()
-                        .text_xs()
-                        .text_color(cx.theme().danger)
-                        .child(error),
-                );
-                has_controls = true;
-            }
-        }
-        if has_controls {
-            column = column.child(controls);
-        }
-        // EXP-760: an open PR alone no longer earns this row — its Merge pill
-        // is in the tray above. Nothing to show means nothing rendered.
-        if !has_card && !has_controls {
-            return None;
-        }
-        Some(column.into_any_element())
-    }
-
     /// The header Merge button (EXP-268): the shared merge pill
     /// (`work_header::merge_pill`, EXP-917) — two-click arm ("Merge PR" →
     /// "Confirm merge", auto-disarm ~5s), `issues.mergePr` on the background
@@ -931,6 +866,8 @@ impl IssueHeader {
         chips.extend(self.estimate_control(issue, cx).map(IntoElement::into_any_element));
         chips.extend(self.board_chip(issue, cx).map(IntoElement::into_any_element));
         chips.extend(self.origin_chip(issue, cx).map(IntoElement::into_any_element));
+        // EXP-1284: the issue names its threads (draft 3).
+        chips.extend(crate::thread_screen::issue_threads_row(&issue.id, cx));
         crate::work_header::property_tray(chips, actions)
     }
 

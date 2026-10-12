@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react"
-import { LoaderCircle } from "lucide-react"
-import { Button, Input, conceptIcon, toast } from "@exp/ui"
+import { Button, FEEDBACK_WORDS, FieldError, Input, conceptIcon, toast } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { UpgradeDialog } from "@/components/upgrade-dialog"
@@ -17,6 +18,8 @@ import { UpgradeDialog } from "@/components/upgrade-dialog"
 const UiMailIcon = conceptIcon(`ui-mail`)
 const UiCopyIcon = conceptIcon(`ui-copy`)
 const UiCheckIcon = conceptIcon(`ui-check`)
+/** feedback-states.json's invalid-email input case. */
+const INVALID_EMAIL = `Enter a full email address`
 
 export interface InvitedMember {
   memberUserId: string | null
@@ -50,6 +53,8 @@ export function InviteMemberForm({
   const [name, setName] = useState(defaultName)
   const [email, setEmail] = useState(defaultEmail)
   const [sending, setSending] = useState(false)
+  // Invalid input (the address the server refused) stays under the field.
+  const [emailError, setEmailError] = useState<string | null>(null)
   const [inviteUrl, setInviteUrl] = useState<string | null>(null)
   const [upgradeOpen, setUpgradeOpen] = useState(false)
   const [productIds, setProductIds] = useState<{
@@ -73,6 +78,7 @@ export function InviteMemberForm({
     const to = email.trim()
     if (!to) return
     setSending(true)
+    setEmailError(null)
     try {
       const { token, emailDelivered, memberUserId } =
         await trpc.teamInvites.create.mutate(
@@ -83,8 +89,9 @@ export function InviteMemberForm({
             placeholderUserId,
           },
           // The plan-limit (PRECONDITION_FAILED) case opens the upgrade
-          // dialog; the global mutation-error toast would be redundant noise.
-          { context: { skipErrorToast: true } }
+          // dialog, a refused address stays under its field, the rest toasts
+          // here; the global mutation-error toast would be redundant noise.
+          SKIP_ERROR_TOAST
         )
       if (emailDelivered) {
         toast.success(`Invite sent to ${to}`)
@@ -109,12 +116,10 @@ export function InviteMemberForm({
     } catch (err) {
       if (isPlanLimitError(err)) {
         setUpgradeOpen(true)
+      } else if (trpcErrorCode(err) === `BAD_REQUEST`) {
+        setEmailError(trpcErrorMessage(err, INVALID_EMAIL))
       } else {
-        toast.error(
-          err instanceof Error && err.message
-            ? err.message
-            : `Couldn't create the invite`
-        )
+        failedAction(`send`, `the invite`, err)
       }
     } finally {
       setSending(false)
@@ -143,9 +148,13 @@ export function InviteMemberForm({
           <Input
             type="email"
             value={email}
-            onChange={(e) => setEmail(e.target.value)}
+            onChange={(e) => {
+              setEmail(e.target.value)
+              setEmailError(null)
+            }}
             placeholder="teammate@example.com"
             aria-label="Invite email address"
+            aria-invalid={emailError ? true : undefined}
             autoFocus={autoFocus === `email`}
             onKeyDown={(e) => {
               if (e.key === `Enter`) void handleSend()
@@ -154,16 +163,15 @@ export function InviteMemberForm({
           <Button
             className={layout === `stack` ? `self-end` : `shrink-0`}
             onClick={() => void handleSend()}
-            disabled={sending || !email.trim()}
+            disabled={!email.trim()}
+            pending={sending}
+            pendingLabel={FEEDBACK_WORDS.pending.invite}
           >
-            {sending ? (
-              <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-            ) : (
-              <UiMailIcon className="mr-2 h-4 w-4" />
-            )}
+            <UiMailIcon className="mr-2 h-4 w-4" />
             {submitLabel}
           </Button>
         </div>
+        <FieldError>{emailError}</FieldError>
         {inviteUrl && <InviteLinkRow url={inviteUrl} />}
       </div>
 

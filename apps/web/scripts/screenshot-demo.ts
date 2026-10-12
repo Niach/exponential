@@ -313,6 +313,19 @@ export const DEMO_FEED_QUESTION = `Cold start is at 740ms (target <800ms). Lazy-
 export const DEMO_STEERED_SESSION_ID = `7c1f0a52-6f3c-4e19-9a2b-2d5d0f7c8e41`
 
 /**
+ * The comment the steered session's scripted `exponential_comments_create`
+ * call posted (EXP-1259, the `comment-call-card` view): the seed stamps this id
+ * on an `mcp`-sourced comment by the demo user, and the stand-in desktop's
+ * settle names it in its preview, so the card renders the REAL synced row.
+ * It sits on the image-cache issue, never the showcase APP-5, whose thread is
+ * photographed by `issue-detail` / `issue-comments` on every platform.
+ */
+export const DEMO_AGENT_COMMENT_ID = `3e8a1c7d-2b4f-4d96-8a15-9c0e7f2b6d43`
+
+/** How long before the seed's clock the agent's comment was posted. */
+export const DEMO_AGENT_COMMENT_MINUTES_AGO = 20
+
+/**
  * The action the `action-*` views are photographed on ("Nightly test triage")
  * and the triggers the seed hangs on the actions. Pinned for the same reason
  * as the session above: the action page is a route (`actions/$actionId`), and
@@ -348,7 +361,41 @@ export const DEMO_SESSION_IDS = {
    * the natives' RunChanges screen reads the same `codingSessions.prFiles`.
    */
   runChanges: `4e7b2a9c-6d13-4f85-b0e7-9a2c5d8f1b36`,
+  /**
+   * EXP-1284: the four runs of `DEMO_THREAD_RUNS_ID` (the `thread-runs` view),
+   * all Jonas's: Run 1 = his ended chat, Run 2 = its ended RESUME, Runs 3 and 4
+   * = two LIVE children Run 2 started (one per issue, on two machines), which
+   * the thread draws as ONE parallel card "Runs 3 and 4 · started by Run 2".
+   * A teammate's on purpose: his live runs never reach the demo user's own
+   * Running section.
+   */
+  threadRunsChat: `0c6a2982-fc09-4165-a9dc-832bb8d6ac41`,
+  threadRunsResume: `ce5df2f0-1c12-4df6-90e0-2c1952fd87ca`,
+  threadRunsLaptopChild: `b3e29fef-39ad-4b7d-878d-4854cb78727e`,
+  threadRunsServerChild: `b76d65ff-3c59-4398-bb63-4265f1adfe09`,
 } as const
+
+/**
+ * EXP-1284: the two seeded THREADS the `thread` / `thread-runs` views are
+ * photographed on (`/t/$teamSlug/threads/$threadId`, desktop `thread:<id>`),
+ * pinned like the session ids so the routes can name them before the seed
+ * runs.
+ *
+ *   DEMO_THREAD_ID       the showcase run (DEMO_STEERED_SESSION_ID) as Run 1,
+ *                        its subject APP-5, an older issue its agent LINKED
+ *                        and one it FILED and linked; untitled (derived).
+ *   DEMO_THREAD_RUNS_ID  Jonas's titled thread: an ended chat, its resume,
+ *                        two live children of the resume on two machines,
+ *                        three issues and a Guide.
+ *
+ * Every other seeded run sits in a thread of its own, placed the way the
+ * migration backfill (0166_threads.sql) placed existing runs.
+ */
+export const DEMO_THREAD_ID = `5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13`
+export const DEMO_THREAD_RUNS_ID = `9e3b6d14-7a25-4f80-b1c9-3d4e5f6a7b82`
+
+/** EXP-1284: the stored title of `DEMO_THREAD_RUNS_ID`. */
+export const DEMO_THREAD_RUNS_TITLE = `Offline sync plan`
 
 /**
  * The one seeded `blocks` edge, by seed issue title: `[blocker, blocked]`.

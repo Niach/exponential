@@ -4,10 +4,14 @@ import { useLiveQuery, eq } from "@tanstack/react-db"
 import { Plus, Trash2 } from "lucide-react"
 import { labelCollection } from "@/lib/collections"
 import { trpc } from "@/lib/trpc-client"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
 import { Empty } from "@/components/empty"
 import type { Label as LabelType } from "@/db/schema"
 import {
   Button,
+  FEEDBACK_WORDS,
+  FieldError,
   Pill,
   ListRow,
   SETTINGS_LIST_CLASS,
@@ -18,6 +22,8 @@ import {
   ColorSwatchGrid,
   Prompt,
 } from "@exp/ui"
+
+const DUPLICATE_LABEL = `A label with this name already exists.`
 
 function LabelRow({
   label,
@@ -31,6 +37,7 @@ function LabelRow({
   const [name, setName] = useState(label.name)
   const [confirmingDelete, setConfirmingDelete] = useState(false)
   const [busy, setBusy] = useState(false)
+  // Invalid input only (a name already taken); a failed rename is a toast.
   const [error, setError] = useState<string | null>(null)
 
   const persistName = async () => {
@@ -41,20 +48,21 @@ function LabelRow({
       return
     }
     if (isDuplicateName(trimmed)) {
-      setError(`A label with this name already exists.`)
+      setError(DUPLICATE_LABEL)
       return
     }
     setBusy(true)
     try {
-      const { txId } = await trpc.labels.update.mutate({
-        teamId,
-        labelId: label.id,
-        name: trimmed,
-      })
+      const { txId } = await trpc.labels.update.mutate(
+        { teamId, labelId: label.id, name: trimmed },
+        SKIP_ERROR_TOAST
+      )
       await labelCollection.utils.awaitTxId(txId)
       setError(null)
     } catch (err) {
-      setError(err instanceof Error ? err.message : `Failed to rename label.`)
+      // A name taken in the meantime is input (under the field), the rest a toast.
+      if (trpcErrorCode(err) === `CONFLICT`) setError(trpcErrorMessage(err, DUPLICATE_LABEL))
+      else failedAction(`rename`, `the label`, err, { retry: () => void persistName() })
     } finally {
       setBusy(false)
     }
@@ -130,6 +138,7 @@ function LabelRow({
             }
           }}
           disabled={busy}
+          aria-invalid={error ? true : undefined}
           // EXP-719: the row card IS the field's box. The stock Input brings
           // its own glass fill + radius (EXP-616), which nested a second box
           // inside every row; strip the fill too, not just the stroke, so
@@ -147,7 +156,7 @@ function LabelRow({
           <Trash2 />
         </Button>
       </div>
-      {error && <p className="text-xs text-destructive mt-1 px-1">{error}</p>}
+      <FieldError className="mt-1 px-1">{error}</FieldError>
       <Prompt
         open={confirmingDelete}
         onOpenChange={setConfirmingDelete}
@@ -167,7 +176,8 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
   const [newName, setNewName] = useState(``)
   const [newColor, setNewColor] = useState(LABEL_COLORS[6])
   const [submitting, setSubmitting] = useState(false)
-  const [createError, setCreateError] = useState<string | null>(null)
+  // A name the server reports as taken (a race past the local check).
+  const [createConflict, setCreateConflict] = useState<string | null>(null)
 
   const { data: labels } = useLiveQuery(
     (q) =>
@@ -190,7 +200,7 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
   const resetForm = () => {
     setNewName(``)
     setNewColor(LABEL_COLORS[Math.floor(Math.random() * LABEL_COLORS.length)])
-    setCreateError(null)
+    setCreateConflict(null)
   }
 
   const newNameIsDuplicate =
@@ -201,18 +211,16 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
     if (!trimmed || submitting || newNameIsDuplicate) return
     setSubmitting(true)
     try {
-      const { txId } = await trpc.labels.create.mutate({
-        teamId,
-        name: trimmed,
-        color: newColor,
-      })
+      const { txId } = await trpc.labels.create.mutate(
+        { teamId, name: trimmed, color: newColor },
+        SKIP_ERROR_TOAST
+      )
       await labelCollection.utils.awaitTxId(txId)
       resetForm()
       setCreating(false)
     } catch (err) {
-      setCreateError(
-        err instanceof Error ? err.message : `Failed to create label.`
-      )
+      if (trpcErrorCode(err) === `CONFLICT`) setCreateConflict(trpcErrorMessage(err, DUPLICATE_LABEL))
+      else failedAction(`create`, `the label`, err)
     } finally {
       setSubmitting(false)
     }
@@ -252,8 +260,9 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
               value={newName}
               onChange={(e) => {
                 setNewName(e.target.value)
-                setCreateError(null)
+                setCreateConflict(null)
               }}
+              aria-invalid={newNameIsDuplicate || createConflict ? true : undefined}
               placeholder="Label name"
               autoFocus
               className="h-8 text-sm"
@@ -268,13 +277,7 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
                 }
               }}
             />
-            {(newNameIsDuplicate || createError) && (
-              <p className="text-xs text-destructive">
-                {newNameIsDuplicate
-                  ? `A label with this name already exists.`
-                  : createError}
-              </p>
-            )}
+            <FieldError>{newNameIsDuplicate ? DUPLICATE_LABEL : createConflict}</FieldError>
             <div>
               <span className="text-xs text-muted-foreground mb-1.5 block">
                 Color
@@ -285,10 +288,12 @@ export function TeamLabelsSection({ teamId }: { teamId: string }) {
               <Button
                 size="xs"
                 variant="default"
-                disabled={!newName.trim() || submitting || newNameIsDuplicate}
+                disabled={!newName.trim() || newNameIsDuplicate}
+                pending={submitting}
+                pendingLabel={FEEDBACK_WORDS.pending.save}
                 onClick={handleCreate}
               >
-                {submitting ? `Creating...` : `Create label`}
+                Create label
               </Button>
               <Pill
                 mode="action"

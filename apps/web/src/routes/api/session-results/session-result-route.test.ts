@@ -51,6 +51,9 @@ function builder(rows: () => unknown[]) {
 
 vi.mock(`@/db/connection`, () => {
   const tx = {
+    // EXP-1284: the Guide owner read (resume chain + the thread's first
+    // session): none here, the session alone.
+    execute: async () => ({ rows: [] }),
     select: () => builder(() => h.locked.current),
     insert: () => ({
       values: (values: { id: string }) => {
@@ -91,6 +94,10 @@ vi.mock(`@/db/connection`, () => {
 })
 
 vi.mock(`@/lib/storage`, () => ({ deleteObject: h.deleteObject }))
+
+// EXP-1284: the run here sits in no thread, so the Guide lock is the run row
+// alone (the thread lock + mirror are session-result-publish.test.ts's).
+vi.mock(`@/lib/threads`, () => ({ getThreadOfSession: async () => null }))
 
 // The multipart/storage half is exercised by session-attachment-upload.test.ts;
 // here it is a seam so the route's transaction is what the test drives.
@@ -222,6 +229,8 @@ describe(`POST /api/session-results/$token`, () => {
             height: 900,
             // EXP-1245: every entry is stamped when it is written.
             at: expect.any(Number),
+            // EXP-1284: ... and with the session that wrote it.
+            sessionId: SESSION,
           },
         ],
       })

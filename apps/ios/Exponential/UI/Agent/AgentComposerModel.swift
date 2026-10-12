@@ -60,6 +60,37 @@ final class AgentComposerModel {
     private(set) var deviceId: String?
     var sending = false
     var error: String?
+    /// EXP-1271 (EXP-1259 D11, feedback-states.json `starting`): from the
+    /// Start press until the run's synced row lands (`runLanded`) or the
+    /// starting deadline gives up on it (the timeout toast, Retry). The card
+    /// shows the mark + "Starting on <device>" + the elapsed seconds; the
+    /// draft stays put meanwhile, so a timeout leaves it ready to retry.
+    private(set) var starting: Starting?
+
+    struct Starting: Equatable {
+        let deviceLabel: String
+        let since: Date
+    }
+    /// Final review (feedback-states.json `starting`): the pending draft
+    /// start, its `startId` carried by `steer.startSession`. Every Retry and
+    /// every later Start of the SAME draft on the SAME device reuses it (the
+    /// server and the device start an id once); a landing or a changed draft
+    /// or device retires it (`DraftStart`).
+    private var draftStart: DraftStart?
+    /// When `draftStart` was FIRST sent: a reused id's row is the original
+    /// one (the device dedupes the re-send), so the watch cuts off there.
+    private var draftStartSentAt: Date?
+    /// The draft start `startWatcher` is watching for.
+    private var watchedStartId: String?
+    /// When that watch ends (`StartedRunMatch.watchWindow` after the first
+    /// send): until then a team change keeps this composer (recheck R3).
+    private var watchedUntil: Date?
+    /// The session a landing opens (the page pushes it while visible and
+    /// consumes it). Nil when the draft changed after its send: the field
+    /// stays as left and nothing navigates.
+    var landedSession: StartedRunWatcher.StartedSession?
+    /// The timeout toast still up, dismissed when the late row lands.
+    private var timeoutToastId: UUID?
     /// EXP-897: the blocked-start prompt, up while the reader chooses between
     /// an ordinary run and cancelling. EXP-980: it asks for a BATCH too
     /// (blockers outside the picked set), and never for a resume.
@@ -86,6 +117,9 @@ final class AgentComposerModel {
     /// The text a seed dropped into the draft — a draft that still equals
     /// it has not been typed in.
     private var seededDraft = ""
+    /// EXP-1284: the thread a seed asked this start to land in (the thread's
+    /// "Start a session here" / reply box); nil = the server places it.
+    private(set) var threadId: String?
     /// EXP-897/EXP-980: every `blocks` row and the issues at either end, read
     /// live off GRDB — `IssueGraph` applies the rules. The whole table rather
     /// than one issue's rows: the prompt asks for a BATCH as well, and draws
@@ -143,11 +177,27 @@ final class AgentComposerModel {
             draftText = text
             seededDraft = text
         }
+        if let threadId = seed.threadId {
+            self.threadId = threadId
+        }
     }
 
     /// Nothing picked, typed, attached or sent since the seed was applied.
     var isPristine: Bool {
         !touched && pendingImages.isEmpty && pendingFiles.isEmpty && draftText == seededDraft
+    }
+
+    /// Nothing in the draft at all: no text, subject or attachment.
+    var isEmptyDraft: Bool {
+        draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && pendingImages.isEmpty && pendingFiles.isEmpty && checked.isEmpty && actionId == nil
+    }
+
+    /// Recheck R3: a start is on the wire, starting, or still followed by the
+    /// quiet watch; a team change must not drop it (the page keeps this
+    /// composer until it lands or its window closes).
+    var isFollowingStart: Bool {
+        sending || starting != nil || (watchedUntil.map { $0 > Date() } ?? false)
     }
 
     // MARK: - Load
@@ -358,7 +408,10 @@ final class AgentComposerModel {
     /// own composer hint (EXP-825), anything else asks for what is optional
     /// next to it.
     var placeholder: String {
-        AgentComposerPrompt.placeholder(
+        // EXP-1253: a chat on the home composer asks what to build
+        // (composer-home.json `placeholder`, web's `home` variant).
+        if subject == AgentComposerPrompt.Subject.none { return HomeGreeting.placeholder }
+        return AgentComposerPrompt.placeholder(
             for: subject, actionHint: selectedAction?.promptPlaceholder
         )
     }
@@ -565,7 +618,7 @@ final class AgentComposerModel {
         if !signedOut.isEmpty {
             return "\(signedOut) not signed in on your machines. Sign in on the machine first."
         }
-        return "No desktop online. Open the Exponential desktop app to start a run."
+        return "No desktop online. Open the Exponential desktop app to start a session."
     }
 
     /// EXP-836: why the machine a ▶ seed NAMED is not the one this run would
@@ -640,8 +693,8 @@ final class AgentComposerModel {
         if actionId != nil, selectedAction == nil {
             return "That action is not available on this team."
         }
-        if multiRepo { return "Pick issues from a single repository per run." }
-        if overCap { return "At most \(Self.maxBatchIssues) issues per run. Split the batch." }
+        if multiRepo { return "Pick issues from a single repository per session." }
+        if overCap { return "At most \(Self.maxBatchIssues) issues per session. Split the batch." }
         if let action = selectedAction {
             if ActionInputValues.hasUnsupportedType(action.inputs ?? []) {
                 return "This action needs a newer app version."
@@ -673,7 +726,7 @@ final class AgentComposerModel {
     var canSubmit: Bool {
         // `blocker` stays nil while the machine pool is still resolving (no
         // "no desktop" flash) — but nothing can be sent without a machine.
-        guard blocker == nil, device != nil, !sending, !messageMissing else { return false }
+        guard blocker == nil, device != nil, !sending, starting == nil, !messageMissing else { return false }
         switch subject {
         case .none: return true
         case .issues: return !effectiveChecked.isEmpty
@@ -766,8 +819,13 @@ final class AgentComposerModel {
     /// an action run and a chat never do, and neither does a RESUME (it
     /// re-enters a run whose blockers were answered when it started, the
     /// desktop's rule since EXP-897).
+    /// A Start press or the error toast's Retry: the same draft on the same
+    /// device re-sends under the SAME `startId`, anything else mints one.
     func submit() {
-        guard canSubmit, !sending else { return }
+        guard canSubmit, !sending, let fingerprint = draftFingerprint else { return }
+        let resolved = DraftStart.resolve(pending: draftStart, fingerprint: fingerprint)
+        if resolved.startId != draftStart?.startId { draftStartSentAt = nil }
+        draftStart = resolved
         if !resumeActive {
             let blockers = openBlockers
             if !blockers.isEmpty {
@@ -865,9 +923,23 @@ final class AgentComposerModel {
     private func send(stacked: (plan: BlockedStart.StackPlan, issueId: String)? = nil) {
         guard canSubmit, let device, let teamId, !sending else { return }
         sending = true
+        // A send is a touch: a team change never rebuilds this composer
+        // under a start it may still land (recheck R3).
+        touched = true
         error = nil
         imageError = nil
-        startWatcher.sending()
+        let watched = draftStart
+        // A different draft start supersedes the quiet watch of the previous
+        // one (its late row must never clear this draft); a re-send of the
+        // SAME start keeps it running, so a failed re-send still lands the
+        // original.
+        if watchedStartId != watched?.startId {
+            startWatcher.sending()
+            watchedStartId = nil
+        }
+        let deviceLabel = LaunchVocabulary.deviceName(device)
+        starting = Starting(deviceLabel: deviceLabel, since: Date())
+        dismissTimeoutToast()
         Task {
             defer { sending = false }
             for index in pendingImages.indices where pendingImages[index].uploadedId == nil {
@@ -881,8 +953,7 @@ final class AgentComposerModel {
                     )
                     pendingImages[index].uploadedId = uploaded.id
                 } catch {
-                    imageError = error.userFacingMessage
-                    startWatcher.failed(error.userFacingMessage)
+                    uploadFailed(error.userFacingMessage)
                     return
                 }
             }
@@ -899,8 +970,7 @@ final class AgentComposerModel {
                     )
                     pendingFiles[index].stamp(uploaded)
                 } catch {
-                    imageError = error.userFacingMessage
-                    startWatcher.failed(error.userFacingMessage)
+                    uploadFailed(error.userFacingMessage)
                     return
                 }
             }
@@ -914,33 +984,201 @@ final class AgentComposerModel {
                 attachmentIds: pendingImages.compactMap(\.uploadedId),
                 files: pendingFiles.compactMap(\.wireFile)
             )
+            let sentAt = Date()
             do {
                 let key = try await dispatch(
                     device: device, teamId: teamId, prompt: prompt,
-                    issueIds: stacked.map { [$0.issueId] }
+                    issueIds: stacked.map { [$0.issueId] }, startId: watched?.startId
                 )
+                touched = true
+                if draftStartSentAt == nil, draftStart?.startId == watched?.startId {
+                    draftStartSentAt = sentAt
+                }
+                // The deadline arms HERE, once the start request is sent
+                // (uploads done), never at the press. The watch outlives the
+                // page (it lives on this model), bounded by its window.
+                watchedStartId = watched?.startId
+                watchedUntil = (draftStartSentAt ?? sentAt).addingTimeInterval(StartedRunMatch.watchWindow)
                 startWatcher.begin(
                     key: key,
                     userId: deps.auth.userId,
                     device: device,
                     db: deps.db,
-                    accountId: accountId
+                    accountId: accountId,
+                    deadline: TimeInterval(FeedbackStates.Starting.timeoutMs) / 1000,
+                    cutoff: draftStartSentAt ?? sentAt,
+                    onTimeout: { [weak self] in self?.startTimedOut(deviceLabel: deviceLabel) },
+                    onLanded: { [weak self] sessionId in
+                        self?.runLanded(sessionId: sessionId, start: watched)
+                    }
                 )
-                draftText = ""
-                pendingImages = []
-                pendingFiles = []
-                checked = []
-                actionId = nil
-                inputValues = [:]
-                pendingPrIssueId = nil
-                conflictRefused = false
-                seededDraft = ""
-                touched = true
-                refreshBlockers()
             } catch {
-                self.error = error.userFacingMessage
-                startWatcher.failed(error.userFacingMessage)
+                // FEED-79 (EXP-1259 D10): a failed start is a toast with
+                // Retry (the same startId); the draft stays.
+                starting = nil
+                let toast = ToastItem(
+                    kind: .error,
+                    title: FeedbackStates.Errors.title(verb: "start", thing: "the session"),
+                    description: error.userFacingMessage,
+                    action: retryAction()
+                )
+                timeoutToastId = toast.id
+                Toaster.shared.show(toast)
+                // Recheck R3 (`starting.maybeDelivered`): a send whose fate is
+                // unknown may have reached the device, so it is followed
+                // quietly too and a late session still lands; a definite
+                // refusal has nothing to follow.
+                if StartDelivery.fate(of: error) == .maybeDelivered, let watched,
+                   draftStart?.startId == watched.startId,
+                   let key = watchKey(teamId: teamId, issueIds: stacked.map { [$0.issueId] }) {
+                    if draftStartSentAt == nil { draftStartSentAt = sentAt }
+                    let cutoff = draftStartSentAt ?? sentAt
+                    watchedStartId = watched.startId
+                    watchedUntil = cutoff.addingTimeInterval(StartedRunMatch.watchWindow)
+                    startWatcher.follow(
+                        key: key,
+                        userId: deps.auth.userId,
+                        db: deps.db,
+                        accountId: accountId,
+                        cutoff: cutoff,
+                        onLanded: { [weak self] sessionId in
+                            self?.runLanded(sessionId: sessionId, start: watched)
+                        }
+                    )
+                }
             }
+        }
+    }
+
+    /// EXP-1271: the run's synced row landed: the starting state ends and
+    /// the error clears. Final review: the draft clears and the session opens
+    /// (`landedSession`) only when the draft is unchanged since its send; a
+    /// draft the person changed after the timeout stays exactly as they left
+    /// it and nothing navigates (the session shows in Running).
+    private func runLanded(sessionId: String, start: DraftStart?) {
+        starting = nil
+        error = nil
+        watchedStartId = nil
+        watchedUntil = nil
+        dismissTimeoutToast()
+        if let start, draftStart?.startId == start.startId {
+            draftStart = nil
+            draftStartSentAt = nil
+        }
+        if let start {
+            guard let current = draftFingerprint, start.landsInto(current) else { return }
+        }
+        clearDraft()
+        landedSession = StartedRunWatcher.StartedSession(sessionId: sessionId)
+    }
+
+    /// The draft as a start is bound to it (recheck R2,
+    /// `starting.fingerprint.fields`): the machine, the text, the subject
+    /// (issues, or the action + its wire inputs, or the chat's repository),
+    /// the attachments and every launch option in the form the start sends.
+    /// Nil without a machine to start on.
+    private var draftFingerprint: DraftStart.Fingerprint? {
+        guard let device else { return nil }
+        let attachments = pendingImages.map(\.id.uuidString) + pendingFiles.map(\.id.uuidString)
+        let options = launch.buildOptions()
+        switch subject {
+        case .none:
+            return DraftStart.Fingerprint(
+                deviceId: device.deviceId,
+                text: draftText,
+                repositoryId: chatRepoId.isEmpty ? nil : chatRepoId,
+                attachments: attachments,
+                options: options
+            )
+        case .action, .fixConflicts:
+            return DraftStart.Fingerprint(
+                deviceId: device.deviceId,
+                text: draftText,
+                actionId: actionId,
+                actionInputs: ActionInputValues.wireValues(
+                    selectedActionInputs, values: resolvedInputValues
+                ),
+                attachments: attachments,
+                options: options
+            )
+        case let .issues(count):
+            // The Resume toggle rides single-issue starts only (`dispatch`).
+            return DraftStart.Fingerprint(
+                deviceId: device.deviceId,
+                text: draftText,
+                issueIds: checked,
+                attachments: attachments,
+                options: count == 1 && resumeActive ? launch.buildOptions(resume: true) : options
+            )
+        }
+    }
+
+    /// The row a start of the current subject produces (`dispatch`'s key),
+    /// for the quiet follow of a send whose fate is unknown.
+    private func watchKey(teamId: String, issueIds: [String]?) -> StartedRunKey? {
+        switch subject {
+        case .none:
+            return .action(name: ActionDto.builtinChatAction(teamId: teamId).name)
+        case .action, .fixConflicts:
+            return selectedAction.map { .action(name: $0.name) }
+        case .issues:
+            return StartedRunKey.forIssues(issueIds ?? effectiveChecked)
+        }
+    }
+
+    private func dismissTimeoutToast() {
+        guard let id = timeoutToastId else { return }
+        timeoutToastId = nil
+        Toaster.shared.dismiss(id)
+    }
+
+    private func clearDraft() {
+        draftText = ""
+        pendingImages = []
+        pendingFiles = []
+        checked = []
+        actionId = nil
+        inputValues = [:]
+        pendingPrIssueId = nil
+        conflictRefused = false
+        seededDraft = ""
+        refreshBlockers()
+    }
+
+    /// EXP-1271: no row within `starting.timeoutMs` of the send: the
+    /// timeout toast (`starting.timeoutToast`) and the composer back to idle.
+    /// Nothing is aborted: the watcher keeps watching, so a late row still
+    /// lands (`runLanded`); Retry re-sends the kept draft under the same
+    /// `startId` (`DraftStart`).
+    private func startTimedOut(deviceLabel: String) {
+        starting = nil
+        let toast = ToastItem(
+            kind: .error,
+            title: FeedbackStates.Starting.timeoutTitle,
+            description: FeedbackStates.Starting.timeoutDescription(device: deviceLabel),
+            action: retryAction()
+        )
+        timeoutToastId = toast.id
+        Toaster.shared.show(toast)
+    }
+
+    /// FEED-79: a failed upload is the error toast with Retry (the uploads
+    /// are idempotent: a retry never sends a finished one twice); the draft
+    /// and the strip stay.
+    private func uploadFailed(_ message: String) {
+        // A re-send of a start already being watched keeps that watch.
+        if watchedStartId == nil { startWatcher.failed(message) }
+        starting = nil
+        Toaster.shared.error(
+            FeedbackStates.Errors.title(verb: "upload", thing: "the attachment"),
+            description: message,
+            action: retryAction()
+        )
+    }
+
+    private func retryAction() -> ToastAction {
+        ToastAction(label: FeedbackStates.Starting.timeoutAction) { [weak self] in
+            Task { @MainActor in self?.submit() }
         }
     }
 
@@ -948,7 +1186,8 @@ final class AgentComposerModel {
     /// recognises the desktop-inserted row (`StartedRunMatch`). `issueIds`
     /// overrides the picked issues (a stacked start starts `run[0]`).
     private func dispatch(
-        device: SteerDevice, teamId: String, prompt: String?, issueIds: [String]? = nil
+        device: SteerDevice, teamId: String, prompt: String?, issueIds: [String]? = nil,
+        startId: String? = nil
     ) async throws -> StartedRunKey {
         switch subject {
         case .none:
@@ -966,7 +1205,9 @@ final class AgentComposerModel {
                 teamId: action.teamId,
                 options: launch.buildOptions(),
                 inputs: values.isEmpty ? nil : values,
-                prompt: prompt
+                prompt: prompt,
+                threadId: threadId,
+                startId: startId
             )
             return .action(name: action.name)
         case .action, .fixConflicts:
@@ -984,7 +1225,9 @@ final class AgentComposerModel {
                 teamId: action.isBuiltin ? action.teamId : nil,
                 options: launch.buildOptions(),
                 inputs: values.isEmpty ? nil : values,
-                prompt: prompt
+                prompt: prompt,
+                threadId: threadId,
+                startId: startId
             )
             return .action(name: action.name)
         case .issues:
@@ -998,7 +1241,9 @@ final class AgentComposerModel {
                     issueIds: ids,
                     deviceId: device.deviceId,
                     options: launch.buildOptions(),
-                    prompt: prompt
+                    prompt: prompt,
+                    threadId: threadId,
+                    startId: startId
                 )
             } else {
                 // Single-issue only — a batch has no per-issue worktree to
@@ -1010,7 +1255,9 @@ final class AgentComposerModel {
                     options: launch.buildOptions(
                         resume: resumeActive && issueIds == nil ? true : nil
                     ),
-                    prompt: prompt
+                    prompt: prompt,
+                    threadId: threadId,
+                    startId: startId
                 )
             }
             return key

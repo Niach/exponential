@@ -1,33 +1,81 @@
-import { SidebarMenuButton, SidebarMenuItem, conceptIcon } from "@exp/ui"
-import { useGettingStartedSheet } from "@/components/getting-started/getting-started-sheet"
+import { useRef, useState, type CSSProperties } from "react"
+import spec from "@exp/domain-contract/fixtures/getting-started.json"
+import {
+  Dialog,
+  DialogBody,
+  DialogContent,
+  DialogTitle,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  conceptIcon,
+} from "@exp/ui"
 import { useGettingStartedProgressContext } from "@/hooks/use-getting-started-progress"
+import { GETTING_STARTED_TITLE } from "@/components/getting-started/getting-started-copy"
+import { GettingStartedBlock } from "@/components/getting-started/getting-started-section"
+import type { Team } from "@/db/schema"
 
 // EXP-317: a cross-client CONCEPT, not a raw lucide import — the natives'
 // Getting started entry uses the same glyph.
 const GettingStartedIcon = conceptIcon(`nav-getting-started`)
 
-// Sidebar-footer re-entry point for the "Getting started" cards (EXP-88):
-// the inline block on the empty board disappears once issues exist, so this
-// keeps the setup guidance reachable. EXP-697: ALWAYS rendered (a completed
-// checklist used to hide it) — the sheet doubles as the way back to the
-// suggestions and install snippets, so the entry stays. Only the initial
-// signal load hides it, to avoid a flash of state.
-export function GettingStartedButton() {
-  const { loading } = useGettingStartedProgressContext()
-  const sheet = useGettingStartedSheet()
+// The sidebar-footer entry (EXP-88; EXP-1270 / getting-started.json): it
+// opens the SAME block the empty board and the board-less Agent home show,
+// in a centred dialog (the right sheet is gone). Like the block it hides
+// while the signals load and once every step is done.
+export function GettingStartedButton({
+  team,
+  teamSlug,
+}: {
+  team: Team | null | undefined
+  teamSlug: string
+}) {
+  const { loading, complete } = useGettingStartedProgressContext()
+  const [open, setOpen] = useState(false)
+  // A row that navigates (Start a session, the settings pages) closes the
+  // dialog; its focus then belongs to the new page, not back on this entry.
+  const leaving = useRef(false)
 
-  if (loading) return null
+  if (loading || complete || !team) return null
 
   return (
     <SidebarMenuItem>
       <SidebarMenuButton
-        onClick={() => sheet.open(`first-steps`)}
-        aria-label="Getting started"
+        onClick={() => setOpen(true)}
+        aria-label={GETTING_STARTED_TITLE}
+        data-testid={spec.testIds.entry}
         className="text-muted-foreground"
       >
         <GettingStartedIcon className="size-4" />
-        <span>Getting started</span>
+        <span>{GETTING_STARTED_TITLE}</span>
       </SidebarMenuButton>
+      <Dialog open={open} onOpenChange={setOpen}>
+        {/* No corner close: the Docs button holds that corner; Escape and
+            a click outside close it. The dialog IS the block's box:
+            `maxWidth` wide, scrolling vertically only. */}
+        <DialogContent
+          className="gap-0 p-0 pb-[env(safe-area-inset-bottom)] sm:max-w-(--getting-started-max) sm:pb-0"
+          style={{ [`--getting-started-max`]: `${spec.maxWidth}px` } as CSSProperties}
+          showCloseButton={false}
+          aria-describedby={undefined}
+          onCloseAutoFocus={(event) => {
+            if (leaving.current) event.preventDefault()
+            leaving.current = false
+          }}
+        >
+          <DialogTitle className="sr-only">{GETTING_STARTED_TITLE}</DialogTitle>
+          <DialogBody className="overflow-x-hidden">
+            <GettingStartedBlock
+              team={team}
+              teamSlug={teamSlug}
+              framed={false}
+              onLeave={() => {
+                leaving.current = true
+                setOpen(false)
+              }}
+            />
+          </DialogBody>
+        </DialogContent>
+      </Dialog>
     </SidebarMenuItem>
   )
 }

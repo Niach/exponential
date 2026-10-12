@@ -1,8 +1,13 @@
 import { useEffect, useMemo, useRef } from "react"
-import { useRouterState } from "@tanstack/react-router"
-import { and, eq, useLiveQuery } from "@tanstack/react-db"
-import type { Board, CodingSession, Issue } from "@/db/schema"
-import { codingSessionCollection, issueCollection } from "@/lib/collections"
+import { useNavigate, useParams, useRouterState } from "@tanstack/react-router"
+import { and, eq, inArray, useLiveQuery } from "@tanstack/react-db"
+import type { Board, CodingSession, Issue, Thread } from "@/db/schema"
+import {
+  codingSessionCollection,
+  issueCollection,
+  threadItemsCollection,
+  threadsCollection,
+} from "@/lib/collections"
 import {
   closeMergedRunTabs,
   pruneTabs,
@@ -14,7 +19,11 @@ import {
   type RouteTab,
 } from "@/lib/work-tabs"
 import { useMyLiveRuns } from "@/hooks/use-my-live-runs"
-import { updateWorkTabs, useWorkTabs } from "@/hooks/use-work-tabs"
+import {
+  openNewRunPage,
+  updateWorkTabs,
+  useWorkTabs,
+} from "@/hooks/use-work-tabs"
 
 // EXP-870: the ONE writer of the work tabs, mounted once in the team layout
 // (md+ only — the strip is hidden on phones). Three jobs:
@@ -33,7 +42,32 @@ import { updateWorkTabs, useWorkTabs } from "@/hooks/use-work-tabs"
 //      Only the TRANSITION closes, so reopening the issue afterwards works.
 //   4. Prune: a tab whose issue or run is gone from its (READY) collection is
 //      dropped — never while a collection is still syncing, so a cold load
-//      cannot wipe the strip.
+//      cannot wipe the strip. The New run tab (EXP-1255) has nothing to lose.
+//   5. EXP-1255: Alt/Option+T opens the New run tab (the strip's "+"), even
+//      with no strip up yet. Browsers keep Cmd/Ctrl+T (and Cmd/Ctrl+W) for
+//      their own tabs and never hand them to a page, so the web's chord is
+//      Alt/Option+T. Never while typing (a field, an IME composition) or
+//      behind a dialog: Option+T there is the person's keystroke.
+//   6. EXP-1284: a THREAD route is a tab of its own; a live run binds its
+//      thread's tab through the run's item (`LiveRun.threadId`).
+
+/** Alt/Option+T outside a field, a composition and any open dialog. */
+export function isNewTabChord(event: KeyboardEvent): boolean {
+  // `code`, not `key`: Option+T types "†" on a Mac keyboard.
+  if (event.code !== `KeyT` || !event.altKey) return false
+  if (event.metaKey || event.ctrlKey || event.shiftKey) return false
+  if (event.isComposing) return false
+  const target = event.target
+  if (
+    target instanceof HTMLElement &&
+    (target.isContentEditable ||
+      target.closest(`input, textarea, select, [contenteditable=""], [contenteditable="true"]`) !==
+        null)
+  ) {
+    return false
+  }
+  return document.querySelector(`[role="dialog"], [role="alertdialog"]`) === null
+}
 
 export function WorkTabsSync({
   teamId,
@@ -80,8 +114,24 @@ export function WorkTabsSync({
     [runId]
   )
 
+  const threadId = path?.kind === `thread` ? path.threadId : null
+  const { data: threadRows } = useLiveQuery(
+    (query) =>
+      threadId
+        ? query
+            .from({ t: threadsCollection })
+            .where(({ t }) => eq(t.id, threadId))
+        : undefined,
+    [threadId]
+  )
+
   const route = useMemo<RouteTab | null>(() => {
     if (!path) return null
+    if (path.kind === `thread`) {
+      const thread = ((threadRows ?? []) as Thread[])[0]
+      if (!thread || thread.id !== path.threadId || thread.teamId !== teamId) return null
+      return { kind: `thread`, threadId: thread.id, from: path.from }
+    }
     if (path.kind === `issue`) {
       const issue = ((issueRows ?? []) as Issue[])[0]
       return issue ? { kind: `issue`, issueId: issue.id, from: path.from } : null
@@ -89,7 +139,7 @@ export function WorkTabsSync({
     const run = ((runRows ?? []) as CodingSession[])[0]
     if (!run || run.id !== path.runId || run.teamId !== teamId) return null
     return { kind: `run`, runId: run.id, issueId: run.issueId, from: path.from }
-  }, [path, issueRows, runRows, teamId])
+  }, [path, issueRows, runRows, threadRows, teamId])
   const routeKey = route ? JSON.stringify(route) : null
 
   useEffect(() => {
@@ -104,10 +154,29 @@ export function WorkTabsSync({
   // must not flip the page being read (`reconcileLive`).
   const viewedIssueId = route?.kind === `issue` ? route.issueId : null
   const { runs, isReady, now } = useMyLiveRuns(teamId, userId, 30_000)
-  const live = useMemo<LiveRun[]>(
-    () => runs.map((run) => ({ runId: run.id, issueId: run.issueId })),
-    [runs]
+  // EXP-1284: each live run's thread, off its synced run item.
+  const liveRunIds = useMemo(() => runs.map((run) => run.id).sort(), [runs])
+  const { data: liveItemRows } = useLiveQuery(
+    (query) =>
+      liveRunIds.length > 0
+        ? query
+            .from({ it: threadItemsCollection })
+            .where(({ it }) => inArray(it.sessionId, liveRunIds))
+        : undefined,
+    [liveRunIds.join(`,`)]
   )
+  const live = useMemo<LiveRun[]>(() => {
+    const threadOf = new Map(
+      ((liveItemRows ?? []) as { sessionId: string | null; threadId: string }[]).map(
+        (item) => [item.sessionId, item.threadId]
+      )
+    )
+    return runs.map((run) => ({
+      runId: run.id,
+      issueId: run.issueId,
+      threadId: threadOf.get(run.id) ?? null,
+    }))
+  }, [runs, liveItemRows])
   const liveKey = JSON.stringify(live)
   const { tabs } = useWorkTabs(teamId)
 
@@ -157,14 +226,33 @@ export function WorkTabsSync({
     () => new Set((boards ?? []).map((board) => board.id)),
     [boards]
   )
+  const navigate = useNavigate()
+  const { teamSlug } = useParams({ strict: false })
+  useEffect(() => {
+    if (!teamSlug) return
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!isNewTabChord(event)) return
+      event.preventDefault()
+      openNewRunPage(teamId, teamSlug, navigate)
+    }
+    window.addEventListener(`keydown`, onKeyDown)
+    return () => window.removeEventListener(`keydown`, onKeyDown)
+  }, [teamId, teamSlug, navigate])
+
   useEffect(() => {
     if (!issueCollection.isReady() || !codingSessionCollection.isReady()) return
     if (boardIds.size === 0) return
     updateWorkTabs(teamId, (state) =>
       pruneTabs(state, (tab) => {
+        if (tab.kind === `new`) return true
         if (tab.kind === `issue`) {
           const issue = issueCollection.get(tab.issueId)
           return issue !== undefined && boardIds.has(issue.boardId)
+        }
+        if (tab.kind === `thread`) {
+          // Nothing is pruned before the threads snapshot itself landed.
+          if (!threadsCollection.isReady()) return true
+          return threadsCollection.get(tab.threadId)?.teamId === teamId
         }
         return codingSessionCollection.get(tab.runId)?.teamId === teamId
       })

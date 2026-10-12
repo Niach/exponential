@@ -57,7 +57,12 @@ describe(`DatePicker`, () => {
     const onChange = vi.fn()
     render(<DatePicker value="2026-03-08" onChange={onChange} />)
     openPicker()
-    const day = document.querySelector(`[data-day="3/17/2026"]`)!
+    // `data-day` is the day in the process locale's short form (the shadcn
+    // calendar), so the query names it the same way: `3/17/2026` in en-US,
+    // `17.3.2026` in de-AT.
+    const day = document.querySelector(
+      `[data-day="${new Date(2026, 2, 17).toLocaleDateString()}"]`
+    )!
     expect(day).toBeTruthy()
     fireEvent.click(day)
     expect(onChange).toHaveBeenCalledWith(`2026-03-17`)

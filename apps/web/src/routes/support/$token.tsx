@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import type { ReactNode } from "react"
 import { createFileRoute } from "@tanstack/react-router"
-import { LifeBuoy, LoaderCircle } from "lucide-react"
+import { LifeBuoy } from "lucide-react"
 import {
   Button,
   Pill,
+  SkeletonRows,
+  Spinner,
   Textarea,
   conceptIcon,
   Composer,
@@ -14,6 +16,7 @@ import { PoweredByFooter } from "@/components/team/powered-by-footer"
 import { relativeTime } from "@/components/comment-rows/format"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { unescapeReporterText } from "@/lib/reporter/report-text"
+import { failedAction } from "@/lib/action-error"
 
 // The reporter's magic-link conversation page (EXP-128, SLOP-4: the
 // conversation IS the issue's reporter-audience comments). No login — the
@@ -98,7 +101,6 @@ export function SupportConversationView({ token }: { token: string }) {
   )
   const [draft, setDraft] = useState(``)
   const [sending, setSending] = useState(false)
-  const [sendError, setSendError] = useState<string | null>(null)
   const bottomRef = useRef<HTMLDivElement | null>(null)
 
   // `refresh` = a transcript is already on screen (the post-send reload): a
@@ -179,7 +181,6 @@ export function SupportConversationView({ token }: { token: string }) {
     const body = draft.trim()
     if (!body || sending) return
     setSending(true)
-    setSendError(null)
     try {
       const res = await fetch(`/api/support/reply`, {
         method: `POST`,
@@ -189,15 +190,22 @@ export function SupportConversationView({ token }: { token: string }) {
       if (res.ok) {
         setDraft(``)
         await load({ refresh: true })
-      } else if (res.status === 404) {
-        setSendError(`This conversation moved.`)
-      } else if (res.status === 429) {
-        setSendError(`Too many messages. Please wait a moment and try again.`)
       } else {
-        setSendError(`Couldn't send your message. Please try again.`)
+        // A failed send is a toast (FEED-79); no Retry, a resend could
+        // double-post. The draft stays in the box.
+        failedAction(`send`, `your message`, undefined, {
+          description:
+            res.status === 404
+              ? `This conversation moved.`
+              : res.status === 429
+                ? `Too many messages. Please wait a moment and try again.`
+                : `Please try again.`,
+        })
       }
     } catch {
-      setSendError(`Couldn't send your message. Please check your connection.`)
+      failedAction(`send`, `your message`, undefined, {
+        description: `Please check your connection.`,
+      })
     } finally {
       setSending(false)
     }
@@ -205,8 +213,8 @@ export function SupportConversationView({ token }: { token: string }) {
 
   if (state.kind === `loading`) {
     return (
-      <div className="flex min-h-svh items-center justify-center">
-        <LoaderCircle className="h-5 w-5 animate-spin text-muted-foreground" />
+      <div className="mx-auto w-full max-w-lg px-4 py-4">
+        <SkeletonRows dot={false} />
       </div>
     )
   }
@@ -343,7 +351,7 @@ export function SupportConversationView({ token }: { token: string }) {
                   aria-label="Send reply"
                 >
                   {sending ? (
-                    <LoaderCircle className="size-5 animate-spin" />
+                    <Spinner size={12} label="Sending" className="text-current" />
                   ) : (
                     <SendIcon className="!size-6" />
                   )}
@@ -375,9 +383,6 @@ export function SupportConversationView({ token }: { token: string }) {
               />
             </Composer>
           }
-          {sendError && (
-            <p className="mt-2 text-xs text-destructive">{sendError}</p>
-          )}
         </div>
       </div>
 
@@ -478,7 +483,7 @@ function ReportPicture({
         />
       ) : (
         <div className="flex h-full w-28 items-center justify-center">
-          <LoaderCircle className="h-4 w-4 animate-spin text-muted-foreground" />
+          <Spinner className="text-muted-foreground" />
         </div>
       )}
     </a>

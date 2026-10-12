@@ -162,6 +162,8 @@ class StoreScreenshotsTest {
         // tab appears in the face strip once the reader's own run synced in,
         // so the tab (not a Watch pill) is what proves it.
         flow.waitFor(hasTestTag("work-face-run"), SYNC_TIMEOUT)
+        // And its Guide tab, which the live run's diff brings (EXP-875).
+        flow.waitForOptional(hasTestTag("work-face-guide"), SYNC_TIMEOUT)
         flow.settle()
         flow.screenshot("2_issue-detail", popRects = true)
 

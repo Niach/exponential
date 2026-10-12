@@ -1,4 +1,4 @@
-//! The 21 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
+//! The 23 synced shapes (masterplan-v3 §5.9) — the registry the `SyncManager`
 //! iterates and the store builds its schema from. gpui-free.
 //!
 //! Each [`ShapeSpec`] carries the SQLite table name, the kebab-case proxy URL
@@ -80,11 +80,11 @@ impl ShapeSpec {
     }
 }
 
-/// The 21 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
+/// The 23 shapes, in §5.9 order. Column sets mirror `packages/db-schema`
 /// (minus the §5.4 exclusions: no `email` on `issue_subscribers`, web-only
 /// billing fields dropped from `users`, no `body` on `actions`, no scoping
 /// mirrors on `device_worktrees`).
-pub const SHAPES: [ShapeSpec; 21] = [
+pub const SHAPES: [ShapeSpec; 23] = [
     ShapeSpec {
         name: "teams",
         path: "/api/shapes/teams",
@@ -103,9 +103,9 @@ pub const SHAPES: [ShapeSpec; 21] = [
             "slug",
             "icon_url",
             "pr_opened_status_id",
-            "pr_opened_trigger",
+            "pr_opened_automation",
             "pr_merged_status_id",
-            "pr_merged_trigger",
+            "pr_merged_automation",
             // EXP-711: the merge-ends-sessions toggle.
             "end_sessions_on_merge",
             // EXP-1105: yolo mode (hides Reviews/Files/Source Control).
@@ -688,6 +688,55 @@ pub const SHAPES: [ShapeSpec; 21] = [
             "assignee_id",
             "label_ids",
             "due_date",
+            // EXP-1284: the thread "New issue in this thread" files into.
+            "thread_id",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "threads",
+        path: "/api/shapes/threads",
+        // EXP-1284: the thread shells (one unit of work: issues + runs +
+        // THE Guide). Team-scoped (`team_id IN (member teams)`), with NO
+        // board/trash predicate — a thread outlives any one board. `results`
+        // is the thread's Guide jsonb (the `coding_sessions.results` form).
+        // Byte-matches the proxy's allowlist (apps/web routes/api/shapes/
+        // threads.ts).
+        columns: &[
+            "id",
+            "team_id",
+            "title",
+            "created_by",
+            "results",
+            "created_at",
+            "updated_at",
+        ],
+        pk: PkKind::Id,
+    },
+    ShapeSpec {
+        name: "thread_items",
+        path: "/api/shapes/thread-items",
+        // EXP-1284: a thread's members (`kind` issue | run, exactly one of
+        // `issue_id`/`session_id`). Team-scoped with the static board-hide
+        // suffix like every issue child; the `board_deleted_at` /
+        // `board_archived_at` mirrors are scoping columns and stay
+        // server-side (run items carry NULL `board_id` and always sync).
+        // Byte-matches the proxy's allowlist (apps/web routes/api/shapes/
+        // thread-items.ts).
+        columns: &[
+            "id",
+            "thread_id",
+            "kind",
+            "issue_id",
+            "session_id",
+            "team_id",
+            "board_id",
+            "added_by",
+            "added_by_session_id",
+            "source",
+            "sort_order",
             "created_at",
             "updated_at",
         ],
@@ -705,8 +754,8 @@ mod tests {
     use super::*;
 
     #[test]
-    fn registry_has_21_shapes_with_kebab_paths() {
-        assert_eq!(SHAPES.len(), 21);
+    fn registry_has_23_shapes_with_kebab_paths() {
+        assert_eq!(SHAPES.len(), 23);
         for spec in &SHAPES {
             assert!(spec.path.starts_with("/api/shapes/"), "{}", spec.name);
             assert!(!spec.path.contains('_'), "paths are kebab-case: {}", spec.path);
@@ -1011,9 +1060,9 @@ mod tests {
         // dropping any silently shows every team as builtin-default.
         let spec = shape_by_name("teams").unwrap();
         assert!(spec.columns.contains(&"pr_opened_status_id"));
-        assert!(spec.columns.contains(&"pr_opened_trigger"));
+        assert!(spec.columns.contains(&"pr_opened_automation"));
         assert!(spec.columns.contains(&"pr_merged_status_id"));
-        assert!(spec.columns.contains(&"pr_merged_trigger"));
+        assert!(spec.columns.contains(&"pr_merged_automation"));
         // EXP-711: the same card's merge-ends-sessions switch, and the
         // batch self-close predicate in coding_flow.
         assert!(spec.columns.contains(&"end_sessions_on_merge"));
@@ -1159,12 +1208,50 @@ mod tests {
             "assignee_id",
             "label_ids",
             "due_date",
+            "thread_id",
         ] {
             assert!(spec.columns.contains(&column), "issue_drafts needs {column}");
         }
         // A static per-user shape like `pins`: no board-trash mirror to
         // filter on (the board join does that job client-side).
         assert!(!spec.columns.contains(&"board_deleted_at"));
+    }
+
+    #[test]
+    fn threads_sync_the_guide_but_no_scoping_columns() {
+        // EXP-1284: the thread Guide is `threads.results` — dropping it
+        // silently blanks every thread's Guide on this client alone.
+        let spec = shape_by_name("threads").unwrap();
+        assert_eq!(spec.path, "/api/shapes/threads");
+        assert_eq!(
+            spec.columns,
+            &["id", "team_id", "title", "created_by", "results", "created_at", "updated_at"]
+        );
+    }
+
+    #[test]
+    fn thread_items_model_both_targets_but_never_the_board_mirrors() {
+        // EXP-1284: exactly one of `issue_id`/`session_id` per row, by
+        // `kind`; dropping one silently hides that item kind.
+        let spec = shape_by_name("thread_items").unwrap();
+        assert_eq!(spec.path, "/api/shapes/thread-items");
+        for column in [
+            "thread_id",
+            "kind",
+            "issue_id",
+            "session_id",
+            "team_id",
+            "board_id",
+            "added_by",
+            "added_by_session_id",
+            "source",
+            "sort_order",
+        ] {
+            assert!(spec.columns.contains(&column), "thread_items needs {column}");
+        }
+        // The board-hide mirrors are server-side scoping columns.
+        assert!(!spec.columns.contains(&"board_deleted_at"));
+        assert!(!spec.columns.contains(&"board_archived_at"));
     }
 
     /// SLOP-3: the workflow shapes are gone from the registry.

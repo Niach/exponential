@@ -22,9 +22,9 @@ pub(crate) const NO_SELECTION_NOTIFICATION: &str = "No notification selected";
 pub(crate) const BOARD_SWITCHER: &str = "No boards yet";
 pub(crate) const ARCHIVED_BOARDS: &str = "No archived boards";
 pub(crate) const NO_TEAM_SELECTED: &str = "No team selected";
-pub(crate) const ACTION_RUNS: &str = "No runs yet";
+pub(crate) const ACTION_RUNS: &str = "No sessions yet";
 pub(crate) const ACTION_TRIGGERS: &str = "No triggers yet";
-pub(crate) const RECENT_RUNS: &str = "No recent runs";
+pub(crate) const RECENT_RUNS: &str = "No recent sessions";
 pub(crate) const RUNNING_AGENTS: &str = "No agents running";
 pub(crate) const DEVICES: &str = "No devices yet";
 pub(crate) const MCP_SERVERS: &str = "No MCP servers yet";
@@ -36,6 +36,10 @@ pub(crate) const PASSKEYS: &str = "No passkeys yet";
 pub(crate) const ATTACHMENTS: &str = "No attachments yet";
 pub(crate) const CHANGED_FILES: &str = "No changed files";
 pub(crate) const ACTIVITY: &str = "No activity yet";
+// EXP-1284: the thread page whose thread is not (or no longer) there.
+pub(crate) const THREAD_NOT_FOUND: &str = "Thread not found";
+pub(crate) const THREAD_NOT_FOUND_DESCRIPTION: &str = "It may still be syncing, or it was deleted.";
+pub(crate) const THREAD_NOT_FOUND_ACTION: &str = "Go to Agent";
 
 #[cfg(test)]
 mod tests {
@@ -83,6 +87,7 @@ mod tests {
             ("attachments", ATTACHMENTS),
             ("changed-files", CHANGED_FILES),
             ("activity", ACTIVITY),
+            ("thread-not-found", THREAD_NOT_FOUND),
         ];
         for (id, title) in titles {
             assert_eq!(field(id, "title").as_deref(), Some(*title), "{id} title");
@@ -91,12 +96,16 @@ mod tests {
             ("boards", BOARDS_DESCRIPTION),
             ("issues", ISSUES_DESCRIPTION),
             ("no-team", NO_TEAM_DESCRIPTION),
+            ("thread-not-found", THREAD_NOT_FOUND_DESCRIPTION),
         ];
         for (id, description) in descriptions {
             assert_eq!(field(id, "description").as_deref(), Some(*description), "{id}");
         }
         assert_eq!(field("boards", "action").as_deref(), Some(BOARDS_ACTION));
         assert_eq!(field("issues", "action").as_deref(), Some(ISSUES_ACTION));
+        assert_eq!(field("thread-not-found", "action").as_deref(), Some(THREAD_NOT_FOUND_ACTION));
+        // The page state's glyph is the `work-faces` concept (registry).
+        assert_eq!(field("thread-not-found", "icon").as_deref(), Some("work-faces"));
     }
 
     /// The states the IDE draws as titles only carry no description in the

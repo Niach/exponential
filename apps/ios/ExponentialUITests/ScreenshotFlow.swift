@@ -349,8 +349,8 @@ extension XCTestCase {
     /// untouched InstanceView (sg_sign-in). Replaces the simulator erase the
     /// lanes used to pay for on every run.
     @MainActor
-    func launchSignedOut(_ app: XCUIApplication) {
-        relaunch(app, arguments: ["-uiTestingReset"], session: nil)
+    func launchSignedOut(_ app: XCUIApplication, extraArguments: [String] = []) {
+        relaunch(app, arguments: ["-uiTestingReset"] + extraArguments, session: nil)
     }
 
     /// (Re)launches the app signed in as `email`, fresh-install state

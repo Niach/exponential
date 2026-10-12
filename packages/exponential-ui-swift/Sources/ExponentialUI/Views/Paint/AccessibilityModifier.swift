@@ -51,6 +51,10 @@ struct A11yInfo: Equatable {
         case ("Text", "trigger"): return "button"
         case ("Select", "trigger"), ("TimePicker", "trigger"), ("DatePicker", "trigger"), ("DateRangePicker", "trigger"): return "combobox"
         case ("Select", "search"): return "textbox"
+        // EXP-1259: the search list's field drives a listbox of its rows.
+        case ("SearchList", "search"): return "combobox"
+        case ("Box", "list") where owner == "SearchList": return "listbox"
+        case ("Box", "item") where owner == "SearchList": return "option"
         case ("Box", "list") where owner == "Select" || owner == "TimePicker": return "listbox"
         case ("Text", "item") where owner == "Select" || owner == "TimePicker": return "option"
         case ("Box", "content") where owner == "Menu": return "menu"
@@ -98,7 +102,7 @@ struct A11yInfo: Equatable {
         case ("Skeleton", _), ("TreeGuides", _):
             info.hidden = true
             return info
-        case ("Input", "field"), ("Textarea", "field"), ("Composer", _), ("Segmented", _), ("ChipInput", "input"), ("Select", "search"):
+        case ("Input", "field"), ("Textarea", "field"), ("Composer", _), ("Segmented", _), ("ChipInput", "input"), ("Select", "search"), ("SearchList", "search"):
             info.passthrough = true
             return info
         case ("NumberField", "input"):

@@ -6,7 +6,7 @@
    (EXP-827: icon-only ×4; the contract's "Start coding" is only its
    accessibility name). Under the card sits the options row of glass pills
    (Device · the agent's orange mark · Model · Plan, `AgentOptionsRow`), then
-   the caller's own runs (`AgentSessionsList`): filled group BANDS over flat
+   the caller's own sessions (`AgentSessionsList`): filled group BANDS over flat
    rows (EXP-818) — "Running" with the EXP-874 unified `RunningSessionRow`
    (state dot, identifier + title, the status line, circular trailing
    buttons) and "Recent" (EXP-886, was "Past"), folded by default and

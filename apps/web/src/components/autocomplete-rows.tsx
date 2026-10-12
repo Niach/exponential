@@ -1,14 +1,14 @@
 import type { User } from "@/db/schema"
 import { displayUserName } from "@/lib/user-display"
 import { TypeaheadRow, UserAvatar } from "@exp/ui"
-import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
-import type { ResolvedIssueRef } from "@/components/issue-ref-provider"
 import type { EmojiRecord } from "@/lib/emoji"
 import type { SteerCommand } from "@/lib/steer-commands"
 
-// The candidate rows of the @mention / #issue / :emoji autocomplete menus — shared
+// The candidate rows of the @mention / :emoji autocomplete menus — shared
 // between the comment composer (mention-textarea.tsx) and the TipTap markdown
 // editor (issue-editor/markdown-editor.tsx) so both popups look identical.
+// SLOP-28: `#` is not a menu any more — it opens THE search list
+// (`issue-ref-search.tsx`), whose rows are the issue picker's.
 //
 // EXP-941: the row CHROME is `TypeaheadRow` from @exp/ui — it owns the one row
 // recipe (`TYPEAHEAD_ROW_CLASS` + the `bg-glass-active` highlight the package
@@ -39,28 +39,6 @@ export function UserCandidateRow({
           {user.email}
         </span>
       )}
-    </TypeaheadRow>
-  )
-}
-
-export function IssueCandidateRow({
-  issue,
-  active,
-  onSelect,
-  onHover,
-}: {
-  issue: ResolvedIssueRef
-  active: boolean
-  onSelect: () => void
-  onHover: () => void
-}) {
-  return (
-    <TypeaheadRow active={active} onSelect={onSelect} onMouseEnter={onHover}>
-      <IssueStatusIcon issue={issue} className="size-4 shrink-0" />
-      <span className="shrink-0 font-mono text-xs text-muted-foreground">
-        {issue.identifier}
-      </span>
-      <span className="truncate">{issue.title}</span>
     </TypeaheadRow>
   )
 }

@@ -383,16 +383,20 @@ describe(`calendar tab stop`, () => {
     expect(calendarStop(days, view, new Date(2026, 9, 25), disabledBefore(new Date(2026, 9, 20)))!.getDate()).toBe(25)
     expect(calendarStop(days, view, new Date(2026, 9, 25), () => true)).toBeNull()
   })
-  it(`min after today: the grid still has an enabled tab stop; the month buttons carry it into the new view`, () => {
+  // The stop in min's month = today's day number carried there by the month
+  // buttons when that day is enabled, else the enabled day nearest it (min).
+  it.each([
+    [`today's day is past min's`, new Date(2026, 9, 14), `2027-01-14`, `2027-02-14`],
+    [`today's day is before min's`, new Date(2026, 9, 6), `2027-01-10`, `2027-02-06`],
+  ])(`min after today (%s): the grid still has an enabled tab stop; the month buttons carry it into the new view`, (_, today, first, next) => {
+    vi.useFakeTimers({ toFake: [`Date`], now: today })
     // min = the 10th, three months after today's month (a short walk).
-    const now = new Date()
-    const minDate = new Date(now.getFullYear(), now.getMonth() + 3, 10)
-    const min = `${minDate.getFullYear()}-${String(minDate.getMonth() + 1).padStart(2, `0`)}-10`
-    const root = tree({ id: `d`, component: `DatePicker`, props: { label: `When`, min } })
+    const root = tree({ id: `d`, component: `DatePicker`, props: { label: `When`, min: `2027-01-10` } })
     const { container } = render(<ExponentialSurface root={root} theme="neutral" id="ct" />)
     fireEvent.click(container.querySelector(`.xui-DatePicker-trigger`)!)
     const stop = () => document.querySelector<HTMLButtonElement>(`.xui-calendar-grid button[tabindex="0"]`)
     // today's month (before min): every day disabled → no stop in it
+    expect(stop()).toBeNull()
     fireEvent.click(document.querySelector(`[aria-label="Next month"]`)!)
     const months = Array.from({ length: 6 }).findIndex(() => {
       if (stop()) return true
@@ -401,9 +405,8 @@ describe(`calendar tab stop`, () => {
     })
     expect(months).toBe(2)
     expect(stop()!.disabled).toBe(false)
-    expect(stop()!.dataset.date).toBe(min)
+    expect(stop()!.dataset.date).toBe(first)
     fireEvent.click(document.querySelector(`[aria-label="Next month"]`)!)
-    expect(stop()).not.toBeNull()
-    expect(stop()!.dataset.date!.slice(0, 7)).toMatch(/^\d{4}-\d{2}$/)
+    expect(stop()!.dataset.date).toBe(next)
   })
 })

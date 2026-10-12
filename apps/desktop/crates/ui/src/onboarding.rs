@@ -690,13 +690,13 @@ impl Render for OnboardingView {
             };
 
         let body: gpui::AnyElement = match &step {
-            WizardStep::Syncing => v_flex()
-                .gap_2()
-                .items_center()
-                .text_sm()
-                .text_color(muted)
-                .child("Loading your teams…")
-                .into_any_element(),
+            // EXP-1259 D8: the team list's rows as placeholders.
+            WizardStep::Syncing => crate::feedback::skeleton_rows(
+                "onboarding-teams-skeleton",
+                crate::feedback::SKELETON_ROWS,
+                crate::settings::SETTINGS_ROW_H,
+                cx,
+            ),
             WizardStep::Team => match self.team_page {
                 TeamPage::Choice => self.team_choice_page(cx),
                 TeamPage::Create => self.team_create_page(window, cx),

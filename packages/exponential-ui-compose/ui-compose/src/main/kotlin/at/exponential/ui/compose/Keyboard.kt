@@ -22,6 +22,7 @@ import at.exponential.ui.model.scrollTo
 import at.exponential.ui.model.sliderValue
 import at.exponential.ui.model.segmentedSelect
 import at.exponential.ui.model.segmentedValues
+import at.exponential.ui.model.searchKey
 
 /** A hardware key as the a11y spec names it (`left`, `enter`, `pageup`…), null for the rest. */
 internal fun keyName(e: KeyEvent): String? = when (e.key) {
@@ -303,6 +304,13 @@ private fun calendarKey(model: SurfaceModel, n: NodeInfo, key: String, shift: Bo
 
 /** Keys inside a host text field: NumberField Up / Down step, ChipInput Backspace removes the last chip. */
 private fun fieldKey(model: SurfaceModel, n: NodeInfo, key: String?): Boolean {
+    // EXP-1259: a search list's field keeps the focus; ↑/↓ move the core's
+    // highlighted row (Enter, Tab and ← at the caret's start come through
+    // the field itself).
+    if (n.component == "SearchList" && (key == "up" || key == "down")) {
+        model.searchKey(n.index, if (key == "up") "ArrowUp" else "ArrowDown")
+        return true
+    }
     val owner = model.owner(n.index) ?: return false
     if (owner.component == "NumberField" && n.part == "input" && (key == "up" || key == "down")) {
         val part = if (key == "up") "increment" else "decrement"

@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server"
 import { eq } from "drizzle-orm"
 import { db } from "@/db/connection"
-import { codingSessions, sessionAttachments } from "@/db/schema"
+import { sessionAttachments } from "@/db/schema"
 import type { CodingSessionResult } from "@exp/db-schema/domain"
 import { deleteObject } from "@/lib/storage"
 import {
@@ -14,14 +14,26 @@ import {
   nextShowLabel,
   upsertSessionResult,
 } from "@/lib/session-result-writes"
+import {
+  lockRunGuide,
+  ownedGuideEntries,
+  ownsGuideEntry,
+  stampGuideEntry,
+  writeRunGuide,
+} from "@/lib/thread-guide"
 
 // EXP-879/EXP-1172: the ONE write behind every published picture — the
 // token-gated upload route (`sessions_guide` and `sessions_show` grants)
 // and `exponential_sessions_show`'s `dataBase64`. The object is already put
 // (`prepareSessionImage*`); this lands the `session_attachments` row and the
-// `coding_sessions.results` entry inside a transaction holding `FOR UPDATE`
-// on the run (a jsonb read-modify-write: two pictures in flight would
-// otherwise lose one another), then reclaims a replaced picture's bytes.
+// Guide entry inside a transaction holding `FOR UPDATE` on the run (a jsonb
+// read-modify-write: two pictures in flight would otherwise lose one
+// another), then reclaims a replaced picture's bytes.
+// EXP-1284: the Guide is the run's THREAD's (`lib/thread-guide.ts`: the run
+// lock, then the thread's, the array mirrored onto the run's own row). The
+// entry is stamped with the session (`sessionId`), and only a picture THIS
+// session owns under the same (topic, label) is displaced (review T1):
+// another session's picture of the same name stays, with its bytes.
 
 export interface SessionResultPicture {
   sessionId: string
@@ -36,6 +48,8 @@ export interface SessionResultPicture {
 
 export interface PublishedSessionResult {
   label: string
+  /** What THIS session has published (its own entries of the thread's
+   *  Guide), for the caller's summary. */
   results: CodingSessionResult[]
   replaced: boolean
 }
@@ -55,15 +69,7 @@ export async function publishSessionResultPicture(
 
   try {
     await db.transaction(async (tx) => {
-      const [locked] = await tx
-        .select({
-          id: codingSessions.id,
-          results: codingSessions.results,
-        })
-        .from(codingSessions)
-        .where(eq(codingSessions.id, input.sessionId))
-        .limit(1)
-        .for(`update`)
+      const locked = await lockRunGuide(tx, input.sessionId)
 
       if (!locked) {
         throw new TRPCError({
@@ -73,30 +79,36 @@ export async function publishSessionResultPicture(
       }
 
       label = input.label || nextShowLabel(locked.results, input.topic)
-      const upsert = upsertSessionResult(locked.results, {
-        topic: input.topic,
-        label,
-        attachmentId: prepared.attachmentId,
-        width: prepared.width,
-        height: prepared.height,
-        // Only a show's entry carries the keys: a results picture stays
-        // byte-identical to what every reader parsed before EXP-1172.
-        ...(input.inline
-          ? {
-              inline: true,
-              ...(input.inline.caption ? { caption: input.inline.caption } : {}),
-            }
-          : {}),
-        // EXP-1245: the write stamp slots the picture into its turn.
-        at: Date.now(),
-      })
-      if (exceedsSessionResultsCap(upsert.results)) {
+      const owns = (row: CodingSessionResult) => ownsGuideEntry(locked.owner, row)
+      const upsert = upsertSessionResult(
+        locked.results,
+        stampGuideEntry(locked, {
+          topic: input.topic,
+          label,
+          attachmentId: prepared.attachmentId,
+          width: prepared.width,
+          height: prepared.height,
+          // Only a show's entry carries the keys: a results picture stays
+          // byte-identical to what every reader parsed before EXP-1172.
+          ...(input.inline
+            ? {
+                inline: true,
+                ...(input.inline.caption ? { caption: input.inline.caption } : {}),
+              }
+            : {}),
+          // EXP-1245: the write stamp slots the picture into its turn.
+          at: Date.now(),
+        }),
+        owns
+      )
+      // The cap is per session: what this session filed.
+      if (exceedsSessionResultsCap(ownedGuideEntries(locked.owner, upsert.results))) {
         throw new TRPCError({
           code: `CONFLICT`,
-          message: `This run already published the maximum number of results. Remove one first (exponential_sessions_guide with remove).`,
+          message: `This session already published the maximum number of results. Remove one first (exponential_sessions_guide with remove).`,
         })
       }
-      results = upsert.results
+      results = ownedGuideEntries(locked.owner, upsert.results)
       displacedAttachmentId = upsert.displacedAttachmentId
 
       const inserted = await tx
@@ -120,10 +132,7 @@ export async function publishSessionResultPicture(
         displacedStorageKey = gone?.storageKey ?? null
       }
 
-      await tx
-        .update(codingSessions)
-        .set({ results: upsert.results, updatedAt: new Date() })
-        .where(eq(codingSessions.id, input.sessionId))
+      await writeRunGuide(tx, locked, upsert.results)
     })
   } catch (error) {
     // The row never landed, so the object it points at is garbage, unless

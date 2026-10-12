@@ -82,6 +82,8 @@ sealed interface InboxEntry {
 data class InboxState(
     val entries: List<InboxEntry> = emptyList(),
     val totalUnread: Int = 0,
+    /** False until the local rows first land (EXP-1275: skeleton, not "All caught up"). */
+    val loaded: Boolean = false,
 )
 
 /** First-seen registry key: one namespace across every entry kind. */
@@ -139,7 +141,7 @@ internal fun buildInboxState(
             )
         }
     }
-    return InboxState(entries = entries, totalUnread = entries.sumOf { it.unread })
+    return InboxState(entries = entries, totalUnread = entries.sumOf { it.unread }, loaded = true)
 }
 
 @OptIn(ExperimentalCoroutinesApi::class)

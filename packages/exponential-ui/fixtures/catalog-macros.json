@@ -5458,7 +5458,7 @@
                 "id": "section.header.loading",
                 "component": "Spinner",
                 "props": {
-                  "size": "sm",
+                  "size": "xs",
                   "label": "$string.loading"
                 },
                 "children": [],

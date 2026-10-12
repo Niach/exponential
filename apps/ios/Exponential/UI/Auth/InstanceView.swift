@@ -6,6 +6,9 @@ struct InstanceView: View {
     @Environment(AppDependencies.self) private var deps
     @State private var input = "https://"
     @State private var viewModel: InstanceViewModel?
+    // FEED-79: a failed cloud sign-in hop is a toast, not a rose line.
+    @Environment(\.toaster) private var toaster
+    @Environment(\.motion) private var motion
     // Self-hosting is demoted (EXP-14): the URL field stays hidden behind a
     // small link until the user opts in. When the cloud is unavailable (already
     // added) the field is the only path, so it's shown outright.
@@ -51,13 +54,6 @@ struct InstanceView: View {
                             selfHostSection
                         }
 
-                        if let error = viewModel?.error {
-                            Text(error)
-                                .font(.callout)
-                                .foregroundStyle(.red)
-                                .frame(maxWidth: .infinity, alignment: .center)
-                        }
-
                         if showCancel {
                             Button {
                                 onCancel?()
@@ -89,6 +85,13 @@ struct InstanceView: View {
                 viewModel = InstanceViewModel(authApi: deps.authApi, auth: deps.auth)
             }
             Task { await viewModel?.loadCloudConfig() }
+        }
+        // FEED-79: the one-shot hand-off — the view model's message becomes
+        // the toast's description, then clears.
+        .onChange(of: viewModel?.error) { _, message in
+            guard let message else { return }
+            toaster.error(FeedbackStates.Errors.title(verb: "sign", thing: "in"), description: message)
+            viewModel?.error = nil
         }
     }
 
@@ -162,7 +165,7 @@ struct InstanceView: View {
 
         if !showSelfHost {
             Button {
-                withAnimation(.easeInOut(duration: 0.2)) { showSelfHost = true }
+                withAnimation(motion.standard) { showSelfHost = true }
             } label: {
                 Text("Use a self-hosted instance")
                     .font(.caption)

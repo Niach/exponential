@@ -101,6 +101,9 @@ const h = vi.hoisted(() => {
     findLiveResumeId: vi.fn(async (): Promise<string | null> => null),
     dbQueue,
     db: { select: () => makeChain() },
+    // EXP-1284: the requested thread's lookup + its team gate.
+    getThread: vi.fn(),
+    resolveTeamAccess: vi.fn(),
   }
 })
 
@@ -129,6 +132,10 @@ vi.mock(`@/lib/trpc/coding-sessions`, async (importOriginal) => ({
 vi.mock(`@/lib/steer-child-messages`, () => ({
   findLiveResumeId: h.findLiveResumeId,
 }))
+vi.mock(`@/lib/threads`, () => ({ getThread: h.getThread }))
+vi.mock(`@/lib/auth/access`, () => ({
+  resolveTeamAccess: h.resolveTeamAccess,
+}))
 vi.mock(`@/lib/steer`, () => ({
   getSteerRelayConfig: h.getSteerRelayConfig,
   relayPostStart: h.relayPostStart,
@@ -138,6 +145,7 @@ vi.mock(`@/lib/steer`, () => ({
 
 import { steerRouter } from "@/lib/trpc/steer"
 import { takeStartFailure } from "@/lib/start-failures"
+import { _clearStartThreads, takeStartThread } from "@/lib/start-threads"
 
 const ISSUE_A = `11111111-1111-4111-8111-111111111111`
 const ISSUE_B = `22222222-2222-4222-8222-222222222222`
@@ -239,6 +247,10 @@ beforeEach(() => {
   h.findLiveRunForIssues.mockReset()
   h.findLiveRunForIssues.mockResolvedValue(null)
   h.dbQueue.length = 0
+  h.getThread.mockReset()
+  h.getThread.mockResolvedValue(null)
+  h.resolveTeamAccess.mockReset()
+  h.resolveTeamAccess.mockResolvedValue({ kind: `member` })
 })
 
 describe(`steer.startSession — subject XOR`, () => {
@@ -442,6 +454,155 @@ describe(`steer.startSession — routed body shape`, () => {
 // FEED-57/46/47: a fresh issue or batch start on an issue a live run holds
 // (its own, or a batch covering it) is refused here, never posted for the
 // device to drop silently.
+describe(`steer.startSession — client startId (EXP-1259 review #3)`, () => {
+  it(`carries the caller's startId on the frame and returns it`, async () => {
+    const startId = crypto.randomUUID()
+    queueOwnDevice()
+    const result = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    expect(result).toEqual({ ok: true, startId })
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  // Final review B8: the server dedupes (device, startId) within
+  // `starting.dedupeMs`: a repeat is not forwarded and answers the same.
+  it(`a repeat of a forwarded startId is not forwarded again`, async () => {
+    const startId = crypto.randomUUID()
+    queueOwnDevice()
+    const first = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    const again = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    expect(again).toEqual(first)
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  it(`a repeat while the first is in flight waits for its answer`, async () => {
+    const startId = crypto.randomUUID()
+    let answer: (value: { ok: true }) => void = () => {}
+    h.relayPostStart.mockImplementationOnce(
+      () => new Promise((resolve) => (answer = resolve))
+    )
+    queueOwnDevice()
+    const first = caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+    const again = caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+    await vi.waitFor(() => expect(h.relayPostStart).toHaveBeenCalledTimes(1))
+    answer({ ok: true })
+    expect(await again).toEqual(await first)
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+  })
+
+  it(`a refused or failed forward is forwarded again on Retry`, async () => {
+    const startId = crypto.randomUUID()
+    h.relayPostStart.mockResolvedValueOnce({ ok: false, status: 504, reason: `relay_timeout` })
+    queueOwnDevice()
+    await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+    )
+    queueOwnDevice()
+    const again = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    expect(again).toEqual({ ok: true, startId })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(2)
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  // Recheck R1: the device took the frame, then reported it could not
+  // launch it: the remembered forward is dropped, so Retry forwards again.
+  it(`accept, then a device failure: Retry forwards again`, async () => {
+    const startId = crypto.randomUUID()
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+    await expect(
+      caller.reportStartFailure({ startId, reason: `git checkout refused` })
+    ).resolves.toEqual({ recorded: true })
+    queueOwnDevice()
+    const again = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      startId,
+    })
+    expect(again).toEqual({ ok: true, startId })
+    expect(h.relayPostStart).toHaveBeenCalledTimes(2)
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  // Recheck R3: the relay timeout (the frame may have arrived) answers 504
+  // GATEWAY_TIMEOUT; any other relay error stays a definite 500.
+  it(`a relay timeout is GATEWAY_TIMEOUT, another relay error INTERNAL_SERVER_ERROR`, async () => {
+    h.relayPostStart.mockResolvedValueOnce({ ok: false, status: 504, reason: `relay_timeout` })
+    queueOwnDevice()
+    const timeout = (await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    )) as TRPCError
+    expect(timeout).toBeInstanceOf(TRPCError)
+    expect(timeout.code).toBe(`GATEWAY_TIMEOUT`)
+    expect(timeout.message).toBe(`Steer relay error (504)`)
+    h.relayPostStart.mockResolvedValueOnce({ ok: false, status: 500, reason: `relay_error` })
+    queueOwnDevice()
+    const broken = (await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    )) as TRPCError
+    expect(broken.code).toBe(`INTERNAL_SERVER_ERROR`)
+  })
+
+  it(`forwards the same startId to another device, and again after 30 minutes`, async () => {
+    vi.useFakeTimers({ toFake: [`Date`] })
+    try {
+      const startId = crypto.randomUUID()
+      queueOwnDevice()
+      await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+      queueOwnDevice({ deviceId: `dev-2` })
+      await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-2`, startId })
+      expect(h.relayPostStart).toHaveBeenCalledTimes(2)
+      vi.setSystemTime(Date.now() + 30 * 60 * 1000 + 1)
+      queueOwnDevice({ lastSeenAt: new Date() })
+      await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId })
+      expect(h.relayPostStart).toHaveBeenCalledTimes(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it(`carries it on an action start too`, async () => {
+    const startId = crypto.randomUUID()
+    queueAction({ name: `Code review` })
+    queueOwnDevice({ caps: [`actions`, `action-inputs`] })
+    await caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1`, startId })
+    expect(lastStartBody().startId).toBe(startId)
+  })
+
+  it(`rejects a startId that is not a uuid`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, startId: `x` })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+  })
+
+  it(`mints one when the caller sends none`, async () => {
+    queueOwnDevice()
+    const result = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+    })
+    expect(lastStartBody().startId).toBe(result.startId)
+    expect(result.startId).toMatch(/^[0-9a-f-]{36}$/)
+  })
+})
+
 describe(`steer.startSession — live run on a target issue`, () => {
   const live = {
     id: `99999999-9999-4999-8999-999999999999`,
@@ -460,7 +621,7 @@ describe(`steer.startSession — live run on a target issue`, () => {
     )) as TRPCError
     expect(error.code).toBe(`CONFLICT`)
     expect(error.message).toBe(
-      `EXP-1 already has a live run on studio (session ${live.id}, started by a person). Stop it or let it end before starting another.`
+      `EXP-1 already has a live session on studio (session ${live.id}, started by a person). Stop it or let it end before starting another.`
     )
     expect(h.findLiveRunForIssues).toHaveBeenCalledWith(expect.anything(), [ISSUE_A])
     expect(h.relayPostStart).not.toHaveBeenCalled()
@@ -474,7 +635,7 @@ describe(`steer.startSession — live run on a target issue`, () => {
     )) as TRPCError
     expect(error.code).toBe(`CONFLICT`)
     expect(error.message).toBe(
-      `EXP-2 already has a live run on studio (session ${live.id}, started by agent, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
+      `EXP-2 already has a live session on studio (session ${live.id}, started by agent, branch exp/batch-1a2b3c4d). Stop it or let it end before starting another.`
     )
     expect(h.findLiveRunForIssues).toHaveBeenCalledWith(expect.anything(), [ISSUE_A, ISSUE_B])
     expect(h.relayPostStart).not.toHaveBeenCalled()
@@ -2066,7 +2227,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
 
     expect((error as TRPCError).code).toBe(`CONFLICT`)
     expect((error as TRPCError).message).toBe(
-      `EXP-1 already has a live run on studio (session ${uuid(9)}, started by a person). Stop it or let it end before starting another.`
+      `EXP-1 already has a live session on studio (session ${uuid(9)}, started by a person). Stop it or let it end before starting another.`
     )
     expect(h.findLiveRunForIssues).toHaveBeenCalledWith(expect.anything(), [ISSUE_A])
     expect(h.relayPostStart).not.toHaveBeenCalled()
@@ -2095,7 +2256,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
 
     expect((error as TRPCError).code).toBe(`CONFLICT`)
     expect((error as TRPCError).message).toBe(
-      `EXP-1 already has a live run on studio (session ${uuid(9)}, started by agent, branch exp/batch-1a2b3c4d). Dana (dana@example.com) owns it: only they can stop it, or let it end before starting another.`
+      `EXP-1 already has a live session on studio (session ${uuid(9)}, started by agent, branch exp/batch-1a2b3c4d). Dana (dana@example.com) owns it: only they can stop it, or let it end before starting another.`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
@@ -2167,7 +2328,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
       caller.startSession({ resumeSessionId: RESUME, deviceId: `dev-1` })
     )
     expect((error as TRPCError).message).toBe(
-      `That run is still live — stop it first, or name an account to continue it on`
+      `That session is still live — stop it first, or name an account to continue it on`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
@@ -2216,7 +2377,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
 
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
     expect((error as TRPCError).message).toBe(
-      `Only claude runs can change account while live — stop this codex run and start a new one on the other account`
+      `Only claude sessions can change account while live — stop this codex session and start a new one on the other account`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
@@ -2238,7 +2399,7 @@ describe(`steer.startSession — resume a run (EXP-637)`, () => {
 
     expect((error as TRPCError).code).toBe(`PRECONDITION_FAILED`)
     expect((error as TRPCError).message).toContain(
-      `cannot switch account mid-run`
+      `cannot switch account mid-session`
     )
     expect(h.relayPostStart).not.toHaveBeenCalled()
   })
@@ -2779,5 +2940,200 @@ describe(`steer.startSession — start failure channel (FEED-63)`, () => {
         reason: `x`,
       })
     ).resolves.toEqual({ recorded: false })
+  })
+})
+
+// EXP-1284: a start may name the thread it runs INTO. The id is checked here
+// (exists, the caller's, the subject's team) before the frame leaves, then
+// rides it top-level as `threadId` for the device to echo into
+// codingSessions.start. A resume never carries one.
+describe(`steer.startSession — threadId (EXP-1284)`, () => {
+  const THREAD_ID = `88888888-8888-4888-8888-888888888888`
+
+  it(`forwards the thread on a single-issue start`, async () => {
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-1` })
+    queueOwnDevice()
+    await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      threadId: THREAD_ID,
+    })
+    expect(h.resolveTeamAccess).toHaveBeenCalledWith(`actor`, `ws-1`, `comment`)
+    expect(lastStartBody()).toMatchObject({ issueId: ISSUE_A, threadId: THREAD_ID })
+  })
+
+  it(`forwards the thread on a batch start`, async () => {
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-1` })
+    queueOwnDevice()
+    await caller.startSession({
+      issueIds: [ISSUE_A, ISSUE_B],
+      deviceId: `dev-1`,
+      threadId: THREAD_ID,
+    })
+    expect(lastStartBody()).toMatchObject({
+      issueIds: [ISSUE_A, ISSUE_B],
+      threadId: THREAD_ID,
+    })
+  })
+
+  it(`forwards the thread on an action start`, async () => {
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-1` })
+    queueAction({ name: `Code review` })
+    queueOwnDevice()
+    await caller.startSession({
+      actionId: ACTION_ID,
+      deviceId: `dev-1`,
+      threadId: THREAD_ID,
+    })
+    expect(lastStartBody()).toMatchObject({ actionId: ACTION_ID, threadId: THREAD_ID })
+  })
+
+  it(`forwards the thread on a builtin start, checked against its teamId`, async () => {
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: BUILTIN_TEAM_ID })
+    queueOwnDevice({ caps: [`start-prompt`] })
+    await caller.startSession({
+      actionId: CHAT_ID,
+      teamId: BUILTIN_TEAM_ID,
+      deviceId: `dev-1`,
+      prompt: `Look into the flaky test`,
+      threadId: THREAD_ID,
+    })
+    expect(lastStartBody()).toMatchObject({
+      actionId: CHAT_ID,
+      teamId: BUILTIN_TEAM_ID,
+      threadId: THREAD_ID,
+    })
+  })
+
+  // The merged batch's idempotent start id rides beside the thread on every
+  // start frame (the client's Retry reuses it).
+  it(`carries the client's startId beside the thread`, async () => {
+    const startId = crypto.randomUUID()
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-1` })
+    queueOwnDevice()
+    const result = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      threadId: THREAD_ID,
+      startId,
+    })
+    expect(lastStartBody()).toMatchObject({ issueId: ISSUE_A, threadId: THREAD_ID, startId })
+    expect(result).toEqual({ ok: true, startId })
+  })
+
+  // Review T16: an older daemon drops the frame's threadId; the server
+  // remembers it per device owner + device + subject for codingSessions.start.
+  it(`remembers the thread for the device's start (an older daemon drops it)`, async () => {
+    _clearStartThreads()
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-1` })
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, threadId: THREAD_ID })
+    queueOwnDevice()
+    await caller.startSession({
+      issueIds: [ISSUE_A, ISSUE_B],
+      deviceId: `dev-1`,
+      threadId: THREAD_ID,
+    })
+    expect(
+      takeStartThread({ ownerId: `actor`, deviceId: `dev-1`, subject: { issueId: ISSUE_A } })
+    ).toBe(THREAD_ID)
+    // A batch is its SET of issues, in any order.
+    expect(
+      takeStartThread({
+        ownerId: `actor`,
+        deviceId: `dev-1`,
+        subject: { issueIds: [ISSUE_B, ISSUE_A] },
+      })
+    ).toBe(THREAD_ID)
+    expect(
+      takeStartThread({ ownerId: `actor`, deviceId: `dev-1`, subject: { issueId: ISSUE_A } })
+    ).toBeNull()
+    // Nothing is remembered without a thread.
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    expect(
+      takeStartThread({ ownerId: `actor`, deviceId: `dev-1`, subject: { issueId: ISSUE_A } })
+    ).toBeNull()
+  })
+
+  // A deduped repeat of the same Start (forwardStartOnce answers it from the
+  // first forward, no new frame) never remembers the thread a second time:
+  // the ONE start the device runs takes it once.
+  it(`a deduped repeat of a start remembers its thread once`, async () => {
+    _clearStartThreads()
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-1` })
+    const startId = crypto.randomUUID()
+    queueOwnDevice()
+    const first = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      threadId: THREAD_ID,
+      startId,
+    })
+    const repeat = await caller.startSession({
+      issueId: ISSUE_A,
+      deviceId: `dev-1`,
+      threadId: THREAD_ID,
+      startId,
+    })
+    expect(repeat).toEqual(first)
+    expect(h.relayPostStart).toHaveBeenCalledTimes(1)
+    const take = () =>
+      takeStartThread({ ownerId: `actor`, deviceId: `dev-1`, subject: { issueId: ISSUE_A } })
+    expect(take()).toBe(THREAD_ID)
+    expect(take()).toBeNull()
+  })
+
+  it(`sends no threadId when none was asked for`, async () => {
+    queueOwnDevice()
+    await caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1` })
+    expect(`threadId` in lastStartBody()).toBe(false)
+    expect(h.getThread).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a thread that does not exist`, async () => {
+    queueOwnDevice()
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, threadId: THREAD_ID })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a thread of another team`, async () => {
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-other` })
+    queueAction()
+    queueOwnDevice()
+    const error = await rejectionOf(
+      caller.startSession({ actionId: ACTION_ID, deviceId: `dev-1`, threadId: THREAD_ID })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses when the caller fails the thread team's access`, async () => {
+    h.getThread.mockResolvedValue({ id: THREAD_ID, teamId: `ws-1` })
+    h.resolveTeamAccess.mockRejectedValueOnce(
+      new TRPCError({ code: `FORBIDDEN`, message: `Not a member of this team` })
+    )
+    queueOwnDevice()
+    const error = await rejectionOf(
+      caller.startSession({ issueId: ISSUE_A, deviceId: `dev-1`, threadId: THREAD_ID })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.relayPostStart).not.toHaveBeenCalled()
+  })
+
+  it(`refuses a threadId together with resumeSessionId`, async () => {
+    const error = await rejectionOf(
+      caller.startSession({
+        resumeSessionId: SESSION_ID,
+        deviceId: `dev-1`,
+        threadId: THREAD_ID,
+      })
+    )
+    expect((error as TRPCError).code).toBe(`BAD_REQUEST`)
+    expect(h.getThread).not.toHaveBeenCalled()
+    expect(h.relayPostStart).not.toHaveBeenCalled()
   })
 })

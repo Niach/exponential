@@ -451,12 +451,16 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// Exponential MCP call. EXP-895: `output` is what an `execute` call
     /// PRINTED, as its settle published it — redacted and tail-cut, a cut log
     /// OPENING with the `\ N more lines truncated` marker (the dropped lines
-    /// were at the front). Nil until the call settles.
+    /// were at the front). Nil until the call settles. EXP-1279: `script` is
+    /// a code-mode call's log (`tool_update.script`, only on a `script` row's
+    /// settle). EXP-1241: `settledAt` is the settle's own `at` (unix ms) — a
+    /// comment card's time before the comment row syncs.
     case tool(
         id: Int, name: String, detail: String?, subagentId: String?,
         callId: String? = nil, toolKind: String? = nil,
         settled: Bool = false, failed: Bool = false, diff: String? = nil,
-        preview: AgentToolPreview? = nil, output: String? = nil
+        preview: AgentToolPreview? = nil, output: String? = nil,
+        script: AgentScriptLog? = nil, settledAt: Int? = nil
     )
     /// A human turn: the initial prompt or a steered message. `subagentId`
     /// (EXP-773) tags a turn addressed to a subagent — same scoping rule as
@@ -495,7 +499,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
         switch self {
         case let .narration(id, _, _, _): id
         case let .apiError(id, _, _, _): id
-        case let .tool(id, _, _, _, _, _, _, _, _, _, _): id
+        case let .tool(id, _, _, _, _, _, _, _, _, _, _, _, _): id
         case let .userMessage(id, _, _): id
         case let .question(value): value.id
         case let .subagent(id, _, _, _, _, _, _, _): id
@@ -516,12 +520,13 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
             .apiError(id: id, message: message, errorType: errorType, subagentId: subagentId)
         case let .tool(
             _, name, detail, subagentId, callId, toolKind, settled, failed, diff, preview,
-            output
+            output, script, settledAt
         ):
             .tool(
                 id: id, name: name, detail: detail, subagentId: subagentId,
                 callId: callId, toolKind: toolKind, settled: settled, failed: failed,
-                diff: diff, preview: preview, output: output
+                diff: diff, preview: preview, output: output, script: script,
+                settledAt: settledAt
             )
         case let .userMessage(_, text, subagentId):
             .userMessage(id: id, text: text, subagentId: subagentId)
@@ -567,7 +572,7 @@ public enum AgentFeedItem: Equatable, Sendable, Identifiable {
     /// interleaving into the main thread.
     public var subagentKey: String? {
         switch self {
-        case let .tool(_, _, _, subagentId, _, _, _, _, _, _, _): return subagentId
+        case let .tool(_, _, _, subagentId, _, _, _, _, _, _, _, _, _): return subagentId
         case let .subagent(_, subagentId, _, _, _, _, _, _): return subagentId
         case let .narration(_, _, _, subagentId): return subagentId
         case let .apiError(_, _, _, subagentId): return subagentId
@@ -878,7 +883,7 @@ public enum AgentFeed {
         case let .apiError(_, message, errorType, _):
             return overhead + message.utf8.count + (errorType?.utf8.count ?? 0)
         case let .userMessage(_, text, _): return overhead + text.utf8.count
-        case let .tool(_, name, detail, _, _, _, _, _, diff, _, output):
+        case let .tool(_, name, detail, _, _, _, _, _, diff, _, output, _, _):
             // EXP-786/895: a folded per-call diff and the command output its
             // settle carried both weigh too.
             return overhead + name.utf8.count + (detail?.utf8.count ?? 0)
@@ -1075,21 +1080,23 @@ public enum AgentFeed {
     ) -> [AgentFeedItem]? {
         let id = update.id
         guard let at = feed.lastIndex(where: { item in
-                  if case let .tool(_, _, _, _, callId, _, _, _, _, _, _) = item {
+                  if case let .tool(_, _, _, _, callId, _, _, _, _, _, _, _, _) = item {
                       return callId == id
                   }
                   return false
               }),
               case let .tool(
                   rowId, name, detail, subagentId, callId, toolKind,
-                  settled, failed, diff, preview, output
+                  settled, failed, diff, preview, output, script, settledAt
               ) = feed[at]
         else { return nil }
         var nextSettled = settled
         var nextFailed = failed
+        var nextSettledAt = settledAt
         if update.settles {
             nextSettled = true
             nextFailed = update.failed
+            nextSettledAt = update.at ?? settledAt
         }
         let nextDiff = update.diff ?? diff
         // EXP-846: latest preview wins; an update without one keeps what the
@@ -1098,12 +1105,15 @@ public enum AgentFeed {
         // EXP-895: the settle's command output, same rule — an update carrying
         // none never clears what an earlier one folded in.
         let nextOutput = update.output ?? output
+        // EXP-1279: the code-mode log, same rule.
+        let nextScript = update.script ?? script
         var next = feed
         next[at] = .tool(
             id: rowId, name: name, detail: detail, subagentId: subagentId,
             callId: callId, toolKind: toolKind,
             settled: nextSettled, failed: nextFailed, diff: nextDiff,
-            preview: nextPreview, output: nextOutput
+            preview: nextPreview, output: nextOutput, script: nextScript,
+            settledAt: nextSettledAt
         )
         return next
     }
@@ -1624,7 +1634,7 @@ public enum AgentFeed {
     /// `liveToolRowId`). Callers that know the run ENDED do not consult it — a
     /// feed whose last row never settled is history, not a live tail.
     public static func liveToolRowId(_ feed: [AgentFeedItem]) -> Int? {
-        guard case let .tool(id, _, _, _, _, _, settled, _, _, _, _) = feed.last,
+        guard case let .tool(id, _, _, _, _, _, settled, _, _, _, _, _, _) = feed.last,
               !settled
         else { return nil }
         return id
@@ -1640,7 +1650,7 @@ public enum AgentFeed {
     /// `toolLines` (×4: web `lastToolLine`).
     public static func lastToolLine(_ feed: [AgentFeedItem]) -> String? {
         for item in feed.reversed() {
-            guard case let .tool(_, name, detail, _, _, _, settled, _, _, preview, _) = item
+            guard case let .tool(_, name, detail, _, _, _, settled, _, _, preview, _, _, _) = item
             else { continue }
             var head: String? = name
             var subject = detail
@@ -1792,7 +1802,10 @@ public enum AgentFeed {
                 continue
             }
 
-            if item.isTool, !isWorkflowTool(item, workflowIds: workflowIds) {
+            // EXP-1279: a code-mode call is its own Script card, never a member
+            // of a run (the way our own MCP calls are, EXP-948).
+            if item.isTool, !isWorkflowTool(item, workflowIds: workflowIds),
+               !ScriptCards.isScriptCall(item) {
                 var end = i + 1
                 // A tool tagged with a subagent belongs to that group, never to
                 // a main-thread run; a WORKFLOW call is its own card row and
@@ -1802,7 +1815,8 @@ public enum AgentFeed {
                 while end < feed.count, feed[end].isTool, feed[end].subagentKey == nil,
                       !isWorkflowTool(feed[end], workflowIds: workflowIds),
                       !EditCard.isEditCall(feed[end], workflowIds: workflowIds),
-                      !ExpToolGroup.isExpToolCall(feed[end], workflowIds: workflowIds) {
+                      !ExpToolGroup.isExpToolCall(feed[end], workflowIds: workflowIds),
+                      !ScriptCards.isScriptCall(feed[end]) {
                     end += 1
                 }
                 if end - i >= 2 {
@@ -1823,7 +1837,7 @@ public enum AgentFeed {
         _ item: AgentFeedItem, workflowIds: Set<String>
     ) -> Bool {
         guard !workflowIds.isEmpty,
-              case let .tool(_, _, _, _, callId, _, _, _, _, _, _) = item,
+              case let .tool(_, _, _, _, callId, _, _, _, _, _, _, _, _) = item,
               let callId else { return false }
         return workflowIds.contains(callId)
     }

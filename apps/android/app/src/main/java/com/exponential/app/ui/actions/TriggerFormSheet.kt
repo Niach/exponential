@@ -49,14 +49,13 @@ data class TriggerFormResult(
  * dialog: the when-part (Schedule | On event with the shared filter pickers),
  * the machine it runs on, and optionally a pinned account/model/effort.
  * Owner-only; the caller renders it and the server re-checks everything — its
- * refusal (an action with required inputs, an incapable device) shows as
- * [error] with the sheet still open.
+ * refusal (an action with required inputs, an incapable device) is the host's
+ * error toast (FEED-79) with the sheet still open.
  */
 @Composable
 fun TriggerFormSheet(
     devices: List<SteerDevice>,
     busy: Boolean,
-    error: String?,
     onSubmit: (TriggerFormResult) -> Unit,
     onDismiss: () -> Unit,
     /** The trigger being edited; null = add a new one. */
@@ -151,15 +150,6 @@ fun TriggerFormSheet(
                 onChange = { draft = it },
             )
 
-            if (error != null) {
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    error,
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(horizontal = 32.dp),
-                )
-            }
             Spacer(Modifier.height(24.dp))
         }
     }
@@ -168,5 +158,5 @@ fun TriggerFormSheet(
 /** The one sentence a locked trigger row shows — the same wording on every
  * client, wherever a required input blocks enabling a trigger. */
 internal const val REQUIRED_INPUTS_HINT =
-    "This action has required inputs, and a triggered run has none to fill them with. " +
+    "This action has required inputs, and a triggered session has none to fill them with. " +
         "Make the inputs optional to enable it."

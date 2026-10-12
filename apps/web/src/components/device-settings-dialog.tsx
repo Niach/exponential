@@ -20,7 +20,6 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { promptActions, removeDevicePrompt, WEB_PROMPTS } from "@/lib/prompts"
 import { eq, useLiveQuery } from "@tanstack/react-db"
-import { LoaderCircle } from "lucide-react"
 import { contract } from "@exp/domain-contract"
 import type { DeviceIcon } from "@exp/db-schema/domain"
 import type { Device } from "@/db/schema"
@@ -43,10 +42,13 @@ import {
   GlassToggleRow,
   Pill,
   Prompt,
+  FieldError,
+  Spinner,
   SubShellHost,
 } from "@exp/ui"
+import { actionErrorDescription, failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
-import { trpcErrorMessage } from "@/lib/trpc-error"
+import { trpcErrorCode } from "@/lib/trpc-error"
 import { useNow } from "@/hooks/use-now"
 import { deviceCollection, teamCollection } from "@/lib/collections"
 import {
@@ -84,7 +86,7 @@ const UpdateIcon = conceptIcon(`ui-update`)
 const agentUpdateKey = (agent: string) => `update ${agent}`
 const isAgentUpdateKey = (key: string) => key.startsWith(`update `)
 
-export const QUEUED_UPDATE_TOOLTIP = `Live runs hold this update — the device restarts itself once every run ends or sits idle for 2 hours.`
+export const QUEUED_UPDATE_TOOLTIP = `Live sessions hold this update — the device restarts itself once every session ends or sits idle for 2 hours.`
 
 // EXP-490 autosave cadence. Defaults debounce longer than the name: every
 // setLaunchDefaults call nudges the device over the relay, so coalescing a
@@ -118,7 +120,7 @@ function draftSeed(
 }
 
 /** One queued/in-flight command the dialog is watching. `key` anchors the
- * inline error/progress to its row (`update <agent>`). */
+ * progress note to its row (`update <agent>`). */
 interface TrackedCommand {
   id: string
   key: string
@@ -267,7 +269,7 @@ export function DeviceSettingsDialog({
     setDefaultsPending(false)
     sentNameRef.current = null
     sentDefaultsStampRef.current = 0
-    setSectionErrors({})
+    setNameError(``)
     setTracked([])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, row?.id])
@@ -320,40 +322,38 @@ export function DeviceSettingsDialog({
   const pickIcon = (next: DeviceIcon) => {
     if (!deviceId || next === iconName) return
     setIconPick(next)
-    setSectionErrors((current) => ({ ...current, name: `` }))
     void trpc.devices.setIcon
-      .mutate({ deviceId, icon: next })
+      .mutate({ deviceId, icon: next }, SKIP_ERROR_TOAST)
       .catch((error) => {
         setIconPick(null)
-        setSectionErrors((current) => ({
-          ...current,
-          name: trpcErrorMessage(error, `That didn't go through. Try again.`),
-        }))
+        failedAction(`save`, `the icon`, error, { retry: () => pickIcon(next) })
       })
   }
 
   const draft = drafts[agentTab] ?? draftSeed(agentTab, null)
 
-  // ── Section busy/error state ─────────────────────────────────────────────
+  // ── Section busy state ───────────────────────────────────────────────────
+  // FEED-79: a failed write is a toast (named, Retry re-sends the same
+  // write); only an invalid NAME stays inline, under the field.
   const [busySection, setBusySection] = useState<string | null>(null)
-  const [sectionErrors, setSectionErrors] = useState<Record<string, string>>(
-    {}
-  )
+  const [nameError, setNameError] = useState(``)
   // A finished command's device-reported SUCCESS message, per key — the
   // per-agent Update rows show theirs ("Claude Code updated: …"); a worktree
   // removal shows nothing (its row simply vanishes).
   const [sectionNotes, setSectionNotes] = useState<Record<string, string>>({})
-  const runSection = async (section: string, work: () => Promise<void>) => {
+  const runSection = async (
+    section: string,
+    failure: { verb: string; thing: string },
+    work: () => Promise<void>
+  ): Promise<void> => {
     if (busySection) return
     setBusySection(section)
-    setSectionErrors((current) => ({ ...current, [section]: `` }))
     try {
       await work()
     } catch (error) {
-      setSectionErrors((current) => ({
-        ...current,
-        [section]: trpcErrorMessage(error, `That didn't go through. Try again.`),
-      }))
+      failedAction(failure.verb, failure.thing, error, {
+        retry: () => void runSection(section, failure, work),
+      })
     } finally {
       setBusySection(null)
     }
@@ -363,18 +363,18 @@ export function DeviceSettingsDialog({
   // toggle (the switches render off the LIVE row, so the server's sorted set
   // streams back on its own). Each write moves ONE team in or out.
   const setShared = (teamId: string, shared: boolean) =>
-    runSection(`sharing`, async () => {
+    runSection(`sharing`, { verb: `update`, thing: `sharing` }, async () => {
       if (!deviceId) return
-      await trpc.devices.setShared.mutate({ deviceId, teamId, shared })
+      await trpc.devices.setShared.mutate({ deviceId, teamId, shared }, SKIP_ERROR_TOAST)
     })
 
   // EXP-622: a single toggle — written straight through, no debounce. The
   // switch renders off the LIVE row, so the server clearing the previous
   // default streams back on its own.
   const setDefault = (isDefault: boolean) =>
-    runSection(`default`, async () => {
+    runSection(`default`, { verb: `update`, thing: `the default device` }, async () => {
       if (!deviceId) return
-      await trpc.devices.setDefault.mutate({ deviceId, isDefault })
+      await trpc.devices.setDefault.mutate({ deviceId, isDefault }, SKIP_ERROR_TOAST)
     })
 
   // ── Autosave (EXP-490) ───────────────────────────────────────────────────
@@ -422,17 +422,20 @@ export function DeviceSettingsDialog({
     if (!snapshot.deviceId || !nextLabel || nextLabel === snapshot.label) return
     sentNameRef.current = nextLabel
     setSavingName(true)
-    setSectionErrors((current) => ({ ...current, name: `` }))
+    setNameError(``)
     void trpc.devices.rename
-      .mutate({ deviceId: snapshot.deviceId, label: nextLabel })
+      .mutate({ deviceId: snapshot.deviceId, label: nextLabel }, SKIP_ERROR_TOAST)
       .catch((error) => {
         sentNameRef.current = null
         latest.current.namePending = true
         setNamePending(true)
-        setSectionErrors((current) => ({
-          ...current,
-          name: trpcErrorMessage(error, `That didn't go through. Try again.`),
-        }))
+        // A name the server refused is the field's own line; anything else
+        // is a failed save (Retry flushes the still-pending name again).
+        if (trpcErrorCode(error) === `BAD_REQUEST`) {
+          setNameError(actionErrorDescription(error) ?? `That name can't be used.`)
+        } else {
+          failedAction(`rename`, `the device`, error, { retry: flushName })
+        }
       })
       .finally(() => setSavingName(false))
   }
@@ -474,7 +477,6 @@ export function DeviceSettingsDialog({
       }
     }
     setSavingDefaults(true)
-    setSectionErrors((current) => ({ ...current, defaults: `` }))
     void trpc.devices.setLaunchDefaults
       .mutate({
         deviceId: snapshot.deviceId,
@@ -487,7 +489,7 @@ export function DeviceSettingsDialog({
           computerUseModel: snapshot.computerUseModel,
           agents,
         },
-      })
+      }, SKIP_ERROR_TOAST)
       .then((result) => {
         const stamp = result.launchDefaultsUpdatedAt
         const parsed = stamp ? Date.parse(stamp) : Number.NaN
@@ -496,13 +498,8 @@ export function DeviceSettingsDialog({
       .catch((error) => {
         latest.current.defaultsPending = true
         setDefaultsPending(true)
-        setSectionErrors((current) => ({
-          ...current,
-          defaults: trpcErrorMessage(
-            error,
-            `That didn't go through. Try again.`
-          ),
-        }))
+        // Retry flushes the still-pending defaults again.
+        failedAction(`save`, `the agent defaults`, error, { retry: flushDefaults })
       })
       .finally(() => setSavingDefaults(false))
   }
@@ -556,7 +553,6 @@ export function DeviceSettingsDialog({
     input: { kind: `agent_update`; agent: string }
   ) => {
     if (!deviceId) return
-    setSectionErrors((current) => ({ ...current, [key]: `` }))
     setSectionNotes((current) => ({ ...current, [key]: `` }))
     try {
       const { id } = await trpc.devices.createCommand.mutate(
@@ -564,16 +560,16 @@ export function DeviceSettingsDialog({
           deviceId,
           ...input,
         },
-        // The section prints the failure itself — no second toast from the
+        // This section names the failure itself — no second toast from the
         // global link.
-        { context: { skipErrorToast: true } }
+        SKIP_ERROR_TOAST
       )
       setTracked((current) => [...current, { id, key }])
     } catch (error) {
-      setSectionErrors((current) => ({
-        ...current,
-        [key]: trpcErrorMessage(error, `Couldn't queue that on the device.`),
-      }))
+      // Queuing the same update again is safe.
+      failedAction(`queue`, `the update`, error, {
+        retry: () => void queueCommand(key, input),
+      })
     }
   }
 
@@ -592,11 +588,7 @@ export function DeviceSettingsDialog({
           if (cancelled || result.status === `pending`) continue
           setTracked((current) => current.filter((c) => c.id !== command.id))
           if (result.status === `failed`) {
-            setSectionErrors((current) => ({
-              ...current,
-              [command.key]:
-                result.result ?? `The device reported a failure.`,
-            }))
+            failedAction(`update`, `the agent`, result.result ?? `The device reported a failure.`)
           } else if (isAgentUpdateKey(command.key) && result.result) {
             // The version move is the outcome — the row's version line
             // follows on the next heartbeat; the message says it now.
@@ -662,8 +654,10 @@ export function DeviceSettingsDialog({
     if (!deviceId || requestingUpdate) return
     setRequestingUpdate(true)
     try {
-      await trpc.devices.requestUpdate.mutate({ deviceId })
+      await trpc.devices.requestUpdate.mutate({ deviceId }, SKIP_ERROR_TOAST)
       onChanged?.()
+    } catch (error) {
+      failedAction(`update`, `the device`, error, { retry: () => void requestUpdate() })
     } finally {
       setRequestingUpdate(false)
     }
@@ -673,9 +667,12 @@ export function DeviceSettingsDialog({
     if (!deviceId || deviceBusy) return
     setDeviceBusy(true)
     try {
-      await trpc.devices.requestUpdate.mutate({ deviceId, endSessions: true })
+      await trpc.devices.requestUpdate.mutate({ deviceId, endSessions: true }, SKIP_ERROR_TOAST)
       setUpdateNowOpen(false)
       onChanged?.()
+    } catch (error) {
+      // It ends live sessions, so no Retry: the prompt stays open.
+      failedAction(`update`, `the device`, error)
     } finally {
       setDeviceBusy(false)
     }
@@ -685,11 +682,13 @@ export function DeviceSettingsDialog({
     if (!deviceId || deviceBusy) return
     setDeviceBusy(true)
     try {
-      await trpc.devices.remove.mutate({ deviceId })
+      await trpc.devices.remove.mutate({ deviceId }, SKIP_ERROR_TOAST)
       setRemoveOpen(false)
       onChanged?.()
       // The row is gone — so is the thing this dialog edits.
       onOpenChange(false)
+    } catch (error) {
+      failedAction(`remove`, `the device`, error)
     } finally {
       setDeviceBusy(false)
     }
@@ -749,8 +748,11 @@ export function DeviceSettingsDialog({
                   className={BARE_FIELD_CLASS}
                   value={nameDraft}
                   maxLength={255}
+                  aria-invalid={nameError ? true : undefined}
+                  aria-describedby={nameError ? `device-settings-name-error` : undefined}
                   onChange={(event) => {
                     setNameDraft(event.target.value)
+                    if (nameError) setNameError(``)
                     scheduleName()
                   }}
                   onFocus={() => {
@@ -768,16 +770,12 @@ export function DeviceSettingsDialog({
                     if (event.key === `Enter`) flushName()
                   }}
                 />
-                {savingName && (
-                  <LoaderCircle className="size-3 shrink-0 animate-spin text-muted-foreground" />
-                )}
+                {savingName && <Spinner label="Saving" />}
               </div>
             </GlassGroup>
-            {sectionErrors.name && (
-              <p className="px-1 text-xs text-destructive">
-                {sectionErrors.name}
-              </p>
-            )}
+            <FieldError id="device-settings-name-error" className="px-1">
+              {nameError}
+            </FieldError>
 
             {/* ── Default device (EXP-622) ─────────────────────────────── */}
             <GlassGroup>
@@ -789,11 +787,6 @@ export function DeviceSettingsDialog({
                 disabled={busySection !== null}
               />
             </GlassGroup>
-            {sectionErrors.default && (
-              <p className="px-1 text-xs text-destructive">
-                {sectionErrors.default}
-              </p>
-            )}
 
             {/* ── Sharing (server devices only, EXP-432/FEED-33) ───────── */}
             {kind === `server` && (
@@ -825,11 +818,6 @@ export function DeviceSettingsDialog({
                   Teammates of a shared team can start coding sessions on this
                   device.
                 </p>
-                {sectionErrors.sharing && (
-                  <p className="px-1 text-xs text-destructive">
-                    {sectionErrors.sharing}
-                  </p>
-                )}
               </>
             )}
 
@@ -844,9 +832,7 @@ export function DeviceSettingsDialog({
                 ) : (
                   <span />
                 )}
-                {savingDefaults && (
-                  <LoaderCircle className="size-3 animate-spin text-muted-foreground" />
-                )}
+                {savingDefaults && <Spinner label="Saving" />}
               </div>
             )}
             {/* ── Readiness (EXP-1196/1218): THE block, device-doctor.json.
@@ -909,16 +895,9 @@ export function DeviceSettingsDialog({
             )}
             {agentUpdateRows.map(({ agent }) => {
               const key = agentUpdateKey(agent)
-              const text = sectionErrors[key] || sectionNotes[key]
+              const text = sectionNotes[key]
               return text ? (
-                <p
-                  key={key}
-                  className={
-                    sectionErrors[key]
-                      ? `px-1 text-xs text-destructive`
-                      : `px-1 text-xs text-muted-foreground`
-                  }
-                >
+                <p key={key} className="px-1 text-xs text-muted-foreground">
                   {text}
                 </p>
               ) : null
@@ -951,11 +930,6 @@ export function DeviceSettingsDialog({
                 patchDraft({ autoRotateAccounts: value })
               }
             />
-            {sectionErrors.defaults && (
-              <p className="px-1 text-xs text-destructive">
-                {sectionErrors.defaults}
-              </p>
-            )}
             {/* ── Update: the daemon row (server devices only — desktop apps
                 update themselves, EXP-420/FEED-36) plus one row per agent CLI
                 the machine reports, each with its own remote self-update. */}
@@ -983,7 +957,12 @@ export function DeviceSettingsDialog({
                             className={
                               outdated ? `text-amber-500` : `text-muted-foreground`
                             }
-                            disabled={device?.updateRequested || requestingUpdate}
+                            disabled={updateQueued}
+                            pending={
+                              !updateQueued &&
+                              Boolean(device?.updateRequested || requestingUpdate)
+                            }
+                            pendingLabel="Updating"
                             title={
                               updateQueued
                                 ? QUEUED_UPDATE_TOOLTIP
@@ -997,11 +976,6 @@ export function DeviceSettingsDialog({
                               <>
                                 <UpdateIcon />
                                 Queued
-                              </>
-                            ) : device?.updateRequested || requestingUpdate ? (
-                              <>
-                                <LoaderCircle className="animate-spin" />
-                                Updating…
                               </>
                             ) : (
                               <>

@@ -126,4 +126,40 @@ class IssueDraftEntityDecodeTest {
         assertEquals(listOf("label-a"), entity.labelIds)
         assertEquals("2026-12-24", entity.dueDate)
     }
+
+    /** EXP-1284: the thread a "New issue in this thread" draft files into. */
+    @Test
+    fun `thread_id decodes in both casings and defaults to none`() {
+        val snake = json.decodeFromString(
+            IssueDraftEntity.serializer(),
+            """{"id":"d-1","thread_id":"t-1"}""",
+        )
+        assertEquals("t-1", snake.threadId)
+        val camel = json.decodeFromString(
+            IssueDraftEntity.serializer(),
+            """{"id":"d-1","threadId":"t-2"}""",
+        )
+        assertEquals("t-2", camel.threadId)
+        assertNull(json.decodeFromString(IssueDraftEntity.serializer(), """{"id":"d-1"}""").threadId)
+        assertNull(json.decodeFromString(IssueDraftEntity.serializer(), """{"id":"d-1","thread_id":null}""").threadId)
+    }
+
+    /** EXP-1284: the upsert carries the thread, and omits it for a plain draft. */
+    @Test
+    fun `the upsert input sends threadId only when set`() {
+        val withThread = json.encodeToString(
+            com.exponential.app.data.api.UpsertIssueDraftInput.serializer(),
+            com.exponential.app.data.api.UpsertIssueDraftInput(
+                id = "d-1", teamId = "team-1", boardId = "b-1", title = "T", description = "", threadId = "t-1",
+            ),
+        )
+        assertTrue(withThread.contains(""""threadId":"t-1""""))
+        val plain = json.encodeToString(
+            com.exponential.app.data.api.UpsertIssueDraftInput.serializer(),
+            com.exponential.app.data.api.UpsertIssueDraftInput(
+                id = "d-1", teamId = "team-1", boardId = "b-1", title = "T", description = "",
+            ),
+        )
+        assertTrue(!plain.contains("threadId"))
+    }
 }

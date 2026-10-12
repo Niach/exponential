@@ -20,7 +20,7 @@ nothing from the Exponential app.
 
 | path | what |
 |---|---|
-| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 17 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 72 components (70 offered + the hidden TreeGuides part and Unknown placeholder; round 4 removed the round-3 aliases) with props + descriptions |
+| `catalog/core.catalog.json` | THE source: ids, enums, shared shapes, functions (the basic 14 + the 17 core ones, `functions.core`), the built-in glyphs (`builtinIcons`), 73 components (71 offered + the hidden TreeGuides part and Unknown placeholder; round 4 removed the round-3 aliases; EXP-1259 added `SearchList`) with props + descriptions |
 | `catalog/macros.json` | the declarative expansion table, one template per macro component |
 | `catalog/basic-map.json` | A2UI basic → core: components (+ named transforms), icons, functions |
 | `catalog/style.json` | the `Box` style whitelist (VAPP-4), one source for TS / schema / natives |
@@ -75,7 +75,7 @@ style?, on?, children: [UiNode], slots?, template?, recipe?}`.
 A theme is **data, never code**: one JSON file (`catalog/theme.schema.json`)
 every renderer loads at runtime, safe to fetch from a URL or a vapp package.
 Three levels of customisation, cheapest first: **tokens** (colours per mode,
-radius, spacing, type, control heights, shadows, border widths, motion),
+radius, spacing, type, control heights, shadows, border widths, motion, the press / popover-enter `scale`),
 **recipes** (per component part × `when` selector a small style object), and a
 **painter override** through the extension API (VAPP-91) that must keep the
 measure contract (`src/geometry.ts`, `fixtures/control-geometry.json`).

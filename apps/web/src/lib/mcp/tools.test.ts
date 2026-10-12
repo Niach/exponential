@@ -322,6 +322,21 @@ vi.mock(`@/lib/run-pr-body`, () => ({
 vi.mock(`@/lib/session-guide-diff`, () => ({
   loadGuideDiff: vi.fn(async () => null),
 }))
+// EXP-1284: threads. Default = the run sits in no thread, so every Guide
+// write takes the pre-thread path (the run's own row); the threads tests arm
+// these per case.
+vi.mock(`@/lib/threads`, () => ({
+  ThreadRuleError: class ThreadRuleError extends Error {},
+  getThread: vi.fn(async () => null),
+  getThreadOfSession: vi.fn(async () => null),
+  linkIssueToThread: vi.fn(async () => ({ added: true })),
+  linkRunToThread: vi.fn(async () => ({ added: true, movedFrom: null })),
+  listThreadIssueIds: vi.fn(async () => []),
+  listThreadIssueRows: vi.fn(async () => []),
+  listThreadRunRows: vi.fn(async () => []),
+  unlinkIssueFromThread: vi.fn(async () => ({ removed: true })),
+  unlinkRunFromThread: vi.fn(async () => ({ removed: true, newThreadId: null })),
+}))
 
 import {
   invalidateOpenPulls,
@@ -379,6 +394,16 @@ import { ALL_MCP_TOOL_GATES, type McpToolGates } from "@/lib/mcp/gates"
 import type { McpUser } from "@/lib/mcp/server"
 import { contract } from "@exp/domain-contract"
 import { mintStartId, recordStartFailure } from "@/lib/start-failures"
+import {
+  getThread,
+  getThreadOfSession,
+  linkIssueToThread,
+  linkRunToThread,
+  listThreadIssueRows,
+  listThreadRunRows,
+  unlinkRunFromThread,
+} from "@/lib/threads"
+import { codingSessions as codingSessionsTable, threads as threadsTable } from "@/db/schema"
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 
@@ -548,6 +573,27 @@ const descriptors: Array<Descriptor> = [
       reporterEmailed: true,
     },
     calledWith: { issueId: UUID, body: `We shipped a fix.`, audience: `reporter` },
+  },
+  // EXP-1241: the issue's identifier rides beside the comment row (the run's
+  // comment card links `<issue>?comment=<id>` off it).
+  {
+    tool: `exponential_comments_create`,
+    pick: () => caller.comments.create,
+    args: { issueId: UUID, body: `Confirmed.` },
+    resolved: {
+      comment: { id: UUID, issueId: UUID, body: `Confirmed.`, source: `mcp` },
+      reporterEmailed: null,
+      txId: 1,
+    },
+    expected: {
+      id: UUID,
+      issueId: UUID,
+      body: `Confirmed.`,
+      source: `mcp`,
+      issueIdentifier: `EXP-42`,
+      reporterEmailed: null,
+    },
+    rows: [{ identifier: `EXP-42` }],
   },
   {
     tool: `exponential_comments_update`,
@@ -1004,7 +1050,7 @@ describe(`exponential_pr_update`, () => {
   it(`refuses a call with no subject and no run header`, async () => {
     const result = await tool(`exponential_pr_update`)({ title: `x` })
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`no run header`)
+    expect(result.content[0].text).toContain(`no session header`)
     expect(caller.issues.updatePr).not.toHaveBeenCalled()
   })
 
@@ -2691,7 +2737,7 @@ describe(`exponential_comments_create audience reporter`, () => {
   })
 
   it.each([`schedule`, `event`, `agent`])(
-    `refuses an unattended run (%s)`,
+    `refuses an unattended session (%s)`,
     async (startedReason) => {
       dbRows.current = [ownRun(startedReason)]
       const result = await collectTools(USER, SESSION).get(
@@ -3138,7 +3184,7 @@ describe(`exponential_sessions_show`, () => {
   it(`refuses another member's run and an ended one`, async () => {
     dbRows.current = [runRow({ userId: `user-2` })]
     const tool = collectTools(USER, SESSION, OWN_RUN).get(`exponential_sessions_show`)!
-    expect((await tool({ file: `a.png` })).content[0].text).toContain(`not your run`)
+    expect((await tool({ file: `a.png` })).content[0].text).toContain(`not your session`)
     dbRows.current = [runRow({ status: `ended` })]
     expect((await tool({ file: `a.png` })).content[0].text).toContain(`ended`)
   })
@@ -3229,6 +3275,8 @@ describe(`exponential_sessions_guide`, () => {
         select: () => txSelect,
         update: h.db.update,
         delete: h.db.delete,
+        // EXP-1284: the Guide owner read (resume chain + first session).
+        execute: h.db.execute,
       })
     })
   })
@@ -3258,7 +3306,7 @@ describe(`exponential_sessions_guide`, () => {
       `exponential_sessions_guide`
     )!({ topic: `chatui`, label: `web` })
     expect(result.isError).toBe(true)
-    expect(result.content[0].text).toContain(`not your run`)
+    expect(result.content[0].text).toContain(`not your session`)
   })
 
   it(`requires a label to publish a picture`, async () => {
@@ -3700,7 +3748,7 @@ describe(`exponential_sessions_message`, () => {
         id: TARGET,
         delivered: true,
         consumed: false,
-        note: `The run's agent did not start a turn within 6s: the text reached its device but nothing is reading it. Kill the run (exponential_sessions_kill) and start it again with resumeSessionId (the resumed run continues the transcript), then message the new run.`,
+        note: `The session's agent did not start a turn within 6s: the text reached its device but nothing is reading it. Kill the session (exponential_sessions_kill) and start it again with resumeSessionId (the resumed session continues the transcript), then message the new session.`,
       })
     } finally {
       vi.useRealTimers()
@@ -3720,7 +3768,7 @@ describe(`exponential_sessions_message`, () => {
     expect(relayPostInput).toHaveBeenCalledWith(
       RELAY,
       TARGET,
-      `[Answer from your parent run ${SESSION.slice(0, 8)} via exponential_sessions_message] Use staging.`
+      `[Answer from your parent session ${SESSION.slice(0, 8)} via exponential_sessions_message] Use staging.`
     )
   })
 
@@ -5738,7 +5786,7 @@ describe(`exponential_sessions_kill`, () => {
       id: UUID,
     })
     expect(parseOk(result)).toMatchObject({
-      note: `The run's worktree on its device reported uncommitted changes (tracked, as of 2026-09-30T10:00:00.000Z); the device saves them as a WIP commit on exp/EXP-1 when it tears the run down.`,
+      note: `The session's worktree on its device reported uncommitted changes (tracked, as of 2026-09-30T10:00:00.000Z); the device saves them as a WIP commit on exp/EXP-1 when it tears the session down.`,
     })
     const { params } = renderWhere()
     expect(params).toContain(`mac-1`)
@@ -6113,7 +6161,7 @@ describe(`exponential_sessions_start`, () => {
       const result = await pending
       expect(result.isError).toBe(true)
       expect(result.content[0].text).toBe(
-          `Device mac-1 took the start but reported no run within 10s. Check that it is online (exponential_devices_list), its app or daemon log, and whether a live run already holds the issue (exponential_sessions_list). Check exponential_sessions_list before starting again: the run may still appear.`
+          `Device mac-1 took the start but reported no session within 10s. Check that it is online (exponential_devices_list), its app or daemon log, and whether a live session already holds the issue (exponential_sessions_list). Check exponential_sessions_list before starting again: the session may still appear.`
       )
     } finally {
       vi.useRealTimers()
@@ -6143,7 +6191,7 @@ describe(`exponential_sessions_start`, () => {
       const result = await pending
       expect(result.isError).toBe(true)
       expect(result.content[0].text).toBe(
-        `Device mac-1 could not start the run: git checkout refused: uncommitted changes`
+        `Device mac-1 could not start the session: git checkout refused: uncommitted changes`
       )
     } finally {
       vi.useRealTimers()
@@ -6857,5 +6905,524 @@ describe(`MCP Apps bindings (EXP-1212)`, () => {
 
   it(`binds none inside a coding run`, () => {
     expect(uiBoundTools(SESSION)).toEqual([])
+  })
+})
+
+// ── EXP-1284: threads over MCP ───────────────────────────────────────────────
+// The agent decides what belongs in its thread. Default thread = the caller's
+// run's (X-Exp-Session-Id); every link is an `agent` link naming that run; a
+// run moves only at its owner's hand; pr_open with no subject = the thread's
+// issues; the Guide is the thread's (locked, mirrored onto the run).
+describe(`threads (EXP-1284)`, () => {
+  const TH = `aaaaaaaa-0000-4000-8000-000000000001`
+  const OTHER_TH = `aaaaaaaa-0000-4000-8000-000000000002`
+  const I1 = `bbbbbbbb-0000-4000-8000-000000000001`
+  const I2 = `bbbbbbbb-0000-4000-8000-000000000002`
+  const threadRow = (over: Record<string, unknown> = {}) => ({
+    id: TH,
+    teamId: `ws-1`,
+    title: null,
+    createdBy: `user-1`,
+    results: null,
+    createdAt: new Date(`2026-10-01T00:00:00Z`),
+    updatedAt: new Date(`2026-10-02T00:00:00Z`),
+    ...over,
+  })
+  // loadCallerSession's read: the header run, the caller's own.
+  const ownRun = (over: Record<string, unknown> = {}) => ({
+    id: SESSION,
+    teamId: `ws-1`,
+    boardId: null,
+    userId: `user-1`,
+    hostUserId: null,
+    status: `running`,
+    branch: `exp/chat-1a2b3c4d`,
+    ...over,
+  })
+  const passTx = () =>
+    db.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => fn(db))
+
+  beforeEach(() => {
+    vi.mocked(getThread).mockReset().mockResolvedValue(null)
+    vi.mocked(getThreadOfSession).mockReset().mockResolvedValue(null)
+    vi.mocked(listThreadIssueRows).mockReset().mockResolvedValue([])
+    vi.mocked(listThreadRunRows).mockReset().mockResolvedValue([])
+    vi.mocked(linkIssueToThread).mockReset().mockResolvedValue({ added: true })
+    vi.mocked(linkRunToThread)
+      .mockReset()
+      .mockResolvedValue({ added: true, movedFrom: null })
+    passTx()
+    // An earlier describe may have swapped the update stub out.
+    db.update.mockImplementation(() => ({
+      set: (values: Record<string, unknown>) => {
+        updateSet(values)
+        return { where: async () => undefined }
+      },
+    }))
+  })
+
+  it(`threads_get defaults to the caller's run's thread and derives the title`, async () => {
+    dbRows.current = [ownRun()]
+    vi.mocked(getThreadOfSession).mockResolvedValue({ id: TH, teamId: `ws-1` })
+    vi.mocked(getThread).mockResolvedValue(threadRow() as never)
+    vi.mocked(listThreadIssueRows).mockResolvedValue([
+      {
+        id: I1,
+        identifier: `EXP-7`,
+        title: `Checkout redesign`,
+        status: `in_progress`,
+        statusId: null,
+        boardId: `proj-1`,
+        teamId: `ws-1`,
+        prUrl: null,
+        prState: null,
+        source: `agent`,
+        addedBy: `user-1`,
+        addedBySessionId: SESSION,
+      },
+    ] as never)
+    vi.mocked(listThreadRunRows).mockResolvedValue([
+      {
+        id: SESSION,
+        teamId: `ws-1`,
+        boardId: null,
+        issueId: null,
+        userId: `user-1`,
+        hostUserId: null,
+        status: `running`,
+        agentTitle: `Redesign checkout`,
+        actionName: null,
+        branch: `exp/chat-1a2b3c4d`,
+        prUrl: null,
+        prState: null,
+        parentSessionId: null,
+        startedAt: new Date(`2026-10-02T00:00:00Z`),
+        endedAt: null,
+        source: `user`,
+        addedBySessionId: null,
+      },
+    ] as never)
+
+    const payload = parseOk(
+      await collectTools(USER, SESSION).get(`exponential_threads_get`)!({})
+    ) as Record<string, unknown>
+    expect(getThreadOfSession).toHaveBeenCalledWith(db, SESSION)
+    expect(payload).toMatchObject({
+      id: TH,
+      teamId: `ws-1`,
+      title: `Checkout redesign`,
+      titleDerived: true,
+      issues: [{ id: I1, identifier: `EXP-7`, source: `agent`, addedBySessionId: SESSION }],
+      runs: [{ id: SESSION, name: `Redesign checkout`, live: true, status: `running` }],
+    })
+    // Server-only columns never ride the answer.
+    const issue = (payload.issues as Array<Record<string, unknown>>)[0]!
+    expect(issue).not.toHaveProperty(`addedBy`)
+    expect(issue).not.toHaveProperty(`teamId`)
+    expect((payload.runs as Array<Record<string, unknown>>)[0]).not.toHaveProperty(`hostUserId`)
+  })
+
+  it(`threads_get without a thread id outside a run says to pass one`, async () => {
+    const result = await tool(`exponential_threads_get`)({})
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`Pass threadId`)
+  })
+
+  it(`threads_get cuts the issues to a board-confined grant and hides other teams`, async () => {
+    const confined: McpAccess = {
+      full: false,
+      fullTeamIds: new Set(),
+      grantedBoardIds: new Set([`proj-1`]),
+      visibleTeamIds: new Set([`ws-1`]),
+    }
+    vi.mocked(getThread).mockResolvedValue(threadRow() as never)
+    vi.mocked(listThreadIssueRows).mockResolvedValue([
+      { id: I1, title: `Mine`, boardId: `proj-1`, teamId: `ws-1` },
+      { id: I2, title: `Not granted`, boardId: `proj-2`, teamId: `ws-1` },
+    ] as never)
+    const payload = parseOk(
+      await collectTools(USER, null, ALL_MCP_TOOL_GATES, confined).get(
+        `exponential_threads_get`
+      )!({ threadId: TH })
+    ) as { issues: Array<{ id: string }> }
+    expect(payload.issues.map((issue) => issue.id)).toEqual([I1])
+
+    vi.mocked(getThread).mockResolvedValue(threadRow({ teamId: `ws-9` }) as never)
+    const hidden = await collectTools(USER, null, ALL_MCP_TOOL_GATES, confined).get(
+      `exponential_threads_get`
+    )!({ threadId: TH })
+    expect(hidden.content[0].text).toBe(`Thread not found`)
+  })
+
+  it(`threads_link files an issue as an AGENT link naming the caller's run`, async () => {
+    dbRows.current = [ownRun()]
+    vi.mocked(getThreadOfSession).mockResolvedValue({ id: TH, teamId: `ws-1` })
+    vi.mocked(getThread).mockResolvedValue(threadRow() as never)
+    const payload = parseOk(
+      await collectTools(USER, SESSION).get(`exponential_threads_link`)!({ issueId: I1 })
+    )
+    expect(payload).toEqual({ threadId: TH, issueId: I1, added: true })
+    expect(linkIssueToThread).toHaveBeenCalledWith(
+      db,
+      { id: TH, teamId: `ws-1` },
+      I1,
+      { userId: `user-1`, sessionId: SESSION, source: `agent` }
+    )
+    expect(membership.resolveTeamAccess).toHaveBeenCalledWith(`user-1`, `ws-1`, `comment`)
+  })
+
+  it(`threads_link takes exactly one target`, async () => {
+    const result = await tool(`exponential_threads_link`)({
+      threadId: TH,
+      issueId: I1,
+      sessionId: RUN,
+    })
+    expect(result.content[0].text).toContain(`exactly one of issueId or sessionId`)
+  })
+
+  it(`threads_link refuses to move a run the caller neither owns nor hosts`, async () => {
+    vi.mocked(getThread).mockResolvedValue(threadRow() as never)
+    dbRows.current = [ownRun({ id: RUN, userId: `user-2`, hostUserId: `user-3` })]
+    const result = await tool(`exponential_threads_link`)({ threadId: TH, sessionId: RUN })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`Only the session's owner`)
+    expect(linkRunToThread).not.toHaveBeenCalled()
+  })
+
+  it(`threads_link moves the caller's own run and names where it came from`, async () => {
+    vi.mocked(getThread).mockResolvedValue(threadRow() as never)
+    vi.mocked(linkRunToThread).mockResolvedValue({ added: true, movedFrom: OTHER_TH })
+    dbRows.current = [ownRun({ id: RUN })]
+    const payload = parseOk(
+      await tool(`exponential_threads_link`)({ threadId: TH, sessionId: RUN })
+    )
+    expect(payload).toEqual({ threadId: TH, sessionId: RUN, added: true, movedFrom: OTHER_TH })
+    expect(linkRunToThread).toHaveBeenCalledWith(
+      db,
+      { id: TH, teamId: `ws-1` },
+      { id: RUN, teamId: `ws-1` },
+      { userId: `user-1`, sessionId: null, source: `agent` }
+    )
+  })
+
+  it(`threads_link into ANOTHER thread needs a whole-team grant`, async () => {
+    const confined: McpAccess = {
+      full: false,
+      fullTeamIds: new Set(),
+      grantedBoardIds: new Set([`proj-1`]),
+      visibleTeamIds: new Set([`ws-1`]),
+    }
+    vi.mocked(getThread).mockResolvedValue(threadRow() as never)
+    const result = await collectTools(USER, null, ALL_MCP_TOOL_GATES, confined).get(
+      `exponential_threads_link`
+    )!({ threadId: TH, issueId: I1 })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`not granted access`)
+    expect(linkIssueToThread).not.toHaveBeenCalled()
+  })
+
+  it(`threads_unlink moves a run into a fresh thread of its own`, async () => {
+    vi.mocked(getThread).mockResolvedValue(threadRow() as never)
+    vi.mocked(unlinkRunFromThread).mockResolvedValue({
+      removed: true,
+      newThreadId: OTHER_TH,
+    })
+    dbRows.current = [ownRun({ id: RUN })]
+    const payload = parseOk(
+      await tool(`exponential_threads_unlink`)({ threadId: TH, sessionId: RUN })
+    )
+    expect(payload).toEqual({ threadId: TH, sessionId: RUN, removed: true, newThreadId: OTHER_TH })
+  })
+
+  it(`threads_update sets a title, '' clears it`, async () => {
+    vi.mocked(getThread).mockResolvedValue(threadRow({ title: `Checkout` }) as never)
+    await tool(`exponential_threads_update`)({ threadId: TH, title: `  Checkout  ` })
+    expect(db.update).toHaveBeenCalledWith(threadsTable)
+    expect(updateSet).toHaveBeenCalledWith(expect.objectContaining({ title: `Checkout` }))
+    await tool(`exponential_threads_update`)({ threadId: TH, title: `` })
+    expect(updateSet).toHaveBeenLastCalledWith(expect.objectContaining({ title: null }))
+    expect(membership.resolveTeamAccess).toHaveBeenCalledWith(
+      `user-1`,
+      `ws-1`,
+      `mutate_resources`
+    )
+  })
+
+  it(`issues_create{threadId} files the new issue into the thread as an agent link`, async () => {
+    vi.mocked(getThread).mockResolvedValue(threadRow() as never)
+    caller.issues.create.mockResolvedValue({ issue: { id: I2, identifier: `EXP-8` } })
+    dbRows.current = [ownRun()]
+    const payload = parseOk(
+      await collectTools(USER, SESSION).get(`exponential_issues_create`)!({
+        boardId: PROJ,
+        title: `Split the form`,
+        threadId: TH,
+      })
+    )
+    expect(payload).toEqual({ id: I2, identifier: `EXP-8`, threadId: TH })
+    // The tRPC create never sees the thread: the MCP link is the agent's.
+    expect(caller.issues.create.mock.calls[0]![0]).not.toHaveProperty(`threadId`)
+    expect(linkIssueToThread).toHaveBeenCalledWith(db, { id: TH, teamId: `ws-1` }, I2, {
+      userId: `user-1`,
+      sessionId: SESSION,
+      source: `agent`,
+    })
+  })
+
+  it(`issues_create{threadId} refuses a thread of another team before creating`, async () => {
+    vi.mocked(getThread).mockResolvedValue(threadRow({ teamId: `ws-9` }) as never)
+    const result = await tool(`exponential_issues_create`)({
+      boardId: PROJ,
+      title: `Split the form`,
+      threadId: TH,
+    })
+    expect(result.isError).toBe(true)
+    expect(caller.issues.create).not.toHaveBeenCalled()
+  })
+
+  it(`pr_open with no subject opens ONE PR for every issue of the caller's thread`, async () => {
+    caller.repositories.forIssue.mockResolvedValue({
+      repositoryId: REPO,
+      fullName: `acme/app`,
+      defaultBranch: `main`,
+    })
+    vi.mocked(resolveRepoInstallationTokenInfo).mockResolvedValue({
+      token: `tok`,
+      installationId: 42,
+    } as never)
+    vi.mocked(createPullRequest).mockResolvedValue({
+      url: `https://github.com/acme/app/pull/300`,
+      number: 300,
+    } as never)
+    const linked: unknown[] = []
+    db.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const txSelect: Record<string, unknown> = {}
+      for (const method of [`from`, `where`, `limit`]) txSelect[method] = () => txSelect
+      ;(txSelect as { then: unknown }).then = (resolve: (v: unknown) => unknown) =>
+        Promise.resolve([{ status: `backlog` }]).then(resolve)
+      return fn({
+        select: () => txSelect,
+        update: () => ({
+          set: (values: Record<string, unknown>) => ({
+            where: async (cond: unknown) => {
+              if (values.prUrl) linked.push(cond)
+            },
+          }),
+        }),
+      })
+    })
+    dbRows.current = [ownRun()]
+    vi.mocked(getThreadOfSession).mockResolvedValue({ id: TH, teamId: `ws-1` })
+    // Review T1: an issue whose PR merged (or closed) is done work, never
+    // re-linked to the new PR.
+    const I3 = `bbbbbbbb-0000-4000-8000-000000000003`
+    const I4 = `bbbbbbbb-0000-4000-8000-000000000004`
+    vi.mocked(listThreadIssueRows).mockResolvedValue([
+      { id: I1, prState: null },
+      { id: I3, prState: `merged` },
+      { id: I2, prState: `open` },
+      { id: I4, prState: `closed` },
+    ] as never)
+
+    const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({
+      title: `Checkout redesign`,
+    })
+    expect(parseOk(result)).toMatchObject({ number: 300 })
+    expect(listThreadIssueRows).toHaveBeenCalledWith(db, TH)
+    expect(caller.repositories.forIssue).toHaveBeenCalledWith({ issueId: I1 })
+    expect(caller.repositories.forIssue).toHaveBeenCalledWith({ issueId: I2 })
+    expect(caller.repositories.forIssue).not.toHaveBeenCalledWith({ issueId: I3 })
+    expect(caller.repositories.forIssue).not.toHaveBeenCalledWith({ issueId: I4 })
+    // The head is the run's own pushed branch (a chat run's, not an issue's).
+    expect(JSON.stringify(vi.mocked(createPullRequest).mock.calls[0])).toContain(
+      `exp/chat-1a2b3c4d`
+    )
+    // Both issues linked, plus the caller's run stamped with the PR.
+    expect(linked.length).toBeGreaterThanOrEqual(2)
+  })
+
+  it(`pr_open with no subject and an issue-less thread keeps the old error`, async () => {
+    dbRows.current = [ownRun()]
+    vi.mocked(getThreadOfSession).mockResolvedValue({ id: TH, teamId: `ws-1` })
+    const result = await collectTools(USER, SESSION).get(`exponential_pr_open`)!({
+      title: `Nothing`,
+    })
+    expect(result.isError).toBe(true)
+    expect(result.content[0].text).toContain(`Provide exactly one of issueId, issueIds or repositoryId`)
+    const outside = await tool(`exponential_pr_open`)({ title: `Nothing` })
+    expect(outside.content[0].text).toContain(`Provide exactly one of`)
+  })
+
+  it(`sessions_start{threadId} refuses a resume and an unknown thread`, async () => {
+    const resume = await tool(`exponential_sessions_start`)({
+      deviceId: `mac-1`,
+      resumeSessionId: RUN,
+      threadId: TH,
+    })
+    expect(resume.content[0].text).toContain(`cannot ride a resume`)
+    const unknown = await tool(`exponential_sessions_start`)({
+      deviceId: `mac-1`,
+      issueId: UUID,
+      threadId: TH,
+    })
+    expect(unknown.content[0].text).toBe(`Thread not found`)
+    expect(caller.steer.startSession).not.toHaveBeenCalled()
+  })
+
+  it(`sessions_start{threadId} forwards it and moves a run the device placed elsewhere`, async () => {
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    vi.mocked(getThread).mockResolvedValue(threadRow() as never)
+    // The device did not echo the thread: its start placed the run in the
+    // issue's own thread.
+    vi.mocked(getThreadOfSession).mockResolvedValue({ id: OTHER_TH, teamId: `ws-1` })
+    dbRows.current = [{ id: RUN, teamId: `ws-1`, status: `running`, issueId: UUID, deviceId: `mac-1` }]
+    const payload = parseOk(
+      await tool(`exponential_sessions_start`)({ deviceId: `mac-1`, issueId: UUID, threadId: TH })
+    ) as { session: { threadId: string } }
+    expect(caller.steer.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: TH })
+    )
+    expect(linkRunToThread).toHaveBeenCalledWith(
+      db,
+      { id: TH, teamId: `ws-1` },
+      { id: RUN, teamId: `ws-1` },
+      { userId: `user-1`, sessionId: null, source: `agent` }
+    )
+    expect(linkIssueToThread).toHaveBeenCalledWith(db, { id: TH, teamId: `ws-1` }, UUID, {
+      userId: `user-1`,
+      sessionId: null,
+      source: `agent`,
+    })
+    expect(payload.session.threadId).toBe(TH)
+
+    // A device that echoed it leaves nothing to do.
+    vi.mocked(linkRunToThread).mockClear()
+    vi.mocked(getThreadOfSession).mockResolvedValue({ id: TH, teamId: `ws-1` })
+    await tool(`exponential_sessions_start`)({ deviceId: `mac-1`, issueId: UUID, threadId: TH })
+    expect(linkRunToThread).not.toHaveBeenCalled()
+  })
+
+  // The Guide is the THREAD's: the run lock, then the thread's; both written.
+  it(`sessions_guide writes the thread's Guide and mirrors it onto the run`, async () => {
+    const GUIDE_GATES = {
+      sessionsEnd: false,
+      unattended: false,
+      askParent: false,
+      sessionResults: true,
+    }
+    vi.mocked(getThreadOfSession).mockResolvedValue({ id: TH, teamId: `ws-1` })
+    // Another session's entry (stamped): never this session's to replace,
+    // and never in its answer (review T1).
+    const otherRunsTopic = {
+      topic: `Summary`,
+      label: null,
+      attachmentId: null,
+      width: null,
+      height: null,
+      text: `Filed by the first run`,
+      sessionId: RUN,
+    }
+    // Locked reads in order: the run row, then the thread row.
+    const lockedReads: unknown[][] = [[{ results: null }], [{ results: [otherRunsTopic] }]]
+    const fors: unknown[] = []
+    db.transaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        select: () => {
+          const rows = lockedReads.shift() ?? []
+          const q: Record<string, unknown> = {}
+          for (const m of [`from`, `where`, `limit`]) q[m] = () => q
+          q.for = (mode: unknown) => {
+            fors.push(mode)
+            return Promise.resolve(rows)
+          }
+          return q
+        },
+        update: h.db.update,
+        execute: h.db.execute,
+      }
+      return fn(tx)
+    })
+    dbRows.current = [
+      {
+        id: SESSION,
+        userId: `user-1`,
+        hostUserId: null,
+        status: `running`,
+        results: null,
+        threadResults: [otherRunsTopic],
+      },
+    ]
+    const payload = parseOk(
+      await collectTools(USER, SESSION, GUIDE_GATES).get(`exponential_sessions_guide`)!({
+        topic: `Summary`,
+        text: `The form`,
+      })
+    ) as { results: unknown }
+    expect(fors).toEqual([`update`, `update`])
+    // Its own Summary files BESIDE the other session's, stamped with it.
+    expect(payload.results).toEqual([{ topic: `Summary`, text: 8 }])
+    expect(db.update.mock.calls.map((call) => (call as unknown[])[0])).toEqual([
+      threadsTable,
+      codingSessionsTable,
+    ])
+    const [threadWrite, mirror] = updateSet.mock.calls.map((call) => call[0])
+    expect(threadWrite.results).toEqual(mirror.results)
+    expect(mirror.results).toEqual([
+      otherRunsTopic,
+      expect.objectContaining({ topic: `Summary`, text: `The form`, sessionId: SESSION }),
+    ])
+  })
+
+  // Review T16: starting into / filing into a thread WRITES to it, so both
+  // take the grant threads_link takes.
+  it(`sessions_start{threadId} and issues_create{threadId} into ANOTHER thread need a whole-team grant`, async () => {
+    const confined: McpAccess = {
+      full: false,
+      fullTeamIds: new Set(),
+      grantedBoardIds: new Set([PROJ]),
+      visibleTeamIds: new Set([`ws-1`]),
+    }
+    vi.mocked(getThread).mockResolvedValue(threadRow() as never)
+    membership.getBoardTeamId.mockResolvedValue({ id: PROJ, teamId: `ws-1` } as never)
+    const tools = collectTools(USER, null, ALL_MCP_TOOL_GATES, confined)
+    const started = await tools.get(`exponential_sessions_start`)!({
+      deviceId: `mac-1`,
+      issueId: UUID,
+      threadId: TH,
+    })
+    expect(started.isError).toBe(true)
+    expect(started.content[0].text).toContain(`not granted access`)
+    expect(caller.steer.startSession).not.toHaveBeenCalled()
+    const created = await tools.get(`exponential_issues_create`)!({
+      boardId: PROJ,
+      title: `Split the form`,
+      threadId: TH,
+    })
+    expect(created.isError).toBe(true)
+    expect(created.content[0].text).toContain(`not granted access`)
+    expect(caller.issues.create).not.toHaveBeenCalled()
+  })
+
+  it(`sessions_start{threadId} into the caller's OWN thread needs no more than that`, async () => {
+    const confined: McpAccess = {
+      full: false,
+      fullTeamIds: new Set(),
+      grantedBoardIds: new Set([`proj-1`]),
+      visibleTeamIds: new Set([`ws-1`]),
+    }
+    caller.steer.startSession.mockResolvedValue({ ok: true })
+    vi.mocked(getThread).mockResolvedValue(threadRow() as never)
+    vi.mocked(getThreadOfSession).mockResolvedValue({ id: TH, teamId: `ws-1` })
+    membership.getIssueTeamContext.mockResolvedValue({
+      boardId: `proj-1`,
+      teamId: `ws-1`,
+    } as never)
+    dbRows.current = [ownRun({ id: SESSION })]
+    await collectTools(USER, SESSION, ALL_MCP_TOOL_GATES, confined).get(
+      `exponential_sessions_start`
+    )!({ deviceId: `mac-1`, issueId: UUID, threadId: TH })
+    expect(caller.steer.startSession).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: TH })
+    )
   })
 })

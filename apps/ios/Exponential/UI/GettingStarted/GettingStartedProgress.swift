@@ -2,68 +2,44 @@ import ExpCore
 import Foundation
 import GRDB
 
-/// Live completion state of the getting-started checklist (EXP-698 r5).
+/// Live completion state of Getting started (EXP-698 r5, EXP-1270).
 ///
 /// Every signal but one is a synced table this client already holds, so the
-/// checklist ticks itself off the moment the desktop registers, a board gains a
-/// repository or the first coding session starts — no polling, no refresh
-/// button. The exception is the GitHub connection, which is server-only
-/// (`repositories` is never synced and installations list live off the
-/// member's GitHub account): that is one tRPC read on mount.
+/// block ticks itself off the moment the desktop registers, a board appears or
+/// the first run starts: no polling, no refresh button. The exception is the
+/// GitHub connection, which is server-only (`repositories` is never synced and
+/// installations list live off the member's GitHub account): that is one tRPC
+/// read on mount.
 ///
-/// The derivation is a 1:1 port of web's `deriveEntryStates`
-/// (`getting-started-model.ts`) minus the three web-only entries — same order,
-/// same gating, same lock chain. Natives have no `canManageMembers` capability
-/// of their own, so the two entries web gates on it (invite) and on ownership
-/// (action) both gate on `isOwner` here.
+/// EXP-1270 (EXP-1259 D6): the derivation is ExpCore's
+/// `GettingStarted.derive` (the fixture-locked port of web's
+/// `deriveGettingStarted`) on the `phone` platform: the eight steps minus the
+/// two web-managed ones, the next one highlighted, no locked state.
+/// `canManageMembers` = the viewer OWNS the team (web `use-team-permissions`),
+/// read off their own `team_members` row.
 @Observable
 @MainActor
 final class GettingStartedProgress {
-    enum EntryState {
-        case done
-        case available
-        case locked
-    }
-
-    struct Entry: Identifiable {
-        let key: GettingStartedEntryKey
-        let state: EntryState
-        /// For locked entries: the step whose completion unlocks this one.
-        let lockedBy: GettingStartedEntryKey?
-
-        var id: String { key.rawValue }
-    }
-
-    /// The raw signals, exactly the subset of web's `GettingStartedSignals`
-    /// mobile can observe.
+    /// The raw signals the phones can observe (MCP + widget never show here).
     private struct Signals: Equatable {
-        var hasDesktopDevice = false
-        var hasServerDevice = false
-        var githubInstalled = false
-        var hasInvitedTeam = false
-        var hasBoard = false
-        var hasRepoBoard = false
-        var hasCodingSession = false
-        var hasAction = false
-        /// Natives have no `canManageMembers` capability of their own, so the
-        /// two entries web gates on it (invite) and on ownership (action) both
-        /// gate on this — read off the viewer's own `team_members` row.
+        var model = GettingStarted.Signals()
         var isOwner = false
     }
 
-    private(set) var entries: [Entry] = []
-    private(set) var done = 0
-    private(set) var total = 0
-    /// True until the first observation emission lands. Loading counts as
-    /// incomplete-unknown: the cards render neutral rather than flashing a
-    /// full checklist of "available" steps.
+    /// The block as the model derives it (nil until bound).
+    private(set) var state: GettingStarted.State?
+    /// True until the first observation emission lands: the block stays
+    /// hidden rather than flashing every step as open.
     private(set) var loading = true
 
-    /// EXP-548: the checklist has no dismissal — it simply disappears once
-    /// every visible entry is done.
-    var complete: Bool { total > 0 && done == total }
+    var entries: [GettingStarted.Entry] { state?.entries ?? [] }
+    /// The block (and its entry) disappear once every visible step is done.
+    var complete: Bool { state?.complete ?? false }
 
     private var signals = Signals()
+    /// The one-shot `integrations.github.status` answer, kept apart from the
+    /// observed board rule so a re-emission never drops it.
+    private var githubStatusInstalled = false
     private var boundKey: String?
     /// What the GitHub retry needs to re-run itself after a transient failure.
     private var boundAccountId: String?
@@ -93,6 +69,7 @@ final class GettingStartedProgress {
         boundKey = key
         loading = true
         signals = Signals()
+        githubStatusInstalled = false
         recompute()
 
         guard let pool = try? deps.db.pool(forAccountId: accountId) else { return }
@@ -101,30 +78,30 @@ final class GettingStartedProgress {
         boundTeamId = teamId
         integrationsApi = deps.integrationsApi
 
-        // ONE observation over the six tables: GRDB tracks every region the
-        // fetch reads, so a device registering, a board gaining a repo and the
-        // first action all re-emit through the same stream.
+        // ONE observation over the five tables: GRDB tracks every region the
+        // fetch reads, so a device registering, the first board and the first
+        // run all re-emit through the same stream.
         let observation = ValueObservation.tracking { db -> Signals in
             var next = Signals()
             // OWN machines only. The devices shape also carries teammates'
             // SHARED servers, and an unknown viewer id must read as "no
-            // machine of mine" rather than counting somebody else's — the
-            // checklist would tick off Get-the-desktop-app for a user who
-            // never installed it, and unlock the coding step behind it.
+            // machine of mine" rather than counting somebody else's.
             if let userId {
                 for device in try DeviceEntity.fetchAll(db) where device.userId == userId {
-                    if device.kind == "desktop" { next.hasDesktopDevice = true }
-                    if device.kind == "server" { next.hasServerDevice = true }
+                    if device.kind == "desktop" { next.model.hasDesktopDevice = true }
+                    if device.kind == "server" { next.model.hasServerDevice = true }
                 }
             }
             let boards = try BoardEntity.fetchAll(db).filter { $0.teamId == teamId }
-            next.hasBoard = !boards.isEmpty
-            next.hasRepoBoard = boards.contains { $0.repositoryId != nil }
-            next.hasCodingSession = try CodingSessionEntity.fetchAll(db).contains { $0.teamId == teamId }
-            next.hasAction = try ActionEntity.fetchAll(db).contains { $0.teamId == teamId }
+            next.model.hasBoard = !boards.isEmpty
+            // A repo-backed board proves a teammate connected GitHub for the
+            // team: the step is done for everyone, not only for whoever
+            // linked it.
+            next.model.githubInstalled = boards.contains { $0.repositoryId != nil }
+            next.model.hasCodingSession = try CodingSessionEntity.fetchAll(db).contains { $0.teamId == teamId }
             let members = try TeamMemberEntity.fetchAll(db).filter { $0.teamId == teamId }
             let invites = try TeamInviteEntity.fetchAll(db).filter { $0.teamId == teamId }
-            next.hasInvitedTeam = members.count > 1 || !invites.isEmpty
+            next.model.hasInvitedTeam = members.count > 1 || !invites.isEmpty
             next.isOwner = members.contains { $0.userId == userId && $0.role == "owner" }
             return next
         }
@@ -133,9 +110,9 @@ final class GettingStartedProgress {
             do {
                 for try await next in observation.values(in: pool) {
                     guard let self else { return }
-                    // The one-shot GitHub read below owns that flag; keep it.
+                    // The one-shot GitHub read below counts too; keep it.
                     var merged = next
-                    merged.githubInstalled = self.signals.githubInstalled
+                    merged.model.githubInstalled = next.model.githubInstalled || self.githubStatusInstalled
                     self.signals = merged
                     self.loading = false
                     self.recompute()
@@ -156,7 +133,7 @@ final class GettingStartedProgress {
     /// re-runs this when the app comes back to the foreground (and after a
     /// trip to team settings, where the install actually happens).
     func refreshGithubStatus() {
-        guard !signals.githubInstalled,
+        guard !signals.model.githubInstalled,
               let accountId = boundAccountId,
               let teamId = boundTeamId,
               let api = integrationsApi
@@ -168,7 +145,8 @@ final class GettingStartedProgress {
         tasks.add(Task { [weak self] in
             let status = try? await api.githubStatus(accountId: accountId, teamId: teamId)
             guard let self, let status, status.installed else { return }
-            self.signals.githubInstalled = true
+            self.githubStatusInstalled = true
+            self.signals.model.githubInstalled = true
             self.recompute()
         })
     }
@@ -181,76 +159,18 @@ final class GettingStartedProgress {
         integrationsApi = nil
     }
 
-    // MARK: - Derivation (port of web's deriveEntryStates)
+    // MARK: - Derivation
 
     private func recompute() {
-        var next: [Entry] = []
-
-        next.append(Entry(
-            key: .desktop,
-            state: signals.hasDesktopDevice ? .done : .available,
-            lockedBy: nil
-        ))
-
-        next.append(Entry(
-            key: .github,
-            state: signals.githubInstalled ? .done : .available,
-            lockedBy: nil
-        ))
-
-        if signals.isOwner {
-            next.append(Entry(
-                key: .invite,
-                state: signals.hasInvitedTeam ? .done : .available,
-                lockedBy: nil
-            ))
-        }
-
-        next.append(Entry(
-            key: .board,
-            state: signals.hasBoard ? .done : .available,
-            lockedBy: nil
-        ))
-
-        // Coding needs a repo-backed board and a machine to run on; when
-        // locked, point at whichever feeder step is still missing, in display
-        // order (desktop first — without any machine nothing can run; then
-        // GitHub — without it the board step can't attach a repo either).
-        let hasDevice = signals.hasDesktopDevice || signals.hasServerDevice
-        if signals.hasCodingSession {
-            next.append(Entry(key: .coding, state: .done, lockedBy: nil))
-        } else if signals.hasRepoBoard && hasDevice {
-            next.append(Entry(key: .coding, state: .available, lockedBy: nil))
-        } else {
-            next.append(Entry(
-                key: .coding,
-                state: .locked,
-                lockedBy: !hasDevice ? .desktop : (signals.githubInstalled ? .board : .github)
-            ))
-        }
-
-        // EXP-548: actions are authored by the builtin creator run, which —
-        // like any coding session — needs a machine; the desktop step is the
-        // feeder.
-        if signals.isOwner {
-            if signals.hasAction {
-                next.append(Entry(key: .action, state: .done, lockedBy: nil))
-            } else if hasDevice {
-                next.append(Entry(key: .action, state: .available, lockedBy: nil))
-            } else {
-                next.append(Entry(key: .action, state: .locked, lockedBy: .desktop))
-            }
-        }
-
-        next.append(Entry(
-            key: .server,
-            state: signals.hasServerDevice ? .done : .available,
-            lockedBy: nil
-        ))
-
-        entries = next
-        done = next.filter { $0.state == .done }.count
-        total = next.count
+        state = GettingStarted.derive(
+            signals.model,
+            permissions: GettingStarted.Permissions(
+                canManageMembers: signals.isOwner,
+                // The widget step never shows on a phone.
+                canManageWidgets: signals.isOwner
+            ),
+            platform: .phone
+        )
     }
 }
 

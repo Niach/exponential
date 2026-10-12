@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from "react"
-import { LoaderCircle } from "lucide-react"
 import type { ActionTrigger } from "@exp/db-schema/domain"
 import {
   Button,
@@ -10,7 +9,9 @@ import {
   DialogHeader,
   DialogTitle,
   DialogCancel,
+  FEEDBACK_WORDS,
 } from "@exp/ui"
+import { failedAction } from "@/lib/action-error"
 import { defaultDeviceId, type SteerDevice } from "@/lib/steer-devices"
 import type { TriggerWrite } from "@/lib/action-trigger-writes"
 import {
@@ -44,7 +45,7 @@ export type WriteTriggers = (
 ) => Promise<void>
 
 // One reason, one wording, wherever a required input blocks a trigger.
-export const REQUIRED_INPUTS_HINT = `This action has required inputs, and a triggered run has none to fill them with. Make the inputs optional to enable it.`
+export const REQUIRED_INPUTS_HINT = `This action has required inputs, and a triggered session has none to fill them with. Make the inputs optional to enable it.`
 
 export function TriggerDialog({
   open,
@@ -73,7 +74,6 @@ export function TriggerDialog({
   const [model, setModel] = useState(``)
   const [effort, setEffort] = useState(``)
   const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const capableDevices = useMemo(() => triggerDevices(devices), [devices])
 
@@ -93,7 +93,6 @@ export function TriggerDialog({
     setModel(trigger?.model ?? ``)
     setEffort(trigger?.effort ?? ``)
     setSubmitting(false)
-    setError(null)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open])
 
@@ -128,8 +127,6 @@ export function TriggerDialog({
   const submit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!canSubmit || !deviceId) return
-    setSubmitting(true)
-    setError(null)
     const when = draftToTrigger(draft)
     const written: TriggerWrite = {
       ...(editing ? { id: trigger.id } : {}),
@@ -141,6 +138,13 @@ export function TriggerDialog({
       ...(effort === `` ? {} : { effort }),
       ...(when.kind === `event` ? { ...when, source: `exponential` } : when),
     }
+    await save(written)
+  }
+
+  // FEED-79: a failed save is a toast and the dialog stays open; Retry only
+  // re-runs an EDIT (re-adding a new trigger could add it twice).
+  const save = async (written: TriggerWrite) => {
+    setSubmitting(true)
     try {
       await write(
         (current) =>
@@ -153,7 +157,9 @@ export function TriggerDialog({
       )
       onOpenChange(false)
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err))
+      failedAction(`save`, `the trigger`, err, {
+        retry: editing ? () => void save(written) : undefined,
+      })
     } finally {
       setSubmitting(false)
     }
@@ -188,18 +194,16 @@ export function TriggerDialog({
               effort={effort}
               onEffortChange={setEffort}
             />
-
-            {error && (
-              <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {error}
-              </div>
-            )}
           </DialogBody>
 
           <DialogFooter>
             <DialogCancel disabled={submitting} />
-            <Button type="submit" disabled={!canSubmit}>
-              {submitting && <LoaderCircle className="animate-spin" />}
+            <Button
+              type="submit"
+              disabled={!deviceId}
+              pending={submitting}
+              pendingLabel={FEEDBACK_WORDS.pending.save}
+            >
               {editing ? `Save changes` : `Add trigger`}
             </Button>
           </DialogFooter>

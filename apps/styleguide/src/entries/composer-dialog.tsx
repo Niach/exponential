@@ -33,7 +33,6 @@ const { composerUi } = contract
 const noop = (): void => {}
 
 const UiAddIcon = conceptIcon(`ui-add`)
-const SuggestionIcon = conceptIcon(composerMenu.suggestions.icon as IconConcept)
 const ActionIcon = conceptIcon(`pr-merged`)
 
 const DEVICES = [{ id: `mint`, name: `mint — This device`, kind: `desktop` }]
@@ -116,7 +115,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `EXP-1019`,
   title: `Composer dialog`,
-  blurb: `THE launcher, opened over wherever the play button was pressed instead of navigating away from it. The SUBJECT leads: the contract's verb (Run for an action, Implement for issues, ×4) followed by the removable subject chips, set as the biggest thing in the dialog. The field under it is the SECONDARY half and says so ("Additional instructions (optional)…", or an action's own promptPlaceholder). The card's ONE tool is the "+" (EXP-1249): Implement issue › (the searchable issue picker), Run action › (the action picker), Add file or image, then the run's options (Effort ›, Subagents ›, Ultracode) and tools (MCP servers ›, Computer use for this run) — a dropdown at the "+" from md up, the bottom sheet of the same rows on a phone. Under the card the muted options line: device, account, model, Plan (Resume and the repository when they apply), no overflow. On the Agent page a chat (no subject) adds quiet suggestion rows under that line and a faint brand mark behind it all; the dialog has neither.`,
+  blurb: `THE launcher, opened over wherever the play button was pressed instead of navigating away from it. The SUBJECT leads: the contract's verb (Run for an action, Implement for issues, ×4) followed by the removable subject chips, set as the biggest thing in the dialog. The field under it is the SECONDARY half and says so ("Additional instructions (optional)…", or an action's own promptPlaceholder). The card's ONE tool is the "+" (EXP-1249): Implement issue › and Run action › (SLOP-28: both THE search list, see Search list and Menu submenu), Add file or image, then the session's options (Effort ›, Subagents ›, Ultracode) and tools (MCP servers ›, Computer use for this session) — a dropdown at the "+" from md up, the bottom sheet of the same rows on a phone. Under the card the muted options line: device, account, model, Plan (Resume and the repository when they apply), no overflow. The Agent page around the card is the home column (see Agent home): no suggestion rows, no watermark.`,
   status: {
     web: {
       state: `ok`,
@@ -162,24 +161,9 @@ export const entry: StyleguideEntry = {
         <Caption>the "+" open: composer-menu.json, every condition met</Caption>
       </div>
       <div className="grid w-[34rem] max-w-full gap-2">
-        <Caption>The Agent page: a chat, the quiet suggestion rows under the line.</Caption>
+        <Caption>A chat in the dialog: no subject, the contract's placeholder.</Caption>
         <Card placeholder={composerUi.chatPlaceholder} />
         <OptionsLine />
-        <div className="flex flex-col items-start px-1 pt-1">
-          {[
-            `Set a priority on every unprioritized issue`,
-            `Do a code review of the open PRs and file the findings on a new board`,
-            `Label every issue in the backlog`,
-          ].map((suggestion) => (
-            <span
-              key={suggestion}
-              className="flex items-center gap-2 py-1 text-[13px] text-muted-foreground"
-            >
-              <SuggestionIcon aria-hidden className="size-3.5 opacity-50" />
-              {suggestion}
-            </span>
-          ))}
-        </div>
       </div>
     </div>
   ),

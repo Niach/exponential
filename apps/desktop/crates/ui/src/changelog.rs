@@ -46,6 +46,22 @@ pub(crate) struct ChangelogEntry {
 /// The head entry of the web `CHANGELOG` — see the module docs: this is a
 /// verbatim mirror, gated by a web-side test.
 pub(crate) const LATEST: ChangelogEntry = ChangelogEntry {
+    id: "2026-10-12-threads",
+    date: "2026-10-12",
+    title: "Threads: one place for a piece of work, its issues and its sessions",
+    summary: "A thread holds the issues and sessions of one piece of work. The agent links the issues it files or picks up, the thread shows every session and link as one conversation, and lists show threads instead of single sessions.",
+    body: r#"- **Threads**: every session starts in a thread. A session on an issue joins that issue's thread, a resume continues its thread, and anything else opens a new one.
+- **The agent links its work**: the agent files new issues into its thread, links existing ones and detaches what does not belong. Each link shows as a row in the conversation.
+- **One page**: the tabs across the top read Conversation, each linked issue, a plus button and Guide. On phones they are the pager.
+- **Many sessions**: resumes continue the conversation, ended sessions fold to one line with Show work, and sessions one session started side by side share one card.
+- **One PR, one Guide**: a thread's PR covers every issue in it by default, and its Guide is the PR body.
+- **Menus**: link an issue, file a new issue into the thread, start a session in it or unlink an issue from the plus button or an issue's menu.
+- **Lists**: Running and Recent show threads with their issue and session counts, and an issue names the threads it sits in."#,
+};
+
+/// An earlier head entry, kept so the mirror's history reads in place.
+#[allow(dead_code)]
+const PREVIOUS_43: ChangelogEntry = ChangelogEntry {
     id: "2026-10-12-issue-activity-mcp",
     date: "2026-10-12",
     title: "Issue history over MCP, and renames in the activity timeline",
@@ -63,7 +79,8 @@ const PREVIOUS_42: ChangelogEntry = ChangelogEntry {
     summary: "Every empty list on web, desktop, iOS and Android says the same short thing under the same glyph, refresh buttons are gone from lists that reload on their own, and the MCP settings show the built-in Exponential tools expanded with a filter box.",
     body: r#"- **One empty state**: every list, page and picker with nothing in it draws the same block on every client: a glyph, a short title and, on a page, one sentence and a button. The copy is shared across web, desktop, iOS and Android.
 - **No refresh buttons**: lists that load from the server reload when you open them, when you come back to the tab and after every change; a small spinner in the list band shows a reload. Refresh stays only where the source is outside Exponential, like GitHub or the local disk. Pull to refresh on the phone issue lists is gone too: they are live.
-- **MCP servers**: the built-in Exponential tools are always listed with a filter box, the explanatory line under the band is gone, and Add server is always there for owners."#,
+- **MCP servers**: the built-in Exponential tools are always listed with a filter box, the explanatory line under the band is gone, and Add server is always there for owners.
+- **Link previews**: an Exponential link pasted into Linear, Slack and similar tools shows the Exponential logo and the issue identifier instead of a blank link."#,
 };
 
 /// An earlier head entry, kept so the mirror's history reads in place.

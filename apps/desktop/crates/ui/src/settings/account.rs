@@ -13,7 +13,7 @@
 
 use gpui::{
     div, AppContext as _, Entity, FontWeight, IntoElement, ParentElement, Render,
-    SharedString, Styled, Subscription, Window,
+    SharedString, StatefulInteractiveElement as _, Styled, Subscription, Window,
 };
 use gpui_component::{
     button::{Button, ButtonVariants as _},
@@ -44,6 +44,9 @@ pub struct AccountPane {
     account_id: Option<String>,
     /// EXP-1126: Sign-in methods + Passkeys (server-only, tRPC).
     sign_in_methods: Entity<SignInMethodsSection>,
+    /// FEED-79: the timezone read in flight is the person's Retry press (its
+    /// failure toasts); a read on entry fails quietly.
+    timezone_retry_pressed: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -63,6 +66,7 @@ impl AccountPane {
             timezone_generation: 0,
             account_id: None,
             sign_in_methods,
+            timezone_retry_pressed: false,
             _subscriptions: subscriptions,
         }
     }
@@ -107,10 +111,19 @@ impl AccountPane {
                 if this.timezone_generation != generation {
                     return;
                 }
+                let attended = std::mem::take(&mut this.timezone_retry_pressed);
                 this.timezone = match result {
                     Ok(timezone) => Timezone::Ready(timezone),
+                    // FEED-79: the row reads "Unavailable" + Retry, no
+                    // toast; only a Retry press that fails again toasts.
                     Err(err) => {
                         log::warn!("[ui] users.timezone failed: {err}");
+                        crate::action_error::failed_load(
+                            "your timezone",
+                            attended,
+                            crate::action_error::action_error_description(&err),
+                            cx,
+                        );
                         Timezone::Error
                     }
                 };
@@ -118,6 +131,13 @@ impl AccountPane {
             });
         })
         .detach();
+    }
+
+    /// The failed read's Retry: the same read, attended.
+    fn retry_timezone(&mut self, cx: &mut gpui::Context<Self>) {
+        self.timezone_retry_pressed = true;
+        self.timezone = Timezone::Idle;
+        cx.notify();
     }
 
     /// A picked zone, written explicitly (not `onlyIfUnset` — this is the
@@ -142,10 +162,11 @@ impl AccountPane {
             Timezone::Ready(None) => Some("UTC".to_string()),
             _ => None,
         };
-        let value: SharedString = match (&self.timezone, &stored) {
-            (_, Some(zone)) => zone.clone().into(),
-            (Timezone::Error, _) => "Unavailable".into(),
-            _ => "Loading…".into(),
+        // D8: still loading = the value's placeholder bar, never "Loading…".
+        let value: Option<SharedString> = match (&self.timezone, &stored) {
+            (_, Some(zone)) => Some(zone.clone().into()),
+            (Timezone::Error, _) => Some("Unavailable".into()),
+            _ => None,
         };
         let trigger = Button::new("account-timezone-trigger")
             .ghost()
@@ -155,7 +176,10 @@ impl AccountPane {
             .py_0()
             .text_color(cx.theme().foreground.opacity(0.7))
             .disabled(stored.is_none())
-            .child(crate::surface::picker_value_label(value))
+            .child(match value {
+                Some(value) => crate::surface::picker_value_label(value).into_any_element(),
+                None => crate::feedback::skeleton_value("account-timezone-placeholder", 96., cx),
+            })
             .child(crate::surface::picker_row_chevron(cx));
         let control = match stored {
             Some(current) => {
@@ -184,6 +208,20 @@ impl AccountPane {
                 })
                 .into_any_element()
             }
+            // The read failed: "Unavailable" + Retry (FEED-79).
+            None if matches!(self.timezone, Timezone::Error) => gpui_component::h_flex()
+                .gap_2()
+                .child(trigger)
+                .child(
+                    crate::controls::text_button(
+                        "account-timezone-retry",
+                        crate::feedback::RETRY,
+                        crate::controls::TextButtonVariant::Link,
+                        cx,
+                    )
+                    .on_click(cx.listener(|this, _, _, cx| this.retry_timezone(cx))),
+                )
+                .into_any_element(),
             None => trigger.into_any_element(),
         };
         crate::surface::glass_group_rows(vec![crate::surface::glass_picker_row(

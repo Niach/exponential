@@ -63,8 +63,8 @@ class WorkFacesTest {
     @Test
     fun `labels the faces, Runs once there are several`() {
         assertEquals("Issue", faceLabel(WorkFaceKind.Issue))
-        assertEquals("Run", faceLabel(WorkFaceKind.Run))
-        assertEquals("Runs", faceLabel(WorkFaceKind.Run, multipleRuns = true))
+        assertEquals("Session", faceLabel(WorkFaceKind.Run))
+        assertEquals("Sessions", faceLabel(WorkFaceKind.Run, multipleRuns = true))
         assertEquals(DomainContract.diffUiGuideFace, faceLabel(WorkFaceKind.Guide))
         assertEquals("Guide", GUIDE_FACE_LABEL)
         assertEquals("Open Guide", OPEN_RESULTS_LABEL)

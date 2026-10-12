@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react"
 import { createFileRoute, useNavigate } from "@tanstack/react-router"
+import { SkeletonRows } from "@exp/ui"
 import { BoardNotFound } from "@/components/board-not-found"
 import { BulkActionBar } from "@/components/bulk-action-bar"
 import { GettingStartedSection } from "@/components/getting-started/getting-started-section"
@@ -84,9 +85,10 @@ function BoardPage() {
         />
       )
     }
+    // D8 first load: the issue row geometry (IssueList rows, 40px at md+).
     return (
-      <div className="text-muted-foreground text-sm p-6">
-        Loading board...
+      <div className="p-6">
+        <SkeletonRows rowHeight={40} />
       </div>
     )
   }

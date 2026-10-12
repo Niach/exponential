@@ -50,16 +50,40 @@ final class StartedRunWatcher {
     }
 
     /// Delivered: caption up, then watch the synced rows for the desktop's.
+    ///
+    /// EXP-1271 (EXP-1259 D11): a host that draws its OWN starting state (the
+    /// Agent composer: the mark + "Starting on <device>") passes `onTimeout`
+    /// with the shorter `feedback-states.json` deadline: no caption, no inline
+    /// failure, the host raises the timeout toast. Review #3: nothing was
+    /// aborted, so the watch KEEPS going past that deadline and a late row
+    /// still lands. Final review: that quiet watch is bounded by
+    /// `StartedRunMatch.watchWindow` (30 min, the startId dedupe window),
+    /// `cutoff` = the FIRST send of a reused startId (the device dedupes a
+    /// Retry, so the row that lands is the original one), and `onLanded`
+    /// hands the row to the host's model directly, so a landing while the
+    /// page is off-screen is still seen.
+    ///
+    /// EXP-1259 start surfaces: a captioned start that carries a `startId`
+    /// (a Resume, an account switch: `StartIntent`) keeps the caption's
+    /// deadline (the fallback for daemons that ignore the id) and fails loud
+    /// there, but nothing was aborted: the watch goes on quietly for the
+    /// same window as the composer's, so a late row still lands and the
+    /// failure's Retry (same id) is deduped.
     func begin(
         key: StartedRunKey,
         userId: String?,
         device: SteerDevice,
         db: DatabaseManager,
-        accountId: String
+        accountId: String,
+        deadline: TimeInterval = StartedRunMatch.deadline,
+        cutoff sentAt: Date? = nil,
+        startId: String? = nil,
+        onTimeout: (@MainActor () -> Void)? = nil,
+        onLanded: (@MainActor (String) -> Void)? = nil
     ) {
         stop()
         let label = device.deviceLabel.isEmpty ? device.deviceId : device.deviceLabel
-        sentCaption = "Start sent to \(label). Waiting for the desktop…"
+        sentCaption = onTimeout == nil ? "Start sent to \(label). Waiting for the desktop…" : nil
         failure = nil
         // A wall-clock deadline INDEPENDENT of DB emissions: with no
         // coding_sessions writes the observation never fires again, so an
@@ -70,15 +94,59 @@ final class StartedRunWatcher {
         // guard below so an unresolvable watch can't strand the caption
         // either.
         deadlineTask = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(StartedRunMatch.deadline))
+            try? await Task.sleep(for: .seconds(deadline))
             guard let self, !Task.isCancelled else { return }
-            self.stop()
             self.sentCaption = nil
-            self.failure = "\(label) never started this run. "
-                + "Open the Exponential desktop app there to see why."
+            guard let onTimeout else {
+                if startId != nil {
+                    self.quietWatchEnds(after: StartedRunMatch.watchWindow - deadline)
+                } else {
+                    self.stop()
+                }
+                self.failure = "\(label) never started this session. "
+                    + "Open the Exponential desktop app there to see why."
+                return
+            }
+            onTimeout()
+            self.quietWatchEnds(after: StartedRunMatch.watchWindow - deadline)
         }
+        watch(key: key, userId: userId, db: db, accountId: accountId, sentAt: sentAt, onLanded: onLanded)
+    }
+
+    /// Recheck R3 (feedback-states.json `starting.maybeDelivered`): a send
+    /// whose fate is unknown (a transport error, a client timeout, the
+    /// relay's timeout) may have reached the device. The host toasts the
+    /// failure with Retry; this follows the start QUIETLY (no caption, no
+    /// second error) for `StartedRunMatch.watchWindow` from `sentAt`, so a
+    /// late row still lands. `failure` carries the message for hosts that
+    /// toast off it.
+    func follow(
+        key: StartedRunKey,
+        userId: String?,
+        db: DatabaseManager,
+        accountId: String,
+        failure message: String? = nil,
+        cutoff sentAt: Date,
+        onLanded: (@MainActor (String) -> Void)? = nil
+    ) {
+        stop()
+        sentCaption = nil
+        failure = message
+        quietWatchEnds(after: StartedRunMatch.watchWindow - Date().timeIntervalSince(sentAt))
+        watch(key: key, userId: userId, db: db, accountId: accountId, sentAt: sentAt, onLanded: onLanded)
+    }
+
+    /// Observe the synced rows for the one this start produced.
+    private func watch(
+        key: StartedRunKey,
+        userId: String?,
+        db: DatabaseManager,
+        accountId: String,
+        sentAt: Date?,
+        onLanded: (@MainActor (String) -> Void)?
+    ) {
         guard let userId, let pool = try? db.pool(forAccountId: accountId) else { return }
-        let cutoff = Date().addingTimeInterval(-StartedRunMatch.skew)
+        let cutoff = (sentAt ?? Date()).addingTimeInterval(-StartedRunMatch.skew)
         // The whole live table is observed rather than a filtered query: a
         // BATCH row carries neither an issue id nor an action name, so there
         // is nothing narrower to key a WHERE on.
@@ -94,10 +162,26 @@ final class StartedRunWatcher {
                     ) else { continue }
                     self.stop()
                     self.sentCaption = nil
-                    self.startedSession = StartedSession(sessionId: match.id)
+                    self.failure = nil
+                    if let onLanded {
+                        onLanded(match.id)
+                    } else {
+                        self.startedSession = StartedSession(sessionId: match.id)
+                    }
                     return
                 }
             } catch {}
+        }
+    }
+
+    /// Nothing was aborted at the host's timeout: the watch goes on quietly
+    /// until the window closes, then ends without a second error. A task of
+    /// its own (weak) so an abandoned host releases the watcher at once.
+    private func quietWatchEnds(after window: TimeInterval) {
+        deadlineTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(max(0, window)))
+            guard let self, !Task.isCancelled else { return }
+            self.stop()
         }
     }
 

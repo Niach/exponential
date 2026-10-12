@@ -6,7 +6,8 @@
 //! working run with its newest tool call muted under the caption, a run
 //! waiting on its owner, and an ended one (the dimmed mark, Hide work: the
 //! transcript is showing). EXP-1245: plus a SETTLED turn of the owner's
-//! thread (`turn_row_caption`: `Done on <device> · <turn time>`).
+//! thread (`turn_row_caption`: `Done on <device> · <turn time>`), and
+//! EXP-1271's starting row (THE mark, "Starting on <device>").
 
 use gpui::{div, px, App, Div, ParentElement as _, SharedString, Styled as _, Window};
 
@@ -50,6 +51,7 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                     tone,
                     tool_line: tool_line.map(SharedString::from),
                     show_work,
+                    toggle: true,
                     on_toggle: None,
                 },
                 cx,
@@ -74,12 +76,36 @@ pub(crate) fn render(_window: &mut Window, cx: &mut App) -> Div {
                 tone,
                 tool_line: None,
                 show_work: false,
+                toggle: true,
                 on_toggle: None,
             },
             cx,
         )
     });
-    div().flex().flex_col().gap_3().pt_2().w(px(560.)).children(rows).children(settled)
+    // EXP-1271: before the first turn, THE mark over "Starting on <device>".
+    let starting = run_status_row(
+        RunStatusRowSpec {
+            id: SharedString::from("styleguide-run-status-row-starting"),
+            agent: Some(coding::CodingAgent::default()),
+            mark: RunStatusMark::Starting,
+            caption: SharedString::from(crate::feedback::starting_label("MacBook Pro")),
+            tone: crate::run_rows::StatusTone::Muted,
+            tool_line: None,
+            show_work: false,
+            toggle: true,
+            on_toggle: None,
+        },
+        cx,
+    );
+    div()
+        .flex()
+        .flex_col()
+        .gap_3()
+        .pt_2()
+        .w(px(560.))
+        .child(starting)
+        .children(rows)
+        .children(settled)
 }
 
 #[cfg(test)]

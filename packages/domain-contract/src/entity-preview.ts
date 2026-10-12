@@ -8,8 +8,7 @@
 // This module owns what is pure and platform-free about that:
 // - `ENTITY_REF_ICON`: the icon CONCEPT each kind draws (an issue paints its
 //   resolved status glyph instead once the row is synced);
-// - `entityKindNoun`: the product noun, singular and plural ("run", not
-//   "session");
+// - `entityKindNoun`: the product noun, singular and plural (a `session` reads "session");
 // - `entityChipLabel`: the chip's text, clamped to `CHIP_LABEL_MAX`;
 // - `groupPreviewRefs`: how a `list` ref absorbs the member refs behind it
 //   into ONE chip whose card lists them.
@@ -60,6 +59,8 @@ export const ENTITY_REF_ICON: Readonly<Record<string, string>> = {
   notification: `nav-notifications`,
   attachment: `ui-attach`,
   list: `ui-checklist`,
+  // EXP-1284: a thread = a stack of issues and runs.
+  thread: `work-faces`,
 }
 
 const NOUNS: Readonly<Record<string, readonly [string, string]>> = {
@@ -67,7 +68,7 @@ const NOUNS: Readonly<Record<string, readonly [string, string]>> = {
   board: [`board`, `boards`],
   action: [`action`, `actions`],
   comment: [`comment`, `comments`],
-  session: [`run`, `runs`],
+  session: [`session`, `sessions`],
   label: [`label`, `labels`],
   status: [`status`, `statuses`],
   device: [`device`, `devices`],
@@ -78,6 +79,7 @@ const NOUNS: Readonly<Record<string, readonly [string, string]>> = {
   notification: [`notification`, `notifications`],
   attachment: [`attachment`, `attachments`],
   list: [`list`, `lists`],
+  thread: [`thread`, `threads`],
 }
 
 /** The product noun for a kind: singular for `count` 1, plural otherwise.
@@ -107,9 +109,9 @@ export function clampChipLabel(text: string): string {
 }
 
 /** The chip's text:
- *  - a `list`: `<count> <member noun>` ("3 issues", "1 run", "0 labels");
+ *  - a `list`: `<count> <member noun>` ("3 issues", "1 session", "0 labels");
  *  - an issue: its identifier, else its title, else "Issue";
- *  - anything else: its title, else the capitalized noun ("Board", "Run").
+ *  - anything else: its title, else the capitalized noun ("Board", "Session").
  *  Whitespace-only titles count as absent. */
 export function entityChipLabel(ref: EntityRefLike): string {
   if (ref.kind === `list`) {

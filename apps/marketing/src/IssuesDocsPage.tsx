@@ -66,7 +66,7 @@ export function IssuesDocsPage() {
               sets <strong>status</strong>, <strong>priority</strong>,{` `}
               <strong>assignee</strong> and <strong>labels</strong>, deletes
               the selection, or hands the whole thing to an agent as a{` `}
-              <a href="/docs/coding/#batch-runs">batch coding run</a>.
+              <a href="/docs/coding/#batch-runs">batch coding session</a>.
             </p>
             <h3>Archiving and deleting a board</h3>
             <p>
@@ -234,8 +234,8 @@ export function IssuesDocsPage() {
               <strong>Stop</strong> or <strong>Resume</strong>, with{` `}
               <strong>Merge PR</strong> beside it while a pull request is open.
               The description follows, then this issue&apos;s relations, then
-              the conversation. Once the issue has a run, the header gains an
-              {` `}<strong>Issue | Run</strong> switch, and the run face keeps
+              the conversation. Once the issue has a session, the header gains an
+              {` `}<strong>Issue | Session</strong> switch, and the session face keeps
               the very same header. On web and desktop the content area is a
               rounded card floating on a darker ground; phones run full-bleed.
             </p>
@@ -374,7 +374,7 @@ export function IssuesDocsPage() {
             </p>
             <p>
               The one exception:{` `}
-              <a href="/docs/coding/#batch-runs">batch coding runs</a>. A batch
+              <a href="/docs/coding/#batch-runs">batch coding sessions</a>. A batch
               works several issues in one session on a shared{` `}
               <code>exp/batch-&lt;id&gt;</code> branch and opens{` `}
               <strong>one combined PR linked to every issue</strong> in the

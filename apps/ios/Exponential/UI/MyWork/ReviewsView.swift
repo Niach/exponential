@@ -44,6 +44,12 @@ struct ReviewsListContent: View {
         Group {
             if viewModel == nil {
                 Color.clear
+            } else if snapshot.isEmpty, viewModel?.issuesSynced != true {
+                // EXP-1275 (D8): the first load is skeleton rows.
+                SkeletonRows()
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             } else if snapshot.isEmpty {
                 emptyState
             } else {
@@ -105,7 +111,7 @@ struct ReviewsListContent: View {
                 // board. EXP-1186: one band per team.
                 ForEach(snapshot.runs) { group in
                     VStack(alignment: .leading, spacing: 0) {
-                        GlassSectionBand("Agent runs") {
+                        GlassSectionBand("Agent sessions") {
                             AppIcon(AppIcons.prOpen, size: 13)
                                 .foregroundStyle(.white.opacity(TextOpacity.secondary))
                         } trailing: {

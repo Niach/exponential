@@ -62,7 +62,7 @@ export const HERO = {
   ],
   branch: "exp/EXP-142",
   pr: 214,
-  sessionTab: "Fix live-steer terminal reconnect", // the run's screen title
+  sessionTab: "Fix live-steer terminal reconnect", // the session's screen title
 } as const
 
 // ── Session events — what a run PUBLISHES over ACP and every client renders
@@ -75,7 +75,7 @@ export type SessionEvent =
   | { kind: "prose"; text: string }
   | { kind: "spinner"; verb: string } // the working row while a turn runs
   | { kind: "flash"; text: string } // the agent naming what it just landed
-  | { kind: "user"; text: string } // a message you sent into the run
+  | { kind: "user"; text: string } // a message you sent into the session
 
 // Hero session (the run's screen, "Fix live-steer terminal reconnect"). S1/S2 flash-forward shows
 // the tail (from index FLASH_FORWARD_FROM); S6 plays it whole.

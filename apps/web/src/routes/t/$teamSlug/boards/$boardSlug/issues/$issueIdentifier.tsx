@@ -14,6 +14,7 @@ import {
   parseSessionResultGroups,
   PrGithubButton,
   sessionResultsForPr,
+  SkeletonRows,
   useIsMobile,
   type GuideChangesTarget,
 } from "@exp/ui"
@@ -79,14 +80,20 @@ import {
 } from "@/lib/work-faces"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
 import { runFaceMark } from "@/lib/coding-session-display"
+import { useThreadsOfRuns } from "@/hooks/use-threads"
+import { threadGuideResults } from "@/lib/thread-page"
 
-type IssueSearch = { from?: string } & GuideSearch
+type IssueSearch = { from?: string; comment?: string } & GuideSearch
 
 export const Route = createFileRoute(
   `/t/$teamSlug/boards/$boardSlug/issues/$issueIdentifier`
 )({
   head: ({ params }) => ({
-    meta: [{ title: pageTitle(params.issueIdentifier) }],
+    meta: [
+      { title: pageTitle(params.issueIdentifier) },
+      // FEED-88: the identifier only: unfurlers are anonymous.
+      { property: `og:title`, content: pageTitle(params.issueIdentifier) },
+    ],
   }),
   // No route-level auth guard: the parent `/t/$teamSlug` layout route
   // (route.tsx) already gates access — anonymous or non-member requests are
@@ -103,9 +110,15 @@ export const Route = createFileRoute(
   // `&section=N|lead|other|all&file=` opens a section's changes as a page
   // under it. The legacy `?view=results` lands on the Guide, `?view=diff` on
   // its complete diff (`parseGuideSearch`).
+  // EXP-1241: `?comment=<id>` scrolls the timeline to that comment and briefly
+  // highlights it (`IssueTimeline`) — a run's comment card links here.
   validateSearch: (search: Record<string, unknown>): IssueSearch => ({
     from:
       typeof search.from === `string` && search.from ? search.from : undefined,
+    comment:
+      typeof search.comment === `string` && search.comment
+        ? search.comment
+        : undefined,
     ...parseGuideSearch(search),
   }),
   component: IssueDetailPage,
@@ -250,13 +263,33 @@ function IssueDetailPage() {
   // (my target run when it has results, else the newest run on the issue by
   // ANY member, else a run that tagged a topic with this issue's PR), and the
   // issue shows only its own PR's topics (`sessionResultsForPr`).
+  // EXP-1284 (rule 8): a run's Guide is its THREAD's (`threads.results`)
+  // once the thread has one — the candidates read through it.
+  const candidateIds = useMemo(
+    () =>
+      [...((runRows ?? []) as CodingSession[]), ...((teamRunRows ?? []) as CodingSession[])].map(
+        (row) => row.id
+      ),
+    [runRows, teamRunRows]
+  )
+  const threadsOfRuns = useThreadsOfRuns(candidateIds)
+  const withThreadGuide = useCallback(
+    (rows: CodingSession[]) =>
+      rows.map((row) => {
+        const thread = threadsOfRuns.get(row.id)
+        return thread?.results != null
+          ? { ...row, results: threadGuideResults(row, thread) as CodingSession[`results`] }
+          : row
+      }),
+    [threadsOfRuns]
+  )
   const resultsRun = useMemo(
     () =>
       issue
         ? issueResultsRun(
             resultsCandidateRows(
-              (runRows ?? []) as CodingSession[],
-              (teamRunRows ?? []) as CodingSession[]
+              withThreadGuide((runRows ?? []) as CodingSession[]),
+              withThreadGuide((teamRunRows ?? []) as CodingSession[])
             ),
             issue.id,
             boundRunId?.kind === `issue` ? boundRunId.runId : undefined,
@@ -265,7 +298,7 @@ function IssueDetailPage() {
             issue.prUrl
           )
         : null,
-    [runRows, teamRunRows, issue, boundRunId, currentUserId, now]
+    [runRows, teamRunRows, issue, boundRunId, currentUserId, now, withThreadGuide]
   )
   const resultGroups = useMemo(
     () =>
@@ -385,13 +418,13 @@ function IssueDetailPage() {
         />
       )
     }
-    return <div className="text-muted-foreground text-sm p-6">Loading…</div>
+    return <IssueDetailPlaceholder />
   }
 
   if (!issue) {
     // Absent-because-still-syncing, not absent-because-gone (REV2-32).
     if (!issueReady) {
-      return <div className="text-muted-foreground text-sm p-6">Loading…</div>
+      return <IssueDetailPlaceholder />
     }
     return (
       <div className="flex flex-col items-start gap-3 p-6 text-sm">
@@ -662,5 +695,14 @@ function MobileIssuePage({
       origin={origin}
       mobileWork={{ tabs, swipe, merge: mergeCircle }}
     />
+  )
+}
+
+/** D8 first load: the detail page's placeholder (3 list rows in its padding). */
+function IssueDetailPlaceholder() {
+  return (
+    <div className="p-6">
+      <SkeletonRows />
+    </div>
   )
 }

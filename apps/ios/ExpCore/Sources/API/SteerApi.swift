@@ -870,6 +870,14 @@ struct StartSessionInput: Encodable {
     // as on every client.
     var mcpServerIds: [String]? = nil
     var computerUse: Bool? = nil
+    // EXP-1284: start INTO this thread (same team; the server refuses it
+    // next to `resumeSessionId`, which this input never carries). Omitted
+    // when nil.
+    var threadId: String? = nil
+    // Review #3 (feedback-states.json `starting.startIdKey`): the client's
+    // uuid for THIS Start press, reused by Retry; the device starts an id
+    // once. Omitted when nil.
+    var startId: String? = nil
 }
 
 /// Batch remote-start (EXP-156): 2+ issues → ONE Claude session on one pushed
@@ -890,6 +898,14 @@ struct StartBatchSessionInput: Encodable {
     let prompt: String?
     var mcpServerIds: [String]? = nil
     var computerUse: Bool? = nil
+    // EXP-1284: start INTO this thread (same team; the server refuses it
+    // next to `resumeSessionId`, which this input never carries). Omitted
+    // when nil.
+    var threadId: String? = nil
+    // Review #3 (feedback-states.json `starting.startIdKey`): the client's
+    // uuid for THIS Start press, reused by Retry; the device starts an id
+    // once. Omitted when nil.
+    var startId: String? = nil
 }
 
 /// Action remote-start (EXP-253/EXP-257): exactly one of
@@ -918,6 +934,14 @@ struct StartActionSessionInput: Encodable {
     let prompt: String?
     var mcpServerIds: [String]? = nil
     var computerUse: Bool? = nil
+    // EXP-1284: start INTO this thread (same team; the server refuses it
+    // next to `resumeSessionId`, which this input never carries). Omitted
+    // when nil.
+    var threadId: String? = nil
+    // Review #3 (feedback-states.json `starting.startIdKey`): the client's
+    // uuid for THIS Start press, reused by Retry; the device starts an id
+    // once. Omitted when nil.
+    var startId: String? = nil
 }
 
 /// Resume remote-start (EXP-637): the fourth `steer.startSession` subject —
@@ -932,6 +956,9 @@ struct ResumeSessionInput: Encodable {
     let resumeSessionId: String
     let deviceId: String
     let account: String?
+    // EXP-1259 start surfaces: the Resume press's uuid (`StartIntent`),
+    // reused by its Retry; the device starts an id once. Omitted when nil.
+    var startId: String? = nil
 }
 
 private struct StartSessionResult: Decodable {
@@ -974,7 +1001,9 @@ public final class SteerApi: Sendable {
         issueId: String,
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
-        prompt: String? = nil
+        prompt: String? = nil,
+        threadId: String? = nil,
+        startId: String? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -993,14 +1022,13 @@ public final class SteerApi: Sendable {
                     account: options.account,
                     prompt: prompt,
                     mcpServerIds: options.mcpServerIds,
-                    computerUse: options.computerUse
+                    computerUse: options.computerUse,
+                    threadId: threadId,
+                    startId: startId
                 )
             )
         } catch let TrpcError.httpError(status, body) {
-            if let message = Self.trpcErrorMessage(fromBody: body) {
-                throw SteerStartError.rejected(message)
-            }
-            throw TrpcError.httpError(status, body)
+            throw Self.startError(status: status, body: body)
         }
     }
 
@@ -1014,7 +1042,9 @@ public final class SteerApi: Sendable {
         issueIds: [String],
         deviceId: String,
         options: SteerStartOptions = SteerStartOptions(),
-        prompt: String? = nil
+        prompt: String? = nil,
+        threadId: String? = nil,
+        startId: String? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -1032,14 +1062,13 @@ public final class SteerApi: Sendable {
                     account: options.account,
                     prompt: prompt,
                     mcpServerIds: options.mcpServerIds,
-                    computerUse: options.computerUse
+                    computerUse: options.computerUse,
+                    threadId: threadId,
+                    startId: startId
                 )
             )
         } catch let TrpcError.httpError(status, body) {
-            if let message = Self.trpcErrorMessage(fromBody: body) {
-                throw SteerStartError.rejected(message)
-            }
-            throw TrpcError.httpError(status, body)
+            throw Self.startError(status: status, body: body)
         }
     }
 
@@ -1061,7 +1090,9 @@ public final class SteerApi: Sendable {
         teamId: String? = nil,
         options: SteerStartOptions = SteerStartOptions(),
         inputs: [String: String]? = nil,
-        prompt: String? = nil
+        prompt: String? = nil,
+        threadId: String? = nil,
+        startId: String? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -1081,14 +1112,13 @@ public final class SteerApi: Sendable {
                     account: options.account,
                     prompt: prompt,
                     mcpServerIds: options.mcpServerIds,
-                    computerUse: options.computerUse
+                    computerUse: options.computerUse,
+                    threadId: threadId,
+                    startId: startId
                 )
             )
         } catch let TrpcError.httpError(status, body) {
-            if let message = Self.trpcErrorMessage(fromBody: body) {
-                throw SteerStartError.rejected(message)
-            }
-            throw TrpcError.httpError(status, body)
+            throw Self.startError(status: status, body: body)
         }
     }
 
@@ -1107,11 +1137,13 @@ public final class SteerApi: Sendable {
     /// `agentAccounts[agent].profiles` ids). That is how a "switch account"
     /// works from a phone: resume the run on the same machine under another
     /// login, and follow the new row. Nil = keep the recorded login.
+    /// EXP-1259: `startId` = the press's `StartIntent`, re-sent by its Retry.
     public func resumeSession(
         accountId: String,
         sessionId: String,
         deviceId: String,
-        account: String? = nil
+        account: String? = nil,
+        startId: String? = nil
     ) async throws {
         do {
             let _: StartSessionResult = try await trpc.mutation(
@@ -1120,14 +1152,12 @@ public final class SteerApi: Sendable {
                 input: ResumeSessionInput(
                     resumeSessionId: sessionId,
                     deviceId: deviceId,
-                    account: account
+                    account: account,
+                    startId: startId
                 )
             )
         } catch let TrpcError.httpError(status, body) {
-            if let message = Self.trpcErrorMessage(fromBody: body) {
-                throw SteerStartError.rejected(message)
-            }
-            throw TrpcError.httpError(status, body)
+            throw Self.startError(status: status, body: body)
         }
     }
 
@@ -1143,6 +1173,18 @@ public final class SteerApi: Sendable {
             path: "steer.killSession",
             input: KillSessionInput(sessionId: codingSessionId)
         )
+    }
+
+    /// A `steer.startSession` HTTP failure in the shape the start surfaces
+    /// read: the server's reason (a 4xx `rejected`, a 5xx `serverError`), or
+    /// the raw error when the body carried none.
+    static func startError(status: Int, body: String) -> Error {
+        guard let message = trpcErrorMessage(fromBody: body) else {
+            return TrpcError.httpError(status, body)
+        }
+        return status >= 500
+            ? SteerStartError.serverError(status: status, message: message)
+            : SteerStartError.rejected(message)
     }
 
     /// Extract the human `message` from a tRPC error envelope
@@ -1161,10 +1203,15 @@ public final class SteerApi: Sendable {
 /// A remote-start rejection with a server-provided, user-presentable reason.
 public enum SteerStartError: Error, LocalizedError, Sendable {
     case rejected(String)
+    /// Recheck R3: a 5xx carrying a tRPC error body. The status rides along
+    /// so `StartDelivery` can tell the relay timing out (the start may be on
+    /// the device) from a definite server failure.
+    case serverError(status: Int, message: String)
 
     public var errorDescription: String? {
         switch self {
         case let .rejected(message): message
+        case let .serverError(_, message): message
         }
     }
 }

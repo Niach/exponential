@@ -29,6 +29,9 @@ data class UpsertIssueDraftInput(
     @SerialName("labelIds") val labelIds: List<String> = emptyList(),
     /** `YYYY-MM-DD`, or omitted for no due date. */
     @SerialName("dueDate") val dueDate: String? = null,
+    /** EXP-1284: the thread the issue files into; omitted = none (a draft
+     *  never leaves its thread). */
+    @SerialName("threadId") val threadId: String? = null,
 )
 
 @Serializable

@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.width
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -92,14 +91,13 @@ fun SectionHeader(
     }
 }
 
-/** The band's 12dp loading glyph (EXP-1274, web `GlassSectionHeader loading`). */
+/**
+ * The band's loading glyph (EXP-1274, web `GlassSectionHeader loading`):
+ * EXP-1275's INLINE spinner, the one primitive every band and caption shares.
+ */
 @Composable
 private fun SectionBandSpinner() {
-    CircularProgressIndicator(
-        modifier = Modifier.size(12.dp).testTag("section-band-loading"),
-        strokeWidth = 1.5.dp,
-        color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-    )
+    InlineSpinner(modifier = Modifier.testTag("section-band-loading"))
 }
 
 /**
@@ -277,16 +275,5 @@ fun EmptyState(
             spacing = 6.dp,
             contentPadding = PaddingValues(horizontal = 16.dp, vertical = 24.dp),
         )
-    }
-}
-
-/** Centered spinner loading state. */
-@Composable
-fun LoadingState(modifier: Modifier = Modifier) {
-    Box(
-        modifier = modifier.fillMaxSize(),
-        contentAlignment = Alignment.Center,
-    ) {
-        CircularProgressIndicator(color = MaterialTheme.colorScheme.onSurface)
     }
 }

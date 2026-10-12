@@ -96,6 +96,8 @@ pub(crate) struct DraftSave {
     pub(crate) assignee_id: Option<String>,
     pub(crate) label_ids: Vec<String>,
     pub(crate) due_date: Option<NaiveDate>,
+    /// EXP-1284: the thread the draft files into (stored on the row).
+    pub(crate) thread_id: Option<String>,
 }
 
 impl DraftSave {
@@ -117,6 +119,8 @@ impl DraftSave {
         input.due_date = self
             .due_date
             .map(|date| date.format("%Y-%m-%d").to_string());
+        // EXP-1284: EVERY write sends it — an absent key clears the column.
+        input.thread_id = self.thread_id.clone();
         input
     }
 }
@@ -140,6 +144,7 @@ impl DraftSave {
             due_date: self
                 .due_date
                 .map(|date| date.format("%Y-%m-%d").to_string()),
+            thread_id: self.thread_id.clone(),
             created_at: None,
             updated_at: None,
         }
@@ -223,6 +228,7 @@ mod tests {
             assignee_id: None,
             label_ids: Vec::new(),
             due_date: None,
+            thread_id: None,
             created_at: Some("2026-09-01T00:00:00Z".to_string()),
             updated_at: updated_at.map(str::to_string),
         }
@@ -277,8 +283,12 @@ mod tests {
             assignee_id: Some("u-1".into()),
             label_ids: vec!["l-1".into()],
             due_date: NaiveDate::from_ymd_opt(2026, 9, 14),
+            thread_id: Some("th-1".into()),
         };
+        // EXP-1284: the thread rides the wire and reads back.
+        assert_eq!(save.to_input().thread_id.as_deref(), Some("th-1"));
         let row = save.as_row();
+        assert_eq!(row.thread_id.as_deref(), Some("th-1"));
         assert_eq!(row.id, "d-1");
         assert_eq!(row.team_id.as_deref(), Some("t-1"));
         assert_eq!(row.board_id.as_deref(), Some("b-1"));
@@ -304,6 +314,7 @@ mod tests {
             assignee_id: None,
             label_ids: Vec::new(),
             due_date: NaiveDate::from_ymd_opt(2026, 9, 14),
+            thread_id: None,
         };
         let input = save.to_input();
         // The full replacement set rides even when empty — omitting it would

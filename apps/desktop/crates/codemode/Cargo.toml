@@ -27,3 +27,5 @@ reqwest = { workspace = true }
 # tool calls. The host drives its event loop by hand (`runtime.rs`), which is
 # what lets N tool calls run at once on their own threads.
 boa_engine = { version = "0.22", default-features = false }
+# EXP-1279: the contract's `expToolDisplay` subject keys, for the call log.
+domain = { path = "../domain" }

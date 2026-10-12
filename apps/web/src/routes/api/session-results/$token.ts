@@ -34,6 +34,10 @@ import { buildAttachmentUrl } from "@/lib/storage/issue-attachments"
 // that takes `FOR UPDATE` on the coding_sessions row: two pictures published
 // concurrently by the same run would otherwise lose one another. EXP-1172:
 // that write is `publishSessionResultPicture`, shared with sessions_show.
+// EXP-1284: the picture lands in the run's THREAD's Guide (the run lock, then
+// the thread's; `lib/thread-guide.ts`), mirrored onto the run's row. A token
+// minted before a resume still names the predecessor, which sits in the same
+// thread, so the picture reaches the same Guide.
 
 async function uploadSessionResult({
   params,

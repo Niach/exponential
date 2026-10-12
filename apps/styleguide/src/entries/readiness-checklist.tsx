@@ -89,7 +89,7 @@ export const entry: StyleguideEntry = {
   section: `special`,
   owner: `SLOP-7`,
   title: `Ready to code? checklist`,
-  blurb: `What Start coding opens while a run cannot start yet (EXP-1121/SLOP-7), one layout ×4. Three steps in a fixed order — GitHub connected, Repository connected, Device online — under a three-slice progress strip. A step is MET (green tick, muted title, its detail on the right), CURRENT (the first unmet one: amber ring, amber wash, its fixes inline, the first one primary) or PENDING (dashed grey ring, no fixes until it is current). The model and every word are the fixture-locked coding-readiness.json; this specimen is its "repo missing" case.`,
+  blurb: `What Start coding opens while a session cannot start yet (EXP-1121/SLOP-7), one layout ×4. Three steps in a fixed order — GitHub connected, Repository connected, Device online — under a three-slice progress strip. A step is MET (green tick, muted title, its detail on the right), CURRENT (the first unmet one: amber ring, amber wash, its fixes inline, the first one primary) or PENDING (dashed grey ring, no fixes until it is current). The model and every word are the fixture-locked coding-readiness.json; this specimen is its "repo missing" case.`,
   status: {
     web: {
       state: `ok`,

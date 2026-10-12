@@ -521,6 +521,12 @@ export interface CodingSessionResult {
   /** EXP-1251: on a TEXT entry, the PR its topic belongs to (a run that
    *  stacks a second PR scopes its topics); absent = every PR of the run. */
   prUrl?: string | null
+  /** EXP-1284: the session that wrote the entry (stamped server-side on
+   *  every write): a thread's ONE Guide holds every session's entries, so
+   *  a session block shows its own (`sessionGuideEntries`), a moved session
+   *  takes its own along, and a later session never overwrites another's
+   *  topic. Absent on entries filed before threads. */
+  sessionId?: string | null
 }
 
 // Tolerant for the same reason codingSessionBlockedSchema is: a malformed
@@ -606,6 +612,16 @@ export const issueRelationTypeValues = [
 // comment (delta-removed once the token is gone from every text).
 export const issueRelationSourceValues = [`user`, `reference`] as const
 
+// EXP-1284 threads: what a thread_items row holds (thread_items.kind, pg
+// enum). One nullable target column per kind (issue_id / session_id), each an
+// FK cascade. An issue may sit in several threads; a run in exactly one.
+export const threadItemKindValues = [`issue`, `run`] as const
+
+// Who linked the child: `user` = a person (composer, child menu, a start),
+// `agent` = a run over MCP (`exponential_threads_link`, `issues_create
+// {threadId}`); the link row in the conversation names it.
+export const threadItemSourceValues = [`user`, `agent`] as const
+
 // Per-side display labels; byte-locked against contract.json
 // forwardLabels/inverseLabels on every client.
 export const ISSUE_RELATION_LABELS: Record<
@@ -665,6 +681,10 @@ export const issueRelationTypeSchema = z.enum(issueRelationTypeValues)
 export const issueRelationSourceSchema = z.enum(issueRelationSourceValues)
 export type IssueRelationType = (typeof issueRelationTypeValues)[number]
 export type IssueRelationSource = (typeof issueRelationSourceValues)[number]
+export const threadItemKindSchema = z.enum(threadItemKindValues)
+export const threadItemSourceSchema = z.enum(threadItemSourceValues)
+export type ThreadItemKind = (typeof threadItemKindValues)[number]
+export type ThreadItemSource = (typeof threadItemSourceValues)[number]
 export const startedReasonSchema = z.enum(startedReasonValues)
 export const codingSessionEndedBySchema = z.enum(codingSessionEndedByValues)
 export const codingSessionSummarySchema = z

@@ -110,8 +110,11 @@ class IssueRefHandler(
     }
 }
 
-/** Rows the `#` menu shows at most — the one cap all four clients share. */
-const val ISSUE_REF_MENU_LIMIT = 8
+/**
+ * Rows the `#` search returns: SLOP-28 (EXP-1259 D4) dropped the menus' 6/8
+ * cap, so it is the engine's DEFAULT limit on every client (`issue-search.json`).
+ */
+const val ISSUE_REF_MENU_LIMIT = IssueSearch.DEFAULT_LIMIT
 
 /**
  * A synced Room issue as an autocomplete target: the chip's status glyph is

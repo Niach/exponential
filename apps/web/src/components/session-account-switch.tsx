@@ -21,16 +21,14 @@
 // `domain/SessionAccountSwitch.kt`, iOS `Domain/SessionAccountSwitch.swift`,
 // desktop `ui/src/account_switch.rs`); `session-account-switch.test.ts` locks
 // them against the native sources.
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useMemo } from "react"
 import { useLiveQuery } from "@tanstack/react-db"
-import { LoaderCircle } from "lucide-react"
 import type { CodingSession, Device, DeviceAgentHealth } from "@/db/schema"
 import { conceptIcon, Button, IconTooltip, ListRow, useIsMobile, toast } from "@exp/ui"
-import { codingSessionCollection, deviceCollection } from "@/lib/collections"
+import { deviceCollection } from "@/lib/collections"
 import { useNow } from "@/hooks/use-now"
 import { runHasEnded } from "@/lib/past-runs"
-import { useOpenSession } from "@/hooks/use-open-session"
-import { trpc } from "@/lib/trpc-client"
+import { useResumeStart } from "@/hooks/use-resume-start"
 import { trpcErrorMessage } from "@/lib/trpc-error"
 import {
   agentProfileUsageRows,
@@ -44,11 +42,6 @@ import {
   deviceCanSwitchAccount,
   deviceRowIsOnline,
 } from "@/lib/steer-devices"
-import {
-  findStartedRun,
-  STARTED_RUN_DEADLINE_MS,
-  STARTED_RUN_SKEW_MS,
-} from "@/lib/started-run-match"
 import { AgentUsageWindows } from "@/components/agent-usage-windows"
 
 const SwapIcon = conceptIcon(`ui-swap`)
@@ -68,7 +61,7 @@ export const WALL_SWITCH_LABEL = `Switch account`
 /** What a switch costs, said once where the switch is offered: the agent
  *  re-enters the recorded run under the other login, which re-reads the
  *  transcript — one extra context read, not a per-message surcharge. */
-export const SWITCH_COST_NOTE = `The run continues under the other account. Re-reading the transcript once costs tokens.`
+export const SWITCH_COST_NOTE = `The session continues under the other account. Re-reading the transcript once costs tokens.`
 
 // EXP-974 retired the continuation byline + its cost note: a resumed run and
 // the run it came out of share ONE toggle now, and the `Runs` caret is the
@@ -79,15 +72,15 @@ export const SWITCH_COST_NOTE = `The run continues under the other account. Re-r
 // change. Shown ON the disabled control rather than hiding it, so the switch
 // never silently disappears mid-run.
 
-export const REASON_AGENT = `Only claude can switch accounts during a run.`
-export const REASON_NOT_MINE = `Only the person who started this run can switch its account.`
-export const REASON_ENDED = `This run has ended — resume it instead.`
+export const REASON_AGENT = `Only claude can switch accounts during a session.`
+export const REASON_NOT_MINE = `Only the person who started this session can switch its account.`
+export const REASON_ENDED = `This session has ended — resume it instead.`
 export const REASON_OFFLINE = `The machine is offline.`
 export const REASON_NO_CAP = `Update the app on that machine to switch accounts.`
 export const REASON_BUSY = `The agent is working — switching waits for the turn to finish.`
 export const REASON_SIGNED_OUT = `Sign in to this account on that machine first.`
 export const REASON_NEEDS_RELOGIN = `This account needs a re-login on that machine.`
-export const REASON_ALREADY = `This run is already on this account.`
+export const REASON_ALREADY = `This session is already on this account.`
 
 /** One account the run's machine holds for the run's agent. */
 export interface SessionAccountOption {
@@ -209,7 +202,6 @@ export function useSessionAccountSwitch(
   }
 ): SessionAccountSwitch {
   const now = useNow(30_000)
-  const openSession = useOpenSession()
   const { data: deviceRows } = useLiveQuery((query) =>
     query.from({ d: deviceCollection })
   )
@@ -221,18 +213,6 @@ export function useSessionAccountSwitch(
     // through a shared server row (`resolveSessionDevice`).
     return rows.find((row) => row.userId === session.userId) ?? rows[0] ?? null
   }, [deviceRows, session.deviceId, session.userId])
-
-  const [pending, setPending] = useState<{
-    profileId: string
-    sentAt: number
-  } | null>(null)
-  const deadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(
-    () => () => {
-      if (deadlineRef.current) clearTimeout(deadlineRef.current)
-    },
-    []
-  )
 
   const mine = session.userId === currentUserId
   const online = deviceRow ? deviceRowIsOnline(deviceRow.lastSeenAt, now) : false
@@ -289,69 +269,39 @@ export function useSessionAccountSwitch(
     canSwitch,
   ])
 
-  // The continuation's own row: watched only while a switch is in flight.
-  const watching = pending !== null
-  const { data: sessionRows } = useLiveQuery(
-    (query) => (watching ? query.from({ s: codingSessionCollection }) : undefined),
-    [watching]
-  )
-  useEffect(() => {
-    if (!pending) return
-    const match = findStartedRun(
-      (sessionRows ?? []) as CodingSession[],
-      { kind: `resumed`, fromId: session.id },
-      session.userId,
-      pending.sentAt - STARTED_RUN_SKEW_MS
-    )
-    if (!match) return
-    // Open it exactly once — clearing `pending` stops this effect matching
-    // again.
-    if (deadlineRef.current) clearTimeout(deadlineRef.current)
-    setPending(null)
-    openSession(match)
-  }, [sessionRows, pending, session.id, session.userId, openSession])
-
-  const switchTo = (profileId: string) => {
-    if (pending) return
+  // EXP-1259: ONE resume send (`useResumeStart`): a press mints a startId,
+  // its Retries re-send it, after re-checking the account is still on offer.
+  const isBlocked = (profileId: string | undefined) => {
     const option = options.find((entry) => entry.profileId === profileId)
-    if (!option || option.blockedReason) return
+    return !option || Boolean(option.blockedReason)
+  }
+  const { pending, resume } = useResumeStart({
+    sessionId: session.id,
+    userId: session.userId,
+    deviceId: session.deviceId,
+    deadlineTitle: () => `That machine never continued this session`,
+    failure: {
+      verb: `switch`,
+      thing: `the account`,
+      description: (error) =>
+        trpcErrorMessage(
+          error,
+          `The machine refused to continue this session on that account.`
+        ),
+    },
+    canRetry: (profileId) => !isBlocked(profileId),
+    onBeforeSend: onBeforeSwitch,
+  })
+  const switchTo = (profileId: string) => {
+    if (pending || isBlocked(profileId)) return
     if (!session.deviceId) return
-    const sentAt = Date.now()
-    setPending({ profileId, sentAt })
-    onBeforeSwitch?.()
-    trpc.steer.startSession
-      .mutate(
-        {
-          resumeSessionId: session.id,
-          deviceId: session.deviceId,
-          // The picked profile VERBATIM: the server reads the PRESENCE of
-          // `account` as "this resume is a switch", and it is
-          // the only thing that lets a resume ride a LIVE run.
-          account: profileId,
-        },
-        { context: { skipErrorToast: true } }
-      )
-      .then(() => {
-        if (deadlineRef.current) clearTimeout(deadlineRef.current)
-        deadlineRef.current = setTimeout(() => {
-          setPending(null)
-          toast.error(`That machine never continued this run`, {
-            description: `Open the Exponential desktop app there to see why.`,
-          })
-        }, STARTED_RUN_DEADLINE_MS)
-      })
-      .catch((error: unknown) => {
-        setPending(null)
-        toast.error(`Couldn't switch the account`, {
-          description: trpcErrorMessage(
-            error,
-            `The machine refused to continue this run on that account.`
-          ),
-        })
-      })
+    // The picked profile VERBATIM: the server reads the PRESENCE of
+    // `account` as "this resume is a switch", and it is the only thing that
+    // lets a resume ride a LIVE run.
+    resume(profileId)
   }
 
-  return { options, switchingTo: pending?.profileId ?? null, switchTo }
+  return { options, switchingTo: pending?.account ?? null, switchTo }
 }
 
 /** The account rows the usage overlay lists (EXP-863: the OTHER accounts —
@@ -445,14 +395,11 @@ function SessionAccountRow({
               size="icon"
               className="shrink-0"
               disabled={blocked !== null || busy}
+              pending={switching}
               onClick={onSwitch}
               aria-label={SWITCH_LABEL}
             >
-              {switching ? (
-                <LoaderCircle className="animate-spin" />
-              ) : (
-                <SwapIcon />
-              )}
+              <SwapIcon />
             </Button>
           </span>
         </IconTooltip>

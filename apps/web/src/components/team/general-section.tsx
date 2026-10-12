@@ -1,16 +1,28 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import type { Team } from "@/db/schema"
 import { contract } from "@exp/domain-contract"
+import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
 import {
+  Button,
+  FEEDBACK_ERRORS,
+  FieldError,
   GlassGroup,
   GlassInputRow,
   GlassSectionHeader,
   GlassToggleRow,
+  InlineStatus,
+  SkeletonRows,
   Textarea,
 } from "@exp/ui"
 import { relativeTime } from "@/components/comment-rows/format"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
+import {
+  onTeamPromptSave,
+  queueTeamPromptSave,
+  registerTeamPromptDraft,
+  teamPromptSaving,
+} from "@/lib/team-prompt-saves"
 import { trpc } from "@/lib/trpc-client"
-import { trpcErrorMessage } from "@/lib/trpc-error"
 
 /** EXP-1025: the team prompt's cap in UTF-8 bytes (the contract's; the
  *  server refuses more). Shown as the counter's denominator. */
@@ -20,7 +32,7 @@ export const TEAM_PROMPT_MAX_BYTES = contract.team.agentPromptMaxBytes
  *  (`settings/team_general.rs`). EXP-1054: one short placeholder, no helper
  *  paragraph under the field — the counter is the footer. */
 export const TEAM_PROMPT_TITLE = `Team prompt`
-export const TEAM_PROMPT_PLACEHOLDER = `Rules every coding run of this team follows, as markdown.`
+export const TEAM_PROMPT_PLACEHOLDER = `Rules every coding session of this team follows, as markdown.`
 
 /** `12.3k` / `840` — the counter's short form. */
 export function formatByteCount(bytes: number): string {
@@ -46,7 +58,6 @@ export function approxTokens(bytes: number): string {
 export function TeamGeneralSection({ team }: { team: Team }) {
   const [name, setName] = useState(team.name)
   const [saving, setSaving] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     setName(team.name)
@@ -57,14 +68,13 @@ export function TeamGeneralSection({ team }: { team: Team }) {
   const handleSave = async () => {
     if (!dirty) return
     setSaving(true)
-    setError(null)
     try {
-      await trpc.teams.update.mutate({
-        teamId: team.id,
-        name: name.trim() || team.name,
-      })
+      await trpc.teams.update.mutate(
+        { teamId: team.id, name: name.trim() || team.name },
+        SKIP_ERROR_TOAST
+      )
     } catch (e) {
-      setError(e instanceof Error ? e.message : `Failed to save changes`)
+      failedAction(`save`, `the team name`, e, { retry: () => void handleSave() })
     } finally {
       setSaving(false)
     }
@@ -76,34 +86,48 @@ export function TeamGeneralSection({ team }: { team: Team }) {
   const [yoloBusy, setYoloBusy] = useState(false)
   const toggleYolo = async (yoloMode: boolean) => {
     setYoloBusy(true)
-    setError(null)
     try {
-      await trpc.teams.update.mutate({ teamId: team.id, yoloMode })
+      await trpc.teams.update.mutate({ teamId: team.id, yoloMode }, SKIP_ERROR_TOAST)
     } catch (e) {
-      setError(e instanceof Error ? e.message : `Failed to save changes`)
+      failedAction(`update`, `yolo mode`, e, { retry: () => void toggleYolo(yoloMode) })
     } finally {
       setYoloBusy(false)
     }
   }
 
   // EXP-1025: the team prompt is NOT on the synced team row (server-only,
-  // like an action's body) — fetched once per team, saved on blur like the
-  // name row. `null` = still loading; the field is disabled until then so a
+  // like an action's body), fetched once per team. EXP-1275 (EXP-1259 D9):
+  // it AUTOSAVES `autosave.debounceMs` after the last keystroke and on blur;
+  // the caption reads Saving → Saved (`savedHoldMs`) → Edited {ago}, never
+  // Unsaved. `null` = still loading; the field is disabled until then so a
   // blur can never save an empty draft over a prompt that has not arrived.
+  // FEED-79: the load runs on open, so a failure is quiet: the field's empty
+  // state + Retry; only a failed Retry tap (the person's action) toasts.
   const [prompt, setPrompt] = useState<string | null>(null)
   const [savedPrompt, setSavedPrompt] = useState<string>(``)
   const [promptUpdatedAt, setPromptUpdatedAt] = useState<Date | null>(null)
   const [promptSaving, setPromptSaving] = useState(false)
-  const [promptError, setPromptError] = useState<string | null>(null)
+  const [promptJustSaved, setPromptJustSaved] = useState(false)
+  const [promptLoadFailed, setPromptLoadFailed] = useState(false)
+  const [promptLoadAttempt, setPromptLoadAttempt] = useState(0)
+  const promptRetried = useRef(false)
+  // The team the loaded draft belongs to (the unmount flush sends it there,
+  // never to a team switched to since).
+  const promptTeamIdRef = useRef<string | null>(null)
+  const retryPromptLoad = () => {
+    promptRetried.current = true
+    setPromptLoadAttempt((attempt) => attempt + 1)
+  }
 
   useEffect(() => {
     let cancelled = false
     setPrompt(null)
-    setPromptError(null)
+    setPromptLoadFailed(false)
     trpc.teams.getAgentPrompt
       .query({ teamId: team.id })
       .then((res) => {
         if (cancelled) return
+        promptTeamIdRef.current = team.id
         setPrompt(res.agentPrompt)
         setSavedPrompt(res.agentPrompt)
         setPromptUpdatedAt(
@@ -112,40 +136,114 @@ export function TeamGeneralSection({ team }: { team: Team }) {
       })
       .catch((e: unknown) => {
         if (cancelled) return
-        setPromptError(trpcErrorMessage(e, `Couldn't load the team prompt`))
+        setPromptLoadFailed(true)
+        const tapped = promptRetried.current
+        promptRetried.current = false
+        if (tapped) failedAction(`load`, `the team prompt`, e, { retry: retryPromptLoad })
       })
     return () => {
       cancelled = true
     }
-  }, [team.id])
+  }, [team.id, promptLoadAttempt])
 
   const promptBytes = utf8ByteLength(prompt ?? ``)
   const promptOver = promptBytes > TEAM_PROMPT_MAX_BYTES
   const promptDirty = prompt !== null && prompt.trimEnd() !== savedPrompt
 
-  const handleSavePrompt = async () => {
-    if (prompt === null || !promptDirty || promptOver || promptSaving) return
-    setPromptSaving(true)
-    setPromptError(null)
-    try {
-      await trpc.teams.update.mutate({ teamId: team.id, agentPrompt: prompt })
-      const saved = prompt.trimEnd()
-      setSavedPrompt(saved)
-      setPromptUpdatedAt(new Date())
-    } catch (e) {
-      setPromptError(trpcErrorMessage(e, `Couldn't save the team prompt`))
-    } finally {
+  // The draft whose save just failed: the timer never retries it on its own
+  // (that would toast every debounce); a new keystroke, blur or Retry does.
+  const failedPromptRef = useRef<string | null>(null)
+  // Final review #8/B7: every save goes through the team's ONE queue
+  // (`lib/team-prompt-saves.ts`): one in flight per team, the last edit
+  // wins, a failed save's Retry resends that team's CURRENT text. The
+  // caption follows the queue's events for this team.
+  const promptRef = useRef(prompt)
+  promptRef.current = prompt
+  useEffect(() => {
+    const teamId = team.id
+    setPromptSaving(teamPromptSaving(teamId))
+    const unregister = registerTeamPromptDraft(teamId, () =>
+      promptTeamIdRef.current === teamId ? promptRef.current : null
+    )
+    const unsubscribe = onTeamPromptSave((event) => {
+      if (event.teamId !== teamId) return
+      if (event.kind === `saving`) {
+        setPromptSaving(true)
+        setPromptJustSaved(false)
+        return
+      }
       setPromptSaving(false)
+      if (event.kind === `failed`) {
+        failedPromptRef.current = event.text
+        return
+      }
+      failedPromptRef.current = null
+      setSavedPrompt(event.text.trimEnd())
+      setPromptUpdatedAt(new Date())
+      setPromptJustSaved(true)
+    })
+    return () => {
+      unregister()
+      unsubscribe()
     }
-  }
+  }, [team.id])
 
-  const promptCaption = promptSaving
-    ? `Saving…`
-    : promptDirty
-      ? `Unsaved`
-      : promptUpdatedAt
-        ? `Edited ${relativeTime(promptUpdatedAt)}`
-        : null
+  const handleSavePrompt = () => {
+    if (prompt === null || !promptDirty || promptOver) return
+    if (promptTeamIdRef.current !== team.id) return
+    queueTeamPromptSave(team.id, prompt)
+  }
+  // The debounce timer runs the LATEST save (the newest draft).
+  const savePromptRef = useRef(handleSavePrompt)
+  savePromptRef.current = handleSavePrompt
+
+  // A keystroke while a save is in flight queues behind it (last wins).
+  useEffect(() => {
+    if (!promptDirty || promptOver) return
+    if (prompt === failedPromptRef.current) return
+    const timer = setTimeout(
+      () => savePromptRef.current(),
+      FEEDBACK_STATES.autosave.debounceMs
+    )
+    return () => clearTimeout(timer)
+  }, [prompt, promptDirty, promptOver])
+
+  // Review #8: leaving the page (or switching team) inside the debounce
+  // window must not drop the edit: the cleanup queues a dirty, under-cap
+  // draft for the team it was typed for (the queue skips the text already
+  // in flight), unless its save just failed (its toast holds the Retry).
+  const unsavedPromptRef = useRef<{ teamId: string; prompt: string } | null>(null)
+  unsavedPromptRef.current =
+    prompt !== null &&
+    promptDirty &&
+    !promptOver &&
+    promptTeamIdRef.current !== null &&
+    prompt !== failedPromptRef.current
+      ? { teamId: promptTeamIdRef.current, prompt }
+      : null
+  useEffect(
+    () => () => {
+      const unsaved = unsavedPromptRef.current
+      if (!unsaved || unsaved.teamId !== team.id) return
+      unsavedPromptRef.current = null
+      queueTeamPromptSave(unsaved.teamId, unsaved.prompt)
+    },
+    [team.id]
+  )
+
+  useEffect(() => {
+    if (!promptJustSaved) return
+    const timer = setTimeout(
+      () => setPromptJustSaved(false),
+      FEEDBACK_STATES.autosave.savedHoldMs
+    )
+    return () => clearTimeout(timer)
+  }, [promptJustSaved])
+
+  const promptStatus = promptSaving ? `saving` : promptJustSaved ? `saved` : `idle`
+  const promptEditedLabel = promptUpdatedAt
+    ? FEEDBACK_STATES.autosave.captions.edited.replace(`{ago}`, relativeTime(promptUpdatedAt))
+    : undefined
 
   return (
     <div className="space-y-5">
@@ -168,13 +266,7 @@ export function TeamGeneralSection({ team }: { team: Team }) {
                 e.currentTarget.blur()
               }
             }}
-            trailing={
-              saving ? (
-                <span className="shrink-0 text-xs text-muted-foreground">Saving…</span>
-              ) : dirty ? (
-                <span className="shrink-0 text-xs text-muted-foreground">Unsaved</span>
-              ) : undefined
-            }
+            trailing={saving ? <InlineStatus state="saving" className="shrink-0" /> : undefined}
           />
         </GlassGroup>
       </div>
@@ -191,35 +283,41 @@ export function TeamGeneralSection({ team }: { team: Team }) {
         </GlassGroup>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
-
       {/* EXP-1025: the team prompt — a RAW monospace field, never the
           markdown WYSIWYG: a prompt is read by a model, so the bytes shown
           must be the bytes it gets. Counter in bytes (the server's unit),
-          token estimate beside it, saves on blur. */}
+          token estimate beside it, autosaves (D9). */}
       <div>
         <GlassSectionHeader
           label={TEAM_PROMPT_TITLE}
-          trailing={
-            promptCaption ? (
-              <span className="text-xs text-muted-foreground">{promptCaption}</span>
-            ) : undefined
-          }
+          trailing={<InlineStatus state={promptStatus} savedLabel={promptEditedLabel} />}
         />
         <GlassGroup>
-          <Textarea
-            id="team-agent-prompt"
-            data-testid="team-agent-prompt"
-            value={prompt ?? ``}
-            onChange={(e) => setPrompt(e.target.value)}
-            onBlur={() => void handleSavePrompt()}
-            placeholder={prompt === null ? `Loading…` : TEAM_PROMPT_PLACEHOLDER}
-            disabled={prompt === null}
-            aria-invalid={promptOver || undefined}
-            rows={10}
-            spellCheck={false}
-            className="min-h-48 rounded-none border-0 bg-transparent px-4 py-3 font-mono text-xs shadow-none focus-visible:border-0"
-          />
+          {prompt === null && !promptLoadFailed ? (
+            <SkeletonRows rows={2} dot={false} />
+          ) : prompt === null ? (
+            <div className="flex min-h-48 flex-col items-center justify-center gap-2 text-sm text-muted-foreground">
+              Prompt unavailable
+              <Button type="button" variant="outline" size="sm" onClick={retryPromptLoad}>
+                {FEEDBACK_ERRORS.retry}
+              </Button>
+            </div>
+          ) : (
+            <Textarea
+              id="team-agent-prompt"
+              data-testid="team-agent-prompt"
+              value={prompt ?? ``}
+              onChange={(e) => setPrompt(e.target.value)}
+              onBlur={handleSavePrompt}
+              placeholder={prompt === null ? undefined : TEAM_PROMPT_PLACEHOLDER}
+              disabled={prompt === null}
+              aria-invalid={promptOver || undefined}
+              aria-describedby={promptOver ? `team-agent-prompt-error` : undefined}
+              rows={10}
+              spellCheck={false}
+              className="min-h-48 rounded-none border-0 bg-transparent px-4 py-3 font-mono text-xs shadow-none focus-visible:border-0"
+            />
+          )}
           <div className="flex items-start justify-end gap-4 border-t border-glass-stroke-card px-4 py-2 text-xs leading-snug text-muted-foreground">
             <span
               className={`shrink-0 tabular-nums ${promptOver ? `text-destructive` : ``}`}
@@ -229,8 +327,10 @@ export function TeamGeneralSection({ team }: { team: Team }) {
             </span>
           </div>
         </GlassGroup>
-        {promptError && (
-          <p className="mt-2 text-sm text-destructive">{promptError}</p>
+        {promptOver && (
+          <FieldError id="team-agent-prompt-error" className="mt-2">
+            {`Too long: ${promptBytes} of ${TEAM_PROMPT_MAX_BYTES} bytes`}
+          </FieldError>
         )}
       </div>
     </div>

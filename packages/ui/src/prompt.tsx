@@ -1,4 +1,5 @@
 import * as React from "react"
+import { FEEDBACK_STATES } from "@exp/domain-contract/feedback-mark"
 
 import { cn } from "./cn"
 import {
@@ -10,10 +11,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "./dialog"
-import { conceptIcon } from "./icons.generated"
+import { Spinner } from "./feedback"
 import { Pill } from "./pill"
-
-const LoadingIcon = conceptIcon(`ui-loading`)
 
 // EXP-1215 — THE confirm/choice prompt. Every "Delete X?", every merge
 // confirm and every multi-answer choice on the web is a `Prompt`, the same
@@ -331,7 +330,11 @@ function PromptLayout({
               disabled={disabled || action.disabled || action.busy}
               leading={
                 spinning ? (
-                  <LoadingIcon className="animate-spin" data-prompt-spinner="" />
+                  <Spinner
+                    size={FEEDBACK_STATES.pending.spinner}
+                    className="text-current"
+                    data-prompt-spinner=""
+                  />
                 ) : (
                   action.leading
                 )

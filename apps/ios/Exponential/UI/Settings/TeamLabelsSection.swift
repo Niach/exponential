@@ -69,7 +69,7 @@ struct TeamLabelsSection: View {
         .sheet(isPresented: $showCreate) {
             LabelEditorSheet { name, color in
                 Task {
-                    await run {
+                    await run(verb: "create") {
                         _ = try await labelsApi.create(accountId: accountId, CreateLabelInput(
                             name: name,
                             color: color,
@@ -90,7 +90,7 @@ struct TeamLabelsSection: View {
                 let newColor: String? = color.lowercased() == label.color.lowercased() ? nil : color
                 guard newName != nil || newColor != nil else { return }
                 Task {
-                    await run {
+                    await run(verb: "save") {
                         try await labelsApi.update(accountId: accountId, UpdateLabelInput(
                             teamId: teamId,
                             labelId: label.id,
@@ -105,7 +105,7 @@ struct TeamLabelsSection: View {
         .glassAlert(item: $deleteTarget) { label in
             GlassAlert(prompt: Prompts.DeleteLabel.copy(name: label.name), handlers: [
                 "delete": {
-                    Task { await run { try await labelsApi.delete(accountId: accountId, teamId: teamId, labelId: label.id) } }
+                    Task { await run(verb: "delete") { try await labelsApi.delete(accountId: accountId, teamId: teamId, labelId: label.id) } }
                 },
             ])
         }
@@ -114,11 +114,15 @@ struct TeamLabelsSection: View {
     /// Run a label mutation, surfacing the server's clean message on failure
     /// instead of silently swallowing it. Labels are member-level, so failures
     /// here are transient (network/permission), not an owner gate.
-    private func run(_ op: () async throws -> Void) async {
+    private func run(verb: String, _ op: () async throws -> Void) async {
         do {
             try await op()
         } catch {
-            toaster.error(error.trpcUserMessage)
+            // FEED-79: `Couldn't <verb> the label` + the server's message.
+            toaster.error(
+                FeedbackStates.Errors.title(verb: verb, thing: "the label"),
+                description: error.trpcUserMessage
+            )
         }
     }
 }

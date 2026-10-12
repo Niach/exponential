@@ -10,6 +10,7 @@
 export type AppLink =
   | { kind: `issue`; teamSlug: string; boardSlug: string; identifier: string }
   | { kind: `session`; teamSlug: string; sessionId: string }
+  | { kind: `thread`; teamSlug: string; threadId: string }
   | { kind: `app`; path: string }
   | { kind: `external`; url: string }
   | { kind: `ignore` }
@@ -39,6 +40,9 @@ function classifyPath(path: string): AppLink {
       return { kind: `issue`, teamSlug: team, boardSlug: a, identifier: c }
     if (kind === `sessions` && a && segments.length === 4)
       return { kind: `session`, teamSlug: team, sessionId: a }
+    // EXP-1284: a thread (its `?child=` is dropped like every route query).
+    if (kind === `threads` && a && segments.length === 4)
+      return { kind: `thread`, teamSlug: team, threadId: a }
   }
   return { kind: `app`, path }
 }

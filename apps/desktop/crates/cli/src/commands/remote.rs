@@ -43,7 +43,7 @@ impl RemoteFlags {
         }
         if self.follow {
             anyhow::bail!(
-                "--follow tails a remote start; it needs --device (a local run attaches by itself)"
+                "--follow tails a remote start; it needs --device (a local session attaches by itself)"
             );
         }
         Ok(())

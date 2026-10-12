@@ -3,6 +3,7 @@ import { Link } from "@tanstack/react-router"
 import type { Team } from "@/db/schema"
 import { trpc } from "@/lib/trpc-client"
 import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   useTeamBoards,
   useTeamLabels,
@@ -36,6 +37,8 @@ import {
   Button,
   Checkbox,
   ColorPicker,
+  FEEDBACK_WORDS,
+  FieldError,
   GlassGroup,
   GlassSectionHeader,
   Input,
@@ -177,7 +180,8 @@ export function TeamImportSection({
   const [jobs, setJobs] = useState<ImportJob[] | null>(null)
   const [activeJobId, setActiveJobId] = useState<string | null>(null)
   const [job, setJob] = useState<ImportJob | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  // FEED-79: the list and the job load on open and the job polls every
+  // POLL_MS, so a failed load is quiet: the step keeps what it last had.
 
   const refreshList = useCallback(async () => {
     try {
@@ -188,8 +192,8 @@ export function TeamImportSection({
         const live = rows.find((row) => !IMPORT_TERMINAL_STATUSES.has(row.status))
         if (live) setActiveJobId(live.id)
       }
-    } catch (err) {
-      setLoadError(trpcErrorMessage(err, `Could not load imports`))
+    } catch {
+      // Quiet (FEED-79): the next open or action re-lists.
     }
   }, [team.id, activeJobId])
 
@@ -217,9 +221,8 @@ export function TeamImportSection({
       // fall back to the list instead of painting an error.
       if (trpcErrorCode(err) === `NOT_FOUND`) {
         leave()
-        return
       }
-      setLoadError(trpcErrorMessage(err, `Could not load the import`))
+      // Anything else is quiet (FEED-79): the next poll tries again.
     }
   }, [activeJobId, leave])
 
@@ -241,14 +244,6 @@ export function TeamImportSection({
 
   return (
     <div className="space-y-6">
-
-      {loadError && (
-        <Alert variant="destructive">
-          <AlertTitle>Something went wrong</AlertTitle>
-          <AlertDescription>{loadError}</AlertDescription>
-        </Alert>
-      )}
-
       {job === null ? (
         <ConnectStep
           team={team}
@@ -298,20 +293,17 @@ function ConnectStep({
 }) {
   const [apiKey, setApiKey] = useState(``)
   const [busy, setBusy] = useState(false)
+  // Invalid input only (a key Linear refused); a failed connect toasts.
+  const [keyError, setKeyError] = useState<string | null>(null)
   const [clearing, setClearing] = useState(false)
 
   const clear = async () => {
     setClearing(true)
     try {
-      await trpc.imports.clearHistory.mutate(
-        { teamId: team.id },
-        { context: { skipErrorToast: true } }
-      )
+      await trpc.imports.clearHistory.mutate({ teamId: team.id }, SKIP_ERROR_TOAST)
       await onCleared()
     } catch (err) {
-      toast.error(`Could not clear the history`, {
-        description: trpcErrorMessage(err, ``),
-      })
+      failedAction(`clear`, `the import history`, err)
     } finally {
       setClearing(false)
     }
@@ -320,18 +312,22 @@ function ConnectStep({
   const connect = async () => {
     if (!apiKey.trim()) return
     setBusy(true)
+    setKeyError(null)
     try {
       const result = await trpc.imports.connect.mutate(
         { teamId: team.id, source: `linear`, apiKey: apiKey.trim() },
-        { context: { skipErrorToast: true } }
+        SKIP_ERROR_TOAST
       )
       toast.success(`Connected as ${result.connectedAs}`)
       setApiKey(``)
       onStarted(result.jobId)
     } catch (err) {
-      toast.error(`Could not connect to Linear`, {
-        description: trpcErrorMessage(err, `Check the key and try again.`),
-      })
+      // The key check's verdict is about what the user typed: under the field.
+      if (trpcErrorCode(err) === `BAD_REQUEST`) {
+        setKeyError(trpcErrorMessage(err, `Check the key and try again.`))
+      } else {
+        failedAction(`connect to`, `Linear`, err, { retry: () => void connect() })
+      }
     } finally {
       setBusy(false)
     }
@@ -352,16 +348,27 @@ function ConnectStep({
                 autoComplete="off"
                 placeholder="lin_api_…"
                 value={apiKey}
-                onChange={(event) => setApiKey(event.target.value)}
+                onChange={(event) => {
+                  setApiKey(event.target.value)
+                  setKeyError(null)
+                }}
                 onKeyDown={(event) => {
                   if (event.key === `Enter`) void connect()
                 }}
                 aria-label="Linear API key"
+                aria-invalid={keyError ? true : undefined}
               />
-              <Button type="button" onClick={() => void connect()} disabled={busy || !apiKey.trim()}>
-                {busy ? `Connecting…` : `Connect`}
+              <Button
+                type="button"
+                onClick={() => void connect()}
+                disabled={!apiKey.trim()}
+                pending={busy}
+                pendingLabel={FEEDBACK_WORDS.pending.connect}
+              >
+                Connect
               </Button>
             </div>
+            <FieldError>{keyError}</FieldError>
           </div>
         </GlassGroup>
       </section>
@@ -427,14 +434,14 @@ function CancelButton({
     <Button
       type="button"
       variant="outline"
-      disabled={busy}
+      pending={busy}
       onClick={async () => {
         setBusy(true)
         try {
-          await trpc.imports.cancel.mutate({ jobId: job.id })
+          await trpc.imports.cancel.mutate({ jobId: job.id }, SKIP_ERROR_TOAST)
           onCancelled()
         } catch (err) {
-          toast.error(`Could not cancel`, { description: trpcErrorMessage(err, ``) })
+          failedAction(`cancel`, `the import`, err)
         } finally {
           setBusy(false)
         }
@@ -576,12 +583,12 @@ function MapStep({
   const check = async () => {
     setChecking(true)
     try {
-      await trpc.imports.savePlan.mutate({ jobId: job.id, plan }, { context: { skipErrorToast: true } })
+      await trpc.imports.savePlan.mutate({ jobId: job.id, plan }, SKIP_ERROR_TOAST)
       const result = await trpc.imports.dryRun.query({ jobId: job.id })
       setDryRun(result)
       checkedPlanRef.current = planJson
     } catch (err) {
-      toast.error(`Could not check the plan`, { description: trpcErrorMessage(err, ``) })
+      failedAction(`check`, `the plan`, err, { retry: () => void check() })
     } finally {
       setChecking(false)
     }
@@ -590,11 +597,11 @@ function MapStep({
   const start = async () => {
     setStarting(true)
     try {
-      await trpc.imports.start.mutate({ jobId: job.id }, { context: { skipErrorToast: true } })
+      await trpc.imports.start.mutate({ jobId: job.id }, SKIP_ERROR_TOAST)
       toast.success(`Import started`)
       await onChanged()
     } catch (err) {
-      toast.error(`Could not start the import`, { description: trpcErrorMessage(err, ``) })
+      failedAction(`start`, `the import`, err, { retry: () => void start() })
     } finally {
       setStarting(false)
     }
@@ -1011,15 +1018,17 @@ function MapStep({
 
       <div className="flex flex-wrap items-center justify-end gap-2">
         <CancelButton job={job} label="Discard import" onCancelled={onCancelled} />
-        <Button type="button" variant="outline" onClick={() => void check()} disabled={checking}>
-          {checking ? `Checking…` : checked ? `Check again` : `Check plan`}
+        <Button type="button" variant="outline" onClick={() => void check()} pending={checking}>
+          {checked ? `Check again` : `Check plan`}
         </Button>
         <Button
           type="button"
           onClick={() => void start()}
-          disabled={!checked || starting || (dryRun?.blockers.length ?? 1) > 0}
+          disabled={!checked || (dryRun?.blockers.length ?? 1) > 0}
+          pending={starting}
+          pendingLabel={FEEDBACK_WORDS.pending.start}
         >
-          {starting ? `Starting…` : job.status === `failed` ? `Resume import` : `Start import`}
+          {job.status === `failed` ? `Resume import` : `Start import`}
         </Button>
       </div>
     </div>

@@ -31,8 +31,8 @@ public struct WorkflowCaptionAgent: Equatable, Sendable {
 ///
 /// Hand-mirrored ×4 (TS `packages/domain-contract/src/workflow-caption.ts`,
 /// desktop `steer::workflow_caption`, Android `domain/WorkflowCaption.kt`) and
-/// byte-locked by `packages/domain-contract/fixtures/workflow-caption.json`,
-/// which every client's test replays.
+/// byte-locked by `packages/domain-contract/fixtures/work-card.json`
+/// `caption.cases`, which every client's test replays.
 ///
 /// Rules:
 /// - `running` with no agents yet → `Workflow {name} · starting`

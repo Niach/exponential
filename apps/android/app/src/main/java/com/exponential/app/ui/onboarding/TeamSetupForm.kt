@@ -25,6 +25,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
+import com.exponential.app.ui.components.FieldError
 import com.exponential.app.ui.components.ExponentialMark
 import com.exponential.app.ui.components.GlassOAuthButton
 import com.exponential.app.ui.components.GlassSubmitButton
@@ -185,14 +186,8 @@ private fun BackLink(enabled: Boolean, onClick: () -> Unit) {
     }
 }
 
-/** Each page owns its own error line, under its own field. */
+/** Each page owns its own error line, under its own field (invalid input, FEED-79). */
 @Composable
 private fun PageError(message: String?) {
-    if (message == null) return
-    Text(
-        message,
-        style = MaterialTheme.typography.bodySmall,
-        color = MaterialTheme.colorScheme.error.copy(alpha = 0.8f),
-        modifier = Modifier.fillMaxWidth(),
-    )
+    FieldError(message, modifier = Modifier.fillMaxWidth())
 }

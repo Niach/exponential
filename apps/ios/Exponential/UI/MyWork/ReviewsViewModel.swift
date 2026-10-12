@@ -70,6 +70,11 @@ final class ReviewsViewModel {
     private var issueTask: Task<Void, Never>?
     private var boardTask: Task<Void, Never>?
     private var sessionTask: Task<Void, Never>?
+    /// EXP-1275 (D8): the issues shape's "up-to-date seen" flag
+    /// (`IssueListViewModel.issuesSynced`) — an empty list before it is the
+    /// skeleton placeholder, never the empty state.
+    private(set) var issuesSynced = false
+    private var syncedTask: Task<Void, Never>?
 
     init(
         accountId: String, db: DatabaseManager, openPulls: OpenPullsStore,
@@ -86,6 +91,18 @@ final class ReviewsViewModel {
     func startObserving() {
         stopObserving() // restartable: the view re-arms on every appear
         guard let pool = try? db.pool(forAccountId: accountId) else { return }
+
+        let syncedObservation = ValueObservation.tracking { db in
+            try ElectricOffset.fetchOne(db, key: "issues")?.isLive ?? false
+        }
+        syncedTask = Task { [weak self] in
+            do {
+                for try await live in syncedObservation.values(in: pool) {
+                    guard let self else { return }
+                    self.issuesSynced = live
+                }
+            } catch {}
+        }
 
         // EXP-1244: the open ones AND every linked one — a merged or closed
         // issue's pr_url still links its pull request (the queue filters).
@@ -133,6 +150,8 @@ final class ReviewsViewModel {
     }
 
     func stopObserving() {
+        syncedTask?.cancel()
+        syncedTask = nil
         issueTask?.cancel()
         issueTask = nil
         boardTask?.cancel()

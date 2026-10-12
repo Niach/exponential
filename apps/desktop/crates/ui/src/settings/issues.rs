@@ -65,11 +65,6 @@ fn estimation_label(value: &str) -> String {
 
 pub struct IssuesPane {
     nav: Entity<Navigation>,
-    /// Inline error under the Estimates card.
-    estimation_error: Option<String>,
-    /// Inline error under the PR-automation card (EXP-774, web parity: the
-    /// card holds ONE error for its three writes).
-    pr_automation_error: Option<String>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -77,11 +72,7 @@ impl IssuesPane {
     pub fn new(nav: Entity<Navigation>, cx: &mut gpui::Context<Self>) -> Self {
         let collections = Store::global(cx).collections().clone();
         let subscriptions = vec![
-            cx.observe(&nav, |this, _, cx| {
-                this.estimation_error = None;
-                this.pr_automation_error = None;
-                cx.notify();
-            }),
+            cx.observe(&nav, |_, _, cx| cx.notify()),
             // Both cards read the synced teams row — without this the
             // mutation's Electric echo never re-renders them.
             cx.observe(&collections.teams, |_, _, cx| cx.notify()),
@@ -90,8 +81,6 @@ impl IssuesPane {
         ];
         Self {
             nav,
-            estimation_error: None,
-            pr_automation_error: None,
             _subscriptions: subscriptions,
         }
     }
@@ -174,7 +163,7 @@ impl IssuesPane {
                 .into_any_element()
         };
 
-        let mut card = section(cx)
+        let card = section(cx)
             .child(crate::surface::glass_section_header("Estimates", None, cx))
             .child(
                 h_flex()
@@ -188,57 +177,31 @@ impl IssuesPane {
                     )
                     .child(control),
             );
-        if let Some(message) = self.estimation_error.clone() {
-            card = card.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().danger)
-                    .px_1()
-                    .child(SharedString::from(message)),
-            );
-        }
         Some(card)
     }
 
+    /// FEED-79: a failed estimate-scale write is the error toast.
     fn set_estimation_error<T>(
         &mut self,
         result: Result<T, api::ApiError>,
         cx: &mut gpui::Context<Self>,
     ) {
-        match result {
-            Ok(_) => {
-                if self.estimation_error.take().is_some() {
-                    cx.notify();
-                }
-            }
-            Err(err) => {
-                log::warn!("[ui] issues estimate scale write failed: {err}");
-                self.estimation_error =
-                    Some(super::form_error(&err, "Failed to save changes."));
-                cx.notify();
-            }
+        if let Err(err) = result {
+            log::warn!("[ui] issues estimate scale write failed: {err}");
+            crate::action_error::failed_action_err("update", "the estimate scale", &err, cx);
         }
     }
 
-    /// The PR-automation card's error writer (EXP-774): one slot for the
-    /// card's three writes, cleared by the next success.
+    /// The PR-automation card's failure writer (EXP-774): one toast for the
+    /// card's three writes (FEED-79).
     fn set_pr_automation_error<T>(
         &mut self,
         result: Result<T, api::ApiError>,
         cx: &mut gpui::Context<Self>,
     ) {
-        match result {
-            Ok(_) => {
-                if self.pr_automation_error.take().is_some() {
-                    cx.notify();
-                }
-            }
-            Err(err) => {
-                log::warn!("[ui] statuses PR automation write failed: {err}");
-                self.pr_automation_error =
-                    Some(super::form_error(&err, "Failed to update PR automation."));
-                cx.notify();
-            }
+        if let Err(err) = result {
+            log::warn!("[ui] statuses PR automation write failed: {err}");
+            crate::action_error::failed_action_err("update", "PR automation", &err, cx);
         }
     }
 
@@ -423,7 +386,7 @@ impl IssuesPane {
                     div()
                         .min_w_0()
                         .text_sm()
-                        .child("When a PR merges, end its runs"),
+                        .child("When a PR merges, end its sessions"),
                 )
                 .child(
                     crate::controls::web_switch("pr-automation-end-sessions")
@@ -453,16 +416,6 @@ impl IssuesPane {
                 ),
         );
 
-        // EXP-774 (web parity): the card's one inline error line.
-        if let Some(message) = self.pr_automation_error.clone() {
-            card = card.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().danger)
-                    .px_1()
-                    .child(SharedString::from(message)),
-            );
-        }
 
         Some(card)
     }

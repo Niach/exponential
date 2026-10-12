@@ -708,6 +708,7 @@ fn prepared(session_id: &str, worktree: PathBuf) -> coding::PreparedLaunch {
             batch_issue_ids: Vec::new(),
             agent: None,
             agent_account: None,
+            thread_id: None,
         },
         action_id: None,
         bypass_permissions: true,

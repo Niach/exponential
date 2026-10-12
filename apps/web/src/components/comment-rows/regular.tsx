@@ -232,7 +232,9 @@ export function RegularCommentRow({
       }
       markerSize={28}
     >
-      <GlassCard className="px-3 pt-2.5 pb-3">
+      {/* EXP-1241: `data-comment-id` is the anchor `?comment=<id>` scrolls
+          to (`IssueTimeline`); a reply carries its own below. */}
+      <GlassCard className="px-3 pt-2.5 pb-3" data-comment-id={comment.id}>
         <CommentCardContent {...card} />
         {onReply && (
           <div
@@ -243,6 +245,7 @@ export function RegularCommentRow({
               <div
                 key={reply.comment.id}
                 data-comment-reply
+                data-comment-id={reply.comment.id}
                 className="flex gap-2 py-1.5"
               >
                 <CommentAvatar

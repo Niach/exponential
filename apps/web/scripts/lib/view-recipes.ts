@@ -29,6 +29,7 @@ import {
   DEMO_FEED_QUESTION,
   DEMO_NAME,
   DEMO_PASSWORD,
+  DEMO_USER_ID,
   TEAM_SLUG,
 } from "../screenshot-demo"
 
@@ -43,6 +44,14 @@ const BOARD_SLUG = `mobile-app`
  */
 const SEARCH_QUERY = `cold start`
 const SEARCH_RESULT_TITLE = `Reduce cold start below 800 ms`
+
+/**
+ * What `typeIssueRef` types into the Agent composer: a prompt, then `#` and a
+ * token. `APP` is the seeded board's key, so every issue matches and the list
+ * shows its uncapped, scrolling face (the desktop `search-list` query too).
+ */
+const ISSUE_REF_PROMPT = `Explain #`
+const ISSUE_REF_TOKEN = `APP`
 
 /** Everything a recipe is allowed to know about the instance it is driving. */
 export interface RecipeCtx {
@@ -216,26 +225,26 @@ async function recipeScrollToComments(page: Page): Promise<void> {
   // scrolls is not knowable from the styles alone — the walk tries each
   // candidate and only accepts one whose `scrollTop` actually moved.
   //
-  // ONLY on the composer path. The phone layout keeps its composer in a
-  // floating bottom bar, so its target is the Activity header, and "scroll its
-  // container to the end" would mean something quite different there — it
-  // reframes the shot past the header it was asked to reach.
+  // The phone path too (EXP-1259): its Activity header already peeks out
+  // under the floating bottom bar on the first frame, so
+  // `scrollIntoViewIfNeeded` counted it visible and never moved, and the shot
+  // came back identical to `issue-detail`. The thread is the end of the
+  // phone's scroller as well, so its end is the frame there too (the natives'
+  // `sg_issue-comments` lands on the last comments the same way).
   // Twice: the thread below the fold can still be laying out after the first
   // scroll (EXP-1245 renders the activity feed progressively), which left the
   // first pass short of the composer.
-  if (hasComposer) {
-    for (let pass = 0; pass < 2; pass += 1) {
-      await target.evaluate((node) => {
-        for (let el = node.parentElement; el; el = el.parentElement) {
-          if (el.scrollHeight <= el.clientHeight + 1) continue
-          const before = el.scrollTop
-          el.scrollTop = el.scrollHeight
-          if (el.scrollTop !== before) return
-        }
-        window.scrollTo(0, document.documentElement.scrollHeight)
-      })
-      await page.waitForTimeout(300)
-    }
+  for (let pass = 0; pass < 2; pass += 1) {
+    await target.evaluate((node) => {
+      for (let el = node.parentElement; el; el = el.parentElement) {
+        if (el.scrollHeight <= el.clientHeight + 1) continue
+        const before = el.scrollTop
+        el.scrollTop = el.scrollHeight
+        if (el.scrollTop !== before) return
+      }
+      window.scrollTo(0, document.documentElement.scrollHeight)
+    })
+    await page.waitForTimeout(300)
   }
   // Let the smooth-scroll land before the anchor wait starts measuring.
   await page.waitForTimeout(400)
@@ -400,6 +409,122 @@ async function recipeExpandFirstDiffFile(page: Page): Promise<void> {
     .waitFor({ timeout: 30_000 })
 }
 
+// ------------------------------------------------------------------ agent
+
+/** The Agent composer's field, focused (the page autofocuses it on a pointer,
+ *  a click covers the phone). */
+async function focusComposer(page: Page): Promise<Locator> {
+  const field = page.getByTestId(`agent-composer-field`)
+  await field.first().waitFor({ timeout: 30_000 })
+  await field.first().click()
+  return field.first()
+}
+
+/**
+ * SLOP-28: THE search list as the `#` typeahead (search-list.json). Types a
+ * prompt, then `#`: the list opens at the caret (a bottom sheet on phones)
+ * with ITS input focused, so the token typed next lands in that input, as a
+ * person typing straight through would. Ends once the input holds the token
+ * and the rows are back.
+ */
+async function recipeTypeIssueRef(page: Page): Promise<void> {
+  await focusComposer(page)
+  await page.keyboard.type(ISSUE_REF_PROMPT, { delay: 40 })
+  const input = page.getByTestId(`search-list-input`).filter({ visible: true })
+  await input.first().waitFor({ timeout: 15_000 })
+  await page.keyboard.type(ISSUE_REF_TOKEN, { delay: 60 })
+  await page
+    .getByTestId(`search-list-row`)
+    .filter({ visible: true })
+    .nth(1)
+    .waitFor({ timeout: 15_000 })
+  const typed = await input.first().inputValue()
+  if (typed !== ISSUE_REF_TOKEN) {
+    throw new Error(
+      `the # search input holds "${typed}", not "${ISSUE_REF_TOKEN}": the ` +
+        `token went somewhere else (did the list take focus?)`
+    )
+  }
+}
+
+/**
+ * EXP-1249: the composer's ONE "+" menu with Implement issue › open beside it
+ * (composer-menu.json test ids). The submenu opens on hover from md up, so the
+ * recipe hovers the row and waits for the search list's rows inside it.
+ */
+async function recipeOpenComposerMenuImplement(page: Page): Promise<void> {
+  const plus = page.getByTestId(`agent-composer-plus-button`)
+  await plus.first().waitFor({ timeout: 30_000 })
+  await plus.first().click()
+  const row = page.getByTestId(`agent-composer-menu-implement-issue`)
+  await row.first().waitFor({ timeout: 15_000 })
+  await row.first().hover()
+  await page
+    .getByTestId(`search-list-row`)
+    .filter({ visible: true })
+    .first()
+    .waitFor({ timeout: 15_000 })
+}
+
+/**
+ * EXP-1175: put the steered session's Run face on its transcript (Show work),
+ * the per-user localStorage pref (`exp.showWork:<userId>`, show-work-pref.ts)
+ * set and the page reloaded so it opens that way. The key is removed again
+ * once the transcript is up: the module keeps the value for this page's life,
+ * and the next view (`steering`) must open on the THREAD.
+ */
+async function showWork(page: Page): Promise<void> {
+  const key = `exp.showWork:${DEMO_USER_ID}`
+  await page.evaluate((storageKey) => localStorage.setItem(storageKey, `true`), key)
+  await page.reload()
+  await page
+    .getByRole(`button`, { name: `Hide work`, exact: true })
+    .first()
+    .waitFor({ timeout: 30_000 })
+  await page.evaluate((storageKey) => localStorage.removeItem(storageKey), key)
+}
+
+/**
+ * Bring one transcript card to the middle of the frame. The transcript is
+ * bottom-anchored, so a card above the fold needs the scroll; centring it
+ * keeps the rows around it (what the card sits in) in the shot.
+ */
+async function centreCard(page: Page, testId: string): Promise<void> {
+  const card = page.getByTestId(testId).filter({ visible: true }).first()
+  await card.waitFor({ timeout: 30_000 })
+  await card.evaluate((node) => node.scrollIntoView({ block: `center` }))
+  await page.waitForTimeout(400)
+}
+
+/** The transcript with its Work cards (EXP-1240, work-card.json): the last
+ *  subagent's card centred in the transcript, the task list's card pinned in
+ *  the strip under it. (The strip's card is the LAST `work-card` in the DOM
+ *  and always on screen, so the scroll target is the subagent one.) */
+async function recipeShowWorkCards(page: Page): Promise<void> {
+  await showWork(page)
+  const subagents = page
+    .getByTestId(`work-card`)
+    .filter({ visible: true })
+    .filter({ hasText: `Subagent` })
+  await subagents.first().waitFor({ timeout: 30_000 })
+  await subagents
+    .last()
+    .evaluate((node) => node.scrollIntoView({ block: `center` }))
+  await page.waitForTimeout(400)
+}
+
+/** The transcript at the code-mode call's Script card (EXP-1279). */
+async function recipeShowScriptCard(page: Page): Promise<void> {
+  await showWork(page)
+  await centreCard(page, `script-card`)
+}
+
+/** The transcript at the agent's comment, drawn as the comment (EXP-1241). */
+async function recipeShowCommentCard(page: Page): Promise<void> {
+  await showWork(page)
+  await centreCard(page, `comment-call-row`)
+}
+
 // --------------------------------------------------------------- machines
 
 /**
@@ -477,39 +602,6 @@ async function recipeOpenAddServer(page: Page): Promise<void> {
 // ---------------------------------------------------------------- actions
 
 /**
- * The shipped seed catalog that prefills the creator run. EXP-686 split its
- * two homes: the phone keeps it as the Actions page's third tab, while a
- * desktop viewport reaches it through the icon-only "Suggestions" lightbulb in
- * the Actions header, which opens Getting started on its Suggested actions
- * tab. Click whichever of the two is mounted. The seeds are constants
- * (`lib/action-suggestions.ts`), never DB rows, so the anchor can be a
- * specific seed title rather than a header the trigger shares.
- */
-async function recipeOpenSuggestionsTab(page: Page): Promise<void> {
-  const tab = page.getByRole(`tab`, { name: `Suggestions`, exact: true })
-  if (await appears(tab, 5_000)) {
-    await tab.first().click()
-  } else {
-    const lightbulb = page.getByRole(`button`, {
-      name: `Suggestions`,
-      exact: true,
-    })
-    if (!(await appears(lightbulb, 20_000))) {
-      throw new Error(
-        `neither a Suggestions tab nor the Suggestions lightbulb — the seeds ` +
-          `live on the Actions page (phone) or in Getting started (desktop)`
-      )
-    }
-    await lightbulb.first().click()
-  }
-  await page
-    .getByText(`Daily standup digest`)
-    .filter({ visible: true })
-    .first()
-    .waitFor({ timeout: 15_000 })
-}
-
-/**
  * Open the new-trigger form on the seeded action's page (`actions/$actionId`;
  * the phone route lands on its Triggers tab). Owner-only, and it needs a
  * steer relay: without either the "Add trigger" pill is not mounted.
@@ -557,24 +649,29 @@ async function recipeOpenWidgetEditor(page: Page): Promise<void> {
 // -------------------------------------------------------- getting started
 
 /**
- * Open the sidebar-footer "Getting started" sheet (EXP-88). EXP-548 hides the
- * entry entirely once every checklist item is done — and while the signals are
- * still loading — so an absent entry is a seed problem, not a flake, and says so.
+ * Open the Getting started block from its sidebar-footer entry (EXP-88), which
+ * EXP-1270 turned into a centred dialog over the page (the right sheet is
+ * gone). EXP-548 hides the entry once every step is done, and while the
+ * signals are still loading, so an absent entry is a seed problem, not a
+ * flake, and says so. Both ids are getting-started.json's `testIds`.
  */
 async function recipeOpenGettingStarted(page: Page): Promise<void> {
-  const trigger = page.getByRole(`button`, { name: `Getting started`, exact: true })
+  const trigger = page.getByTestId(`getting-started-entry`)
   if (!(await appears(trigger, 15_000))) {
     await openSidebar(page)
   }
   if (!(await appears(trigger, 10_000))) {
     throw new Error(
-      `no "Getting started" sidebar entry — EXP-548 hides it once every ` +
-        `checklist entry is complete. Re-seed so at least one stays incomplete: ` +
+      `no "Getting started" sidebar entry: EXP-548 hides it once every ` +
+        `step is complete. Re-seed so at least one stays open: ` +
         `bun run seed:screenshots`
     )
   }
   await trigger.first().click()
-  await page.getByText(`Set up the coding loop`).first().waitFor({ timeout: 15_000 })
+  await page
+    .getByRole(`dialog`)
+    .getByTestId(`getting-started`)
+    .waitFor({ timeout: 15_000 })
 }
 
 /**
@@ -582,7 +679,25 @@ async function recipeOpenGettingStarted(page: Page): Promise<void> {
  * test parses this literal, so keep it a flat name-to-function table with the
  * closing brace in column 0.
  */
+/**
+ * EXP-1284: open a thread's child menu (Link an issue · New issue in this
+ * thread · Start a session here · Unlink <IDENT>) on its LAST issue tab — the
+ * `thread-runs` view's draft shows it open. A right-click on md+; the phone
+ * pager's tab takes the same gesture (the menu opens as its sheet).
+ */
+async function recipeOpenThreadChildMenu(page: Page): Promise<void> {
+  const tabs = page.locator(`[data-testid="thread-strip"] [data-menu="thread-child"]`)
+  await tabs.first().waitFor({ timeout: 20_000 })
+  await tabs.last().click({ button: `right` })
+  await page
+    .getByText(/^Unlink /)
+    .filter({ visible: true })
+    .first()
+    .waitFor({ timeout: 15_000 })
+}
+
 export const RECIPES: Record<string, Recipe> = {
+  openThreadChildMenu: recipeOpenThreadChildMenu,
   openOnboardingCreateTeam: recipeOpenOnboardingCreateTeam,
   openOnboardingJoin: recipeOpenOnboardingJoin,
   openOnboardingInvite: recipeOpenOnboardingInvite,
@@ -596,8 +711,12 @@ export const RECIPES: Record<string, Recipe> = {
   openMachineSettings: recipeOpenMachineSettings,
   expandFirstDevice: recipeExpandFirstDevice,
   openAddServer: recipeOpenAddServer,
-  openSuggestionsTab: recipeOpenSuggestionsTab,
   openTriggerEditor: recipeOpenTriggerEditor,
   openWidgetEditor: recipeOpenWidgetEditor,
   openGettingStarted: recipeOpenGettingStarted,
+  typeIssueRef: recipeTypeIssueRef,
+  openComposerMenuImplement: recipeOpenComposerMenuImplement,
+  showWorkCards: recipeShowWorkCards,
+  showScriptCard: recipeShowScriptCard,
+  showCommentCard: recipeShowCommentCard,
 }

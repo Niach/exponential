@@ -59,9 +59,6 @@ pub struct ActionView {
     /// when the page is pointed at another action.
     prompt: Option<Entity<ActionPromptForm>>,
     derived: ActionDerived,
-    /// A refused trigger write (the server's own sentence), shown under the
-    /// Triggers rows until the next write.
-    trigger_error: Option<SharedString>,
     /// A trigger write is in flight — the switches and the ⋯ menus wait, so
     /// two whole-array writes never overlap.
     trigger_writing: bool,
@@ -238,7 +235,6 @@ impl ActionView {
             action_id: None,
             prompt: None,
             derived: ActionDerived::default(),
-            trigger_error: None,
             trigger_writing: false,
             _subscriptions: subscriptions,
             _tick: crate::sessions_section::tick(cx, |this: &mut Self, cx| this.tick_refresh(cx)),
@@ -258,7 +254,6 @@ impl ActionView {
         }
         self.action_id = Some(action_id);
         self.prompt = None;
-        self.trigger_error = None;
         self.scroll = ScrollHandle::new();
         self.derived = ActionDerived::compute(cx, self.action_id.as_deref());
         self.ensure_prompt(window, cx);
@@ -315,8 +310,9 @@ impl ActionView {
     // -- writes ---------------------------------------------------------------
 
     /// ONE `actions.update({id, triggers})` — the whole array. A refusal
-    /// (required inputs, an incapable device, …) lands under the rows in the
-    /// server's own words; the synced echo repaints everything else.
+    /// (required inputs, an incapable device, …) is the error toast in the
+    /// server's own words (FEED-79); the synced echo repaints everything
+    /// else.
     fn write_triggers(&mut self, triggers: Vec<serde_json::Value>, cx: &mut gpui::Context<Self>) {
         let (Some(action_id), Some(trpc)) = (self.action_id.clone(), queries::trpc_client(cx))
         else {
@@ -326,7 +322,6 @@ impl ActionView {
             return;
         }
         self.trigger_writing = true;
-        self.trigger_error = None;
         cx.notify();
         let mut input = api::actions::ActionUpdate::new(action_id);
         input.triggers = Some(triggers);
@@ -344,7 +339,7 @@ impl ActionView {
                 this.trigger_writing = false;
                 if let Err(err) = result {
                     log::warn!("actions: writing the triggers failed: {err}");
-                    this.trigger_error = Some(err.user_message().into());
+                    crate::action_error::failed_action_err("update", "the triggers", &err, cx);
                 }
                 cx.notify();
             });
@@ -734,7 +729,6 @@ impl ActionView {
         is_owner: bool,
         cx: &mut gpui::Context<Self>,
     ) -> gpui::AnyElement {
-        let danger = cx.theme().danger;
         let now_ms = chrono::Utc::now().timestamp_millis();
         let blocked_by_inputs = action.inputs.iter().any(|input| input.required);
 
@@ -769,11 +763,7 @@ impl ActionView {
                 .collect();
             section = section.children(rows);
         }
-        section
-            .when_some(self.trigger_error.clone(), |this, error| {
-                this.child(div().px_3().pt_2().text_sm().text_color(danger).child(error))
-            })
-            .into_any_element()
+        section.into_any_element()
     }
 
     /// The Runs section: every run of this action, newest first, as the
@@ -781,7 +771,7 @@ impl ActionView {
     fn render_runs(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let mut section = gpui_component::v_flex()
             .min_w_0()
-            .child(glass_section_header("Runs", None, cx));
+            .child(glass_section_header("Sessions", None, cx));
         if self.derived.runs.is_empty() {
             return section
                 .child(crate::controls::empty_state_list(
@@ -824,12 +814,14 @@ impl ActionView {
     /// The page while its action is not there: still syncing, or gone.
     fn render_missing(&self, cx: &mut gpui::Context<Self>) -> gpui::AnyElement {
         let muted = cx.theme().muted_foreground;
+        // EXP-1259 D8: still syncing = the page's rows as placeholders.
         if !self.derived.ready {
-            return div()
-                .text_sm()
-                .text_color(muted)
-                .child("Loading…")
-                .into_any_element();
+            return crate::feedback::skeleton_rows(
+                "action-page-skeleton",
+                crate::feedback::SKELETON_ROWS,
+                crate::settings::SETTINGS_ROW_H,
+                cx,
+            );
         }
         gpui_component::v_flex()
             .items_start()

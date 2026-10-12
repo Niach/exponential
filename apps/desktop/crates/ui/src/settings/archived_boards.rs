@@ -22,7 +22,6 @@ use gpui::{
 use gpui_component::{
     v_flex, ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
-use crate::toast::Toast;
 use sync::Store;
 
 use api::boards::ArchivedBoard;
@@ -32,7 +31,7 @@ use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 use crate::surface::{glass_pill_button, PillSize};
 
-use super::{error_notice, section};
+use super::{section, settings_skeleton};
 
 enum Load {
     Idle,
@@ -51,6 +50,9 @@ pub struct ArchivedBoardsPane {
     generation: u64,
     /// The board being unarchived — disables its row's button.
     pending: Option<String>,
+    /// FEED-79: the load in flight is the person's Retry press (its failure
+    /// toasts); a load on open fails quietly into the empty state.
+    retry_pressed: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -64,6 +66,7 @@ impl ArchivedBoardsPane {
             account_id: None,
             generation: 0,
             pending: None,
+            retry_pressed: false,
             _subscriptions: subscriptions,
         }
     }
@@ -98,12 +101,23 @@ impl ArchivedBoardsPane {
                 .background_executor()
                 .spawn(async move {
                     api::boards::boards_list_archived(&trpc, &team_id)
-                        .map_err(|err| err.to_string())
+                        .map_err(|err| err.user_message())
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation {
                     return; // superseded by a newer fetch
+                }
+                // FEED-79: a failed load = the empty state + Retry; only a
+                // Retry press that fails again toasts.
+                let attended = std::mem::take(&mut this.retry_pressed);
+                if let Err(message) = &result {
+                    crate::action_error::failed_load(
+                        "the archived boards",
+                        attended,
+                        Some(message.clone()),
+                        cx,
+                    );
                 }
                 this.load = Load::Ready(result);
                 cx.notify();
@@ -112,11 +126,17 @@ impl ArchivedBoardsPane {
         .detach();
     }
 
-    /// Refetch (after an unarchive, or the Refresh button): drop the cached
-    /// list; the next render re-fetches.
+    /// Refetch (after an unarchive): drop the cached list; the next render
+    /// re-fetches.
     fn refetch(&mut self, cx: &mut gpui::Context<Self>) {
         self.load = Load::Idle;
         cx.notify();
+    }
+
+    /// The failed list's Retry: the same load, attended.
+    fn retry_load(&mut self, cx: &mut gpui::Context<Self>) {
+        self.retry_pressed = true;
+        self.refetch(cx);
     }
 
     /// `boards.unarchive` → refetch. No confirm: unarchiving only makes things
@@ -154,9 +174,11 @@ impl ArchivedBoardsPane {
             });
             if let Err(error) = result {
                 log::warn!("[ui] boards.unarchive({board_id}) failed: {error}");
-                let note = Toast::error(format!(
-                    "Could not unarchive {board_name}: {error}"
-                ));
+                let note = crate::action_error::failed_toast(
+                    "unarchive",
+                    &board_name,
+                    crate::action_error::action_error_description(&error),
+                );
                 let _ = handle.update(cx, |_, window, cx| {
                     crate::toast::show(note, window, cx);
                 });
@@ -263,15 +285,17 @@ impl Render for ArchivedBoardsPane {
 
         match &self.load {
             Load::Idle | Load::Loading => {
-                body = body.child(
-                    v_flex()
-                        .gap_2()
-                        .child(crate::controls::skeleton().h_8().w_full())
-                        .child(crate::controls::skeleton().h_8().w_full()),
-                );
+                body = body.child(settings_skeleton("archived-boards-skeleton", cx));
             }
-            Load::Ready(Err(message)) => {
-                body = body.child(error_notice(SharedString::from(message.clone()), cx));
+            // A failed load (FEED-79): the empty state + Retry, no toast.
+            Load::Ready(Err(_)) => {
+                body = body.child(crate::action_error::load_failed_state(
+                    "archived-boards-retry",
+                    gpui_component::Icon::new(crate::icons::registry::UI_ARCHIVE),
+                    crate::empty_state_copy::ARCHIVED_BOARDS,
+                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
+                    cx,
+                ));
             }
             Load::Ready(Ok(rows)) if rows.is_empty() => {
                 body = body.child(crate::controls::empty_state_list(

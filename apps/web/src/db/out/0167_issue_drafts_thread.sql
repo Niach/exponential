@@ -1,0 +1,2 @@
+ALTER TABLE "issue_drafts" ADD COLUMN "thread_id" uuid;--> statement-breakpoint
+ALTER TABLE "issue_drafts" ADD CONSTRAINT "issue_drafts_thread_id_threads_id_fk" FOREIGN KEY ("thread_id") REFERENCES "public"."threads"("id") ON DELETE set null ON UPDATE no action;

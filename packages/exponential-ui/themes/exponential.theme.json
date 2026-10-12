@@ -269,6 +269,10 @@
         1,
         1
       ]
+    },
+    "scale": {
+      "press": 0.97,
+      "popoverFrom": 0.96
     }
   },
   "fonts": {

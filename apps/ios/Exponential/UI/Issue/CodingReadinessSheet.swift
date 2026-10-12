@@ -391,7 +391,8 @@ struct CodingReadinessRepoPickerSheet: View {
     @Environment(\.dismiss) private var dismiss
     @State private var query = ""
     @State private var busyId: String?
-    @State private var errorText: String?
+    // FEED-79: a failed pick is a toast, never a rose line in the picker.
+    @Environment(\.toaster) private var toaster
     @State private var showAddRepo = false
 
     var body: some View {
@@ -406,13 +407,6 @@ struct CodingReadinessRepoPickerSheet: View {
             .padding(.bottom, 8)
         }, content: {
             VStack(alignment: .leading, spacing: 0) {
-                if let errorText {
-                    Text(errorText)
-                        .font(.caption)
-                        .foregroundStyle(DesignTokens.Semantic.red)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                }
                 if model.repos == nil {
                     ProgressView()
                         .tint(.white)
@@ -481,7 +475,6 @@ struct CodingReadinessRepoPickerSheet: View {
     private func pick(_ repositoryId: String) async {
         guard busyId == nil else { return }
         busyId = repositoryId
-        errorText = nil
         defer { busyId = nil }
         do {
             try await deps.boardsApi.setRepository(
@@ -490,7 +483,10 @@ struct CodingReadinessRepoPickerSheet: View {
             RepositoryDirectory.invalidate(accountId: accountId, teamId: board.teamId)
             dismiss()
         } catch {
-            errorText = error.trpcUserMessage
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "set", thing: "the repository"),
+                description: error.trpcUserMessage
+            )
         }
     }
 }

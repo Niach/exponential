@@ -129,7 +129,7 @@ private struct NodeBody: View {
                     painted(style: style, size: size, animation: animation)
                         .contentShape(style.shape(size))
                 }
-                .buttonStyle(PressReportingStyle(id: node.id, model: model))
+                .buttonStyle(PressReportingStyle(id: node.id, model: model, pressScale: node.component == "Button" && !model.reducedMotion ? CGFloat(model.theme?.scale("press") ?? 1) : 1))
                 .disabled(model.isDisabled(index))
             } else {
                 painted(style: style, size: size, animation: animation)
@@ -174,7 +174,7 @@ private struct NodeBody: View {
                 .frame(width: size.width, height: size.height, alignment: .topLeading)
                 .paintedBox(style, size: size)
                 .modifier(BackdropBlurModifier(style: style, size: size))
-                .modifier(SkeletonPulse(on: node.component == "Skeleton"))
+                .modifier(SkeletonPulse(on: node.component == "Skeleton" && node.isLeaf))
                 .modifier(ClipModifier(style: style, size: size))
         }
         .overlay {
@@ -190,9 +190,14 @@ private struct NodeBody: View {
 struct PressReportingStyle: ButtonStyle {
     let id: String
     let model: SurfaceModel
+    /// EXP-1259: a pressed Button scales to the theme's `scale.press` (1 =
+    /// none; never under reduced motion).
+    var pressScale: CGFloat = 1
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
+            .scaleEffect(configuration.isPressed ? pressScale : 1)
+            .animation(pressScale == 1 ? nil : .timingCurve(0.2, 0, 0, 1, duration: (model.theme?.motion("fast") ?? 120) / 1000), value: configuration.isPressed)
             .onChange(of: configuration.isPressed) { _, pressed in
                 if pressed { model.pressDown(id) } else { model.pressUp(id) }
             }

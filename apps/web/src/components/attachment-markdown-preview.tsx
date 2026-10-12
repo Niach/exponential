@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { Download, LoaderCircle } from "lucide-react"
+import { Download } from "lucide-react"
 import {
   Button,
   Dialog,
@@ -9,6 +9,7 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
+  SkeletonRows,
 } from "@exp/ui"
 import { MarkdownEditor } from "@/components/issue-editor/markdown-editor"
 import {
@@ -87,6 +88,8 @@ export function AttachmentMarkdownPreviewDialog({
     if (!open || !attachment) return
     let cancelled = false
     setState({ status: `loading` })
+    // FEED-79: the load runs on open, so a failure is the empty body (no
+    // toast); Download stays the way to read it.
     loadMarkdownPreview(attachment)
       .then((next) => {
         if (!cancelled) setState(next)
@@ -123,10 +126,7 @@ export function AttachmentMarkdownPreviewDialog({
         </DialogHeader>
         <DialogBody className="text-sm text-foreground">
           {state.status === `loading` && (
-            <p className="flex items-center gap-1.5 py-6 text-xs text-muted-foreground">
-              <LoaderCircle className="size-3 animate-spin" />
-              Loading...
-            </p>
+            <SkeletonRows dot={false} rowHeight={28} className="-mx-3 py-4" />
           )}
           {state.status === `too-large` && (
             <p className="py-6 text-sm text-muted-foreground">
@@ -134,7 +134,9 @@ export function AttachmentMarkdownPreviewDialog({
             </p>
           )}
           {state.status === `error` && (
-            <p className="py-6 text-sm text-destructive">{state.message}</p>
+            <p className="py-6 text-sm text-muted-foreground">
+              No preview. Download it to read it.
+            </p>
           )}
           {state.status === `ready` && (
             <MarkdownEditor

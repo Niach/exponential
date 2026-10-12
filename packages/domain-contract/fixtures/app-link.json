@@ -1,5 +1,5 @@
 {
-  "description": "EXP-1188: what a tapped markdown link in agent prose (narration, Guide, thread) opens. classifyAppLink(href, origin): trim; '' → ignore. A '/'-path (not '//') resolves against the instance origin. 'mailto:' → external as given. 'http(s)://' needs a valid authority ([A-Za-z0-9-] labels joined by '.', at least two labels unless the host is 'localhost' (case-insensitive), optional ':port', no userinfo), else ignore (browsers punycode a placeholder like 'https://…' into a one-label host); scheme+authority equal to origin (case-insensitive) = in-app, else external with the href as given. Anything else (other schemes, '//', '#x', bare words) → ignore. In-app paths split on '/' (query + hash dropped, empty segments dropped, each segment percent-decoded): ['t',team,'boards',board,'issues',identifier] → issue, ['t',team,'sessions',id] → session, otherwise app with the path as written (query + hash kept; an absolute URL's path = everything after the authority, '/'-prefixed when it does not start with '/'). Locked ×4: web lib/app-link.ts, desktop domain::app_link, iOS ExpCore AppLink.swift, Android domain/AppLink.kt.",
+  "description": "EXP-1188: what a tapped markdown link in agent prose (narration, Guide, thread) opens. classifyAppLink(href, origin): trim; '' → ignore. A '/'-path (not '//') resolves against the instance origin. 'mailto:' → external as given. 'http(s)://' needs a valid authority ([A-Za-z0-9-] labels joined by '.', at least two labels unless the host is 'localhost' (case-insensitive), optional ':port', no userinfo), else ignore (browsers punycode a placeholder like 'https://…' into a one-label host); scheme+authority equal to origin (case-insensitive) = in-app, else external with the href as given. Anything else (other schemes, '//', '#x', bare words) → ignore. In-app paths split on '/' (query + hash dropped, empty segments dropped, each segment percent-decoded): ['t',team,'boards',board,'issues',identifier] → issue, ['t',team,'sessions',id] → session, ['t',team,'threads',id] → thread (EXP-1284), otherwise app with the path as written (query + hash kept; an absolute URL's path = everything after the authority, '/'-prefixed when it does not start with '/'). Locked ×4: web lib/app-link.ts, desktop domain::app_link, iOS ExpCore AppLink.swift, Android domain/AppLink.kt.",
   "origin": "https://app.exponential.at",
   "cases": [
     {
@@ -147,6 +147,32 @@
         "kind": "session",
         "teamSlug": "acme",
         "sessionId": "abc"
+      }
+    },
+    {
+      "name": "a thread on this instance opens in the app",
+      "href": "https://app.exponential.at/t/acme/threads/5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13",
+      "link": {
+        "kind": "thread",
+        "teamSlug": "acme",
+        "threadId": "5d7a2c90-3e41-4b8f-9c16-8a2e4f0b7d13"
+      }
+    },
+    {
+      "name": "a relative thread path with a child query opens the thread",
+      "href": "/t/acme/threads/abc?child=guide",
+      "link": {
+        "kind": "thread",
+        "teamSlug": "acme",
+        "threadId": "abc"
+      }
+    },
+    {
+      "name": "a thread path with an extra segment is an app path",
+      "href": "/t/acme/threads/abc/extra",
+      "link": {
+        "kind": "app",
+        "path": "/t/acme/threads/abc/extra"
       }
     },
     {

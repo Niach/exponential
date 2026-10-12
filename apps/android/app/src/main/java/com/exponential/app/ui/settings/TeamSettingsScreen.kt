@@ -63,7 +63,7 @@ import com.exponential.app.domain.DomainContract
 import com.exponential.app.domain.GithubCopy
 import com.exponential.app.domain.inviteExpiryLabel
 import com.exponential.app.ui.components.BoardIcon
-import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.BoardRepoField
 import com.exponential.app.ui.components.GlassDropdownMenu
@@ -73,6 +73,7 @@ import com.exponential.app.ui.components.InviteLinkCard
 import com.exponential.app.ui.components.GlassPillDefaults
 import com.exponential.app.ui.components.PillMode
 import com.exponential.app.ui.components.PillSize
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassTextField
 import com.exponential.app.ui.components.SectionHeader
@@ -176,16 +177,10 @@ fun TeamSettingsScreen(
     viewModel: TeamSettingsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val toaster = LocalToaster.current
 
-    // Surface transient mutation errors, and pop back once the team is
+    // FEED-79: a failed action is an error toast; pop back once the team is
     // actually deleted (parity with the previous screen's behavior).
-    LaunchedEffect(state.transient) {
-        state.transient?.let {
-            toaster.error(it)
-            viewModel.consumeTransient()
-        }
-    }
+    FailedActionToast(state.transient, onShown = viewModel::consumeTransient)
     LaunchedEffect(state.teamDeleted) {
         if (state.teamDeleted) onBack()
     }
@@ -409,7 +404,7 @@ private fun DangerZone(
 
 // The server-only repositories registry (masterplan v4 §3/§6) with the ONE
 // GitHub connection block (SLOP-7/SLOP-26 canonical form, byte-identical copy
-// ×4 in [GithubCopy]): header pill → intro → connection block → inline errors
+// ×4 in [GithubCopy]): header pill → intro → connection block
 // → the list. The connection is the VIEWER's OWN GitHub account; any member
 // connects/adds repos (adding shares them with the team), and per-row
 // management (remove) is sharer-or-owner. Connect = the link-ticket hop in a
@@ -450,9 +445,9 @@ private fun RepositoriesSection(
         val context = LocalContext.current
         GithubStatusBlock(
             status = state.githubStatus,
-            failed = state.githubFailed,
+            failed = state.githubStatusFailed,
+            onRetry = { viewModel.refreshGithub(retried = true) },
             connecting = state.githubConnecting,
-            onRetry = viewModel::refreshGithub,
             onConnect = {
                 viewModel.connectGithub { url ->
                     CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
@@ -461,21 +456,11 @@ private fun RepositoriesSection(
             onDisconnect = { onConfirm(SettingsConfirm.DisconnectGithub) },
         )
 
-        // FEED-42: load/link/remove failures render inline above the list.
-        state.repositoriesError?.let { message ->
-            Text(
-                message,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .glassRow()
-                    .padding(horizontal = 12.dp, vertical = 10.dp),
-            )
-        }
-
-        // EXP-721: one self-bordered glass row per repository.
-        if (state.reposLoaded && state.repos.isEmpty()) {
+        // EXP-721: one self-bordered glass row per repository. EXP-1275: the
+        // first load = skeleton rows in the repository row's geometry.
+        if (!state.reposLoaded) {
+            SkeletonRows(rows = 2, rowHeight = 44.dp, dot = false)
+        } else if (state.repos.isEmpty()) {
             // EXP-1274: the shared list empty state ×4.
             EmptyState(
                 title = GithubCopy.NO_REPOSITORIES,
@@ -1198,7 +1183,7 @@ private const val DEFAULT_BRANCH_FALLBACK = "main"
 /**
  * SLOP-26 (web GithubStatusLine, iOS TeamRepositoriesSection — one canonical
  * form): the viewer's own connection from `integrations.github.status`.
- * Loading → nothing; failed → line + Retry; not configured → a line; not
+ * Loading or failed → nothing (a failure toasts); not configured → a line; not
  * linked → Connect GitHub; expired → Reconnect + ✕; connected → "Connected as
  * login" + ✕, the suspended line (Manage), then the accounts where the app is
  * installed (one indented row each with Configure), the caption and Install
@@ -1208,8 +1193,8 @@ private const val DEFAULT_BRANCH_FALLBACK = "main"
 private fun GithubStatusBlock(
     status: GithubStatusResult?,
     failed: Boolean,
-    connecting: Boolean,
     onRetry: () -> Unit,
+    connecting: Boolean,
     onConnect: () -> Unit,
     onDisconnect: () -> Unit,
 ) {
@@ -1219,7 +1204,27 @@ private fun GithubStatusBlock(
     val open: (String) -> Unit = { url ->
         CustomTabsIntent.Builder().build().launchUrl(context, Uri.parse(url))
     }
-    if (status == null && !failed) return
+    // A failed probe with nothing loaded (FEED-79: quiet, no toast) = the
+    // failed line with Retry, iOS parity; loading = nothing.
+    if (status == null) {
+        if (!failed) return
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .glassRow()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+        ) {
+            StatusLine(
+                ExpIcons.uiGithub,
+                GithubCopy.STATUS_FAILED,
+                secondary,
+                trailing = {
+                    GlassPill(GithubCopy.RETRY, icon = ExpIcons.uiRefresh, size = PillSize.Sm, onClick = onRetry)
+                },
+            )
+        }
+        return
+    }
     Column(
         verticalArrangement = Arrangement.spacedBy(8.dp),
         modifier = Modifier
@@ -1228,9 +1233,6 @@ private fun GithubStatusBlock(
             .padding(horizontal = 12.dp, vertical = 10.dp),
     ) {
         when {
-            status == null -> StatusLine(ExpIcons.uiGithub, GithubCopy.STATUS_FAILED, secondary) {
-                GlassPill(GithubCopy.RETRY, icon = ExpIcons.uiRefresh, size = PillSize.Sm, onClick = onRetry)
-            }
             !status.configured -> StatusLine(ExpIcons.uiGithub, GithubCopy.NOT_CONFIGURED, secondary)
             !status.isLinked -> StatusLine(ExpIcons.uiGithub, GithubCopy.NOT_LINKED, secondary) {
                 GlassPill(

@@ -45,7 +45,7 @@ use crate::native_dialog::{open_alert, AlertSpec};
 use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 
-use super::{error_notice, section};
+use super::{section, settings_skeleton};
 
 struct Loaded {
     list: Result<AttachmentsListForTeamOutput, String>,
@@ -72,6 +72,9 @@ pub struct StoragePane {
     generation: u64,
     /// A delete/sweep in flight — disables the mutation affordances.
     busy: bool,
+    /// FEED-79: the load in flight is the person's Retry press (its failure
+    /// toasts); a load on open or after a write fails quietly.
+    retry_pressed: bool,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -93,6 +96,7 @@ impl StoragePane {
             account_id: None,
             generation: 0,
             busy: false,
+            retry_pressed: false,
             _subscriptions: subscriptions,
         }
     }
@@ -135,13 +139,24 @@ impl StoragePane {
                         })
                         .ok();
                     let list = api::attachments::attachments_list_for_team(&trpc, &team_id)
-                        .map_err(|err| err.to_string());
+                        .map_err(|err| err.user_message());
                     Loaded { list, plan }
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation {
                     return; // superseded by a newer fetch
+                }
+                // FEED-79: a failed load = the empty state + Retry; only a
+                // Retry press that fails again toasts.
+                let attended = std::mem::take(&mut this.retry_pressed);
+                if let Err(message) = &result.list {
+                    crate::action_error::failed_load(
+                        "the attachments",
+                        attended,
+                        Some(message.clone()),
+                        cx,
+                    );
                 }
                 this.load = Load::Ready(result);
                 cx.notify();
@@ -150,11 +165,17 @@ impl StoragePane {
         .detach();
     }
 
-    /// Refetch after a mutation (or the Refresh button): drop the cached
-    /// list; the next render re-fetches.
+    /// Refetch after a mutation: drop the cached list; the next render
+    /// re-fetches.
     fn refetch(&mut self, cx: &mut gpui::Context<Self>) {
         self.load = Load::Idle;
         cx.notify();
+    }
+
+    /// The failed list's Retry: the same load, attended.
+    fn retry_load(&mut self, cx: &mut gpui::Context<Self>) {
+        self.retry_pressed = true;
+        self.refetch(cx);
     }
 
     /// The per-row Delete confirm + `attachments.delete` → refetch. Mirrors
@@ -204,9 +225,11 @@ impl StoragePane {
                 });
                 if let Err(error) = result {
                     log::warn!("[ui] attachments.delete({attachment_id}) failed: {error}");
-                    let note = Toast::error(format!(
-                        "Could not delete {filename}: {error}"
-                    ));
+                    let note = crate::action_error::failed_toast(
+                        "delete",
+                        &filename,
+                        crate::action_error::action_error_description(&error),
+                    );
                     let _ = handle.update(cx, |_, window, cx| {
                         crate::toast::show(note, window, cx);
                     });
@@ -276,9 +299,11 @@ impl StoragePane {
                     )),
                     Err(error) => {
                         log::warn!("[ui] attachments.sweepUnreferencedImages failed: {error}");
-                        Toast::error(format!(
-                            "Could not sweep unreferenced images: {error}"
-                        ))
+                        crate::action_error::failed_toast(
+                            "sweep",
+                            "unreferenced images",
+                            crate::action_error::action_error_description(&error),
+                        )
                     }
                 };
                 let _ = handle.update(cx, |_, window, cx| {
@@ -525,18 +550,17 @@ impl Render for StoragePane {
 
         match &self.load {
             Load::Idle | Load::Loading => {
-                body = body.child(
-                    v_flex()
-                        .gap_2()
-                        .child(crate::controls::skeleton().h_4().w_64())
-                        .child(crate::controls::skeleton().h_8().w_full())
-                        .child(crate::controls::skeleton().h_8().w_full()),
-                );
+                body = body.child(settings_skeleton("storage-skeleton", cx));
             }
-            Load::Ready(Loaded {
-                list: Err(message), ..
-            }) => {
-                body = body.child(error_notice(SharedString::from(message.clone()), cx));
+            // A failed load (FEED-79): the empty state + Retry, no toast.
+            Load::Ready(Loaded { list: Err(_), .. }) => {
+                body = body.child(crate::action_error::load_failed_state(
+                    "storage-retry",
+                    gpui_component::Icon::new(crate::icons::registry::UI_ATTACH),
+                    crate::empty_state_copy::ATTACHMENTS,
+                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
+                    cx,
+                ));
             }
             Load::Ready(Loaded {
                 list: Ok(list),

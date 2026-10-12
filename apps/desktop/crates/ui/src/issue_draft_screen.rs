@@ -190,6 +190,9 @@ struct DraftTarget {
     draft_id: String,
     board_id: String,
     team_id: String,
+    /// EXP-1284: the thread the issue files into ("New issue in this
+    /// thread"), stored on the draft row so a reopen keeps it.
+    thread_id: Option<String>,
 }
 
 /// A `set_draft` whose board has not synced yet (a cold start straight onto
@@ -303,6 +306,7 @@ fn build_snapshot(
         assignee_id: props.assignee_id.clone(),
         label_ids: props.selected_label_ids.clone(),
         due_date: props.due_date,
+        thread_id: target.thread_id.clone(),
     }
 }
 
@@ -522,6 +526,12 @@ impl IssueDraftView {
         self.pending = None;
         let seed = row.as_ref().map(|row| crate::drafts::seed_from_row(row, cx));
         let team_id = board.team_id.clone();
+        // EXP-1284: the stored thread (a reopened draft), else the thread
+        // that opened this fresh draft.
+        let thread_id = row
+            .as_ref()
+            .and_then(|row| row.thread_id.clone())
+            .or_else(|| crate::thread_screen::draft_thread(&draft_id, cx));
 
         self.title.update(cx, |title, cx| {
             title.set_value(
@@ -614,6 +624,7 @@ impl IssueDraftView {
                 draft_id,
                 board_id: board.id.clone(),
                 team_id,
+                thread_id,
             },
             description,
             props,
@@ -830,7 +841,11 @@ impl IssueDraftView {
                             editor.queue_file(filename, content_type, bytes, as_file, snapshot, cx)
                         });
                     }
-                    Err(error) => crate::toast::error(format!("{error}"), window, cx),
+                    Err(error) => crate::toast::show(
+                        crate::action_error::failed_toast("attach", "the file", Some(error.to_string())),
+                        window,
+                        cx,
+                    ),
                 });
             })
             .detach();
@@ -888,9 +903,9 @@ impl IssueDraftView {
                     Ok(path) => cx.open_with_system(&path),
                     Err(error) => {
                         log::warn!("[ui] draft file open failed for {attachment_id}: {error}");
-                        let message = format!("Could not open {label}: {error}");
+                        let note = crate::action_error::failed_toast("open", &label, Some(error.to_string()));
                         let _ = handle.update(cx, |_, window, cx| {
-                            crate::toast::error(message, window, cx);
+                            crate::toast::show(note, window, cx);
                         });
                     }
                 }
@@ -971,6 +986,8 @@ impl IssueDraftView {
             api::issues::IssuesCreateInput::new(target.board_id.clone(), capture.title.clone());
         capture.props.read(cx).apply_to_create(&mut input);
         input.draft_id = row_exists.then(|| target.draft_id.clone());
+        // EXP-1284: "New issue in this thread" files straight into it.
+        input.thread_id = target.thread_id.clone();
         let markdown = capture.description.read(cx).markdown(cx);
         let stripped_description = strip_draft_images(&markdown);
         if !stripped_description.is_empty() {
@@ -1000,7 +1017,11 @@ impl IssueDraftView {
                     None => capture.editor.update(cx, |editor, _| editor.mark_filed()),
                 },
                 Err(message) => {
-                    crate::toast::error(message, window, cx);
+                    crate::toast::show(
+                        crate::action_error::failed_toast("create", "the issue", Some(message.to_string())),
+                        window,
+                        cx,
+                    );
                     let current = view
                         .upgrade()
                         .and_then(|view| {
@@ -1070,6 +1091,13 @@ impl IssueDraftView {
                     for navigation in then {
                         navigation(window, cx);
                     }
+                }
+                // EXP-1284: a thread's new issue lands back on the THREAD,
+                // the new issue's child selected (web/Android parity).
+                true if capture.target.thread_id.is_some() => {
+                    let thread_id = capture.target.thread_id.clone().unwrap_or_default();
+                    crate::thread_screen::request_thread_child(&thread_id, &issue_id, cx);
+                    crate::navigation::navigate_replace(window, cx, Screen::Thread { thread_id });
                 }
                 true => {
                     crate::navigation::set_active_board(
@@ -1452,6 +1480,10 @@ impl IssueDraftView {
                 });
             chips.extend(IssueDraft::board_chip("draft", &board, on_pick, cx));
         }
+        // EXP-1284: the thread this issue files into, "In <thread>".
+        if let Some(thread_id) = parts.target.thread_id.as_deref() {
+            chips.push(crate::thread_screen::draft_thread_chip(thread_id, cx));
+        }
         crate::work_header::property_tray(chips, Vec::new())
     }
 
@@ -1548,17 +1580,7 @@ impl IssueDraftView {
             ));
         }
         for file in pending {
-            let editor = parts.editor.downgrade();
-            let key = file.key;
-            section = section.child(crate::issue_files::pending_file_row(
-                key,
-                file.filename,
-                file.error,
-                move |_window, cx| {
-                    let _ = editor.update(cx, |editor, cx| editor.dismiss_pending(key, cx));
-                },
-                cx,
-            ));
+            section = section.child(crate::issue_files::pending_file_row(file.filename, cx));
         }
         section.into_any_element()
     }
@@ -1595,13 +1617,12 @@ impl Render for IssueDraftView {
         if self.parts.is_none() {
             // The board has not synced yet (a cold start onto the page).
             return base
-                .child(
-                    v_flex()
-                        .p_4()
-                        .gap_2()
-                        .child(crate::controls::skeleton().h_4().w_48())
-                        .child(crate::controls::skeleton().h_4().w_64()),
-                )
+                .child(v_flex().p_4().child(crate::feedback::skeleton_rows(
+                    "issue-draft-skeleton",
+                    crate::feedback::SKELETON_ROWS,
+                    crate::settings::SETTINGS_ROW_H,
+                    cx,
+                )))
                 .into_any_element();
         }
         // Web `autoFocus` on the title, once per open.

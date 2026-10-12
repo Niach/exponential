@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest"
 import fixture from "@exp/domain-contract/fixtures/composer-menu.json"
+import searchList from "@exp/domain-contract/fixtures/search-list.json"
 import icons from "@exp/icons/icons.json"
 import { contract } from "@exp/domain-contract"
 import {
+  COMPOSER_MENU_TEST_IDS,
   composerMenuLayout,
   composerMenuRowTestId,
   implementButtonLabel,
@@ -36,7 +38,6 @@ describe(`composerMenuLayout`, () => {
       if (entry.kind === `separator`) continue
       expect(concepts.has(entry.icon), entry.icon).toBe(true)
     }
-    expect(concepts.has(fixture.suggestions.icon)).toBe(true)
   })
 
   it(`names the contract's computer-use payload key and cap`, () => {
@@ -50,6 +51,22 @@ describe(`composerMenuLayout`, () => {
     expect(composerMenuRowTestId(`computer-use`)).toBe(
       `agent-composer-menu-computer-use`
     )
+  })
+})
+
+describe(`the submenus are the search list`, () => {
+  it(`one row height, eight rows visible: the search list's own geometry`, () => {
+    expect(fixture.submenuRowHeight).toBe(searchList.row.height)
+    expect(fixture.submenuMaxRows).toBe(searchList.maxVisibleRows)
+  })
+
+  it(`names the submenu search field's test id`, () => {
+    expect(COMPOSER_MENU_TEST_IDS.submenuSearch).toBe(`agent-composer-submenu-search`)
+  })
+
+  it(`carries no suggestion rows and no brand mark any more (EXP-1270)`, () => {
+    expect(`suggestions` in fixture).toBe(false)
+    expect(`brandMark` in fixture.testIds).toBe(false)
   })
 })
 

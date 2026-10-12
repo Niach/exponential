@@ -18,12 +18,22 @@ struct RunStatusRow: View {
     let toolLine: String?
     let showWork: Bool
     let onToggle: () -> Void
+    /// EXP-1271 (EXP-1259 D8): before the run's first turn — THE mark
+    /// (`FeedbackMark`) in the run mark's slot; the caller passes "Starting
+    /// on <device>" as the caption.
+    var starting: Bool = false
 
     var body: some View {
         HStack(alignment: .center, spacing: SessionRowLead.gap) {
-            AgentRunMark(agent: agent, state: ended ? nil : markState, ended: ended)
-                .frame(width: SessionRowLead.markSize, height: SessionRowLead.markSize)
-                .accessibilityHidden(true)
+            Group {
+                if starting {
+                    FeedbackMark(size: CGFloat(FeedbackStates.Mark.statusSize))
+                } else {
+                    AgentRunMark(agent: agent, state: ended ? nil : markState, ended: ended)
+                }
+            }
+            .frame(width: SessionRowLead.markSize, height: SessionRowLead.markSize)
+            .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 captionLine
                 if let toolLine {

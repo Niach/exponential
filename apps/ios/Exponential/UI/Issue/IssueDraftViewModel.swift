@@ -87,6 +87,14 @@ final class IssueDraftViewModel {
     let draftId: String
     private(set) var boardId: String
     let parentId: String?
+    /// EXP-1284: the thread the issue is filed INTO (the thread's "New issue
+    /// in this thread", `issues.create({threadId})`); nil = none. The route
+    /// seeds it; a draft reopened from Drafts restores it off its row
+    /// (`issue_drafts.thread_id`), and every upsert carries it.
+    private(set) var threadId: String?
+    /// The thread's display title (`ThreadViews.build`), the page's
+    /// `In <thread>` line; nil while unresolved or with no thread.
+    private(set) var threadTitle: String?
     /// The route's pre-picked status row (nil = the team's Backlog builtin).
     private let initialStatusId: String?
 
@@ -117,6 +125,10 @@ final class IssueDraftViewModel {
 
     /// A row for `draftId` exists server-side.
     private(set) var rowExists = false
+    /// An upsert was SENT since the last delete: a write whose answer never
+    /// came back (a timeout, a dropped connection) may still have landed, so
+    /// an emptied page deletes on the way out even when `rowExists` is false.
+    @ObservationIgnored private var mayHaveRow = false
     private(set) var creating = false
     /// One-shot hand-off to the toaster; the view clears it once shown.
     var error: String?
@@ -191,11 +203,12 @@ final class IssueDraftViewModel {
     /// published when it is back, so its exit never pops the wrong screen.
     @ObservationIgnored private var deferredConsumed: Consumed?
 
-    init(draftId: String, boardId: String, statusId: String?, parentId: String?) {
+    init(draftId: String, boardId: String, statusId: String?, parentId: String?, threadId: String? = nil) {
         self.draftId = draftId
         self.boardId = boardId
         self.initialStatusId = statusId
         self.parentId = parentId
+        self.threadId = threadId
     }
 
     deinit {
@@ -289,7 +302,8 @@ final class IssueDraftViewModel {
             labelIds: labels.isEmpty
                 ? Array(labelIds)
                 : Array(labelIds.filter { id in labels.contains { $0.id == id } }),
-            dueDate: dueDate
+            dueDate: dueDate,
+            threadId: threadId
         )
     }
 
@@ -329,6 +343,8 @@ final class IssueDraftViewModel {
                 assigneeId = row.assigneeId
                 labelIds = Set(row.labelIds)
                 dueDate = row.dueDate
+                // EXP-1284: the route's thread wins; else the row's.
+                if threadId == nil { threadId = row.threadId }
                 seededStatusId = row.statusId
                 if let files = try? await deps.issueDraftsApi.listAttachments(
                     accountId: accountId, id: draftId
@@ -356,6 +372,13 @@ final class IssueDraftViewModel {
         if let parentId {
             parentIssue = (try? await pool.read { db in
                 try IssueEntity.fetchOne(db, key: parentId)
+            }) ?? nil
+        }
+
+        // EXP-1284: name the thread the issue files into.
+        if let threadId {
+            threadTitle = (try? await pool.read { db in
+                try ThreadRows.load(db: db, threadId: threadId)?.view.title
             }) ?? nil
         }
 
@@ -613,20 +636,30 @@ final class IssueDraftViewModel {
     /// (or an upload needs the row), delete an emptied row on the way out,
     /// nothing otherwise.
     private func writeOnce() async {
-        guard writesDraft, !finished, !blockedByCreate, !holdWrites, let deps else { return }
-        guard hasContent || ensureRequested else {
-            // Only a KNOWN-empty draft is deleted: an attachment list that
-            // never loaded may still hold files.
-            if rowExists, leaving, attachmentsLoaded {
-                await deleteRow()
-            }
+        guard writesDraft, !finished, !blockedByCreate, let deps else { return }
+        // Only a KNOWN-empty draft is deleted (an attachment list that never
+        // loaded may still hold files), and the hold never blocks that delete.
+        switch IssueDraftPage.write(
+            needsRow: hasContent || ensureRequested,
+            leaving: leaving,
+            attachmentsKnown: attachmentsLoaded,
+            mayHaveRow: rowExists || mayHaveRow,
+            held: holdWrites
+        ) {
+        case .none:
             return
+        case .delete:
+            await deleteRow()
+            return
+        case .upsert:
+            break
         }
         guard let teamId = await resolveTeamId() else {
             lastWriteFailed = true
             return
         }
         let input = snapshot(teamId: teamId)
+        mayHaveRow = true
         do {
             let dto = try await deps.issueDraftsApi.upsert(accountId: accountId, input)
             // This page created the row: its attachment list is the truth.
@@ -682,6 +715,7 @@ final class IssueDraftViewModel {
 
     private func deleteLocalRow() async {
         rowExists = false
+        mayHaveRow = false
         // EXP-1231: this page's own delete is never "discarded elsewhere".
         rowSeen = false
         guard let deps, let pool = try? deps.db.pool(forAccountId: accountId) else { return }
@@ -739,7 +773,7 @@ final class IssueDraftViewModel {
         let inFlight = saveLoopTask
         Task {
             await inFlight?.value
-            if self.rowExists { await self.deleteRow() }
+            if self.rowExists || self.mayHaveRow { await self.deleteRow() }
         }
     }
 
@@ -888,7 +922,8 @@ final class IssueDraftViewModel {
             // The server reparents the draft's attachments and deletes the
             // row inside the create's transaction.
             draftId: rowExists && !defersUploads ? draftId : nil,
-            parentId: parentId
+            parentId: parentId,
+            threadId: threadId
         )
 
         do {

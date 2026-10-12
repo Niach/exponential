@@ -38,7 +38,6 @@ import com.exponential.app.ui.session.AgentLoginSheet
 import com.exponential.app.ui.session.AgentLoginTarget
 import com.exponential.app.ui.session.DeviceCommandUiState
 import com.exponential.app.ui.session.DeviceSettingsViewModel
-import com.exponential.app.ui.session.agentImportCommandKey
 import com.exponential.app.ui.session.agentUpdateCommandKey
 import com.exponential.app.ui.theme.DesignTokens
 import com.exponential.app.ui.theme.TextEmphasis
@@ -286,7 +285,9 @@ fun DeviceNotReadyRow(
     var loginTarget by remember { mutableStateOf<AgentLoginTarget?>(null) }
     var importTarget by remember { mutableStateOf<DoctorRow?>(null) }
     val updateState = states[agentUpdateCommandKey(device.deviceId, row.key)]
-    val importState = states[agentImportCommandKey(device.deviceId, row.key)]
+    // FEED-79: a failed update / import is the ViewModel's error toast.
+    val failure by commands.failure.collectAsStateWithLifecycle()
+    ClaimedFailedActionToast(failure, commands::claimFailure)
     Column(modifier = modifier.testTag("launch-not-ready-row")) {
         DeviceReadinessRow(
             row = row,
@@ -304,13 +305,6 @@ fun DeviceNotReadyRow(
             },
             onImport = { importTarget = it },
         )
-        ((updateState as? DeviceCommandUiState.Failed) ?: (importState as? DeviceCommandUiState.Failed))?.let {
-            Text(
-                it.message,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
     }
     importTarget?.let { target ->
         ImportLoginConfirm(

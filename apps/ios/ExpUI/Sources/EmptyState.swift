@@ -157,6 +157,7 @@ public enum EmptyStateIcon {
         case "ui-empty-search": AppIcons.uiEmptySearch
         case "ui-issue": AppIcons.uiIssue
         case "ui-team": AppIcons.uiTeam
+        case "work-faces": AppIcons.workFaces
         case "work-results": AppIcons.workResults
         default: nil
         }

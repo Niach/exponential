@@ -21,6 +21,7 @@ import {
   type MarkdownEditorImageUploadConfig,
 } from "@/components/issue-editor/markdown-editor"
 import { cn } from "@/lib/utils"
+import { FORCE_ISSUE_REF_META } from "@/lib/editor-autocomplete"
 
 // EXP-568 — the ONE formatting rail behind both editor chromes: the desktop
 // selection bubble (selection-rail.tsx) and the phone keyboard bar
@@ -86,7 +87,7 @@ export function showsTableDelete(platform: `desktop` | `mobile`): boolean {
 
 /**
  * The text to insert for the `#` button. The issue-ref autocomplete only
- * triggers at a TOKEN start (`/(?:^|\s)#…/` in lib/editor-autocomplete.ts), so
+ * triggers at a TOKEN start (`typeaheadPrefill`, lib/editor-autocomplete.ts), so
  * a `#` typed straight after a word would insert a dead character instead of
  * opening the picker — prepend a space in that case.
  */
@@ -231,7 +232,8 @@ export function FormattingRail({
     }
   }
 
-  const insertPlainText = (text: string) => insertPlainTextAt(editor, text)
+  const insertPlainText = (text: string, meta?: string) =>
+    insertPlainTextAt(editor, text, meta)
 
   const insertIssueRef = () => {
     const { $from } = editor.state.selection
@@ -244,7 +246,9 @@ export function FormattingRail({
             `￼`
           )
         : undefined
-    insertPlainText(issueRefInsertionText(charBefore))
+    // The button opens the search even on a bare line-start `#` (typed,
+    // that `#` waits for a token so `# Title` stays a heading).
+    insertPlainText(issueRefInsertionText(charBefore), FORCE_ISSUE_REF_META)
   }
 
   const bulletActive = isActive(`bulletList`)
@@ -457,11 +461,11 @@ export function FormattingRail({
   return (
     <div
       // Keyed on the mode: the swap is a content REPLACEMENT, so React
-      // remounts the row and tw-animate-css re-runs the enter animation.
+      // remounts the row and its `motion-enter-pop` enter re-runs.
       key={mode}
       className={cn(
         `flex w-full items-center gap-px`,
-        `animate-in fade-in zoom-in-95 duration-fast ease-standard motion-reduce:animate-none`
+        `motion-enter-pop`
       )}
     >
       {mode === `main` && mainContent}
@@ -473,12 +477,13 @@ export function FormattingRail({
 
 /** A selected image (NodeSelection) would be REPLACED by inserted text —
  *  insert after it instead, mirroring MarkdownEditor's insertImage. */
-function insertPlainTextAt(editor: Editor, text: string) {
+function insertPlainTextAt(editor: Editor, text: string, meta?: string) {
   const { selection } = editor.state
   editor
     .chain()
     .focus()
     .command(({ tr }) => {
+      if (meta) tr.setMeta(meta, true)
       if (selection instanceof NodeSelection) {
         tr.insertText(text, selection.to, selection.to)
       } else {

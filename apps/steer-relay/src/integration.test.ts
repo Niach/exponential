@@ -936,6 +936,62 @@ describe(`steer relay end-to-end`, () => {
     desktop.close()
   })
 
+  test(`threadId rides /start on the subject forms; a resume or malformed one is 400 (EXP-1284)`, async () => {
+    const desktop = await connect(ticket({ role: `control`, sub: `owner-1284` }))
+    const desktopIn = collector(desktop)
+    desktop.send(JSON.stringify({ t: `online`, deviceId: `dev-1284` }))
+
+    const start = await startWhenOnline({
+      userId: `owner-1284`,
+      deviceId: `dev-1284`,
+      issueId: `issue-1284`,
+      threadId: `thread-1`,
+    })
+    expect(start.ok).toBe(true)
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      issueId: `issue-1284`,
+      threadId: `thread-1`,
+    })
+
+    const post = (body: Record<string, unknown>) =>
+      fetch(`${base}/start`, {
+        method: `POST`,
+        headers: {
+          "x-relay-secret": `integration-secret`,
+          "content-type": `application/json`,
+        },
+        body: JSON.stringify({ userId: `owner-1284`, deviceId: `dev-1284`, ...body }),
+      })
+    const res = await post({
+      actionId: `act-1`,
+      actionName: `Act`,
+      teamId: `t-1`,
+      threadId: `thread-2`,
+    })
+    expect(res.ok).toBe(true)
+    await res.text()
+    expect(await desktopIn.nextJson()).toEqual({
+      t: `start_session`,
+      actionId: `act-1`,
+      actionName: `Act`,
+      teamId: `t-1`,
+      threadId: `thread-2`,
+    })
+
+    for (const bad of [
+      { issueId: `issue-1285`, threadId: 7 },
+      { issueId: `issue-1285`, threadId: `` },
+      { issueId: `issue-1285`, threadId: `x`.repeat(65) },
+      { resumeSessionId: `sess-1284`, teamId: `t-1`, threadId: `thread-1` },
+    ]) {
+      const bad400 = await post(bad)
+      expect(bad400.status, JSON.stringify(bad)).toBe(400)
+      await bad400.text()
+    }
+    desktop.close()
+  })
+
   test(`mcpServerIds + account ride /start; malformed ones are 400 (EXP-792)`, async () => {
     const desktop = await connect(ticket({ role: `control`, sub: `owner-7` }))
     const desktopIn = collector(desktop)

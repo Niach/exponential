@@ -1,15 +1,11 @@
 package com.exponential.app.ui.components
 
 import android.text.format.Formatter
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -18,7 +14,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -57,7 +52,8 @@ fun AttachmentMarkdownPreviewSheet(
         mutableStateOf<MarkdownPreviewState>(MarkdownPreviewState.Loading)
     }
     LaunchedEffect(attachment.id) {
-        state = markdownPreviewPrecheck(attachment.sizeBytes) ?: try {
+        state = MarkdownPreviewState.Loading
+        val next = markdownPreviewPrecheck(attachment.sizeBytes) ?: try {
             // The loader stops at the ceiling + 1 byte, so a body past it
             // (a legacy `size_bytes = 0` row) is too large by its BYTE count,
             // never a truncated render.
@@ -75,6 +71,9 @@ fun AttachmentMarkdownPreviewSheet(
                     ?: trpcErrorMessage(t, "Couldn't load this file."),
             )
         }
+        // FEED-79: the load runs on open, so a failure is the empty body
+        // (no toast); Download stays the way to read it.
+        state = next
     }
 
     GlassSheet(
@@ -111,21 +110,12 @@ fun AttachmentMarkdownPreviewSheet(
                 .padding(horizontal = GlassSheetDefaults.HorizontalPadding),
         ) {
             when (val current = state) {
-                MarkdownPreviewState.Loading -> Row(
-                    modifier = Modifier.padding(vertical = 24.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    CircularProgressIndicator(
-                        modifier = Modifier.size(14.dp),
-                        strokeWidth = 2.dp,
-                    )
-                    Text(
-                        "Loading...",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
+                // EXP-1275: skeleton rows, never "Loading...".
+                MarkdownPreviewState.Loading -> SkeletonRows(
+                    modifier = Modifier.padding(vertical = 16.dp),
+                    rowHeight = 28.dp,
+                    dot = false,
+                )
                 MarkdownPreviewState.TooLarge -> Text(
                     "This file is too large to preview here. Download it to read it.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -133,9 +123,9 @@ fun AttachmentMarkdownPreviewSheet(
                     modifier = Modifier.padding(vertical = 24.dp),
                 )
                 is MarkdownPreviewState.Error -> Text(
-                    current.message,
+                    "No preview. Download it to read it.",
                     style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.error,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(vertical = 24.dp),
                 )
                 is MarkdownPreviewState.Ready -> MarkdownView(current.markdown)

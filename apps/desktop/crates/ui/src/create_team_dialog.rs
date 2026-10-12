@@ -17,7 +17,7 @@ use std::rc::Rc;
 use gpui::prelude::FluentBuilder as _;
 use gpui::{
     div, px, size, App, AppContext as _, Entity, FontWeight, InteractiveElement as _, IntoElement,
-    ParentElement, Render, ScrollHandle, SharedString, StatefulInteractiveElement as _, Styled,
+    ParentElement, Render, ScrollHandle, StatefulInteractiveElement as _, Styled,
     Subscription, Window,
 };
 use gpui_component::{
@@ -77,7 +77,6 @@ pub struct CreateTeamDialogView {
     /// instead of closing a dialog + switching the team.
     embedded: bool,
     submitting: bool,
-    error: Option<SharedString>,
     focused_once: bool,
     /// EXP-369: the scrolling form pane, so the footer can stay pinned.
     /// Unused in `embedded` mode (the wizard column scrolls instead).
@@ -108,7 +107,6 @@ impl CreateTeamDialogView {
             name,
             embedded,
             submitting: false,
-            error: None,
             focused_once: false,
             body_scroll: ScrollHandle::new(),
             on_back: None,
@@ -129,12 +127,10 @@ impl CreateTeamDialogView {
             return;
         }
         let Some(trpc) = queries::trpc_client(cx) else {
-            self.error = Some("Not signed in.".into());
-            cx.notify();
+            crate::action_error::failed_action("create", "the team", Some("Not signed in.".into()), cx);
             return;
         };
 
-        self.error = None;
         self.submitting = true;
         cx.notify();
 
@@ -187,10 +183,11 @@ impl CreateTeamDialogView {
                 }
                 Err(err) => {
                     let _ = this.update_in(window, |this, _window, cx| {
-                        // Web keeps the dialog open and shows the message —
-                        // including the free-tier owned-teams-cap FORBIDDEN
-                        // (the server's message says "upgrade" itself).
-                        this.error = Some(err.user_message().into());
+                        // FEED-79: the dialog stays open and the refusal is
+                        // the error toast — including the free-tier
+                        // owned-teams-cap FORBIDDEN (the server's message says
+                        // "upgrade" itself). A create can duplicate: no Retry.
+                        crate::action_error::failed_action_err("create", "the team", &err, cx);
                         this.submitting = false;
                         cx.notify();
                     });
@@ -228,21 +225,12 @@ impl Render for CreateTeamDialogView {
         } else {
             glass_input(&self.name, window, cx).web_input_sm()
         };
-        let mut form = v_flex().gap_4().child(
+        let form = v_flex().gap_4().child(
             v_flex()
                 .gap_2()
                 .child(label)
                 .child(input),
         );
-
-        if let Some(error) = &self.error {
-            form = form.child(
-                div()
-                    .text_sm()
-                    .text_color(cx.theme().danger)
-                    .child(error.clone()),
-            );
-        }
 
         // Cancel exists only in the dialog host — the embedded wizard step has
         // nothing to close; it gets a Back to the wizard's choice page instead

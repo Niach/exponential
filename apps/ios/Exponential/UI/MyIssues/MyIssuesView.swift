@@ -28,7 +28,13 @@ struct MyIssuesListContent: View {
     var body: some View {
         Group {
             if let vm = viewModel {
-                if vm.renderGroups.isEmpty {
+                if vm.renderGroups.isEmpty, !vm.issuesSynced {
+                    // EXP-1275 (D8): the first load is skeleton rows.
+                    SkeletonRows()
+                        .padding(.horizontal, 16)
+                        .padding(.top, 8)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                } else if vm.renderGroups.isEmpty {
                     emptyState
                 } else {
                     issueList(vm)

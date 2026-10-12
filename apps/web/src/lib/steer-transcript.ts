@@ -72,7 +72,7 @@ function relayErrorMessage(code: string, timeoutMs: number): TranscriptReadError
     case `no_such_session`:
       return new TranscriptReadError(
         code,
-        `The run's device is not connected to the relay, so its transcript cannot be read now (the run may still be starting, or its device is offline). Retry later or use exponential_sessions_get.`
+        `The session's device is not connected to the relay, so its transcript cannot be read now (the session may still be starting, or its device is offline). Retry later or use exponential_sessions_get.`
       )
     case `device_offline`:
       return new TranscriptReadError(

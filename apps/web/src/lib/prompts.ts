@@ -288,7 +288,7 @@ export const WEB_PROMPTS = {
   updateDevice: (name: string) =>
     primaryConfirm(
       `Update "${name}" now?`,
-      `Every live run on it ends. Runs with a repository can be resumed.`,
+      `Every live session on it ends. Sessions with a repository can be resumed.`,
       `update`,
       `Update`
     ),
@@ -346,7 +346,7 @@ export const WEB_PROMPTS = {
   disconnectDeviceKey: (name: string) =>
     destructiveConfirm(
       `Disconnect "${name}"?`,
-      `Its runs lose their Exponential tools until it signs in again.`,
+      `Its sessions lose their Exponential tools until it signs in again.`,
       `disconnect`,
       `Disconnect`
     ),

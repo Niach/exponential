@@ -83,6 +83,24 @@ vi.mock(`@/lib/integrations/notifications`, async (importOriginal) => ({
 // EXP-1146: the yolo tree merge fires on the turn-end edge (a stub that
 // loads the real module lazily; here it is a spy).
 vi.mock(`@/lib/sessions/yolo-tree-trigger`, () => ({ fireYoloTreeMerge: vi.fn() }))
+// EXP-1284: every start places its run in a thread after the insert
+// (lib/threads.ts owns the rules and has its own real-DB coverage); a spy here
+// so the WIRING per subject is what these tests lock.
+vi.mock(`@/lib/threads`, () => ({
+  joinThreadForStart: vi.fn(
+    async (_db: unknown, args: { session: { teamId: string } }) => ({
+      id: `thread-1`,
+      teamId: args.session.teamId,
+    })
+  ),
+  // Review T4: the fallback when the placement above fails.
+  placeSessionAlone: vi.fn(
+    async (_db: unknown, session: { teamId: string }) => ({
+      id: `thread-alone`,
+      teamId: session.teamId,
+    })
+  ),
+}))
 vi.mock(`@/lib/mcp/context-budget`, () => ({
   mcpContextBudget: () => ({
     mcpAlwaysLoadBytes: 8_192,
@@ -101,6 +119,8 @@ import {
 import { notifySessionBlocked } from "@/lib/integrations/notifications"
 import { fireYoloTreeMerge } from "@/lib/sessions/yolo-tree-trigger"
 import { syncRunPrBody } from "@/lib/run-pr-body"
+import { joinThreadForStart, placeSessionAlone } from "@/lib/threads"
+import { _clearStartThreads, rememberStartThread } from "@/lib/start-threads"
 
 const ISSUE_ID = `11111111-1111-4111-8111-111111111111`
 const TEAM_ID = `22222222-2222-4222-8222-222222222222`
@@ -243,6 +263,12 @@ const caller = codingSessionsRouter.createCaller({
   request: new Request(`http://localhost/`),
 } as never)
 
+// EXP-1284: the thread placement runs in a transaction of its own AFTER the
+// insert committed; the FEED-77 counts below are about the insert's one.
+function handoffTransactions(): number {
+  return transactions - vi.mocked(joinThreadForStart).mock.calls.length
+}
+
 async function rejectionOf(promise: Promise<unknown>): Promise<unknown> {
   return promise.then(
     () => undefined,
@@ -276,6 +302,9 @@ beforeEach(() => {
   txDepth = 0
   transactions = 0
   vi.mocked(syncRunPrBody).mockClear()
+  vi.mocked(joinThreadForStart).mockClear()
+  vi.mocked(placeSessionAlone).mockClear()
+  _clearStartThreads()
 })
 
 // EXP-1051: a deploy constant, not a per-run one — no input, no db read, and
@@ -2713,7 +2742,7 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
 
     await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
 
-    expect(transactions).toBe(1)
+    expect(handoffTransactions()).toBe(1)
     // The lock is team-confined and precedes every write.
     expect(whereShape(selectWheres[1])).toEqual([
       `col:id`,
@@ -2808,7 +2837,7 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
 
     await caller.start({ issueId: ISSUE_ID, resumedFromId: RESUMED_FROM })
 
-    expect(transactions).toBe(0)
+    expect(handoffTransactions()).toBe(0)
     expect(selectWheres).toHaveLength(1)
     expect(inserts[0]!.values).toMatchObject({
       results: null,
@@ -2855,6 +2884,7 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
       updates.length = 0
       ops.length = 0
       transactions = 0
+      vi.mocked(joinThreadForStart).mockClear()
       selectResults.push([{ id: RESUMED_FROM, teamId: subject.teamId, userId: `actor` }])
       for (const rows of subject.before ?? []) selectResults.push(rows)
       selectResults.push([{ id: RESUMED_FROM, results: REPORT }])
@@ -2862,7 +2892,7 @@ describe(`codingSessions — run branch + resume (EXP-637)`, () => {
 
       await caller.start(subject.input)
 
-      expect(transactions).toBe(1)
+      expect(handoffTransactions()).toBe(1)
       expect(ops.slice(0, 3)).toEqual([
         `update:coding_sessions`,
         `insert:coding_sessions`,
@@ -3111,3 +3141,253 @@ describe(`codingSessions.end — endedBy stamp (EXP-637)`, () => {
   })
 })
 
+
+// EXP-1284: every start opens or joins a thread AFTER its row exists. The
+// rules live in lib/threads.ts (`joinThreadForStart`); this locks what each
+// subject hands it, that the answer names the thread, and that a placement
+// failure never fails the start (the row is the device's launch handshake).
+describe(`codingSessions.start — thread placement (EXP-1284)`, () => {
+  const THREAD_ID = `77777777-7777-4777-8777-777777777777`
+  const RESUMED_FROM = `55555555-5555-4555-8555-555555555555`
+  const placement = () => vi.mocked(joinThreadForStart).mock.calls.at(-1)![1]
+
+  it(`places an issue run, joining a requested thread, in its own transaction`, async () => {
+    const result = await caller.start({ issueId: ISSUE_ID, threadId: THREAD_ID })
+
+    expect(result).toMatchObject({ session: { id: SESSION_ID }, threadId: `thread-1` })
+    expect(placement()).toEqual({
+      session: { id: SESSION_ID, teamId: `ws-issue`, userId: `actor` },
+      subject: { kind: `issue`, issueId: ISSUE_ID },
+      predecessorId: null,
+      requestedThreadId: THREAD_ID,
+    })
+    // After the insert, never inside its transaction.
+    expect(inserts[0]!.inTx).toBe(false)
+    expect(transactions).toBe(1)
+  })
+
+  it(`places a batch run with the RESOLVED covered issues`, async () => {
+    const foreign = `66666666-6666-4666-8666-666666666666`
+    selectResults.push([{ id: ISSUE_ID }])
+
+    await caller.start({ teamId: TEAM_ID, batchIssueIds: [foreign, ISSUE_ID] })
+
+    expect(placement()).toMatchObject({
+      session: { id: SESSION_ID, teamId: TEAM_ID, userId: `actor` },
+      subject: { kind: `batch`, issueIds: [ISSUE_ID] },
+      requestedThreadId: null,
+    })
+  })
+
+  it(`places a batch that names no issues as an empty batch`, async () => {
+    await caller.start({ teamId: TEAM_ID })
+    expect(placement().subject).toEqual({ kind: `batch`, issueIds: [] })
+  })
+
+  it(`places an action run as an action`, async () => {
+    selectResults.push([{ id: ACTION_ID, teamId: TEAM_ID, name: `Triage` }])
+    await caller.start({ actionId: ACTION_ID })
+    expect(placement()).toMatchObject({
+      session: { teamId: TEAM_ID },
+      subject: { kind: `action` },
+    })
+  })
+
+  it.each([
+    [`builtin:chat`, `chat`],
+    [`builtin:tidy-up`, `action`],
+    [`builtin:create-action`, `action`],
+  ] as const)(`places the %s builtin as %s`, async (actionId, kind) => {
+    await caller.start({ actionId, teamId: TEAM_ID })
+    expect(placement().subject).toEqual({ kind })
+  })
+
+  it(`hands a resume its predecessor`, async () => {
+    selectResults.push([{ id: RESUMED_FROM, teamId: TEAM_ID, userId: `actor` }])
+    selectResults.push([{ id: RESUMED_FROM, results: null }])
+    updateResults.push([{ results: null }])
+
+    await caller.start({ teamId: TEAM_ID, resumedFromId: RESUMED_FROM })
+
+    expect(placement().predecessorId).toBe(RESUMED_FROM)
+  })
+
+  // Review T4: a live session is never threadless (every list shows
+  // threads): a failed placement falls back to a thread of its own, logged.
+  it(`falls back to a thread of its own when placement fails`, async () => {
+    const quiet = vi.spyOn(console, `error`).mockImplementation(() => {})
+    vi.mocked(joinThreadForStart).mockRejectedValueOnce(new Error(`deadlock`))
+
+    const result = await caller.start({ issueId: ISSUE_ID, threadId: THREAD_ID })
+
+    expect(result).toMatchObject({ session: { id: SESSION_ID }, threadId: `thread-alone` })
+    expect(vi.mocked(placeSessionAlone).mock.calls.at(-1)!.slice(1)).toEqual([
+      { id: SESSION_ID, teamId: `ws-issue`, userId: `actor` },
+      [ISSUE_ID],
+    ])
+    expect(inserts).toHaveLength(1)
+    expect(quiet).toHaveBeenCalled()
+    quiet.mockRestore()
+  })
+
+  it(`starts anyway, threadless, when the fallback fails too`, async () => {
+    const quiet = vi.spyOn(console, `error`).mockImplementation(() => {})
+    vi.mocked(joinThreadForStart).mockRejectedValueOnce(new Error(`deadlock`))
+    vi.mocked(placeSessionAlone).mockRejectedValueOnce(new Error(`deadlock`))
+
+    const result = await caller.start({ issueId: ISSUE_ID, threadId: THREAD_ID })
+
+    expect(result).toMatchObject({ session: { id: SESSION_ID }, threadId: null })
+    expect(inserts).toHaveLength(1)
+    expect(quiet).toHaveBeenCalledTimes(2)
+    quiet.mockRestore()
+  })
+
+  // Review T16: a daemon that predates threads drops the frame's threadId;
+  // the thread steer.startSession remembered for this device + subject
+  // places it anyway (once), and an echoing device clears the entry.
+  it(`places a start that dropped threadId in the thread its frame named`, async () => {
+    const info = vi.spyOn(console, `info`).mockImplementation(() => {})
+    rememberStartThread({
+      ownerId: `actor`,
+      deviceId: `mac-1`,
+      subject: { issueId: ISSUE_ID },
+      threadId: THREAD_ID,
+      startId: `start-1`,
+    })
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1` })
+    expect(placement().requestedThreadId).toBe(THREAD_ID)
+    expect(info).toHaveBeenCalled()
+    // Consumed: the next start of the same subject places by default.
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1` })
+    expect(placement().requestedThreadId).toBeNull()
+    info.mockRestore()
+  })
+
+  it(`never hands a remembered thread to another device, subject or a resume`, async () => {
+    const remember = () =>
+      rememberStartThread({
+        ownerId: `actor`,
+        deviceId: `mac-1`,
+        subject: { issueId: ISSUE_ID },
+        threadId: THREAD_ID,
+        startId: `start-1`,
+      })
+    remember()
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-2` })
+    expect(placement().requestedThreadId).toBeNull()
+    await caller.start({ teamId: TEAM_ID, deviceId: `mac-1` })
+    expect(placement().requestedThreadId).toBeNull()
+    // An echoing device's own threadId wins and clears the entry.
+    const OTHER = `88888888-8888-4888-8888-888888888888`
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1`, threadId: OTHER })
+    expect(placement().requestedThreadId).toBe(OTHER)
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1` })
+    expect(placement().requestedThreadId).toBeNull()
+  })
+})
+
+// Review T16 (recheck): two pending starts of ONE issue on one device never
+// swap threads: the echoed frame `startId` takes exactly its own.
+describe(`codingSessions.start — the echoed startId (EXP-1284)`, () => {
+  const T1 = `11111111-1111-4111-8111-111111111111`
+  const T2 = `22222222-2222-4222-8222-222222222222`
+  const placement = () => vi.mocked(joinThreadForStart).mock.calls.at(-1)![1]
+  const rememberBoth = () => {
+    for (const [startId, threadId] of [
+      [`start-a`, T1],
+      [`start-b`, T2],
+    ] as const) {
+      rememberStartThread({
+        ownerId: `actor`,
+        deviceId: `mac-1`,
+        subject: { issueId: ISSUE_ID },
+        threadId,
+        startId,
+      })
+    }
+  }
+
+  it(`takes exactly the echoed start's thread, in any landing order`, async () => {
+    const info = vi.spyOn(console, `info`).mockImplementation(() => {})
+    rememberBoth()
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1`, startId: `start-b` })
+    expect(placement().requestedThreadId).toBe(T2)
+    // An unknown echoed id never takes another start's entry.
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1`, startId: `start-z` })
+    expect(placement().requestedThreadId).toBeNull()
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1`, startId: `start-a` })
+    expect(placement().requestedThreadId).toBe(T1)
+    info.mockRestore()
+  })
+
+  it(`without an echoed startId (an older daemon) takes them oldest first`, async () => {
+    const info = vi.spyOn(console, `info`).mockImplementation(() => {})
+    rememberBoth()
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1` })
+    expect(placement().requestedThreadId).toBe(T1)
+    await caller.start({ issueId: ISSUE_ID, deviceId: `mac-1` })
+    expect(placement().requestedThreadId).toBe(T2)
+    info.mockRestore()
+  })
+
+  it(`refuses a startId over 128 characters`, async () => {
+    await expect(
+      caller.start({ issueId: ISSUE_ID, deviceId: `mac-1`, startId: `x`.repeat(129) })
+    ).rejects.toMatchObject({ code: `BAD_REQUEST` })
+  })
+})
+
+describe(`codingSessions.heartbeat — thread rejoin (EXP-1284)`, () => {
+  const THREAD_ID = `77777777-7777-4777-8777-777777777777`
+  const placement = () => vi.mocked(joinThreadForStart).mock.calls.at(-1)![1]
+
+  it(`re-places a swept issue row into the echoed thread`, async () => {
+    selectResults.push([]) // swept
+    selectResults.push([{ status: `in_progress` }])
+
+    const result = await caller.heartbeat({
+      id: SESSION_ID,
+      issueId: ISSUE_ID,
+      threadId: THREAD_ID,
+    })
+
+    expect(result).toEqual({ alive: true })
+    expect(placement()).toEqual({
+      session: { id: SESSION_ID, teamId: `ws-issue`, userId: `actor` },
+      subject: { kind: `issue`, issueId: ISSUE_ID },
+      predecessorId: null,
+      requestedThreadId: THREAD_ID,
+    })
+  })
+
+  it(`re-places a swept action row by its scope when nothing is echoed`, async () => {
+    selectResults.push([]) // swept
+    selectResults.push([]) // the action is gone
+
+    await caller.heartbeat({ id: SESSION_ID, teamId: TEAM_ID, actionId: ACTION_ID })
+
+    expect(placement()).toMatchObject({
+      session: { id: SESSION_ID, teamId: TEAM_ID },
+      subject: { kind: `action` },
+      requestedThreadId: null,
+    })
+  })
+
+  it(`never places a row that still exists`, async () => {
+    selectResults.push([{ userId: `actor`, status: `running` }])
+    await caller.heartbeat({ id: SESSION_ID, threadId: THREAD_ID })
+    expect(joinThreadForStart).not.toHaveBeenCalled()
+  })
+
+  it(`stays alive when placement fails`, async () => {
+    const quiet = vi.spyOn(console, `error`).mockImplementation(() => {})
+    vi.mocked(joinThreadForStart).mockRejectedValueOnce(new Error(`boom`))
+    selectResults.push([]) // swept
+
+    const result = await caller.heartbeat({ id: SESSION_ID, teamId: TEAM_ID })
+
+    expect(result).toEqual({ alive: true })
+    quiet.mockRestore()
+  })
+})

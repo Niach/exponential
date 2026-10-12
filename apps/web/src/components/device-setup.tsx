@@ -36,7 +36,10 @@ import {
   LiveDot,
   Pill,
   EmptyState,
+  FieldError,
+  SkeletonRows,
 } from "@exp/ui"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { authClient } from "@/lib/auth/client"
 import {
   deviceErrorMessage,
@@ -62,7 +65,7 @@ import { useNow } from "@/hooks/use-now"
 import { useSession } from "@/hooks/use-session"
 import { requestAgentLogin } from "@/components/agent-login-dialog"
 import { DeviceReadinessBlock } from "@/components/device-readiness-notice"
-import { GETTING_STARTED_COPY } from "@/components/getting-started/getting-started-copy"
+import { DEVICE_CARD_COPY } from "@/components/getting-started/getting-started-copy"
 import { ONBOARDING_COPY } from "@/components/onboarding/onboarding-copy"
 
 const CopyIcon = conceptIcon(`ui-copy`)
@@ -192,15 +195,14 @@ export function DeviceSetup({
     typeof navigator === `undefined` ? undefined : navigator.maxTouchPoints
 
   // The one-time install token. A close (or a newer mint) orphans an
-  // in-flight one; a failed mint leaves the plain command in the box.
+  // in-flight one. The mint runs on open and on expiry, so a failure is
+  // quiet (FEED-79): the plain command stays in the box.
   const [minted, setMinted] = useState<MintedToken | null>(null)
   const generation = useRef(0)
-  const mint = useCallback(async () => {
+  const mint = useCallback(async (): Promise<void> => {
     const mine = ++generation.current
     try {
-      const result = await trpc.devices.createInstallToken.mutate(undefined, {
-        context: { skipErrorToast: true },
-      })
+      const result = await trpc.devices.createInstallToken.mutate(undefined, SKIP_ERROR_TOAST)
       if (mine !== generation.current) return
       setMinted({ token: result.token, expiresAt: Date.parse(result.expiresAt) })
     } catch {
@@ -241,8 +243,8 @@ export function DeviceSetup({
     setApproved(false)
   }, [active])
 
-  const approve = async (event: FormEvent) => {
-    event.preventDefault()
+  const approve = async (event?: FormEvent) => {
+    event?.preventDefault()
     if (codeBusy || !isCompleteUserCode(code)) return
     setCodeBusy(true)
     setCodeError(``)
@@ -265,8 +267,10 @@ export function DeviceSetup({
         return
       }
       setApproved(true)
-    } catch {
-      setCodeError(DEVICE_SETUP_COPY.failed)
+    } catch (error) {
+      // Not the code: the request itself failed (FEED-79). Approving the
+      // same code again is safe.
+      failedAction(`approve`, `the code`, error, { retry: () => void approve() })
     } finally {
       setCodeBusy(false)
     }
@@ -277,10 +281,10 @@ export function DeviceSetup({
       <GlassRow className="flex-col items-stretch gap-3">
         <div className="flex items-center gap-2 text-sm font-medium">
           <DesktopIcon className="size-4 shrink-0" />
-          {GETTING_STARTED_COPY.desktop.title}
+          {DEVICE_CARD_COPY.desktop.title}
         </div>
         <p className="text-sm text-muted-foreground">
-          {GETTING_STARTED_COPY.desktop.description}
+          {DEVICE_CARD_COPY.desktop.description}
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <Button size="sm" asChild>
@@ -290,7 +294,7 @@ export function DeviceSetup({
               rel="noreferrer"
             >
               <DownloadIcon className="mr-1.5 size-4" />
-              {GETTING_STARTED_COPY.desktop.action}
+              {DEVICE_CARD_COPY.desktop.action}
             </a>
           </Button>
           <Button size="sm" variant="outline" asChild>
@@ -304,10 +308,10 @@ export function DeviceSetup({
       <GlassRow className="flex-col items-stretch gap-3">
         <div className="flex items-center gap-2 text-sm font-medium">
           <ServerIcon className="size-4 shrink-0" />
-          {GETTING_STARTED_COPY.server.title}
+          {DEVICE_CARD_COPY.server.title}
         </div>
         <p className="text-sm text-muted-foreground">
-          {GETTING_STARTED_COPY.server.description}
+          {DEVICE_CARD_COPY.server.description}
         </p>
         <div className="relative">
           <pre
@@ -346,18 +350,19 @@ export function DeviceSetup({
                   maxLength={9}
                   autoComplete="off"
                   spellCheck={false}
+                  aria-invalid={codeError ? true : undefined}
+                  aria-describedby={codeError ? `add-device-code-error` : undefined}
                   className="font-mono tracking-widest"
                 />
                 <Button
                   type="submit"
-                  disabled={codeBusy || !isCompleteUserCode(code)}
+                  disabled={!isCompleteUserCode(code)}
+                  pending={codeBusy}
                 >
                   {DEVICE_SETUP_COPY.approve}
                 </Button>
               </div>
-              {codeError && (
-                <p className="text-sm text-destructive">{codeError}</p>
-              )}
+              <FieldError id="add-device-code-error">{codeError}</FieldError>
             </form>
           )
         )}
@@ -384,7 +389,7 @@ export function OwnDevicesList({
     <div>
       <GlassSectionHeader label={ONBOARDING_COPY.devices.yours} />
       {devices === null ? (
-        <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
+        <SkeletonRows rowHeight={56} dot={false} />
       ) : devices.length === 0 ? (
         // The ×4 onboarding copy (it teaches the first step), drawn as the
         // shared list-size empty state.

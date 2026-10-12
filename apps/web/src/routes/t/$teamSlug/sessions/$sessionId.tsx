@@ -19,6 +19,7 @@ import {
   CollapsedTitle,
   PrGithubButton,
   parseSessionResultGroups,
+  SkeletonRows,
   useIsMobile,
   WORK_COLUMN_CLASS,
 } from "@exp/ui"
@@ -64,6 +65,9 @@ import { useSession } from "@/hooks/use-session"
 import { useTeamBySlug, useTeamUsers } from "@/hooks/use-team-data"
 import { useTeamPermissions } from "@/hooks/use-team-permissions"
 import { pageTitle, usePageTitle } from "@/lib/page-title"
+import { RunThreadLink } from "@/components/thread/run-thread-link"
+import { useThreadOfRun } from "@/hooks/use-threads"
+import { threadGuideResults } from "@/lib/thread-page"
 
 // EXP-740: one coding session, FULLSCREEN on its own route — the web twin of
 // the desktop IDE's `Screen::Session` center tab and the natives' pushed
@@ -155,7 +159,10 @@ function SessionPage() {
   if (!team || !currentUserId || !isReady) {
     return (
       <div className="flex h-full min-h-0 flex-col">
-        <div className="p-6 text-sm text-muted-foreground">Loading…</div>
+        {/* D8 first load: the detail page's placeholder (3 list rows). */}
+        <div className="p-6">
+          <SkeletonRows />
+        </div>
       </div>
     )
   }
@@ -182,12 +189,77 @@ function SessionPage() {
   // EXP-312: a teammate's run — the synced row is all this client may ever
   // see. No AgentSessionView, so no ticket is minted.
   if (session.userId !== currentUserId) {
-    // EXP-1194/1251: the report and the PR's diff — a teammate reads the
+    return (
+      <TeammateRunPage
+        team={team}
+        teamSlug={teamSlug}
+        row={row}
+        session={session}
+        currentUserId={currentUserId}
+        identity={identity}
+        from={from}
+        view={view}
+        section={section}
+        file={file}
+        onBack={goBack}
+      />
+    )
+  }
+
+  return (
+    <OwnSessionPage
+      key={session.id}
+      team={team}
+      teamSlug={teamSlug}
+      row={row}
+      session={session}
+      currentUserId={currentUserId}
+      from={from}
+      face={view === `guide` ? `guide` : `run`}
+      guideSection={section}
+      diffFile={file ?? null}
+      onBack={goBack}
+    />
+  )
+}
+
+/** EXP-312: a teammate's run — the synced row (and, EXP-1284, its thread
+ *  link) is all this client may ever see. A child so its hooks stay
+ *  unconditional past the page's early returns. */
+function TeammateRunPage({
+  team,
+  teamSlug,
+  row,
+  session,
+  currentUserId,
+  identity,
+  from,
+  view,
+  section,
+  file,
+  onBack: goBack,
+}: {
+  team: Team
+  teamSlug: string
+  row: AgentSessionRow
+  session: CodingSession
+  currentUserId: string
+  identity: ReturnType<typeof sessionIdentity>
+  from: string | undefined
+  view: SessionSearch[`view`]
+  section: GuideSectionKey | undefined
+  file: string | undefined
+  onBack: () => void
+}) {
+  const navigate = useNavigate()
+  const thread = useThreadOfRun(session.id)
+  // EXP-1194/1251: the report and the PR's diff — a teammate reads the
     // Guide read-only.
     if (view === `guide`) {
       return (
         <TeammateRunGuide
           session={session}
+          guideResults={threadGuideResults(session, thread)}
           title={identity.subject}
           section={section}
           file={file ?? null}
@@ -205,6 +277,12 @@ function SessionPage() {
     return (
       <div className="flex h-full min-h-0 flex-col">
         <SessionStubHeader onBack={goBack} title={identity.subject} />
+        <RunThreadLink
+          thread={thread}
+          teamId={team.id}
+          teamSlug={teamSlug}
+          currentUserId={currentUserId}
+        />
         <div className="flex flex-1 flex-col items-center justify-center gap-3 p-6 text-center">
           <div className="flex min-w-0 items-center gap-1.5">
             {identity.identifier && (
@@ -226,23 +304,6 @@ function SessionPage() {
         </div>
       </div>
     )
-  }
-
-  return (
-    <OwnSessionPage
-      key={session.id}
-      team={team}
-      teamSlug={teamSlug}
-      row={row}
-      session={session}
-      currentUserId={currentUserId}
-      from={from}
-      face={view === `guide` ? `guide` : `run`}
-      guideSection={section}
-      diffFile={file ?? null}
-      onBack={goBack}
-    />
-  )
 }
 
 /** The owner's run: the view plus the issue face's header parts when the run
@@ -275,6 +336,7 @@ function OwnSessionPage({
 }) {
   const navigate = useNavigate()
   const isMobile = useIsMobile()
+  const thread = useThreadOfRun(session.id)
   const issue: Issue | null = row.issue ?? null
   const board: Board | null = row.board ?? null
   const permissions = useTeamPermissions(team)
@@ -526,13 +588,23 @@ function OwnSessionPage({
         identity={sessionIdentity(row)}
         mergeTarget={row.mergeTarget}
         banner={
-          /* What a run below this one is asking the person. */
-          <EscalationBand
-            session={session}
-            teamId={team.id}
-            currentUserId={currentUserId}
-          />
+          <>
+            {/* EXP-1284: the thread this run sits in. */}
+            <RunThreadLink
+              thread={thread}
+              teamId={team.id}
+              teamSlug={teamSlug}
+              currentUserId={currentUserId}
+            />
+            {/* What a run below this one is asking the person. */}
+            <EscalationBand
+              session={session}
+              teamId={team.id}
+              currentUserId={currentUserId}
+            />
+          </>
         }
+        guideResults={threadGuideResults(session, thread)}
         face={face}
         guideSection={guideSection}
         diffFile={diffFile}
@@ -573,6 +645,7 @@ function OwnSessionPage({
  *  and no view mount, so no ticket is minted. */
 export function TeammateRunGuide({
   session,
+  guideResults,
   title,
   section,
   file,
@@ -580,6 +653,8 @@ export function TeammateRunGuide({
   onBack,
 }: {
   session: CodingSession
+  /** EXP-1284: the run's THREAD's Guide when it has one (rule 8). */
+  guideResults?: unknown
   title: string
   section?: GuideSectionKey
   file: string | null
@@ -587,10 +662,8 @@ export function TeammateRunGuide({
   onBack: () => void
 }) {
   const isMobile = useIsMobile()
-  const groups = useMemo(
-    () => parseSessionResultGroups(session.results),
-    [session.results]
-  )
+  const source = guideResults !== undefined ? guideResults : session.results
+  const groups = useMemo(() => parseSessionResultGroups(source), [source])
   const { state, reload } = useSessionPrFiles(session, {
     enabled: Boolean(session.prUrl),
   })
@@ -716,7 +789,7 @@ function EscalationBand({
             className="min-w-0 justify-start truncate text-left text-current"
             onClick={() => openSession(child)}
           >
-            {`Run ${name} asks: ${child.agentCaption ?? ``}`.trimEnd()}
+            {`Session ${name} asks: ${child.agentCaption ?? ``}`.trimEnd()}
           </Button>
         )
       })}

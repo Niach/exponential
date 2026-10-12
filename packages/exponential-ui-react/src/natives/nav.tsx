@@ -3,7 +3,7 @@
 // `value` written through (multiple = comma-joined when it came as a
 // string, an array when it came as one).
 
-import { useRef, useState, type ReactNode } from "react"
+import { Fragment, useRef, useState, type ReactNode } from "react"
 import { useBoundState } from "./bound"
 import { Accordion as AccordionPrimitive, Tabs as TabsPrimitive, ToggleGroup as ToggleGroupPrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
@@ -26,6 +26,13 @@ export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps)
   const external = str(props.value) || tabs[0]?.value || ``
   const [value, setValue] = useBoundState(node, scope, `value`, external)
   const fill = bool(props.fill)
+  // EXP-1259: the close glyph per tab (`closable`; `hover` = only while its
+  // tab or itself is hovered or keyboard-focused: the tab LENDS it those
+  // states) and the + after the last tab (`addable`).
+  const closable = props.closable === `hover` || props.closable === `always`
+  const [lent, setLent] = useState<{ index: number; state: `hover` | `focus` } | null>(null)
+  const lend = (index: number, state: `hover` | `focus` | null) => setLent((cur) => (state ? { index, state } : cur?.index === index ? null : cur))
+  const lending = closable && props.closable === `hover`
   return (
     <TabsPrimitive.Root
       {...(rootProps as Record<string, unknown>)}
@@ -41,8 +48,16 @@ export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps)
       <TabsPrimitive.List {...(part(`list`) as Record<string, string>)} data-fill={fill ? `true` : undefined} loop>
         {tabs.map((tab, i) => {
           const selected = tab.value === value
-          return (
-            <TabsPrimitive.Trigger key={tab.value} value={tab.value} {...(part.at(`tab`, i, selected && `selected`) as Record<string, string>)}>
+          const trigger = (
+            <TabsPrimitive.Trigger
+              key={tab.value}
+              value={tab.value}
+              {...(part.at(`tab`, i, selected && `selected`) as Record<string, string>)}
+              onPointerEnter={lending ? () => lend(i, `hover`) : undefined}
+              onPointerLeave={lending ? () => lend(i, null) : undefined}
+              onFocus={lending ? (e) => (e.currentTarget.matches(`:focus-visible`) ? lend(i, `focus`) : undefined) : undefined}
+              onBlur={lending ? () => lend(i, null) : undefined}
+            >
               <span className="xui-Tabs-tab-body">
                 {tab.icon ? <IconGlyph icons={ctx.host.icons} name={tab.icon} className="xui-icon" width={16} height={16} /> : null}
                 <span>{str(tab.label)}</span>
@@ -51,7 +66,28 @@ export function TabsNative({ node, props, rootProps, emit, scope }: NativeProps)
               <span {...(part(`indicator`, selected && `selected`) as Record<string, string>)} aria-hidden="true" />
             </TabsPrimitive.Trigger>
           )
+          if (!closable) return trigger
+          return (
+            <Fragment key={tab.value}>
+              {trigger}
+              <button
+                type="button"
+                {...(part.at(`close`, i, lent?.index === i && lent.state) as Record<string, string>)}
+                aria-label={ctx.t(`closeTab`, { name: str(tab.label) })}
+                onPointerEnter={lending ? () => lend(i, `hover`) : undefined}
+                onPointerLeave={lending ? () => lend(i, null) : undefined}
+                onClick={() => void emit(`close`, { value: tab.value })}
+              >
+                <BuiltinIcon slot="Tabs.close" />
+              </button>
+            </Fragment>
+          )
         })}
+        {bool(props.addable) ? (
+          <button type="button" {...(part(`new`) as Record<string, string>)} aria-label={ctx.t(`newTab`)} onClick={() => void emit(`new`)}>
+            <BuiltinIcon slot="Tabs.new" />
+          </button>
+        ) : null}
       </TabsPrimitive.List>
       {tabs.map((tab, i) => {
         // Only the ACTIVE panel is placed (`<id>.content`); the others are hidden.

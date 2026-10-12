@@ -7,8 +7,8 @@ package com.exponential.app.domain
  *
  * Hand-mirrored ×4 (TS `packages/domain-contract/src/workflow-caption.ts`,
  * Rust `steer::workflow_caption`, iOS `WorkflowCaption.swift`) and byte-locked
- * by `packages/domain-contract/fixtures/workflow-caption.json`, which every
- * client's test replays.
+ * by `packages/domain-contract/fixtures/work-card.json` `caption.cases`,
+ * which every client's test replays.
  *
  * Rules:
  * - running with no agents yet → `Workflow {name} · starting`

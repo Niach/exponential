@@ -2,8 +2,11 @@ import { useState } from "react"
 import { authClient, invalidateSessionCache } from "@/lib/auth/client"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import { useSession } from "@/hooks/use-session"
+import { failedAction } from "@/lib/action-error"
 import {
   Button,
+  FEEDBACK_WORDS,
+  FieldError,
   Dialog,
   DialogBody,
   DialogCancel,
@@ -38,6 +41,8 @@ export function ChangeEmailDialog({
   const [newEmail, setNewEmail] = useState(``)
   const [code, setCode] = useState(``)
   const [busy, setBusy] = useState(false)
+  // The typed address/code was refused: inline under its field. A thrown
+  // (transport) failure is a toast.
   const [error, setError] = useState(``)
 
   const reset = () => {
@@ -73,8 +78,8 @@ export function ChangeEmailDialog({
       setNewEmail(target)
       setCode(``)
       setStep(`code`)
-    } catch {
-      setError(`Couldn't send the code.`)
+    } catch (err) {
+      failedAction(`send`, `the code`, err)
     } finally {
       setBusy(false)
     }
@@ -100,8 +105,8 @@ export function ChangeEmailDialog({
       await refetch()
       onChanged(newEmail)
       close()
-    } catch {
-      setError(`Couldn't change the email.`)
+    } catch (err) {
+      failedAction(`change`, `the email`, err)
     } finally {
       setBusy(false)
     }
@@ -139,15 +144,25 @@ export function ChangeEmailDialog({
                 autoFocus
                 required
                 value={newEmail}
-                onChange={(e) => setNewEmail(e.target.value)}
+                onChange={(e) => {
+                  setNewEmail(e.target.value)
+                  if (error) setError(``)
+                }}
                 placeholder="you@example.com"
+                aria-invalid={error ? true : undefined}
+                aria-describedby={error ? `new-email-error` : undefined}
               />
-              {error && <p className="text-sm text-destructive">{error}</p>}
+              <FieldError id="new-email-error">{error}</FieldError>
             </DialogBody>
             <DialogFooter>
               <DialogCancel variant="outline" onClick={close} />
-              <Button type="submit" disabled={busy || !newEmail.trim()}>
-                {busy ? `Sending…` : `Send code`}
+              <Button
+                type="submit"
+                pending={busy}
+                pendingLabel={FEEDBACK_WORDS.pending.send}
+                disabled={!newEmail.trim()}
+              >
+                Send code
               </Button>
             </DialogFooter>
           </form>
@@ -171,12 +186,17 @@ export function ChangeEmailDialog({
                   required
                   maxLength={6}
                   value={code}
-                  onChange={(e) => setCode(e.target.value.replace(/\D/g, ``))}
+                  onChange={(e) => {
+                    setCode(e.target.value.replace(/\D/g, ``))
+                    if (error) setError(``)
+                  }}
                   placeholder="123456"
                   className="text-center text-lg tracking-[0.4em]"
+                  aria-invalid={error ? true : undefined}
+                  aria-describedby={error ? `email-change-code-error` : undefined}
                 />
+                <FieldError id="email-change-code-error">{error}</FieldError>
               </div>
-              {error && <p className="text-sm text-destructive">{error}</p>}
               <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
                 <Button
                   type="button"
@@ -204,8 +224,12 @@ export function ChangeEmailDialog({
             </DialogBody>
             <DialogFooter>
               <DialogCancel variant="outline" onClick={close} />
-              <Button type="submit" disabled={busy || code.trim().length < 6}>
-                {busy ? `Checking…` : `Confirm`}
+              <Button
+                type="submit"
+                pending={busy}
+                disabled={code.trim().length < 6}
+              >
+                Confirm
               </Button>
             </DialogFooter>
           </form>

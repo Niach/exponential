@@ -27,6 +27,8 @@ import androidx.room.TypeConverters
         DeviceWorktreeEntity::class,
         PinEntity::class,
         IssueDraftEntity::class,
+        ThreadEntity::class,
+        ThreadItemEntity::class,
         ElectricOffsetEntity::class,
     ],
     // v2: added attachments.width / attachments.height (parity with iOS).
@@ -393,8 +395,14 @@ import androidx.room.TypeConverters
     //      `automations` table + offset drops. Explicit [MIGRATION_83_84]
     //      rebuilds coding_sessions keeping every row and refetches only the
     //      coding_sessions shape.
+    // v85 (EXP-1284): the threads + thread_items tables (two new shapes).
+    //      Explicit [MIGRATION_84_85] creates both empty; every other row and
+    //      offset survives, and the new shapes snapshot from scratch.
+    // v86 (EXP-1284): issue_drafts.thread_id — the thread a draft files into.
+    //      Explicit [MIGRATION_85_86] adds the nullable column and refetches
+    //      only the issue-drafts shape.
     // Older versions still fall back to destructive + resync (DatabaseHolder).
-    version = 84,
+    version = 86,
     exportSchema = false,
 )
 @TypeConverters(StringListConverters::class)
@@ -420,5 +428,7 @@ abstract class ExponentialDatabase : RoomDatabase() {
     abstract fun deviceWorktreeDao(): DeviceWorktreeDao
     abstract fun pinDao(): PinDao
     abstract fun issueDraftDao(): IssueDraftDao
+    abstract fun threadDao(): ThreadDao
+    abstract fun threadItemDao(): ThreadItemDao
     abstract fun electricOffsetDao(): ElectricOffsetDao
 }

@@ -5,7 +5,8 @@ import Foundation
 /// `components/launch-dialog/composer-menu.ts`, desktop `chat_screen.rs`,
 /// Android `AgentComposer.kt`): which rows show for the picked agent / device
 /// / subject, in what order, with which concept glyph and copy. Phones open it
-/// as a bottom sheet, submenus as pushed pages.
+/// as a bottom sheet, submenus as pushed pages. The page around the card (no
+/// suggestion rows, no brand-mark watermark) is `HomeGreeting`'s.
 public enum ComposerMenu {
     public enum RowId: String, Equatable, Sendable, CaseIterable {
         case implementIssue = "implement-issue"
@@ -80,12 +81,14 @@ public enum ComposerMenu {
     public static let plusTestId = "agent-composer-plus-button"
     public static let menuTestId = "agent-composer-menu"
     public static let implementSubmitTestId = "agent-composer-implement"
-    public static let suggestionTestId = "agent-composer-suggestion"
-    public static let brandMarkTestId = "agent-page-brand-mark"
+    /// SLOP-28: the submenu pages' search input (the shared search list).
+    public static let submenuSearchTestId = "agent-composer-submenu-search"
     public static let plusLabel = "Add"
-    /// How many chat suggestions the quiet rows under the composer show.
-    public static let suggestionCount = 3
-    public static let suggestionIcon = "action-default"
+    /// SLOP-28 (EXP-1259 D5): Implement issue and Run action are the SAME
+    /// search list (`SearchList`): one row height, at most this many visible
+    /// on a pointer (phones push them as pages of 44pt rows).
+    public static let submenuRowHeight: Double = 32
+    public static let submenuMaxRows = 8
     /// The per-run computer-use flag's start-payload key and the device
     /// capability that reads it (contract `codingSession`).
     public static let computerUsePayloadKey = "computerUse"

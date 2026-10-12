@@ -501,11 +501,11 @@ pub(crate) struct RunRowSpec {
 /// instead of repeating the action's name.
 pub(crate) fn action_run_title(started_reason: Option<&str>) -> &'static str {
     match started_reason {
-        Some("schedule") => "Scheduled run",
-        Some("event") => "Event run",
+        Some("schedule") => "Scheduled session",
+        Some("event") => "Event session",
         // Another run started it (`agent`, or a reason added later).
-        Some(reason) if !reason.is_empty() => "Agent run",
-        _ => "Manual run",
+        Some(reason) if !reason.is_empty() => "Agent session",
+        _ => "Manual session",
     }
 }
 
@@ -559,6 +559,7 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
         RunStatusMark::Live(state) => {
             crate::coding_selects::run_lead(agent, RUN_MARK_PX, RUN_BADGE_PX, state)
         }
+        RunStatusMark::Starting => crate::coding_selects::run_lead(agent, RUN_MARK_PX, RUN_BADGE_PX, None),
         RunStatusMark::Ended => crate::coding_selects::ended_run_lead(agent, RUN_MARK_PX),
     };
     let title_line = div()
@@ -659,11 +660,15 @@ pub(crate) fn run_row(spec: RunRowSpec, cx: &App) -> gpui::AnyElement {
 
 
 /// EXP-1175 — the status row's lead: a live run's mark state (`None` = the
-/// bare mark) or the ended run's dimmed mark.
+/// bare mark) or the ended run's dimmed mark. EXP-1271 (EXP-1259 D8): before
+/// the run's first turn, `Starting` = THE feedback mark sweeping in the run
+/// mark's slot (feedback-states.json `starting`; a list row reads it as the
+/// bare mark).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum RunStatusMark {
     Live(Option<CodingSessionDisplay>),
     Ended,
+    Starting,
 }
 
 /// EXP-1175 — what the Run face's status row draws.
@@ -678,6 +683,9 @@ pub(crate) struct RunStatusRowSpec {
     pub(crate) tool_line: Option<SharedString>,
     pub(crate) show_work: bool,
     pub(crate) on_toggle: Option<RunRowAction>,
+    /// The Show work / Hide work switch shows (EXP-1284: never on a
+    /// teammate's session block — its work is not this viewer's to open).
+    pub(crate) toggle: bool,
 }
 
 /// EXP-1175 — the Run face's ONE status row, over the thread or the
@@ -691,6 +699,12 @@ pub(crate) fn run_status_row(spec: RunStatusRowSpec, cx: &App) -> gpui::AnyEleme
         RunStatusMark::Live(state) => {
             crate::coding_selects::run_lead(spec.agent, RUN_MARK_PX, RUN_BADGE_PX, state)
         }
+        RunStatusMark::Starting => div().flex_shrink_0().child(crate::feedback::mark(
+            SharedString::from(format!("{}-starting", spec.id)),
+            crate::feedback::MARK_STATUS_PX,
+            cx.theme().background,
+            cx,
+        )),
         RunStatusMark::Ended => crate::coding_selects::ended_run_lead(spec.agent, RUN_MARK_PX),
     };
     let body = gpui_component::v_flex()
@@ -714,16 +728,19 @@ pub(crate) fn run_status_row(spec: RunStatusRowSpec, cx: &App) -> gpui::AnyEleme
                 .text_color(muted.opacity(0.7))
                 .child(line)
         }));
-    let mut toggle = crate::controls::text_button(
-        SharedString::from(format!("{}-toggle", spec.id)),
-        show_work_label(spec.show_work),
-        crate::controls::TextButtonVariant::Text,
-        cx,
-    )
-    .flex_shrink_0();
-    if let Some(on_toggle) = spec.on_toggle {
-        toggle = toggle.on_click(move |event, window, cx| on_toggle(event, window, cx));
-    }
+    let toggle = spec.toggle.then(|| {
+        let mut toggle = crate::controls::text_button(
+            SharedString::from(format!("{}-toggle", spec.id)),
+            show_work_label(spec.show_work),
+            crate::controls::TextButtonVariant::Text,
+            cx,
+        )
+        .flex_shrink_0();
+        if let Some(on_toggle) = spec.on_toggle {
+            toggle = toggle.on_click(move |event, window, cx| on_toggle(event, window, cx));
+        }
+        toggle
+    });
     div()
         .id(spec.id)
         .flex()
@@ -735,8 +752,62 @@ pub(crate) fn run_status_row(spec: RunStatusRowSpec, cx: &App) -> gpui::AnyEleme
         .py(gpui::px(6.))
         .child(lead)
         .child(body)
-        .child(toggle)
+        .children(toggle)
         .into_any_element()
+}
+
+/// EXP-1284 (review T5) — a session's status row off its SYNCED row alone:
+/// what a teammate's session block shows on a thread page (EXP-312: never a
+/// steer ticket, never the transcript). The state is the session lists' own
+/// (heartbeat-aware); no Show work switch.
+pub(crate) fn synced_status_row(
+    id: SharedString,
+    session: &domain::rows::CodingSession,
+    cx: &App,
+) -> gpui::AnyElement {
+    let now_ms = chrono::Utc::now().timestamp_millis();
+    let facts = running_run_facts(session, None, None, now_ms / 1_000, cx);
+    let ended = !crate::queries::coding_session_is_live(session, now_ms / 1_000);
+    let state = run_row_state(facts.paused, ended, false, false, facts.display);
+    let mark = match state {
+        RunRowState::Ended => RunStatusMark::Ended,
+        RunRowState::Paused => RunStatusMark::Live(None),
+        RunRowState::NeedsInput => RunStatusMark::Live(Some(CodingSessionDisplay::NeedsInput)),
+        RunRowState::Working => {
+            RunStatusMark::Live(facts.working.then_some(CodingSessionDisplay::Working))
+        }
+        RunRowState::Review => RunStatusMark::Live(Some(CodingSessionDisplay::Review)),
+        RunRowState::Done => RunStatusMark::Live(Some(CodingSessionDisplay::Done)),
+    };
+    let device = facts
+        .device_label
+        .as_deref()
+        .or(session.device_label.as_deref())
+        .map(str::trim)
+        .filter(|label| !label.is_empty())
+        .unwrap_or("Desktop")
+        .to_string();
+    let (caption, tone) = run_row_caption(
+        state,
+        &device,
+        stamp_ms(run_started_at(session)),
+        stamp_ms(past_run_ended_at(session)),
+        now_ms,
+    );
+    run_status_row(
+        RunStatusRowSpec {
+            id,
+            agent: facts.agent,
+            mark,
+            caption: SharedString::from(caption),
+            tone,
+            tool_line: None,
+            show_work: false,
+            on_toggle: None,
+            toggle: false,
+        },
+        cx,
+    )
 }
 
 /// A row of a mixed list (an action's Runs): live runs
@@ -1101,6 +1172,7 @@ pub(crate) fn run_entry_row(
         RunStatusMark::Live(state) => {
             crate::coding_selects::run_lead(agent, RUN_MARK_PX, RUN_BADGE_PX, state)
         }
+        RunStatusMark::Starting => crate::coding_selects::run_lead(agent, RUN_MARK_PX, RUN_BADGE_PX, None),
         RunStatusMark::Ended => crate::coding_selects::ended_run_lead(agent, RUN_MARK_PX),
     };
     div()
@@ -1152,13 +1224,13 @@ mod tests {
     /// SLOP-2: the four cases, byte-identical ×4 (web `actionRunTitle`).
     #[test]
     fn action_run_title_names_what_started_the_run() {
-        assert_eq!(action_run_title(Some("schedule")), "Scheduled run");
-        assert_eq!(action_run_title(Some("event")), "Event run");
+        assert_eq!(action_run_title(Some("schedule")), "Scheduled session");
+        assert_eq!(action_run_title(Some("event")), "Event session");
         for reason in ["agent", "something-new"] {
-            assert_eq!(action_run_title(Some(reason)), "Agent run", "{reason}");
+            assert_eq!(action_run_title(Some(reason)), "Agent session", "{reason}");
         }
-        assert_eq!(action_run_title(None), "Manual run");
-        assert_eq!(action_run_title(Some("")), "Manual run");
+        assert_eq!(action_run_title(None), "Manual session");
+        assert_eq!(action_run_title(Some("")), "Manual session");
     }
 
     /// EXP-1175 — fixture `run-row.json` ×4: the captions and the labels.
@@ -1414,7 +1486,7 @@ mod tests {
             SharedString::from("Untitled issue")
         );
         let batch = row(serde_json::json!({ "id": "s-1" }));
-        assert_eq!(run_title(&batch, None, &[]), SharedString::from("Batch run"));
+        assert_eq!(run_title(&batch, None, &[]), SharedString::from("Batch session"));
         let action = row(serde_json::json!({ "id": "s-2", "action_name": "Release train" }));
         assert_eq!(
             run_title(&action, None, &[]),
@@ -1480,7 +1552,7 @@ mod tests {
         assert_eq!(run_identifier(&unknown, None, &issues), None);
         assert_eq!(
             run_title(&unknown, None, &issues),
-            SharedString::from("Batch run")
+            SharedString::from("Batch session")
         );
         // An action run never grows one.
         let action = row(serde_json::json!({ "id": "s-3", "action_name": "Chat" }));

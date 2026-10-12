@@ -379,10 +379,7 @@ pub(crate) fn connect_github(cx: &mut App) {
         crate::queries::trpc_client(cx),
         crate::queries::active_account(cx),
     ) else {
-        crate::toast::show_in_active_window(
-            crate::toast::Toast::error(copy::CONNECT_NOT_SIGNED_IN),
-            cx,
-        );
+        crate::action_error::failed_action("connect", "GitHub", Some(copy::CONNECT_NOT_SIGNED_IN.into()), cx);
         return;
     };
     cx.spawn(async move |cx| {
@@ -397,11 +394,10 @@ pub(crate) fn connect_github(cx: &mut App) {
                 Ok(ticket) => ticket,
                 Err(err) => {
                     log::warn!("[ui] users.mintSignInLinkTicket(github) failed: {err}");
-                    crate::toast::show_in_active_window(
-                        crate::toast::Toast::error(crate::settings::form_error(
-                            &err,
-                            copy::CONNECT_START_FAILED,
-                        )),
+                    crate::action_error::failed_action(
+                        "connect",
+                        "GitHub",
+                        Some(crate::settings::form_error(&err, copy::CONNECT_START_FAILED)),
                         cx,
                     );
                     return;
@@ -424,8 +420,10 @@ pub(crate) fn connect_github(cx: &mut App) {
                 // The whole opener chain failed — the pending link is
                 // recorded, so the copied URL still completes in this process.
                 cx.write_to_clipboard(gpui::ClipboardItem::new_string(url));
-                crate::toast::show_in_active_window(
-                    crate::toast::Toast::error(copy::CONNECT_OPENER_FAILED),
+                crate::action_error::failed_action(
+                    "open",
+                    "GitHub",
+                    Some(copy::CONNECT_OPENER_FAILED.into()),
                     cx,
                 );
             }
@@ -586,7 +584,8 @@ pub(crate) mod copy {
 
     // --- C. Add-repository picker --------------------------------------------
     pub const PICKER_TITLE: &str = "Add repository";
-    pub const PICKER_LOADING: &str = "Loading your GitHub repositories\u{2026}";
+    // No loading line: the picker's first load draws skeleton rows
+    // (EXP-1259 D8).
     pub const PICKER_NOT_CONFIGURED: &str = "GitHub isn\u{2019}t configured on this server, so \
         repositories can\u{2019}t be added.";
     pub const PICKER_NOT_LINKED: &str = "Connect your GitHub account to pick a repository. \
@@ -679,7 +678,6 @@ mod tests {
             "Repositories come from these accounts. Configure one to grant more."
         );
 
-        assert_eq!(copy::PICKER_LOADING, "Loading your GitHub repositories…");
         assert_eq!(
             copy::PICKER_NOT_CONFIGURED,
             "GitHub isn’t configured on this server, so repositories can’t be added."

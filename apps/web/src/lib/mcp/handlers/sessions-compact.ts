@@ -108,11 +108,11 @@ export function describeCompactDeliveryFailure(
 ): string {
   switch (reason) {
     case `no_publisher`:
-      return `The run's host is not connected to the steer relay right now; compaction needs a live host. Try again in a moment.`
+      return `The session's host is not connected to the steer relay right now; compaction needs a live host. Try again in a moment.`
     case `no_verdict`:
-      return `The run's host did not answer the compaction request; it may predate this feature. Update the desktop app or the exponential CLI on that machine.`
+      return `The session's host did not answer the compaction request; it may predate this feature. Update the desktop app or the exponential CLI on that machine.`
     case `busy`:
-      return `A compaction request for this run is already waiting for the host's answer.`
+      return `A compaction request for this session is already waiting for the host's answer.`
     case `relay_error`:
       return `The steer relay did not answer the compaction request.`
   }
@@ -128,7 +128,7 @@ export async function requestSessionCompaction(
     return { accepted: false, refusedBecause: `not_own_session` }
   }
   if (row.status === `ended`) {
-    throw new Error(`This run has ended; there is no context left to compact.`)
+    throw new Error(`This session has ended; there is no context left to compact.`)
   }
   const agents = contract.codingAgent.values as readonly string[]
   if (!row.agent || !agents.includes(row.agent)) {
@@ -140,7 +140,7 @@ export async function requestSessionCompaction(
   const outcome = await deps.relay(input.sessionId, input.keep)
   if (!outcome) {
     throw new Error(
-      `Remote steering is not configured on this server (STEER_RELAY_URL), so a compaction request cannot reach the run's host.`
+      `Remote steering is not configured on this server (STEER_RELAY_URL), so a compaction request cannot reach the session's host.`
     )
   }
   if (!outcome.delivered) {

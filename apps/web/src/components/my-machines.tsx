@@ -30,6 +30,7 @@ import {
   Pill,
   GlassSectionHeader,
   ListRow,
+  SkeletonRows,
 } from "@exp/ui"
 import { cn } from "@/lib/utils"
 import {
@@ -176,7 +177,7 @@ export function MyMachines({
       />
 
       {mine === null ? (
-        <div className="px-1 py-3 text-sm text-muted-foreground">Loading…</div>
+        <SkeletonRows rowHeight={60} />
       ) : mine.length === 0 ? (
         <Empty id="devices" />
       ) : (
@@ -338,7 +339,7 @@ export function MyMachines({
       )}
       {/* EXP-432: teammates' server devices shared with this team — read-only
           rows (owner name in the tooltip, no rename/remove/update). The Agent
-          page composer is what aims a run at one. */}
+          page composer is what aims a session at one. */}
       {teamShared.length > 0 && (
         <div className="mt-6">
           <GlassSectionHeader label="Team devices" />

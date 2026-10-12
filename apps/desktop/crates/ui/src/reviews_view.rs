@@ -285,12 +285,13 @@ impl Render for ReviewsView {
         };
 
         let column = if !is_ready {
-            v_flex()
-                .min_w_0()
-                .gap_2()
-                .child(crate::controls::skeleton().h_3p5().w_40())
-                .child(crate::controls::skeleton().h_3p5().w_48())
-                .child(crate::controls::skeleton().h_3p5().w_32())
+            // EXP-1259 D8: the queue's rows as placeholders.
+            v_flex().min_w_0().child(crate::feedback::skeleton_rows(
+                "reviews-skeleton",
+                crate::feedback::SKELETON_ROWS,
+                crate::settings::SETTINGS_ROW_H,
+                cx,
+            ))
         } else if count == 0 {
             // EXP-525/1274: the PAGE empty state, fixture `reviews`.
             v_flex().min_w_0().child(crate::controls::empty_state(
@@ -331,7 +332,7 @@ impl Render for ReviewsView {
                             .text_color(heading_fg.opacity(0.7))
                             .into_any_element(),
                     ),
-                    "Agent runs",
+                    "Agent sessions",
                     Some(caption(domain::reviews_queue::RUN_BAND_CAPTION)),
                     cx,
                 );
@@ -368,8 +369,8 @@ impl Render for ReviewsView {
 }
 
 /// The covered-issues popover's title on a multi-issue run's header (iOS and
-/// Android "Issues in this run").
-pub(crate) const COVERED_ISSUES_TITLE: &str = "Issues in this run";
+/// Android "Issues in this session").
+pub(crate) const COVERED_ISSUES_TITLE: &str = "Issues in this session";
 
 /// A popover's width — issue rows, not a graph.
 const ISSUES_POPOVER_W: f32 = 360.;

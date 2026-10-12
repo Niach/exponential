@@ -26,6 +26,10 @@ public struct CreateIssueInput: Encodable, Sendable {
     /// team, server-checked); the server writes the `parent` relation in the
     /// create's transaction. Nil is omitted from the wire.
     public var parentId: String?
+    /// EXP-1284: file the issue INTO this thread (`issues.create({threadId})`
+    /// links it there, source `user`) — the thread's "New issue in this
+    /// thread". Nil is omitted from the wire.
+    public var threadId: String?
 
     public init(
         boardId: String,
@@ -38,7 +42,8 @@ public struct CreateIssueInput: Encodable, Sendable {
         dueDate: String? = nil,
         labelIds: [String]? = nil,
         draftId: String? = nil,
-        parentId: String? = nil
+        parentId: String? = nil,
+        threadId: String? = nil
     ) {
         self.boardId = boardId
         self.title = title
@@ -51,6 +56,7 @@ public struct CreateIssueInput: Encodable, Sendable {
         self.labelIds = labelIds
         self.draftId = draftId
         self.parentId = parentId
+        self.threadId = threadId
     }
 }
 

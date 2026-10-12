@@ -107,6 +107,8 @@ fun SurfaceModel.fieldEdited(index: Int, text: String) {
 fun SurfaceModel.fieldSubmitted(index: Int) {
     val f = field(index) ?: return
     val n = node(index) ?: return
+    // EXP-1259: Enter in a search list's field picks its highlighted row.
+    if (n.component == "SearchList") return searchKey(index, "Enter")
     f.debounce?.cancel()
     f.debounce = null
     f.pendingChange = false
@@ -122,6 +124,20 @@ fun SurfaceModel.fieldSubmitted(index: Int) {
         f.writeGeneration += 1
     }
     dispatch(events, inputRevision = f.revision)
+}
+
+/**
+ * EXP-1259: a key for a search list's field (`ArrowDown`, `ArrowUp`,
+ * `Enter`, `Tab`, `ArrowLeft` = leave a searchable submenu): the pending
+ * text goes first (the filter is current), then the core moves or picks the
+ * highlighted row.
+ */
+fun SurfaceModel.searchKey(index: Int, key: String) {
+    field(index)?.let { f ->
+        f.debounce?.cancel()
+        flushField(f, index, commit = false)
+    }
+    fire(index, "key", JsonValue.Obj(mapOf("key" to JsonValue.Str(key))))
 }
 
 /** Blur / Enter: send what is pending as a `commit`. */

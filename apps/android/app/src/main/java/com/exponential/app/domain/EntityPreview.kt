@@ -96,6 +96,7 @@ object EntityPreview {
         "notification" to "nav-notifications",
         "attachment" to "ui-attach",
         "list" to "ui-checklist",
+        "thread" to "work-faces",
     )
 
     private val NOUNS: Map<String, Pair<String, String>> = mapOf(
@@ -103,7 +104,7 @@ object EntityPreview {
         "board" to ("board" to "boards"),
         "action" to ("action" to "actions"),
         "comment" to ("comment" to "comments"),
-        "session" to ("run" to "runs"),
+        "session" to ("session" to "sessions"),
         "label" to ("label" to "labels"),
         "status" to ("status" to "statuses"),
         "device" to ("device" to "devices"),
@@ -114,6 +115,7 @@ object EntityPreview {
         "notification" to ("notification" to "notifications"),
         "attachment" to ("attachment" to "attachments"),
         "list" to ("list" to "lists"),
+        "thread" to ("thread" to "threads"),
     )
 
     /** The product noun for a kind: singular for [count] 1, plural otherwise.
@@ -141,9 +143,9 @@ object EntityPreview {
     }
 
     /** The chip's text:
-     *  - a `list`: `<count> <member noun>` ("3 issues", "1 run", "0 labels");
+     *  - a `list`: `<count> <member noun>` ("3 issues", "1 session", "0 labels");
      *  - an issue: its identifier, else its title, else "Issue";
-     *  - anything else: its title, else the capitalized noun ("Board", "Run").
+     *  - anything else: its title, else the capitalized noun ("Board", "Session").
      *  Whitespace-only titles count as absent. */
     fun chipLabel(ref: EntityRef): String {
         if (ref.kind == "list") {

@@ -1,4 +1,5 @@
 import ExpCore
+import ExpUI
 import Foundation
 import GRDB
 
@@ -75,11 +76,6 @@ final class AgentsViewModel {
     /// lands via sync: the machine re-probes and its `agent_accounts` report
     /// moves.
     private(set) var accountActions: Set<String> = []
-    /// The last refusal, keyed by DEVICE id (Android `commandStates`): the
-    /// caption belongs under the chips of the machine that refused, which is
-    /// where the tap was — a single page-level slot at the bottom of the page
-    /// is invisible from the machine rows at the top.
-    private(set) var accountActionErrors: [String: String] = [:]
     /// EXP-829: the command queue the refreshes ride — set by the Devices
     /// page only. Nil (the Agent page, the onboarding step) = the accounts
     /// are still derived but nothing is ever queued from there.
@@ -535,12 +531,6 @@ final class AgentsViewModel {
         accountActions.contains(row.key)
     }
 
-    /// The last account-command refusal for this machine, for the caption
-    /// under ITS chips.
-    func accountActionError(deviceId: String) -> String? {
-        accountActionErrors[deviceId]
-    }
-
     /// EXP-862: delete the MACHINE's copy of a login — the chip menu's
     /// destructive entry, confirmed before it gets here.
     ///
@@ -578,11 +568,15 @@ final class AgentsViewModel {
     ) {
         guard let devicesApi, row.mine, row.online else { return }
         guard !accountActions.contains(row.key) else { return }
-        accountActionErrors[row.deviceId] = nil
         accountActions.insert(row.key)
         let accountId = accountId
         let key = row.key
-        let deviceId = row.deviceId
+        // FEED-79: a refusal is the error toast (`Couldn't <verb> the login`
+        // + the machine's own words), never a red caption under the chips.
+        let title = FeedbackStates.Errors.title(
+            verb: kind == Self.removeAccountCommandKind ? "remove" : "sign out",
+            thing: "the login"
+        )
         Task { [weak self] in
             do {
                 let created = try await devicesApi.createCommand(
@@ -600,19 +594,21 @@ final class AgentsViewModel {
                 // server-side and the poll simply stops watching.
                 for _ in 0..<30 {
                     try? await Task.sleep(for: .seconds(2))
-                    guard let self, !Task.isCancelled else { return }
+                    // The page went away: stop watching.
+                    guard self != nil, !Task.isCancelled else { return }
                     guard let command = try? await devicesApi.getCommand(
                         accountId: accountId, commandId: created.id
                     ) else { continue }
                     guard !command.isPending else { continue }
                     if command.isFailed {
-                        self.accountActionErrors[deviceId] =
-                            command.result ?? "The device refused the command."
+                        Toaster.shared.error(
+                            title, description: command.result ?? "The device refused the command."
+                        )
                     }
                     break
                 }
             } catch {
-                self?.accountActionErrors[deviceId] = error.userFacingMessage
+                Toaster.shared.error(title, description: error.userFacingMessage)
             }
             self?.accountActions.remove(key)
         }

@@ -182,6 +182,32 @@ pub(crate) fn show(toast: Toast, window: &mut Window, cx: &mut App) {
     });
 }
 
+/// A shown toast its caller may take back early ([`show_dismissible`]).
+pub(crate) struct ShownToast {
+    layer: gpui::WeakEntity<ToastLayer>,
+    id: u64,
+}
+
+impl ShownToast {
+    /// Start the toast's exit (a no-op once it is gone).
+    pub(crate) fn dismiss(&self, cx: &mut App) {
+        if let Some(layer) = self.layer.upgrade() {
+            layer.update(cx, |layer, cx| layer.dismiss(self.id, cx));
+        }
+    }
+}
+
+/// [`show`], returning the handle that dismisses it (an error a later
+/// event resolves, e.g. a late start that landed after all).
+pub(crate) fn show_dismissible(toast: Toast, window: &mut Window, cx: &mut App) -> ShownToast {
+    let layer = layer_for_window(window, cx);
+    let id = layer.update(cx, |layer, cx| layer.push(toast, cx));
+    ShownToast {
+        layer: layer.downgrade(),
+        id,
+    }
+}
+
 /// Push onto the active (else primary) window — for callers without one.
 pub(crate) fn show_in_active_window(toast: Toast, cx: &mut App) {
     crate::navigation::on_active_window(cx, move |window, cx| show(toast, window, cx));

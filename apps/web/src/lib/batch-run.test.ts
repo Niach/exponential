@@ -38,7 +38,7 @@ const first = issue({
 const second = issue({
   id: `i-2`,
   identifier: `EXP-876`,
-  title: `Batch run names`,
+  title: `Batch session names`,
 })
 const third = issue({
   id: `i-3`,
@@ -108,7 +108,7 @@ describe(`batchRunName`, () => {
   it(`drops the suffix for a batch of one`, () => {
     expect(batchRunName(session({ batchIssueIds: [`i-2`] }), pool)).toEqual({
       identifier: `EXP-876`,
-      subject: `Batch run names`,
+      subject: `Batch session names`,
     })
   })
 
@@ -128,11 +128,11 @@ describe(`batchRunName`, () => {
     })
     expect(batchRunName(session({ batchIssueIds: [`gone`] }), pool)).toEqual({
       identifier: null,
-      subject: `Batch run`,
+      subject: `Batch session`,
     })
     expect(batchRunName(session({ batchIssueIds: [`i-1`] }), [])).toEqual({
       identifier: null,
-      subject: `Batch run`,
+      subject: `Batch session`,
     })
   })
 

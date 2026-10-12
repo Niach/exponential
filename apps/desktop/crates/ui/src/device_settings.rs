@@ -378,6 +378,8 @@ pub struct DeviceSettingsView {
     /// immediately — a replay reading the controls would short-circuit as
     /// "nothing drafted" and drop the write.
     pending_push: Option<serde_json::Value>,
+    /// The sections whose last write failed (FEED-79: each failure was a
+    /// toast). Kept because a standing failure re-arms the next commit.
     section_errors: HashMap<String, SharedString>,
     /// A finished command's device-reported SUCCESS message, per key — the
     /// per-agent Update rows show theirs ("Claude Code updated: …") where a
@@ -770,10 +772,14 @@ impl DeviceSettingsView {
         })
     }
 
-    fn set_error(&mut self, key: impl Into<String>, message: Option<SharedString>) {
+    fn set_error(&mut self, key: impl Into<String>, message: Option<SharedString>, cx: &mut App) {
         let key = key.into();
         match message {
+            // FEED-79: a failed section write is the error toast, titled by
+            // what the section does.
             Some(message) => {
+                let (verb, thing) = section_failure(&key);
+                crate::action_error::failed_action(verb, &thing, Some(message.to_string()), cx);
                 self.section_errors.insert(key, message);
             }
             None => {
@@ -815,7 +821,7 @@ impl DeviceSettingsView {
             return;
         };
         self.busy_section = Some(section);
-        self.set_error(section, None);
+        self.set_error(section, None, cx);
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -832,7 +838,7 @@ impl DeviceSettingsView {
                         }
                     }
                     Err(err) => {
-                        this.set_error(section, Some(err.user_message().into()));
+                        this.set_error(section, Some(err.user_message().into()), cx);
                         this.roll_back(section);
                     }
                 }
@@ -1037,6 +1043,7 @@ impl DeviceSettingsView {
                 CodingHub::save_settings(&hub, settings, cx)
                     .err()
                     .map(SharedString::from),
+                cx,
             );
             // EXP-696: the devices ROW is authoritative (settings.json is the
             // copy that converges to it), and the local save alone only
@@ -1127,7 +1134,7 @@ impl DeviceSettingsView {
         };
         let key = format!("update {}", agent.id());
         let device_id = self.device_id.clone();
-        self.set_error(key.clone(), None);
+        self.set_error(key.clone(), None, cx);
         self.section_notes.remove(&key);
         cx.notify();
         cx.spawn(async move |this, cx| {
@@ -1146,7 +1153,7 @@ impl DeviceSettingsView {
                         });
                         this.ensure_polling(cx);
                     }
-                    Err(err) => this.set_error(key, Some(err.user_message().into())),
+                    Err(err) => this.set_error(key, Some(err.user_message().into()), cx),
                 }
                 cx.notify();
             });
@@ -1211,6 +1218,7 @@ impl DeviceSettingsView {
                                         Some(SharedString::from(row.result.unwrap_or_else(
                                             || "The device reported a failure.".to_string(),
                                         ))),
+                                        cx,
                                     );
                                 } else if key.starts_with("update ") {
                                     // The version move is the outcome — the
@@ -1280,7 +1288,7 @@ impl DeviceSettingsView {
         };
         let device_id = self.device_id.clone();
         self.update_busy = true;
-        self.set_error("update", None);
+        self.set_error("update", None, cx);
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -1293,7 +1301,7 @@ impl DeviceSettingsView {
                 this.update_busy = false;
                 if let Err(err) = result {
                     log::warn!("[ui] devices.requestUpdate failed: {err}");
-                    this.set_error("update", Some(SharedString::from(format!("{err}"))));
+                    this.set_error("update", Some(SharedString::from(format!("{err}"))), cx);
                 }
                 cx.notify();
             });
@@ -1314,7 +1322,7 @@ impl DeviceSettingsView {
         let spec = AlertSpec::new(
             format!("Update \"{label}\" now?"),
             format!(
-                "Ends the {live_sessions} live session(s) on this machine (repo-backed runs can be \
+                "Ends the {live_sessions} live session(s) on this machine (repo-backed sessions can be \
                  resumed from their session page) and restarts it on the new version."
             ),
             "Update now",
@@ -1354,7 +1362,7 @@ impl DeviceSettingsView {
         };
         let device_id = self.device_id.clone();
         self.remove_busy = true;
-        self.set_error("remove", None);
+        self.set_error("remove", None, cx);
         cx.notify();
         cx.spawn(async move |this, cx| {
             let result = cx
@@ -1367,7 +1375,7 @@ impl DeviceSettingsView {
                     Ok(()) => this.removed = true,
                     Err(err) => {
                         log::warn!("[ui] devices.remove failed: {err}");
-                        this.set_error("remove", Some(SharedString::from(format!("{err}"))));
+                        this.set_error("remove", Some(SharedString::from(format!("{err}"))), cx);
                     }
                 }
                 cx.notify();
@@ -1378,16 +1386,7 @@ impl DeviceSettingsView {
 
     // -- render pieces ---------------------------------------------------------
 
-    fn error_line(&self, key: &str, cx: &App) -> Option<gpui::Div> {
-        self.section_errors.get(key).map(|message| {
-            div()
-                .text_xs()
-                .text_color(cx.theme().danger)
-                .child(message.clone())
-        })
-    }
-
-    /// The muted twin of [`Self::error_line`] for a command's success message.
+    /// A finished command's success message, muted, under its row.
     fn note_line(&self, key: &str, cx: &App) -> Option<gpui::Div> {
         self.section_notes.get(key).map(|message| {
             div()
@@ -1524,16 +1523,9 @@ impl DeviceSettingsView {
                     .child("Applies when the device comes online."),
             );
         }
+        // EXP-1259 D8: the inline status (spinner + "Saving").
         if self.busy_section == Some("defaults") {
-            body = body.child(
-                div()
-                    .text_xs()
-                    .text_color(cx.theme().muted_foreground)
-                    .child("Saving…"),
-            );
-        }
-        if let Some(error) = self.error_line("defaults", cx) {
-            body = body.child(error);
+            body = body.child(crate::feedback::inline_status(crate::feedback::WORD_SAVING, true, cx));
         }
         body
     }
@@ -1586,7 +1578,7 @@ impl DeviceSettingsView {
             .gap_1()
             .child(surface::glass_group_rows(rows))
             .child(div().text_xs().text_color(muted).child(
-                "Teammates of a shared team can start runs on this device.",
+                "Teammates of a shared team can start sessions on this device.",
             ))
     }
 }
@@ -1594,8 +1586,8 @@ impl DeviceSettingsView {
 /// FEED-36: the caption under a QUEUED update — the daemon's own rules for
 /// getting there (every session ends, or one sits idle for 2 hours). Web
 /// `QUEUED_UPDATE_TOOLTIP`, ×4.
-const QUEUED_UPDATE_TOOLTIP: &str = "Live runs hold this update — the device restarts itself \
-     once every run ends or sits idle for 2 hours.";
+const QUEUED_UPDATE_TOOLTIP: &str = "Live sessions hold this update — the device restarts itself \
+     once every session ends or sits idle for 2 hours.";
 
 impl DeviceSettingsView {
     /// EXP-909: the Update section — SERVER devices only (a desktop app
@@ -1668,7 +1660,7 @@ impl DeviceSettingsView {
                 surface::glass_pill_button("device-update-now", surface::PillSize::Sm, cx)
                     .danger()
                     .label("Update now…")
-                    .tooltip("End this device's live runs and restart it on the new version now.")
+                    .tooltip("End this device's live sessions and restart it on the new version now.")
                     .on_click(cx.listener(move |this, _, window, cx| {
                         this.prompt_update_now(confirm_label.clone(), live_sessions, window, cx);
                     })),
@@ -1719,7 +1711,7 @@ impl DeviceSettingsView {
                     .child(QUEUED_UPDATE_TOOLTIP),
             );
         }
-        body.children(self.error_line("update", cx))
+        body
     }
 
     /// EXP-1196: the readiness block for this dialog's machine — `None`
@@ -1814,7 +1806,7 @@ impl DeviceSettingsView {
         props.computer_use_tail = self.computer_use_model_row(cx);
         for agent in CodingAgent::ALL {
             let key = format!("update {}", agent.id());
-            if let Some(line) = self.error_line(&key, cx).or_else(|| self.note_line(&key, cx)) {
+            if let Some(line) = self.note_line(&key, cx) {
                 props.extras.insert(
                     agent.id().to_string(),
                     device_readiness::RowExtras {
@@ -1865,7 +1857,23 @@ impl DeviceSettingsView {
                         })),
                 ),
             )
-            .children(self.error_line("remove", cx))
+    }
+}
+
+/// FEED-79: what a failed section write was doing — the toast's
+/// `Couldn't <verb> <thing>`.
+fn section_failure(key: &str) -> (&'static str, String) {
+    match key {
+        "name" => ("rename", "the device".into()),
+        "icon" => ("save", "the icon".into()),
+        "sharing" | "default" => ("update", "the device".into()),
+        "defaults" => ("save", "the agent defaults".into()),
+        "update" => ("queue", "the update".into()),
+        "remove" => ("remove", "the device".into()),
+        key => match key.strip_prefix("update ").and_then(CodingAgent::parse) {
+            Some(agent) => ("update", agent.label().into()),
+            None => ("update", "the device".into()),
+        },
     }
 }
 
@@ -1962,10 +1970,7 @@ impl Render for DeviceSettingsView {
         // failed one reports under the group it belongs to.
         for section in ["name", "icon", "default", "sharing"] {
             if self.busy_section == Some(section) {
-                body = body.child(div().text_xs().text_color(muted).child("Saving…"));
-            }
-            if let Some(error) = self.error_line(section, cx) {
-                body = body.child(error);
+                body = body.child(crate::feedback::inline_status(crate::feedback::WORD_SAVING, true, cx));
             }
         }
 

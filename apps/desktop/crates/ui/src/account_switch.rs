@@ -61,9 +61,9 @@ pub(crate) const WALL_SWITCH_LABEL: &str = "Switch account";
 /// it ONTO the control, as the second line of the offer's own tooltip. (The web
 /// copy-lock test reads this file for the literal; it stays byte-identical.)
 pub(crate) const COST_NOTE: &str =
-    "The run continues under the other account. Re-reading the transcript once costs tokens.";
+    "The session continues under the other account. Re-reading the transcript once costs tokens.";
 
-const REASON_AGENT: &str = "Only claude can switch accounts during a run.";
+const REASON_AGENT: &str = "Only claude can switch accounts during a session.";
 const REASON_OFFLINE: &str = "The machine is offline.";
 const REASON_NO_CAP: &str = "Update the app on that machine to switch accounts.";
 pub(crate) const REASON_BUSY: &str = "The agent is working — switching waits for the turn to finish.";
@@ -472,7 +472,15 @@ pub(crate) fn switch_to(
 ) {
     if !local {
         let Some(device_id) = device_id.filter(|id| !id.is_empty()) else {
-            crate::toast::error("This run's machine is unknown — it cannot be resumed.", window, cx);
+            crate::toast::show(
+                crate::action_error::failed_toast(
+                    "switch",
+                    "the account",
+                    Some("This session's machine is unknown.".into()),
+                ),
+                window,
+                cx,
+            );
             return;
         };
         crate::session_screen::resume_remote_on_account(
@@ -497,9 +505,14 @@ pub(crate) fn switch_to(
         coding::LaunchOrigin::Local,
         None,
         crate::steer_wiring::StartReport::none(),
+        false,
         cx,
     ) {
-        crate::toast::error(REASON_BUSY, window, cx);
+        crate::toast::show(
+            crate::action_error::failed_toast("switch", "the account", Some(REASON_BUSY.into())),
+            window,
+            cx,
+        );
         return;
     }
     if let Some(agent) = agent {
@@ -540,8 +553,19 @@ pub(crate) fn end_then_resume_on_account(
     origin: coding::LaunchOrigin,
     prompt: Option<String>,
     report: crate::steer_wiring::StartReport,
+    rotation: bool,
     cx: &mut App,
 ) -> bool {
+    // EXP-1271: a person's switch from the run's own window (`target`) opens
+    // the continuation there; a relay frame or a rotation hop stays in
+    // Running. Review #9: a rotation hop (`rotation`) never toasts.
+    let landing = if target.is_some() {
+        crate::coding_flow::RunLanding::ThisWindow
+    } else if rotation {
+        crate::coding_flow::RunLanding::Rotation
+    } else {
+        crate::coding_flow::RunLanding::Background
+    };
     let live = crate::coding_flow::LocalSessions::global(cx)
         .read(cx)
         .session_for_id(&session_id)
@@ -550,7 +574,7 @@ pub(crate) fn end_then_resume_on_account(
         crate::action_run::resume_run_reporting(
             session_id,
             target,
-            false,
+            landing,
             origin,
             Some(profile_id),
             prompt,
@@ -587,7 +611,7 @@ pub(crate) fn end_then_resume_on_account(
                     crate::action_run::resume_run_reporting(
                         session_id.clone(),
                         target,
-                        false,
+                        landing,
                         origin,
                         Some(profile_id.clone()),
                         prompt.clone(),
@@ -600,7 +624,7 @@ pub(crate) fn end_then_resume_on_account(
         }
         let _ = cx.update(|cx| {
             coding::unmark_resuming(&session_id);
-            let message = "The run did not stop in time — switch accounts again once it has.";
+            let message = "The session did not stop in time. Switch accounts again once it has.";
             crate::action_run::notify_target_error(target, message, cx);
             report.fail(message, cx);
         });
@@ -689,7 +713,7 @@ mod tests {
             .iter()
             .filter(|target| !target.current)
             .all(|target| target.blocked.as_deref()
-                == Some("Only claude can switch accounts during a run.")));
+                == Some("Only claude can switch accounts during a session.")));
 
         // An offline host, and a host whose build cannot take the switch: the
         // run's own facts outrank the accounts' (the ×4 order).
@@ -867,7 +891,7 @@ mod tests {
         assert_eq!(WALL_SWITCH_LABEL, "Switch account");
         assert_eq!(
             COST_NOTE,
-            "The run continues under the other account. Re-reading the transcript once costs tokens."
+            "The session continues under the other account. Re-reading the transcript once costs tokens."
         );
     }
 

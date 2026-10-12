@@ -12,7 +12,7 @@ struct CoveredIssuesSheet: View {
     let onOpenIssue: (String) -> Void
 
     /// The Work screen's title, byte-identical with Android.
-    static let runTitle = "Issues in this run"
+    static let runTitle = "Issues in this session"
     /// The Reviews row's title.
     static let pullRequestTitle = "In this pull request"
 

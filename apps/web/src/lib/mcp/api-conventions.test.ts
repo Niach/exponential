@@ -184,6 +184,9 @@ describe(`identifier acceptance (EXP-707 theme A)`, () => {
     [`exponential_repositories_branch_diff`, `issueId`],
     [`exponential_sessions_start`, `issueId`],
     [`exponential_attachments_upload`, `issueId`],
+    // EXP-1284
+    [`exponential_threads_link`, `issueId`],
+    [`exponential_threads_unlink`, `issueId`],
   ]
   it.each(issueParams)(`%s accepts an identifier for %s`, (tool, param) => {
     expect(paramSchema(tool, param).safeParse(`ABC-12`).success).toBe(true)

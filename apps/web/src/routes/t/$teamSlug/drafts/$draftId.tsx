@@ -1,5 +1,5 @@
 import { createFileRoute, Navigate, redirect } from "@tanstack/react-router"
-import { useIsMobile } from "@exp/ui"
+import { SkeletonRows, useIsMobile } from "@exp/ui"
 import { IssueDraftPage } from "@/components/issue-draft-page"
 import { resolveBoardTarget } from "@/components/team/mobile-tab-bar"
 import {
@@ -64,8 +64,11 @@ function IssueDraftRoute() {
     !membersReady ||
     !sessionReady
   ) {
+    // D8 first load: the detail page's placeholder (3 list rows).
     return (
-      <div className="p-6 text-sm text-muted-foreground">Loading…</div>
+      <div className="p-6">
+        <SkeletonRows />
+      </div>
     )
   }
 
@@ -106,6 +109,7 @@ function IssueDraftRoute() {
       initialBoardId={initialBoard.id}
       initialStatusId={search.status}
       from={search.from}
+      threadId={search.thread}
     />
   )
 }

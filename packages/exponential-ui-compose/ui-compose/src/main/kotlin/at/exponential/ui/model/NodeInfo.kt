@@ -77,7 +77,7 @@ class NodeInfo(n: FfiNode) {
 
     /** A one-line field inside a control (round 1): its text is the part's `text` prop, not the owner's `value`. */
     val isInlineField: Boolean
-        get() = (component == "NumberField" && part == "input") || (component == "ChipInput" && part == "input") || (component == "Select" && part == "search")
+        get() = (component == "NumberField" && part == "input") || (component == "ChipInput" && part == "input") || (component == "Select" && part == "search") || (component == "SearchList" && part == "search")
 
     /** A `Menu` opened by a long press / right click (`openOn: contextmenu`, the old ContextMenu): its ONE child is the target region. */
     val isContextMenu: Boolean

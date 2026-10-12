@@ -89,9 +89,6 @@ actions!(
         NextTerminalTab,
         /// Switch to the previous terminal tab.
         PrevTerminalTab,
-        /// A new plain shell tab from ANYWHERE in the window — the rail
-        /// footer's terminal button as a chord (`cmd-t` / `ctrl-t`).
-        NewTerminal,
     ]
 );
 
@@ -191,19 +188,17 @@ pub(crate) fn init(cx: &mut App) {
         KeyBinding::new("ctrl-tab", NextTerminalTab, Some(KEY_CONTEXT)),
         KeyBinding::new("ctrl-shift-tab", PrevTerminalTab, Some(KEY_CONTEXT)),
     ]);
-    // The new-terminal chord works from every screen, not only from inside a
-    // terminal (it used to be bound to the terminal's key context alone, so
-    // pressing it anywhere else did nothing). Off macOS it is `ctrl-t`
-    // OUTSIDE a terminal only — the terminal element's own `Terminal` context,
-    // so docked AND undocked grids keep `ctrl-t` for the shell (transpose,
-    // fzf); `ctrl-shift-t` above opens the tab from inside one.
-    cx.on_action(|_: &NewTerminal, cx| {
-        crate::navigation::on_active_window(cx, |window, cx| open_new_shell(window, cx));
+    // EXP-1255: outside a terminal the chord opens a NEW RUN tab (the top
+    // strip's "+"); inside one it stays the terminal's own new tab above.
+    cx.on_action(|_: &crate::screens::NewRunTab, cx| {
+        crate::navigation::on_active_window(cx, |window, cx| {
+            crate::screens::open_new_run_tab(window, cx)
+        });
     });
     #[cfg(target_os = "macos")]
-    cx.bind_keys([KeyBinding::new("cmd-t", NewTerminal, None)]);
+    cx.bind_keys([KeyBinding::new("cmd-t", crate::screens::NewRunTab, None)]);
     #[cfg(not(target_os = "macos"))]
-    cx.bind_keys([KeyBinding::new("ctrl-t", NewTerminal, Some("!Terminal"))]);
+    cx.bind_keys([KeyBinding::new("ctrl-t", crate::screens::NewRunTab, Some("!Terminal"))]);
 }
 
 /// The per-window session bar: owner of that window's [`TerminalManager`]
@@ -646,16 +641,28 @@ impl SessionBar {
         options: coding::LaunchOptions,
         repo: Option<(String, String)>,
         prompt: Option<String>,
+        // EXP-1284: `LocalThread` when the composer starts into a thread.
+        origin: coding::LaunchOrigin,
+        on_settled: Option<crate::action_run::ActionSettledHook>,
+        handoff: Option<crate::coding_flow::StartHandoff>,
         window: &mut Window,
         cx: &mut gpui::Context<Self>,
     ) {
+        // EXP-1271: the composer's starting state ends on every outcome.
+        let refuse = |on_settled: Option<crate::action_run::ActionSettledHook>, cx: &mut App| {
+            if let Some(hook) = on_settled {
+                hook(cx, false);
+            }
+        };
         if crate::coding_flow::build_action_deps(cx).is_none() {
             log::warn!("session bar: chat launch ignored — not signed in");
+            refuse(on_settled, cx);
             return;
         }
         let nav = navigation::nav_for_window(window, cx);
         let Some(team_id) = navigation::active_team_id(&nav, cx) else {
             log::warn!("session bar: chat launch ignored — no active team");
+            refuse(on_settled, cx);
             return;
         };
         let action = api::actions::builtin_chat_action(&team_id);
@@ -676,14 +683,14 @@ impl SessionBar {
                 team_id,
                 repo: crate::action_run::ActionRepo::Resolve,
                 options,
-                origin: coding::LaunchOrigin::Local,
+                origin,
                 inputs,
                 target: Some(window.window_handle()),
-                activate_app: false,
+                landing: crate::coding_flow::RunLanding::Composer(handoff),
                 reservation: None,
                 trigger: None,
                 trigger_id: None,
-                on_settled: None,
+                on_settled,
                 prompt,
                 report: crate::steer_wiring::StartReport::none(),
             },
@@ -738,12 +745,20 @@ impl SessionBar {
                 let launch = match prepared {
                     Ok(coding::PreparedAgentShell::Ready(launch)) => launch,
                     Ok(coding::PreparedAgentShell::Disabled(reason)) => {
-                        crate::toast::error(reason.message(), window, cx);
+                        crate::toast::show(
+                            crate::action_error::failed_toast("open", "the agent shell", Some(reason.message().to_string())),
+                            window,
+                            cx,
+                        );
                         return;
                     }
                     Err(err) => {
                         log::warn!("session bar: agent shell prepare failed: {err}");
-                        crate::toast::error(err.to_string(), window, cx);
+                        crate::toast::show(
+                            crate::action_error::failed_toast("open", "the agent shell", Some(err.to_string())),
+                            window,
+                            cx,
+                        );
                         return;
                     }
                 };
@@ -764,7 +779,11 @@ impl SessionBar {
                     }
                     Err(error) => {
                         log::warn!("session bar: agent shell spawn failed: {error:#}");
-                        crate::toast::error(error.to_string(), window, cx);
+                        crate::toast::show(
+                            crate::action_error::failed_toast("open", "the agent shell", Some(error.to_string())),
+                            window,
+                            cx,
+                        );
                     }
                 }
             });
@@ -1005,7 +1024,7 @@ pub(crate) fn prompt_kill_session(
     window: &mut Window,
     cx: &mut App,
 ) {
-    let spec = AlertSpec::from_prompt("Stop run", &domain::prompts::stop_run()).on_ok(
+    let spec = AlertSpec::from_prompt("Stop session", &domain::prompts::stop_run()).on_ok(
         move |_, cx| {
             match &local {
                 Some(host) => host.stop(cx),

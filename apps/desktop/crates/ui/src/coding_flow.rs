@@ -1021,8 +1021,9 @@ pub fn any_terminal_dock(cx: &mut App) -> Option<gpui::AnyWindowHandle> {
 /// [`AuthContext`] is authoritative; the default only covers the pre-session
 /// window.
 /// EXP-1232: fetch the managed Codex build off the UI thread (at most one
-/// per process), then re-run the doctor so its row moves on. A failure
-/// shows as a toast and as the row's `Download failed` · Update.
+/// per process), then re-run the doctor so its row moves on. Automatic
+/// work, so a failure is quiet (FEED-79): the row's `Download failed` ·
+/// Update says it.
 pub fn start_codex_fetch(hub: &Entity<CodingHub>, data_dir: PathBuf, cx: &mut App) {
     let hub = hub.clone();
     cx.spawn(async move |cx| {
@@ -1035,7 +1036,7 @@ pub fn start_codex_fetch(hub: &Entity<CodingHub>, data_dir: PathBuf, cx: &mut Ap
         };
         let _ = cx.update(|cx| {
             if let Err(message) = result {
-                crate::toast::show_in_active_window(crate::toast::Toast::error(message), cx);
+                log::warn!("[coding] managed Codex download failed: {message}");
             }
             CodingHub::refresh_doctor(&hub, cx);
         });
@@ -1266,7 +1267,7 @@ pub fn resume_blocker_for(
             .is_some_and(|session| session.session_id != record.session_id)
         {
             return Some(format!(
-                "Already coding {identifier}. Stop that run first."
+                "Already coding {identifier}. Stop that session first."
             ));
         }
         let except = continuation.then_some(record.session_id.as_str());
@@ -1274,7 +1275,7 @@ pub fn resume_blocker_for(
             queries::live_session_device_for_issue_except(cx, issue_id, now, except)
         {
             return Some(format!(
-                "{identifier} already has a live run on {device} (one run per issue)."
+                "{identifier} already has a live session on {device} (one session per issue)."
             ));
         }
     }
@@ -1298,8 +1299,10 @@ impl engine::EngineHost for DesktopEngineHost {
     }
 }
 
-/// Start a prepared launch on the in-process ACP engine and open its session
-/// screen — unless an agent started it ([`should_open_session`], EXP-1088).
+/// Start a prepared launch on the in-process ACP engine and land it per
+/// `landing` ([`should_open_session`], EXP-1271): a start made in THIS
+/// window opens its session screen, every other one stays in the rail's
+/// Running section and raises the remote-start toast.
 ///
 /// The ORDER below is the whole function: every step is an invariant some
 /// earlier bug bought.
@@ -1320,6 +1323,7 @@ impl engine::EngineHost for DesktopEngineHost {
 pub fn spawn_into_window(
     mut prepared: coding::PreparedLaunch,
     subject: SessionSubject,
+    landing: RunLanding,
     window: &mut Window,
     cx: &mut App,
 ) -> Result<(), String> {
@@ -1337,8 +1341,17 @@ pub fn spawn_into_window(
     let agent = prepared.agent;
     let action_id = prepared.action_id.clone();
     let started_reason = prepared.heartbeat_scope.started_reason.clone();
-    let started_reason_for_nav = started_reason.clone();
     let started_by_id = prepared.heartbeat_scope.started_by_id.clone();
+    // EXP-1284: the thread the start placed the run in (`codingSessions.start`
+    // answers it) — where a composer's start lands.
+    let thread_id = prepared.heartbeat_scope.thread_id.clone();
+    // EXP-1271: what the remote-start toast names (the run's subject).
+    let announce = RemoteStartNotice {
+        session_id: session_id.clone(),
+        started_reason: started_reason.clone(),
+        started_by_id: started_by_id.clone(),
+        subject: remote_start_subject(prepared.action_id.as_deref(), &prepared.tab_title_prefix),
+    };
     let run_cleanup = prepared.run_cleanup.clone();
     // EXP-792: the team MCP servers this run starts WITHOUT, shown once the
     // engine is up (a launch that fails shows its own error instead).
@@ -1461,8 +1474,14 @@ pub fn spawn_into_window(
     );
     // EXP-478: only now (see the PTY arm).
     drop(launch_hold);
-    if should_open_session(started_reason_for_nav.as_deref()) {
-        crate::session_screen::open_session(&session_id, window, cx);
+    if should_open_session(landing) {
+        let handoff = match landing {
+            RunLanding::Composer(handoff) => handoff,
+            _ => None,
+        };
+        open_landed_session(&session_id, thread_id, handoff, window, cx);
+    } else {
+        announce_remote_start(announce, landing == RunLanding::Rotation, window, cx);
     }
     // EXP-792: a picked server the run starts without is not a silent
     // degradation: ONE toast names every skipped server (the launcher's
@@ -1473,21 +1492,284 @@ pub fn spawn_into_window(
     Ok(())
 }
 
-/// EXP-1088: whether a freshly spawned run takes the window over. A run
-/// another coding session started (`agent`, MCP `sessions_start`) must NOT
-/// navigate: the person
-/// may be mid-edit elsewhere, and the run already appears in the sidebar via
-/// its synced row, nested under its parent. Everything a person asked for
-/// (the composer, a phone/web relay start, a chat, a trigger) still
-/// opens.
+/// EXP-1271 — where a freshly spawned run LANDS.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum RunLanding {
+    /// A person started it in THIS window's composer (page, dialog or a New
+    /// run tab). It opens, in place of the New session tab whose start
+    /// handed its slot off ([`hand_off_new_run_tab`]; review #1: keyed by
+    /// THAT start, so two starts in flight each land in their own tab).
+    Composer(Option<StartHandoff>),
+    /// A person started it IN this window from the run itself: its Resume or
+    /// account switch. It opens as an ordinary open.
+    ThisWindow,
+    /// Everything else: a relay start (my own from another device, a
+    /// teammate's on a shared device, an agent's `sessions_start`), a remote
+    /// resume, a trigger. It never takes the window: it shows in the rail's
+    /// Running section with the starting spinner. Review #9: only a PERSON's
+    /// start raises the remote-start toast (`feedback-states.json`
+    /// `remoteStart.toastWhen`), whose Open opens it; a trigger's or an
+    /// agent's (`started_reason`) stays quiet.
+    Background,
+    /// An account-rotation resume (EXP-1005) hosted here: [`Self::Background`]
+    /// that never toasts (review #9).
+    Rotation,
+}
+
+/// EXP-1088/EXP-1271: whether a freshly spawned run takes the window over —
+/// ONLY a start made in this window. The person may be mid-edit anywhere
+/// else, and a background run is one click away in Running (or the toast).
+pub(crate) fn should_open_session(landing: RunLanding) -> bool {
+    matches!(landing, RunLanding::Composer(_) | RunLanding::ThisWindow)
+}
+
+/// EXP-1255 / review #1 — ONE start's claim on the New session tab that
+/// started it: minted per start ([`hand_off_new_run_tab`]) and carried by
+/// that start to its own landing, so two starts in flight from two New
+/// session tabs each land in their own tab.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct StartHandoff(u64);
+
+/// The open handoffs: per start, the window and the New session tab id.
+#[derive(Default)]
+struct NewRunHandoffs {
+    next: u64,
+    tabs: HashMap<StartHandoff, (gpui::WindowId, String)>,
+}
+
+impl gpui::Global for NewRunHandoffs {}
+
+/// The composer in New session tab `new_run_id` is starting a run in
+/// `window`: the run that start lands lands in that tab.
+pub(crate) fn hand_off_new_run_tab(window: &Window, new_run_id: String, cx: &mut App) -> StartHandoff {
+    // A start whose window closed before it settled (a local prepare's
+    // answer has nowhere to go) never takes its claim back: drop those.
+    let open: HashSet<gpui::WindowId> = cx.windows().iter().map(|handle| handle.window_id()).collect();
+    let handoffs = cx.default_global::<NewRunHandoffs>();
+    handoffs.tabs.retain(|_, (owner, _)| open.contains(owner));
+    handoffs.next += 1;
+    let handoff = StartHandoff(handoffs.next);
+    handoffs
+        .tabs
+        .insert(handoff, (window.window_handle().window_id(), new_run_id));
+    handoff
+}
+
+/// Whether `handoff` still holds its tab (not landed, not taken back).
+pub(crate) fn handoff_open(handoff: StartHandoff, cx: &App) -> bool {
+    cx.try_global::<NewRunHandoffs>()
+        .is_some_and(|handoffs| handoffs.tabs.contains_key(&handoff))
+}
+
+/// The start `handoff` belongs to never landed (it failed or was given up
+/// on): the tab keeps its slot.
+pub(crate) fn take_back_new_run_tab(handoff: StartHandoff, cx: &mut App) {
+    if let Some(handoffs) = cx.try_global::<NewRunHandoffs>() {
+        if handoffs.tabs.contains_key(&handoff) {
+            cx.global_mut::<NewRunHandoffs>().tabs.remove(&handoff);
+        }
+    }
+}
+
+/// Open a run that landed in `window`: a composer's start in place of the
+/// New session tab ITS start handed off ([`hand_off_new_run_tab`]), else as
+/// an ordinary open (a Resume never takes a New session tab).
 ///
-/// A person's LOCAL Resume never trips this even on an agent-started run:
-/// the launcher recomputes the reason from `LaunchOrigin::Local` (always
-/// `None`), and EXP-906's reason inheritance happens server-side, never in
-/// `prepared.heartbeat_scope`. Only a relay frame (`agent`) can put that
-/// reason here.
-pub(crate) fn should_open_session(started_reason: Option<&str>) -> bool {
-    started_reason != Some("agent")
+/// EXP-1284: a session lands in its THREAD. `thread_id` is the placement the
+/// start answered (else the synced `thread_items` row, else — a resume
+/// before its own item syncs — its predecessor's): the handed-off New
+/// session tab becomes the THREAD's tab (keyed by the start's handoff, never
+/// per window; an already open thread tab goes active and the New session
+/// tab closes, `screens::sync_tabs`' review-#12 rule), and a session started
+/// or resumed FROM the thread on show (its reply) stays there — the thread
+/// draws it as its next block.
+pub(crate) fn open_landed_session(
+    session_id: &str,
+    thread_id: Option<String>,
+    handoff: Option<StartHandoff>,
+    window: &mut Window,
+    cx: &mut App,
+) {
+    let thread_id = thread_id
+        .or_else(|| crate::threads::thread_of_session(session_id, cx))
+        .or_else(|| {
+            let store = Store::try_global(cx)?;
+            let resumed_from = store
+                .collections()
+                .coding_sessions
+                .read(cx)
+                .get(session_id)?
+                .resumed_from_id
+                .clone()?;
+            crate::threads::thread_of_session(&resumed_from, cx)
+        });
+    let window_id = window.window_handle().window_id();
+    let new_run = handoff
+        .filter(|handoff| handoff_open(*handoff, cx))
+        .and_then(|handoff| cx.global_mut::<NewRunHandoffs>().tabs.remove(&handoff))
+        .filter(|(owner, _)| *owner == window_id)
+        .map(|(_, id)| id);
+    let nav = crate::navigation::nav_for_window(window, cx);
+    let shown = crate::navigation::resolved_screen(&nav, cx);
+    match landing_plan(session_id, thread_id, new_run, shown.as_ref()) {
+        LandingPlan::Stay => {}
+        LandingPlan::ReplaceTab { target, new_run } => crate::navigation::navigate_replacing_tab(
+            window,
+            cx,
+            target,
+            crate::navigation::Screen::NewRun { id: new_run },
+        ),
+        LandingPlan::Open => crate::session_screen::open_session(session_id, window, cx),
+    }
+}
+
+/// EXP-1284 — where a landed session goes ([`open_landed_session`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum LandingPlan {
+    /// The window shows the session's thread: it draws the session itself.
+    Stay,
+    /// The handed-off New session tab `new_run` becomes `target`'s tab (the
+    /// thread's, else the session's own).
+    ReplaceTab {
+        target: crate::navigation::Screen,
+        new_run: String,
+    },
+    /// An ordinary open of the session.
+    Open,
+}
+
+/// [`open_landed_session`]'s rule, pure: a start that handed off its New
+/// session tab lands IN that tab — as the session's THREAD when the
+/// placement is known, else as the session; without a handoff a session of
+/// the thread on show stays in the thread, anything else opens.
+pub(crate) fn landing_plan(
+    session_id: &str,
+    thread_id: Option<String>,
+    new_run: Option<String>,
+    shown: Option<&crate::navigation::Screen>,
+) -> LandingPlan {
+    use crate::navigation::Screen;
+    match (new_run, thread_id) {
+        (Some(new_run), Some(thread_id)) => LandingPlan::ReplaceTab {
+            target: Screen::Thread { thread_id },
+            new_run,
+        },
+        (Some(new_run), None) => LandingPlan::ReplaceTab {
+            target: Screen::Session {
+                session_id: session_id.to_string(),
+            },
+            new_run,
+        },
+        (None, Some(thread_id))
+            if matches!(shown, Some(Screen::Thread { thread_id: on_show }) if *on_show == thread_id) =>
+        {
+            LandingPlan::Stay
+        }
+        (None, _) => LandingPlan::Open,
+    }
+}
+
+/// EXP-1271 — what a background start's toast says.
+struct RemoteStartNotice {
+    session_id: String,
+    started_reason: Option<String>,
+    started_by_id: Option<String>,
+    subject: String,
+}
+
+/// The toast's description: the chat builtin reads "Chat", anything else
+/// the launch's own subject prefix (`EXP-42`, `EXP-42 +2`, the action's
+/// name).
+fn remote_start_subject(action_id: Option<&str>, tab_title_prefix: &str) -> String {
+    if action_id == Some(api::actions::BUILTIN_CHAT_ID) {
+        return crate::feedback::REMOTE_START_CHAT.to_string();
+    }
+    tab_title_prefix.to_string()
+}
+
+/// Who the toast says started the run: an agent (`sessions_start`), the
+/// requesting teammate (a shared device), else this device's owner — the
+/// first name off the synced `users` row, the account's name before it
+/// lands.
+fn remote_starter_name(started_reason: Option<&str>, started_by_id: Option<&str>, cx: &App) -> String {
+    if started_reason == Some("agent") {
+        return crate::feedback::REMOTE_START_AGENT.to_string();
+    }
+    let users = Store::try_global(cx).map(|store| store.collections().users.clone());
+    let user_name = |user_id: &str| {
+        users
+            .as_ref()
+            .and_then(|users| users.read(cx).get(user_id).cloned())
+            .and_then(|user| user.name.filter(|name| !name.trim().is_empty()).or(user.email))
+    };
+    let name = match started_by_id {
+        Some(user_id) => user_name(user_id),
+        None => queries::active_account(cx).and_then(|account| {
+            user_name(&account.user_id).or(account.name.filter(|name| !name.trim().is_empty()))
+        }),
+    };
+    match name {
+        Some(name) => {
+            let first = crate::home_greeting::greeting_first_name(Some(&name));
+            if first.is_empty() { name } else { first.to_string() }
+        }
+        None => crate::feedback::REMOTE_START_AGENT.to_string(),
+    }
+}
+
+/// The background start's row's starting spinner in Running
+/// ([`run_starting`]), and — only for a person's start (review #9,
+/// [`crate::feedback::remote_start_toasts`]) — the 4 s info toast with Open.
+fn announce_remote_start(notice: RemoteStartNotice, rotation: bool, window: &mut Window, cx: &mut App) {
+    cx.default_global::<StartingRuns>()
+        .0
+        .insert(notice.session_id.clone(), std::time::Instant::now());
+    if !crate::feedback::remote_start_toasts(notice.started_reason.as_deref(), rotation) {
+        return;
+    }
+    let name = remote_starter_name(
+        notice.started_reason.as_deref(),
+        notice.started_by_id.as_deref(),
+        cx,
+    );
+    let session_id = notice.session_id;
+    let mut toast = crate::toast::Toast::info(crate::feedback::remote_start_title(&name)).action(
+        crate::feedback::REMOTE_START_OPEN,
+        move |window, cx| crate::session_screen::open_session(&session_id, window, cx),
+    );
+    if !notice.subject.is_empty() {
+        toast = toast.description(notice.subject);
+    }
+    crate::toast::show(toast, window, cx);
+}
+
+/// EXP-1271 — the background starts still before their first turn, so the
+/// rail's Running row spins ([`run_starting`]).
+#[derive(Default)]
+struct StartingRuns(HashMap<String, std::time::Instant>);
+
+impl gpui::Global for StartingRuns {}
+
+/// How long a background start may show the starting spinner at most (its
+/// first turn normally ends it within seconds).
+const STARTING_SPINNER_CAP: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Whether `session_id` is a background start still waiting for its first
+/// turn. `busy` = the run's agent is working: the start is over, and so is
+/// its entry (a run that later idles never spins again), like one past
+/// [`STARTING_SPINNER_CAP`].
+pub(crate) fn run_starting(session_id: &str, busy: bool, cx: &mut App) -> bool {
+    let Some(since) = cx
+        .try_global::<StartingRuns>()
+        .and_then(|runs| runs.0.get(session_id).copied())
+    else {
+        return false;
+    };
+    if busy || since.elapsed() >= STARTING_SPINNER_CAP {
+        cx.global_mut::<StartingRuns>().0.remove(session_id);
+        return false;
+    }
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -1544,6 +1826,70 @@ impl RemoteRunSubject {
     }
 }
 
+/// EXP-1259 (start surfaces): ONE press of a remote start. The press stamps
+/// a fresh `startId` (unless the input already names one, the composer's
+/// draft id); every send of the intent, its Retries included, carries that
+/// same id, so the server (`forwardStartOnce`) and the device drop a repeat
+/// instead of starting twice. A new press is a new intent and a new id.
+#[derive(Clone, Debug)]
+pub(crate) struct RemoteStartIntent {
+    input: api::steer::StartSessionInput,
+}
+
+impl RemoteStartIntent {
+    /// A press: the input with its startId (a fresh one when it has none).
+    pub(crate) fn press(mut input: api::steer::StartSessionInput) -> Self {
+        if input.start_id.as_deref().is_none_or(|id| id.trim().is_empty()) {
+            input.start_id = Some(api::steer::new_start_id());
+        }
+        Self { input }
+    }
+
+    /// The request every send of this intent posts (the same startId).
+    pub(crate) fn input(&self) -> &api::steer::StartSessionInput {
+        &self.input
+    }
+
+    pub(crate) fn start_id(&self) -> &str {
+        self.input.start_id.as_deref().unwrap_or_default()
+    }
+}
+
+/// Recheck R3 (feedback-states.json `starting.maybeDelivered`): whether a
+/// FAILED `steer.startSession` may still have put the frame on the device.
+/// Unknown fate = no answer (a transport error, the client's own timeout,
+/// both [`api::ApiError::Transport`]), a 2xx we could not read, a 5xx with
+/// no error body (a proxy's page), or the server's relay timeout (REV-34:
+/// HTTP 504 `GATEWAY_TIMEOUT`, "Steer relay error (504)"): toast + Retry AND
+/// the quiet follow for [`REMOTE_LATE_WAIT`]. Any other answer with an error
+/// (a 4xx, a 5xx with another error body) is definite: toast + Retry, no
+/// follower. One rule ×4 (web `startMaybeDelivered`, iOS/Android
+/// `StartDelivery`).
+pub(crate) fn may_have_reached_device(err: &api::ApiError) -> bool {
+    match err {
+        api::ApiError::Transport { .. } | api::ApiError::Decode(_) => true,
+        api::ApiError::Http { status, message } => {
+            *status >= 500 && (is_relay_timeout(*status, message) || !has_error_body(message))
+        }
+        _ => false,
+    }
+}
+
+/// The server's relay timeout: tRPC `GATEWAY_TIMEOUT` (HTTP 504) with the
+/// relay's 504 in its message, or the relay's own `relay_timeout` reason.
+fn is_relay_timeout(status: u16, message: &str) -> bool {
+    (status == 504 && message.contains("Steer relay error (504)")) || message.contains("relay_timeout")
+}
+
+/// Whether an [`api::ApiError::Http`] message came from an error BODY: the
+/// api client extracts the server's message from its JSON envelope and
+/// falls back to the raw body, so an empty or HTML (a proxy's page) message
+/// means the server itself never answered.
+fn has_error_body(message: &str) -> bool {
+    let message = message.trim();
+    !message.is_empty() && !message.starts_with('<')
+}
+
 /// EXP-818: follow a remote start INTO the run, exactly as a local start lands
 /// in its session screen.
 ///
@@ -1554,12 +1900,28 @@ impl RemoteRunSubject {
 /// be on the same machine can never be mistaken for this one; the newest
 /// matching row wins, and nothing happens at all if none arrives within
 /// [`REMOTE_OPEN_WAIT`] (the toast already told the user where the run went).
+/// EXP-1259: `start_id` = the start's [`RemoteStartIntent`] id; a Retry of
+/// a start already followed spawns no second follower. Recheck R3: `late`
+/// = a FAILED start whose fate is unknown ([`may_have_reached_device`]),
+/// followed quietly for [`REMOTE_LATE_WAIT`] (`starting.watchMs`) instead.
 pub(crate) fn follow_remote_start(
     device_id: String,
     subject: RemoteRunSubject,
+    start_id: Option<String>,
+    late: bool,
     window: &Window,
     cx: &mut App,
 ) {
+    if let Some(start_id) = &start_id {
+        if !cx.default_global::<FollowedStarts>().0.insert(start_id.clone()) {
+            return;
+        }
+    }
+    let unfollow = move |cx: &mut App| {
+        if let Some(start_id) = &start_id {
+            cx.default_global::<FollowedStarts>().0.remove(start_id);
+        }
+    };
     let known: HashSet<String> = session_ids(cx);
     // EXP-1075: the run lands on the team the launch was made from. The
     // predicate is TOLERANT — a row whose `team_id` has not decoded is never
@@ -1571,26 +1933,137 @@ pub(crate) fn follow_remote_start(
     // wait is pinned to the window that opened it.
     let handle = crate::navigation::deferred_open_window(window, cx);
     cx.spawn(async move |cx| {
-        let deadline = std::time::Instant::now() + REMOTE_OPEN_WAIT;
+        let wait = if late { REMOTE_LATE_WAIT } else { REMOTE_OPEN_WAIT };
+        let deadline = std::time::Instant::now() + wait;
         loop {
             cx.background_executor().timer(REMOTE_OPEN_TICK).await;
             if let Some(session_id) =
                 cx.update(|cx| fresh_remote_run(&known, &device_id, &subject, team.as_deref(), cx))
             {
+                let _ = cx.update(|cx| unfollow(cx));
                 // The window may have closed while we waited; there is nothing
                 // else to do with the run then (its tab opens on the next
                 // visit to the Agent page).
                 let _ = handle.update(cx, |_, window, cx| {
-                    crate::session_screen::open_session(&session_id, window, cx);
+                    open_landed_session(&session_id, None, None, window, cx);
                 });
                 return;
             }
             if std::time::Instant::now() >= deadline {
+                let _ = cx.update(|cx| unfollow(cx));
                 return;
             }
         }
     })
     .detach();
+}
+
+/// How long a COMPOSER's remote start keeps watching for its row after the
+/// composer's own 30 s deadline gave up on it (feedback-states.json
+/// `starting.watchMs`: a late landing still lands and clears the error) —
+/// the same window the server and the device dedupe a startId in.
+pub(crate) const REMOTE_LATE_WAIT: std::time::Duration = std::time::Duration::from_secs(30 * 60);
+
+/// The remote starts being followed right now, by `startId` — a Retry
+/// (same startId) never spawns a second follower.
+#[derive(Default)]
+struct FollowedStarts(HashSet<String>);
+
+impl gpui::Global for FollowedStarts {}
+
+/// Review #3 — what a COMPOSER's remote start hands its follower: the start
+/// (its `startId`), the New session tab it lands in, and what to tell the
+/// composer once the row landed (`landed`, with the run's id), which answers
+/// whether the run opens: a LATE landing whose draft the person changed
+/// opens nothing (D11; it shows in Running).
+pub(crate) struct ComposerStartWatch {
+    pub(crate) start_id: String,
+    pub(crate) handoff: Option<StartHandoff>,
+    /// EXP-1284: the thread the start asked to join (a thread's composer);
+    /// `None` = wait briefly for the session's own `thread_items` row.
+    pub(crate) thread_id: Option<String>,
+    pub(crate) landed: Box<dyn FnOnce(String, &mut Window, &mut App) -> bool>,
+}
+
+/// EXP-1284 — how long a landed remote start waits for its session's
+/// `thread_items` row (a separate shape) before it opens as the session:
+/// every start lands on its THREAD when the placement shows up in time.
+const THREAD_ITEM_WAIT: std::time::Duration = std::time::Duration::from_secs(6);
+
+/// [`follow_remote_start`] for the composer's own start (review #3): it
+/// follows until the row lands — past the composer's 30 s deadline, up to
+/// [`REMOTE_LATE_WAIT`] — and, when the composer says so, lands it in the
+/// start's own New session tab. `false` (nothing spawned) when
+/// `watch.start_id` is already followed: that follower lands the Retry's
+/// run too (the device ignored the repeat).
+pub(crate) fn follow_composer_start(
+    device_id: String,
+    subject: RemoteRunSubject,
+    watch: ComposerStartWatch,
+    window: &Window,
+    cx: &mut App,
+) -> bool {
+    if !cx
+        .default_global::<FollowedStarts>()
+        .0
+        .insert(watch.start_id.clone())
+    {
+        return false;
+    }
+    let known: HashSet<String> = session_ids(cx);
+    let team = crate::navigation::active_team_id(&crate::navigation::nav_for_window(window, cx), cx);
+    let handle = crate::navigation::deferred_open_window(window, cx);
+    cx.spawn(async move |cx| {
+        let deadline = std::time::Instant::now() + REMOTE_LATE_WAIT;
+        let ComposerStartWatch { start_id, handoff, thread_id, landed } = watch;
+        let done = |cx: &mut App| {
+            cx.default_global::<FollowedStarts>().0.remove(&start_id);
+        };
+        loop {
+            cx.background_executor().timer(REMOTE_OPEN_TICK).await;
+            if let Some(session_id) =
+                cx.update(|cx| fresh_remote_run(&known, &device_id, &subject, team.as_deref(), cx))
+            {
+                let _ = cx.update(|cx| done(cx));
+                // EXP-1284: the placement rides its own shape: give it a
+                // moment, so the start lands on its THREAD.
+                let mut thread_id = thread_id.clone();
+                let item_deadline = std::time::Instant::now() + THREAD_ITEM_WAIT;
+                while thread_id.is_none() && std::time::Instant::now() < item_deadline {
+                    thread_id = cx.update(|cx| crate::threads::thread_of_session(&session_id, cx));
+                    if thread_id.is_none() {
+                        cx.background_executor().timer(REMOTE_OPEN_TICK).await;
+                    }
+                }
+                let opened = handle.update(cx, |_, window, cx| {
+                    let open = landed(session_id.clone(), window, cx);
+                    if open {
+                        open_landed_session(&session_id, thread_id, handoff, window, cx);
+                    }
+                    open
+                });
+                // Not opened (the draft moved on, or the window closed while
+                // we waited): the New session tab keeps its slot.
+                if !matches!(opened, Ok(true)) {
+                    if let Some(handoff) = handoff {
+                        let _ = cx.update(|cx| take_back_new_run_tab(handoff, cx));
+                    }
+                }
+                return;
+            }
+            if std::time::Instant::now() >= deadline {
+                let _ = cx.update(|cx| {
+                    done(cx);
+                    if let Some(handoff) = handoff {
+                        take_back_new_run_tab(handoff, cx);
+                    }
+                });
+                return;
+            }
+        }
+    })
+    .detach();
+    true
 }
 
 /// Every synced `coding_sessions` id right now — the "already there" baseline
@@ -1688,13 +2161,15 @@ pub struct StartCodingControl {
     /// EXP-1121: the "Ready to code?" popover is up — it keeps rendering
     /// (rows ticking) even once every step is met.
     readiness_open: bool,
+    /// FEED-79: the GitHub read in flight is the picker's Retry press (its
+    /// failure toasts); the read on popover open fails quietly.
+    github_retry_pressed: bool,
     /// The repository row's inline picker is showing.
     picker_open: bool,
     /// Its search field (created on first open — it needs a window).
     repo_query: Option<Entity<InputState>>,
-    /// `boards.setRepository` in flight / its refusal.
+    /// `boards.setRepository` in flight (a refusal is a toast, FEED-79).
     linking: bool,
-    link_error: Option<SharedString>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -1751,10 +2226,10 @@ impl StartCodingControl {
             github: crate::coding_readiness::GithubProbe::Idle,
             github_generation: 0,
             readiness_open: false,
+            github_retry_pressed: false,
             picker_open: false,
             repo_query: None,
             linking: false,
-            link_error: None,
             _subscriptions: subscriptions,
         }
     }
@@ -1776,7 +2251,6 @@ impl StartCodingControl {
         self.issue_id = issue_id;
         self.probe = RepoProbe::Idle;
         self.picker_open = false;
-        self.link_error = None;
         cx.notify();
     }
 
@@ -1943,6 +2417,12 @@ impl StartCodingControl {
                 if this.github_generation != generation {
                     return;
                 }
+                // FEED-79: the picker's list failed — its empty state +
+                // Retry; only a Retry press that fails again toasts.
+                let attended = std::mem::take(&mut this.github_retry_pressed);
+                if facts.repos.is_none() {
+                    crate::action_error::failed_load("the repositories", attended, None, cx);
+                }
                 this.github = crate::coding_readiness::GithubProbe::Ready { team_id, facts };
                 cx.notify();
             });
@@ -1956,6 +2436,12 @@ impl StartCodingControl {
         if let Some(subject) = self.readiness_subject(cx) {
             self.fetch_github(subject.team_id, true, cx);
         }
+    }
+
+    /// The picker's Retry: the same read, attended.
+    pub(crate) fn retry_github(&mut self, cx: &mut gpui::Context<Self>) {
+        self.github_retry_pressed = true;
+        self.refresh_github(cx);
     }
 
     /// The popover opened or closed.
@@ -1973,8 +2459,7 @@ impl StartCodingControl {
             }
         } else {
             self.picker_open = false;
-            self.link_error = None;
-        }
+            }
         cx.notify();
     }
 
@@ -1996,7 +2481,6 @@ impl StartCodingControl {
         query.update(cx, |input, cx| input.set_value("", window, cx));
         query.read(cx).focus_handle(cx).focus(window, cx);
         self.picker_open = true;
-        self.link_error = None;
         cx.notify();
     }
 
@@ -2011,8 +2495,8 @@ impl StartCodingControl {
             return;
         };
         self.linking = true;
-        self.link_error = None;
         cx.notify();
+        let retry_repo = repository_id.clone();
         cx.spawn(async move |this, cx| {
             let result = cx
                 .background_executor()
@@ -2031,7 +2515,17 @@ impl StartCodingControl {
                     Ok(_) => this.picker_open = false,
                     Err(err) => {
                         log::warn!("[ui] readiness: boards.setRepository failed: {err}");
-                        this.link_error = Some(err.user_message().into());
+                        let control = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "change",
+                            "the board's repository",
+                            crate::action_error::action_error_description(&err),
+                            move |_, cx| {
+                                let repository_id = retry_repo.clone();
+                                let _ = control.update(cx, |this, cx| this.link_repository(repository_id, cx));
+                            },
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
@@ -2064,7 +2558,6 @@ impl StartCodingControl {
             subject,
             picker_open: this.picker_open,
             linking: this.linking,
-            link_error: this.link_error.clone(),
             github,
             repos,
             query: this.repo_query.clone(),
@@ -2396,15 +2889,57 @@ pub(crate) fn live_batch_device_for_issue(cx: &App, issue_id: &str, now_epoch: i
 mod tests {
     use super::*;
 
-    /// EXP-1088: agent-started runs never steal the window;
-    /// person-started ones (incl. triggers and a local resume, whose
-    /// reason is `None`) still open.
+    /// EXP-1271: only a start made in THIS window takes it; every
+    /// background start (relay, remote resume, trigger) stays in Running.
     #[test]
-    fn only_person_started_runs_navigate() {
-        assert!(should_open_session(None));
-        assert!(should_open_session(Some("schedule")));
-        assert!(should_open_session(Some("event")));
-        assert!(!should_open_session(Some("agent")));
+    fn only_a_start_from_this_window_navigates() {
+        assert!(should_open_session(RunLanding::Composer(None)));
+        assert!(should_open_session(RunLanding::ThisWindow));
+        assert!(!should_open_session(RunLanding::Background));
+        assert!(!should_open_session(RunLanding::Rotation));
+    }
+
+    /// EXP-1284: a start that handed off its New session tab lands IN that
+    /// tab — as its THREAD once the placement is known (the start's handoff
+    /// picks the tab, never the window), else as the session; without a
+    /// handoff (a resume from the thread's reply) a session of the thread on
+    /// show stays there, and anything else is an ordinary open.
+    #[test]
+    fn a_landing_session_takes_its_thread_s_tab() {
+        use crate::navigation::Screen;
+        let thread = Screen::Thread { thread_id: "t1".into() };
+        assert_eq!(
+            landing_plan("s1", Some("t1".into()), Some("nr-1".into()), None),
+            LandingPlan::ReplaceTab { target: thread.clone(), new_run: "nr-1".into() }
+        );
+        // Even while the thread itself is on show: the handed-off tab goes
+        // (sync_tabs then keeps the thread's existing tab and closes it).
+        assert_eq!(
+            landing_plan("s1", Some("t1".into()), Some("nr-1".into()), Some(&thread)),
+            LandingPlan::ReplaceTab { target: thread.clone(), new_run: "nr-1".into() }
+        );
+        assert_eq!(
+            landing_plan("s1", None, Some("nr-1".into()), None),
+            LandingPlan::ReplaceTab {
+                target: Screen::Session { session_id: "s1".into() },
+                new_run: "nr-1".into()
+            }
+        );
+        assert_eq!(landing_plan("s1", Some("t1".into()), None, Some(&thread)), LandingPlan::Stay);
+        assert_eq!(
+            landing_plan("s1", Some("t1".into()), None, Some(&Screen::Thread { thread_id: "t2".into() })),
+            LandingPlan::Open
+        );
+        assert_eq!(landing_plan("s1", None, None, Some(&thread)), LandingPlan::Open);
+    }
+
+    /// EXP-1271: the toast names the chat builtin "Chat" and anything else
+    /// by the launch's own subject prefix.
+    #[test]
+    fn the_remote_start_subject() {
+        assert_eq!(remote_start_subject(Some(api::actions::BUILTIN_CHAT_ID), "web"), "Chat");
+        assert_eq!(remote_start_subject(Some("act-1"), "Tidy up"), "Tidy up");
+        assert_eq!(remote_start_subject(None, "EXP-42 +2"), "EXP-42 +2");
     }
 
     /// FEED-47/57: a live batch covering the issue holds it; an ended
@@ -2642,6 +3177,77 @@ mod tests {
         };
         assert_eq!(RemoteRunSubject::of(&batch), RemoteRunSubject::Any);
         assert!(RemoteRunSubject::of(&batch).matches(&row(None, None)));
+    }
+
+    /// EXP-1259: a press mints its startId once and every send of that
+    /// intent (a Retry is a clone) carries it; a new press mints a new one;
+    /// a composer input that already names its draft id keeps it.
+    #[test]
+    fn a_press_mints_one_start_id_and_its_retry_reuses_it() {
+        use api::steer::StartSessionInput;
+        let input = || StartSessionInput {
+            resume_session_id: Some("old".to_string()),
+            device_id: "dev".to_string(),
+            ..Default::default()
+        };
+        let press = RemoteStartIntent::press(input());
+        assert_eq!(press.start_id().len(), 36);
+        assert_eq!(press.input().start_id.as_deref(), Some(press.start_id()));
+        let retry = press.clone();
+        assert_eq!(retry.input().start_id, press.input().start_id);
+        let again = RemoteStartIntent::press(input());
+        assert_ne!(again.start_id(), press.start_id());
+        let drafted = RemoteStartIntent::press(StartSessionInput {
+            start_id: Some("draft-1".to_string()),
+            ..input()
+        });
+        assert_eq!(drafted.start_id(), "draft-1");
+        let blank = RemoteStartIntent::press(StartSessionInput {
+            start_id: Some(" ".to_string()),
+            ..input()
+        });
+        assert_eq!(blank.start_id().len(), 36);
+    }
+
+    /// Recheck R3: unknown fate (no answer, an unreadable 2xx, a proxy's
+    /// bodiless 5xx, the server's relay timeout) may have delivered the
+    /// start, so it stays followed and its Retry repeats the startId; an
+    /// answer with an error body never did.
+    #[test]
+    fn a_failed_start_is_followed_only_when_it_may_have_arrived() {
+        let http = |status, message: &str| api::ApiError::Http {
+            status,
+            message: message.into(),
+        };
+        // The network: a transport error and the client's own timeout.
+        assert!(may_have_reached_device(&api::ApiError::Transport {
+            message: "connection reset".into(),
+            offline: false,
+        }));
+        assert!(may_have_reached_device(&api::ApiError::Transport {
+            message: "timed out".into(),
+            offline: true,
+        }));
+        // A 2xx whose body we could not read: the server forwarded it.
+        assert!(may_have_reached_device(&api::ApiError::Decode("ok".into())));
+        // The server's relay timeout (504 GATEWAY_TIMEOUT).
+        assert!(may_have_reached_device(&http(504, "Steer relay error (504)")));
+        assert!(may_have_reached_device(&http(502, "relay_timeout")));
+        // A proxy answered instead of the server: no error body.
+        assert!(may_have_reached_device(&http(502, "")));
+        assert!(may_have_reached_device(&http(
+            504,
+            "<html><body>504 Gateway Time-out</body></html>"
+        )));
+        // Definite: any other 5xx with an error body, any 4xx.
+        assert!(!may_have_reached_device(&http(500, "Steer relay error (502)")));
+        assert!(!may_have_reached_device(&http(500, "Internal server error")));
+        assert!(!may_have_reached_device(&http(504, "Steer relay error (500)")));
+        assert!(!may_have_reached_device(&http(412, "Device offline")));
+        assert!(!may_have_reached_device(&http(404, "")));
+        assert!(!may_have_reached_device(&http(429, "Too many requests")));
+        assert!(!may_have_reached_device(&api::ApiError::Unauthorized));
+        assert!(!may_have_reached_device(&api::ApiError::UpgradeRequired));
     }
 
     /// A bare row the subject matcher can vary one field of.

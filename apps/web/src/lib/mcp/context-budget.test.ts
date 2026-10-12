@@ -296,9 +296,9 @@ it(`keeps the MCP server instructions self-contained and in budget`, () => {
     sessionResults: true,
   })
   expect(person).toContain(
-    `exponential_sessions_end ends this run; call it only when the person asks you to end the run.`
+    `exponential_sessions_end ends this session; call it only when the person asks you to end the session.`
   )
-  expect(person).not.toContain(`This run is unattended`)
+  expect(person).not.toContain(`This session is unattended`)
   expect(person).toContain(`exponential_sessions_ask_parent with to 'user'`)
   expect(MCP_SERVER_INSTRUCTIONS).toContain(`exponential_sessions_end LAST`)
   expect(MCP_SERVER_INSTRUCTIONS).not.toContain(`only when the person asks`)
@@ -395,6 +395,10 @@ it(`keeps the run playbook in budget and naming only registered tools`, () => {
     `exponential_sessions_guide`,
     // EXP-1172: a screenshot when a picture helps, while it works.
     `exponential_sessions_show`,
+    // EXP-1284: the run's thread and what the agent links into it.
+    `exponential_threads_get`,
+    `exponential_threads_link`,
+    `exponential_threads_unlink`,
   ]) {
     expect(mentioned.has(name), `playbook never names ${name}`).toBe(true)
   }

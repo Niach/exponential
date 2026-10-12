@@ -1,10 +1,11 @@
 import * as React from "react"
 import { Slot } from "radix-ui"
 
-import { ChevronDown, ChevronRight, LoaderCircle, Search } from "lucide-react"
+import { ChevronDown, ChevronRight, Search } from "lucide-react"
 
 import { BARE_FIELD_CLASS, Input } from "./input"
 import { Label } from "./label"
+import { Spinner } from "./spinner"
 import { Switch } from "./switch"
 import { Tabs, TabsList } from "./tabs"
 import { cn } from "./cn"
@@ -82,7 +83,7 @@ function GlassSectionHeader({
    * A folded band shows how much it hides without unfolding. */
   count?: number
   /** EXP-1274: the list under the band is refetching (a server-only list
-   * after a write or on return to the tab). A 12px spinning glyph at the
+   * after a write or on return to the tab). THE inline Spinner (EXP-1275, 10px) at the
    * trailing edge, before the count — never a Refresh button, never a
    * skeleton over rows that are already there. ×4: iOS `GlassSectionBand`,
    * Android `SectionHeader`, desktop `glass_section_header`. */
@@ -116,11 +117,7 @@ function GlassSectionHeader({
       {(count !== undefined || trailing || loading) && (
         <div data-part="trailing" className="ml-auto flex items-center gap-1.5">
           {loading && (
-            <LoaderCircle
-              data-part="loading"
-              aria-label="Loading"
-              className="size-3 shrink-0 animate-spin text-muted-foreground"
-            />
+            <Spinner data-part="loading" />
           )}
           {count !== undefined && (
             <span data-part="count" className="text-xs tabular-nums text-muted-foreground">

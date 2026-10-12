@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.exponential.app.ExponentialApp
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetSearchField
 import com.exponential.app.ui.theme.TextEmphasis
@@ -75,12 +76,8 @@ fun EmojiPickerSheet(
         )
         Spacer(Modifier.height(8.dp))
         if (data == null) {
-            Text(
-                "Loading emoji…",
-                style = MaterialTheme.typography.bodyMedium,
-                color = Color.White.copy(alpha = TextEmphasis.Tertiary),
-                modifier = Modifier.padding(horizontal = 20.dp, vertical = 24.dp),
-            )
+            // EXP-1275: skeleton rows, never "Loading emoji…".
+            SkeletonRows(modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp), dot = false)
             return@GlassSheet
         }
         LazyVerticalGrid(

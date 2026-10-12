@@ -37,6 +37,7 @@ import com.exponential.app.domain.TeamPermissions
 import com.exponential.app.domain.canonicalContentType
 import com.exponential.app.domain.isFileAttachment
 import com.exponential.app.domain.sanitizeFilename
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.ui.markdown.IssueRefTarget
 import com.exponential.app.ui.markdown.issueRefTarget
 import com.exponential.app.ui.markdown.markdownEmbedUrls
@@ -107,6 +108,9 @@ data class IssueDraftUiState(
     /** EXP-1212: the row's files are listed (or there is no row). Until then
      *  a reopened draft counts as content: it may be file-only. */
     val attachmentsKnown: Boolean = false,
+    /** EXP-1284: the thread the issue files into — the route's `thread`,
+     *  else the reopened row's; it rides every upsert and the create. */
+    val threadId: String? = null,
 )
 
 /**
@@ -137,6 +141,10 @@ class IssueDraftViewModel @Inject constructor(
     private val parentArg: String? = savedStateHandle.get<String>("parent")?.takeIf { it.isNotBlank() }
     private val statusArg: String? = savedStateHandle.get<String>("status")?.takeIf { it.isNotBlank() }
 
+    /** EXP-1284: "New issue in this thread" (the route) — the create links it
+     *  there; a reopened draft restores its own ([IssueDraftUiState.threadId]). */
+    private val threadArg: String? = savedStateHandle.get<String>("thread")?.takeIf { it.isNotBlank() }
+
     /** Share mode: the `share-compose` route carries no draft id. */
     val shareMode: Boolean = draftIdArg == null
     val parentId: String? = parentArg.takeIf { !shareMode }
@@ -150,6 +158,7 @@ class IssueDraftViewModel @Inject constructor(
             boardId = savedStateHandle.get<String>("board")?.takeIf { it.isNotBlank() },
             seeded = deferUploads,
             attachmentsKnown = deferUploads,
+            threadId = threadArg,
         ),
     )
     val state: StateFlow<IssueDraftUiState> = _state
@@ -158,8 +167,9 @@ class IssueDraftViewModel @Inject constructor(
     private val pendingImages = mutableMapOf<String, Uri>()
     private val pendingMedia = mutableMapOf<String, PreparedMedia>()
 
-    private val _message = MutableStateFlow<String?>(null)
-    val message: StateFlow<String?> = _message
+    // FEED-79: the page's failed action, raised once as an error toast.
+    private val _message = MutableStateFlow<FailedAction?>(null)
+    val message: StateFlow<FailedAction?> = _message
     fun consumeMessage() {
         _message.value = null
     }
@@ -327,7 +337,14 @@ class IssueDraftViewModel @Inject constructor(
                     // Typed before the row arrived: keep the typing, but the
                     // row is real (a leave may now owe a delete).
                     lastWritten = row.toSnapshot()
-                    _state.update { it.copy(seeded = true, rowExists = true, boardId = it.boardId ?: row.boardId) }
+                    _state.update {
+                        it.copy(
+                            seeded = true,
+                            rowExists = true,
+                            boardId = it.boardId ?: row.boardId,
+                            threadId = it.threadId ?: row.threadId,
+                        )
+                    }
                     loadAttachments()
                 } else {
                     lastWritten = row.toSnapshot()
@@ -341,6 +358,8 @@ class IssueDraftViewModel @Inject constructor(
                             dueDate = row.dueDate,
                             labelIds = row.labelIds.toSet(),
                             boardId = row.boardId.ifBlank { null } ?: it.boardId,
+                            // EXP-1284: a reopened thread draft keeps its thread.
+                            threadId = it.threadId ?: row.threadId,
                             rowExists = true,
                             seeded = true,
                         )
@@ -531,7 +550,7 @@ class IssueDraftViewModel @Inject constructor(
             .onSuccess { created -> runCatching { holder.database(forAccountId = accountId).labelDao().upsert(created) } }
             .onFailure { error ->
                 if (error is CancellationException) throw error
-                _message.value = trpcErrorMessage(error, "Failed to create label")
+                _message.value = FailedAction("create", "the label", trpcErrorMessage(error, ""))
             }
             .getOrNull()
     }
@@ -621,6 +640,7 @@ class IssueDraftViewModel @Inject constructor(
             assigneeId = s.assigneeId,
             labelIds = (if (known.isEmpty()) s.labelIds else s.labelIds.filter { it in known }).sorted(),
             dueDate = s.dueDate,
+            threadId = s.threadId,
         )
     }
 
@@ -640,6 +660,7 @@ class IssueDraftViewModel @Inject constructor(
                 // ALWAYS sent — an omitted list could never clear a selection.
                 labelIds = snap.labelIds,
                 dueDate = snap.dueDate,
+                threadId = snap.threadId,
             ),
         )
         lastWritten = snap
@@ -696,7 +717,7 @@ class IssueDraftViewModel @Inject constructor(
         if (!ok) {
             left = false
             leaving = false
-            _message.value = "Couldn't save the draft"
+            _message.value = FailedAction("save", "the draft")
         }
         return ok
     }
@@ -735,7 +756,7 @@ class IssueDraftViewModel @Inject constructor(
                 .onFailure { error ->
                     if (error is CancellationException) throw error
                     // EXP-1231: consumed elsewhere — the page leaves, no error.
-                    if (!isConsumedConflict(error)) _message.value = trpcErrorMessage(error, "Couldn't save the draft")
+                    if (!isConsumedConflict(error)) _message.value = FailedAction("save", "the draft", trpcErrorMessage(error, ""))
                 }
                 .isSuccess
         }
@@ -888,7 +909,7 @@ class IssueDraftViewModel @Inject constructor(
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (error: Throwable) {
-            _message.value = trpcErrorMessage(error, "Couldn't open ${file.filename}")
+            _message.value = FailedAction("open", file.filename, trpcErrorMessage(error, ""))
             null
         } finally {
             _busyIds.update { it - file.id }
@@ -973,6 +994,7 @@ class IssueDraftViewModel @Inject constructor(
                     labelIds = labelIds.takeIf { it.isNotEmpty() },
                     draftId = draftId,
                     parentId = parentId,
+                    threadId = s.threadId,
                 ),
             )
             upsertCreatedLocally(accountId, created, labelIds)
@@ -999,7 +1021,7 @@ class IssueDraftViewModel @Inject constructor(
         } catch (cancel: CancellationException) {
             throw cancel
         } catch (error: Throwable) {
-            _message.value = trpcErrorMessage(error, "Failed to create issue")
+            _message.value = FailedAction("create", "the issue", trpcErrorMessage(error, ""))
             null
         }
     }
@@ -1090,8 +1112,11 @@ class IssueDraftViewModel @Inject constructor(
     // A file the user attached never disappears without a word.
     private fun reportFailed(failed: List<String>) {
         if (failed.isEmpty()) return
-        _message.value = "Couldn't attach ${failed.joinToString(", ")}. " +
-            "Add ${if (failed.size == 1) "it" else "them"} from the issue."
+        _message.value = FailedAction(
+            "attach",
+            failed.joinToString(", "),
+            "Add ${if (failed.size == 1) "it" else "them"} from the issue.",
+        )
     }
 
     private fun displayName(uri: Uri): String? = runCatching {
@@ -1132,6 +1157,7 @@ private data class DraftSnapshot(
     val assigneeId: String?,
     val labelIds: List<String>,
     val dueDate: String?,
+    val threadId: String?,
 )
 
 private fun com.exponential.app.data.db.IssueDraftEntity.toSnapshot() = DraftSnapshot(
@@ -1143,4 +1169,5 @@ private fun com.exponential.app.data.db.IssueDraftEntity.toSnapshot() = DraftSna
     assigneeId = assigneeId,
     labelIds = labelIds.sorted(),
     dueDate = dueDate,
+    threadId = threadId,
 )

@@ -4,7 +4,7 @@
 // `steer::workflow_caption`, web `lib/agent-feed.ts`, iOS
 // `ExpCore/Sources/Domain/WorkflowCaption.swift`, Android
 // `domain/WorkflowCaption.kt`) and byte-locked by
-// `fixtures/workflow-caption.json`, which every client's test runs.
+// `fixtures/work-card.json (`caption`)`, which every client's test runs.
 //
 // Rules (STEER-WIRE-EXP-850.md §7):
 // - `running` with no agents yet    → `Workflow {name} · starting`

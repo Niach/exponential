@@ -24,7 +24,6 @@ import {
 import { WorkTabsStrip } from "@/components/team/work-tabs-strip"
 import { WorkTabsSync } from "@/components/team/work-tabs-sync"
 import { useSidebarOccupant } from "@/hooks/use-sidebar-occupant"
-import { useWorkTabs } from "@/hooks/use-work-tabs"
 import { IssueSearchSheet } from "@/components/issue-search-sheet"
 import { OfflineBanner } from "@/components/offline-banner"
 import { FeedbackWidgetProvider } from "@/components/feedback-widget-provider"
@@ -37,7 +36,6 @@ import {
 } from "@/hooks/use-getting-started-progress"
 import { MentionProvider } from "@/components/mention-provider"
 import { IssueContextMenuProvider } from "@/components/issue-context-menu/provider"
-import { GettingStartedSheetProvider } from "@/components/getting-started/getting-started-sheet"
 import { IssueSearchProvider } from "@/hooks/use-issue-search"
 import { MobileChromeProvider } from "@/hooks/use-mobile-chrome"
 import { useSteerSessionReaper } from "@/hooks/use-steer-session-reaper"
@@ -151,10 +149,10 @@ function TeamLayout() {
   const [sidebarWrapper, setSidebarWrapper] = useState<HTMLDivElement | null>(
     null
   )
-  // EXP-870: browser-like work tabs above the card, md+ only.
+  // EXP-870: browser-like work tabs above the card, md+ only. EXP-1255: the
+  // strip mounts with zero tabs too, so its "+" (a New run tab) is reachable.
   const isMobile = useIsMobile()
-  const { tabs } = useWorkTabs(team?.id)
-  const showWorkTabs = !isMobile && Boolean(team) && tabs.length > 0
+  const showWorkTabs = !isMobile && Boolean(team)
 
   return (
     <SidebarProvider ref={setSidebarWrapper}>
@@ -175,17 +173,14 @@ function TeamLayout() {
         {/* EXP-1074: THE issue context menu — one host above every list, row
             and chip that opts in with `issueMenuProps`. */}
         <IssueContextMenuProvider team={team}>
-          {/* EXP-686: the board header's Search button (mobile) and the
-              Actions lightbulb reach the layout's sheets through
-              context instead of a prop drilled through every list. The
-              Getting started sheet lives here so the lightbulb can open it
-              once the checklist is complete and its sidebar entry is gone. */}
+          {/* EXP-686: the board header's Search button (mobile) reaches the
+              layout's search through context instead of a prop drilled
+              through every list. */}
           <IssueSearchProvider value={{ open: () => setSearchOpen(true) }}>
           {/* EXP-698 r5: the bulk bar takes the tab bar's slot on phones —
               both bars live under this provider so the one that is up hides
               the other. */}
           <MobileChromeProvider>
-          <GettingStartedSheetProvider teamSlug={teamSlug} team={team}>
             <FeedbackWidgetProvider />
             {team && user && <WebMcpProvider team={team} user={user} />}
             <TeamSidebar
@@ -237,7 +232,7 @@ function TeamLayout() {
                 </div>
               </main>
               {/* EXP-818: no dock band under the card — EXP-870 put every
-                  live run in a work tab above it instead. */}
+                  live session in a work tab above it instead. */}
             </div>
 
             {/* Native-style bottom navigation (EXP-189) — fixed-position,
@@ -259,7 +254,6 @@ function TeamLayout() {
                 teamSlug={teamSlug}
               />
             )}
-          </GettingStartedSheetProvider>
           </MobileChromeProvider>
           </IssueSearchProvider>
         </IssueContextMenuProvider>

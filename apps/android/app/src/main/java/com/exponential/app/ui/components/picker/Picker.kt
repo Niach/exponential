@@ -38,7 +38,10 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.exponential.app.ui.components.GlassSheet
 import com.exponential.app.ui.components.GlassSheetDefaults
-import com.exponential.app.ui.components.GlassSheetSearchField
+import com.exponential.app.ui.components.SearchListDefaults
+import com.exponential.app.ui.components.SearchListInput
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.graphics.Brush
 import com.exponential.app.ui.components.SheetPrimaryAction
 import com.exponential.app.ui.icons.ExpIcons
 import com.exponential.app.ui.theme.GlassTokens
@@ -383,22 +386,30 @@ fun <T : Any> Picker(
             return@GlassSheet
         }
         if (search) {
-            GlassSheetSearchField(
+            // SLOP-28 (EXP-1259 D4): THE search list's input row — the same
+            // field the `#` sheet and the "+" menu's pages open with, the
+            // muted result count trailing once a query is typed.
+            SearchListInput(
                 value = currentQuery,
                 onValueChange = { next ->
                     if (query == null) internalQuery = next
                     onQueryChange?.invoke(next)
                 },
                 placeholder = searchPlaceholder,
+                count = rows.size,
             )
-            Spacer(Modifier.height(4.dp))
         }
-        LazyColumn(
+        val listState = rememberLazyListState()
+        Box(
             modifier = Modifier
                 .fillMaxWidth()
                 // A caption is PINNED under the rows, so the list gives way to
                 // it instead of pushing it off the sheet.
                 .then(if (caption != null) Modifier.weight(1f, fill = false) else Modifier),
+        ) {
+        LazyColumn(
+            state = listState,
+            modifier = Modifier.fillMaxWidth(),
         ) {
             if (rows.isEmpty() && emptyText != null) {
                 // The same text stands in for "nothing to pick" and "nothing
@@ -422,6 +433,17 @@ fun <T : Any> Picker(
             if (footer != null) item { footer() }
             item { Spacer(Modifier.height(8.dp)) }
         }
+        // The search list's bottom fade while more rows sit below.
+        if (search && listState.canScrollForward) {
+            Box(
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .height(SearchListDefaults.FadeHeight)
+                    .background(Brush.verticalGradient(listOf(Color.Transparent, GlassSheetDefaults.ContainerColor))),
+            )
+        }
+        }
         if (caption != null) caption()
     }
 }
@@ -433,11 +455,17 @@ fun <T : Any> Picker(
  * row's contents without inventing a second "this is picked" idiom.
  */
 @Composable
-private fun <T> PickerRow(
+internal fun <T> PickerRow(
     item: PickerItem<T>,
     mark: PickerMark,
     onClick: () -> Unit,
     body: (@Composable RowScope.(PickerItem<T>) -> Unit)? = null,
+    /**
+     * SLOP-28: the search list's KEYBOARD row (the top one is preselected,
+     * Enter/Tab pick it) — the active wash, never mistaken for a pick mark
+     * because an unpicked search row paints nothing else.
+     */
+    highlighted: Boolean = false,
 ) {
     val shape = RoundedCornerShape(PickerDefaults.RowRadius)
     Row(
@@ -450,7 +478,10 @@ private fun <T> PickerRow(
             // than the sheet rows beside it.
             .defaultMinSize(minHeight = PickerDefaults.RowHeight)
             .clip(shape)
-            .background(PickerDefaults.rowBackground(mark), shape)
+            .background(
+                if (highlighted && mark == PickerMark.None) GlassTokens.RowFillActive else PickerDefaults.rowBackground(mark),
+                shape,
+            )
             .border(GlassTokens.Hairline, PickerDefaults.rowStroke(mark), shape)
             .clickable(enabled = !item.disabled, onClick = onClick)
             .padding(horizontal = PickerDefaults.RowInnerPadding, vertical = 8.dp),

@@ -173,6 +173,7 @@ pub fn icon_by_name(name: &str) -> Option<ExpIcon> {
         "bookmark" => ExpIcon::Bookmark,
         "bot" => ExpIcon::Bot,
         "boxes" => ExpIcon::Boxes,
+        "braces" => ExpIcon::Braces,
         "brain" => ExpIcon::Brain,
         "briefcase" => ExpIcon::Briefcase,
         "brush-cleaning" => ExpIcon::BrushCleaning,
@@ -705,6 +706,8 @@ pub const STATUS_TODO: ExpIcon = ExpIcon::Circle;
 pub const SUPPORT_OPEN: ExpIcon = ExpIcon::CircleDot;
 /// Registry concept `support-resolved` -> Lucide `circle-check`.
 pub const SUPPORT_RESOLVED: ExpIcon = ExpIcon::CircleCheck;
+/// Registry concept `tool-script` -> Lucide `braces`.
+pub const TOOL_SCRIPT: ExpIcon = ExpIcon::Braces;
 /// Registry concept `trigger-event` -> Lucide `zap`.
 pub const TRIGGER_EVENT: ExpIcon = ExpIcon::Zap;
 /// Registry concept `trigger-schedule` -> Lucide `clock`.
@@ -763,6 +766,8 @@ pub const UI_DEVICE: ExpIcon = ExpIcon::Monitor;
 pub const UI_DEVICE_DEFAULT: ExpIcon = ExpIcon::Star;
 /// Registry concept `ui-device-offline` -> Lucide `monitor-off`.
 pub const UI_DEVICE_OFFLINE: ExpIcon = ExpIcon::MonitorOff;
+/// Registry concept `ui-docs` -> Lucide `book-open`.
+pub const UI_DOCS: ExpIcon = ExpIcon::BookOpen;
 /// Registry concept `ui-download` -> Lucide `download`.
 pub const UI_DOWNLOAD: ExpIcon = ExpIcon::Download;
 /// Registry concept `ui-due-date` -> Lucide `calendar-days`.
@@ -1070,6 +1075,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "status-todo" => STATUS_TODO,
         "support-open" => SUPPORT_OPEN,
         "support-resolved" => SUPPORT_RESOLVED,
+        "tool-script" => TOOL_SCRIPT,
         "trigger-event" => TRIGGER_EVENT,
         "trigger-schedule" => TRIGGER_SCHEDULE,
         "ui-add" => UI_ADD,
@@ -1099,6 +1105,7 @@ pub fn concept_by_name(name: &str) -> Option<ExpIcon> {
         "ui-device" => UI_DEVICE,
         "ui-device-default" => UI_DEVICE_DEFAULT,
         "ui-device-offline" => UI_DEVICE_OFFLINE,
+        "ui-docs" => UI_DOCS,
         "ui-download" => UI_DOWNLOAD,
         "ui-due-date" => UI_DUE_DATE,
         "ui-edit" => UI_EDIT,

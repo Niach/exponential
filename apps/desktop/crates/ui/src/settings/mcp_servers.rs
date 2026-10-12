@@ -42,7 +42,7 @@ use crate::navigation::{active_team_id, Navigation};
 use crate::queries;
 use crate::surface::{glass_pill, glass_pill_button, glass_pill_button_primary, PillMode, PillSize};
 
-use super::{error_notice, open_url, section};
+use super::{open_url, section};
 
 /// How often a Connect re-reads the list while the browser is out, and for
 /// how long before it gives up.
@@ -107,7 +107,7 @@ fn share_menu_offered(http: bool, shared: bool) -> bool {
 fn share_toast(name: &str, shared: bool) -> (String, &'static str) {
     if shared {
         (
-            format!("Shared {name} with the team: action runs on teammates' machines use your connection"),
+            format!("Shared {name} with the team: action sessions on teammates' machines use your connection"),
             "Could not share",
         )
     } else {
@@ -220,6 +220,9 @@ pub struct McpServersPane {
     /// next render to start it, `reloading` is the fetch in flight.
     reload_requested: bool,
     reloading: bool,
+    /// FEED-79: the load in flight is the person's Retry press (its failure
+    /// toasts); a load on entry or after a write fails quietly.
+    retry_pressed: bool,
     /// EXP-1274: the built-in tools band's inline filter.
     tool_filter: Entity<InputState>,
     _subscriptions: Vec<Subscription>,
@@ -254,6 +257,7 @@ impl McpServersPane {
             value_input,
             reload_requested: false,
             reloading: false,
+            retry_pressed: false,
             tool_filter,
             _subscriptions: subscriptions,
         }
@@ -278,6 +282,12 @@ impl McpServersPane {
             Load::Idle | Load::Loading => {}
         }
         cx.notify();
+    }
+
+    /// The failed list's Retry: the same load, attended.
+    fn retry_load(&mut self, cx: &mut gpui::Context<Self>) {
+        self.retry_pressed = true;
+        self.refetch(cx);
     }
 
     fn ensure_loaded(&mut self, team_id: &str, cx: &mut gpui::Context<Self>) {
@@ -320,6 +330,17 @@ impl McpServersPane {
             let _ = this.update(cx, |this, cx| {
                 if this.generation != generation {
                     return;
+                }
+                // FEED-79: a failed load = the empty state + Retry; only a
+                // Retry press that fails again toasts.
+                let attended = std::mem::take(&mut this.retry_pressed);
+                if let Err(message) = &result {
+                    crate::action_error::failed_load(
+                        "the MCP servers",
+                        attended,
+                        Some(message.clone()),
+                        cx,
+                    );
                 }
                 this.load = Load::Ready(result);
                 this.reloading = false;
@@ -375,9 +396,11 @@ impl McpServersPane {
             _ => None,
         };
         let Some(page) = page else {
-            let note = Toast::error(format!(
-                "Could not connect to {name}: open Settings → MCP servers on the web and connect it there."
-            ));
+            let note = crate::action_error::failed_toast(
+                "connect to",
+                &name,
+                Some("Open Settings → MCP servers on the web and connect it there.".into()),
+            );
             crate::toast::show(note, window, cx);
             return;
         };
@@ -444,9 +467,11 @@ impl McpServersPane {
                         if this.connect_generation == generation {
                             this.connecting = None;
                         }
-                        let note = Toast::error(format!(
-                            "{name} is still not connected. Finish the sign-in in your browser, or Connect again."
-                        ));
+                        let note = crate::action_error::failed_toast(
+                            "connect to",
+                            &name,
+                            Some("Finish the sign-in in your browser, or Connect again.".into()),
+                        );
                         let _ = handle.update(cx, |_, window, cx| crate::toast::show(note, window, cx));
                         cx.notify();
                     });
@@ -490,7 +515,7 @@ impl McpServersPane {
         let server = config.name.clone();
         let spec = AlertSpec::new(
             format!("API key for {server}"),
-            "Only your runs use it. Stored encrypted; nobody can read it back.",
+            "Only your sessions use it. Stored encrypted; nobody can read it back.",
             "Save key",
         )
         .height(gpui::px(300.))
@@ -535,10 +560,11 @@ impl McpServersPane {
                                 "Key saved for {server}"
                             ))
                         }
-                        Err(err) => Toast::error(format!(
-                            "Could not save the key for {server}: {}",
-                            err.user_message()
-                        )),
+                        Err(err) => crate::action_error::failed_toast(
+                            "save",
+                            "the key",
+                            crate::action_error::action_error_description(&err),
+                        ),
                     };
                     let _ = handle.update(cx, |_, window, cx| crate::toast::show(note, window, cx));
                     cx.notify();
@@ -600,7 +626,7 @@ impl McpServersPane {
         let identity: SharedString = name.clone().into();
         let spec = AlertSpec::new(
             "Disconnect",
-            "Your credential for this server is deleted. Your runs stop getting its \
+            "Your credential for this server is deleted. Your sessions stop getting its \
              tools until you connect again; other members keep theirs.",
             "Disconnect",
         )
@@ -637,10 +663,11 @@ impl McpServersPane {
                                 "Disconnected from {name}"
                             ))
                         }
-                        Err(err) => Toast::error(format!(
-                            "Could not disconnect: {}",
-                            err.user_message()
-                        )),
+                        Err(err) => crate::action_error::failed_toast(
+                            "disconnect from",
+                            &name,
+                            crate::action_error::action_error_description(&err),
+                        ),
                     };
                     let _ = handle.update(cx, |_, window, cx| crate::toast::show(note, window, cx));
                     cx.notify();
@@ -705,7 +732,7 @@ impl McpServersPane {
         let identity: SharedString = name.clone().into();
         let spec = AlertSpec::new(
             "Remove server",
-            "Runs stop offering it and every member's connection to it is deleted. \
+            "Sessions stop offering it and every member's connection to it is deleted. \
              This cannot be undone.",
             "Remove",
         )
@@ -727,7 +754,6 @@ impl McpServersPane {
                 cx.notify();
             });
             let server_id = server_id.clone();
-            let name = name.clone();
             cx.spawn(async move |cx| {
                 let result = cx
                     .background_executor()
@@ -738,10 +764,11 @@ impl McpServersPane {
                     match result {
                         Ok(()) => this.refetch(cx),
                         Err(err) => {
-                            let note = Toast::error(format!(
-                                "Could not remove {name}: {}",
-                                err.user_message()
-                            ));
+                            let note = crate::action_error::failed_toast(
+                                "remove",
+                                "the server",
+                                crate::action_error::action_error_description(&err),
+                            );
                             let _ = handle.update(cx, |_, window, cx| {
                                 crate::toast::show(note, window, cx);
                             });
@@ -1175,18 +1202,19 @@ impl Render for McpServersPane {
 
         match &self.load {
             Load::Idle | Load::Loading => {
-                body = body.child(
-                    v_flex()
-                        .gap_2()
-                        .child(crate::controls::skeleton().h_4().w_full())
-                        .child(crate::controls::skeleton().h_4().w_full())
-                        .child(crate::controls::skeleton().h_4().w_64()),
-                );
+                body = body.child(super::settings_skeleton("mcp-servers-skeleton", cx));
             }
-            Load::Ready(Err(message)) => {
-                body = body.child(error_notice(SharedString::from(message.clone()), cx));
+            // A failed load (FEED-79): the empty state + Retry, no toast.
+            Load::Ready(Err(_)) => {
+                body = body.child(crate::action_error::load_failed_state(
+                    "mcp-servers-retry",
+                    Icon::new(registry::SETTINGS_MCP),
+                    crate::empty_state_copy::MCP_SERVERS,
+                    cx.listener(|this, _, _, cx| this.retry_load(cx)),
+                    cx,
+                ));
             }
-            Load::Ready(Ok(servers)) if servers.is_empty() => {
+            Load::Ready(Ok(rows)) if rows.is_empty() => {
                 body = body.child(crate::controls::empty_state_list(
                     Icon::new(registry::SETTINGS_MCP),
                     crate::empty_state_copy::MCP_SERVERS,
@@ -1271,7 +1299,7 @@ mod tests {
         assert_eq!(
             share_toast("Linear", true),
             (
-                "Shared Linear with the team: action runs on teammates' machines use your connection"
+                "Shared Linear with the team: action sessions on teammates' machines use your connection"
                     .to_string(),
                 "Could not share"
             )

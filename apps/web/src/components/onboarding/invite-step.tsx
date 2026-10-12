@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
-import { LoaderCircle, Sparkles } from "lucide-react"
-import { conceptIcon, Button, Input, toast } from "@exp/ui"
+import { Sparkles } from "lucide-react"
+import { conceptIcon, Button, Input } from "@exp/ui"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
 import { isPlanLimitError } from "@/lib/plan-limit-error"
 import { ONBOARDING_COPY } from "@/components/onboarding/onboarding-copy"
@@ -58,9 +59,9 @@ export function InviteStep({
     try {
       const { token } = await trpc.teamInvites.create.mutate(
         { teamId },
-        // The plan-limit case renders inline; the global mutation-error
-        // toast would be redundant noise on top of it.
-        { context: { skipErrorToast: true } }
+        // The plan-limit case renders inline, anything else is this site's
+        // own toast: the global mutation-error toast would double it.
+        SKIP_ERROR_TOAST
       )
       setInviteUrl(`${window.location.origin}/invite/${token}`)
       setCopied(false)
@@ -71,7 +72,7 @@ export function InviteStep({
         setLimitError(err instanceof Error ? err.message : `Plan limit reached`)
         setRemaining(0)
       } else {
-        toast.error(`Couldn't create the invite`)
+        failedAction(`create`, `the invite`, err)
       }
     } finally {
       setGenerating(false)
@@ -123,14 +124,11 @@ export function InviteStep({
         <Button
           variant="outline"
           onClick={() => void handleGenerate()}
-          disabled={generating || atCapacity}
+          pending={generating}
+          disabled={atCapacity}
           data-testid="invite-generate"
         >
-          {generating ? (
-            <LoaderCircle className="mr-2 h-4 w-4 animate-spin" />
-          ) : (
-            <LinkIcon className="mr-2 h-4 w-4" />
-          )}
+          <LinkIcon className="mr-2 h-4 w-4" />
           {ONBOARDING_COPY.invite.generate}
         </Button>
 

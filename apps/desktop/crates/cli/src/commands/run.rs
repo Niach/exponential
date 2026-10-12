@@ -148,7 +148,7 @@ fn check_prompt(action_id: &str, prompt: Option<&str>) -> anyhow::Result<()> {
         BUILTIN_CREATE_ACTION_ID => {
             bail!("the Create-action builtin needs the request text: --prompt \"<what the action should do>\"")
         }
-        BUILTIN_CHAT_ID => bail!("a chat run needs its message: --prompt \"<what to ask>\""),
+        BUILTIN_CHAT_ID => bail!("a chat session needs its message: --prompt \"<what to ask>\""),
         _ => Ok(()),
     }
 }

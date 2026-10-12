@@ -14,6 +14,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.EmptyState
 import com.exponential.app.ui.components.SectionHeader
@@ -33,6 +34,8 @@ fun DraftsListContent(
     viewModel: DraftsViewModel = hiltViewModel(),
 ) {
     val drafts by viewModel.drafts.collectAsStateWithLifecycle()
+    val failure by viewModel.failure.collectAsStateWithLifecycle()
+    FailedActionToast(failure, onShown = viewModel::clearFailure)
 
     if (drafts.isEmpty()) {
         EmptyState(EmptyStateCopy.drafts, modifier = modifier)

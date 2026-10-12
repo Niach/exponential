@@ -245,7 +245,7 @@ export function AgentOptionsFields(props: AgentOptionsFieldsProps) {
       {toggles?.resumeRow && (
         <GlassToggleRow
           id={`${idPrefix}-resume`}
-          label="Resume previous run"
+          label="Resume previous session"
           checked={toggles.resumeRow.checked}
           onCheckedChange={toggles.resumeRow.onChange}
           description={

@@ -46,19 +46,38 @@ struct SpinnerView: View {
     }
 }
 
-/// The Skeleton pulse (the web's `xui-pulse`: opacity 1 → .5 → 1 over 2 s,
-/// eased `cubic-bezier(.4, 0, .6, 1)`); static under reduced motion.
+/// EXP-1259 (`catalog/layout.json`, feedback-states.json): the pending
+/// Button's delay and the placeholder's ONE pulse, mirrored from the
+/// generated layout constants (a test locks them).
+enum FeedbackTiming {
+    /// A `loading` Button looks idle this long (a fast action never flashes).
+    static let pendingDelayMs: Double = 150
+    /// The Skeleton pulse: low → high → low over this many ms, ease-in-out.
+    static let skeletonPulseMs: Double = 1600
+    static let skeletonOpacityLow: Double = 0.45
+    static let skeletonOpacityHigh: Double = 0.9
+    /// The Skeleton's static opacity under reduced motion.
+    static let skeletonReducedOpacity: Double = 0.6
+}
+
+/// The Skeleton pulse (EXP-1259, feedback-states.json `placeholder`): ONE
+/// slow opacity wave `skeletonOpacityLow` ↔ `High` over `skeletonPulseMs`,
+/// ease-in-out; static at `skeletonReducedOpacity` under reduced motion.
+/// Only a Skeleton LEAF pulses (a Skeleton with `rows` is a container whose
+/// dots and bars pulse each).
 struct SkeletonPulse: ViewModifier {
     let on: Bool
-    @State private var dim = false
+    @State private var high = false
     @Environment(\.xuiReducedMotion) private var reduced
 
     func body(content: Content) -> some View {
-        if on && !reduced {
+        if on && reduced {
+            content.opacity(FeedbackTiming.skeletonReducedOpacity)
+        } else if on {
             content
-                .opacity(dim ? 0.5 : 1)
-                .animation(.timingCurve(0.4, 0, 0.6, 1, duration: 1).repeatForever(autoreverses: true), value: dim)
-                .onAppear { dim = true }
+                .opacity(high ? FeedbackTiming.skeletonOpacityHigh : FeedbackTiming.skeletonOpacityLow)
+                .animation(.easeInOut(duration: FeedbackTiming.skeletonPulseMs / 2000).repeatForever(autoreverses: true), value: high)
+                .onAppear { high = true }
         } else {
             content
         }

@@ -2,8 +2,14 @@
 // disabled (and `aria-busy`) the moment it is pressed and stays so until the
 // host's `onAction` promise settles. A `submit` Button submits the enclosing
 // Form (and shows loading while the Form is `busy`).
+//
+// EXP-1259 (feedback-states.json `pending`): loading refuses presses at
+// once but SHOWS only after `PENDING_DELAY_MS` (a fast action never
+// flashes): then the icon slot is the spinner and the label `pendingLabel`,
+// at no less than the idle width.
 
-import { useEffect, useRef, useState, type MouseEvent } from "react"
+import { useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react"
+import { PENDING_DELAY_MS } from "@exponential-at/ui"
 import { Toggle as TogglePrimitive } from "radix-ui"
 import { useSurfaceContext } from "../context"
 import { useForm } from "../form"
@@ -47,12 +53,25 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
   const iconOnly = props.size === `icon`
   const Spinner = CHROME.spinner
   const hasChild = node.children.length > 0
+  const shown = usePendingShown(loading)
+  const pendingLabel = str(props.pendingLabel)
+  const shownLabel = shown && pendingLabel ? pendingLabel : label
+  // The idle width is the pending state's minimum.
+  const ref = useRef<HTMLButtonElement | null>(null)
+  const idleWidth = useRef<number | null>(null)
+  useLayoutEffect(() => {
+    if (!shown && ref.current) idleWidth.current = ref.current.offsetWidth || null
+  })
+  const rootStyle = (rootProps as { style?: Record<string, unknown> }).style
   return (
     <button
       {...(rootProps as Record<string, unknown>)}
+      ref={ref}
+      style={shown && idleWidth.current ? { ...rootStyle, minWidth: idleWidth.current } : rootStyle}
       type="button"
       disabled={disabled}
       aria-busy={loading || undefined}
+      data-pending={shown ? `true` : undefined}
       aria-label={iconOnly && label ? label : undefined}
       data-xs={[...(ctx.states ?? []), disabled ? `disabled` : ``, pending ? `pending` : ``].filter(Boolean).join(` `) || undefined}
       data-submit={submit ? `true` : undefined}
@@ -62,7 +81,7 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
         if (submit) form.submit()
       }}
     >
-      {loading ? (
+      {shown ? (
         <span {...(part(`spinner`) as Record<string, string>)}>
           <Spinner aria-hidden="true" />
         </span>
@@ -71,9 +90,23 @@ export function ButtonNative({ node, props, rootProps, emit, children }: NativeP
           <IconGlyph icons={ctx.host.icons} name={icon} />
         </span>
       ) : null}
-      {hasChild ? children : !iconOnly && label ? <span {...(part(`label`) as Record<string, string>)}>{label}</span> : null}
+      {hasChild ? children : !iconOnly && shownLabel ? <span {...(part(`label`) as Record<string, string>)}>{shownLabel}</span> : null}
     </button>
   )
+}
+
+/** `loading` held for `PENDING_DELAY_MS` (false again at once when it ends). */
+export function usePendingShown(loading: boolean): boolean {
+  const [shown, setShown] = useState(false)
+  useEffect(() => {
+    if (!loading) {
+      setShown(false)
+      return
+    }
+    const t = setTimeout(() => setShown(true), PENDING_DELAY_MS)
+    return () => clearTimeout(t)
+  }, [loading])
+  return loading && shown
 }
 
 export function LinkNative({ props, rootProps, emit }: NativeProps) {

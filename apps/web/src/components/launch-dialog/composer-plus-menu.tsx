@@ -36,7 +36,7 @@ import {
 } from "@/components/launch-dialog/composer-menu"
 
 // EXP-1249: the composer's ONE "+" — the subject (Implement issue ›, Run
-// action ›), the attach, the run's options (Effort ›, Subagents ›,
+// action ›: THE search list since SLOP-28), the attach, the run's options (Effort ›, Subagents ›,
 // Ultracode) and the run's tools (MCP servers ›, Computer use), as ONE
 // `Menu`: a dropdown at the "+" from md up, the bottom sheet of the same rows
 // on a phone (submenus as pushed pages). Which rows show, their order, glyphs
@@ -46,6 +46,12 @@ import {
 const UiAddIcon = conceptIcon(`ui-add`)
 
 const CLI_DEFAULT_LABEL = `CLI default`
+
+/** SLOP-28: Implement issue › and Run action › are ONE surface, the search
+ *  list (`composer-menu.json` `submenuRowHeight` × `submenuMaxRows`), at one
+ *  width. On a pointer they open to the side on hover or →, ← and Escape
+ *  close back (`Menu`'s submenu body); on a phone they push as pages. */
+const SUBMENU_LIST_CLASS = `w-[26rem] p-0`
 
 export function ComposerPlusMenu({
   model,
@@ -107,37 +113,37 @@ export function ComposerPlusMenu({
           ...base,
           kind: `submenu`,
           value: checkedCount > 0 ? String(checkedCount) : undefined,
-          contentClassName: `w-[26rem] p-0`,
+          contentClassName: SUBMENU_LIST_CLASS,
           body: (
-            <div className="flex min-h-0 flex-col">
-              <ComposerIssuePicker
-                teamId={model.teamId}
-                eligible={model.eligibleIssues}
-                checked={model.checkedIssues}
-                onToggle={model.toggleIssue}
-              />
-              {checkedCount > 0 && (
-                <div className="flex justify-end border-t border-glass-stroke p-2">
-                  {/* The picks already ARE the subject: this only closes the
-                      menu, back to the field. */}
-                  <Button
-                    type="button"
-                    size="sm"
-                    data-testid={COMPOSER_MENU_TEST_IDS.implementSubmit}
-                    onClick={() => setOpen(false)}
-                  >
-                    {implementButtonLabel(checkedCount)}
-                  </Button>
-                </div>
-              )}
-            </div>
+            <ComposerIssuePicker
+              teamId={model.teamId}
+              eligible={model.eligibleIssues}
+              checked={model.checkedIssues}
+              onToggle={model.toggleIssue}
+              footer={
+                checkedCount > 0 ? (
+                  <div className="flex justify-end p-2">
+                    {/* The picks already ARE the subject: this only closes
+                        the menu, back to the field. */}
+                    <Button
+                      type="button"
+                      size="sm"
+                      data-testid={COMPOSER_MENU_TEST_IDS.implementSubmit}
+                      onClick={() => setOpen(false)}
+                    >
+                      {implementButtonLabel(checkedCount)}
+                    </Button>
+                  </div>
+                ) : undefined
+              }
+            />
           ),
         }
       case `run-action`:
         return {
           ...base,
           kind: `submenu`,
-          contentClassName: `w-[24rem] p-0`,
+          contentClassName: SUBMENU_LIST_CLASS,
           body: (
             <div
               data-testid="agent-composer-actions-picker"

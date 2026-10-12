@@ -727,12 +727,12 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-face-tabs`,
     title: `Work face tabs`,
     kind: `Inputs & pickers`,
-    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Run/Runs · Guide in that fixed order (EXP-1251: Changes + Results merged into the Guide; the diff's counts moved into its body), the segmented capsule above. The Runs segment carries a caret to the run menu with several runs; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS FacePager, Android TabPager (HorizontalPager), and on the web useFaceSwipe moves the face's body with the finger and slides the next one in (the header band and the bar never move). EXP-1190: EVERY top tab strip on a phone pages with the same pager (My Work Inbox · My Issues · Drafts, Actions · Suggestions, the action page's Prompt · Triggers · Runs); a tap pages too. EXP-1162 (contract \`detail-chrome.json\` face marks): the tabs carry the STATE, the header title never does. The Run tab wears the run's mark while it is live (the sidebar Running row's \`AgentRunMark\`, leading the label: Claude's working spark while the agent works, else the brand mark with its run-state badge), never a dot; an open pull request puts a 6px dot on the Guide. EXP-1154: on phones the strip sits centred, nothing beside it (Merge rides the floating bar), and an issue's Guide is the review of its pull request (the Reviews detail screen is gone).`,
+    blurb: `EXP-1152: the ONE strip every Work screen wears (the md+ work header, the phone's header band, the desktop IDE, iOS, Android): Issue · Session/Sessions · Guide in that fixed order (EXP-1251: Changes + Results merged into the Guide; the diff's counts moved into its body), the segmented capsule above. The Sessions segment carries a caret to the session menu with several sessions; an unavailable face is HIDDEN, never disabled, and the strip is absent under two faces. On phones the body under it is a PAGER: iOS FacePager, Android TabPager (HorizontalPager), and on the web useFaceSwipe moves the face's body with the finger and slides the next one in (the header band and the bar never move). EXP-1190: EVERY top tab strip on a phone pages with the same pager (My Work Inbox · My Issues · Drafts, the action page's Prompt · Triggers · Sessions); a tap pages too. EXP-1162 (contract \`detail-chrome.json\` face marks): the tabs carry the STATE, the header title never does. The Session tab wears the session's mark while it is live (the sidebar Running row's \`AgentRunMark\`, leading the label: Claude's working spark while the agent works, else the brand mark with its session-state badge), never a dot; an open pull request puts a 6px dot on the Guide. EXP-1154: on phones the strip sits centred, nothing beside it (Merge rides the floating bar), and an issue's Guide is the review of its pull request (the Reviews detail screen is gone).`,
     status: {
       web: ok(
         `WorkFaceStrip`,
         `packages/ui/src/work-face-strip.tsx`,
-        `apps/web/src/components/work-faces.tsx plugs in the run menu and the phone pager`
+        `apps/web/src/components/work-faces.tsx plugs in the session menu and the phone pager`
       ),
       desktop: ok(`work_header::FaceToggle`, `apps/desktop/crates/ui/src/work_header.rs`),
       ios: ok(`WorkFaceTabs`, `apps/ios/Exponential/UI/Work/WorkFaceTabs.swift`),
@@ -749,15 +749,15 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         run={{ agent: `claude`, state: `needs_input` }}
         items={[
           { face: `issue`, label: `Issue`, onSelect: noop },
-          { face: `run`, label: `Runs`, onSelect: noop },
+          { face: `run`, label: `Sessions`, onSelect: noop },
           { face: `guide`, label: `Guide`, onSelect: noop },
         ]}
         runMenu={{
           // A portal: nothing renders at rest, the caret is the specimen.
           content: (
             <DropdownMenuContent>
-              <DropdownMenuItem>Run on macbook · Live</DropdownMenuItem>
-              <DropdownMenuItem>Run on studio · 2h ago</DropdownMenuItem>
+              <DropdownMenuItem>Session on macbook · Live</DropdownMenuItem>
+              <DropdownMenuItem>Session on studio · 2h ago</DropdownMenuItem>
             </DropdownMenuContent>
           ),
         }}
@@ -768,9 +768,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `session-bar`,
     title: `Session bar`,
     kind: `Surfaces`,
-    blurb: `The bottom strip of coding tabs (EXP-769). It sits OUTSIDE the content card, on the bare page ground below it, the mirror of the desktop's head toolbar above (EXP-771): the card stops 6px short and the band takes the last 36 down to the window bottom, with no fill and no border of its own and its chips inset 8. Give it a fill and the ground reads as a second card. It holds the rich tabs of the user's running sessions and, on the desktop, the open terminals — a session tab leads with its 6px liveness dot and carries the issue's mono identifier, the title and a muted " · machine" caption; a terminal tab leads with the terminal glyph and wears its exit code as a badge. Right after the last tab sit two ghost 24px glyph buttons: Chat (a promptless chat run on the default agent) and add (a plain terminal, desktop only). Nothing else: no header, no collapse, no label when empty — the strip is always there so Chat is always one click away. Selecting a tab opens that session or terminal FULLSCREEN in the content area; the web navigates to the session route, the desktop shows the screen. The × on a live session kills it (confirmed), on an ended one closes the transcript tab, on a terminal closes the terminal.`,
+    blurb: `The bottom strip of coding tabs (EXP-769). It sits OUTSIDE the content card, on the bare page ground below it, the mirror of the desktop's head toolbar above (EXP-771): the card stops 6px short and the band takes the last 36 down to the window bottom, with no fill and no border of its own and its chips inset 8. Give it a fill and the ground reads as a second card. It holds the rich tabs of the user's running sessions and, on the desktop, the open terminals — a session tab leads with its 6px liveness dot and carries the issue's mono identifier, the title and a muted " · machine" caption; a terminal tab leads with the terminal glyph and wears its exit code as a badge. Right after the last tab sit two ghost 24px glyph buttons: Chat (a promptless chat session on the default agent) and add (a plain terminal, desktop only). Nothing else: no header, no collapse, no label when empty — the strip is always there so Chat is always one click away. Selecting a tab opens that session or terminal FULLSCREEN in the content area; the web navigates to the session route, the desktop shows the screen. The × on a live session kills it (confirmed), on an ended one closes the transcript tab, on a terminal closes the terminal.`,
     status: {
-      web: na(`EXP-818: no bottom band on the web — live runs are the sidebar's Running section (EXP-923), past ones the Recent panel.`),
+      web: na(`EXP-818: no bottom band on the web: live sessions are the sidebar's Running section (EXP-923), past ones Recent.`),
       desktop: ok(
         `session_bar::SessionBar`,
         `apps/desktop/crates/ui/src/session_bar.rs`,
@@ -1059,7 +1059,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `<div class="title">Settings</div>`,
         `<div class="desc">Manage Mobile Ltd and your account</div>`,
         `<div class="cmp-divider"></div>`,
-        group(pickerRow(`Team name`, `Mobile Ltd`), toggleRow(`End runs on merge`, undefined, true)),
+        group(pickerRow(`Team name`, `Mobile Ltd`), toggleRow(`End sessions on merge`, undefined, true)),
         `</div>`,
         `</div>`,
       ].join(``),
@@ -1113,7 +1113,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `file-diff-list`,
     title: `File diff list`,
     kind: `Surfaces`,
-    blurb: `EXP-895: the ONE diff view — DiffFile[] in, the file tree column beside a stack of file diff cards, nothing else. A Guide section page, the complete diff (an issue's or a run's) and one tool call's patch are all this, differing only in \`nav\` (the md+ tree column, or none when a sheet or a top bar owns the list), \`density\` and whether the cards start collapsed. A pick in the tree scrolls the card into view and opens it; a publisher-cut diff ends in one "N more lines truncated" note. On a phone the file list is the changes sheet off the work bar, never a 64-wide column.`,
+    blurb: `EXP-895: the ONE diff view — DiffFile[] in, the file tree column beside a stack of file diff cards, nothing else. A Guide section page, the complete diff (an issue's or a session's) and one tool call's patch are all this, differing only in \`nav\` (the md+ tree column, or none when a sheet or a top bar owns the list), \`density\` and whether the cards start collapsed. A pick in the tree scrolls the card into view and opens it; a publisher-cut diff ends in one "N more lines truncated" note. On a phone the file list is the changes sheet off the work bar, never a 64-wide column.`,
     status: {
       web: ok(`FileDiffList`, `packages/ui/src/file-diff-list.tsx`),
       desktop: ok(`diff_pane::render`, DESKTOP_DIFF_PANE),
@@ -1255,7 +1255,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `markdown`,
     title: `Markdown blocks`,
     kind: `Surfaces`,
-    blurb: `The chat-sized set the steer feed is built from. Narration is bare text at 90% behind a 12px glyph at 50% — no bubble, because a wall of them is unreadable. The person's turn IS a bubble: radius 12, active fill, strong hairline. Plan and question share ONE neutral radius-16 card; only the header line is tinted, primary for a plan and yellow for a question. EXP-1191, the web card ×4: the 14px glyph LEADS the card beside the question (never on a line of its own), and the heading, the question and the options stack in the column beside it, so the options indent under the text; each option row ends in its number key as a small square chip on the RIGHT. The agent's task list is the LAST line above the composer (under the queued messages), unboxed, with its own segmented progress mark (\`TaskListProgress\`) before \`done/total\`, so it never reads as a message or the composer. Its options are full-width rows: the promoted one wears the primary fill, a pick the glass active fill, never blue; a free-text row opens the composer card inline under itself. A tool line is a 12px label with a truncated mono detail at 50%, and any long block clamps at 160 behind Show more. Inline code is tinted in chat feeds only — the issue and comment renderers keep the neutral chip.`,
+    blurb: `The chat-sized set the steer feed is built from. Narration is bare text at 90% behind a 12px glyph at 50% — no bubble, because a wall of them is unreadable. The person's turn IS a bubble: radius 12, active fill, strong hairline. Plan and question share ONE neutral radius-16 card; only the header line is tinted, primary for a plan and yellow for a question. EXP-1191, the web card ×4: the 14px glyph LEADS the card beside the question (never on a line of its own), and the heading, the question and the options stack in the column beside it, so the options indent under the text; each option row ends in its number key as a small square chip on the RIGHT. The agent's task list is the LAST block above the composer (under the queued messages): the Work card (EXP-1240, \`work-card\`), so it never reads as a message or the composer. Its options are full-width rows: the promoted one wears the primary fill, a pick the glass active fill, never blue; a free-text row opens the composer card inline under itself. A tool line is a 12px label with a truncated mono detail at 50%, and any long block clamps at 160 behind Show more. Inline code is tinted in chat feeds only — the issue and comment renderers keep the neutral chip.`,
     status: {
       web: ok(`QuestionCard / NarrationBubble`, `apps/web/src/components/agent-session.tsx`),
       desktop: ok(
@@ -1276,7 +1276,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
         `<div class="bubble">Rebase onto <code>master</code> first, then open the PR.</div>`,
         `<div class="card">`,
         `<div class="card-head">${svgCheck}<span class="label">Plan ready</span></div>`,
-        `<div class="fold">Move the merge-state fan-out into applyPrMergeState, end every live session on the merged branch, and leave the run that merged its own PR alone. Then re-point the webhook and the poller at the same helper so the two paths cannot drift again, and cover both with one test that merges a batch PR and asserts every linked issue lands on the team's merge target, on the webhook path and the polling one.</div>`,
+        `<div class="fold">Move the merge-state fan-out into applyPrMergeState, end every live session on the merged branch, and leave the session that merged its own PR alone. Then re-point the webhook and the poller at the same helper so the two paths cannot drift again, and cover both with one test that merges a batch PR and asserts every linked issue lands on the team's merge target, on the webhook path and the polling one.</div>`,
         `<span class="show-more">Show more</span>`,
         `</div>`,
         `<div class="card warn">`,
@@ -1333,7 +1333,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `usage-windows`,
     title: `Usage windows`,
     kind: `Feedback`,
-    blurb: `Every rate-limit window an agent login reported, ONE component at three densities off the same rows. full: two lines per window, the name left and its countdown right, then the meter with the percent (tabular, "NN%", never "62% used") — the run's usage overlay, under the account it spends. mini: up to three windows on one line (the five-hour one, the week, the first per-model one) as wire label · 4px meter · percent, the reset centred under the two windows — the other accounts and every login on the Devices page. hover: label · meter, no percent — the account picker's preview. Stale numbers dim the block to 50% and add one "as of …" line; they are never hidden, because aged numbers still beat none.`,
+    blurb: `Every rate-limit window an agent login reported, ONE component at three densities off the same rows. full: two lines per window, the name left and its countdown right, then the meter with the percent (tabular, "NN%", never "62% used") — the session's usage overlay, under the account it spends. mini: up to three windows on one line (the five-hour one, the week, the first per-model one) as wire label · 4px meter · percent, the reset centred under the two windows — the other accounts and every login on the Devices page. hover: label · meter, no percent — the account picker's preview. Stale numbers dim the block to 50% and add one "as of …" line; they are never hidden, because aged numbers still beat none.`,
     status: {
       web: ok(
         `UsageWindows`,
@@ -1492,9 +1492,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tokens-motion`,
     title: `Motion`,
     kind: `Motion`,
-    blurb: `Three durations against three easings — hover a line to run it. Fast for micro-feedback, standard for most transitions, slow for whole surfaces.`,
+    blurb: `Three durations against three easings, then the rules (EXP-1243, tokens.json \`motion\`). Hover a line to run it; press the button.`,
     status: {
-      web: ok(`--motion-*`, `packages/ui/src/styles.css`),
+      web: ok(`--motion-* + motion-popover / motion-dialog / motion-sheet / motion-press`, `packages/ui/src/styles.css`),
       desktop: ok(`theme::motion::duration / ease`, `apps/desktop/crates/theme/src/tokens.generated.rs`),
       ios: ok(`GlassTokens`, `apps/ios/ExpUI/Sources/GlassTokens.swift`),
       android: ok(`GlassTokens`, ANDROID_GLASS, `aliases of DesignTokens.generated.kt`),
@@ -1516,7 +1516,23 @@ export const COMPONENTS: readonly ComponentSpec[] = [
           lines.push(motionLine(`${durName} ${ms} · ${easeName}`, `${durClass} ${easeClass}`))
         }
       }
-      return `<div class="cmp-motion">${lines.join(``)}</div>`
+      const { fast, standard, slow } = motion.duration
+      const { press, popoverFrom } = motion.scale
+      const rules = [
+        [`Popover, menu, tooltip`, `enter · decelerate ${standard} · scale ${popoverFrom} → 1 + fade, from the trigger`, `<span class="cmp-motion-pop"></span>`],
+        [`Popover exit`, `accelerate ${fast} · fade only`, `<span class="cmp-motion-pop cmp-motion-pop-fade"></span>`],
+        [`Dialog`, `enter · decelerate ${standard} · scale ${popoverFrom} → 1 + fade`, `<span class="cmp-motion-pop cmp-motion-pop-centre"></span>`],
+        [`Sheet`, `enter · decelerate ${slow} · slide · exit accelerate ${standard}`, ``],
+        [`Button press`, `scale ${press}`, `<span class="cmp-motion-press">Start</span>`],
+        [`Keyboard, typeahead, tabs, toggles`, `none`, ``],
+        [`Toasts`, `toast-stack.json`, ``],
+        [`Reduce motion`, `opacity only`, ``],
+      ] as const
+      const ruleRows = rules.map(
+        ([label, value, stage]) =>
+          `<div class="cmp-motion-rule"><span class="label">${escapeHtml(label)}</span><span class="value">${escapeHtml(value)}</span><span class="cmp-motion-stage">${stage}</span></div>`
+      )
+      return `<div class="cmp-motion">${lines.join(``)}<div class="cmp-motion-rules">${ruleRows.join(``)}</div></div>`
     },
   },
   {
@@ -1711,7 +1727,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       desktop: ok(
         `controls::pills::live_dot`,
         DESKTOP_GPUI_PILLS,
-        `ping = an animated halo, twice the disc, 60% to 0 over 1s on the decelerate curve; the run list pings on agent_busy only`
+        `ping = an animated halo, twice the disc, 60% to 0 over 1s, decelerate curve; the session list pings on agent_busy only`
       ),
       ios: ok(
         `SessionStateDot`,
@@ -1780,7 +1796,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `tokens-type`,
     title: `Type`,
     kind: `Type`,
-    blurb: `One family, Inter, and the sizes the agent TRANSCRIPT is set in (EXP-787) — the only type scale the four clients share, because a run has to read the same on a phone and on a 32-inch monitor. Body 14/22 is prose and a sent message; tool 12/18 is a tool row and every other caption in the feed. 16 is the root the rem ladder is measured from. The specimens below are set in this page's own stack: Inter is not loaded here, and faking it with a fallback would make the page lie about the one thing it documents.`,
+    blurb: `One family, Inter, and the sizes the agent TRANSCRIPT is set in (EXP-787) — the only type scale the four clients share, because a session has to read the same on a phone and on a 32-inch monitor. Body 14/22 is prose and a sent message; tool 12/18 is a tool row and every other caption in the feed. 16 is the root the rem ladder is measured from. The specimens below are set in this page's own stack: Inter is not loaded here, and faking it with a fallback would make the page lie about the one thing it documents.`,
     status: {
       web: ok(
         `--font-sans / --transcript-*`,
@@ -2041,7 +2057,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `brand-marks`,
     title: `Brand marks`,
     kind: `Icons`,
-    blurb: `The agents' own marks, deliberately OUTSIDE the Lucide registry: a brand mark is not a glyph we may recolour or swap, so it never resolves through \`conceptIcon\`. Claude keeps its real path in its own orange (\`CLAUDE_FILL\`) on all four clients; Codex is the CLI's own mark; the OpenAI and Cursor marks are simplified silhouettes for the MCP setup tabs, which only need recognisability beside a name. \`AgentBrandMark\` is the resolver every run surface uses — and an agent this build ships no mark for falls back to the neutral \`settings-agents\` concept rather than wearing claude's, the same rule on all four.`,
+    blurb: `The agents' own marks, deliberately OUTSIDE the Lucide registry: a brand mark is not a glyph we may recolour or swap, so it never resolves through \`conceptIcon\`. Claude keeps its real path in its own orange (\`CLAUDE_FILL\`) on all four clients; Codex is the CLI's own mark; the OpenAI and Cursor marks are simplified silhouettes for the MCP setup tabs, which only need recognisability beside a name. \`AgentBrandMark\` is the resolver every session surface uses — and an agent this build ships no mark for falls back to the neutral \`settings-agents\` concept rather than wearing claude's, the same rule on all four.`,
     status: {
       web: ok(
         `ClaudeIcon / CodexIcon / AgentBrandMark`,
@@ -2082,9 +2098,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
   },
   {
     id: `run-state-mark`,
-    title: `Run state mark`,
+    title: `Session state mark`,
     kind: `Icons`,
-    blurb: `EXP-1184: what a LIVE run is doing, one rule ×4 (contract fixture \`session-display.json\`, first match wins): it waits on you → the AMBER badge; the agent works → Claude's own "writing" spark, eight hand-drawn frames at 90 ms with hard cuts (vendored once as \`packages/icons/agent/claude-writing.svg\`, generated into every client; an agent without working art pulses its brand mark instead; reduced motion holds the static mark); idle with its pull request open → the GREEN badge (in review); idle with no open pull request, or merged → the BLUE badge (done). A follow-up turn on a run in review reads working again; the session row and the issue status never change for it. The amber needs-input badge beats every other state (the red needs-you badge is gone), a paused run wears the bare mark. EXP-1208: every session LIST row ×4 leads with this mark too (running and ended rows, the action Runs list; no more state dots), and a FINISHED run's row wears the ENDED mark: the brand mark at half opacity with no badge. Where a surface still draws a dot (tab chips), the dot takes the state's tone and gives way to the same working mark.`,
+    blurb: `EXP-1184: what a LIVE session is doing, one rule ×4 (contract fixture \`session-display.json\`, first match wins): it waits on you → the AMBER badge; the agent works → Claude's own "writing" spark, eight hand-drawn frames at 90 ms with hard cuts (vendored once as \`packages/icons/agent/claude-writing.svg\`, generated into every client; an agent without working art pulses its brand mark instead; reduced motion holds the static mark); idle with its pull request open → the GREEN badge (in review); idle with no open pull request, or merged → the BLUE badge (done). A follow-up turn on a session in review reads working again; the session row and the issue status never change for it. The amber needs-input badge beats every other state (the red needs-you badge is gone), a paused session wears the bare mark. EXP-1208: every session LIST row ×4 leads with this mark too (running and ended rows, the action Sessions list; no more state dots), and a FINISHED session's row wears the ENDED mark: the brand mark at half opacity with no badge. Where a surface still draws a dot (tab chips), the dot takes the state's tone and gives way to the same working mark.`,
     status: {
       web: ok(
         `AgentRunMark / AgentWorkingMark / ClaudeSpinner`,
@@ -2226,7 +2242,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-bar`,
     title: `Work bar`,
     kind: `Surfaces`,
-    blurb: `EXP-893: the phone's ONE floating bottom bar, \`[circle] [capsule] [circle]\` in the floating-glass recipe, shared by every face of the Work screen — the issue (Properties · Comment · Start), the run (usage ring · composer · Start once the run ended for good) and the Guide (the white Merge capsule, a centred cluster; a section page adds the file sheet). EXP-1150: the face SWITCHER circle is gone — the faces are the segmented tabs INSIDE the header band (the Work header's own \`WorkFaceToggle\`, iOS/Android \`GlassSegmentedControl\`), and the body swipes between them. EXP-1154: the ONE merge is the SOLID white capsule on this bar again on every face: in the cluster on the Guide, floating centred 10px above the composer bar on Issue and Run (hidden while the composer is open). EXP-916 locked the geometry to Android's: a 20px screen inset, 10px between the slots, 52px circles with 20px glyphs, a capsule padded 18px. Expanding the composer replaces the left circle and the capsule while the trailing circle stays MOUNTED. EXP-1162: the last rows pass BEHIND the bar through the bottom edge layer (contract \`detail-chrome.json\`: a blurred scrim fading upwards from the screen edge to 32px above the bar) instead of ending hard under the slots. The real bar is \`fixed … md:hidden\`, so the specimen is its SLOTS in a row.`,
+    blurb: `EXP-893: the phone's ONE floating bottom bar, \`[circle] [capsule] [circle]\` in the floating-glass recipe, shared by every face of the Work screen — the issue (Properties · Comment · Start), the session (usage ring · composer · Start once the session ended for good) and the Guide (the white Merge capsule, a centred cluster; a section page adds the file sheet). EXP-1150: the face SWITCHER circle is gone — the faces are the segmented tabs INSIDE the header band (the Work header's own \`WorkFaceToggle\`, iOS/Android \`GlassSegmentedControl\`), and the body swipes between them. EXP-1154: the ONE merge is the SOLID white capsule on this bar again on every face: in the cluster on the Guide, floating centred 10px above the composer bar on Issue and Session (hidden while the composer is open). EXP-916 locked the geometry to Android's: a 20px screen inset, 10px between the slots, 52px circles with 20px glyphs, a capsule padded 18px. Expanding the composer replaces the left circle and the capsule while the trailing circle stays MOUNTED. EXP-1162: the last rows pass BEHIND the bar through the bottom edge layer (contract \`detail-chrome.json\`: a blurred scrim fading upwards from the screen edge to 32px above the bar) instead of ending hard under the slots. The real bar is \`fixed … md:hidden\`, so the specimen is its SLOTS in a row.`,
     status: {
       web: ok(
         `MobileWorkBar / MobileWorkCapsule`,
@@ -2270,7 +2286,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `work-header`,
     title: `Work header`,
     kind: `Surfaces`,
-    blurb: `EXP-877: the ONE header the issue route and the session route share, on the 896px reading column every face uses (body, transcript, diff). EXP-1162 (contract \`detail-chrome.json\`, ×4): it is a compact BAR and the large title is a ROW of the issue face's scrolling body. At rest the bar floats over the scroller with its right cluster alone, on the title's own line; once the title row scrolled away it BREAKS (a threshold, 160ms, rising 4px) into the collapsed title — the mono identifier over the title on one truncated line. A face with no title row of its own (Run, Guide, a Guide section page) is always collapsed, with the properties tray under the bar. No hairline closes it: content scrolls under an edge layer (page ground at 72% over an 8px blur) whose last 24px fade to nothing; the phone's header band and floating bottom bar (32px) wear the same edges.`,
+    blurb: `EXP-877: the ONE header the issue route and the session route share, on the 896px reading column every face uses (body, transcript, diff). EXP-1162 (contract \`detail-chrome.json\`, ×4): it is a compact BAR and the large title is a ROW of the issue face's scrolling body. At rest the bar floats over the scroller with its right cluster alone, on the title's own line; once the title row scrolled away it BREAKS (a threshold, 160ms, rising 4px) into the collapsed title — the mono identifier over the title on one truncated line. A face with no title row of its own (Session, Guide, a Guide section page) is always collapsed, with the properties tray under the bar. No hairline closes it: content scrolls under an edge layer (page ground at 72% over an 8px blur) whose last 24px fade to nothing; the phone's header band and floating bottom bar (32px) wear the same edges.`,
     status: {
       web: ok(
         `WorkHeader / CollapsedTitle`,
@@ -2374,7 +2390,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `pr-github-button`,
     title: `Open on GitHub`,
     kind: `Buttons & chips`,
-    blurb: `EXP-916: THE GitHub control of every diff surface — the PR page in a new tab — as one component in two shapes, so the words (the contract's) and the behaviour are written once. \`ghost\` is the work header's action slot beside Merge; \`circle\` is a phone work-bar slot, for a run with no issue header to hang it on, and takes its chrome whole from the bar's circle recipe (EXP-1154: the Reviews header's \`glass\` shape went with that page). Each shape keeps the \`data-testid\` its surface had before they were merged.`,
+    blurb: `EXP-916: THE GitHub control of every diff surface — the PR page in a new tab — as one component in two shapes, so the words (the contract's) and the behaviour are written once. \`ghost\` is the work header's action slot beside Merge; \`circle\` is a phone work-bar slot, for a session with no issue header to hang it on, and takes its chrome whole from the bar's circle recipe (EXP-1154: the Reviews header's \`glass\` shape went with that page). Each shape keeps the \`data-testid\` its surface had before they were merged.`,
     status: {
       web: ok(`PrGithubButton`, `packages/ui/src/pr-github-button.tsx`),
       desktop: ok(`work_header::github_button`, `apps/desktop/crates/ui/src/work_header.rs`),
@@ -2545,7 +2561,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
     id: `session-results`,
     title: `Session results`,
     kind: `Lists & rows`,
-    blurb: `EXP-879: the screenshots a run published with \`exponential_sessions_results\`, read off the synced jsonb — EXP-933: and each topic's GFM report text (\`text\` entries), drawn above its tiles by the app's markdown renderer (\`renderText\`; plain pre-wrapped prose without one), so a text-only \`Summary\` topic reads as the run's report. One group band per topic over a wrapping strip of tiles, so an iOS, an Android and a web shot of ONE screen read as one row — which only works because every tile is the same height and takes its width from the probed aspect (a 4:3 desktop frame stands in when the upload could not be measured). On a narrow column the whole page scales down by ONE factor, the widest tile's overflow, rather than letting a row clip or each row pick its own size. Tapping a tile opens the shared lightbox. The tile URL is passed in: this package owns the tiles, the app owns the route. EXP-1154: the face reads as the GUIDE (the Results guide entry): Summary leads unbanded, every other band wears a \`01 / 04\` caption and lists the files its topic touched.`,
+    blurb: `EXP-879: the screenshots a session published with \`exponential_sessions_results\`, read off the synced jsonb — EXP-933: and each topic's GFM report text (\`text\` entries), drawn above its tiles by the app's markdown renderer (\`renderText\`; plain pre-wrapped prose without one), so a text-only \`Summary\` topic reads as the session's report. One group band per topic over a wrapping strip of tiles, so an iOS, an Android and a web shot of ONE screen read as one row — which only works because every tile is the same height and takes its width from the probed aspect (a 4:3 desktop frame stands in when the upload could not be measured). On a narrow column the whole page scales down by ONE factor, the widest tile's overflow, rather than letting a row clip or each row pick its own size. Tapping a tile opens the shared lightbox. The tile URL is passed in: this package owns the tiles, the app owns the route. EXP-1154: the face reads as the GUIDE (the Results guide entry): Summary leads unbanded, every other band wears a \`01 / 04\` caption and lists the files its topic touched.`,
     status: {
       web: ok(
         `SessionResultsView`,
@@ -2569,9 +2585,9 @@ export const COMPONENTS: readonly ComponentSpec[] = [
   },
   {
     id: `session-inline-picture`,
-    title: `Inline run picture`,
+    title: `Inline session picture`,
     kind: `Lists & rows`,
-    blurb: `EXP-1172: a screenshot \`exponential_sessions_show\` filed while the run worked, drawn in the run TRANSCRIPT under that call's row ("Showed picture"): the Results tile at a 240px base (fitted to the column by the same one-factor rule), the call's caption under it (else the label), the shared lightbox behind a tap. It is found by the attachment id the call's answer carried (the tool preview's \`id\`) in the synced \`coding_sessions.results\`, so it appears the moment the upload lands, at the call, newest at the bottom; a run of show calls keeps its tiles visible while its group is folded. On the Results face the same \`inline\` pictures fold under a collapsed \`Earlier · N\` disclosure below a topic's final tiles unless they are its only picture (the Session results entry above shows the fold). Fixture \`session-inline.json\` ×4.`,
+    blurb: `EXP-1172: a screenshot \`exponential_sessions_show\` filed while the session worked, drawn in the session TRANSCRIPT under that call's row ("Showed picture"): the Results tile at a 240px base (fitted to the column by the same one-factor rule), the call's caption under it (else the label), the shared lightbox behind a tap. It is found by the attachment id the call's answer carried (the tool preview's \`id\`) in the synced \`coding_sessions.results\`, so it appears the moment the upload lands, at the call, newest at the bottom; a run of show calls keeps its tiles visible while its group is folded. On the Results face the same \`inline\` pictures fold under a collapsed \`Earlier · N\` disclosure below a topic's final tiles unless they are its only picture (the Session results entry above shows the fold). Fixture \`session-inline.json\` ×4.`,
     status: {
       web: ok(
         `SessionInlineResultTile`,
@@ -2582,7 +2598,7 @@ export const COMPONENTS: readonly ComponentSpec[] = [
       ios: ok(
         `SessionInlinePicture`,
         `apps/ios/Exponential/UI/Work/SessionResultTiles.swift`,
-        `AgentSessionView reads the run's results through the sessionResultsRaw environment value`
+        `AgentSessionView reads the session's results through the sessionResultsRaw environment value`
       ),
       android: ok(
         `ExpToolPicture`,

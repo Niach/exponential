@@ -53,4 +53,17 @@ describe(`RunStatusRow`, () => {
     render(<RunStatusRow agent="claude" markState="ended" caption="Done on mint · 7m 17s" tone="muted" />)
     expect(screen.queryByRole(`button`)).toBeNull()
   })
+
+  // EXP-1271 (EXP-1259 D8): before the first turn the mark sweeps in the run
+  // mark's slot.
+  it(`starting: THE mark instead of the run mark`, () => {
+    render(
+      <RunStatusRow agent="claude" starting caption="Starting on mint" tone="muted" />
+    )
+    const row = screen.getByTestId(`run-status-row`)
+    expect(row.getAttribute(`data-starting`)).toBe(`true`)
+    expect(row.querySelector(`[data-slot="feedback-mark"]`)).toBeTruthy()
+    expect(row.querySelector(`[data-slot="run-mark"]`)).toBeNull()
+    expect(screen.getByText(`Starting on mint`)).toBeTruthy()
+  })
 })

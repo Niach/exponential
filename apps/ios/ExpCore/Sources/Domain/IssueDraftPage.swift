@@ -68,6 +68,34 @@ public enum IssueDraftPage {
             || !attachmentsKnown
     }
 
+    /// What ONE autosave write does with the page as it stands.
+    public enum Write: Equatable, Sendable {
+        case none
+        case upsert
+        case delete
+    }
+
+    /// `needsRow` = the draft has content (or an upload needs the row);
+    /// `mayHaveRow` = this page wrote the row, or sent an upsert whose answer
+    /// never came back; `held` = the row this page saw is gone from the store
+    /// (EXP-1231's grace). An emptied draft is deleted only on the way out
+    /// and only once its files are known to be none, and the hold never
+    /// blocks that delete: deleting cannot resurrect a discarded draft, while
+    /// skipping it leaves behind the row an autosave wrote moments earlier.
+    /// An upsert under the hold could resurrect one, so it waits.
+    public static func write(
+        needsRow: Bool,
+        leaving: Bool,
+        attachmentsKnown: Bool,
+        mayHaveRow: Bool,
+        held: Bool
+    ) -> Write {
+        guard needsRow else {
+            return leaving && attachmentsKnown && mayHaveRow ? .delete : .none
+        }
+        return held ? .none : .upsert
+    }
+
     /// The leave prompt's answers.
     public enum LeaveChoice: Equatable, Sendable {
         case discard

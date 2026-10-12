@@ -226,11 +226,17 @@ extension OwnedTextField: UIViewRepresentable {
             for press in presses {
                 guard let key = press.key else { continue }
                 let shift = key.modifierFlags.contains(.shift)
+                // EXP-1259: Tab and ← / → with the caret at the start reach a
+                // search list's field (the model ignores them elsewhere).
+                let atStart = selectedTextRange.map { $0.isEmpty && compare($0.start, to: beginningOfDocument) == .orderedSame } ?? false
                 let name: String? = switch key.keyCode {
                 case .keyboardUpArrow: "up"
                 case .keyboardDownArrow: "down"
                 case .keyboardPageUp: "pageup"
                 case .keyboardPageDown: "pagedown"
+                case .keyboardTab: "tab"
+                case .keyboardLeftArrow where atStart: "leftAtStart"
+                case .keyboardRightArrow where atStart: "rightAtStart"
                 default: nil
                 }
                 if let name, onKey?(name, shift) == true { return }
@@ -301,6 +307,14 @@ extension OwnedTextField: NSViewRepresentable {
                 return parent.key("pageup")
             case #selector(NSResponder.pageDown(_:)), #selector(NSResponder.scrollPageDown(_:)):
                 return parent.key("pagedown")
+            // EXP-1259: a search list's field picks on Tab and leaves a
+            // searchable submenu on ← at the caret's start.
+            case #selector(NSResponder.insertTab(_:)):
+                return parent.key("tab")
+            case #selector(NSResponder.moveLeft(_:)) where textView.selectedRange() == NSRange(location: 0, length: 0):
+                return parent.key("leftAtStart")
+            case #selector(NSResponder.moveRight(_:)) where textView.selectedRange() == NSRange(location: 0, length: 0):
+                return parent.key("rightAtStart")
             default:
                 return false
             }

@@ -17,6 +17,16 @@ import {
 // one screen must not push the rest of its topic around. The displaced
 // attachment id comes back so the caller can delete that row and its S3
 // object; nothing here touches storage.
+//
+// EXP-1284 (review T1): a thread's Guide holds every session's entries, so
+// each write takes an `owns` predicate (`ownsGuideEntry`, lib/thread-guide):
+// replace, remove, tag and the per-session caps consider only the entries
+// the writing session owns. Absent = every entry (a session's own row).
+
+/** Which entries the writer may touch; absent = all of them. */
+export type GuideEntryFilter = (row: CodingSessionResult) => boolean
+
+const everyEntry: GuideEntryFilter = () => true
 
 export interface SessionResultUpsert {
   results: CodingSessionResult[]
@@ -27,11 +37,16 @@ export interface SessionResultUpsert {
 
 export function upsertSessionResult(
   current: CodingSessionResult[] | null,
-  entry: CodingSessionResult
+  entry: CodingSessionResult,
+  owns: GuideEntryFilter = everyEntry
 ): SessionResultUpsert {
   const results = [...(current ?? [])]
   const index = results.findIndex(
-    (row) => !isTextEntry(row) && row?.topic === entry.topic && row?.label === entry.label
+    (row) =>
+      !isTextEntry(row) &&
+      row?.topic === entry.topic &&
+      row?.label === entry.label &&
+      owns(row)
   )
   if (index === -1) {
     results.push(entry)
@@ -105,18 +120,28 @@ export function cleanSessionResultFiles(files: readonly unknown[]): string[] {
  *
  * EXP-1245/1251 `meta`: `at` = the server's write stamp; `prUrl` scopes the
  * topic to one PR (`undefined` keeps the replaced entry's tag, null or blank
- * clears it).
+ * clears it). EXP-1284: `sessionId` = the writer, stamped on the entry;
+ * `owns` = the entries it may replace (another session's topic of the same
+ * name stays, the new one files beside it) and the ones its caps count.
  */
 export function upsertSessionResultText(
   current: CodingSessionResult[] | null,
   topic: string,
   text: string,
   files?: readonly string[],
-  meta: { at?: number; prUrl?: string | null } = {}
+  meta: {
+    at?: number
+    prUrl?: string | null
+    sessionId?: string
+    owns?: GuideEntryFilter
+  } = {}
 ): CodingSessionResult[] | null {
   const before = current ?? []
   const results = [...before]
-  const index = results.findIndex((row) => isTextEntry(row) && row.topic === topic)
+  const owned = meta.owns ?? everyEntry
+  const index = results.findIndex(
+    (row) => isTextEntry(row) && row.topic === topic && owned(row)
+  )
   const kept =
     files === undefined
       ? index === -1 || !Array.isArray(results[index]?.files)
@@ -139,42 +164,52 @@ export function upsertSessionResultText(
     ...(kept.length ? { files: kept } : {}),
     ...(prUrl ? { prUrl } : {}),
     ...(meta.at !== undefined ? { at: meta.at } : {}),
+    ...(meta.sessionId ? { sessionId: meta.sessionId } : {}),
   }
   if (index === -1) {
     // A topic that already has pictures gets its text at the topic's FIRST
     // position, so the report reads above its tiles in every reader.
-    const first = results.findIndex((row) => row?.topic === topic)
+    const first = results.findIndex((row) => row?.topic === topic && owned(row))
     if (first === -1) results.push(entry)
     else results.splice(first, 0, entry)
   } else {
     results[index] = entry
   }
-  if (exceedsSessionResultsCap(results)) return null
-  const textTotal = reportTextLength(results)
+  // The caps are per SESSION: they count what the writer owns (the new
+  // entry is its own whatever `owns` says).
+  const mine = (rows: readonly CodingSessionResult[]) =>
+    rows.filter((row) => row === entry || owned(row))
+  const after = mine(results)
+  const prior = mine(before)
+  if (exceedsSessionResultsCap(after)) return null
+  const textTotal = reportTextLength(after)
   if (
     textTotal > SESSION_RESULTS_REPORT_TOTAL_MAX &&
-    textTotal > reportTextLength(before)
+    textTotal > reportTextLength(prior)
   ) {
     return null
   }
-  const fileTotal = reportFileCount(results)
-  if (fileTotal > SESSION_RESULTS_FILES_TOTAL_MAX && fileTotal > reportFileCount(before)) {
+  const fileTotal = reportFileCount(after)
+  if (fileTotal > SESSION_RESULTS_FILES_TOTAL_MAX && fileTotal > reportFileCount(prior)) {
     return null
   }
   return results
 }
 
 /** `label` removes one picture; without it the WHOLE topic goes (its text
- *  too). `text: true` removes only the topic's report text. */
+ *  too). `text: true` removes only the topic's report text. EXP-1284: only
+ *  entries the writer `owns`. */
 export function removeSessionResults(
   current: CodingSessionResult[] | null,
-  target: { topic: string; label?: string | null; text?: boolean }
+  target: { topic: string; label?: string | null; text?: boolean },
+  owns: GuideEntryFilter = everyEntry
 ): SessionResultRemoval {
   const results: CodingSessionResult[] = []
   const removedAttachmentIds: string[] = []
   for (const row of current ?? []) {
     const hit =
       row?.topic === target.topic &&
+      owns(row) &&
       (target.text
         ? isTextEntry(row)
         : target.label == null || (!isTextEntry(row) && row?.label === target.label))
@@ -270,16 +305,41 @@ export function canonicalGithubPrUrl(raw: string): string | null {
 
 /** EXP-1251: when a run opens a NEW PR, the text topics filed so far without
  *  a `prUrl` belong to it: they are tagged, so a later stacked PR's body and
- *  issue page never claim them. Tagged topics keep their tag. */
+ *  issue page never claim them. Tagged topics keep their tag. EXP-1284: only
+ *  the WRITING session's (`owns`): another session's untagged topics in the
+ *  thread's Guide are its own PR's. */
 export function stampUntaggedResults(
   results: readonly CodingSessionResult[] | null,
-  prUrl: string
+  prUrl: string,
+  owns: GuideEntryFilter = everyEntry
 ): { results: CodingSessionResult[]; changed: boolean } {
   let changed = false
   const next = (results ?? []).map((row) => {
     if (!isTextEntry(row) || (typeof row.prUrl === `string` && row.prUrl.trim())) return row
+    if (!owns(row)) return row
     changed = true
     return { ...row, prUrl }
   })
   return { results: next, changed }
+}
+
+/** EXP-1284 (review T2): a session moving between threads takes ITS Guide
+ *  entries along: the ones it wrote (`sessionId`) plus, when it is the source
+ *  thread's first session (`ownsLegacy`), the unstamped ones filed before the
+ *  stamp, which are stamped with it on the way so the target slices them to
+ *  it too. `kept` = what stays with the source thread. */
+export function splitSessionGuideEntries(
+  results: readonly CodingSessionResult[] | null,
+  sessionId: string,
+  ownsLegacy: boolean
+): { moved: CodingSessionResult[]; kept: CodingSessionResult[] } {
+  const moved: CodingSessionResult[] = []
+  const kept: CodingSessionResult[] = []
+  for (const row of results ?? []) {
+    const stamped = typeof row?.sessionId === `string` && row.sessionId ? row.sessionId : null
+    if (stamped === sessionId) moved.push(row)
+    else if (!stamped && ownsLegacy && row) moved.push({ ...row, sessionId })
+    else kept.push(row)
+  }
+  return { moved, kept }
 }

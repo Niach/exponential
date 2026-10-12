@@ -10,8 +10,7 @@
 //! a GAPPED list of [`crate::surface::glass_row_card`] rows (EXP-642).
 //!
 //! EXP-686 split the old three-tab page apart: machines moved to
-//! [`crate::devices_view`] and the suggestion seeds to the Getting-started
-//! page's second tab (the header's lightbulb goes there). SLOP-2 folded the
+//! [`crate::devices_view`]; EXP-1270 removed the suggestion seeds. SLOP-2 folded the
 //! triggers into their action: a row wears its triggers' glyphs, and the
 //! triggers and the runs they fire live on the action's page.
 //!
@@ -48,13 +47,16 @@ use gpui_component::{
     ActiveTheme as _, Disableable as _, Icon, Sizable as _,
 };
 
-use crate::controls::WebControl as _;
 use crate::icons::registry;
 use crate::navigation::{
-    active_team_id, nav_for_window, navigate, GettingStartedTab, Navigation, Screen,
+    active_team_id, nav_for_window, navigate, Navigation, Screen,
 };
 use crate::native_dialog::{self, AlertSpec};
 use crate::queries;
+
+/// An action row's height (`py_2p5` around a title and a two-line
+/// description): the first load's skeleton rows take it (EXP-1259 D8).
+const ACTION_ROW_H: f32 = 56.;
 
 /// The page column's width cap — the web page's `md:max-w-5xl`.
 const PAGE_COLUMN_W: f32 = 1024.;
@@ -104,34 +106,6 @@ pub(crate) fn page_scaffold_with(
                     .mx_auto(),
             ),
         ))
-}
-
-/// The subtle icon-only lightbulb every list header carries next to its
-/// "New …" button (EXP-686): the curated action suggestions moved to the
-/// Getting-started page's second tab, and this is the way back to them from
-/// the list they seed.
-///
-/// EXP-862: it is a GHOST glyph ([`crate::controls::ghost_icon_button`]) — a
-/// circle means a primary action (play, send, New issue), and this is the
-/// quiet way back to the suggestions.
-///
-/// EXP-827: at the PILL's height (`CONTROL_SM`, 24px — `web_icon_xs`), not the
-/// 32px the shared affordance defaults to: it sits beside a `PillSize::Sm`
-/// "New …" pill.
-pub(crate) fn suggestions_button(id: &'static str, cx: &App) -> gpui::AnyElement {
-    crate::controls::ghost_icon_button(id, Icon::from(registry::ACTION_SUGGESTION), cx)
-        .web_icon_xs()
-        .tooltip("Suggestions")
-        .on_click(|_: &ClickEvent, window, cx| {
-            navigate(
-                window,
-                cx,
-                Screen::GettingStarted {
-                    tab: GettingStartedTab::Suggestions,
-                },
-            );
-        })
-        .into_any_element()
 }
 
 pub struct ActionsView {
@@ -514,7 +488,6 @@ impl ActionsView {
 
 impl Render for ActionsView {
     fn render(&mut self, _window: &mut Window, cx: &mut gpui::Context<Self>) -> impl IntoElement {
-        let muted = cx.theme().muted_foreground;
         // EXP-832: the rows were derived when the data last changed
         // (`refresh`); this only draws them. The team is read off the
         // derivation too, so a header and its rows never disagree.
@@ -550,17 +523,6 @@ impl Render for ActionsView {
                     })
                     .into_any_element()
             });
-        // EXP-686: the lightbulb sits left of "New action" and leads to the
-        // suggestion seeds on the Getting-started page.
-        let trailing = gpui_component::h_flex()
-            .items_center()
-            .gap_1()
-            .child(suggestions_button("actions-suggestions", cx))
-            .children(new_action)
-            .into_any_element();
-        let header =
-            crate::surface::glass_section_header("Actions", Some(trailing), cx);
-
         let rows: Vec<gpui::AnyElement> = self
             .derived
             .actions
@@ -584,29 +546,34 @@ impl Render for ActionsView {
             .map(|team_id| self.render_nudge(team_id, cx));
 
         // EXP-642: each row is its OWN card — a gapped column, no fused
-        // bordered block. The rows render as soon as they hydrate; readiness
-        // only appends the loading note (the tool-window list's behavior —
-        // never blank a list that already has data).
+        // bordered block. The rows render as soon as they hydrate (never
+        // blank a list that already has data): EXP-1259 D8 — a first load
+        // with nothing yet is skeleton rows, a load behind rows spins the
+        // band.
+        let header = crate::surface::glass_section_header_loading(
+            "Actions",
+            loading && !rows.is_empty(),
+            new_action,
+            cx,
+        );
         let mut body = gpui_component::v_flex().min_w_0().gap_2();
         if !rows.is_empty() {
             body = body.child(gpui_component::v_flex().min_w_0().children(rows));
+        } else if loading {
+            body = body.child(crate::feedback::skeleton_rows(
+                "actions-skeleton",
+                crate::feedback::SKELETON_ROWS,
+                ACTION_ROW_H,
+                cx,
+            ));
         }
         // NO gap on the section (EXP-697): the header's own `pb_2` IS the
         // 8px to the list — a gap here doubles it. The rows keep their gap
         // inside `body`.
-        let mut actions_section = gpui_component::v_flex()
+        let actions_section = gpui_component::v_flex()
             .min_w_0()
             .child(header)
             .child(body.children(nudge));
-        if loading {
-            actions_section = actions_section.child(
-                div()
-                    .pt_2()
-                    .text_xs()
-                    .text_color(muted)
-                    .child("Loading actions…"),
-            );
-        }
 
         page_scaffold(
             "actions-screen-scroll",

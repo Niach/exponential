@@ -2,13 +2,21 @@ import ExpCore
 import ExpUI
 import SwiftUI
 
-/// EXP-825: the team's AGENT page — the ONE launcher on every client. The
-/// subject headline (EXP-1038, `AgentComposerHeadline`: the contract verb
-/// plus the action or issue chips), the composer card (`AgentComposerCard`:
-/// the message, images, the labelled submit), the `@`/`#`/`:` candidate menu
-/// under it, the options line (`AgentOptionsRow`), the start captions, then
-/// the caller's Running and Recent sessions (`AgentSessionsList`, moved here
-/// from the Devices tab, which keeps machines only — web parity, EXP-818).
+/// EXP-825: the team's AGENT page — the ONE launcher on every client.
+/// EXP-1253 (EXP-1259 D1): it is HOME (composer-home.json): the headline (the
+/// disc mark + the time-of-day greeting, `HomeGreeting`, computed once per
+/// mount) while nothing is picked, else the subject headline (EXP-1038,
+/// `AgentComposerHeadline`: the contract verb plus the action or issue
+/// chips); the composer card (`AgentComposerCard`: placeholder "What do you
+/// want to build?", the starting row after Start); the `@`/`:` candidate
+/// menu under it (`#` opens THE search list in a sheet, SLOP-28); the options
+/// line (`AgentOptionsRow`); then Getting started while the team has no
+/// board, and (EXP-1284) the caller's Running THREADS (`AgentThreadLists`:
+/// a live session of mine, every team, banded, plus my live sessions no
+/// thread names yet; a row opens the thread). No Recent band and no
+/// suggestion rows (Danny 2026-10-12): the toolbar's history sheet (threads,
+/// banded per team) is the one place for recent work. The brand-mark
+/// watermark is gone ×4.
 ///
 /// Two shapes: the Agent ROOT (`isTabRoot`, an empty seed as the stack's
 /// root — EXP-1210: a tab root like its siblings, no back — the app's
@@ -30,22 +38,30 @@ struct AgentPageView: View {
     @Environment(\.accountId) private var accountId
     @Environment(TeamState.self) private var teamState
     @State private var sessions: AgentsViewModel?
+    /// EXP-1284: the page lists THREADS, not bare runs (Running / Recent,
+    /// `partitionThreadList`).
+    @State private var threads: ThreadListModel?
     @State private var composer: AgentComposerModel?
     /// nil until the relay config resolves — the composer waits for it
     /// rather than flashing the relay-off note.
     @State private var steerEnabled: Bool?
     /// The started run's push target, consumed once.
     @State private var sessionTarget: StartedRunWatcher.StartedSession?
+    /// On screen (appear → disappear): only a visible page pushes a landing.
+    @State private var visible = false
     /// EXP-923: the history sheet — the finished runs, off the toolbar glyph.
     @State private var showRecent = false
-    /// The run picked in that sheet, pushed once the sheet is gone (a push
+    /// The thread picked in that sheet, pushed once the sheet is gone (a push
     /// racing its own dismissal lands on nothing).
     @State private var pendingRecent: String?
     /// The seed's team has been made the active one (once per push).
     @State private var alignedSeedTeam = false
-    /// EXP-820: the chips THIS mount shows — drawn once, never reshuffled
-    /// under the reader's finger (web `useState(() => pickChatSuggestions())`).
-    @State private var suggestions = ChatSuggestions.pick()
+    /// EXP-1253: the greeting THIS mount shows — computed once, it never
+    /// flips while you type (web `useState(() => homeGreeting(...))`).
+    @State private var greeting: String?
+    /// EXP-1270: Getting started's signals for the active team (the block
+    /// follows the composer while the team has no board).
+    @State private var gettingStarted = GettingStartedProgress()
     @State private var keyboardVisible = false
     /// EXP-1196: the not-ready row's Sign in pill → the remote sign-in.
     @State private var loginTarget: AgentLoginTarget?
@@ -54,6 +70,7 @@ struct AgentPageView: View {
     /// EXP-1196: the not-ready row's Update while `agent_update` is out.
     @State private var updatingAgent: String?
     @Environment(\.toaster) private var toaster
+    @Environment(\.pushRoute) private var pushRoute
 
     private var reservesTabBar: Bool { isTabRoot && !keyboardVisible }
 
@@ -61,8 +78,8 @@ struct AgentPageView: View {
         ZStack {
             AppBackground()
 
-            if let sessions, let composer {
-                // EXP-862: with nothing running and nothing in Recent, the
+            if sessions != nil, let composer {
+                // EXP-862: with nothing running, the
                 // composer column is CENTRED in the page (×4: web's
                 // `justify-center`, the IDE's `min_h_full`) — a lone prompt box
                 // pinned under the nav bar over an empty screen read as a page
@@ -70,11 +87,13 @@ struct AgentPageView: View {
                 // EXP-923: only the RUNNING rows count now — history moved
                 // into its own sheet, so an empty Running band is an empty
                 // page.
-                let centred = sessions.rows.isEmpty
+                let centred = (threads?.running.isEmpty ?? true) && (threads?.orphans.isEmpty ?? true)
                 GeometryReader { proxy in
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         if steerEnabled == false {
+                            homeHeadline
+                                .padding(.bottom, CGFloat(HomeGreeting.Geometry.headlineToCard) - 12)
                             relayOffNote
                         } else if steerEnabled == true {
                             // EXP-1038: the run's SUBJECT heads the page —
@@ -89,6 +108,10 @@ struct AgentPageView: View {
                             // heading.
                             if composer.subject != AgentComposerPrompt.Subject.none {
                                 AgentComposerHeadline(model: composer)
+                            } else {
+                                // EXP-1253: nothing picked = the greeting leads.
+                                homeHeadline
+                                    .padding(.bottom, CGFloat(HomeGreeting.Geometry.headlineToCard) - 12)
                             }
                             AgentComposerCard(model: composer) { issueId in
                                 deps.deepLinkBus.navigateToIssue(issueId, accountId: accountId)
@@ -101,17 +124,27 @@ struct AgentPageView: View {
                                 EditorAutocompleteMenu(model: composer.draftEditor)
                             }
                             AgentOptionsRow(model: composer)
-                            // EXP-1249: quiet suggestion rows BELOW the options
-                            // line (the pool is byte-identical ×4).
-                            suggestionRows(composer)
                             captions(composer)
                         }
 
-                        AgentSessionsList(
-                            vm: sessions,
-                            steerEnabled: steerEnabled == true
-                        )
-                        .padding(.top, 8)
+                        homeGettingStarted
+
+                        // EXP-1284 (draft 3; T4/T6): the Running THREADS —
+                        // every team, banded; my live sessions no thread
+                        // names yet as plain session rows. A row opens the
+                        // thread.
+                        if let threads {
+                            AgentThreadLists(
+                                model: threads,
+                                onOpen: { threadId in
+                                    pushRoute(.thread(accountId: accountId, threadId: threadId))
+                                },
+                                onOpenSession: { sessionId in
+                                    pushRoute(.runThread(accountId: accountId, sessionId: sessionId))
+                                }
+                            )
+                            .padding(.top, 8)
+                        }
                     }
                     .padding()
                     .frame(
@@ -139,7 +172,10 @@ struct AgentPageView: View {
                 .tabBarBottomInset(reservesTabBar)
                 }
             } else {
-                ProgressView().tint(.white)
+                // EXP-1275: the first load is a placeholder, not a spinner.
+                SkeletonRows()
+                    .padding()
+                    .frame(maxHeight: .infinity, alignment: .top)
             }
         }
         .navigationTitle("Agent")
@@ -155,7 +191,7 @@ struct AgentPageView: View {
                         .frame(width: 32, height: 32)
                         .contentShape(Circle())
                 }
-                .accessibilityLabel("Recent runs")
+                .accessibilityLabel("Recent sessions")
                 .accessibilityIdentifier("agent-history-button")
             }
         }
@@ -165,12 +201,14 @@ struct AgentPageView: View {
             }
         }
         .agentImportFlow($importTarget, devices: sessions?.devices ?? [])
+        // T-N1: the history sheet lists THREADS (banded per team); a row
+        // opens the thread once the sheet has closed.
         .sheet(isPresented: $showRecent, onDismiss: pushPendingRecent) {
-            if let sessions {
-                RecentRunsSheet(
-                    vm: sessions,
-                    onOpen: { sessionId in
-                        pendingRecent = sessionId
+            if let threads {
+                RecentThreadsSheet(
+                    model: threads,
+                    onOpen: { threadId in
+                        pendingRecent = threadId
                         showRecent = false
                     }
                 )
@@ -190,29 +228,48 @@ struct AgentPageView: View {
             steerEnabled = config.enabled
         }
         .onAppear {
+            visible = true
+            // A session that landed (unchanged draft) while the page was
+            // off-screen opens on the way back, the way Android's ViewModel
+            // hands it over; pushed a beat later so it never races the pop.
+            if let landed = composer?.landedSession {
+                composer?.landedSession = nil
+                Task { @MainActor in land(landed) }
+            }
+            if greeting == nil {
+                greeting = HomeGreeting.greeting(name: deps.auth.userName)
+            }
             alignActiveTeamToSeed()
             ensureModels()
+            // A composer kept through a team change (its draft or start)
+            // follows the team once there is nothing left to lose.
+            rebindComposer(to: teamState.activeTeam?.id)
             sessions?.activeTeamId = teamState.activeTeam?.id
+            threads?.start()
             // Re-arm on every appear: pushing the session stops the
             // observation (onDisappear), popping back must resume it.
             sessions?.startObserving()
         }
-        .onChange(of: teamState.activeTeam?.id) { _, teamId in
-            sessions?.activeTeamId = teamId
-            // The composer is bound to ONE team (its pools, its builtins'
-            // teamId) — a team switch under the page starts a fresh one. A
-            // composer nobody touched yet keeps the play button's seed (the
-            // team resolving AFTER onAppear on a cold launch must not drop
-            // the preselection); a touched one starts empty.
-            if let sessions, let composer, composer.teamId != teamId {
-                self.composer = makeComposer(
-                    sessions: sessions, seed: composer.isPristine ? seed : .empty
-                )
+        // EXP-1270: Getting started's signals follow the active team.
+        .task(id: "\(accountId)/\(teamState.activeTeam?.id ?? "")") {
+            if let teamId = teamState.activeTeam?.id {
+                gettingStarted.bind(accountId: accountId, teamId: teamId, deps: deps)
+            } else {
+                gettingStarted.stop()
             }
         }
+        .onChange(of: teamState.activeTeam?.id) { _, teamId in
+            sessions?.activeTeamId = teamId
+            rebindComposer(to: teamId)
+        }
         .onDisappear {
+            visible = false
             sessions?.stopObserving()
-            composer?.startWatcher.stop()
+            threads?.stop()
+            // B5: the start watch is NOT stopped here: it lives on the
+            // composer model, bounded by its own window, so a session that
+            // lands while the page is off-screen still clears the error and
+            // the unchanged draft.
         }
         // The resolved machine can change underneath the options (a
         // heartbeat dropping it, the pool arriving): reseed off the new one.
@@ -220,15 +277,20 @@ struct AgentPageView: View {
             composer?.reconcileDevice()
         }
         // The desktop picked the start up — push the live steer screen ONCE
-        // (the same destination the .agentSession route arm builds).
-        .onChange(of: composer?.startWatcher.startedSession) { _, started in
-            if let started {
-                composer?.startWatcher.startedSession = nil
-                sessionTarget = started
+        // (the same destination the .agentSession route arm builds). The
+        // model already ended the starting state and cleared the draft; it
+        // sets this only when the draft was unchanged since the send. Off
+        // screen it waits for the page to come back (`onAppear`).
+        .onChange(of: composer?.landedSession) { _, started in
+            if let started, visible {
+                composer?.landedSession = nil
+                land(started)
             }
         }
+        // EXP-1284: the started run opens as its THREAD once the run's item
+        // synced (the New run becomes the thread), else its Work screen.
         .navigationDestination(item: $sessionTarget) { target in
-            WorkScreen(subject: .session(id: target.sessionId))
+            RunThreadScreen(sessionId: target.sessionId)
                 .environment(\.accountId, accountId)
         }
         // EXP-897/EXP-980/SLOP-3: starting on BLOCKED work asks first: an
@@ -252,12 +314,24 @@ struct AgentPageView: View {
         }
     }
 
-    /// EXP-923: the sheet's pick, pushed once it has actually closed — the
-    /// same destination its rows had while they lived on the page.
+    /// T11/T-N7/T-N9: where a landed start opens. A start INTO a thread
+    /// lands back on that thread's page (the navigator pops to it when it is
+    /// below, never a duplicate) on its Conversation; any other start opens
+    /// the session's thread once it synced (`RunThreadScreen`, Work fallback).
+    private func land(_ started: StartedRunWatcher.StartedSession) {
+        if let threadId = composer?.threadId {
+            pushRoute(.thread(accountId: accountId, threadId: threadId, child: .conversation))
+        } else {
+            sessionTarget = started
+        }
+    }
+
+    /// EXP-923: the sheet's pick, pushed once it has actually closed.
+    /// T-N1: a thread now.
     private func pushPendingRecent() {
-        guard let sessionId = pendingRecent else { return }
+        guard let threadId = pendingRecent else { return }
         pendingRecent = nil
-        sessionTarget = .init(sessionId: sessionId)
+        pushRoute(.thread(accountId: accountId, threadId: threadId))
     }
 
     /// EXP-825: the subject may sit on a NON-active team (an issue opened
@@ -282,6 +356,26 @@ struct AgentPageView: View {
         if composer == nil, let sessions {
             composer = makeComposer(sessions: sessions, seed: seed)
         }
+        if threads == nil {
+            threads = ThreadListModel(accountId: accountId, userId: deps.auth.userId, db: deps.db)
+        }
+    }
+
+    /// The composer is bound to ONE team (its pools, its builtins' teamId).
+    /// Recheck R3: a team change rebuilds it only when nothing is lost: a
+    /// PRISTINE composer keeps the play button's seed (the team resolving
+    /// AFTER onAppear on a cold launch must not drop the preselection), an
+    /// empty one starts fresh. A draft in progress stays exactly as it is,
+    /// and a start in flight or still followed keeps its watch (the composer
+    /// model owns it), so a late session still lands.
+    private func rebindComposer(to teamId: String?) {
+        guard let sessions, let composer, composer.teamId != teamId,
+              !composer.isFollowingStart else { return }
+        if composer.isPristine {
+            self.composer = makeComposer(sessions: sessions, seed: seed)
+        } else if composer.isEmptyDraft {
+            self.composer = makeComposer(sessions: sessions, seed: .empty)
+        }
     }
 
     private func makeComposer(sessions: AgentsViewModel, seed: AgentComposerSeed) -> AgentComposerModel {
@@ -301,34 +395,49 @@ struct AgentPageView: View {
         return model
     }
 
-    // MARK: - Suggestions (EXP-820, EXP-1249)
+    // MARK: - Home (EXP-1253)
 
-    /// The rows under an EMPTY composer: no subject and nothing typed, exactly
-    /// web's gate (`launch-composer.tsx` `showSuggestions`). A tap inserts the
-    /// suggestion at the caret and, for one carrying a `#` placeholder, parks
-    /// the caret right behind that `#` so the issue-ref autocomplete opens on
-    /// the spot (`ChatSuggestions.caretOffset`).
-    @ViewBuilder
-    private func suggestionRows(_ composer: AgentComposerModel) -> some View {
-        if composer.subject == AgentComposerPrompt.Subject.none, composer.trimmedDraft.isEmpty {
-            ComposerSuggestionRows(suggestions: suggestions) { suggestion in
-                composer.draftEditor.insertTextAtCaret(
-                    suggestion,
-                    caretOffset: ChatSuggestions.caretOffset(suggestion)
-                )
-            }
-            .padding(.horizontal, 4)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("chat-suggestions")
+    /// The disc mark + ONE line of Inter semibold (composer-home.json
+    /// `geometry`, phones: `markPhone` / `headlinePhone`), centred.
+    private var homeHeadline: some View {
+        HStack(spacing: CGFloat(HomeGreeting.Geometry.gap)) {
+            ExpLogoMark(size: CGFloat(HomeGreeting.Geometry.markPhone), color: .white)
+                .accessibilityIdentifier(HomeGreeting.TestId.mark)
+            Text(greeting ?? "")
+                .font(.system(size: CGFloat(HomeGreeting.Geometry.headlinePhone), weight: .semibold))
+                .tracking(-0.3)
+                .foregroundStyle(.white)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+                .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier(HomeGreeting.TestId.greeting)
         }
+        .frame(maxWidth: .infinity)
     }
 
+    /// EXP-1270: while the team has NO board, Getting started follows the
+    /// composer, `composerToGettingStarted` below the options line ("Start a
+    /// run" focuses this page's composer).
+    @ViewBuilder
+    private var homeGettingStarted: some View {
+        if let teamId = teamState.activeTeam?.id,
+           gettingStarted.entries.contains(where: { $0.key == .board && !$0.done }) {
+            GettingStartedList(
+                progress: gettingStarted,
+                accountId: accountId,
+                teamId: teamId,
+                onStartRun: { composer?.draftEditor.focusEnd() }
+            )
+            .padding(.top, CGFloat(HomeGreeting.Geometry.composerToGettingStarted) - 12)
+        }
+    }
 
     // MARK: - Captions
 
     /// What keeps the composer from starting (no machine, an agent the
-    /// machine cannot drive, a multi-repo batch…), the "start sent" caption
-    /// while the desktop picks the run up, and a refused send.
+    /// machine cannot drive, a multi-repo batch…). EXP-1271: the wait for the
+    /// desktop is the card's starting row now, and a refused or timed-out
+    /// start a toast (FEED-79).
     @ViewBuilder
     private func captions(_ composer: AgentComposerModel) -> some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -362,19 +471,6 @@ struct AgentPageView: View {
                     .foregroundStyle(DesignTokens.Semantic.yellow)
                     .accessibilityIdentifier("launch-device-request-note")
             }
-            if let sentCaption = composer.startWatcher.sentCaption {
-                HStack(spacing: 6) {
-                    ProgressView().controlSize(.small).tint(.white)
-                    Text(sentCaption)
-                        .font(.caption2)
-                }
-                .foregroundStyle(.white.opacity(TextOpacity.tertiary))
-            }
-            if let failure = composer.startWatcher.failure {
-                Text(failure)
-                    .font(.caption2)
-                    .foregroundStyle(DesignTokens.Semantic.red)
-            }
         }
         .padding(.horizontal, 4)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -394,7 +490,10 @@ struct AgentPageView: View {
                         accountId: account, deviceId: device.deviceId, agent: row.key
                     )
                 } catch {
-                    toaster.error(error.userFacingMessage)
+                    toaster.error(
+                        FeedbackStates.Errors.title(verb: "update", thing: "the agent"),
+                        description: error.userFacingMessage
+                    )
                 }
                 updatingAgent = nil
             }
@@ -414,7 +513,7 @@ struct AgentPageView: View {
     private var relayOffNote: some View {
         HStack(spacing: 8) {
             AppIcon(AppIcons.uiDeviceOffline, size: AppIcon.Size.small)
-            Text("Remote start isn't available on this server. Start runs from the desktop app; live runs show up below.")
+            Text("Remote start isn't available on this server. Start sessions from the desktop app; live sessions show up below.")
                 .font(.caption)
             Spacer(minLength: 0)
         }

@@ -1076,13 +1076,6 @@ pub(crate) fn server_install_origin(cx: &gpui::App) -> String {
         .unwrap_or_else(|| "https://app.exponential.at".to_string())
 }
 
-/// The token-less headless-daemon install one-liner (web
-/// `buildServerInstallSnippet` without a token): the Getting-started server
-/// card copies it. The device-setup server card builds its own, token and all.
-pub(crate) fn server_install_snippet(cx: &gpui::App) -> String {
-    crate::device_setup::install_command(&server_install_origin(cx), None)
-}
-
 /// The "Add device" dialog (EXP-697, one spec with the web twin): the
 /// device-setup block's desktop card first (it is what actually runs coding
 /// sessions), then its server card (EXP-1169, [`crate::device_setup`]): the
@@ -1281,7 +1274,6 @@ impl Render for MachinesSection {
             self.derived = Self::derive(cx);
         }
 
-        let muted = cx.theme().muted_foreground;
         let derived = self.derived.clone();
         let (mine, team) = match derived.as_ref() {
             Some(derived) => (derived.mine.as_slice(), derived.team.as_slice()),
@@ -1327,15 +1319,14 @@ impl Render for MachinesSection {
                 Some(add_server),
                 cx,
             ))
+            // EXP-1259 D8: the first load is skeleton rows.
             .when(derived.is_none(), |this| {
-                this.child(
-                    div()
-                        .px_1()
-                        .py_2()
-                        .text_xs()
-                        .text_color(muted)
-                        .child("Loading devices…"),
-                )
+                this.child(crate::feedback::skeleton_rows(
+                    "devices-skeleton",
+                    crate::feedback::SKELETON_ROWS,
+                    crate::settings::SETTINGS_ROW_H,
+                    cx,
+                ))
             })
             .when(derived.is_some() && mine.is_empty(), |this| {
                 this.child(crate::controls::empty_state_list(

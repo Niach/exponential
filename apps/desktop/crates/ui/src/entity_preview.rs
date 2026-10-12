@@ -62,6 +62,7 @@ pub(crate) fn concept_icon(concept: &str) -> Option<ExpIcon> {
         "nav-notifications" => registry::NAV_NOTIFICATIONS,
         "ui-attach" => registry::UI_ATTACH,
         "ui-checklist" => registry::UI_CHECKLIST,
+        "work-faces" => registry::WORK_FACES,
         _ => return None,
     })
 }

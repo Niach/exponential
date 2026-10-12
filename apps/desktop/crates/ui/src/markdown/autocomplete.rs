@@ -12,11 +12,14 @@
 //! (`apps/web/src/lib/issue-refs.ts`) or — for `:shortcode` — the emoji's
 //! UNICODE, never the `:shortcode:` text (EXP-551: stored markdown is plain
 //! GFM shared with clients that expand nothing).
+//!
+//! SLOP-28 (EXP-1259 D4): `#` is no longer a completion row. A `#` token
+//! opens THE search list ([`crate::picker::search_list::IssueTypeahead`]) at
+//! the caret, its own field focused and prefilled; [`detect_trigger`] still
+//! reports the token, and every host routes it there instead.
 
-use std::collections::HashSet;
 use std::rc::Rc;
 
-use domain::rows::Issue;
 use gpui::{App, SharedString};
 use sync::Store;
 
@@ -141,6 +144,13 @@ impl PendingToken {
 /// the live store").
 pub trait CompletionSource {
     fn query(&self, trigger: CompletionTrigger, query: &str, cx: &App) -> Vec<CompletionItem>;
+
+    /// SLOP-28: the team whose issues the `#` typeahead searches. `#` is no
+    /// completion row any more: it opens THE search list
+    /// ([`crate::picker::search_list::IssueTypeahead`]); `None` = no `#`.
+    fn issue_team_id(&self) -> Option<String> {
+        None
+    }
 }
 
 const MAX_ITEMS: usize = 8;
@@ -235,6 +245,10 @@ struct StoreCompletionSource {
 }
 
 impl CompletionSource for StoreCompletionSource {
+    fn issue_team_id(&self) -> Option<String> {
+        self.team_id.clone()
+    }
+
     fn query(&self, trigger: CompletionTrigger, query: &str, cx: &App) -> Vec<CompletionItem> {
         let Some(team_id) = self.team_id.as_deref() else {
             return match trigger {
@@ -273,24 +287,9 @@ impl CompletionSource for StoreCompletionSource {
                 items.truncate(MAX_ITEMS);
                 items
             }
-            CompletionTrigger::IssueRef => {
-                let mut issues = collections.issues_in_team(team_id, cx);
-                filter_and_rank_issue_refs(&mut issues, query);
-                issues.truncate(MAX_ITEMS);
-                issues
-                    .into_iter()
-                    .map(|issue| {
-                        let resolved = crate::queries::resolve_issue_status(cx, &issue);
-                        CompletionItem {
-                            trigger,
-                            insert: format!("#{}", issue.identifier),
-                            label: issue.identifier.clone().into(),
-                            detail: issue.title.clone().into(),
-                            decoration: Some(CompletionDecoration::Status(resolved)),
-                        }
-                    })
-                    .collect()
-            }
+            // SLOP-28: `#` opens THE search list (its own field, the ONE
+            // engine at the default limit), never a completion row.
+            CompletionTrigger::IssueRef => Vec::new(),
         }
     }
 }
@@ -341,20 +340,6 @@ fn mention_matches(name: &str, email: &str, needle: &str) -> bool {
     needle.is_empty()
         || name.to_lowercase().contains(needle)
         || email.to_lowercase().contains(needle)
-}
-
-/// Filter + rank `#` candidates through the ONE issue-search engine
-/// (EXP-892, `domain::issue_search`): identifier hits over title hits over
-/// description hits, ties by recency, an empty query listing the
-/// newest-created work. Capped at [`MAX_ITEMS`] like every other popover.
-fn filter_and_rank_issue_refs(issues: &mut Vec<Issue>, query: &str) {
-    let order = {
-        let rows: Vec<domain::issue_search::SearchRow<'_>> =
-            issues.iter().map(Into::into).collect();
-        domain::issue_search::rank(&rows, query, MAX_ITEMS, &HashSet::new())
-    };
-    let ranked: Vec<Issue> = order.into_iter().map(|ix| issues[ix].clone()).collect();
-    *issues = ranked;
 }
 
 #[cfg(test)]
@@ -522,132 +507,5 @@ mod tests {
     #[test]
     fn mentions_empty_query_matches_everyone() {
         assert!(mention_matches(NAME, EMAIL, ""));
-    }
-
-    // -- filter_and_rank_issue_refs (EXP-892 `domain::issue_search` parity) --
-
-    fn issue(identifier: &str, title: &str, created_at: Option<&str>) -> Issue {
-        described(identifier, title, None, created_at)
-    }
-
-    fn described(
-        identifier: &str,
-        title: &str,
-        description: Option<&str>,
-        created_at: Option<&str>,
-    ) -> Issue {
-        serde_json::from_value(serde_json::json!({
-            "id": identifier,
-            "board_id": "p1",
-            "number": 1,
-            "identifier": identifier,
-            "title": title,
-            "description": description,
-            "status": "todo",
-            "created_at": created_at,
-        }))
-        .expect("issue fixture")
-    }
-
-    fn identifiers(issues: &[Issue]) -> Vec<&str> {
-        issues.iter().map(|i| i.identifier.as_str()).collect()
-    }
-
-    #[test]
-    fn issue_refs_match_title_substring() {
-        let mut issues = vec![
-            issue("EXP-1", "Fix login flow", Some("2026-07-01T00:00:00Z")),
-            issue("EXP-2", "Broken image upload", Some("2026-07-02T00:00:00Z")),
-        ];
-        filter_and_rank_issue_refs(&mut issues, "login");
-        assert_eq!(identifiers(&issues), vec!["EXP-1"]);
-    }
-
-    #[test]
-    fn issue_refs_match_identifier_substring_case_insensitively() {
-        let mut issues = vec![
-            issue("EXP-1", "a", Some("2026-07-01T00:00:00Z")),
-            issue("EXP-12", "b", Some("2026-07-02T00:00:00Z")),
-            issue("EXP-3", "c", Some("2026-07-03T00:00:00Z")),
-        ];
-        filter_and_rank_issue_refs(&mut issues, "xp-1");
-        assert_eq!(identifiers(&issues), vec!["EXP-12", "EXP-1"]);
-    }
-
-    #[test]
-    fn issue_refs_rank_newest_first_and_empty_query_keeps_all() {
-        let mut issues = vec![
-            issue("EXP-1", "oldest", Some("2026-06-01T00:00:00Z")),
-            issue("EXP-2", "undated", None),
-            issue("EXP-3", "newest", Some("2026-07-06T00:00:00Z")),
-        ];
-        filter_and_rank_issue_refs(&mut issues, "");
-        assert_eq!(identifiers(&issues), vec!["EXP-3", "EXP-1", "EXP-2"]);
-    }
-
-    #[test]
-    fn issue_refs_tie_break_on_identifier_number_desc() {
-        let same = Some("2026-07-01T00:00:00Z");
-        let mut issues = vec![
-            issue("EXP-2", "a", same),
-            issue("EXP-10", "b", same),
-            issue("EXP-9", "c", same),
-        ];
-        filter_and_rank_issue_refs(&mut issues, "exp");
-        assert_eq!(identifiers(&issues), vec!["EXP-10", "EXP-9", "EXP-2"]);
-    }
-
-    #[test]
-    fn issue_refs_without_match_are_dropped() {
-        let mut issues = vec![issue("EXP-1", "Fix login flow", None)];
-        filter_and_rank_issue_refs(&mut issues, "zzz");
-        assert!(issues.is_empty());
-    }
-
-    /// EXP-892: the `#` menu searches DESCRIPTIONS too, below identifier and
-    /// title hits.
-    #[test]
-    fn issue_refs_match_descriptions_below_title_hits() {
-        let mut issues = vec![
-            described("EXP-1", "Nothing here", Some("uses a tsvector index"), Some("2026-07-03T00:00:00Z")),
-            described("EXP-2", "tsvector drift", None, Some("2026-07-01T00:00:00Z")),
-        ];
-        filter_and_rank_issue_refs(&mut issues, "tsvector");
-        // The title word-prefix hit outranks the description hit even though
-        // the description row is newer.
-        assert_eq!(identifiers(&issues), vec!["EXP-2", "EXP-1"]);
-    }
-
-    /// An exact identifier (or its bare number, `#` stripped) wins over every
-    /// title hit, however recent.
-    #[test]
-    fn issue_refs_rank_an_exact_identifier_first() {
-        let mut issues = vec![
-            issue("EXP-870", "Newest by far", Some("2026-08-01T00:00:00Z")),
-            issue("EXP-87", "Old", Some("2026-01-01T00:00:00Z")),
-        ];
-        filter_and_rank_issue_refs(&mut issues, "#87");
-        assert_eq!(identifiers(&issues), vec!["EXP-87", "EXP-870"]);
-    }
-
-    /// Every token must match somewhere (AND semantics).
-    #[test]
-    fn issue_refs_require_every_token_to_match() {
-        let mut issues = vec![
-            issue("EXP-1", "Session results", None),
-            issue("EXP-2", "Session list", None),
-        ];
-        filter_and_rank_issue_refs(&mut issues, "session res");
-        assert_eq!(identifiers(&issues), vec!["EXP-1"]);
-    }
-
-    /// The popover never renders more than [`MAX_ITEMS`] rows.
-    #[test]
-    fn issue_refs_cap_at_max_items() {
-        let mut issues: Vec<Issue> = (0..MAX_ITEMS + 5)
-            .map(|n| issue(&format!("EXP-{n}"), "Login", None))
-            .collect();
-        filter_and_rank_issue_refs(&mut issues, "login");
-        assert_eq!(issues.len(), MAX_ITEMS);
     }
 }

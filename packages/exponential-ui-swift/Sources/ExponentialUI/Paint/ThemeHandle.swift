@@ -13,6 +13,7 @@ public final class ThemeHandle: @unchecked Sendable {
     private var colors: [String: Color?] = [:]
     private var rawColors: [String: String?] = [:]
     private var motionTokens: [String: Double]?
+    private var scaleTokens: [String: Double]?
     private let lock = NSLock()
 
     public init(_ theme: Theme) {
@@ -121,6 +122,22 @@ public final class ThemeHandle: @unchecked Sendable {
         }
         defer { lock.unlock() }
         return motionTokens?[name]
+    }
+
+    /// EXP-1259: a `scale` token (`press` = a pressed button, `popoverFrom`
+    /// = what an overlay scales from while it fades in), unitless.
+    public func scale(_ name: String) -> Double? {
+        lock.lock()
+        if scaleTokens == nil {
+            lock.unlock()
+            let parsed = JSONValue.parse(theme.resolvedJson())["tokens"]?["scale"]?.object ?? [:]
+            var m: [String: Double] = [:]
+            for (k, v) in parsed { if let n = v.number { m[k] = n } }
+            lock.lock()
+            scaleTokens = m
+        }
+        defer { lock.unlock() }
+        return scaleTokens?[name]
     }
 
     /// An `ease` token (`[x1, y1, x2, y2]`).

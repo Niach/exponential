@@ -67,6 +67,8 @@ import {
   teamInvites,
   teamMembers,
   teams,
+  threadItems,
+  threads,
 } from "@/db/schema"
 import {
   commentAudienceValues,
@@ -138,6 +140,28 @@ import {
 } from "@/lib/session-result-writes"
 import { loadGuideDiff } from "@/lib/session-guide-diff"
 import { publishSessionResultPicture } from "@/lib/session-result-publish"
+import {
+  guideOfRun,
+  loadGuideOwner,
+  lockRunGuide,
+  ownedGuideEntries,
+  ownsGuideEntry,
+  writeRunGuide,
+  type GuideOwner,
+} from "@/lib/thread-guide"
+import {
+  getThread,
+  getThreadOfSession,
+  linkIssueToThread,
+  linkRunToThread,
+  listThreadIssueRows,
+  listThreadRunRows,
+  ThreadRuleError,
+  unlinkIssueFromThread,
+  unlinkRunFromThread,
+  type ThreadLinkActor,
+  type ThreadRef,
+} from "@/lib/threads"
 import {
   runHasReportBody,
   runPrBody,
@@ -632,6 +656,8 @@ const sessionColumns = {
   endedAt: codingSessions.endedAt,
   createdAt: codingSessions.createdAt,
   updatedAt: codingSessions.updatedAt,
+  // EXP-1284: the thread the run sits in (exactly one; null = unplaced).
+  threadId: sql<string | null>`(SELECT ${threadItems.threadId} FROM ${threadItems} WHERE ${threadItems.sessionId} = ${codingSessions.id} LIMIT 1)`,
 }
 
 /**
@@ -656,6 +682,9 @@ async function stampChildOfRun(
 // pushed, the desktop registers the run via codingSessions.start).
 const SESSION_START_POLL_MS = 10_000
 const SESSION_START_POLL_STEP_MS = 500
+// EXP-1284: how long sessions_start{threadId} waits for the device's own
+// placement of the new run before moving it into the thread itself.
+const THREAD_PLACEMENT_WAIT_MS = 3_000
 
 // FEED-60/63: how long exponential_sessions_message waits for the target's
 // agent to start a turn after the relay delivered the text (the device
@@ -666,7 +695,7 @@ const MESSAGE_CONSUME_STEP_MS = 500
 /** FEED-57/46: what `exponential_sessions_start` answers when the device
  *  reported no run within the wait. */
 export function noRunReportedMessage(deviceId: string): string {
-  return `Device ${deviceId} took the start but reported no run within ${SESSION_START_POLL_MS / 1000}s. Check that it is online (exponential_devices_list), its app or daemon log, and whether a live run already holds the issue (exponential_sessions_list). Check exponential_sessions_list before starting again: the run may still appear.`
+  return `Device ${deviceId} took the start but reported no session within ${SESSION_START_POLL_MS / 1000}s. Check that it is online (exponential_devices_list), its app or daemon log, and whether a live session already holds the issue (exponential_sessions_list). Check exponential_sessions_list before starting again: the session may still appear.`
 }
 
 /** The row a BATCH start's device creates: issue-less and action-less in
@@ -754,7 +783,7 @@ function startFailureMessage(
   if (!started?.startId) return null
   const failure = takeStartFailure(started.startId, userId)
   return failure
-    ? `Device ${deviceId} could not start the run: ${failure.reason}`
+    ? `Device ${deviceId} could not start the session: ${failure.reason}`
     : null
 }
 
@@ -810,7 +839,7 @@ async function killedWorktreeNote(session: {
     if (worktree.dirty !== `tracked` && worktree.dirty !== `untracked`) {
       return null
     }
-    return `The run's worktree on its device reported uncommitted changes (${worktree.dirty}, as of ${new Date(worktree.reportedAt).toISOString()}); the device saves them as a WIP commit on ${branch} when it tears the run down.`
+    return `The session's worktree on its device reported uncommitted changes (${worktree.dirty}, as of ${new Date(worktree.reportedAt).toISOString()}); the device saves them as a WIP commit on ${branch} when it tears the session down.`
   } catch {
     return null
   }
@@ -832,7 +861,7 @@ const strictInput = <S extends z.ZodRawShape>(shape: S) => z.strictObject(shape)
 
 // EXP-1251: the Guide tool's description (always-loaded bytes: the budget in
 // context-budget.test.ts has ~10 bytes of headroom, keep it this short).
-const GUIDE_TOOL_DESCRIPTION = `Your run's GUIDE = its PR body. Per topic: text (2-3 GFM sentences) + files (touched paths); 'Summary' first. Sections together cover every changed file; unassigned files land in Other changes; a listed file missing from the branch diff is reported back. prUrl = the topic's PR. label = picture: uploadUrl + curl (PNG/JPEG/WebP, 10 MB). remove drops a label, text (text: '') or topic.`
+const GUIDE_TOOL_DESCRIPTION = `Your session's GUIDE = its PR body. Per topic: text (2-3 GFM sentences) + files (touched paths); 'Summary' first. Sections together cover every changed file; unassigned files land in Other changes; a listed file missing from the branch diff is reported back. prUrl = the topic's PR. label = picture: uploadUrl + curl (PNG/JPEG/WebP, 10 MB). remove drops a label, text (text: '') or topic.`
 const MISSING_NOTE = `These listed files are not in the branch diff: fix the paths, push, or move them to the section they belong to.`
 
 // FEED-25: every read declares MCP's `readOnlyHint`. Without it claude's
@@ -1128,6 +1157,46 @@ export function registerExponentialTools(
           inArray(codingSessions.status, [`running`, `in_review`])
         )
       )
+  }
+
+  // EXP-1284: `sessions_start{threadId}`'s fallback once the device created
+  // the row. The device's `codingSessions.start` places a run right AFTER
+  // inserting it, so this waits briefly for that placement first: a device
+  // that echoed the thread leaves nothing to do, one that did not gets its
+  // run (and the start's issues) moved in here, as an agent link. Mutates
+  // `row.threadId` to where the run sits.
+  async function joinStartedRun(
+    row: { id: string; teamId: string | null; threadId?: string | null },
+    thread: ThreadRef,
+    issueIds: string[]
+  ): Promise<void> {
+    if (row.teamId !== thread.teamId) return
+    const deadline = Date.now() + THREAD_PLACEMENT_WAIT_MS
+    let placed = await getThreadOfSession(db, row.id)
+    while (!placed && Date.now() < deadline) {
+      await sleep(SESSION_START_POLL_STEP_MS)
+      placed = await getThreadOfSession(db, row.id)
+    }
+    if (placed?.id !== thread.id) {
+      const callerRun = await loadCallerSession()
+      const actor: ThreadLinkActor = {
+        userId: user.id,
+        sessionId: callerRun?.id ?? null,
+        source: `agent`,
+      }
+      await db.transaction(async (tx) => {
+        await linkRunToThread(tx, thread, { id: row.id, teamId: thread.teamId }, actor)
+        for (const id of issueIds) {
+          try {
+            await linkIssueToThread(tx, thread, id, actor)
+          } catch (e) {
+            // An issue the rules refuse (trashed board) never fails a start.
+            if (!(e instanceof ThreadRuleError)) throw e
+          }
+        }
+      })
+    }
+    row.threadId = thread.id
   }
 
   // -----------------------------------------------------------------------
@@ -1724,11 +1793,12 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_issues_create`,
     {
-      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list. parentId files it as a sub-issue of that issue.`,
+      description: `Create a new issue in a board the MCP user has access to. Description must be plain text (no embedded images on creation). For a custom status pass statusId (not status); see exponential_statuses_list. parentId files it as a sub-issue of that issue. threadId files it into that thread (exponential_threads_get).`,
       inputSchema: strictInput({
         boardId: uuidString,
         title: z.string().min(1).max(500),
         parentId: uuidString.optional(),
+        threadId: uuidString.optional(),
         status: issueStatusEnumSchema.optional(),
         statusId: uuidString.optional(),
         priority: issuePriorityEnumSchema.optional(),
@@ -1744,8 +1814,24 @@ export function registerExponentialTools(
         labelIds: z.array(uuidString).optional(),
       }),
     },
-    async ({ description, ...rest }) => {
+    async ({ description, threadId, ...rest }) => {
       try {
+        // EXP-1284: the thread is checked BEFORE the issue exists, so a bad
+        // id never leaves an issue filed nowhere the agent meant. Filing
+        // into a thread is a thread WRITE: the same grant threads_link
+        // needs (the caller's own thread, else a whole-team grant).
+        let thread: ThreadRef | null = null
+        if (threadId) {
+          const [target, board] = await Promise.all([
+            resolveThreadTarget(threadId),
+            getBoardTeamId(rest.boardId),
+          ])
+          if (target.thread.teamId !== board.teamId) {
+            throw new Error(`Thread not found in this board's team`)
+          }
+          assertThreadWritable(target)
+          thread = target.thread
+        }
         if (!access.full) {
           const board = await getBoardTeamId(rest.boardId)
           assertBoardGranted(access, board.id, board.teamId)
@@ -1762,7 +1848,23 @@ export function registerExponentialTools(
         // its own, so nothing else ties its later PR back to the human whose
         // agent wrote it. Exclusion-only (see noteAgentIssueActivity).
         noteAgentIssueActivity(result.issue.id, user.id)
-        return ok(result.issue)
+        if (!thread) return ok(result.issue)
+        // EXP-1284: an agent's link (source `agent`, its run named). The
+        // issue exists either way; a failed link says so instead of failing.
+        try {
+          const callerRun = await loadCallerSession()
+          await linkIssueToThread(db, thread, result.issue.id, {
+            userId: user.id,
+            sessionId: callerRun?.id ?? null,
+            source: `agent`,
+          })
+          return ok({ ...result.issue, threadId: thread.id })
+        } catch (e) {
+          return ok({
+            ...result.issue,
+            warning: `Created, but not linked into thread ${thread.id} (${e instanceof Error ? e.message : String(e)}). Retry with exponential_threads_link.`,
+          })
+        }
       } catch (e) {
         return err(e)
       }
@@ -2393,7 +2495,7 @@ export function registerExponentialTools(
           const run = await loadCallerSession()
           if (run?.startedReason) {
             throw new Error(
-              `audience "reporter" is refused in an unattended run: a person must send replies to a reporter. Post a team comment instead.`
+              `audience "reporter" is refused in an unattended session: a person must send replies to a reporter. Post a team comment instead.`
             )
           }
         }
@@ -2410,7 +2512,19 @@ export function registerExponentialTools(
           ...(audience ? { audience } : {}),
         })
         noteAgentIssueActivity(issueId, user.id)
-        return ok({ ...result.comment, reporterEmailed: result.reporterEmailed })
+        // EXP-1241: the issue's identifier rides beside the row, so the
+        // run's comment card links `<issue>?comment=<id>` (the preview's
+        // `issue@` ref reads it as the issue's identifier twin).
+        const [issue] = await db
+          .select({ identifier: issues.identifier })
+          .from(issues)
+          .where(eq(issues.id, issueId))
+          .limit(1)
+        return ok({
+          ...result.comment,
+          ...(issue?.identifier ? { issueIdentifier: issue.identifier } : {}),
+          reporterEmailed: result.reporterEmailed,
+        })
       } catch (e) {
         return err(e)
       }
@@ -2654,7 +2768,7 @@ export function registerExponentialTools(
         const deferred = {
           merged: false,
           deferred: true,
-          note: `Yolo mode merges this run's PR tree once every run in it is idle with its PR open — root first, children retargeted onto the default branch between merges. Start any follow-up runs now; the tree merges when the last one ends. Do not merge it yourself.`,
+          note: `Yolo mode merges this session's PR tree once every session in it is idle with its PR open — root first, children retargeted onto the default branch between merges. Start any follow-up sessions now; the tree merges when the last one ends. Do not merge it yourself.`,
         }
         if (!own) {
           return ok({
@@ -2722,6 +2836,32 @@ export function registerExponentialTools(
     }
   }
 
+  // EXP-1284: pr_open with NO subject = the issues of the caller's THREAD
+  // (every visible one, link order): one → `issueId`, several → `issueIds`
+  // (one combined PR). The head is the run's own pushed branch unless given,
+  // which also covers a chat run that filed the issue itself (its branch is
+  // `exp/chat-<id8>`, never the issue's). Review T1: an issue whose PR is
+  // already merged or closed is done work, never re-linked to a new PR (its
+  // prUrl, status and events stay). No run, no thread or no open issue: the
+  // args go through untouched and prOpen answers its "exactly one of" error.
+  const threadPrSubject = async (
+    args: z.infer<typeof prOpenInput>
+  ): Promise<z.infer<typeof prOpenInput>> => {
+    if (args.issueId || args.issueIds?.length || args.repositoryId) return args
+    const callerSession = await loadCallerSession()
+    if (!callerSession) return args
+    const thread = await getThreadOfSession(db, callerSession.id)
+    if (!thread) return args
+    const ids = (await listThreadIssueRows(db, thread.id))
+      .filter((issue) => issue.prState !== `merged` && issue.prState !== `closed`)
+      .map((issue) => issue.id)
+    if (ids.length === 0) return args
+    const head = args.head ?? callerSession.branch ?? undefined
+    return ids.length === 1
+      ? { ...args, issueId: ids[0], ...(head ? { head } : {}) }
+      : { ...args, issueIds: ids, ...(head ? { head } : {}) }
+  }
+
   const prOpenInput = strictInput({
     issueId: z.string().min(1).optional(),
     issueIds: z.array(z.string().min(1)).min(1).max(30).optional(),
@@ -2749,7 +2889,9 @@ export function registerExponentialTools(
         ].filter(Boolean).length
         if (subjects !== 1) {
           throw new Error(
-            `Provide exactly one of issueId, issueIds or repositoryId`
+            subjects === 0
+              ? `Provide exactly one of issueId, issueIds or repositoryId (none given, and your session's thread has no open issue to default to)`
+              : `Provide exactly one of issueId, issueIds or repositoryId`
           )
         }
         if ((issueIds?.length || repositoryId) && !head) {
@@ -3251,11 +3393,19 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_open`,
     {
-      description: `Open a GitHub PR via the GitHub App (never 'gh') and link it to the issue(s). Body = your run's report ('body' only without one). Pass EXACTLY ONE of 'issueId', 'issueIds' (ONE combined PR, same repo; 'head' REQUIRED) or 'repositoryId' + 'head' (issue-less). 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>', 'base' to the nearest open PR below 'head' or the default branch; basing on an open PR joins its GitHub stack. Linked issues move to the team's PR-open status (default 'in_review'). UUIDs or identifiers ("MET-12").`,
+      description: `Open a GitHub PR via the GitHub App (never 'gh'), linked to the issue(s). Body = your Guide ('body' only without one). Pass ONE of 'issueId', 'issueIds' (ONE combined PR, same repo; 'head' REQUIRED) or 'repositoryId' + 'head' (issue-less); none = your thread's unmerged issues. 'head' defaults to the issue's branch or 'exp/<IDENTIFIER>', 'base' to the nearest open PR below 'head' or the default branch; basing on an open PR joins its GitHub stack. Linked issues take the team's PR-open status (default 'in_review'). UUIDs or identifiers (MET-12).`,
       _meta: ALWAYS_LOAD_META,
       inputSchema: prOpenInput,
     },
-    async (args) => autoMergeIfYolo(args, await prOpen(args))
+    async (args) => {
+      let resolved: z.infer<typeof prOpenInput>
+      try {
+        resolved = await threadPrSubject(args)
+      } catch (e) {
+        return err(e)
+      }
+      return autoMergeIfYolo(resolved, await prOpen(resolved))
+    }
   )
 
   const prMergeInput = strictInput({
@@ -3598,7 +3748,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_pr_update`,
     {
-      description: `Rewrite the title and/or body of an open PR via the GitHub App: the fix for a description later commits made stale (pr_open never edits an existing PR). Subjects as exponential_pr_merge: EXACTLY ONE of 'issueId', 'issueIds' (one update per distinct PR) or 'repositoryId' + 'prNumber'; omit all for this run's own PR, whose body is its Guide ('body' ignored: edit exponential_sessions_guide). Pass 'title', 'body' (max 60000) or both; an omitted field keeps its value. results[]: issueId/identifier or repositoryId/prNumber, 'updated', optional 'error'. Accepts identifiers ("MET-12").`,
+      description: `Rewrite the title and/or body of an open PR via the GitHub App: the fix for a description later commits made stale (pr_open never edits an existing PR). Subjects as exponential_pr_merge: EXACTLY ONE of 'issueId', 'issueIds' (one update per distinct PR) or 'repositoryId' + 'prNumber'; omit all for this session's own PR, whose body is its Guide ('body' ignored: edit exponential_sessions_guide). Pass 'title', 'body' (max 60000) or both; an omitted field keeps its value. results[]: issueId/identifier or repositoryId/prNumber, 'updated', optional 'error'. Accepts identifiers ("MET-12").`,
       inputSchema: prUpdateInput,
     },
     async ({ issueId, issueIds, repositoryId, prNumber, title, body }) => {
@@ -3633,7 +3783,7 @@ export function registerExponentialTools(
           const callerSession = await loadCallerSession()
           if (!callerSession) {
             throw new Error(
-              `Provide issueId, issueIds or repositoryId + prNumber: no run header names a pull request here.`
+              `Provide issueId, issueIds or repositoryId + prNumber: no session header names a pull request here.`
             )
           }
           // EXP-1154: this run's PR body IS its report; 'body' never lands.
@@ -3641,7 +3791,7 @@ export function registerExponentialTools(
             if (title === undefined) {
               return ok({
                 results: [],
-                note: `This run's PR body is its Guide: edit it with exponential_sessions_guide (each text write re-syncs the PR).`,
+                note: `This session's PR body is its Guide: edit it with exponential_sessions_guide (each text write re-syncs the PR).`,
               })
             }
             fields = { title }
@@ -3656,7 +3806,7 @@ export function registerExponentialTools(
             // The chore PR pr_open parked this issue-less run on (EXP-734).
             const repoFullName = repoFromPrUrl(callerSession.prUrl)
             if (!repoFullName) {
-              throw new Error(`The run's pull request URL is not a GitHub PR URL`)
+              throw new Error(`The session's pull request URL is not a GitHub PR URL`)
             }
             const repo = await loadRepositoryByFullName(
               callerSession.teamId,
@@ -3678,13 +3828,13 @@ export function registerExponentialTools(
               )
             if (batchRows.length === 0) {
               throw new Error(
-                `This run has no pull request yet. Open one with exponential_pr_open, or name the PR (issueId, issueIds or repositoryId + prNumber).`
+                `This session has no pull request yet. Open one with exponential_pr_open, or name the PR (issueId, issueIds or repositoryId + prNumber).`
               )
             }
             rawIds = batchRows.map((row) => row.id)
           } else {
             throw new Error(
-              `This run has no pull request yet. Open one with exponential_pr_open, or name the PR (issueId, issueIds or repositoryId + prNumber).`
+              `This session has no pull request yet. Open one with exponential_pr_open, or name the PR (issueId, issueIds or repositoryId + prNumber).`
             )
           }
         }
@@ -3792,7 +3942,7 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_end`,
       {
-        description: `Ends this run. Unattended runs: call it LAST after exponential_pr_open with the worktree clean; attended runs: only when the person asks. 'summary' = one paragraph of what you did (finished, stopped for a human or changed nothing), reported to whoever started this run (not stored). Merging your own PR never ends it; this call does.`,
+        description: `Ends this session. Unattended: call it LAST after exponential_pr_open with the worktree clean; attended: only when the person asks. 'summary' = one paragraph of what you did (finished, stopped for a human or changed nothing), reported to whoever started it (not stored). Merging your own PR never ends it; this call does.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           summary: z.string().min(1).max(4_000),
@@ -3847,7 +3997,7 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_ask_parent`,
       {
-        description: `Ask a question only your starter or the person can answer. 'to': 'parent' (default; the run or MCP client that started this; no live starter run = parked here) or 'user' (the run's owner; parks yours as needing input and notifies them). Non-blocking: on success STOP and end your turn; the answer arrives as a user message. If it fails, finish; note the question in your summary.`,
+        description: `Ask a question only your starter or the person can answer. 'to': 'parent' (default; the session or MCP client that started this; no live starter = parked here) or 'user' (the session's owner; parks yours as needing input and notifies them). Non-blocking: on success STOP and end your turn; the answer arrives as a user message. If it fails, finish; note the question in your summary.`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           question: z.string().min(1).max(4_000),
@@ -3870,7 +4020,7 @@ export function registerExponentialTools(
             !child ||
             (child.userId !== user.id && child.hostUserId !== user.id)
           ) {
-            return err(new Error(`This run has no live starter to ask.`))
+            return err(new Error(`This session has no live starter to ask.`))
           }
 
           // EXP-897: park the question. The run parks as needing input
@@ -3901,7 +4051,7 @@ export function registerExponentialTools(
               .where(eq(codingSessions.id, sessionId))
               .limit(1)
             if (!row?.teamId) {
-              return new Error(`This run has no team to notify in.`)
+              return new Error(`This session has no team to notify in.`)
             }
             await sendAgentMessage({
               teamId: row.teamId,
@@ -3937,7 +4087,7 @@ export function registerExponentialTools(
               delivered: false,
               parked: true,
               to: `starter`,
-              note: `No live starter run to relay to, so the question is parked on this run and its owner is notified: your starter reads it with exponential_sessions_get (pendingQuestion) or exponential_sessions_messages and answers with exponential_sessions_message. Stop working NOW and end your turn; the answer arrives as a user message.`,
+              note: `No live starter session to relay to, so the question is parked on this session and its owner is notified: your starter reads it with exponential_sessions_get (pendingQuestion) or exponential_sessions_messages and answers with exponential_sessions_message. Stop working NOW and end your turn; the answer arrives as a user message.`,
             })
           }
           if (child.startedReason !== `agent` || !child.parentSessionId) {
@@ -4078,16 +4228,21 @@ export function registerExponentialTools(
               hostUserId: codingSessions.hostUserId,
               status: codingSessions.status,
               results: codingSessions.results,
+              // EXP-1284: the Guide is the run's thread's.
+              threadResults: threads.results,
+              threadId: threadItems.threadId,
               prUrl: codingSessions.prUrl,
               branch: codingSessions.branch,
               boardId: codingSessions.boardId,
             })
             .from(codingSessions)
+            .leftJoin(threadItems, eq(threadItems.sessionId, codingSessions.id))
+            .leftJoin(threads, eq(threads.id, threadItems.threadId))
             .where(eq(codingSessions.id, sessionId))
             .limit(1)
           if (!row) return err(new Error(`Session not found`))
           if (row.userId !== user.id && row.hostUserId !== user.id) {
-            return err(new Error(`This is not your run.`))
+            return err(new Error(`This is not your session.`))
           }
 
           // Removal works at ANY status: a run that already ended still owns
@@ -4097,18 +4252,17 @@ export function registerExponentialTools(
             // same `FOR UPDATE` row lock the upload route takes: the read
             // above only settled ownership, and an upload racing this remove
             // would otherwise have one of them overwrite the other's array.
+            // EXP-1284: plus the thread's lock (`lockRunGuide`): the Guide
+            // is the thread's, and only this session's own entries go
+            // (another session's topic of the same name stays).
             const outcome = await db.transaction(async (tx) => {
-              const [locked] = await tx
-                .select({ results: codingSessions.results })
-                .from(codingSessions)
-                .where(eq(codingSessions.id, sessionId))
-                .limit(1)
-                .for(`update`)
+              const locked = await lockRunGuide(tx, sessionId)
               if (!locked) throw new Error(`Session not found`)
               const removeText = text !== undefined && !label
               const { results, removedAttachmentIds } = removeSessionResults(
                 locked.results,
-                { topic, label: label ?? null, text: removeText }
+                { topic, label: label ?? null, text: removeText },
+                (entry) => ownsGuideEntry(locked.owner, entry)
               )
               const textGone =
                 (locked.results ?? []).length - results.length >
@@ -4116,6 +4270,7 @@ export function registerExponentialTools(
               if (removedAttachmentIds.length === 0 && !textGone) {
                 return {
                   results: locked.results,
+                  owner: locked.owner,
                   removedAttachmentIds,
                   textGone,
                   gone: [] as Array<{ storageKey: string | null }>,
@@ -4124,13 +4279,11 @@ export function registerExponentialTools(
               // The column first: it is what every client renders, so a
               // picture is off the wire before its bytes go. Rows and objects
               // follow.
-              await tx
-                .update(codingSessions)
-                .set({ results, updatedAt: new Date() })
-                .where(eq(codingSessions.id, sessionId))
+              await writeRunGuide(tx, locked, results)
               if (removedAttachmentIds.length === 0) {
                 return {
                   results,
+                  owner: locked.owner,
                   removedAttachmentIds,
                   textGone,
                   gone: [] as Array<{ storageKey: string | null }>,
@@ -4142,22 +4295,24 @@ export function registerExponentialTools(
                 .returning({ storageKey: sessionAttachments.storageKey })
               return {
                 results,
+                owner: locked.owner,
                 removedAttachmentIds,
                 textGone,
                 gone: gone ?? [],
               }
             })
             const { results, removedAttachmentIds, textGone, gone } = outcome
+            const mine = ownedGuideEntries(outcome.owner, results)
             // EXP-1154: a removed text changes the report, so the PR body
             // (decided under the row lock, not off the unlocked pre-read).
             if (textGone) await syncRunPrBody(sessionId, { removal: true })
             if (removedAttachmentIds.length === 0) {
               return ok({
                 removed:
-                  (row.results ?? []).length - (results ?? []).length > 0 ? 1 : 0,
+                  (guideOfRun(row) ?? []).length - (results ?? []).length > 0 ? 1 : 0,
                 topic,
                 label: label ?? null,
-                results: resultsSummary(results),
+                results: resultsSummary(mine),
               })
             }
             // Only once the swap is durable: the removed pictures' bytes go.
@@ -4176,7 +4331,7 @@ export function registerExponentialTools(
               removed: removedAttachmentIds.length,
               topic,
               label: label ?? null,
-              results: resultsSummary(results),
+              results: resultsSummary(mine),
             })
           }
 
@@ -4193,13 +4348,21 @@ export function registerExponentialTools(
           if (row.status === `ended`) {
             return err(
               new Error(
-                `This run has ended, so it can no longer publish results.`
+                `This session has ended, so it can no longer publish results.`
               )
             )
           }
           // EXP-933: the report text lands right here, under the same row
           // lock the upload route and remove take (jsonb read-modify-write).
-          let current = row.results
+          // EXP-1284: `current` = THIS session's entries of the thread's
+          // Guide (what its answers summarize and its caps count).
+          let owner: GuideOwner = await loadGuideOwner(
+            db,
+            sessionId,
+            row.threadId ?? null,
+            row.prUrl ?? null
+          )
+          let current = ownedGuideEntries(owner, guideOfRun(row))
           let prSync: `synced` | `skipped` | `failed` = `skipped`
           let missingFromDiff: string[] | null = null
           if (text !== undefined) {
@@ -4212,41 +4375,39 @@ export function registerExponentialTools(
               )
             }
             const written = await db.transaction(async (tx) => {
-              const [locked] = await tx
-                .select({ results: codingSessions.results })
-                .from(codingSessions)
-                .where(eq(codingSessions.id, sessionId))
-                .limit(1)
-                .for(`update`)
+              const locked = await lockRunGuide(tx, sessionId)
               if (!locked) throw new Error(`Session not found`)
+              owner = locked.owner
               const next = upsertSessionResultText(
                 locked.results,
                 topic,
                 trimmed,
                 files,
-                { at: Date.now(), prUrl: canonicalPrUrl }
+                {
+                  at: Date.now(),
+                  prUrl: canonicalPrUrl,
+                  sessionId,
+                  owns: (entry) => ownsGuideEntry(locked.owner, entry),
+                }
               )
               if (!next) return null
-              await tx
-                .update(codingSessions)
-                .set({ results: next, updatedAt: new Date() })
-                .where(eq(codingSessions.id, sessionId))
+              await writeRunGuide(tx, locked, next)
               return next
             })
             if (!written) {
               return err(
                 new Error(
-                  `This run's results are full (${SESSION_RESULTS_MAX} entries, ${SESSION_RESULTS_REPORT_TOTAL_MAX} characters of text or ${SESSION_RESULTS_FILES_TOTAL_MAX} files in all). Shorten the text or remove a topic first.`
+                  `This session's results are full (${SESSION_RESULTS_MAX} entries, ${SESSION_RESULTS_REPORT_TOTAL_MAX} characters of text or ${SESSION_RESULTS_FILES_TOTAL_MAX} files in all). Shorten the text or remove a topic first.`
                 )
               )
             }
-            current = written
+            current = ownedGuideEntries(owner, written)
             // EXP-1154: the report IS the PR body; an open PR follows it.
             prSync = await syncRunPrBody(sessionId)
             // EXP-1251: listed files the branch/PR diff does not have.
             const listed = files ? cleanSessionResultFiles(files) : []
             if (listed.length > 0) {
-              const entry = written.find((r) => isTextEntry(r) && r.topic === topic)
+              const entry = current.find((r) => isTextEntry(r) && r.topic === topic)
               const diff = await loadGuideDiff(
                 { prUrl: row.prUrl, branch: row.branch, boardId: row.boardId },
                 entry?.prUrl ?? null
@@ -4274,7 +4435,7 @@ export function registerExponentialTools(
           if (!replaces && published.length >= SESSION_RESULTS_MAX) {
             return err(
               new Error(
-                `This run already published ${SESSION_RESULTS_MAX} results. Remove one first (remove: true with its topic and label).`
+                `This session already published ${SESSION_RESULTS_MAX} results. Remove one first (remove: true with its topic and label).`
               )
             )
           }
@@ -4327,7 +4488,7 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_show`,
       {
-        description: `Show a screenshot in your run's transcript now (when a picture helps): file = a local image path, answers a curl line to run; or dataBase64 + contentType. text = caption. Also filed under Guide (topic default 'Progress', folded under Earlier).`,
+        description: `Show a screenshot in your session's transcript now (when a picture helps): file = a local image path, answers a curl line to run; or dataBase64 + contentType. text = caption. Also filed under Guide (topic default 'Progress', folded under Earlier).`,
         _meta: ALWAYS_LOAD_META,
         inputSchema: strictInput({
           file: z.string().trim().min(1).max(1024).optional(),
@@ -4361,27 +4522,36 @@ export function registerExponentialTools(
               hostUserId: codingSessions.hostUserId,
               status: codingSessions.status,
               results: codingSessions.results,
+              threadResults: threads.results,
+              threadId: threadItems.threadId,
+              prUrl: codingSessions.prUrl,
             })
             .from(codingSessions)
+            .leftJoin(threadItems, eq(threadItems.sessionId, codingSessions.id))
+            .leftJoin(threads, eq(threads.id, threadItems.threadId))
             .where(eq(codingSessions.id, sessionId))
             .limit(1)
           if (!row?.teamId) return err(new Error(`Session not found`))
           if (row.userId !== user.id && row.hostUserId !== user.id) {
-            return err(new Error(`This is not your run.`))
+            return err(new Error(`This is not your session.`))
           }
           if (row.status === `ended`) {
-            return err(new Error(`This run has ended, so it can no longer show pictures.`))
+            return err(new Error(`This session has ended, so it can no longer show pictures.`))
           }
           const topic = topicInput ?? SESSION_SHOW_DEFAULT_TOPIC
           const caption = text?.trim() || null
-          const published = row.results ?? []
+          // EXP-1284: what THIS session published (its caps are its own).
+          const published = ownedGuideEntries(
+            await loadGuideOwner(db, sessionId, row.threadId ?? null, row.prUrl ?? null),
+            guideOfRun(row)
+          )
           const replaces =
             label !== undefined &&
             published.some((result) => result?.topic === topic && result?.label === label)
           if (!replaces && published.length >= SESSION_RESULTS_MAX) {
             return err(
               new Error(
-                `This run already published ${SESSION_RESULTS_MAX} results. Remove one first (exponential_sessions_guide with remove: true).`
+                `This session already published ${SESSION_RESULTS_MAX} results. Remove one first (exponential_sessions_guide with remove: true).`
               )
             )
           }
@@ -4458,7 +4628,7 @@ export function registerExponentialTools(
     server.registerTool(
       `exponential_sessions_compact`,
       {
-        description: `Ask the host to compact this run's context at the next turn boundary. reason is logged on the run; keep names what the summary must preserve (open threads, decisions, file paths). Returns accepted, or refusedBecause: too_early (under half the context used), cooldown (compacted within the last 20 turns), not_own_session, unsupported_agent. Only your own run.`,
+        description: `Ask the host to compact this session's context at the next turn boundary. reason is logged on the session; keep names what the summary must preserve (open threads, decisions, file paths). Returns accepted, or refusedBecause: too_early (under half the context used), cooldown (compacted within the last 20 turns), not_own_session, unsupported_agent. Only your own session.`,
         inputSchema: strictInput({
           reason: z.string().trim().min(1).max(500),
           keep: z.string().trim().min(1).max(2_000).optional(),
@@ -4495,7 +4665,7 @@ export function registerExponentialTools(
     `exponential_sessions_list`,
     {
       annotations: READ_ONLY,
-      description: `List coding sessions (newest first) across your teams or one team: status (in_review = PR open, still live), agentBusy (working now), issue, action, branch, device, blocked (usage-wall refusal, see exponential_sessions_get), parentSessionId (the run that started it), endedBy. mine = runs you started or host.`,
+      description: `List coding sessions (newest first) across your teams or one team: status (in_review = PR open, still live), agentBusy (working now), issue, action, branch, device, blocked (usage-wall refusal, see exponential_sessions_get), parentSessionId (the session that started it), endedBy. mine = sessions you started or host.`,
       // EXP-1183: the MCP Apps run list (lib/mcp/apps.ts).
       _meta: appMeta(`runs`),
       inputSchema: strictInput({
@@ -4563,7 +4733,7 @@ export function registerExponentialTools(
     `exponential_sessions_get`,
     {
       annotations: READ_ONLY,
-      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open, still live) → ended; endedBy = who ended it; agentBusy = working now. ackedAt = the device's liveness ack, stamped seconds after launch; null for minutes = the launch died. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the run stays running and clears it on its next successful turn. pendingQuestion = the question it parked (needsInput); answer with exponential_sessions_message. waitForIdle: hold the call until the turn ends, it asks, hits its wall or ends (timeoutS, default 45, max 600: keep it under your client's request timeout, often 60s; a run idle at the call first gets 10s to start the turn your message began); answers waited + timedOut. What it said: exponential_sessions_messages.`,
+      description: `Get one coding session by id. Poll it after exponential_sessions_start: status running → in_review (PR open, still live) → ended; endedBy = who ended it; agentBusy = working now. ackedAt = the device's liveness ack, stamped seconds after launch; null for minutes = the launch died. blocked is set only when the agent itself REFUSED a call at its usage wall (never for a usage warning): blocked.window (session = 5h, weekly, model) and blocked.resetsAt describe the SAME window; the session stays running and clears it on its next successful turn. pendingQuestion = the question it parked (needsInput); answer with exponential_sessions_message. waitForIdle: hold the call until the turn ends, it asks, hits its wall or ends (timeoutS, default 45, max 600: keep it under your client's request timeout, often 60s; a session idle at the call first gets 10s to start the turn your message began); answers waited + timedOut. What it said: exponential_sessions_messages.`,
       inputSchema: strictInput({
         id: uuidString,
         waitForIdle: z.boolean().optional(),
@@ -4587,11 +4757,14 @@ export function registerExponentialTools(
               hostUserId: codingSessions.hostUserId,
               // EXP-879: the pictures THIS run published. Read here only —
               // the list tool would ship every run's whole array on every
-              // page.
+              // page. EXP-1284: the Guide is the run's thread's.
               results: codingSessions.results,
+              threadResults: threads.results,
             })
             .from(codingSessions)
             .leftJoin(issues, eq(issues.id, codingSessions.issueId))
+            .leftJoin(threadItems, eq(threadItems.sessionId, codingSessions.id))
+            .leftJoin(threads, eq(threads.id, threadItems.threadId))
             .where(
               and(
                 eq(codingSessions.id, id),
@@ -4643,7 +4816,7 @@ export function registerExponentialTools(
                   progressToken,
                   progress: Math.min(waitMs, Date.now() - startedAt) / 1000,
                   total: waitMs / 1000,
-                  message: `Waiting for the run to settle`,
+                  message: `Waiting for the session to settle`,
                 },
               })
               .catch(() => {})
@@ -4690,7 +4863,13 @@ export function registerExponentialTools(
             row = next
           }
         }
-        const { hostUserId: _hostUserId, results, ...session } = row
+        const {
+          hostUserId: _hostUserId,
+          results: _ownResults,
+          threadResults: _threadResults,
+          ...session
+        } = row
+        const results = guideOfRun(row)
         // EXP-1183: the run's page in the app (the MCP Apps view's "Open").
         const [team] = row.teamId
           ? await db
@@ -4742,7 +4921,7 @@ export function registerExponentialTools(
     `exponential_sessions_messages`,
     {
       annotations: READ_ONLY,
-      description: `Read what a coding session you own or host said: its top-level transcript (user, assistant, tool, question; subagents left out), ascending seq. since = the nextSince you got last time (only newer messages come back; growing prose comes back whole), limit = the newest N after it (default 50). truncated = older messages were cut. live = the run has not ended. Streams off the run's device via the relay: errors when remote steer is off, or the device is offline or has no history. Wait for a reply with exponential_sessions_get waitForIdle.`,
+      description: `Read what a coding session you own or host said: its top-level transcript (user, assistant, tool, question; subagents left out), ascending seq. since = the nextSince you got last time (only newer messages come back; growing prose comes back whole), limit = the newest N after it (default 50). truncated = older messages were cut. live = the session has not ended. Streams off the session's device via the relay: errors when remote steer is off, or the device is offline or has no history. Wait for a reply with exponential_sessions_get waitForIdle.`,
       inputSchema: strictInput({
         id: uuidString,
         since: z.number().int().min(0).optional(),
@@ -4793,7 +4972,7 @@ export function registerExponentialTools(
         const config = getSteerRelayConfig()
         if (!config) {
           throw new Error(
-            `Remote steer is off on this instance (no steer relay), so run transcripts cannot be read. Use exponential_sessions_get.`
+            `Remote steer is off on this instance (no steer relay), so session transcripts cannot be read. Use exponential_sessions_get.`
           )
         }
         const ended = row.status === `ended`
@@ -4849,7 +5028,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_kill`,
     {
-      description: `Abort a live coding session you own or host: the row flips to ended (endedBy user) and the device tears the agent down. Idempotent. Never your own run — it ends on its own exit or close-out.`,
+      description: `Abort a live coding session you own or host: the row flips to ended (endedBy user) and the device tears the agent down. Idempotent. Never your own session — it ends on its own exit or close-out.`,
       inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
@@ -4918,7 +5097,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_message`,
     {
-      description: `Send text into a live coding session you own or host, as user input prefixed with its source: answer a child's exponential_sessions_ask_parent question (id = the child's UUID) or steer a run you started. Never your own session. queued = mid-turn, consumed = a turn started; consumed false = nobody reads it: kill, resumeSessionId.`,
+      description: `Send text into a live coding session you own or host, as user input prefixed with its source: answer a child's exponential_sessions_ask_parent question (id = the child's UUID) or steer a session you started. Never your own session. queued = mid-turn, consumed = a turn started; consumed false = nobody reads it: kill, resumeSessionId.`,
       inputSchema: strictInput({
         id: uuidString,
         message: z.string().min(1).max(4_000),
@@ -4968,7 +5147,7 @@ export function registerExponentialTools(
         const { delivered } = await relayPostInput(config, targetId, text)
         if (!delivered) {
           throw new Error(
-            `Not delivered: the session's device is not connected to the relay. The run may still be starting or its device offline; retry, or fall back to exponential_sessions_get.`
+            `Not delivered: the session's device is not connected to the relay. The session may still be starting or its device offline; retry, or fall back to exponential_sessions_get.`
           )
         }
         // EXP-1065: a delivered message IS the answer to the run's open
@@ -4995,7 +5174,7 @@ export function registerExponentialTools(
           id: targetId,
           delivered: true,
           consumed: false,
-          note: `The run's agent did not start a turn within ${MESSAGE_CONSUME_WAIT_MS / 1000}s: the text reached its device but nothing is reading it. Kill the run (exponential_sessions_kill) and start it again with resumeSessionId (the resumed run continues the transcript), then message the new run.`,
+          note: `The session's agent did not start a turn within ${MESSAGE_CONSUME_WAIT_MS / 1000}s: the text reached its device but nothing is reading it. Kill the session (exponential_sessions_kill) and start it again with resumeSessionId (the resumed session continues the transcript), then message the new session.`,
         })
       } catch (e) {
         return err(e)
@@ -5012,7 +5191,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_sessions_start`,
     {
-      description: `Start a coding session on an ONLINE device (exponential_devices_list); offline = refused. One subject: issueId (UUID/identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended run; + account = switch a live claude run's account). account = a profile id from agentAccounts.<agent>.profiles[]. prompt = free text (REQUIRED for builtin:chat / builtin:create-action). A follow-up run bases on your branch: name it in \`prompt\`, the child opens with \`pr_open{base}\`. Track it with exponential_sessions_get. A child started from a run is unattended: its question, finish or usage wall (wait it out) arrives as '[Exponential child run ...]' input; answer with exponential_sessions_message. Read its report before merging.`,
+      description: `Start a session on an ONLINE device (exponential_devices_list). One subject: issueId (UUID/identifier), issueIds (one batch PR), actionId (+teamId for builtins, inputs) or resumeSessionId (ended session; + account = switch a live claude session's account). threadId = start it in that thread. account = a profile id from agentAccounts.<agent>.profiles[]. prompt = free text (REQUIRED for builtin:chat / builtin:create-action). A follow-up session bases on your branch: name it in \`prompt\`, the child opens with \`pr_open{base}\`. Track it with exponential_sessions_get. A child started from a session is unattended: its question, finish or usage wall (wait it out) arrives as '[Exponential child run ...]' input; answer with exponential_sessions_message. Read its report before merging.`,
       inputSchema: strictInput({
         deviceId: z.string().min(1).max(128),
         issueId: z.string().min(1).optional(),
@@ -5034,11 +5213,28 @@ export function registerExponentialTools(
         // whose last used profile is walled had to route around this tool
         // (and lose the parent link) to launch on another account.
         account: z.string().min(1).max(64).optional(),
+        threadId: uuidString.optional(),
       }),
     },
     async (input) => {
       try {
         const startedAfter = new Date()
+        // EXP-1284: a session started INTO a thread. Forwarded to
+        // steer.startSession (the device echoes it into codingSessions.start);
+        // checked here first so a bad id refuses before any device is asked.
+        // Starting into a thread writes to it: the same grant threads_link
+        // needs (the caller's own thread, else a whole-team grant).
+        let requestedThread: ThreadRef | null = null
+        if (input.threadId) {
+          if (input.resumeSessionId) {
+            throw new Error(
+              `threadId cannot ride a resume: a resumed session stays in its predecessor's thread.`
+            )
+          }
+          const target = await resolveThreadTarget(input.threadId)
+          assertThreadWritable(target)
+          requestedThread = target.thread
+        }
         let issueId: string | undefined
         let issueIds: string[] | undefined
         // The row the device will create, by subject — what the poll below
@@ -5144,6 +5340,19 @@ export function registerExponentialTools(
                 // ignored
               }
             }
+            // EXP-1284: the fallback for a device that does not echo the
+            // thread: the run is moved into it (with the start's issues).
+            if (requestedThread) {
+              try {
+                await joinStartedRun(
+                  row as { id: string; teamId: string | null; threadId?: string | null },
+                  requestedThread,
+                  issueId ? [issueId] : (issueIds ?? [])
+                )
+              } catch (e) {
+                console.warn(`[mcp] sessions_start: thread fallback failed`, e)
+              }
+            }
             session = row
             break
           }
@@ -5183,6 +5392,261 @@ export function registerExponentialTools(
   )
 
   // -----------------------------------------------------------------------
+  // Threads (EXP-1284): the unit of work, n issues + m runs. The AGENT decides
+  // what belongs in its thread; every write goes through lib/threads.ts (the
+  // data rules) as an `agent` link naming the caller's run. Default thread =
+  // the caller's run's (X-Exp-Session-Id). Reads: the team visible to this
+  // connection + membership, items filtered by the grant like every read.
+  // Writes: the caller's OWN thread needs only that; another thread needs a
+  // whole-team grant. A run moves only at its owner's or host's hand, and a
+  // live run's words never ride a thread read (EXP-312).
+  // -----------------------------------------------------------------------
+
+  interface ThreadTarget {
+    thread: ThreadRef
+    /** The caller's run sits in this thread. */
+    own: boolean
+    callerRunId: string | null
+  }
+
+  async function resolveThreadTarget(
+    threadId: string | undefined
+  ): Promise<ThreadTarget> {
+    const callerRun = await loadCallerSession()
+    const callerThread = callerRun
+      ? await getThreadOfSession(db, callerRun.id)
+      : null
+    let thread: ThreadRef | null = callerThread
+    if (threadId || thread) {
+      // A hidden thread (every item on a trashed or archived board) reads as
+      // not found, the caller's own included (review T3).
+      const row = await getThread(db, threadId ?? thread!.id)
+      thread = row ? { id: row.id, teamId: row.teamId } : null
+      if (!thread) throw new Error(`Thread not found`)
+    } else {
+      throw new Error(
+        callerRun
+          ? `Your session sits in no thread: pass threadId.`
+          : `Pass threadId: only a session started by the Exponential launcher (X-Exp-Session-Id) has a thread of its own.`
+      )
+    }
+    // Not visible reads as not-found, like a session outside the grant.
+    if (!isTeamVisible(access, thread.teamId)) throw new Error(`Thread not found`)
+    await resolveTeamAccess(user.id, thread.teamId)
+    return {
+      thread,
+      own: callerThread?.id === thread.id,
+      callerRunId: callerRun?.id ?? null,
+    }
+  }
+
+  function assertThreadWritable(target: ThreadTarget) {
+    if (!target.own) assertTeamFullyGranted(access, target.thread.teamId)
+  }
+
+  /** The thread as an agent reads it: its title (stored, else derived: the
+   *  first issue's, else the first run's name), its issues and its runs'
+   *  STATE, both cut to this connection's grant. */
+  async function loadThreadView(threadId: string) {
+    const row = await getThread(db, threadId)
+    if (!row) throw new Error(`Thread not found`)
+    const [issueRows, runRows] = await Promise.all([
+      listThreadIssueRows(db, threadId),
+      listThreadRunRows(db, threadId),
+    ])
+    const threadIssues = issueRows
+      .filter((issue) => isBoardGranted(access, issue.boardId, issue.teamId))
+      .map(({ teamId: _teamId, addedBy: _addedBy, ...issue }) => issue)
+    const runs = runRows
+      .filter((run) => isRowGranted(access, run, user.id))
+      .map((run) => ({
+        id: run.id,
+        name: run.agentTitle ?? run.actionName ?? null,
+        status: run.status,
+        live: run.status !== `ended`,
+        userId: run.userId,
+        issueId: run.issueId,
+        branch: run.branch,
+        prUrl: run.prUrl,
+        prState: run.prState,
+        parentSessionId: run.parentSessionId,
+        startedAt: run.startedAt,
+        endedAt: run.endedAt,
+        source: run.source,
+        addedBySessionId: run.addedBySessionId,
+      }))
+    const stored = row.title?.trim() || null
+    return {
+      id: row.id,
+      teamId: row.teamId,
+      title: stored ?? threadIssues[0]?.title ?? runs[0]?.name ?? null,
+      ...(stored ? {} : { titleDerived: true }),
+      createdBy: row.createdBy,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      issues: threadIssues,
+      runs,
+    }
+  }
+
+  /** A run the caller owns or hosts, inside this connection's grant. */
+  async function loadOwnRun(id: string): Promise<{ id: string; teamId: string }> {
+    const [run] = await db
+      .select({
+        id: codingSessions.id,
+        teamId: codingSessions.teamId,
+        boardId: codingSessions.boardId,
+        userId: codingSessions.userId,
+        hostUserId: codingSessions.hostUserId,
+      })
+      .from(codingSessions)
+      .where(eq(codingSessions.id, id))
+      .limit(1)
+    if (!run?.teamId || !isRowGranted(access, run, user.id)) {
+      throw new Error(`Session not found`)
+    }
+    if (run.userId !== user.id && run.hostUserId !== user.id) {
+      throw new Error(`Only the session's owner can move it between threads.`)
+    }
+    return { id: run.id, teamId: run.teamId }
+  }
+
+  const threadTargetInput = {
+    threadId: uuidString.optional(),
+    issueId: z.string().min(1).optional(),
+    sessionId: uuidString.optional(),
+  }
+  function oneThreadTarget(input: { issueId?: string; sessionId?: string }) {
+    if (Boolean(input.issueId) === Boolean(input.sessionId)) {
+      throw new Error(`Pass exactly one of issueId or sessionId`)
+    }
+  }
+
+  server.registerTool(
+    `exponential_threads_get`,
+    {
+      annotations: READ_ONLY,
+      description: `Get a thread (default: your session's), the unit of work: its title, its issues (status, PR, source user|agent) and its sessions (status, live, PR). A session's words stay with its owner: exponential_sessions_messages.`,
+      inputSchema: strictInput({ threadId: uuidString.optional() }),
+    },
+    async ({ threadId }) => {
+      try {
+        const { thread } = await resolveThreadTarget(threadId)
+        return ok(await loadThreadView(thread.id))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_threads_update`,
+    {
+      description: `Rename a thread (default: your session's). title '' or null = derived from its first session or issue.`,
+      inputSchema: strictInput({
+        threadId: uuidString.optional(),
+        title: z.string().max(255).nullable(),
+      }),
+    },
+    async ({ threadId, title }) => {
+      try {
+        const target = await resolveThreadTarget(threadId)
+        assertThreadWritable(target)
+        await resolveTeamAccess(user.id, target.thread.teamId, `mutate_resources`)
+        await db
+          .update(threads)
+          .set({ title: title?.trim() ? title.trim() : null, updatedAt: new Date() })
+          .where(eq(threads.id, target.thread.id))
+        return ok(await loadThreadView(target.thread.id))
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_threads_link`,
+    {
+      description: `Add an issue (UUID or identifier) or a session you own (sessionId; it MOVES, a session sits in one thread) to a thread (default: your session's). Idempotent: added false = already there.`,
+      inputSchema: strictInput(threadTargetInput),
+    },
+    async (input) => {
+      try {
+        oneThreadTarget(input)
+        const target = await resolveThreadTarget(input.threadId)
+        assertThreadWritable(target)
+        const actor: ThreadLinkActor = {
+          userId: user.id,
+          sessionId: target.callerRunId,
+          source: `agent`,
+        }
+        if (input.issueId) {
+          const issueId = await resolveIssueId(input.issueId, user.id, access)
+          const issueCtx = await getIssueTeamContext(issueId)
+          assertBoardGranted(access, issueCtx.boardId, issueCtx.teamId)
+          await resolveTeamAccess(user.id, issueCtx.teamId, `comment`)
+          const { added } = await db.transaction((tx) =>
+            linkIssueToThread(tx, target.thread, issueId, actor)
+          )
+          return ok({ threadId: target.thread.id, issueId, added })
+        }
+        const run = await loadOwnRun(input.sessionId!)
+        const { added, movedFrom } = await db.transaction((tx) =>
+          linkRunToThread(tx, target.thread, run, actor)
+        )
+        return ok({
+          threadId: target.thread.id,
+          sessionId: run.id,
+          added,
+          ...(movedFrom ? { movedFrom } : {}),
+        })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  server.registerTool(
+    `exponential_threads_unlink`,
+    {
+      description: `Detach an issue (UUID or identifier) or a session you own (sessionId) from a thread (default: your session's). The issue itself stays; a session moves into a fresh thread of its own (newThreadId).`,
+      inputSchema: strictInput(threadTargetInput),
+    },
+    async (input) => {
+      try {
+        oneThreadTarget(input)
+        const target = await resolveThreadTarget(input.threadId)
+        assertThreadWritable(target)
+        if (input.issueId) {
+          const issueId = await resolveIssueId(input.issueId, user.id, access)
+          const issueCtx = await getIssueTeamContext(issueId)
+          assertBoardGranted(access, issueCtx.boardId, issueCtx.teamId)
+          const { removed } = await db.transaction((tx) =>
+            unlinkIssueFromThread(tx, target.thread.id, issueId)
+          )
+          return ok({ threadId: target.thread.id, issueId, removed })
+        }
+        const run = await loadOwnRun(input.sessionId!)
+        const { removed, newThreadId } = await db.transaction((tx) =>
+          unlinkRunFromThread(tx, target.thread, run, {
+            userId: user.id,
+            sessionId: target.callerRunId,
+            source: `agent`,
+          })
+        )
+        return ok({
+          threadId: target.thread.id,
+          sessionId: run.id,
+          removed,
+          ...(newThreadId ? { newThreadId } : {}),
+        })
+      } catch (e) {
+        return err(e)
+      }
+    }
+  )
+
+  // -----------------------------------------------------------------------
   // Devices (EXP-660: the picker for exponential_sessions_start)
   // -----------------------------------------------------------------------
 
@@ -5190,7 +5654,7 @@ export function registerExponentialTools(
     `exponential_devices_list`,
     {
       annotations: READ_ONLY,
-      description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended run. agentUsage.<agent> = its last used login: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = the last refresh failed and they are as old as fetchedAt; agentUsageAt = when the device last reported. A session running on another account moves that account's own row under agentAccounts.<agent>.profiles[].usage instead. A live session refreshes only the account it runs on, per turn; once it ends — or a window's resetsAt passes — that login returns to the polled cadence. doctor = its readiness report: items[] {key, state ok|action|missing|off|error, detail, action} (null = older build).`,
+      description: `List your registered machines (desktop app / CLI daemon), plus servers teammates shared with teamId. Pick an online device whose agents includes the agent you want; caps must include resume-run to resume an ended session. agentUsage.<agent> = its last used login: windows[] (percent + resetsAt), fetchedAt = when those numbers were read, stale: true = the last refresh failed and they are as old as fetchedAt; agentUsageAt = when the device last reported. A session running on another account moves that account's own row under agentAccounts.<agent>.profiles[].usage instead. A live session refreshes only the account it runs on, per turn; once it ends — or a window's resetsAt passes — that login returns to the polled cadence. doctor = its readiness report: items[] {key, state ok|action|missing|off|error, detail, action} (null = older build).`,
       // EXP-1183: the MCP Apps devices view (lib/mcp/apps.ts).
       _meta: appMeta(`devices`),
       inputSchema: strictInput({
@@ -5500,7 +5964,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_notifications_send`,
     {
-      description: `Notify people (inbox row + push): a long task finished, a decision is needed, or someone asked to be pinged. recipients = team members' user ids or emails, default yourself. issueId (UUID or identifier) = what the row opens: that issue's Results, which every member may see; default this run's issue. teamId defaults to the issue's team or this run's. A member who turned off messages from teammates' agents is reported as declined; your own user always receives.`,
+      description: `Notify people (inbox row + push): a long task finished, a decision is needed, or someone asked to be pinged. recipients = team members' user ids or emails, default yourself. issueId (UUID or identifier) = what the row opens: that issue's Results, which every member may see; default this session's issue. teamId defaults to the issue's team or this session's. A member who turned off messages from teammates' agents is reported as declined; your own user always receives.`,
       inputSchema: strictInput({
         teamId: uuidString.optional(),
         recipients: z.array(z.string().min(1).max(320)).min(1).max(20).optional(),
@@ -5815,7 +6279,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_update`,
     {
-      description: `Update an action by UUID (owner only); pass only fields to change. icon: null clears; inputs and triggers: whole-array replace (send every trigger you keep, with its id). A trigger = {deviceId, enabled?, agent?, account?, model?, effort?} plus {kind:schedule,interval:daily|weekly|monthly,minuteOfDay,weekday?,dayOfMonth?} or {kind:event,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?}. account = an agent profile id there (needs agent). An enabled trigger needs every input optional. mcpServerIds = MCP servers its runs use; shared ones join as <server>-as-<member>.`,
+      description: `Update an action by UUID (owner only); pass only fields to change. icon: null clears; inputs and triggers: whole-array replace (send every trigger you keep, with its id). A trigger = {deviceId, enabled?, agent?, account?, model?, effort?} plus {kind:schedule,interval:daily|weekly|monthly,minuteOfDay,weekday?,dayOfMonth?} or {kind:event,event:created|status_changed|assignee_changed|label_added|priority_changed|pr_opened|pr_merged,filters?}. account = an agent profile id there (needs agent). An enabled trigger needs every input optional. mcpServerIds = MCP servers its sessions use; shared ones join as <server>-as-<member>.`,
       inputSchema: strictInput({
         id: uuidString,
         name: z.string().min(1).max(255).optional(),
@@ -5857,7 +6321,7 @@ export function registerExponentialTools(
   server.registerTool(
     `exponential_actions_delete`,
     {
-      description: `Delete an action by its UUID. Live runs keep their action_name label and degrade to batch-shaped rows. Team owner only.`,
+      description: `Delete an action by its UUID. Live sessions keep their action_name label and degrade to batch-shaped rows. Team owner only.`,
       inputSchema: strictInput({ id: uuidString }),
     },
     async ({ id }) => {
@@ -6110,7 +6574,7 @@ export function registerExponentialTools(
     `exponential_mcp_servers_list`,
     {
       annotations: READ_ONLY,
-      description: `List a team's MCP servers (Linear, Sentry, ...) that coding runs can connect to, with YOUR connection status (connected | not_connected | expired | error | not_needed), who connected and who shared it with the team's action runs, and connectUrl: the settings page where you (a person) connect it. Team members only. Members who haven't shared their connection can be asked with exponential_notifications_send.`,
+      description: `List a team's MCP servers (Linear, Sentry, ...) that coding sessions can connect to, with YOUR connection status (connected | not_connected | expired | error | not_needed), who connected and who shared it with the team's action sessions, and connectUrl: the settings page where you (a person) connect it. Team members only. Members who haven't shared their connection can be asked with exponential_notifications_send.`,
       inputSchema: strictInput({ teamId: uuidString, ...pageInput }),
     },
     async ({ teamId, limit, offset }) => {

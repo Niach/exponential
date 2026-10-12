@@ -26,7 +26,8 @@ struct TeamSettingsView: View {
     @State private var deletingTeam = false
     @State private var deleteBoardTarget: BoardEntity?
     @State private var deletingBoard = false
-    @State private var dangerError: String?
+    // FEED-79: a failed team/board delete is a toast, never a rose line.
+    @Environment(\.toaster) private var toaster
 
     var body: some View {
         ZStack {
@@ -123,12 +124,6 @@ struct TeamSettingsView: View {
                                     .stroke(GlassTokens.strokeCard, lineWidth: GlassTokens.hairline)
                             )
                             .buttonStyle(.plain)
-
-                            if let dangerError {
-                                Text(dangerError)
-                                    .font(.caption)
-                                    .foregroundStyle(.red.opacity(0.8))
-                            }
                         }
                     }
                 }
@@ -196,7 +191,10 @@ struct TeamSettingsView: View {
                 NotificationCenter.default.post(name: .teamDeleted, object: nil)
             }
         } catch {
-            dangerError = error.trpcUserMessage
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "delete", thing: "the team"),
+                description: error.trpcUserMessage
+            )
         }
     }
 
@@ -206,7 +204,10 @@ struct TeamSettingsView: View {
         do {
             try await deps.teamsApi.deleteBoard(accountId: accountId, boardId: board.id)
         } catch {
-            dangerError = error.trpcUserMessage
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "delete", thing: "the board"),
+                description: error.trpcUserMessage
+            )
         }
     }
 

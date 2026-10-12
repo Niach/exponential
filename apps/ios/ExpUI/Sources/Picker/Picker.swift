@@ -570,9 +570,8 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
     private var rows: some View {
         LazyVStack(spacing: GlassPickerTokens.rowSpacing) {
             if loading {
-                ProgressView()
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 24)
+                // EXP-1275 (D8): skeleton rows in the picker's own geometry.
+                SkeletonRows(rows: 4, rowHeight: 44, dividers: false)
             } else if visible.isEmpty {
                 // `emptyText` covers BOTH an empty list and an empty search —
                 // one string, so a picker never says two different things
@@ -612,7 +611,7 @@ private struct GlassPickerSheetBody<Value: Hashable & Sendable>: View {
 
 /// One picker row: its mark, its label, its muted second line — and, when it
 /// is picked, whichever of the two marks its mode wears.
-private struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
+struct GlassPickerSheetRow<Value: Hashable & Sendable>: View {
     let item: PickerItem<Value>
     let checked: PickerChecked
     /// The mode's selection idiom, resolved by the sheet.

@@ -11,6 +11,7 @@ import SwiftUI
 struct MyWorkView: View {
     @Environment(AppDependencies.self) private var deps
     @Environment(\.accountId) private var accountId
+    @Environment(\.motion) private var motion
     @State private var inboxViewModel: InboxViewModel?
     /// EXP-878: drafts are observed here, not inside the segment — the segment
     /// only exists while there is at least one resolvable draft.
@@ -70,7 +71,7 @@ struct MyWorkView: View {
     /// A segment tap slides the pages.
     private func selectSegment(_ next: Segment) {
         guard next != segment else { return }
-        withAnimation { segmentRaw = next.rawValue }
+        withAnimation(motion.standard) { segmentRaw = next.rawValue }
     }
 
     var body: some View {

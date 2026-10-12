@@ -1724,6 +1724,7 @@ name = "codemode"
 version = "0.14.66"
 dependencies = [
  "boa_engine",
+ "domain",
  "log",
  "reqwest",
  "serde",

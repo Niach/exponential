@@ -14,8 +14,10 @@
 //! the styleguide is its own deployed application (`apps/styleguide`,
 //! styleguide.exponential.at) and several AI actions point at it. This module
 //! is the section DATA that index defines, so the IDE's entry ids and owners
-//! cannot drift from the page that draws them — it renders nothing and is
-//! reachable from no menu.
+//! cannot drift from the page that draws them — it is reachable from no menu.
+//! The one exception is DEV-ONLY: `EXP_DEV_SCREEN=styleguide:<id>`
+//! ([`crate::navigation::Screen::StyleguideEntry`], EXP-1259) draws one entry
+//! full-window for the views whose states never show together in the app.
 #![allow(dead_code)]
 
 pub(crate) mod entries;

@@ -287,9 +287,11 @@ const DESKTOP_FAMILIES: { test: RegExp; views: RegExp; why: string }[] = [
     // the steer crate's viewer/feed/wire types, and the two ui modules that
     // draw the tab (`session_screen.rs` renders it, `steer_viewer.rs` is the
     // relay-fed feed behind it when this process hosts no engine — which is
-    // exactly how the shot is captured, EXP-732).
+    // exactly how the shot is captured, EXP-732). EXP-1259: `work-card`,
+    // `script-card` and `comment-call-card` are the same session's
+    // transcript (Show work on), their cards built off the same feed.
     test: /^apps\/desktop\/crates\/(engine\/src\/|steer\/src\/(viewer|feed|frames|journal)\.rs)/,
-    views: /^steering$/,
+    views: /^(steering|work-card|script-card|comment-call-card)$/,
     why: `the coding-session screen and its feed`,
   },
   {
@@ -297,9 +299,10 @@ const DESKTOP_FAMILIES: { test: RegExp; views: RegExp; why: string }[] = [
     // is the SAME screen on its Diff face (`steer_viewer.rs`'s
     // `load_pr_changes` fetches an issue-less run's PR files, `session_screen`
     // frames it), so a change to either claims both shots; the engine and the
-    // feed above never reach that face.
+    // feed above never reach that face. EXP-1259: the transcript's cards
+    // (Show work on) are drawn by the same two modules.
     test: /^apps\/desktop\/crates\/ui\/src\/(session_screen|steer_viewer)\.rs/,
-    views: /^(steering|run-changes)$/,
+    views: /^(steering|run-changes|work-card|script-card|comment-call-card)$/,
     why: `the coding-session screen on both its faces`,
   },
   {
@@ -816,9 +819,12 @@ const NATIVE_DIRS: { dir: string; views: RegExp }[] = [
   { dir: `actions`, views: /^(agents|actions-mobile|action-|trigger-)/ },
   // The coding family: the Agent composer, the agents surface, the machine
   // dialogs and the steering screen all live in one folder on both platforms
-  // and share their view models.
-  { dir: `session`, views: /^(steering|chat|agents|machine-settings|add-server)/ },
+  // and share their view models. EXP-1259: the Agent home and the run
+  // thread's cards (Work, Script, Comment) draw from the same folder.
+  { dir: `session`, views: /^(steering|chat|agents|machine-settings|add-server|agent-home|work-card|script-card|comment-call-card)/ },
   { dir: `steer`, views: /^(steering|chat)/ },
+  // EXP-1284: the native thread screens (ui/thread, UI/Thread).
+  { dir: `thread`, views: /^thread/ },
 ]
 
 /** Role suffixes a screen's filename carries on one platform or the other. */

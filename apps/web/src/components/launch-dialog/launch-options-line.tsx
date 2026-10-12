@@ -1,6 +1,7 @@
 import {
   AccountPicker,
   DevicePicker,
+  FieldError,
   Label,
   ModelPicker,
   RepositoryPicker,
@@ -59,7 +60,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
   if (candidateDevices.length === 0) {
     return (
       <p className="px-1 text-xs text-muted-foreground" data-testid="agent-options-row">
-        No desktop online. Open the Exponential desktop app to start a run.
+        No desktop online. Open the Exponential desktop app to start a session.
       </p>
     )
   }
@@ -150,7 +151,7 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
               size="sm"
               checked={model.resume}
               onCheckedChange={model.setResume}
-              aria-label="Resume previous run"
+              aria-label="Resume previous session"
             />
           </Label>
         )}
@@ -184,9 +185,6 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
         {model.deviceRequestNote && (
           <span className="text-amber-500">{model.deviceRequestNote}</span>
         )}
-        {/* The desktop inserts the row when the launcher spins up; the page
-            flips to the live view the moment it syncs. */}
-        {model.sentTo && <span>{`Waiting for ${model.sentTo}…`}</span>}
       </div>
       {/* EXP-1196: the picked device's failing doctor row (Git, else the
           agent's own) with its one action, instead of a sentence. */}
@@ -198,20 +196,20 @@ export function LaunchOptionsLine({ model }: { model: LaunchComposerModel }) {
           className="rounded-md bg-glass-row"
         />
       )}
+      {/* The batch guards are about the PICKED issues (invalid input,
+          FEED-79): the field's own rose line, not a toast. */}
       {model.overCap && (
-        <p className="text-destructive">
-          {`At most ${MAX_ISSUES_PER_RUN} issues per run. Split the batch.`}
-        </p>
+        <FieldError>
+          {`At most ${MAX_ISSUES_PER_RUN} issues per session. Split the batch.`}
+        </FieldError>
       )}
       {model.spansRepos && (
-        <p className="text-destructive">
-          Pick issues from a single repository per run.
-        </p>
+        <FieldError>Pick issues from a single repository per session.</FieldError>
       )}
       {model.spansBranches && (
-        <p className="text-destructive">
-          Pick issues that branch from a single base branch per run.
-        </p>
+        <FieldError>
+          Pick issues that branch from a single base branch per session.
+        </FieldError>
       )}
       {model.costHint && <p>Large batches are token-expensive.</p>}
     </div>

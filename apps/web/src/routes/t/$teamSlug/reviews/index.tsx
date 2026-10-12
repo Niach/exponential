@@ -5,6 +5,7 @@ import {
   conceptIcon,
   GlassSectionHeader,
   PrList,
+  SkeletonRows,
   StackRail,
   type PrListRow,
 } from "@exp/ui"
@@ -26,6 +27,9 @@ import { REPO_BAND_CAPTION, RUN_BAND_CAPTION } from "@/lib/reviews-queue"
 // (`PrRow` ×4): a PR TREE nests with tree guides, a linear STACK hangs off
 // one rail down to its base branch, singles sit flat. The list only OPENS:
 // merging lives on the Guide's merge control, never on a row.
+/** D8 first load: the `PrRow` geometry (md+ `h-9`, the PR glyph leading). */
+const PR_ROW_HEIGHT = 36
+
 export const Route = createFileRoute(`/t/$teamSlug/reviews/`)({
   head: () => ({ meta: [{ title: pageTitle(`Reviews`) }] }),
   beforeLoad: async ({ context, location }) => {
@@ -126,7 +130,11 @@ function ReviewsPage() {
   }
 
   if (!team) {
-    return <div className="text-muted-foreground text-sm p-6">Loading…</div>
+    return (
+      <div className="mx-auto w-full max-w-3xl px-4 py-4">
+        <SkeletonRows rowHeight={PR_ROW_HEIGHT} />
+      </div>
+    )
   }
 
   const band = (key: string, header: ReactNode, body: ReactNode) => (
@@ -141,10 +149,10 @@ function ReviewsPage() {
     <div className="h-full overflow-y-auto">
       <div className={`mx-auto w-full max-w-3xl px-4 py-4 ${TAB_BAR_CLEARANCE}`}>
         {isLoading ? (
-          <div className="text-muted-foreground px-1 py-6 text-sm">Loading…</div>
+          <SkeletonRows rowHeight={PR_ROW_HEIGHT} />
         ) : count === 0 ? (
           externalLoading ? (
-            <div className="text-muted-foreground px-1 py-6 text-sm">Loading…</div>
+            <SkeletonRows rowHeight={PR_ROW_HEIGHT} />
           ) : (
             <Empty id="reviews" />
           )
@@ -195,7 +203,7 @@ function ReviewsPage() {
             })}
 
             {/* EXP-734: PRs a coding run opened for itself (an action or
-                chat run with no linked issue). EXP-1186: one band per team. */}
+                chat session with no linked issue). EXP-1186: one band per team. */}
             {sessionGroups.map((sessionGroup) =>
               sessionGroup.entries.length === 0
                 ? null
@@ -205,7 +213,7 @@ function ReviewsPage() {
                       leading={
                         <PrOpenIcon className="size-3.5 shrink-0 text-muted-foreground" />
                       }
-                      label="Agent runs"
+                      label="Agent sessions"
                       trailing={
                         teamCaption(sessionGroup.team?.id) ?? (
                           <span className="text-xs text-muted-foreground">

@@ -27,7 +27,10 @@ import {
   Pill,
   type PickerItem,
   SearchField,
-  Skeleton,
+  SkeletonRows,
+  Spinner,
+  FEEDBACK_WORDS,
+  FieldError,
   GlassGroup,
   GlassInputRow,
   GlassSectionHeader,
@@ -63,7 +66,8 @@ import {
   toast,
 } from "@exp/ui"
 import { trpc } from "@/lib/trpc-client"
-import { trpcErrorMessage } from "@/lib/trpc-error"
+import { trpcErrorCode, trpcErrorMessage } from "@/lib/trpc-error"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   draftFromServer,
   EMPTY_MCP_SERVER_DRAFT,
@@ -98,7 +102,6 @@ const TestIcon = conceptIcon(`ui-refresh`)
 const DisconnectIcon = conceptIcon(`ui-clear`)
 const BackIcon = conceptIcon(`ui-back`)
 const CloseIcon = conceptIcon(`ui-close`)
-const LoadingIcon = conceptIcon(`ui-loading`)
 const ShareIcon = conceptIcon(`ui-share`)
 
 /** A settings deep link's one-shot requests (the route strips them once
@@ -125,6 +128,8 @@ export function TeamMcpServersSection({
   onRequestConsumed?: () => void
 }) {
   const { servers, reloading, error, refresh, setShared } = useMcpServers(teamId)
+  // FEED-79: the list loads on open and re-lists after a write, so a failed
+  // load is quiet: the empty state, never a toast.
   const [editor, setEditor] = useState<Editor | null>(null)
   const [removeTarget, setRemoveTarget] = useState<McpServerRow | null>(null)
   const [keyTarget, setKeyTarget] = useState<McpServerRow | null>(null)
@@ -147,33 +152,29 @@ export function TeamMcpServersSection({
     try {
       const { authorizeUrl } = await trpc.mcpServers.connect.mutate(
         { serverId: server.id, returnTo: window.location.pathname },
-        { context: { skipErrorToast: true } }
+        SKIP_ERROR_TOAST
       )
       if (!isNavigableAuthorizeUrl(authorizeUrl)) {
         setPending(null)
-        toast.error(`Could not connect to ${server.name}`, {
-          description: UNSAFE_AUTHORIZE_URL_MESSAGE,
-        })
+        failedAction(`connect to`, server.name, UNSAFE_AUTHORIZE_URL_MESSAGE)
         return
       }
       window.location.assign(authorizeUrl)
     } catch (err) {
       setPending(null)
-      toast.error(`Could not connect to ${server.name}`, {
-        description: trpcErrorMessage(err, `Try again.`),
-      })
+      failedAction(`connect to`, server.name, err, { retry: () => void connect(server) })
     }
   }
 
   const disconnect = async (server: McpServerRow) => {
     setPending(server.id)
     try {
-      await trpc.mcpServers.disconnect.mutate({ serverId: server.id })
+      await trpc.mcpServers.disconnect.mutate({ serverId: server.id }, SKIP_ERROR_TOAST)
       toast.success(`Disconnected from ${server.name}`)
       await refresh()
     } catch (err) {
-      toast.error(`Could not disconnect`, {
-        description: trpcErrorMessage(err, `Try again.`),
+      failedAction(`disconnect from`, server.name, err, {
+        retry: () => void disconnect(server),
       })
     } finally {
       setPending(null)
@@ -187,7 +188,7 @@ export function TeamMcpServersSection({
       if (await setShared(server.id, next)) {
         toast.success(
           next
-            ? `Shared ${server.name} with the team: action runs on teammates' machines use your connection`
+            ? `Shared ${server.name} with the team: action sessions on teammates' machines use your connection`
             : `Stopped sharing ${server.name}`
         )
       }
@@ -237,11 +238,7 @@ export function TeamMcpServersSection({
     if (request.mcp) {
       const name = byId(request.server)?.name ?? `the server`
       if (request.mcp === `connected`) toast.success(`Connected to ${name}`)
-      else {
-        toast.error(`Could not connect to ${name}`, {
-          description: request.error || undefined,
-        })
-      }
+      else failedAction(`connect to`, name, request.error || undefined)
     }
     const target = byId(request.connect)
     onRequestConsumed?.()
@@ -284,10 +281,7 @@ export function TeamMcpServersSection({
     }
     try {
       if (editor.mode === `add`) {
-        const row = await trpc.mcpServers.create.mutate(
-          { teamId, ...fields },
-          { context: { skipErrorToast: true } }
-        )
+        const row = await trpc.mcpServers.create.mutate({ teamId, ...fields }, SKIP_ERROR_TOAST)
         setEditor(null)
         setSeed(null)
         await refresh()
@@ -297,7 +291,7 @@ export function TeamMcpServersSection({
           try {
             const { authorizeUrl } = await trpc.mcpServers.connect.mutate(
               { serverId: row.id, returnTo: window.location.pathname },
-              { context: { skipErrorToast: true } }
+              SKIP_ERROR_TOAST
             )
             if (!isNavigableAuthorizeUrl(authorizeUrl)) {
               setPending(null)
@@ -317,15 +311,22 @@ export function TeamMcpServersSection({
           toast.success(`Added ${row.name}`)
         }
       } else {
-        await trpc.mcpServers.update.mutate(
-          { id: editor.server.id, ...fields },
-          { context: { skipErrorToast: true } }
-        )
+        await trpc.mcpServers.update.mutate({ id: editor.server.id, ...fields }, SKIP_ERROR_TOAST)
         setEditor(null)
         await refresh()
       }
     } catch (err) {
-      setDialogError(trpcErrorMessage(err, `That didn't go through. Try again.`))
+      // A name already taken or a field the server refused (the URL, a
+      // header) is input: under the form. Anything else toasts; the dialog
+      // stays open either way.
+      const code = trpcErrorCode(err)
+      if (code === `CONFLICT` || code === `BAD_REQUEST`) {
+        setDialogError(trpcErrorMessage(err, `Check the server's fields.`))
+      } else if (editor.mode === `add`) {
+        failedAction(`add`, `the server`, err)
+      } else {
+        failedAction(`save`, `the server`, err, { retry: () => void save(draft) })
+      }
     } finally {
       setBusy(false)
     }
@@ -335,13 +336,11 @@ export function TeamMcpServersSection({
     if (!removeTarget || busy) return
     setBusy(true)
     try {
-      await trpc.mcpServers.remove.mutate({ id: removeTarget.id })
+      await trpc.mcpServers.remove.mutate({ id: removeTarget.id }, SKIP_ERROR_TOAST)
       setRemoveTarget(null)
       await refresh()
     } catch (err) {
-      toast.error(`Couldn't remove the server`, {
-        description: trpcErrorMessage(err, `Try again.`),
-      })
+      failedAction(`remove`, `the server`, err)
     } finally {
       setBusy(false)
     }
@@ -371,14 +370,10 @@ export function TeamMcpServersSection({
         }
       />
 
-      {error && <p className="px-1 pb-2 text-xs text-destructive">{error}</p>}
-      {servers === null ? (
-        <div className="flex flex-col gap-2 px-1 py-2" aria-busy="true">
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-full" />
-          <Skeleton className="h-4 w-64" />
-        </div>
-      ) : servers.length === 0 ? (
+      {servers === null && !error ? (
+        // The server row: name over its host line.
+        <SkeletonRows rowHeight={52} />
+      ) : !servers || servers.length === 0 ? (
         <>
           <Empty id="mcp-servers" />
           {/* EXP-1274: for an owner the catalog sits right under the empty
@@ -631,9 +626,7 @@ function CatalogPicker({
             className="flex min-w-0 flex-1 items-center gap-2.5"
           >
             <PickerItemBody item={item} />
-            {probing === item.value && (
-              <LoadingIcon className="ml-auto size-4 shrink-0 animate-spin text-muted-foreground" />
-            )}
+            {probing === item.value && <Spinner className="ml-auto" />}
           </span>
         )}
       />
@@ -688,7 +681,7 @@ function ServerRow({
             {server.name}
           </span>
           {server.enabledByDefault && (
-            <Pill size="sm" title="Pre-selected in new runs">
+            <Pill size="sm" title="Pre-selected in new sessions">
               Default
             </Pill>
           )}
@@ -754,7 +747,6 @@ function ConnectionAction({
   onReplaceKey: () => void
 }) {
   const { status, error } = server.connection
-  const spinner = pending ? <LoadingIcon className="animate-spin" /> : null
 
   if (status === `not_needed`) {
     return (
@@ -772,11 +764,11 @@ function ConnectionAction({
           <Button
             variant="ghost"
             size="sm"
-            disabled={pending}
+            pending={pending}
             className="text-emerald-500 hover:text-emerald-400"
             aria-label={`Connected to ${server.name}`}
           >
-            {spinner ?? <ConnectedIcon />}
+            <ConnectedIcon />
             Connected
           </Button>
         </DropdownMenuTrigger>
@@ -823,10 +815,11 @@ function ConnectionAction({
           <Button
             variant="outline"
             size="sm"
-            disabled={pending}
+            pending={pending}
+            pendingLabel={FEEDBACK_WORDS.pending.connect}
             onClick={onConnect}
           >
-            {spinner ?? <WarningIcon className="text-amber-500" />}
+            <WarningIcon className="text-amber-500" />
             Reconnect
           </Button>
         </TooltipTrigger>
@@ -837,8 +830,13 @@ function ConnectionAction({
 
   const secret = server.auth === `secret`
   return (
-    <Button size="sm" disabled={pending} onClick={onConnect}>
-      {spinner ?? (secret ? <KeyIcon /> : <SignInIcon />)}
+    <Button
+      size="sm"
+      pending={pending}
+      pendingLabel={secret ? undefined : FEEDBACK_WORDS.pending.connect}
+      onClick={onConnect}
+    >
+      {secret ? <KeyIcon /> : <SignInIcon />}
       {secret ? `Set key` : `Connect`}
     </Button>
   )
@@ -857,6 +855,7 @@ function SecretDialog({
 }) {
   const [value, setValue] = useState(``)
   const [busy, setBusy] = useState(false)
+  // Invalid input only (a key the server refused); a failed save toasts.
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
     if (server) {
@@ -874,11 +873,15 @@ function SecretDialog({
     try {
       await trpc.mcpServers.setSecret.mutate(
         { serverId: server.id, value: value.trim() },
-        { context: { skipErrorToast: true } }
+        SKIP_ERROR_TOAST
       )
       await onSaved(server)
     } catch (err) {
-      setError(trpcErrorMessage(err, `That didn't go through. Try again.`))
+      if (trpcErrorCode(err) === `BAD_REQUEST`) {
+        setError(trpcErrorMessage(err, `The server refused this key.`))
+      } else {
+        failedAction(`save`, `the key`, err, { retry: () => void save() })
+      }
     } finally {
       setBusy(false)
     }
@@ -894,7 +897,7 @@ function SecretDialog({
         <DialogHeader>
           <DialogTitle>{`API key for ${server?.name ?? ``}`}</DialogTitle>
           <DialogDescription>
-            Only your runs use it. Stored encrypted; nobody can read it back.
+            Only your sessions use it. Stored encrypted; nobody can read it back.
           </DialogDescription>
         </DialogHeader>
         <form
@@ -910,22 +913,27 @@ function SecretDialog({
             maxLength={4096}
             placeholder={name ?? `Key`}
             autoComplete="off"
-            onChange={(event) => setValue(event.target.value)}
+            aria-invalid={error ? true : undefined}
+            onChange={(event) => {
+              setValue(event.target.value)
+              setError(null)
+            }}
           />
           {name && (
             <p className="px-1 text-[11px] text-muted-foreground">
               {`Sent as ${name}.`}
             </p>
           )}
-          {error && <p className="px-1 text-xs text-destructive">{error}</p>}
+          <FieldError className="px-1">{error}</FieldError>
         </form>
         <DialogFooter>
           <DialogCancel disabled={busy} onClick={onClose} />
           <Button
-            disabled={busy || value.trim().length === 0}
+            disabled={value.trim().length === 0}
+            pending={busy}
+            pendingLabel={FEEDBACK_WORDS.pending.save}
             onClick={() => void save()}
           >
-            {busy && <LoadingIcon className="animate-spin" />}
             Save key
           </Button>
         </DialogFooter>
@@ -1120,7 +1128,7 @@ function McpServerDialog({
               )}
               <GlassToggleRow
                 id="mcp-enabled-by-default"
-                label="Pre-select in new runs"
+                label="Pre-select in new sessions"
                 checked={draft.enabledByDefault}
                 onCheckedChange={(enabledByDefault) => patch({ enabledByDefault })}
               />
@@ -1232,9 +1240,7 @@ function McpServerDialog({
                 )}
               </GlassGroup>
             )}
-            {(validation || error) && (
-              <p className="px-1 text-xs text-destructive">{error ?? validation}</p>
-            )}
+            <FieldError className="px-1">{error ?? validation}</FieldError>
           </DialogBody>
         )}
 
@@ -1253,10 +1259,11 @@ function McpServerDialog({
           <DialogCancel disabled={busy} />
           {step === `form` && (
             <Button
-              disabled={busy || validation !== null}
+              disabled={validation !== null}
+              pending={busy}
+              pendingLabel={FEEDBACK_WORDS.pending.save}
               onClick={() => onSubmit(draft)}
             >
-              {busy && <LoadingIcon className="animate-spin" />}
               {mode === `edit`
                 ? `Save`
                 : draft.auth === `oauth`
@@ -1329,6 +1336,7 @@ function ChipsRow({
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
+          aria-invalid={invalid || undefined}
           className={cn(
             BARE_FIELD_CLASS,
             `h-6 min-w-[8rem] font-mono text-xs md:text-xs`,
@@ -1355,9 +1363,7 @@ function ChipsRow({
         />
       </div>
       {invalid && (
-        <p className="text-[11px] text-destructive">
-          Use letters, digits, `_` or `-`, starting with a letter or `_`.
-        </p>
+        <FieldError>Use letters, digits, `_` or `-`, starting with a letter or `_`.</FieldError>
       )}
     </div>
   )

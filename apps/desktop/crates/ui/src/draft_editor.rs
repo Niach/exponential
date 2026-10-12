@@ -28,7 +28,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 
-use gpui::{AnyWindowHandle, EventEmitter, SharedString, Task};
+use gpui::{AnyWindowHandle, EventEmitter, Task};
 
 use crate::drafts::DraftSave;
 use crate::markdown::image_paste::{StagedImage, UploadedImage};
@@ -204,7 +204,6 @@ pub(crate) struct DraftFile {
 pub(crate) struct PendingDraftFile {
     pub(crate) key: u64,
     pub(crate) filename: String,
-    pub(crate) error: Option<SharedString>,
 }
 
 /// What the draft tells the page — everything that touches the description
@@ -314,17 +313,18 @@ impl DraftEditor {
     pub(crate) fn uploads_busy(&self) -> bool {
         self.uploading
             || !self.uploads.is_empty()
-            || self.pending.iter().any(|file| file.error.is_none())
+            || !self.pending.is_empty()
     }
 
-    /// Show `message` as an error toast in the page's window, deferred (this
-    /// runs inside an entity update).
-    fn toast(&self, message: String, cx: &mut gpui::Context<Self>) {
+    /// Show a failed action's toast (FEED-79) in the page's window, deferred
+    /// (this runs inside an entity update).
+    fn toast(&self, verb: &'static str, thing: String, description: Option<String>, cx: &mut gpui::Context<Self>) {
         let Some(window) = self.window else {
             return;
         };
+        let toast = crate::action_error::failed_toast(verb, &thing, description);
         cx.defer(move |cx| {
-            let _ = window.update(cx, |_, window, cx| crate::toast::error(message, window, cx));
+            let _ = window.update(cx, |_, window, cx| crate::toast::show(toast, window, cx));
         });
     }
 
@@ -343,7 +343,7 @@ impl DraftEditor {
     /// holding one.
     fn content_files(&self) -> usize {
         let known = self.files.len()
-            + self.pending.iter().filter(|file| file.error.is_none()).count()
+            + self.pending.len()
             + self.uploads.len()
             + usize::from(self.uploading);
         if self.files_loaded {
@@ -593,13 +593,13 @@ impl DraftEditor {
                 // the shape delivers the issue (or the row's absence) and the
                 // page follows it.
                 if !self.failing && !err.is_conflict() {
-                    self.toast(format!("Could not save the draft: {}", err.user_message()), cx);
+                    self.toast("save", "the draft".into(), crate::action_error::action_error_description(&err), cx);
                 }
             }
             (false, Err(err)) => {
                 log::warn!("[ui] issueDrafts.delete({}) failed: {err}", self.identity.id);
                 if !self.failing {
-                    self.toast(format!("Could not delete the draft: {}", err.user_message()), cx);
+                    self.toast("discard", "the draft".into(), crate::action_error::action_error_description(&err), cx);
                 }
             }
         }
@@ -663,7 +663,7 @@ impl DraftEditor {
             return;
         }
         if self.creating {
-            self.toast(format!("{filename} was not attached: the issue is being created."), cx);
+            self.toast("attach", filename, Some("The issue is being created.".into()), cx);
             return;
         }
         self.latest = Some(snapshot);
@@ -672,7 +672,6 @@ impl DraftEditor {
         self.pending.push(PendingDraftFile {
             key,
             filename: filename.clone(),
-            error: None,
         });
         self.uploads.push(DraftUpload {
             filename,
@@ -683,12 +682,6 @@ impl DraftEditor {
         });
         cx.notify();
         self.pump_uploads(cx);
-    }
-
-    /// A failed pending row's ✕.
-    pub(crate) fn dismiss_pending(&mut self, key: u64, cx: &mut gpui::Context<Self>) {
-        self.pending.retain(|file| file.key != key);
-        cx.notify();
     }
 
     /// Run the queue ONE job at a time. The row must exist first: when it
@@ -786,10 +779,10 @@ impl DraftEditor {
                     }
                 }
             }
+            // FEED-79: a failed upload leaves the list and is the toast.
             (DraftUploadKind::File(key), Err(message)) => {
-                if let Some(file) = self.pending.iter_mut().find(|file| file.key == key) {
-                    file.error = Some(message.into());
-                }
+                self.pending.retain(|file| file.key != key);
+                crate::action_error::failed_action("upload", "the file", Some(message), cx);
             }
         }
         cx.notify();
@@ -809,9 +802,8 @@ impl DraftEditor {
                     });
                 }
                 DraftUploadKind::File(key) => {
-                    if let Some(file) = self.pending.iter_mut().find(|file| file.key == key) {
-                        file.error = Some(message.clone().into());
-                    }
+                    self.pending.retain(|file| file.key != key);
+                    crate::action_error::failed_action("upload", "the file", Some(message.clone()), cx);
                 }
             }
         }
@@ -839,8 +831,10 @@ impl DraftEditor {
                 Ok(rows) => rows,
                 Err(err) => {
                     log::warn!("[ui] issueDrafts.listAttachments failed: {err}");
-                    let message = format!("Could not load the draft's files: {}", err.user_message());
-                    let _ = this.update(cx, |this, cx| this.toast(message, cx));
+                    let description = crate::action_error::action_error_description(&err);
+                    let _ = this.update(cx, |this, cx| {
+                        this.toast("load", "the draft's files".into(), description, cx)
+                    });
                     return;
                 }
             };
@@ -891,10 +885,10 @@ impl DraftEditor {
                 log::warn!("[ui] draft attachment delete failed: {err}");
                 // The file is still there — put its row back.
                 this.update(cx, |this, cx| {
-                    let message = format!("Could not delete {}: {}", removed.filename, err.user_message());
+                    let thing = removed.filename.clone();
                     let at = index.min(this.files.len());
                     this.files.insert(at, removed);
-                    this.toast(message, cx);
+                    this.toast("delete", thing, crate::action_error::action_error_description(&err), cx);
                     cx.notify();
                 });
             }

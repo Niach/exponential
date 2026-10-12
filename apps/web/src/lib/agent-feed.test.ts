@@ -96,7 +96,15 @@ import {
   runningWorkflow,
   nestedWorkflowId,
   orphanWorkflowIds,
-  workflowPhaseCounts,
+  workflowWorkCard,
+  workflowFoldedPhases,
+  workflowLaneAgent,
+  workflowElapsedMs,
+  taskListWorkCard,
+  subagentWorkCard,
+  isScriptCall,
+  parseScriptLog,
+  scriptCardInput,
   workflowSubagentIds,
 } from "./agent-feed"
 import { CONFIG_DEFAULT_VALUE_LABEL } from "./steer-commands"
@@ -2565,25 +2573,155 @@ describe(`runningWorkflow and the phase strip`, () => {
     expect(runningWorkflow([])).toBeNull()
   })
 
-  it(`tallies each phase's agents by state`, () => {
-    expect(
-      workflowPhaseCounts({
-        phases: [
-          { index: 1, title: `Alpha` },
-          { index: 2, title: `Beta` },
+  it(`EXP-1240: a workflow's Work card is the contract model over its agents`, () => {
+    const wf = {
+      id: `w`,
+      name: `ship`,
+      status: `running` as const,
+      phases: [
+        { index: 2, title: `Implement` },
+        { index: 1, title: `Survey` },
+        { index: 3, title: `Verify` },
+      ],
+      agents: [
+        { index: 3, phaseIndex: 2, state: `running` as const, agentId: `ag-3` },
+        { index: 1, phaseIndex: 1, state: `done` as const, durationMs: 60_000, model: `claude-opus-5-5` },
+        { index: 2, phaseIndex: 1, state: `done` as const, durationMs: 90_000, agentId: `ag-2` },
+        { index: 4, state: `queued` as const, label: `loose` },
+      ],
+    }
+    const card = workflowWorkCard(wf)
+    expect(card.progress).toBe(`2 / 4`)
+    // The sum of the phases' spans: Survey's longest lane.
+    expect(workflowElapsedMs(wf)).toBe(90_000)
+    expect(card.elapsed).toBe(`1m`)
+    expect(card.rows.map((row) => row.type)).toEqual([`folded`, `phase`, `phase`, `phase`])
+    // The folded row spelled out: Survey's two lanes, the card's wording.
+    expect(workflowFoldedPhases(wf, card)).toEqual([
+      {
+        title: `Survey`,
+        duration: `1m`,
+        lanes: [
+          { label: `Agent 1`, model: `opus`, state: `done`, duration: `1m 0s` },
+          { label: `Agent 2`, model: null, state: `done`, duration: `1m 30s` },
         ],
-        agents: [
-          { index: 1, phaseIndex: 1, state: `done` },
-          { index: 2, phaseIndex: 1, state: `error` },
-          { index: 3, phaseIndex: 2, state: `running` },
-          { index: 4, phaseIndex: 2, state: `queued` },
-          { index: 5, state: `queued` },
+      },
+    ])
+    // Phase positions follow the segments: 0 Survey, 1 Implement, 2 Verify,
+    // 3 the loose Agents.
+    expect(workflowLaneAgent(wf, { phase: 0, lane: 1 })?.agentId).toBe(`ag-2`)
+    expect(workflowLaneAgent(wf, { phase: 1, lane: 0 })?.agentId).toBe(`ag-3`)
+    expect(workflowLaneAgent(wf, { phase: 3, lane: 0 })?.label).toBe(`loose`)
+    expect(workflowLaneAgent(wf, { phase: 2, lane: 0 })).toBeNull()
+  })
+
+  it(`EXP-1240: nothing folds, nothing is spelled out`, () => {
+    const wf = {
+      id: `w`,
+      name: `probe`,
+      status: `running` as const,
+      phases: [{ index: 1, title: `Alpha` }],
+      agents: [],
+    }
+    const card = workflowWorkCard(wf)
+    expect(card.elapsed).toBeNull()
+    expect(workflowFoldedPhases(wf, card)).toEqual([])
+  })
+
+  it(`EXP-1240: the task list and a subagent are Work cards too`, () => {
+    const tasks = taskListWorkCard([
+      { content: `One`, status: `completed` },
+      { content: `Two`, status: `in_progress` },
+    ])
+    expect(tasks.progress).toBe(`1 / 2`)
+    expect(tasks.rows).toEqual([{ type: `task`, label: `Two`, state: `running` }])
+    const sub = subagentWorkCard({
+      agentType: `Explore`,
+      title: `Survey UI code`,
+      done: true,
+      toolCount: 127,
+    })
+    expect(sub.name).toBe(`Survey UI code`)
+    expect(sub.progress).toBe(`127 calls`)
+    expect(sub.rows).toEqual([{ type: `status`, label: `Subagent · done` }])
+    // No description: the agent type names it.
+    expect(subagentWorkCard({ agentType: `Explore`, done: false, toolCount: 0 }).name).toBe(
+      `Explore`
+    )
+  })
+})
+
+describe(`code mode (EXP-1279)`, () => {
+  it(`a script call is the contract kind, or a codemode exec by name`, () => {
+    expect(isScriptCall({ kind: `tool`, name: `x`, toolKind: `script` })).toBe(true)
+    expect(isScriptCall({ kind: `tool`, name: `mcp__codemode__exec` })).toBe(true)
+    expect(isScriptCall({ kind: `tool`, name: `mcp.codemode.exec` })).toBe(true)
+    expect(isScriptCall({ kind: `tool`, name: `Bash`, toolKind: `execute` })).toBe(false)
+    expect(isScriptCall({ kind: `narration`, name: `mcp__codemode__exec` })).toBe(false)
+  })
+
+  it(`a script call never joins a command run, and breaks one`, () => {
+    const rows = groupFeedRows([
+      { id: 1, kind: `tool`, name: `Bash` },
+      { id: 2, kind: `tool`, name: `Read` },
+      { id: 3, kind: `tool`, name: `mcp__codemode__exec`, toolKind: `script` },
+      { id: 4, kind: `tool`, name: `mcp__codemode__exec`, toolKind: `script` },
+      { id: 5, kind: `tool`, name: `Bash` },
+    ])
+    expect(rows.map((row) => (row.kind === `single` ? row.item.id : row.kind))).toEqual([
+      `toolRun`,
+      3,
+      4,
+      5,
+    ])
+  })
+
+  it(`parses the wire log, dropping malformed calls and capping the rest`, () => {
+    expect(parseScriptLog(null)).toBeNull()
+    expect(parseScriptLog({ calls: [] })).toBeNull()
+    expect(
+      parseScriptLog({
+        count: 3,
+        elapsedMs: 3000,
+        calls: [
+          { tool: `exponential.exponential_issues_get`, subject: ` EXP-1 `, ok: true, ms: 12 },
+          { tool: `` },
+          `nope`,
+          { tool: `linear.get_issue`, ok: false },
         ],
       })
-    ).toEqual([
-      { index: 1, title: `Alpha`, queued: 0, running: 0, done: 1, error: 1 },
-      { index: 2, title: `Beta`, queued: 1, running: 1, done: 0, error: 0 },
-    ])
+    ).toEqual({
+      count: 3,
+      elapsedMs: 3000,
+      calls: [
+        { tool: `exponential.exponential_issues_get`, subject: `EXP-1`, ok: true, ms: 12 },
+        { tool: `linear.get_issue`, subject: null, ok: false, ms: null },
+      ],
+    })
+    // A host with no log still sends the script: the disclosure shows it.
+    expect(parseScriptLog({ calls: [], source: `await tools.a.b()` })).toEqual({
+      calls: [],
+      source: `await tools.a.b()`,
+    })
+    const many = parseScriptLog({
+      calls: Array.from({ length: 250 }, () => ({ tool: `a.b`, ok: true })),
+    })
+    expect(many?.calls).toHaveLength(200)
+  })
+
+  it(`the card input: running until settled, the log when there is one`, () => {
+    expect(scriptCardInput({})).toEqual({
+      running: true,
+      count: null,
+      calls: null,
+      elapsedMs: null,
+    })
+    expect(
+      scriptCardInput({
+        settled: true,
+        script: { count: 2, elapsedMs: 10, calls: [{ tool: `a.b`, ok: true }] },
+      })
+    ).toEqual({ running: false, count: 2, calls: [{ tool: `a.b`, ok: true }], elapsedMs: 10 })
   })
 })
 

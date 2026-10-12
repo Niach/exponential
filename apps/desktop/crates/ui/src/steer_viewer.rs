@@ -53,7 +53,8 @@
 //! conversation — the §9 pending-card-last projection, the §3 workflow card,
 //! the §4 duplicate warning, the §5 working caption, the §1/§2 strip and the
 //! §12 file cards — whose RULES are pure in [`crate::session_rows`] and
-//! [`crate::workflow_card`].
+//! `steer::work_card` (EXP-1240: the workflow card, the task list and the
+//! subagent rows are ONE Work card, painted by [`crate::work_card`]).
 //! The only deliberate gap left: no fullscreen toggle —
 //! the screen's own chrome is the desktop's answer to that.
 
@@ -325,6 +326,35 @@ impl FeedSource {
     }
 }
 
+/// The detail a `Remote` view shows while it has nothing to dial with (no
+/// steer runtime, nobody signed in). A relay that is OFF answers the mint
+/// with the same words from the viewer task, so both read alike.
+const STEER_UNAVAILABLE_DETAIL: &str = "Live steering is unavailable on this instance.";
+
+/// A `Remote` view built before an account is active (a session tab that
+/// exists at boot: a restored layout, `EXP_DEV_SCREEN=session:<id>`) cannot
+/// dial yet. It keeps the feed's sender here and retries on every session
+/// edge until a dial succeeds; after that the socket owns reconnects and
+/// this stays empty.
+struct PendingDial(Option<flume::Sender<ViewerEvent>>);
+
+impl PendingDial {
+    fn is_pending(&self) -> bool {
+        self.0.is_some()
+    }
+
+    /// Dial with a clone of the sender. A failed attempt keeps it for the
+    /// next edge; a successful one consumes it, so a source dials ONCE.
+    fn attempt<H>(
+        &mut self,
+        dial: impl FnOnce(flume::Sender<ViewerEvent>) -> Option<H>,
+    ) -> Option<H> {
+        let handle = dial(self.0.as_ref()?.clone())?;
+        self.0 = None;
+        Some(handle)
+    }
+}
+
 /// EXP-895 — the fallback files for a run that published no diff, and the
 /// `issue:has-pr` key they were fetched for (a re-point or a PR opening
 /// re-fetches; a repaint never does).
@@ -381,6 +411,9 @@ pub(crate) struct SteerSessionView {
     feed: SteerFeed,
     /// EXP-746: what drives the feed. The relay handle lives inside it.
     source: FeedSource,
+    /// A `Remote` source with no handle yet: dialled once an account is
+    /// active (see [`PendingDial`]).
+    pending_dial: PendingDial,
     /// EXP-1051: whether the usage sheet's context-window LEGEND is unfolded.
     /// View state, not run state: the bar and its headline are always there,
     /// the per-layer breakdown is one click away and stays where the reader
@@ -483,6 +516,8 @@ pub(crate) struct SteerSessionView {
     /// EXP-1251: the Guide's diff page on show (a section's files; `All` =
     /// the complete diff); `None` = the Guide itself.
     guide_page: Option<crate::session_results::GuidePage>,
+    /// The Guide page's scroll ([`Self::body_scrolled`] reads its offset).
+    guide_scroll: ScrollHandle,
     /// EXP-1248: the Stack card's hovered member (its ghost merge-through).
     stack_hovered: Option<String>,
     /// EXP-895: the file tree's `Filter files` field.
@@ -519,13 +554,9 @@ pub(crate) struct SteerSessionView {
     subagents: Vec<steer::SubagentSummary>,
     /// EXP-884: the §1/§2 strip lines, a whole-feed walk for open wait rows.
     strip_lines: Vec<crate::session_rows::StripLine>,
-    /// EXP-927 §2c: whether the task-list block at the head of the strip is
-    /// unfolded. VIEW state — never persisted, and never on the wire: the
-    /// block opens collapsed on every run, on every client.
-    task_list_expanded: bool,
-    /// EXP-927 §2c: the unfolded block scrolls past eight entries; the
-    /// handle keeps its offset across frames.
-    task_list_scroll: ScrollHandle,
+    /// EXP-1240: the workflow Work cards whose folded row is open (keyed by
+    /// workflow id). VIEW state, never persisted.
+    open_work_folds: HashSet<String>,
     /// EXP-884: the §4 duplicate edges, asked per workflow row.
     duplicates: Vec<crate::session_rows::DuplicateWarning>,
     /// EXP-916: the edited-files cards whose `{n} more` half is unfolded,
@@ -611,6 +642,25 @@ pub(crate) struct SteerSessionView {
     /// EXP-1175: [`Self::show_work`] as of this frame's render — what the
     /// cx-less projection ([`Self::active_subagent`]) reads.
     show_work_cached: bool,
+    /// EXP-1284: the view is EMBEDDED in a thread's conversation as one run
+    /// block's body — no list, no composer, no banners: the status row over
+    /// the run's thread (or, behind its OWN Show work, the transcript) laid
+    /// out flat inside the thread's one scroll ([`Self::render_embedded`]).
+    embedded: bool,
+    /// EXP-1284: an embedded view's Show work — local to the block, never
+    /// the per-user preference the Run face remembers.
+    embedded_show_work: bool,
+    /// EXP-1284: THE Guide this run's Guide face reads — its thread's
+    /// `results` while that has entries, else the run's own
+    /// ([`crate::threads::guide_results_of_session`], the web `guideOfRun`).
+    guide_results: Option<serde_json::Value>,
+    /// EXP-1284: an embedded block's results — the Guide entries THIS
+    /// session wrote (`domain::thread_view::session_guide_entries`), set by
+    /// the thread page; `None` = the row's own.
+    embedded_results: Option<serde_json::Value>,
+    /// EXP-1259 (DEV-ONLY, `EXP_DEV_SCROLL_TO=script-card`): the transcript
+    /// row the first Script card sat at when the list was last parked on it.
+    dev_scrolled_to: Option<usize>,
     /// EXP-776: the frame's issue-chip resolver (EXP-760), built ONCE per
     /// frame over `chip_cache` instead of per prose body. `None` for a run
     /// with no resolvable team.
@@ -688,6 +738,14 @@ impl SteerSessionView {
             subscriptions.push(cx.observe(&collections.coding_sessions, |this, _, cx| {
                 this.refresh_row(cx);
             }));
+            // EXP-1284: THE Guide is the run's THREAD's — its row and its
+            // membership re-read the Guide the faces show.
+            subscriptions.push(cx.observe(&collections.threads, |this, _, cx| {
+                this.refresh_guide(cx);
+            }));
+            subscriptions.push(cx.observe(&collections.thread_items, |this, _, cx| {
+                this.refresh_guide(cx);
+            }));
             // EXP-776: the chip memo is only as fresh as the issues and
             // statuses it was read from (glyph and tint are part of a chip).
             subscriptions.push(cx.observe(&collections.issues, |this, _, cx| {
@@ -711,6 +769,9 @@ impl SteerSessionView {
             // viewer's.
             subscriptions.push(cx.observe(&shared_state, |this, _, cx| {
                 this.note_network_edge(cx);
+                // …and the session edge itself: a tab built before anyone
+                // was signed in dials the moment an account is active.
+                this.dial_pending(cx);
             }));
         }
         // …#3: the window came forward — the desktop's `visibilitychange`.
@@ -744,6 +805,7 @@ impl SteerSessionView {
             row: None,
             feed: SteerFeed::new(),
             source,
+            pending_dial: PendingDial(None),
             context_legend_open: false,
             phase: ViewerPhase::Connecting,
             connected: false,
@@ -788,6 +850,7 @@ impl SteerSessionView {
             diff_selected: 0,
             pending_diff_path: None,
             guide_page: None,
+            guide_scroll: ScrollHandle::new(),
             stack_hovered: None,
             diff_filter,
             folded_dirs: HashSet::new(),
@@ -799,8 +862,7 @@ impl SteerSessionView {
             derived_for: None,
             subagents: Vec::new(),
             strip_lines: Vec::new(),
-            task_list_expanded: false,
-            task_list_scroll: ScrollHandle::new(),
+            open_work_folds: HashSet::new(),
             duplicates: Vec::new(),
             expanded_cards: HashSet::new(),
             duplicates_notified: HashSet::new(),
@@ -837,6 +899,11 @@ impl SteerSessionView {
             thread_cards: Vec::new(),
             status_ticking: false,
             show_work_cached: crate::run_rows::SHOW_WORK_DEFAULT,
+            embedded: false,
+            embedded_show_work: false,
+            guide_results: None,
+            embedded_results: None,
+            dev_scrolled_to: None,
             chips: None,
             chip_cache: Default::default(),
             focus_handle: cx.focus_handle(),
@@ -853,15 +920,9 @@ impl SteerSessionView {
         // Only the relay source dials — and only when the caller did not hand
         // one in. A local source subscribes to its engine instead: same
         // reducer, same rendering, no socket.
-        if let FeedSource::Remote { handle } = &mut this.source {
-            if handle.is_none() {
-                *handle = spawn_viewer(&session_id, events_tx, cx);
-            }
-            if handle.is_none() {
-                this.phase = ViewerPhase::Unauthorized {
-                    detail: Some("Live steering is unavailable on this instance.".to_string()),
-                };
-            }
+        if let FeedSource::Remote { handle: None } = &this.source {
+            this.pending_dial = PendingDial(Some(events_tx));
+            this.dial_pending(cx);
         }
         // EXP-773: a journal source is the whole transcript, already on disk.
         // Fold it into the SAME reducer the wire feeds, then mark the run
@@ -1349,7 +1410,7 @@ impl SteerSessionView {
             // EXP-850: a row can grow a workflow card (§3) or a file card
             // (§12) whose height moves without the row's own content moving —
             // the card's state is part of the row's measure.
-            let fingerprint = transcript_rows::fold_extra(fingerprint, self.row_extra(spec));
+            let fingerprint = transcript_rows::fold_extra(fingerprint, self.row_extra(spec, cx));
             keys.push(RowKey { id, fingerprint });
         }
         // §3: the orphan cards, in feed order, keyed above every feed id and
@@ -1363,6 +1424,7 @@ impl SteerSessionView {
                 workflow.map_or(0, |workflow| {
                     (workflow.agents.len() as u64) << 32
                         | (workflow.done_agents() as u64) << 16
+                        | (self.open_work_folds.contains(&workflow.id) as u64) << 8
                         | workflow.status as u64
                 }),
             );
@@ -1414,11 +1476,45 @@ impl SteerSessionView {
         }
     }
 
+    /// EXP-1259 (DEV-ONLY): `EXP_DEV_SCROLL_TO=script-card` parks the
+    /// transcript (Show work on) with its first code-mode Script card near
+    /// the top of the viewport (one row of lead-in) instead of on the tail,
+    /// so the `script-card` capture has the card in frame. Re-applied only
+    /// while that row's index moves (the replay still landing rows above
+    /// it), so a wheel is never fought.
+    fn dev_scroll_to_script_card(&mut self) {
+        if !self.show_work_cached || !crate::screens::dev_scroll_to_script_card() {
+            return;
+        }
+        let items = self.feed.items();
+        let script_row = self.rows.iter().position(|spec| {
+            spec.item_indices().iter().any(|&ix| {
+                matches!(
+                    items.get(ix).map(|item| &item.kind),
+                    Some(FeedKind::Tool { name, .. }) if steer::script_card::is_script_tool(name)
+                )
+            })
+        });
+        let Some(row) = script_row else {
+            return;
+        };
+        if self.dev_scrolled_to == Some(row) {
+            return;
+        }
+        self.dev_scrolled_to = Some(row);
+        // One row of lead-in above it: the list's top edge sits under the
+        // status row's fade.
+        self.list.scroll_to(gpui::ListOffset {
+            item_ix: row.saturating_sub(1),
+            offset_in_item: px(0.),
+        });
+    }
+
     /// EXP-1175 — the thread's projection, refreshed every frame after
     /// [`Self::sync_list`] (whose main-transcript rows it reads the pending
     /// cards from): the parsed `results`, then the same [`plan_list_sync`]
     /// diff the transcript applies, so a changed row re-measures.
-    fn sync_thread(&mut self) {
+    fn sync_thread(&mut self, cx: &App) {
         use std::hash::{Hash as _, Hasher as _};
         let hash = |value: &dyn Fn(&mut std::hash::DefaultHasher)| {
             let mut hasher = std::hash::DefaultHasher::new();
@@ -1454,10 +1550,12 @@ impl SteerSessionView {
         let events = domain::session_results::with_run_start(events, run_started);
         self.thread_first_end_known =
             domain::session_results::first_turn_end_known(&events, run_started);
-        self.thread = domain::session_results::session_turns(
-            self.row.as_ref().and_then(|row| row.results.as_ref()),
-            &events,
-        );
+        // EXP-1284: a thread's session block shows only ITS Guide entries.
+        let results = match (&self.embedded_results, self.embedded) {
+            (Some(results), true) => Some(results),
+            _ => self.row.as_ref().and_then(|row| row.results.as_ref()),
+        };
+        self.thread = domain::session_results::session_turns(results, &events);
         let items = self.feed.items();
         self.thread_cards = if self.answerable_run() {
             self.rows
@@ -1527,7 +1625,7 @@ impl SteerSessionView {
                 |item| self.item_facets(item),
             );
             let fingerprint = transcript_rows::fold_gap(fingerprint, if keys.is_empty() { 0. } else { 1. });
-            let fingerprint = transcript_rows::fold_extra(fingerprint, self.row_extra(spec));
+            let fingerprint = transcript_rows::fold_extra(fingerprint, self.row_extra(spec, cx));
             keys.push(RowKey { id: THREAD_CARD_BASE + id, fingerprint });
         }
         let ops = plan_list_sync(&self.thread_keys, &keys);
@@ -1544,7 +1642,41 @@ impl SteerSessionView {
     /// ([`crate::ui_prefs::show_work`]), `EXP_DEV_SHOW_WORK=1` forcing it on
     /// for the capture lane.
     fn show_work(&self, cx: &App) -> bool {
+        if self.embedded {
+            return self.embedded_show_work;
+        }
         crate::screens::dev_show_work() || crate::ui_prefs::show_work(&show_work_user(cx))
+    }
+
+    /// EXP-1284 — make this view a thread conversation's run block body
+    /// ([`Self::render_embedded`]); `show_work` opens it on the transcript
+    /// (a folded run's Show work).
+    pub(crate) fn set_embedded(&mut self, show_work: bool, cx: &mut gpui::Context<Self>) {
+        self.embedded = true;
+        self.embedded_show_work = show_work;
+        cx.notify();
+    }
+
+    /// EXP-1284 — the Guide entries this embedded block shows (the
+    /// session's own slice of the thread's Guide).
+    pub(crate) fn set_embedded_results(&mut self, results: serde_json::Value, cx: &mut gpui::Context<Self>) {
+        if self.embedded_results.as_ref() != Some(&results) {
+            self.embedded_results = Some(results);
+            cx.notify();
+        }
+    }
+
+    /// EXP-1284 — the thread's reply composer sends to this run: the SAME
+    /// delivery the Run face's composer ends in (local engine prompt, or the
+    /// relay's `input` frame). `false` = it did not go out (the run is over,
+    /// or the relay is not connected).
+    pub(crate) fn send_reply(&mut self, text: &str, cx: &mut gpui::Context<Self>) -> bool {
+        if !self.run_open() {
+            return false;
+        }
+        let sent = self.deliver(text);
+        cx.notify();
+        sent
     }
 
     /// Whether the run is over — a merged/ended session offers no Merge
@@ -1606,6 +1738,7 @@ impl SteerSessionView {
             }
             cx.notify();
         }
+        self.refresh_guide(cx);
         // EXP-895: the row is where the issue id comes from, so this is the
         // first moment the FALLBACK files can be asked for — a run that
         // never publishes a diff (an ended one, a remote host that is gone)
@@ -1694,6 +1827,33 @@ impl SteerSessionView {
         let offline = sync_offline(cx);
         if std::mem::replace(&mut self.sync_offline, offline) && !offline {
             self.wake("network back");
+        }
+    }
+
+    /// Dial a `Remote` source that has no socket yet. Until it can (no
+    /// steer runtime, nobody signed in) the view says steering is
+    /// unavailable; the first successful dial clears that back to
+    /// `Connecting`, and from there the viewer task reports the relay's own
+    /// answer (a relay that is off says the same words, for good).
+    fn dial_pending(&mut self, cx: &mut gpui::Context<Self>) {
+        if !self.pending_dial.is_pending() {
+            return;
+        }
+        let FeedSource::Remote { handle } = &mut self.source else {
+            return;
+        };
+        let session_id = self.session_id.clone();
+        match self.pending_dial.attempt(|tx| spawn_viewer(&session_id, tx, cx)) {
+            Some(dialled) => {
+                *handle = Some(dialled);
+                self.phase = ViewerPhase::Connecting;
+                cx.notify();
+            }
+            None => {
+                self.phase = ViewerPhase::Unauthorized {
+                    detail: Some(STEER_UNAVAILABLE_DETAIL.to_string()),
+                };
+            }
         }
     }
 
@@ -2883,6 +3043,20 @@ impl SteerSessionView {
 
     /// EXP-879: the run's SUB-FACE on show — its transcript, its changes or
     /// its published results.
+    /// EXP-1261: whether the face's body left its top (the work body's top
+    /// fade waits for it): the Run face's list, the Guide page, or a Guide
+    /// diff page's scroll (the issue detail's rule).
+    pub(crate) fn body_scrolled(&self, cx: &App) -> bool {
+        match self.run_face {
+            RunFace::Run if self.show_work_cached => crate::work_header::list_scrolled(&self.list),
+            RunFace::Run => crate::work_header::list_scrolled(&self.thread_list),
+            RunFace::Guide if self.guide_page.is_some() => {
+                crate::work_header::scrolled(&self.changes_diff.read(cx).page_scroll())
+            }
+            RunFace::Guide => crate::work_header::scrolled(&self.guide_scroll),
+        }
+    }
+
     pub(crate) fn run_face(&self) -> RunFace {
         self.run_face
     }
@@ -2894,9 +3068,19 @@ impl SteerSessionView {
     /// EXP-933: GROUPS, pictures AND each topic's report text — a run that
     /// published only text still has a Results face.
     pub(crate) fn results_groups(&self) -> Vec<domain::session_results::SessionResultGroup> {
-        domain::session_results::parse_session_result_groups(
-            self.row.as_ref().and_then(|row| row.results.as_ref()),
-        )
+        domain::session_results::parse_session_result_groups(self.guide_results.as_ref())
+    }
+
+    /// EXP-1284 — re-read THE Guide (the thread's, else the run's own).
+    fn refresh_guide(&mut self, cx: &mut gpui::Context<Self>) {
+        let guide = self
+            .row
+            .as_ref()
+            .and_then(|row| crate::threads::guide_results_of_session(row, cx));
+        if guide != self.guide_results {
+            self.guide_results = guide;
+            cx.notify();
+        }
     }
 
     /// EXP-1251 — one of the Guide's diff pages is up.
@@ -3059,7 +3243,6 @@ impl SteerSessionView {
                 selected,
                 filter: Some(self.diff_filter.clone()),
                 folded_dirs: self.folded_dirs.clone(),
-                caption: None,
                 diff: self.changes_diff.clone(),
                 pane_width: self.diff_pane_width.clone(),
                 on_pick: std::rc::Rc::new(move |this: &mut Self, index, cx| {
@@ -3166,6 +3349,7 @@ impl SteerSessionView {
                 stack,
                 fallback_lead: None,
                 unnumbered: false,
+                scroll: Some(self.guide_scroll.clone()),
             },
             cx,
         ))
@@ -3224,7 +3408,7 @@ impl SteerSessionView {
     /// state, the file card under it, the fold flags. Folded into the row's
     /// fingerprint ([`transcript_rows::fold_extra`]) so a card that grew
     /// re-measures the row it hangs under.
-    fn row_extra(&self, spec: &FeedRowSpec) -> u64 {
+    fn row_extra(&self, spec: &FeedRowSpec, cx: &App) -> u64 {
         use std::hash::{Hash as _, Hasher as _};
         let mut hasher = std::hash::DefaultHasher::new();
         let items = self.feed.items();
@@ -3232,7 +3416,19 @@ impl SteerSessionView {
             let Some(item) = items.get(ix) else {
                 continue;
             };
+            // EXP-1279/EXP-1241: the Script card's disclosure, and the
+            // comment card's body once its row syncs.
+            if let FeedKind::Tool { name, .. } = &item.kind {
+                if steer::script_card::is_script_tool(name) {
+                    self.expanded_cards.contains(&item.id).hash(&mut hasher);
+                }
+                if steer::exp_tool_row(name) == Some(COMMENTS_CREATE_ROW) {
+                    self.comment_call_body_len(item, cx).hash(&mut hasher);
+                }
+            }
             if let Some(workflow) = self.workflow_of(item) {
+                // EXP-1240: the Work card's folded row opens in place.
+                self.open_work_folds.contains(&workflow.id).hash(&mut hasher);
                 workflow.agents.len().hash(&mut hasher);
                 workflow.done_agents().hash(&mut hasher);
                 workflow.phases.len().hash(&mut hasher);
@@ -3268,6 +3464,18 @@ impl SteerSessionView {
             }
         }
         hasher.finish()
+    }
+
+    /// EXP-1241: how long the comment a settled comment call posted is, as
+    /// this client sees it (the synced row's body, `None` before it syncs).
+    fn comment_call_body_len(&self, item: &FeedItem, cx: &App) -> Option<usize> {
+        let FeedKind::Tool { preview: Some(preview), .. } = &item.kind else {
+            return None;
+        };
+        let comment_ref = preview.refs.iter().find(|r| r.kind == "comment")?;
+        let store = sync::Store::try_global(cx)?;
+        let comment = store.collections().comments.read(cx).get(&comment_ref.id).cloned()?;
+        Some(comment.body.as_deref().map_or(0, str::len))
     }
 
     /// §5 — the caption of the newest RUNNING workflow, which replaces the
@@ -3559,8 +3767,7 @@ impl SteerSessionView {
         // is what retires the old "no issue = no attachment" gate.
         let session_id = self.session_id.clone();
         let Some(transport) = crate::queries::attachment_transport(cx) else {
-            self.notice = Some(SharedString::from("Couldn't upload attachment"));
-            cx.notify();
+            crate::action_error::failed_action("upload", "the attachment", None, cx);
             return;
         };
         // Sequential + idempotent per image: a mid-batch failure keeps the
@@ -3594,7 +3801,18 @@ impl SteerSessionView {
                         // Keep what landed so a retry uploads only the rest.
                         this.pending_images.note_uploaded(&resolved);
                         log::warn!("[ui] steer composer upload failed: {error}");
-                        this.notice = Some(SharedString::from("Couldn't upload attachment"));
+                        // FEED-79: the error toast; Retry sends again (only
+                        // the rest uploads).
+                        let viewer = cx.entity().downgrade();
+                        crate::action_error::failed_action_with_retry(
+                            "upload",
+                            "the attachment",
+                            None,
+                            move |window, cx| {
+                                let _ = viewer.update(cx, |this, cx| this.send(window, cx));
+                            },
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
@@ -3693,7 +3911,7 @@ pub(crate) const REPLAY_BANNER: &str = "Replaying transcript…";
 
 /// …and the same row when the run left nothing to replay (its workspace,
 /// and with it the device journal, is gone).
-pub(crate) const REPLAY_EMPTY_BANNER: &str = "No transcript for this run";
+pub(crate) const REPLAY_EMPTY_BANNER: &str = "No transcript for this session";
 
 /// `steer.killSession` off the gpui foreground. Shared with the Devices
 /// screen's per-row kill.
@@ -4003,73 +4221,6 @@ fn restore_unread_to_draft(draft: &str, held: &str) -> String {
     } else {
         format!("{draft}\n\n{held}")
     }
-}
-
-/// EXP-1191: a segment per entry above this many becomes ONE track (web
-/// `TASK_LIST_PROGRESS_MAX_SEGMENTS`).
-const TASK_LIST_PROGRESS_MAX_SEGMENTS: usize = 12;
-
-/// EXP-1191 — the task list's own progress mark ×4 (web `TaskListProgress`):
-/// one 10×4 pill per entry, 3px apart — done solid (foreground 70%), the
-/// current one half (35%), the rest faint (12%). Past
-/// [`TASK_LIST_PROGRESS_MAX_SEGMENTS`] one 80×4 track filled to done/total.
-/// `None` for an empty list.
-pub(crate) fn task_list_progress(
-    statuses: &[steer::TaskListStatus],
-    cx: &gpui::App,
-) -> Option<AnyElement> {
-    let total = statuses.len();
-    if total == 0 {
-        return None;
-    }
-    let foreground = cx.theme().foreground;
-    if total > TASK_LIST_PROGRESS_MAX_SEGMENTS {
-        let done = statuses
-            .iter()
-            .filter(|status| **status == steer::TaskListStatus::Completed)
-            .count();
-        let track = px(80.);
-        return Some(
-            div()
-                .flex_shrink_0()
-                .relative()
-                .w(track)
-                .h(px(4.))
-                .rounded_full()
-                .overflow_hidden()
-                .bg(foreground.opacity(0.12))
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .h_full()
-                        .w(track * (done as f32 / total as f32))
-                        .rounded_full()
-                        .bg(foreground.opacity(0.7)),
-                )
-                .into_any_element(),
-        );
-    }
-    Some(
-        h_flex()
-            .flex_shrink_0()
-            .items_center()
-            .gap(px(3.))
-            .children(statuses.iter().map(|status| {
-                let alpha = match status {
-                    steer::TaskListStatus::Completed => 0.7,
-                    steer::TaskListStatus::InProgress => 0.35,
-                    _ => 0.12,
-                };
-                div()
-                    .w(px(10.))
-                    .h(px(4.))
-                    .rounded_full()
-                    .bg(foreground.opacity(alpha))
-            }))
-            .into_any_element(),
-    )
 }
 
 /// EXP-861 — whether the queue strip renders: something is held AND the run
@@ -4431,6 +4582,7 @@ impl SteerSessionView {
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
         let entity = cx.entity().downgrade();
+        let embedded = self.embedded;
         crate::run_rows::run_status_row(
             crate::run_rows::RunStatusRowSpec {
                 id,
@@ -4440,9 +4592,18 @@ impl SteerSessionView {
                 tone: caption.1,
                 tool_line,
                 show_work,
+                toggle: true,
                 on_toggle: Some(Box::new(move |_, window, cx| {
-                    crate::ui_prefs::set_show_work(&show_work_user(cx), !show_work);
-                    let _ = entity.update(cx, |_, cx| cx.notify());
+                    // EXP-1284: an embedded block's switch is its own.
+                    if embedded {
+                        let _ = entity.update(cx, |this, cx| {
+                            this.embedded_show_work = !show_work;
+                            cx.notify();
+                        });
+                    } else {
+                        crate::ui_prefs::set_show_work(&show_work_user(cx), !show_work);
+                        let _ = entity.update(cx, |_, cx| cx.notify());
+                    }
                     window.refresh();
                 })),
             },
@@ -4458,16 +4619,28 @@ impl SteerSessionView {
     /// ([`Self::render_turn_status_row`]).
     fn render_status_row(&mut self, show_work: bool, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
         let facts = self.status_facts(cx)?;
-        if !show_work && self.thread.per_turn {
+        // EXP-1271 (EXP-1259 D8): before the first turn the OWNER's row is
+        // THE mark over "Starting on <device>" (and it shows even in the
+        // per-turn thread, which has no turn row yet).
+        let starting = self.starting_run(&facts, cx);
+        if !starting && !show_work && self.thread.per_turn {
             return None;
         }
-        let caption = crate::run_rows::run_row_caption(
-            facts.state,
-            &facts.device,
-            facts.started_ms,
-            facts.ended_ms,
-            facts.now_ms,
-        );
+        let caption = if starting {
+            (
+                crate::feedback::starting_label(&facts.device),
+                crate::run_rows::StatusTone::Muted,
+            )
+        } else {
+            crate::run_rows::run_row_caption(
+                facts.state,
+                &facts.device,
+                facts.started_ms,
+                facts.ended_ms,
+                facts.now_ms,
+            )
+        };
+        let mark = if starting { crate::run_rows::RunStatusMark::Starting } else { facts.mark };
         let tool_line = (!facts.ended)
             .then(|| steer::feed::last_tool_line(self.feed.items()))
             .flatten()
@@ -4475,13 +4648,70 @@ impl SteerSessionView {
         let element = self.status_row_element(
             SharedString::from("steer-run-status-row"),
             &facts,
-            facts.mark,
+            mark,
             caption,
             tool_line,
             show_work,
             cx,
         );
         Some(work_column_row(element).into_any_element())
+    }
+
+    /// EXP-1284 — the EMBEDDED body (a thread conversation's run block): the
+    /// Run face's status row over the run's thread rows, or — behind the
+    /// row's own Show work — the transcript rows, all laid out flat (the
+    /// thread page owns the one scroll; a list cannot nest in it). No
+    /// composer, banners or panes: the thread's reply box steers.
+    fn render_embedded(
+        &mut self,
+        show_work: bool,
+        window: &mut Window,
+        cx: &mut gpui::Context<Self>,
+    ) -> gpui::Div {
+        let status = self.render_status_row(show_work, cx);
+        let rows: Vec<AnyElement> = if show_work {
+            (0..self.row_keys.len())
+                .map(|ix| self.render_list_row(ix, window, cx))
+                .collect()
+        } else {
+            (0..self.thread_rows.len())
+                .map(|ix| self.render_thread_row(ix, window, cx))
+                .collect()
+        };
+        // The bubble cap reads the view's width (the normal body's probe).
+        let width_probe = self.view_width.clone();
+        v_flex()
+            .relative()
+            .w_full()
+            .min_w_0()
+            .children(status)
+            .children(rows)
+            .child(
+                gpui::canvas(
+                    move |bounds, _, _| width_probe.set(bounds.size.width),
+                    |_, _, _, _| {},
+                )
+                .absolute()
+                .size_full(),
+            )
+    }
+
+    /// EXP-1271 — the owner's open run before its first turn: nothing
+    /// streamed, nothing published, no turn begun, the host not offline
+    /// (web `startingRun`).
+    fn starting_run(&self, facts: &StatusFacts, cx: &App) -> bool {
+        let me = crate::queries::active_account(cx).map(|account| account.user_id);
+        let owner = self
+            .row
+            .as_ref()
+            .is_some_and(|row| row.user_id.is_some() && row.user_id == me);
+        owner
+            && !facts.ended
+            && !matches!(self.phase, ViewerPhase::Ended { .. })
+            && !self.paused(cx)
+            && self.feed.is_empty()
+            && self.thread_keys.is_empty()
+            && !self.working_now()
     }
 
     /// EXP-1245 — one turn's status row in the owner's thread: a settled
@@ -4790,7 +5020,7 @@ impl SteerSessionView {
                 .cloned();
             return match orphan {
                 Some(workflow) => {
-                    let card = self.render_workflow_card(&workflow, cx);
+                    let card = self.render_workflow_card(&workflow, None, cx);
                     self.transcript_row(ix, card)
                 }
                 None => self.transcript_row(ix, self.render_working_row(cx)),
@@ -4934,7 +5164,7 @@ impl SteerSessionView {
             // EXP-850 §3: a `Workflow` call renders as its CARD, never as a
             // tool row — the card is the row (looked up by the call's id).
             FeedKind::Tool { .. } => match self.workflow_of(item).cloned() {
-                Some(workflow) => self.render_workflow_card(&workflow, cx),
+                Some(workflow) => self.render_workflow_card(&workflow, Some(item), cx),
                 None => self.render_tool_item(item, self.tool_row_mode(item), cx),
             },
             FeedKind::Permission { tool, detail } => {
@@ -5389,6 +5619,14 @@ impl SteerSessionView {
         else {
             return div().into_any_element();
         };
+        // EXP-1279: a code-mode script is its Script card.
+        if steer::script_card::is_script_tool(name) {
+            return self.render_script_card(item, cx);
+        }
+        // EXP-1241: a settled comment call shows the comment it posted.
+        if let Some(card) = self.render_comment_call(item, cx) {
+            return card;
+        }
         // EXP-846: one of OUR MCP calls reads as product work (the mark, the
         // contract's caption, the answer's preview); everything else is the
         // plain tool row.
@@ -5456,6 +5694,158 @@ impl SteerSessionView {
             .children(extras)
             .children(card)
             .into_any_element()
+    }
+
+    /// EXP-1279 — the Script card of a `codemode__exec` call. The call log
+    /// and the script source ride the settled tool item once the engine
+    /// publishes them ([`script_card_input`]); until then the card is its
+    /// title, the spinner while it runs.
+    fn render_script_card(&self, item: &FeedItem, cx: &mut gpui::Context<Self>) -> AnyElement {
+        let (input, failed, source) = script_card_input(item);
+        let card = steer::script_card::script_card(&input);
+        let id = item.id;
+        crate::script_card::script_card(
+            crate::script_card::ScriptCardProps {
+                id: SharedString::from(format!("steer-script-{id}")),
+                card: &card,
+                running: input.running,
+                failed,
+                source,
+                source_open: self.expanded_cards.contains(&id),
+                on_toggle_source: Some({
+                    let entity = cx.entity().downgrade();
+                    std::rc::Rc::new(move |_window: &mut Window, cx: &mut App| {
+                        let _ = entity.update(cx, |this, cx| {
+                            if !this.expanded_cards.insert(id) {
+                                this.expanded_cards.remove(&id);
+                            }
+                            cx.notify();
+                        });
+                    })
+                }),
+            },
+            cx,
+        )
+    }
+
+    /// EXP-1241 — a SETTLED `exponential_comments_create` call renders the
+    /// real comment: "Commented on <issue chip>" over the comment in the
+    /// timeline's style (the agent's mark, the author, `via MCP`, the time;
+    /// the body clamped to three lines). The comment id is the answer's
+    /// `comment@` ref; the body is the synced row's (else the ref's excerpt).
+    /// A click opens the issue scrolled to the comment. `None` for any other
+    /// call — and for a comment call still running or failed, which keeps
+    /// its ordinary row.
+    fn render_comment_call(&self, item: &FeedItem, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
+        let FeedKind::Tool { name, settled, failed, preview, settled_at, .. } = &item.kind else {
+            return None;
+        };
+        if !*settled || *failed || steer::exp_tool_row(name) != Some(COMMENTS_CREATE_ROW) {
+            return None;
+        }
+        let preview = preview.as_ref()?;
+        let comment_ref = preview.refs.iter().find(|r| r.kind == "comment")?;
+        let issue_ref = preview.refs.iter().find(|r| r.kind == "issue");
+        let muted = cx.theme().muted_foreground;
+        let collections = sync::Store::try_global(cx).map(|store| store.collections().clone());
+        let comment = collections
+            .as_ref()
+            .and_then(|collections| collections.comments.read(cx).get(&comment_ref.id).cloned());
+        let author = match comment.as_ref() {
+            Some(comment) => {
+                let user = comment.author_id.as_deref().and_then(|author_id| {
+                    collections.as_ref()?.users.read(cx).get(author_id).cloned()
+                });
+                Some(crate::comments::thread_comment_author(comment, user.as_ref()))
+            }
+            // Not synced here yet: the run's owner, whose key posted it.
+            None => self.row.as_ref().and_then(|row| {
+                let owner = row.user_id.as_deref()?;
+                let user = collections.as_ref()?.users.read(cx).get(owner).cloned()?;
+                user.name.clone().filter(|name| !name.trim().is_empty())
+            }),
+        };
+        let now = chrono::Utc::now().timestamp();
+        let meta = match comment.as_ref() {
+            Some(comment) => crate::comments::thread_comment_meta(comment, now),
+            // The settle's own time until the row syncs (the synced meta's
+            // "<time> · via MCP" order).
+            None => match settled_at {
+                Some(ms) => {
+                    let ago = crate::comments::relative_time_epoch(ms.div_euclid(1000), now);
+                    format!("{ago} · via MCP")
+                }
+                None => "via MCP".to_string(),
+            },
+        };
+        let body = comment
+            .as_ref()
+            .and_then(|comment| comment.body.clone())
+            .or_else(|| comment_ref.title.clone())
+            .unwrap_or_default();
+        // The synced row's issue, else the answer's own issue ref.
+        let issue_id = comment
+            .as_ref()
+            .map(|comment| comment.issue_id.clone())
+            .or_else(|| issue_ref.map(|issue_ref| issue_ref.id.clone()).filter(|id| !id.is_empty()));
+        let id = item.id;
+        let mark = match self.builtin_agent() {
+            Some(agent) => crate::coding_selects::agent_mark(agent).xsmall().into_any_element(),
+            None => Icon::from(crate::icons::ExpIcon::Logo).xsmall().text_color(muted).into_any_element(),
+        };
+        let entity = cx.entity().downgrade();
+        let on_toggle: std::rc::Rc<dyn Fn(&mut Window, &mut App)> = std::rc::Rc::new(move |_window, cx| {
+            let _ = entity.update(cx, |this, cx| {
+                if !this.expanded_bodies.insert(id) {
+                    this.expanded_bodies.remove(&id);
+                }
+                cx.notify();
+            });
+        });
+        let on_open = issue_id.map(|issue_id| {
+            let comment_id = comment_ref.id.clone();
+            std::rc::Rc::new(move |window: &mut Window, cx: &mut App| {
+                crate::comments::open_issue_at_comment(&issue_id, &comment_id, window, cx)
+            }) as std::rc::Rc<dyn Fn(&mut Window, &mut App)>
+        });
+        let header = tool_text(h_flex())
+            .w_full()
+            .min_w_0()
+            .gap_2()
+            .items_center()
+            .child(Icon::from(crate::icons::ExpIcon::Logo).xsmall().text_color(muted))
+            .child(div().flex_shrink_0().child(SharedString::from(COMMENTED_ON_LABEL)))
+            .children(
+                issue_ref.map(|issue_ref| exp_entity_chip_row(id, std::slice::from_ref(issue_ref), cx)),
+            );
+        let card = crate::comments::thread_comment_card(
+            crate::comments::ThreadCommentProps {
+                id: SharedString::from(format!("steer-comment-{id}")),
+                mark,
+                author,
+                meta,
+                body,
+                team_id: self.ref_team_id(cx),
+                expanded: self.expanded_bodies.contains(&id),
+                on_toggle: Some(on_toggle),
+                on_open,
+            },
+            cx,
+        );
+        Some(
+            v_flex()
+                .w_full()
+                .min_w_0()
+                .gap_2()
+                .p_3()
+                .rounded(px(theme::tokens::radius::LG))
+                .border_1()
+                .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
+                .bg(theme::tokens::glass::FILL_CARD.to_hsla())
+                .child(header)
+                .child(card)
+                .into_any_element(),
+        )
     }
 
     /// EXP-916 — THE edited-files card for a [`steer::feed::FeedRow::Edits`].
@@ -5752,31 +6142,15 @@ impl SteerSessionView {
         column.into_any_element()
     }
 
+    /// EXP-1240 — a subagent's group row is its Work card.
     fn render_subagent(
         &self,
         id: FeedItemId,
         items: &[&FeedItem],
-        window: &Window,
+        _window: &Window,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
         let summary = summarize_subagent_row(items);
-        // EXP-773: the group's BODY is everything the subagent produced —
-        // its prose and the turns addressed to it as well as its tool calls,
-        // in feed order. Only the lifecycle markers stay in the header.
-        let body: Vec<&&FeedItem> = items
-            .iter()
-            .filter(|item| !matches!(item.kind, FeedKind::Subagent { .. }))
-            .collect();
-        let expandable = !body.is_empty();
-        let expanded = expandable && self.expanded_groups.contains(&id);
-        // EXP-847: what the subagent DID, in the collapsed group's own words.
-        // Only over rows this feed still holds — with none, the caption falls
-        // back to the publisher's count.
-        let tool_summary = items
-            .iter()
-            .any(|item| item.is_tool())
-            .then(|| tool_group_caption(items));
         let running = matches!(
             items.iter().find_map(|item| match &item.kind {
                 FeedKind::Subagent { status, .. } => Some(*status),
@@ -5784,151 +6158,61 @@ impl SteerSessionView {
             }),
             Some(SubagentStatus::Started)
         ) && !summary.done;
-
-        // EXP-963: everything the row is MADE of; the chevron, the muted rest
-        // and the pointer come from the shared disclosure header below — and
-        // only when there is something to open.
-        let content = h_flex()
-            .flex_1()
-            .min_w_0()
-            .gap_2()
-            .child(Icon::new(registry::CODING_SUBAGENT).xsmall())
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_color(cx.theme().foreground)
-                    .child(SharedString::from(subagent_label(
-                        summary.title.as_deref(),
-                        &summary.agent_type,
-                    ))),
-            )
-            .when_some(
-                subagent_type_caption(summary.title.as_deref(), &summary.agent_type),
-                |this, agent_type| {
-                    this.child(
-                        div()
-                            .flex_shrink_0()
-                            .text_2xs()
-                            .child(SharedString::from(agent_type)),
-                    )
-                },
-            )
-            .when(running, |this| this.child(Spinner::new().xsmall()))
-            .child(
-                // EXP-698: 11px — the agent TYPE is the row's 12px line, its
-                // status and detail the captions beside it.
-                div()
-                    .flex_shrink_0()
-                    .text_2xs()
-                    .child(SharedString::from(subagent_caption(
-                        summary.done,
-                        summary.tool_count,
-                        tool_summary.as_deref(),
-                    ))),
-            )
-            .when_some(summary.detail.clone(), |this, detail| {
-                this.child(
-                    div()
-                        .min_w_0()
-                        .truncate()
-                        .text_2xs()
-                        .child(SharedString::from(detail)),
-                )
+        // EXP-1240: the subagent is ONE Work card — its label (the title,
+        // else its type), the calls it made, done or running. Its own rows
+        // live in its transcript, which the card opens.
+        // EXP-1259 #11: elapsed from the `started` marker to the settling
+        // one (to now while it runs).
+        let marker_at = |wanted: SubagentStatus| {
+            items.iter().find_map(|item| match &item.kind {
+                FeedKind::Subagent { status, at, .. } if *status == wanted => *at,
+                _ => None,
             })
-            // EXP-818: no per-row "Open" pill — the subagent strip over the
-            // feed is the one way into a subagent's own conversation.
-            .child(div().flex_1());
-        let header = if expandable {
-            tool_text(disclosure_header(
-                ("steer-subagent", id as usize),
-                expanded,
-                ChevronSide::Leading,
-                content,
-                cx,
-            ))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _window, cx| {
-                if !this.expanded_groups.insert(id) {
-                    this.expanded_groups.remove(&id);
-                }
-                cx.notify();
-            }))
-            .into_any_element()
-        } else {
-            // Nothing under it: the lane is a plain line, no chevron and no
-            // pointer over a fold that would not open.
-            tool_text(
-                h_flex()
-                    .w_full()
-                    .min_w_0()
-                    .gap_2()
-                    .text_color(muted)
-                    .child(content),
-            )
-            .into_any_element()
         };
-        let mut column = v_flex().w_full().min_w_0().child(header);
-        // EXP-856 §4: a duplicate edge on an ORDINARY subagent renders inline
-        // under its group — and stays there when the group folds away.
-        for warning in crate::session_rows::duplicate_warnings(
+        let elapsed_ms = work_elapsed_ms(
+            marker_at(SubagentStatus::Started),
+            marker_at(SubagentStatus::Completed),
+            running,
+            now_epoch_ms(),
+        );
+        let input = steer::work_card::WorkCardInput::Subagent {
+            title: Some(subagent_label(summary.title.as_deref(), &summary.agent_type)),
+            state: if running { "running" } else { "done" }.to_string(),
+            tool_calls: Some(summary.tool_count as u64),
+            elapsed_ms,
+        };
+        let card = steer::work_card::work_card(&input);
+        let on_card = items
+            .iter()
+            .find_map(|item| item.subagent_id().map(str::to_string))
+            .map(|subagent_id| {
+                let entity = cx.entity().downgrade();
+                std::rc::Rc::new(move |window: &mut Window, cx: &mut App| {
+                    let subagent_id = subagent_id.clone();
+                    let _ = entity.update(cx, |this, cx| this.open_lane(subagent_id, window, cx));
+                }) as crate::work_card::CardClick
+            });
+        // EXP-856 §4: a duplicate edge on an ORDINARY subagent stays on its
+        // card.
+        let footer = crate::session_rows::duplicate_warnings(
             &items.iter().map(|item| (*item).clone()).collect::<Vec<_>>(),
-        ) {
-            column = column.child(self.render_duplicate_row(&warning, cx));
-        }
-        if expanded {
-            // EXP-916: the lane's own consecutive edits fold into ONE
-            // edited-files card inside the group, exactly as they do on the
-            // main line (`steer::feed`'s rule, byte-locked ×4).
-            let body: Vec<&FeedItem> = body.into_iter().copied().collect();
-            let held = self.feed.workflow_ids();
-            let mut at = 0;
-            while at < body.len() {
-                let item = body[at];
-                if item.is_edit_call(&held) {
-                    let end = domain::edit_card::edit_run_end(at, body.len(), |ix| {
-                        body[ix].is_edit_call(&held)
-                    });
-                    column = column.child(div().pl_5().py_0p5().child(self.render_edits_card(
-                        item.id,
-                        &body[at..=end],
-                        cx,
-                    )));
-                    at = end + 1;
-                    continue;
-                }
-                at += 1;
-                match &item.kind {
-                    FeedKind::Tool { .. } => {
-                        // EXP-787: the subagent's inner rhythm is unchanged.
-                        // EXP-746: an expanded group shows each call's cards
-                        // too — that is what expanding it is for.
-                        column = column.child(
-                            div()
-                                .pl_5()
-                                .py_0p5()
-                                .child(self.render_tool_item(item, self.tool_row_mode(item), cx)),
-                        );
-                    }
-                    // EXP-773: the subagent's own prose and the turns sent to
-                    // it read exactly as they do on the main line, indented
-                    // under the group instead of splitting it.
-                    FeedKind::Narration { .. }
-                    | FeedKind::UserMessage { .. }
-                    | FeedKind::ApiError { .. } => {
-                        // EXP-787: the 4px the rows themselves used to carry,
-                        // kept here so the nested conversation reads exactly
-                        // as it did while the main line moved to the ladder.
-                        column = column.child(
-                            div()
-                                .pl_5()
-                                .py_1()
-                                .child(self.render_item(item, &HashSet::new(), window, cx)),
-                        );
-                    }
-                    _ => {}
-                }
-            }
-        }
-        column.into_any_element()
+        )
+        .iter()
+        .map(|warning| self.render_duplicate_row(warning, cx))
+        .collect();
+        crate::work_card::work_card(
+            crate::work_card::WorkCardProps {
+                id: SharedString::from(format!("steer-subagent-{id}")),
+                card: &card,
+                lanes: Vec::new(),
+                folded_open: false,
+                on_toggle_folded: None,
+                on_lane: None,
+                on_card,
+                footer,
+            },
+            cx,
+        )
     }
 
     // ── EXP-850: the working row, the workflow card, the strips ───────────
@@ -5964,186 +6248,111 @@ impl SteerSessionView {
             .into_any_element()
     }
 
-    /// §3 — the WORKFLOW card, rendered in place of its `Workflow` tool row:
-    /// name + description, the phase strip, one row per agent, the summary
-    /// when it finished, and (§4) the duplicate warnings underneath.
+    /// EXP-1240 — THE Work card of a workflow, rendered in place of its
+    /// `Workflow` tool row (§3): the contract model over the latest-wins
+    /// payload, the §4 duplicate warnings as its footer. A lane opens that
+    /// agent's transcript.
     fn render_workflow_card(
         &self,
         workflow: &steer::WorkflowState,
+        call: Option<&FeedItem>,
         cx: &mut gpui::Context<Self>,
     ) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
-        let running = workflow.status == steer::WorkflowStatus::Running;
-        let header = tool_text(h_flex())
-            .w_full()
-            .min_w_0()
-            .gap_2()
-            .items_center()
-            .child(
-                Icon::new(registry::CODING_SUBAGENT)
-                    .xsmall()
-                    .text_color(muted),
-            )
-            // The title IS the shared caption (`Workflow {name} · {done}/{total}
-            // agents done · {phase}`), the same string the web, iOS and Android
-            // cards lead with and the list rows sync.
-            .child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .text_color(cx.theme().foreground)
-                    .child(SharedString::from(steer::workflow_caption(workflow))),
-            )
-            .when(running, |this| this.child(Spinner::new().xsmall()));
-        let mut column = v_flex()
-            .w_full()
-            .min_w_0()
-            .gap_1()
-            .rounded(px(theme::tokens::radius::MD))
-            .border_1()
-            .border_color(theme::tokens::glass::STROKE_CARD.to_hsla())
-            .bg(theme::tokens::glass::FILL_CARD.to_hsla())
-            .px_2()
-            .py_1p5()
-            .child(header);
-        if let Some(description) = workflow
-            .description
-            .as_deref()
-            .map(str::trim)
-            .filter(|description| !description.is_empty())
-        {
-            column = column.child(
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .truncate()
-                    .text_2xs()
-                    .text_color(muted)
-                    .child(SharedString::from(description.to_string())),
-            );
-        }
-        // The phase strip: one chip per phase with its queued/running/done/
-        // failed counts.
-        let phases = crate::workflow_card::phase_counts(workflow);
-        if !phases.is_empty() {
-            let mut strip = h_flex().w_full().min_w_0().gap_1p5().flex_wrap();
-            for (index, phase) in phases.iter().enumerate() {
-                strip = strip.child(
-                    crate::surface::glass_pill(
-                        ("steer-workflow-phase", index),
-                        crate::surface::PillSize::Sm,
-                        crate::surface::PillMode::Readonly,
-                        cx,
-                    )
-                    .child(
-                        div()
-                            .flex_shrink_0()
-                            .text_2xs()
-                            .child(SharedString::from(phase.title.clone())),
-                    )
-                    .when(phase.total() > 0, |this| {
-                        this.child(
-                            div()
-                                .flex_shrink_0()
-                                .text_2xs()
-                                .text_color(muted)
-                                .child(SharedString::from(phase.caption())),
-                        )
-                    }),
-                );
-            }
-            column = column.child(strip);
-        }
-        for agent in &workflow.agents {
-            column = column.child(self.render_workflow_agent(agent, cx));
-        }
-        // §4: the duplicate warnings belong to the card, and stay when its
-        // agent rows fold away.
-        for warning in self.workflow_duplicates(&workflow.id) {
-            column = column.child(self.render_duplicate_row(&warning, cx));
-        }
-        // The run's summary closes the card once it is over (web parity).
-        if workflow.status.is_terminal() {
-            let status = crate::workflow_card::card_status(workflow);
-            if !status.is_empty() {
-                column = column.child(
-                    div()
-                        .w_full()
-                        .min_w_0()
-                        .pt_1()
-                        .border_t_1()
-                        .border_color(theme::tokens::glass::STROKE_ROW.to_hsla())
-                        .text_2xs()
-                        .text_color(muted)
-                        .child(SharedString::from(status)),
-                );
-            }
-        }
-        column.into_any_element()
+        // EXP-1259 #11: elapsed from the `Workflow` call's start to its
+        // settle (to now while it runs); without the call's stamps, the sum
+        // of its phases' spans (the web's fallback).
+        let (started_at, settled_at) = match call.map(|item| &item.kind) {
+            Some(FeedKind::Tool { started_at, settled_at, .. }) => (*started_at, *settled_at),
+            _ => (None, None),
+        };
+        let elapsed_ms = work_elapsed_ms(
+            started_at,
+            settled_at,
+            workflow.status == steer::WorkflowStatus::Running,
+            now_epoch_ms(),
+        )
+        .or_else(|| workflow_span_ms(workflow));
+        let input = steer::work_card::WorkCardInput::from_workflow(workflow, elapsed_ms);
+        let card = steer::work_card::work_card(&input);
+        let behind = steer::work_card::work_card_lanes(&input);
+        // The agent id behind every lane, row-aligned like the lanes.
+        let agent_ids: Vec<Vec<Option<String>>> = behind
+            .iter()
+            .map(|lanes| {
+                lanes
+                    .iter()
+                    .map(|(index, _)| {
+                        workflow
+                            .agents
+                            .iter()
+                            .find(|agent| agent.index == *index)
+                            .and_then(|agent| agent.agent_id.clone())
+                    })
+                    .collect()
+            })
+            .collect();
+        let lanes = behind
+            .into_iter()
+            .map(|lanes| lanes.into_iter().map(|(_, lane)| lane).collect())
+            .collect();
+        let entity = cx.entity().downgrade();
+        let workflow_id = workflow.id.clone();
+        let on_toggle_folded: crate::work_card::CardClick = {
+            let entity = entity.clone();
+            std::rc::Rc::new(move |_window, cx| {
+                let workflow_id = workflow_id.clone();
+                let _ = entity.update(cx, |this, cx| {
+                    if !this.open_work_folds.remove(&workflow_id) {
+                        this.open_work_folds.insert(workflow_id);
+                    }
+                    cx.notify();
+                });
+            })
+        };
+        let on_lane: Option<crate::work_card::LaneClick> = agent_ids
+            .iter()
+            .flatten()
+            .any(Option::is_some)
+            .then(|| {
+                let entity = entity.clone();
+                std::rc::Rc::new(move |(row, lane): (usize, usize), window: &mut Window, cx: &mut App| {
+                    let Some(Some(agent_id)) = agent_ids.get(row).and_then(|lanes| lanes.get(lane))
+                    else {
+                        return;
+                    };
+                    let agent_id = agent_id.clone();
+                    let _ = entity.update(cx, |this, cx| this.open_lane(agent_id, window, cx));
+                }) as crate::work_card::LaneClick
+            });
+        let footer = self
+            .workflow_duplicates(&workflow.id)
+            .iter()
+            .map(|warning| self.render_duplicate_row(warning, cx))
+            .collect();
+        crate::work_card::work_card(
+            crate::work_card::WorkCardProps {
+                id: SharedString::from(format!("steer-work-{}", workflow.id)),
+                card: &card,
+                lanes,
+                folded_open: self.open_work_folds.contains(&workflow.id),
+                on_toggle_folded: Some(on_toggle_folded),
+                on_lane,
+                on_card: None,
+                footer,
+            },
+            cx,
+        )
     }
 
-    /// §3 — one agent row of a workflow card: its SUMMARY line. EXP-1225:
-    /// the agent's own rows live in its subagent tab, never folded in here.
-    fn render_workflow_agent(
-        &self,
-        agent: &steer::WorkflowAgent,
-        cx: &mut gpui::Context<Self>,
-    ) -> AnyElement {
-        let muted = cx.theme().muted_foreground;
-        let tone = match agent.state {
-            steer::WorkflowAgentState::Queued => muted.opacity(0.5),
-            steer::WorkflowAgentState::Running => theme::tokens::GREEN.to_hsla(),
-            steer::WorkflowAgentState::Done => muted,
-            steer::WorkflowAgentState::Error => cx.theme().danger,
-        };
-        let meta = crate::workflow_card::agent_meta(agent);
-        let detail = crate::workflow_card::agent_detail(agent);
-        let mut content = h_flex()
-            .flex_1()
-            .min_w_0()
-            .gap_1p5()
-            .child(status_dot(tone))
-            .child(
-                div()
-                    .flex_shrink_0()
-                    .text_color(cx.theme().foreground)
-                    .child(SharedString::from(crate::workflow_card::agent_label(agent))),
-            )
-            .when(agent.state == steer::WorkflowAgentState::Running, |this| {
-                this.child(Spinner::new().xsmall())
-            });
-        if !meta.is_empty() {
-            content = content.child(
-                div()
-                    .flex_shrink_0()
-                    .text_2xs()
-                    .child(SharedString::from(meta)),
-            );
+    /// EXP-1240 — open a lane's (a subagent's, a workflow agent's)
+    /// transcript in the existing nested view: its subagent tab, under Show
+    /// work.
+    fn open_lane(&mut self, subagent_id: String, window: &mut Window, cx: &mut gpui::Context<Self>) {
+        if !self.show_work(cx) {
+            crate::ui_prefs::set_show_work(&show_work_user(cx), true);
         }
-        if let Some(detail) = detail {
-            content = content.child(
-                div()
-                    .min_w_0()
-                    .truncate()
-                    .text_2xs()
-                    .text_color(if agent.state == steer::WorkflowAgentState::Error {
-                        cx.theme().danger
-                    } else {
-                        muted
-                    })
-                    .child(SharedString::from(detail)),
-            );
-        }
-        tool_text(
-            h_flex()
-                .w_full()
-                .min_w_0()
-                .gap_1p5()
-                .pl_2()
-                .text_color(muted)
-                .child(content),
-        )
-        .into_any_element()
+        self.focus_subagent(Some(subagent_id), cx);
+        window.refresh();
     }
 
     /// §4 — the amber duplicate warning: the wire's own sentence, verbatim.
@@ -6180,119 +6389,29 @@ impl SteerSessionView {
     /// EXP-927 §2c — the agent's OWN task list, the FIRST block of the strip
     /// (claude's `TodoWrite`, codex's plan — whatever the adapters hand the
     /// engine as an ACP `Plan`). Hidden while it is empty or every entry is
-    /// done; collapsed by default to ONE line naming the current entry, and
-    /// unfolded to one line per entry, eight of them before it scrolls.
+    /// done. EXP-1240: drawn as THE Work card (`tasks`): the progress, the
+    /// segment bar and the entry in progress (else the next pending one).
     fn render_task_list_strip(&self, cx: &mut gpui::Context<Self>) -> Option<AnyElement> {
-        // The visibility rule and the collapsed read are ONE function ×4 (web
-        // `taskListSummary`), so a run says the same thing on every client.
+        // The visibility rule is ONE function ×4 (web `taskListSummary`):
+        // hidden while the list is empty or every entry is done.
         let entries = self.feed.task_list();
-        let summary = crate::session_rows::task_list_summary(entries)?;
-        let muted = cx.theme().muted_foreground;
-        let foreground = cx.theme().foreground;
-        let expanded = self.task_list_expanded;
-        // The WHOLE line toggles; the chevron beside it only says so, it is
-        // not a second target.
-        let header = tool_text(h_flex())
-            .id("steer-task-list-toggle")
-            .w_full()
-            .min_w_0()
-            .gap_1p5()
-            .items_center()
-            .cursor_pointer()
-            .text_color(muted)
-            .child(
-                Icon::new(registry::UI_CHECKLIST)
-                    .xsmall()
-                    .text_color(muted.opacity(0.7)),
-            )
-            // The header names the current entry folded AND unfolded (wire
-            // doc §2c, the same line ×4).
-            .child(
-                div()
-                    .flex_1()
-                    .min_w_0()
-                    .truncate()
-                    .child(SharedString::from(summary.current.clone())),
-            )
-            // EXP-1191: the list's own mark between the label and the count,
-            // so the line never reads as a queued message or the composer.
-            .children(task_list_progress(
-                &entries.iter().map(|entry| entry.status).collect::<Vec<_>>(),
-                cx,
-            ))
-            .child(div().flex_shrink_0().child(SharedString::from(format!(
-                "{}/{}",
-                summary.completed, summary.total
-            ))))
-            // EXP-1191: the shared disclosure glyph (web `DisclosureHeader`):
-            // right while folded, down while open.
-            .child(
-                Icon::new(if expanded {
-                    registry::UI_CHEVRON_DOWN
-                } else {
-                    registry::UI_CHEVRON_RIGHT
-                })
-                .xsmall()
-                .text_color(muted.opacity(0.7)),
-            )
-            .on_click(cx.listener(|this, _: &ClickEvent, _window, cx| {
-                this.task_list_expanded = !this.task_list_expanded;
-                cx.notify();
-            }));
-        let mut column = v_flex().w_full().min_w_0().gap_0p5().child(header);
-        if expanded {
-            let mut rows = v_flex().w_full().min_w_0().gap_0p5();
-            for entry in entries {
-                let done = entry.status == steer::TaskListStatus::Completed;
-                let running = entry.status == steer::TaskListStatus::InProgress;
-                let line = tool_text(h_flex())
-                    .w_full()
-                    .min_w_0()
-                    .gap_1p5()
-                    .items_center()
-                    // Only the entry the agent is ON reads at full strength.
-                    .text_color(if running { foreground } else { muted });
-                // A running entry gets the SPINNING `ui-loading`; the other
-                // two states are the static check and the empty circle.
-                let line = if running {
-                    line.child(Spinner::new().xsmall().icon(registry::UI_LOADING))
-                } else {
-                    let glyph = if done {
-                        registry::UI_SELECTED
-                    } else {
-                        registry::UI_UNSELECTED
-                    };
-                    line.child(Icon::new(glyph).xsmall().text_color(muted.opacity(0.7)))
-                };
-                rows = rows.child(
-                    line.child(
-                        div()
-                            .min_w_0()
-                            .truncate()
-                            // A done entry reads struck through and dimmer
-                            // still: it is the list's progress, not a line to
-                            // read again.
-                            .when(done, |this| {
-                                this.line_through().text_color(muted.opacity(0.7))
-                            })
-                            .child(SharedString::from(entry.content.clone())),
-                    ),
-                );
-            }
-            // §2c: eight lines tall at most, then it scrolls — a fifty-entry
-            // list must not push the composer off the pane.
-            column = column.child(
-                div()
-                    .id("steer-task-list-entries")
-                    .w_full()
-                    .min_w_0()
-                    .max_h(px(TASK_LIST_MAX_ROWS * (transcript::TOOL_LINE_HEIGHT + 2.)))
-                    .overflow_y_scroll()
-                    .track_scroll(&self.task_list_scroll)
-                    .child(rows),
-            );
-        }
-        Some(strip_block(column.into_any_element()).into_any_element())
+        crate::session_rows::task_list_summary(entries)?;
+        // EXP-1240: the list is the Work card's `tasks` kind.
+        let card = steer::work_card::work_card(&steer::work_card::WorkCardInput::from_tasks(entries));
+        let element = crate::work_card::work_card(
+            crate::work_card::WorkCardProps {
+                id: SharedString::from("steer-task-list"),
+                card: &card,
+                lanes: Vec::new(),
+                folded_open: false,
+                on_toggle_folded: None,
+                on_lane: None,
+                on_card: None,
+                footer: Vec::new(),
+            },
+            cx,
+        );
+        Some(strip_block(element).into_any_element())
     }
 
     /// §1/§2 — the strip directly above the composer: one line per background
@@ -7357,7 +7476,7 @@ impl SteerSessionView {
             ViewerPhase::Unauthorized { detail } => banners.push(banner(
                 detail
                     .clone()
-                    .unwrap_or_else(|| "Live steering is unavailable on this instance.".to_string()),
+                    .unwrap_or_else(|| STEER_UNAVAILABLE_DETAIL.to_string()),
             )),
             ViewerPhase::Reconnecting => banners.push(banner("Connection lost.".to_string())),
             ViewerPhase::Starting if !self.feed.is_empty() => banners.push(banner(
@@ -8082,14 +8201,6 @@ fn push_text(runs: &mut Vec<MarkerSegment>, body: &str) {
     runs.push(MarkerSegment::Text(body.to_string()));
 }
 
-fn status_dot(color: gpui::Hsla) -> impl IntoElement {
-    div()
-        .flex_shrink_0()
-        .size_1p5()
-        .rounded_full()
-        .bg(color)
-}
-
 /// EXP-787 — the transcript's PROSE rung: narration, a sent message, a card's
 /// body. 14/22 from the shared tokens, on every client; the rem-relative
 /// `text_sm` these used to take resolved to 12.25px here and to something else
@@ -8099,10 +8210,6 @@ fn body_text<E: Styled>(element: E) -> E {
         .text_size(px(transcript::BODY_SIZE))
         .line_height(px(transcript::BODY_LINE_HEIGHT))
 }
-
-/// EXP-927 §2c — how many task-list entries the unfolded block shows before
-/// it scrolls.
-const TASK_LIST_MAX_ROWS: f32 = 8.;
 
 /// EXP-927 — one block of the strip above the composer (the task list, the
 /// background tasks and waits, the queue bar): the pane's padding spanning
@@ -8293,6 +8400,48 @@ fn tool_text<E: Styled>(element: E) -> E {
     element
         .text_size(px(transcript::TOOL_SIZE))
         .line_height(px(transcript::TOOL_LINE_HEIGHT))
+}
+
+/// EXP-1241: the contract row of the comment call that renders as the
+/// comment it posted.
+const COMMENTS_CREATE_ROW: &str = "comments_create";
+/// EXP-1241: the comment card's lead-in, before the issue chip (×4).
+pub(crate) const COMMENTED_ON_LABEL: &str = "Commented on";
+
+/// EXP-1279 — what a `codemode__exec` row's Script card is built from: the
+/// model input, whether the call failed, and the script source.
+///
+/// The settle's `tool_update.script` (wire doc §1b, folded into the row by
+/// the feed) carries the call log and the source; a row without one (still
+/// running, an older host, a script refused before it ran) is the card's
+/// "older codemode without a log" case: the title alone, plus the source
+/// when that came alone.
+fn script_card_input(item: &FeedItem) -> (steer::script_card::ScriptCardInput, bool, Option<String>) {
+    let FeedKind::Tool { settled, failed, script, .. } = &item.kind else {
+        return (steer::script_card::ScriptCardInput::default(), false, None);
+    };
+    let log = script.as_ref();
+    let calls = log.map(|log| {
+        log.calls
+            .iter()
+            .map(|call| steer::script_card::ScriptCall {
+                tool: call.tool.clone(),
+                subject: call.subject.clone(),
+                ok: call.ok,
+                ms: call.ms,
+            })
+            .collect()
+    });
+    (
+        steer::script_card::ScriptCardInput {
+            running: !*settled,
+            count: log.and_then(|log| log.count).map(u64::from),
+            calls,
+            elapsed_ms: log.and_then(|log| log.elapsed_ms),
+        },
+        *failed,
+        log.and_then(|log| log.source.clone()),
+    )
 }
 
 /// One tool call's line. EXP-789: a call whose `tool_update` said `failed`
@@ -8646,7 +8795,12 @@ impl Render for SteerSessionView {
         let show_work = self.show_work(cx);
         self.show_work_cached = show_work;
         self.sync_list(cx);
-        self.sync_thread();
+        self.dev_scroll_to_script_card();
+        self.sync_thread(cx);
+        // EXP-1284: a thread's run block — flat, inside the thread's scroll.
+        if self.embedded {
+            return self.render_embedded(show_work, window, cx);
+        }
         self.sync_card_focus(window, cx);
         // EXP-789: the subagent strip sits between the header and the feed
         // (EXP-1175: the transcript's only).
@@ -8800,6 +8954,63 @@ impl Drop for SteerSessionView {
     }
 }
 
+/// EXP-1259 #11 — a Work card's elapsed: from the call's start to its settle
+/// `end`, or to `now` while it still runs. `None` without a start stamp (an
+/// older publisher), or a finished call without its settle stamp.
+pub(crate) fn work_elapsed_ms(
+    start: Option<i64>,
+    end: Option<i64>,
+    running: bool,
+    now: i64,
+) -> Option<u64> {
+    let start = start?;
+    let end = if running { now } else { end? };
+    Some(end.saturating_sub(start).max(0) as u64)
+}
+
+/// The workflow's elapsed when its call carries no stamps: the sum of its
+/// phases' spans (each phase = its slowest settled lane; phases run in
+/// sequence). `None` before any lane settled — the web's
+/// `workflowElapsedMs`.
+fn workflow_span_ms(workflow: &steer::WorkflowState) -> Option<u64> {
+    let mut spans: Vec<(Option<u32>, u64)> = Vec::new();
+    for agent in &workflow.agents {
+        let Some(duration) = agent.duration_ms else {
+            continue;
+        };
+        match spans.iter_mut().find(|(phase, _)| *phase == agent.phase_index) {
+            Some((_, span)) => *span = (*span).max(duration),
+            None => spans.push((agent.phase_index, duration)),
+        }
+    }
+    (!spans.is_empty()).then(|| spans.iter().map(|(_, span)| span).sum())
+}
+
+fn now_epoch_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod work_elapsed_tests {
+    use super::work_elapsed_ms;
+
+    #[test]
+    fn a_work_card_counts_from_the_call_start() {
+        // Running: start to now.
+        assert_eq!(work_elapsed_ms(Some(1_000), None, true, 6_000), Some(5_000));
+        // Finished: start to the settle, never to now.
+        assert_eq!(work_elapsed_ms(Some(1_000), Some(4_000), false, 60_000), Some(3_000));
+        // No start stamp, or a finished call without its settle: nothing.
+        assert_eq!(work_elapsed_ms(None, Some(4_000), false, 60_000), None);
+        assert_eq!(work_elapsed_ms(Some(1_000), None, false, 60_000), None);
+        // A skewed clock never goes negative.
+        assert_eq!(work_elapsed_ms(Some(9_000), None, true, 6_000), Some(0));
+    }
+}
+
 #[cfg(test)]
 mod turn_thread_tests {
     use super::*;
@@ -8899,6 +9110,34 @@ mod tests {
     }
 
     use super::*;
+
+    // ── A session tab that exists at boot dials once an account is active ──
+
+    #[test]
+    fn a_pending_dial_retries_until_it_succeeds_then_never_again() {
+        let (tx, rx) = flume::unbounded::<ViewerEvent>();
+        let mut pending = PendingDial(Some(tx));
+        // Boot: nobody signed in, the dial has nothing to dial with.
+        assert_eq!(pending.attempt(|_| None::<()>), None);
+        assert!(pending.is_pending(), "a failed dial keeps the sender for the next edge");
+        // The account edge: the dial gets a live sender into the feed.
+        let dialled = pending.attempt(|tx| {
+            tx.send(ViewerEvent::Phase(ViewerPhase::Live)).ok()?;
+            Some("handle")
+        });
+        assert_eq!(dialled, Some("handle"));
+        assert!(matches!(rx.try_recv(), Ok(ViewerEvent::Phase(ViewerPhase::Live))));
+        assert!(!pending.is_pending());
+        // Later session edges never dial a second socket.
+        assert_eq!(pending.attempt(|_| -> Option<&str> { panic!("dialled twice") }), None);
+    }
+
+    #[test]
+    fn a_source_that_never_waited_has_nothing_to_dial() {
+        let mut pending = PendingDial(None);
+        assert!(!pending.is_pending());
+        assert_eq!(pending.attempt(|_| -> Option<()> { panic!("dialled") }), None);
+    }
 
     // ── EXP-698: `[Image #N]` pills in a sent message ──────────────────────
 
@@ -9110,6 +9349,63 @@ mod tests {
     fn the_stale_activity_window_is_ten_minutes() {
         assert_eq!(STALE_ACTIVITY_AFTER, Duration::from_secs(600));
         assert!(STALE_TICK < STALE_ACTIVITY_AFTER);
+    }
+
+    /// EXP-1279: the settle's `script` log (folded into the row by the feed)
+    /// is what the desktop Script card groups; without one it is the title.
+    #[test]
+    fn the_script_card_reads_the_settled_log() {
+        let row = |script: Option<steer::frames::ScriptLog>| FeedItem {
+            id: 1,
+            kind: FeedKind::Tool {
+                name: "mcp__codemode__exec".into(),
+                detail: None,
+                subagent_id: None,
+                call_id: Some("tc-1".into()),
+                tool_kind: None,
+                settled: true,
+                failed: false,
+                diff: None,
+                output: None,
+                preview: None,
+                script,
+                settled_at: None,
+                started_at: None,
+            },
+            seq: None,
+        };
+        let log = steer::frames::ScriptLog {
+            count: Some(3),
+            elapsed_ms: Some(2_140),
+            calls: vec![
+                steer::frames::ScriptLogCall {
+                    tool: "exponential.exponential_issues_get".into(),
+                    subject: Some("APP-5".into()),
+                    ok: true,
+                    ms: Some(180),
+                },
+                steer::frames::ScriptLogCall {
+                    tool: "exponential.exponential_issues_pr_files".into(),
+                    subject: Some("APP-9".into()),
+                    ok: false,
+                    ms: None,
+                },
+            ],
+            source: Some("return 1".into()),
+        };
+        let (input, failed, source) = script_card_input(&row(Some(log)));
+        assert!(!input.running && !failed);
+        assert_eq!(input.count, Some(3));
+        assert_eq!(input.elapsed_ms, Some(2_140));
+        assert_eq!(input.calls.as_ref().map(Vec::len), Some(2));
+        assert_eq!(source.as_deref(), Some("return 1"));
+        let card = steer::script_card::script_card(&input);
+        assert_eq!(card.groups.len(), 2);
+        assert!(card.meta.is_some());
+
+        let (bare, _, source) = script_card_input(&row(None));
+        assert_eq!(bare, steer::script_card::ScriptCardInput::default());
+        assert_eq!(source, None);
     }
 
     // ── EXP-820: ask completion, the card keyboard, inline rows ────────────

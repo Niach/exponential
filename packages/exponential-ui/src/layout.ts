@@ -17,3 +17,10 @@ export const TREE_GUIDE_COLUMN: number = layoutJson.treeGuideColumn
 /** Round 3: the elbow's corner radius and how far the guide verticals overshoot a row's top edge (paint only). */
 export const TREE_GUIDE_RADIUS: number = layoutJson.treeGuideRadius
 export const TREE_GUIDE_BRIDGE: number = layoutJson.treeGuideBridge
+/** EXP-1259: the pending Button's delay, the Skeleton's pulse and the SearchList's bottom fade (feedback-states.json, search-list.json). */
+export const PENDING_DELAY_MS: number = layoutJson.pendingDelayMs
+export const SKELETON_PULSE_MS: number = layoutJson.skeletonPulseMs
+export const SKELETON_OPACITY_LOW: number = layoutJson.skeletonOpacityLow
+export const SKELETON_OPACITY_HIGH: number = layoutJson.skeletonOpacityHigh
+export const SKELETON_REDUCED_OPACITY: number = layoutJson.skeletonReducedOpacity
+export const SEARCH_LIST_FADE: number = layoutJson.searchListFade

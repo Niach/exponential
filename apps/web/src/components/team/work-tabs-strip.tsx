@@ -19,6 +19,8 @@ import { sessionIdentity } from "@/lib/session-identity"
 import { cn } from "@/lib/utils"
 import {
   closeTabs,
+  isNewRunPath,
+  NEW_RUN_TAB_KEY,
   partitionTabs,
   routePathFromLocation,
   tabHref,
@@ -26,9 +28,16 @@ import {
   tabKey,
   type WorkTab,
 } from "@/lib/work-tabs"
-import { updateWorkTabs, useWorkTabs } from "@/hooks/use-work-tabs"
+import {
+  openNewRunPage,
+  updateWorkTabs,
+  useWorkTabs,
+} from "@/hooks/use-work-tabs"
 import { LIVE_DOT_TONE_BY_SESSION_TONE } from "@/lib/session-row-caption"
 import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
+import { ThreadLead } from "@/components/thread/thread-row"
+import { useThreadBundles, type ThreadBundle } from "@/hooks/use-threads"
+import { useSession } from "@/hooks/use-session"
 
 // EXP-870: the WORK TABS strip — browser-like tabs on the bare ground above
 // the content card, md+ only (the desktop's title-band strip; phones keep
@@ -48,19 +57,44 @@ import { IssueStatusIcon } from "@/components/issue-properties/status-dropdown"
 //   * EVERY chip closes again (EXP-923) — its ×, a middle click, and Close /
 //     Close others / Close all all reach it;
 //   * chips that do not fit collapse into a trailing "+N" menu
-//     (`partitionTabs`, measured against the real chips).
+//     (`partitionTabs`, measured against the real chips);
+//   * EXP-1255: a chip's × shows only while the tab is hovered (or the × has
+//     keyboard focus), every tab alike, the active one too; a ghost "+" right
+//     after the last tab (after the "+N") opens the New run tab — the home
+//     column (`openNewRunPage`, Alt/Option+T too). Switching tabs never
+//     animates.
 
 /** The work-tab chips' context-menu kind (`menuProps`). */
 const TAB_MENU_KIND = `work-tab`
 
 const UiCloseIcon = conceptIcon(`ui-close`)
+const UiAddIcon = conceptIcon(`ui-add`)
+// The New run tab's lead: the Agent entry's concept (the sidebar's).
+const NewRunIcon = conceptIcon(`action-chat`)
+
+/** EXP-1255: the New run chip's title. */
+export const NEW_RUN_TAB_TITLE = `New session`
 
 interface ChipModel {
   key: string
   tab: WorkTab
   identifier: string | null
-  title: string
+  /** null = the tab's subject has not loaded yet (D8: a placeholder bar). */
+  title: string | null
   lead: React.ReactNode
+}
+
+/** A chip's title, or the skeleton's short muted bar while its subject loads
+ *  (D8: never the text "Loading…"). */
+function ChipTitle({ title }: { title: string | null }) {
+  if (title !== null) return <>{title}</>
+  return (
+    <span
+      aria-hidden
+      data-testid="work-tab-title-placeholder"
+      className="inline-block h-2 w-16 rounded bg-muted align-middle"
+    />
+  )
 }
 
 export function WorkTabsStrip({
@@ -117,6 +151,22 @@ export function WorkTabsStrip({
     () => new Map(((issueRows ?? []) as Issue[]).map((row) => [row.id, row])),
     [issueRows]
   )
+  // EXP-1284: thread tabs read their title + live mark off the ONE model.
+  const threadIds = useMemo(
+    () =>
+      state.tabs.flatMap((tab) => (tab.kind === `thread` ? [tab.threadId] : [])),
+    [state.tabs]
+  )
+  const { data: authSession } = useSession()
+  const { bundles: threadBundles } = useThreadBundles(
+    threadIds.length > 0 ? teamId : undefined,
+    authSession?.user?.id,
+    { threadIds }
+  )
+  const threadsById = useMemo(
+    () => new Map(threadBundles.map((bundle) => [bundle.thread.id, bundle])),
+    [threadBundles]
+  )
   const runsById = useMemo(
     () =>
       new Map(((runRows ?? []) as CodingSession[]).map((row) => [row.id, row])),
@@ -132,12 +182,17 @@ export function WorkTabsStrip({
   // The active tab, off the URL alone.
   const pathname = useRouterState({ select: (s) => s.location.pathname })
   const activeKey = useMemo(() => {
+    if (isNewRunPath(pathname)) {
+      return tabs.some((tab) => tab.kind === `new`) ? NEW_RUN_TAB_KEY : null
+    }
     const path = routePathFromLocation(pathname, null)
     if (!path) return null
     const match = tabs.find((tab) => {
       switch (path.kind) {
+        case `thread`:
+          return tab.kind === `thread` && tab.threadId === path.threadId
         case `run`:
-          return tab.runId === path.runId
+          return tab.kind !== `thread` && tab.runId === path.runId
         case `issue`: {
           if (tab.kind !== `issue`) return false
           const issue = issuesById.get(tab.issueId)
@@ -153,13 +208,36 @@ export function WorkTabsStrip({
 
   const chipOf = (tab: WorkTab): ChipModel => {
     const key = tabKey(tab)
+    if (tab.kind === `new`) {
+      return {
+        key,
+        tab,
+        identifier: null,
+        title: NEW_RUN_TAB_TITLE,
+        lead: <NewRunIcon className="size-3.5 text-muted-foreground" />,
+      }
+    }
+    if (tab.kind === `thread`) {
+      const bundle: ThreadBundle | undefined = threadsById.get(tab.threadId)
+      return {
+        key,
+        tab,
+        identifier: null,
+        title: bundle ? bundle.view.title : null,
+        lead: bundle ? (
+          <ThreadLead bundle={bundle} ringClassName="ring-background" />
+        ) : (
+          <LiveDot tone={LIVE_DOT_TONE_BY_SESSION_TONE.muted} />
+        ),
+      }
+    }
     const run = tab.runId ? runsById.get(tab.runId) : undefined
     const issue = tab.kind === `issue` ? issuesById.get(tab.issueId) : undefined
     const identity = run
       ? sessionIdentity({ session: run, issue })
       : issue
         ? { identifier: issue.identifier, subject: issue.title }
-        : { identifier: null, subject: `Loading…` }
+        : { identifier: null, subject: null }
     return {
       key,
       tab,
@@ -175,6 +253,7 @@ export function WorkTabsStrip({
   const containerRef = useRef<HTMLDivElement>(null)
   const measureRef = useRef<HTMLDivElement>(null)
   const overflowMeasureRef = useRef<HTMLButtonElement>(null)
+  const plusRef = useRef<HTMLButtonElement>(null)
   const [available, setAvailable] = useState(0)
   const [widths, setWidths] = useState<number[]>([])
   const [overflowW, setOverflowW] = useState(40)
@@ -213,9 +292,12 @@ export function WorkTabsStrip({
     const measure = measureRef.current
     if (!container || !measure) return
     const update = () => {
-      setAvailable(container.getBoundingClientRect().width)
       const columnGap = Number.parseFloat(getComputedStyle(container).columnGap)
+      const gapPx = Number.isFinite(columnGap) ? columnGap : 0
       if (Number.isFinite(columnGap)) setGap(columnGap)
+      // EXP-1255: the "+" always shows, so its slot never goes to a chip.
+      const plus = plusRef.current?.getBoundingClientRect().width ?? 0
+      setAvailable(container.getBoundingClientRect().width - (plus > 0 ? plus + gapPx : 0))
       measureChips()
     }
     update()
@@ -245,8 +327,11 @@ export function WorkTabsStrip({
   const visibleSet = new Set(visible)
   const hidden = chips.filter((_, index) => !visibleSet.has(index))
 
-  const close = (keys: string[]) =>
-    updateWorkTabs(teamId, (current) => closeTabs(current, keys))
+  const close = (keys: string[], options?: { spareStarting?: boolean }) =>
+    updateWorkTabs(teamId, (current) => closeTabs(current, keys, options))
+  // EXP-1284: the bulk closes spare a New session tab whose start is in
+  // flight (its landing still needs it); its own × closes it regardless.
+  const closeBulk = (keys: string[]) => close(keys, { spareStarting: true })
 
   const open = (tab: WorkTab) => {
     const href = tabHref(teamSlug, tab, (issueId) => {
@@ -259,7 +344,7 @@ export function WorkTabsStrip({
     if (href) void navigate(href as never)
   }
 
-  if (chips.length === 0) return null
+  const openNewRun = () => openNewRunPage(teamId, teamSlug, navigate)
 
   const allKeys = chips.map((chip) => chip.key)
   const renderChip = (chip: ChipModel, interactive: boolean) => {
@@ -304,7 +389,7 @@ export function WorkTabsStrip({
           variant="ghost"
           size="sm"
           tabIndex={interactive ? undefined : -1}
-          className="h-8 min-w-0 flex-1 justify-start gap-1.5 bg-transparent! pr-1 pl-2 font-normal"
+          className="h-8 min-w-0 flex-1 justify-start gap-1.5 bg-transparent! pr-1 pl-2 font-normal transition-none"
           onClick={interactive ? () => open(chip.tab) : undefined}
           aria-current={active ? `page` : undefined}
         >
@@ -316,13 +401,16 @@ export function WorkTabsStrip({
               {chip.identifier}
             </span>
           )}
-          <span className="min-w-0 truncate text-sm">{chip.title}</span>
+          <span className="min-w-0 truncate text-sm">
+            <ChipTitle title={chip.title} />
+          </span>
         </Button>
         <Button
           variant="ghost"
           size="icon-xs"
           tabIndex={interactive ? undefined : -1}
-          className="mr-1 shrink-0"
+          // EXP-1255: hover-only, every tab; keyboard focus shows it too.
+          className="mr-1 shrink-0 opacity-0 group-hover/tab:opacity-100 focus-visible:opacity-100"
           aria-label="Close tab"
           onClick={interactive ? () => close([chip.key]) : undefined}
         >
@@ -351,9 +439,9 @@ export function WorkTabsStrip({
             id: `close-others`,
             label: `Close others`,
             disabled: others.length === 0,
-            onSelect: () => close(others),
+            onSelect: () => closeBulk(others),
           },
-          { kind: `item`, id: `close-all`, label: `Close all`, onSelect: () => close(allKeys) },
+          { kind: `item`, id: `close-all`, label: `Close all`, onSelect: () => closeBulk(allKeys) },
         ]}
       />
     )
@@ -411,7 +499,7 @@ export function WorkTabsStrip({
                         {chip.identifier}
                       </span>
                     )}
-                    {chip.title}
+                    <ChipTitle title={chip.title} />
                   </>
                 ),
                 onSelect: () => open(chip.tab),
@@ -428,6 +516,18 @@ export function WorkTabsStrip({
               }
             />
           )}
+          <Button
+            ref={plusRef}
+            variant="ghost"
+            size="icon-xs"
+            className="shrink-0 text-muted-foreground hover:text-foreground"
+            aria-label={NEW_RUN_TAB_TITLE}
+            title={NEW_RUN_TAB_TITLE}
+            data-testid="work-tabs-new-run"
+            onClick={openNewRun}
+          >
+            <UiAddIcon />
+          </Button>
         </div>
       </div>
     </MenuGestureHost>

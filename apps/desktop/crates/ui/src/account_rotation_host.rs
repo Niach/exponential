@@ -371,6 +371,7 @@ fn act(run: &WalledRun, decision: Decision, cx: &mut App) -> bool {
                 coding::LaunchOrigin::Local,
                 Some(prompt),
                 crate::steer_wiring::StartReport::none(),
+                true,
                 cx,
             ) {
                 true

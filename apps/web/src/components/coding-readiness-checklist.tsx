@@ -19,8 +19,8 @@ import {
   SheetTitle,
   conceptIcon,
   useIsMobile,
-  toast,
 } from "@exp/ui"
+import { failedAction } from "@/lib/action-error"
 import {
   READINESS_COPY,
   type CodingReadiness,
@@ -229,14 +229,22 @@ function FixButtons({
               key={fix}
               {...common}
               onClick={() => {
-                if (
-                  !openGithubConnect({
-                    teamId: state.teamId,
-                    boardId: board?.id ?? null,
+                // A blocked popup = a failed connect: the toast's Retry
+                // re-opens it (a fresh user gesture).
+                const connect = () => {
+                  if (
+                    openGithubConnect({
+                      teamId: state.teamId,
+                      boardId: board?.id ?? null,
+                    })
+                  ) {
+                    return
+                  }
+                  failedAction(`connect`, `GitHub`, POPUP_BLOCKED_MESSAGE, {
+                    retry: connect,
                   })
-                ) {
-                  toast.error(POPUP_BLOCKED_MESSAGE)
                 }
+                connect()
               }}
             >
               {body}

@@ -181,7 +181,8 @@ private struct ChangeRepositorySheet: View {
     @State private var repositoryId: String?
     @State private var branch: String?
     @State private var busy = false
-    @State private var errorText: String?
+    // FEED-79: a failed retarget/connect/branch save is a toast.
+    @Environment(\.toaster) private var toaster
 
     init(accountId: String, board: BoardEntity, boardsApi: BoardsApi, repositoriesApi: RepositoriesApi) {
         self.accountId = accountId
@@ -207,8 +208,7 @@ private struct ChangeRepositorySheet: View {
                     onConnectNew: { picked in Task { await connect(picked) } },
                     branch: branch,
                     onBranchChange: { next in Task { await applyBranch(next) } },
-                    disabled: busy,
-                    errorText: errorText
+                    disabled: busy
                 )
             }
             .padding(16)
@@ -218,7 +218,6 @@ private struct ChangeRepositorySheet: View {
     private func applyRepo(_ nextId: String?) async {
         guard nextId != repositoryId else { return }
         busy = true
-        errorText = nil
         defer { busy = false }
         do {
             try await boardsApi.setRepository(
@@ -231,13 +230,15 @@ private struct ChangeRepositorySheet: View {
             branch = nil
             RepositoryDirectory.invalidate(accountId: accountId, teamId: board.teamId)
         } catch {
-            errorText = error.trpcUserMessage
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "change", thing: "the repository"),
+                description: error.trpcUserMessage
+            )
         }
     }
 
     private func connect(_ picked: GithubPickerRepo) async {
         busy = true
-        errorText = nil
         do {
             let id = try await repositoriesApi.add(
                 accountId: accountId,
@@ -248,20 +249,22 @@ private struct ChangeRepositorySheet: View {
             )
             busy = false
             guard let id else {
-                errorText = "Could not connect \(picked.fullName)."
+                toaster.error(FeedbackStates.Errors.title(verb: "connect", thing: picked.fullName))
                 return
             }
             await applyRepo(id)
         } catch {
             busy = false
-            errorText = error.trpcUserMessage
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "connect", thing: picked.fullName),
+                description: error.trpcUserMessage
+            )
         }
     }
 
     private func applyBranch(_ next: String?) async {
         guard next != branch else { return }
         busy = true
-        errorText = nil
         defer { busy = false }
         do {
             try await boardsApi.setDefaultBranch(
@@ -271,7 +274,10 @@ private struct ChangeRepositorySheet: View {
             )
             branch = next
         } catch {
-            errorText = error.trpcUserMessage
+            toaster.error(
+                FeedbackStates.Errors.title(verb: "save", thing: "the branch"),
+                description: error.trpcUserMessage
+            )
         }
     }
 }

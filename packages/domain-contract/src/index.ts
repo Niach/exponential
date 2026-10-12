@@ -229,6 +229,8 @@ export interface DomainContract {
   }
   /** Who created a relation row: an explicit pick, or a `#IDENT` reference. */
   issueRelationSource: { values: readonly string[] }
+  threadItemKind: { values: readonly string[] }
+  threadItemSource: { values: readonly string[] }
   /** Coding agent CLIs a desktop device may run (EXP-201; first = default). */
   codingAgent: { values: readonly string[] }
   /** Claude model aliases for coding-session launches (first = default). */

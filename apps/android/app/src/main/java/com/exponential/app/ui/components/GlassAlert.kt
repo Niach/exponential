@@ -118,6 +118,8 @@ fun GlassAlert(
                 window.attributes = window.attributes.apply { blurBehindRadius = ScrimBlurPx }
             }
         }
+        // FEED-79: a failed action's toast draws above this alert.
+        OverlayToastHost()
         val noRipple = remember { MutableInteractionSource() }
         val focus = remember { FocusRequester() }
         LaunchedEffect(Unit) {

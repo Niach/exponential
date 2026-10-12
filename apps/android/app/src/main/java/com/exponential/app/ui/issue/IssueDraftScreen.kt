@@ -47,6 +47,7 @@ import com.exponential.app.domain.IssueDraftPage
 import com.exponential.app.domain.IssueRelationsView
 import com.exponential.app.domain.IssueStatusCategory
 import com.exponential.app.navigation.LocalLeaveGuard
+import com.exponential.app.ui.components.FailedActionToast
 import com.exponential.app.ui.components.BottomBarInset
 import com.exponential.app.ui.components.GlassAlert
 import com.exponential.app.ui.components.GlassAlertAction
@@ -96,6 +97,9 @@ fun IssueDraftScreen(
     onBack: () -> Unit,
     /** Filed: land on it (`openCreatedIssue`, so Back returns to the origin). */
     onCreated: (String) -> Unit,
+    /** EXP-1284 (T11): a thread draft's issue lands on its THREAD with the
+     *  new issue's tab selected; null = [onCreated]. */
+    onCreatedInThread: ((issueId: String, threadId: String) -> Unit)? = null,
     shareMode: Boolean = false,
     sharePrefill: SharePrefill? = null,
     onSharePrefillConsumed: () -> Unit = {},
@@ -132,12 +136,7 @@ fun IssueDraftScreen(
     }
 
     val message by viewModel.message.collectAsStateWithLifecycle()
-    LaunchedEffect(message) {
-        message?.let {
-            toaster.error(it)
-            viewModel.consumeMessage()
-        }
-    }
+    FailedActionToast(message, onShown = viewModel::consumeMessage)
     LaunchedEffect(state.loadFailed) {
         if (state.loadFailed) onBack()
     }
@@ -199,7 +198,12 @@ fun IssueDraftScreen(
         if (sharePrefill != null) onSharePrefillConsumed()
         val held = afterCreate
         afterCreate = null
-        if (held != null) held() else onCreated(id)
+        val threadId = viewModel.state.value.threadId
+        when {
+            held != null -> held()
+            threadId != null && onCreatedInThread != null -> onCreatedInThread(id, threadId)
+            else -> onCreated(id)
+        }
     }
     // EXP-1231: another client consumed this draft. The page's OWN exits,
     // like its Create: no leave prompt, no LeaveGuard, and the model is
@@ -342,6 +346,13 @@ fun IssueDraftScreen(
                             )
                         }
 
+                        // EXP-1284: a thread draft says where the issue files
+                        // into — the route's thread, or the reopened row's.
+                        state.threadId?.let { threadId ->
+                            Spacer(Modifier.height(8.dp))
+                            com.exponential.app.ui.thread.DraftThreadLine(threadId)
+                        }
+
                         Spacer(Modifier.height(8.dp))
                         IssueTitleField(
                             text = state.title,
@@ -423,7 +434,6 @@ fun IssueDraftScreen(
                                 }
                             },
                             onRetry = viewModel::retryFileUpload,
-                            onDismissPending = viewModel::dismissFileUpload,
                             modifier = Modifier.padding(top = 20.dp),
                         )
 

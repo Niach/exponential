@@ -187,6 +187,11 @@ pub struct RemoteStart {
     /// [`remote_start_from_frame`]; `None` on pre-FEED-63
     /// frames.
     pub start_id: Option<String>,
+    /// EXP-1284: the frame's `threadId` — the thread this start joins,
+    /// echoed into `codingSessions.start`. Set after
+    /// [`remote_start_from_frame`] and dropped on a resume
+    /// ([`start_thread_id`]); `None` on pre-threads frames.
+    pub thread_id: Option<String>,
 }
 
 /// EXP-1249: the frame's per-run `computerUse`, kept for a fresh start and
@@ -199,6 +204,15 @@ pub(crate) fn start_computer_use(start: &RemoteStart, computer_use: Option<bool>
     }
 }
 
+/// EXP-1284: the frame's `threadId`, kept for a fresh start and dropped on
+/// a resume — the server keeps a resumed run in its predecessor's thread.
+pub(crate) fn start_thread_id(start: &RemoteStart, thread_id: Option<String>) -> Option<String> {
+    match start.subject {
+        RemoteStartSubject::Resume { .. } => None,
+        _ => thread_id,
+    }
+}
+
 /// FEED-63: the reason a duplicate `start_session` frame is dropped with.
 /// One string for both hosts (the CLI daemon's REV-9 reservations and the
 /// desktop IDE's EXP-505 claims, FEED-67).
@@ -208,7 +222,7 @@ pub const START_DUPLICATE_REASON: &str =
 /// FEED-63: the refusal reason when a live run on THIS device already holds
 /// the issue (the one-session-per-issue guard).
 pub fn issue_held_here_reason(session_id: &str) -> String {
-    format!("a live run already holds this issue on this device: {session_id}")
+    format!("a live session already holds this issue on this device: {session_id}")
 }
 
 /// FEED-63: the refusal reason when a live run on ANOTHER device holds the
@@ -217,9 +231,9 @@ pub fn issue_held_here_reason(session_id: &str) -> String {
 pub fn issue_held_elsewhere_reason(device: &str, session_id: Option<&str>) -> String {
     match session_id {
         Some(session_id) => format!(
-            "a live run already holds this issue on {device}: {session_id} (one session per issue)"
+            "a live session already holds this issue on {device}: {session_id} (one session per issue)"
         ),
-        None => format!("a live run already holds this issue on {device} (one session per issue)"),
+        None => format!("a live session already holds this issue on {device} (one session per issue)"),
     }
 }
 
@@ -227,6 +241,64 @@ pub fn issue_held_elsewhere_reason(device: &str, session_id: Option<&str>) -> St
 /// (`coding::Prepared::Disabled`), from its user-facing message.
 pub fn disabled_launch_reason(message: &str) -> String {
     format!("refused: {message}")
+}
+
+// ---------------------------------------------------------------------------
+// EXP-1259 — idempotent starts: the device ignores a startId it already
+// started
+// ---------------------------------------------------------------------------
+
+/// How many start ids a device remembers (the oldest is forgotten first).
+const START_IDS_CAP: usize = 256;
+/// How long a start id is remembered. A restart forgets them all: a Retry
+/// that lands after one starts again (acceptable, feedback-states.json
+/// `starting`).
+const START_IDS_TTL: Duration = Duration::from_secs(30 * 60);
+
+/// The start ids this process has taken (in arrival order, with when).
+#[derive(Default)]
+struct StartIds(std::collections::VecDeque<(String, Instant)>);
+
+impl StartIds {
+    /// Take `start_id` at `now`: `false` when it was already taken within
+    /// the TTL (a Retry, or the relay re-delivering the same frame).
+    fn claim(&mut self, start_id: &str, now: Instant) -> bool {
+        self.0
+            .retain(|(_, at)| now.saturating_duration_since(*at) < START_IDS_TTL);
+        if self.0.iter().any(|(id, _)| id == start_id) {
+            return false;
+        }
+        while self.0.len() >= START_IDS_CAP {
+            self.0.pop_front();
+        }
+        self.0.push_back((start_id.to_string(), now));
+        true
+    }
+
+    /// A start that FAILED gives its id back, so its Retry may try again.
+    fn forget(&mut self, start_id: &str) {
+        self.0.retain(|(id, _)| id != start_id);
+    }
+}
+
+fn start_ids() -> &'static std::sync::Mutex<StartIds> {
+    static IDS: std::sync::OnceLock<std::sync::Mutex<StartIds>> = std::sync::OnceLock::new();
+    IDS.get_or_init(Default::default)
+}
+
+/// EXP-1259: whether this device should act on a `start_session` frame
+/// carrying `start_id` — `false` for an id it already started (the client
+/// reuses its startId on Retry; the device stays idempotent). A frame without
+/// one (an older server) always starts. Shared by both hosts: the desktop
+/// IDE and the headless CLI daemon read frames through this channel.
+pub fn claim_start_id(start_id: Option<&str>) -> bool {
+    let Some(start_id) = start_id.filter(|id| !id.trim().is_empty()) else {
+        return true;
+    };
+    start_ids()
+        .lock()
+        .map(|mut ids| ids.claim(start_id, Instant::now()))
+        .unwrap_or(true)
 }
 
 /// FEED-63: tell the server why the start `start_id` names did not happen
@@ -238,6 +310,11 @@ pub fn report_start_failure(trpc: &api::TrpcClient, start_id: Option<&str>, reas
     let Some(start_id) = start_id else {
         return;
     };
+    // EXP-1259: a failed start never counts as started — its Retry (same
+    // startId) may try again.
+    if let Ok(mut ids) = start_ids().lock() {
+        ids.forget(start_id);
+    }
     match api::steer::report_start_failure(trpc, start_id, reason) {
         Ok(recorded) => {
             log::info!("remote start {start_id}: failure reported (recorded={recorded})")
@@ -304,6 +381,7 @@ pub(crate) fn remote_start_from_frame(
             subagent_model: None,
             computer_use: None,
             start_id: None,
+            thread_id: None,
         });
     }
     let subject = match (issue_id, issue_ids, action_id) {
@@ -340,6 +418,7 @@ pub(crate) fn remote_start_from_frame(
         subagent_model,
         computer_use: None,
         start_id: None,
+        thread_id: None,
     })
 }
 
@@ -715,15 +794,23 @@ async fn connect_and_listen(
                             subagent_model,
                             computer_use,
                             start_id,
+                            thread_id,
                         }) => match remote_start_from_frame(
                             issue_id, issue_ids, action_id, action_name, team_id, repo, inputs,
                             started_by, started_reason, agent, model, effort, ultracode,
                             plan_mode, resume, resume_session_id, mcp_server_ids, account, prompt,
                             subagent_model,
                         ) {
+                            // EXP-1259: a startId this device already
+                            // started (the client's Retry) is ignored.
+                            Some(_) if !claim_start_id(start_id.as_deref()) => log::info!(
+                                "steer control: start_session {} already started here — ignored",
+                                start_id.as_deref().unwrap_or_default()
+                            ),
                             Some(mut start) => {
                                 start.start_id = start_id;
                                 start.computer_use = start_computer_use(&start, computer_use);
+                                start.thread_id = start_thread_id(&start, thread_id);
                                 log::info!("steer control: remote start_session ({:?})", start.subject);
                                 on_start_session(start);
                             }
@@ -807,6 +894,49 @@ async fn sleep_action(
 mod tests {
     use super::*;
 
+    /// Final review: the device remembers a startId exactly as long as
+    /// `feedback-states.json` `starting.dedupeMs` (= the server's dedupe and
+    /// the composer's watch).
+    #[test]
+    fn the_start_id_memory_is_the_contract_dedupe_window() {
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../../../../packages/domain-contract/fixtures/feedback-states.json"
+        ))
+        .expect("feedback-states.json parses");
+        let dedupe = fixture["starting"]["dedupeMs"].as_u64().expect("dedupeMs");
+        assert_eq!(START_IDS_TTL.as_millis(), u128::from(dedupe));
+    }
+
+    /// EXP-1259: a startId is started once; a failure gives it back; the
+    /// set is bounded and forgets after the TTL.
+    #[test]
+    fn a_start_id_is_started_once() {
+        let now = Instant::now();
+        let mut ids = StartIds::default();
+        assert!(ids.claim("start-1", now));
+        assert!(!ids.claim("start-1", now), "a Retry with the same id is ignored");
+        assert!(ids.claim("start-2", now));
+        ids.forget("start-1");
+        assert!(ids.claim("start-1", now), "a failed start may be retried");
+        // Past the TTL the id is forgotten.
+        assert!(ids.claim("start-2", now + START_IDS_TTL));
+        // Bounded: the oldest id goes first.
+        let mut ids = StartIds::default();
+        for n in 0..=START_IDS_CAP {
+            assert!(ids.claim(&format!("id-{n}"), now));
+        }
+        assert_eq!(ids.0.len(), START_IDS_CAP);
+        assert!(ids.claim("id-0", now), "the oldest was forgotten");
+        assert!(!ids.claim(&format!("id-{START_IDS_CAP}"), now));
+    }
+
+    #[test]
+    fn a_frame_without_a_start_id_always_starts() {
+        assert!(claim_start_id(None));
+        assert!(claim_start_id(Some("  ")));
+        assert!(claim_start_id(None));
+    }
+
     fn repo() -> StartRepoGroup {
         StartRepoGroup {
             repository_id: "repo-1".into(),
@@ -850,6 +980,14 @@ mod tests {
         assert_eq!(start_computer_use(&fresh, None), None);
         let resumed = frame(Some("sess-old"));
         assert_eq!(start_computer_use(&resumed, Some(true)), None);
+        // EXP-1284: the requested thread follows the same rule — a resume
+        // stays in its predecessor's thread.
+        assert_eq!(
+            start_thread_id(&fresh, Some("th-1".to_string())).as_deref(),
+            Some("th-1")
+        );
+        assert_eq!(start_thread_id(&fresh, None), None);
+        assert_eq!(start_thread_id(&resumed, Some("th-1".to_string())), None);
     }
 
     /// EXP-637: a resume is its OWN subject. It excludes every other one,
@@ -1030,6 +1168,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             })
         );
 
@@ -1076,6 +1215,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             })
         );
     }
@@ -1132,6 +1272,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             })
         );
     }
@@ -1177,6 +1318,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             })
         );
     }
@@ -1396,6 +1538,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             })
         );
         // Repo-less action: repo simply absent.
@@ -1496,6 +1639,7 @@ mod tests {
                 subagent_model: None,
                 computer_use: None,
                 start_id: None,
+                thread_id: None,
             })
         );
     }

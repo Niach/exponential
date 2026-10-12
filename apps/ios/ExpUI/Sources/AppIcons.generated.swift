@@ -168,6 +168,7 @@ public enum AppIcons {
         "bookmark",
         "bot",
         "boxes",
+        "braces",
         "brain",
         "briefcase",
         "brush-cleaning",
@@ -703,6 +704,8 @@ public enum AppIcons {
     public static let supportOpen: String = "circle-dot"
     /// Concept `support-resolved`.
     public static let supportResolved: String = "circle-check"
+    /// Concept `tool-script`.
+    public static let toolScript: String = "braces"
     /// Concept `trigger-event`.
     public static let triggerEvent: String = "zap"
     /// Concept `trigger-schedule`.
@@ -761,6 +764,8 @@ public enum AppIcons {
     public static let uiDeviceDefault: String = "star"
     /// Concept `ui-device-offline`.
     public static let uiDeviceOffline: String = "monitor-off"
+    /// Concept `ui-docs`.
+    public static let uiDocs: String = "book-open"
     /// Concept `ui-download`.
     public static let uiDownload: String = "download"
     /// Concept `ui-due-date`.

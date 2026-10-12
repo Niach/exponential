@@ -13,6 +13,8 @@ import {
   parseQueue,
   parseToolKind,
   parseToolPreview,
+  parseScriptLog,
+  type ScriptLog,
   parseTurnState,
   parseWorkflow,
   runningWorkflow as newestRunningWorkflow,
@@ -191,6 +193,9 @@ export type ActivityEvent =
       /** EXP-846: the Exponential MCP tool result the engine distilled — only
        *  ever present for an `exponential_*` call. */
       preview?: ExpToolPreview
+      /** EXP-1279: a code-mode `exec` call's log (the calls it made, their
+       *  total, its wall time) — only ever on a `script` call's settle. */
+      script?: unknown
       at?: number
     }
   | { kind: `diff`; diff: string; at?: number }
@@ -489,6 +494,9 @@ export type FeedItem = FeedSeq &
       toolKind?: ToolKind
       /** EXP-785: a `tool_update` with a status landed — the call ENDED. */
       settled?: boolean
+      /** EXP-1241: when that settle was stamped (its `at`), so a comment
+       *  card can carry a time before the comment row syncs. */
+      settledAt?: number
       /** EXP-785: that status was `failed` (a later `completed` clears it).
        *  Group captions list these last. */
       failed?: boolean
@@ -503,6 +511,9 @@ export type FeedItem = FeedSeq &
       /** EXP-846: the Exponential MCP result preview a `tool_update` folded
        *  in (issue/PR/list…). Plumbed now, rendered in a later phase. */
       preview?: ExpToolPreview
+      /** EXP-1279: the code-mode log a `script` call's settle carried — the
+       *  Script card's calls; absent from an older codemode. */
+      script?: ScriptLog
       /** EXP-850 §3: this call IS a workflow (`workflows.get(callId)` holds
        *  its card). The row renders as the card, never as a tool row, and it
        *  never joins a collapsed tool run. */
@@ -1118,6 +1129,8 @@ export function createSteerSessionStore(
         if (event.status === `completed` || event.status === `failed`) {
           next.settled = true
           next.failed = event.status === `failed`
+          if (typeof event.at === `number` && Number.isFinite(event.at))
+            next.settledAt = event.at
         }
         if (typeof event.diff === `string` && event.diff.trim()) next.diff = event.diff
         // EXP-895: the settle's command output. An update carrying none never
@@ -1127,6 +1140,8 @@ export function createSteerSessionStore(
         // EXP-846: the Exponential-tool result preview, stored on the row.
         const preview = parseToolPreview(event.preview)
         if (preview) next.preview = preview
+        const script = parseScriptLog(event.script)
+        if (script) next.script = script
         feedBytes += feedItemBytes(next) - feedItemBytes(current)
         const updated = feed.slice()
         updated[at] = next

@@ -57,8 +57,8 @@ export const WEB_USER = {
 export const WEB_DEVICE = `Danny's MacBook Pro`
 
 /* ─── Coding runs (EXP-870/874/877) ───
-   Every live run of mine owns a WORK TAB, grouped by agent in the strip
-   above the card; the Agent nav entry counts them. A run is the Run face of
+   Every live session of mine owns a WORK TAB, grouped by agent in the strip
+   above the card; the Agent nav entry counts them. A session is the Run face of
    its issue's tab. */
 export type DemoAgent = `claude` | `codex`
 
@@ -156,7 +156,7 @@ export const RUN_FEED: Record<string, RunRow[]> = {
     { kind: `group`, caption: `Ran 2 commands · edited 1 file` },
     {
       kind: `narration`,
-      text: `Killing the relay mid-run now recovers in under 2s and the feed resumes where it stopped. Typecheck and the steering tests are clean.`,
+      text: `Killing the relay mid-session now recovers in under 2s and the feed resumes where it stopped. Typecheck and the steering tests are clean.`,
     },
     {
       kind: `question`,

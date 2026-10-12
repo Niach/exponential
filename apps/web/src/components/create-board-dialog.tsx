@@ -9,6 +9,7 @@ import {
   DialogTitle,
   DialogFooter,
   Button,
+  FieldError,
   GlassGroup,
 } from "@exp/ui"
 import {
@@ -21,6 +22,24 @@ import { UpgradeDialog } from "@/components/upgrade-dialog"
 import { getRuntimeConfig } from "@/lib/runtime-config"
 import { derivePrefix } from "@/lib/board"
 import { useCreateBoard } from "@/hooks/use-create-board"
+import { failedAction } from "@/lib/action-error"
+
+/** The prefix rule the server enforces (boards.create's zod regex); its
+ *  validation error reaches the client as a JSON issue list, so the field
+ *  says it in these words. */
+const PREFIX_RULE = `Prefix must be 1-4 letters or digits, starting with a letter`
+
+/** FEED-79: which field a refused create is about (a taken name or prefix,
+ *  an invalid prefix = invalid INPUT, the field's own line), else null (a
+ *  failed action, a toast). */
+export function boardCreateFieldError(
+  message: string
+): { field: `name` | `prefix`; message: string } | null {
+  if (message.includes(`this name`)) return { field: `name`, message }
+  if (message.includes(`this prefix`)) return { field: `prefix`, message }
+  if (message.includes(PREFIX_RULE)) return { field: `prefix`, message: PREFIX_RULE }
+  return null
+}
 
 // The chosen backing repo: either an existing registry repo (by id) or a
 // brand-new one picked through the GithubRepoPicker (connected inline by
@@ -55,7 +74,10 @@ export function CreateBoardDialog({
   // EXP-712: the board's own branch; null = the repo's default. Reset with
   // the repo — a branch belongs to the repo it was picked in.
   const [branch, setBranch] = useState<string | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const [fieldError, setFieldError] = useState<{
+    field: `name` | `prefix`
+    message: string
+  } | null>(null)
 
   useEffect(() => {
     void getRuntimeConfig().then((config) => {
@@ -73,12 +95,18 @@ export function CreateBoardDialog({
     setIcon(`code`)
     setSelection(null)
     setBranch(null)
-    setError(null)
+    setFieldError(null)
   }
 
   const handleNameChange = (value: string) => {
     setName(value)
     setPrefix(derivePrefix(value))
+    setFieldError(null)
+  }
+
+  const handlePrefixChange = (value: string) => {
+    setPrefix(value)
+    if (fieldError?.field === `prefix`) setFieldError(null)
   }
 
   const changeSelection = (next: RepoSelection | null) => {
@@ -90,10 +118,10 @@ export function CreateBoardDialog({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!name.trim() || !prefix.trim()) return
+    if (submitting || !name.trim() || !prefix.trim()) return
 
     setSubmitting(true)
-    setError(null)
+    setFieldError(null)
     const repository = !selection
       ? undefined
       : selection.kind === `registry`
@@ -122,7 +150,10 @@ export function CreateBoardDialog({
       onOpenChange(false)
       setUpgradeOpen(true)
     } else {
-      setError(result.error.message)
+      const invalid = boardCreateFieldError(result.error.message)
+      if (invalid) setFieldError(invalid)
+      // A create can duplicate, so no Retry; the dialog stays open.
+      else failedAction(`create`, `the board`, result.error.message)
     }
   }
 
@@ -160,9 +191,17 @@ export function CreateBoardDialog({
                   onIconChange={setIcon}
                   color={color}
                   onColorChange={setColor}
+                  invalid={fieldError?.field === `name`}
                 />
-                <BoardPrefixField value={prefix} onChange={setPrefix} />
+                <BoardPrefixField
+                  value={prefix}
+                  onChange={handlePrefixChange}
+                  invalid={fieldError?.field === `prefix`}
+                />
               </GlassGroup>
+              {fieldError && (
+                <FieldError className="-mt-2 px-1">{fieldError.message}</FieldError>
+              )}
 
               <BoardRepoField
                 teamId={teamId}
@@ -187,17 +226,11 @@ export function CreateBoardDialog({
                 branch={branch}
                 onBranchChange={setBranch}
               />
-
-              {error && (
-                <div className="rounded-md border border-destructive/50 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {error}
-                </div>
-              )}
             </DialogBody>
 
             <DialogFooter>
-              <Button type="submit" disabled={!canSubmit || submitting}>
-                {submitting ? `Creating...` : `Create board`}
+              <Button type="submit" disabled={!canSubmit} pending={submitting}>
+                Create board
               </Button>
             </DialogFooter>
           </form>

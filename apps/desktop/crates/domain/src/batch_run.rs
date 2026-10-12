@@ -25,7 +25,7 @@ use serde_json::Value;
 use crate::rows::{CodingSession, Issue};
 
 /// The one string a batch with no knowable issues shows. Byte-identical ×4.
-pub const BATCH_RUN_FALLBACK: &str = "Batch run";
+pub const BATCH_RUN_FALLBACK: &str = "Batch session";
 
 /// Read `coding_sessions.batch_issue_ids`. Same tolerance as every other
 /// jsonb column here (`session_results`): the store hands it over as TEXT, the
@@ -321,7 +321,7 @@ mod tests {
             batch_run_name(&session(json!({})), issues.iter()),
             BatchRunName {
                 identifier: None,
-                subject: "Batch run".into(),
+                subject: "Batch session".into(),
             }
         );
         // A batch branch alone names nothing (EXP-972: no branch guess).

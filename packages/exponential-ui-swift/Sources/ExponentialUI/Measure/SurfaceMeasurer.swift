@@ -368,7 +368,7 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
     /// `search`, NumberField / ChipInput `input`)?
     static func isInlineField(_ component: String, _ part: String?) -> Bool {
         switch (component, part) {
-        case ("Select", "search"), ("NumberField", "input"), ("ChipInput", "input"): true
+        case ("Select", "search"), ("SearchList", "search"), ("NumberField", "input"), ("ChipInput", "input"): true
         default: false
         }
     }
@@ -465,12 +465,17 @@ final class SurfaceMeasurer: Measurer, @unchecked Sendable {
         let props = leaf.props
         let ts = leaf.textStyle
         let label = props.str("label")
-        let hasIcon = Self.has(props, "icon") || props.flag("loading")
+        let loading = props.flag("loading")
+        let hasIcon = Self.has(props, "icon") || loading
         let iconOnly = props.str("size") == "icon"
         let icon: CGFloat = (hasIcon || iconOnly) ? (part(leaf.component, "icon", props).width ?? control("iconSm", 16)) : 0
         let labelW = (iconOnly || label.isEmpty) ? 0 : line(label, ts)
         let gap = (hasIcon && labelW > 0) ? leaf.control.gap : 0
-        let w = ((hasIcon || iconOnly) ? icon : 0) + gap + labelW
+        var w = ((hasIcon || iconOnly) ? icon : 0) + gap + labelW
+        // EXP-1259: the pending face (the spinner + `pendingLabel`) never
+        // narrows the button below its idle width, nor clips the word.
+        let pending = props.str("pendingLabel")
+        if loading, !iconOnly, !pending.isEmpty { w = max(w, icon + leaf.control.gap + line(pending, ts)) }
         let h = max(ts.lineHeight, hasIcon ? icon : 0)
         return MeasuredContent(w, h, labelW > 0 ? (h - ts.lineHeight) / 2 + Self.baseline(ts) : nil)
     }

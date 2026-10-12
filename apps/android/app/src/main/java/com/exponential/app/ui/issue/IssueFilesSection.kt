@@ -2,7 +2,6 @@ package com.exponential.app.ui.issue
 
 import android.text.format.Formatter
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,11 +12,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,6 +33,8 @@ import com.exponential.app.ui.components.AttachmentMarkdownPreviewSheet
 import com.exponential.app.ui.components.CircleIconButton
 import com.exponential.app.ui.components.GlassDropdownMenu
 import com.exponential.app.ui.components.GlassMenuItem
+import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.icons.ExpIcons
 import kotlinx.coroutines.launch
 import com.exponential.app.ui.components.PromptAlert
@@ -93,7 +93,6 @@ fun IssueFilesSection(
         },
         onPreview = { item -> preview = byId[item.id] },
         onRetry = viewModel::retryFileUpload,
-        onDismissPending = viewModel::dismissFileUpload,
         modifier = modifier,
     )
 
@@ -140,14 +139,27 @@ fun FilesSection(
     onShare: ((FileItem) -> Unit)? = null,
     onPreview: ((FileItem) -> Unit)? = null,
     onRetry: (String) -> Unit = {},
-    onDismissPending: (String) -> Unit = {},
 ) {
     val context = LocalContext.current
     var confirmDelete by remember { mutableStateOf<FileItem?>(null) }
 
-    // No files (and none in flight): stay out of the way entirely. A failed
-    // upload keeps a pending row, so errors still have somewhere to surface.
-    if (files.isEmpty() && pending.isEmpty()) return
+    // FEED-79: a failed upload is an error toast whose Retry re-uploads that
+    // pick; it leaves the list meanwhile (the VM keeps it for the Retry).
+    // Each failure toasts once.
+    val toaster = LocalToaster.current
+    val toasted = remember { mutableSetOf<String>() }
+    val failedUploads = pending.filter { it.error != null }
+    LaunchedEffect(failedUploads) {
+        toasted.retainAll(failedUploads.map { it.key }.toSet())
+        for (upload in failedUploads) {
+            if (!toasted.add(upload.key)) continue
+            toaster.failedAction("upload", upload.filename, upload.error) { onRetry(upload.key) }
+        }
+    }
+    val inFlight = pending.filter { it.error == null }
+
+    // No files (and none in flight): stay out of the way entirely.
+    if (files.isEmpty() && inFlight.isEmpty()) return
 
     Column(modifier = modifier.fillMaxWidth()) {
         Text(
@@ -173,12 +185,8 @@ fun FilesSection(
             )
         }
 
-        for (upload in pending) {
-            PendingFileRow(
-                upload = upload,
-                onRetry = { onRetry(upload.key) },
-                onDismiss = { onDismissPending(upload.key) },
-            )
+        for (upload in inFlight) {
+            PendingFileRow(upload = upload)
         }
     }
 
@@ -298,30 +306,17 @@ private fun FileRow(
 }
 
 @Composable
-private fun PendingFileRow(
-    upload: PendingFileUpload,
-    onRetry: () -> Unit,
-    onDismiss: () -> Unit,
-) {
+private fun PendingFileRow(upload: PendingFileUpload) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        if (upload.error == null) {
-            CircularProgressIndicator(
-                modifier = Modifier.size(18.dp),
-                strokeWidth = 2.dp,
-            )
-        } else {
-            Icon(
-                ExpIcons.uiWarning,
-                contentDescription = null,
-                modifier = Modifier.size(18.dp),
-                tint = MaterialTheme.colorScheme.error,
-            )
-        }
+        CircularProgressIndicator(
+            modifier = Modifier.size(18.dp),
+            strokeWidth = 2.dp,
+        )
         Spacer(Modifier.width(10.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -331,26 +326,10 @@ private fun PendingFileRow(
                 overflow = TextOverflow.Ellipsis,
             )
             Text(
-                text = upload.error ?: "Uploading…",
+                text = "Uploading",
                 style = MaterialTheme.typography.bodySmall,
-                color = if (upload.error == null) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.error
-                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-        if (upload.error != null) {
-            Row(horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onRetry) { Text("Retry") }
-                IconButton(onClick = onDismiss) {
-                    Icon(
-                        ExpIcons.uiClose,
-                        contentDescription = "Dismiss",
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
         }
     }
 }

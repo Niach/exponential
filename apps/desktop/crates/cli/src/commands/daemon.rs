@@ -1773,6 +1773,12 @@ fn handle_remote_start(
         // EXP-679: `agent` — another coding session asked for this start, so
         // the run is unattended and its close-out ends it.
         started_reason: start.started_reason.clone(),
+        // EXP-1284: the thread the requester asked this start to join
+        // (dropped on a resume frame), echoed into `codingSessions.start`.
+        thread_id: start.thread_id.clone(),
+        // EXP-1284 (T16): the frame's startId, echoed into the start so the
+        // server matches the landing session to its pending start.
+        start_id: start.start_id.clone(),
     };
 
     // Success is observed purely via the synced `coding_sessions` row
@@ -2111,7 +2117,7 @@ fn remote_action_start(
                 .iter()
                 .any(|live| live.branch == *branch && live.is_fix_run && !live.session.is_done())
             {
-                anyhow::bail!("a fix-conflicts run is already working this pull request");
+                anyhow::bail!("a fix-conflicts session is already working this pull request");
             }
             guard
                 .iter()
@@ -2189,7 +2195,7 @@ fn end_for_account_switch(sessions: &Sessions, session_id: &str) -> anyhow::Resu
         .is_none()
     {
         coding::unmark_resuming(session_id);
-        anyhow::bail!("account switch for {session_id} refused — the run did not stop in time");
+        anyhow::bail!("account switch for {session_id} refused: the session did not stop in time");
     }
     Ok(())
 }
@@ -2211,12 +2217,12 @@ fn remote_resume_start(
 ) -> anyhow::Result<()> {
     let Some(record) = coding::run_registry::get(&ctx.data_dir, &session_id) else {
         anyhow::bail!(
-            "no local record for run {session_id}: it ran on another machine, was a repo-less \
-run (purged when it ends), or was removed by this machine's session history setting"
+            "no local record for session {session_id}: it ran on another machine, was a repo-less \
+session (purged when it ends), or was removed by this machine's session history setting"
         );
     };
     if !record.resumable() {
-        anyhow::bail!("run {session_id}'s workspace is gone and cannot be re-created");
+        anyhow::bail!("session {session_id}'s workspace is gone and cannot be re-created");
     }
     // EXP-849: a resume that NAMES an account is a mid-run "switch account" —
     // the server lets such a frame ride a run that is still LIVE, and THIS
@@ -2927,7 +2933,7 @@ fn report_worktrees(
 /// (`actions` — SLOP-2 folded the old `automations` shape into it), the
 /// event feed (`issue_events`), and the rows the prompt lines and board
 /// filters read (`issues`, `boards`, `labels`, `issue_statuses`).
-/// Deliberately NOT the desktop's 21 — a headless daemon has no views to
+/// Deliberately NOT the desktop's 23 — a headless daemon has no views to
 /// hydrate.
 const TRIGGER_SHAPES: &[&str] = &[
     "actions",

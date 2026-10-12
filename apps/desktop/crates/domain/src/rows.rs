@@ -378,10 +378,119 @@ pub struct IssueDraftRow {
     /// `YYYY-MM-DD` — date only, like `issues.due_date`.
     #[serde(default)]
     pub due_date: Option<String>,
+    /// EXP-1284: "New issue in this thread" — the thread the issue files
+    /// into (`issues.create({draftId})` links it there). Stored on the draft,
+    /// so a draft reopened from Drafts still files into its thread.
+    #[serde(default)]
+    pub thread_id: Option<String>,
     #[serde(default)]
     pub created_at: Option<String>,
     #[serde(default)]
     pub updated_at: Option<String>,
+}
+
+/// `threads` shape row (EXP-1284) — one unit of work: the issues and runs a
+/// person (or an agent) gathered together, plus THE Guide for all of them.
+/// Team-scoped (`team_id IN (member teams)`), no board/trash predicate: the
+/// shell is member-visible even when every issue item is hidden.
+///
+/// `title` NULL = derived for display (the first issue's title, else the
+/// first run's name). `results` is the thread's Guide — the SAME
+/// `CodingSessionResult[]` jsonb a run row carries ([`CodingSession::results`]),
+/// read only through [`crate::session_results::parse_session_results`];
+/// `updated_at` is bumped on every link/unlink, so it is the activity sort.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ThreadRow {
+    pub id: String,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub title: Option<String>,
+    #[serde(default)]
+    pub created_by: Option<String>,
+    /// Same tolerant jsonb handling as [`CodingSession::results`]: the wire
+    /// may hand it over as a JSON STRING.
+    #[serde(default, deserialize_with = "tolerant_opt_json")]
+    pub results: Option<serde_json::Value>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+impl ThreadRow {
+    /// The stored title, trimmed; `None` when unset or blank (the caller
+    /// then derives one from the thread's first issue / run).
+    pub fn explicit_title(&self) -> Option<&str> {
+        self.title
+            .as_deref()
+            .map(str::trim)
+            .filter(|title| !title.is_empty())
+    }
+}
+
+/// `thread_items` shape row (EXP-1284) — one member of a thread: an ISSUE
+/// (`kind = issue`, `issue_id` set) or a RUN (`kind = run`, `session_id`
+/// set), exactly one by kind (contract `threadItemKind`). An issue may sit
+/// in several threads; a run sits in exactly one. Board-scoped like every
+/// issue child (`board_deleted_at`/`board_archived_at IS NULL`, mirrors that
+/// stay server-side); run items carry NULL `board_id` and always sync.
+///
+/// `source` = contract `threadItemSource` (`user` | `agent`, the latter with
+/// `added_by_session_id` naming the run whose agent linked it). Every
+/// non-key field is `Option` like [`Pin`]: an unknown kind or an absent
+/// target degrades to a hidden item, never a wedged hydration.
+#[derive(Debug, Clone, PartialEq, Deserialize)]
+pub struct ThreadItemRow {
+    pub id: String,
+    pub thread_id: String,
+    #[serde(default)]
+    pub kind: Option<String>,
+    #[serde(default)]
+    pub issue_id: Option<String>,
+    #[serde(default)]
+    pub session_id: Option<String>,
+    #[serde(default)]
+    pub team_id: Option<String>,
+    #[serde(default)]
+    pub board_id: Option<String>,
+    #[serde(default)]
+    pub added_by: Option<String>,
+    #[serde(default)]
+    pub added_by_session_id: Option<String>,
+    #[serde(default)]
+    pub source: Option<String>,
+    /// Ascending = display order within the thread.
+    #[serde(default, deserialize_with = "tolerant_opt_f64")]
+    pub sort_order: Option<f64>,
+    #[serde(default)]
+    pub created_at: Option<String>,
+    #[serde(default)]
+    pub updated_at: Option<String>,
+}
+
+impl ThreadItemRow {
+    /// The linked issue's id when this is an ISSUE item (kind + target
+    /// agree), else `None`.
+    pub fn issue(&self) -> Option<&str> {
+        match self.kind.as_deref() {
+            Some(crate::contract::THREAD_ITEM_KIND_ISSUE) => self.issue_id.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// The linked run's session id when this is a RUN item, else `None`.
+    pub fn run(&self) -> Option<&str> {
+        match self.kind.as_deref() {
+            Some(crate::contract::THREAD_ITEM_KIND_RUN) => self.session_id.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// Whether an agent (not a person) linked this item.
+    pub fn added_by_agent(&self) -> bool {
+        self.source.as_deref() == Some(crate::contract::THREAD_ITEM_SOURCE_AGENT)
+    }
 }
 
 /// `users` shape row (co-member-scoped; the server pins the 6-column
@@ -1181,6 +1290,96 @@ mod tests {
         assert!(!narrow.is_shared());
     }
 
+    /// EXP-1284: a thread row hydrates bare, its Guide arrives as a JSON
+    /// array OR the store's TEXT cell, and a column this build does not
+    /// model (a server ahead of the desktop) is ignored, never a dropped row.
+    #[test]
+    fn thread_row_hydrates_sparsely_and_reads_its_guide() {
+        let bare: ThreadRow =
+            serde_json::from_value(json!({ "id": "th-1" })).expect("bare thread hydrates");
+        assert_eq!(bare.title, None);
+        assert_eq!(bare.results, None);
+        assert_eq!(bare.explicit_title(), None);
+
+        let entry = json!({ "topic": "Summary", "text": "Did it." });
+        let full: ThreadRow = serde_json::from_value(json!({
+            "id": "th-1",
+            "team_id": "t-1",
+            "title": "  Ship threads ",
+            "created_by": "u-1",
+            "results": [entry.clone()],
+            "created_at": "2026-10-12T10:00:00.000Z",
+            "updated_at": "2026-10-12T11:00:00.000Z",
+            "some_future_column": 42,
+        }))
+        .expect("full thread hydrates");
+        assert_eq!(full.team_id.as_deref(), Some("t-1"));
+        assert_eq!(full.explicit_title(), Some("Ship threads"));
+        assert_eq!(full.results, Some(json!([entry.clone()])));
+
+        // The sync store's TEXT cell form decodes to the same list.
+        let text_cell: ThreadRow = serde_json::from_value(json!({
+            "id": "th-2",
+            "title": "   ",
+            "results": serde_json::to_string(&json!([entry.clone()])).unwrap(),
+        }))
+        .expect("text cell hydrates");
+        assert_eq!(text_cell.results, Some(json!([entry])));
+        assert_eq!(text_cell.explicit_title(), None, "blank = derived");
+    }
+
+    /// EXP-1284: issue and run items resolve their target by kind; an
+    /// unknown kind, a kind/target mismatch and extra columns degrade to a
+    /// hidden target, never a dropped row.
+    #[test]
+    fn thread_item_row_resolves_its_target_by_kind() {
+        let issue: ThreadItemRow = serde_json::from_value(json!({
+            "id": "ti-1",
+            "thread_id": "th-1",
+            "kind": "issue",
+            "issue_id": "i-1",
+            "session_id": null,
+            "team_id": "t-1",
+            "board_id": "b-1",
+            "added_by": "u-1",
+            "added_by_session_id": null,
+            "source": "user",
+            "sort_order": "2.5",
+            "board_deleted_at": null,
+            "some_future_column": true,
+        }))
+        .expect("issue item hydrates");
+        assert_eq!(issue.issue(), Some("i-1"));
+        assert_eq!(issue.run(), None);
+        assert_eq!(issue.sort_order, Some(2.5));
+        assert!(!issue.added_by_agent());
+
+        let run: ThreadItemRow = serde_json::from_value(json!({
+            "id": "ti-2",
+            "thread_id": "th-1",
+            "kind": "run",
+            "session_id": "s-1",
+            "added_by_session_id": "s-0",
+            "source": "agent",
+            "sort_order": 3,
+        }))
+        .expect("run item hydrates");
+        assert_eq!(run.run(), Some("s-1"));
+        assert_eq!(run.issue(), None);
+        assert_eq!(run.board_id, None, "run items are board-less");
+        assert!(run.added_by_agent());
+
+        let odd: ThreadItemRow = serde_json::from_value(json!({
+            "id": "ti-3",
+            "thread_id": "th-1",
+            "kind": "folder",
+            "issue_id": "i-9",
+        }))
+        .expect("an unknown kind still hydrates");
+        assert_eq!(odd.issue(), None);
+        assert_eq!(odd.run(), None);
+    }
+
     /// EXP-878: a draft row hydrates from the wire with every optional
     /// absent, and `label_ids` takes the same `uuid[]` cell forms
     /// `shared_team_ids` does.
@@ -1207,9 +1406,13 @@ mod tests {
             // The Postgres array literal, exactly like devices.shared_team_ids.
             "label_ids": "{l-1,l-2}",
             "due_date": "2026-09-14",
+            "thread_id": "th-1",
         }))
         .expect("full draft hydrates");
         assert_eq!(full.label_ids, vec!["l-1", "l-2"]);
+        // EXP-1284: the draft's thread (absent = files into none).
+        assert_eq!(full.thread_id.as_deref(), Some("th-1"));
+        assert_eq!(bare.thread_id, None);
         assert_eq!(full.priority, Some(IssuePriority::High));
         assert_eq!(full.due_date.as_deref(), Some("2026-09-14"));
 
@@ -1713,9 +1916,9 @@ mod tests {
             "id": "w-1",
             "name": "Acme",
             "pr_opened_status_id": "s-1",
-            "pr_opened_trigger": "t",
+            "pr_opened_automation": "t",
             "pr_merged_status_id": null,
-            "pr_merged_trigger": "f",
+            "pr_merged_automation": "f",
             "end_sessions_on_merge": "f"
         }))
         .unwrap();

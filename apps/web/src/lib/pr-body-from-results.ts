@@ -1,12 +1,17 @@
 import { SESSION_RESULT_FILES_MAX } from "@exp/db-schema/domain"
 
 // EXP-1154: a run's PR body = a TEXT projection of its Guide (EXP-1251,
-// formerly the Results report; `coding_sessions.results`). GitHub cannot
+// formerly the Results report; EXP-1284: the run's THREAD's Guide,
+// `threads.results`, else the run's own `coding_sessions.results`). GitHub cannot
 // render our pictures (every attachment read is member-only), so the body
 // carries the Guide's words and file lists and closes with one link to the
 // issue's Guide, where the screenshots live. EXP-1251: a run that stacks a
 // second PR tags topics with `prUrl`; each PR's body keeps its own topics
-// plus the untagged ones. Pure + fixture-locked
+// plus the untagged ones. EXP-1284: the thread's Guide holds every session's
+// entries (`sessionId`), so a session's PR body takes that session's (its
+// resume chain's) entries, the ones tagged with that PR and the unstamped
+// legacy ones, a stamped entry winning its topic over a legacy one. Pure +
+// fixture-locked
 // (`packages/domain-contract/fixtures/pr-body.json`); the I/O half is
 // `run-pr-body.ts`.
 //
@@ -25,6 +30,7 @@ interface ReportSection {
   text: string
   files: string[]
   prUrl: string | null
+  sessionId: string | null
 }
 
 function cleanFiles(raw: unknown): string[] {
@@ -43,7 +49,10 @@ function cleanFiles(raw: unknown): string[] {
   return out
 }
 
-function parseReportSections(raw: unknown): ReportSection[] {
+function parseReportSections(
+  raw: unknown,
+  keep?: (section: ReportSection) => boolean
+): ReportSection[] {
   let list: unknown = raw
   if (typeof list === `string`) {
     try {
@@ -53,8 +62,7 @@ function parseReportSections(raw: unknown): ReportSection[] {
     }
   }
   if (!Array.isArray(list)) return []
-  const sections: ReportSection[] = []
-  const seen = new Set<string>()
+  const candidates: ReportSection[] = []
   for (const row of list) {
     if (!row || typeof row !== `object` || Array.isArray(row)) continue
     const entry = row as Record<string, unknown>
@@ -63,10 +71,27 @@ function parseReportSections(raw: unknown): ReportSection[] {
     if (typeof entry.attachmentId === `string` && entry.attachmentId) continue
     if (typeof entry.text !== `string`) continue
     const text = entry.text.trim()
-    if (!text || seen.has(entry.topic)) continue
-    seen.add(entry.topic)
+    if (!text) continue
     const prUrl = typeof entry.prUrl === `string` ? entry.prUrl.trim() || null : null
-    sections.push({ topic: entry.topic, text, files: cleanFiles(entry.files), prUrl })
+    const sessionId =
+      typeof entry.sessionId === `string` ? entry.sessionId.trim() || null : null
+    const section = { topic: entry.topic, text, files: cleanFiles(entry.files), prUrl, sessionId }
+    if (!keep || keep(section)) candidates.push(section)
+  }
+  // Under a session filter, a topic a kept stamped entry has leaves its
+  // legacy (unstamped) twin out.
+  const stampedTopics = new Set(
+    keep
+      ? candidates.filter((section) => section.sessionId).map((section) => section.topic)
+      : []
+  )
+  const sections: ReportSection[] = []
+  const seen = new Set<string>()
+  for (const section of candidates) {
+    if (seen.has(section.topic)) continue
+    if (!section.sessionId && stampedTopics.has(section.topic)) continue
+    seen.add(section.topic)
+    sections.push(section)
   }
   return sections
 }
@@ -110,13 +135,32 @@ function renderSection(section: ReportSection, heading: boolean): string {
  * `prUrl` (EXP-1251) = the PR the body is for: a topic tagged with another PR
  * is left out; null = untagged topics only (a PR not opened yet); absent =
  * every topic.
+ *
+ * `sessionIds` (EXP-1284) = the session the body is for and its resume
+ * chain: an entry stamped with ANOTHER session is left out unless it is
+ * tagged with this `prUrl`; unstamped entries stay but yield their topic to a
+ * kept stamped one. Absent = no session filter.
  */
 export function prBodyFromResults(
   raw: unknown,
-  opts: { resultsUrl: string | null; max?: number; prUrl?: string | null }
+  opts: {
+    resultsUrl: string | null
+    max?: number
+    prUrl?: string | null
+    sessionIds?: readonly string[]
+  }
 ): string | null {
   const want = opts.prUrl === undefined ? undefined : opts.prUrl?.trim() || null
-  const sections = parseReportSections(raw).filter(
+  const sessionIds = opts.sessionIds
+  const sections = parseReportSections(
+    raw,
+    sessionIds
+      ? (section) =>
+          !section.sessionId ||
+          sessionIds.includes(section.sessionId) ||
+          (!!want && section.prUrl === want)
+      : undefined
+  ).filter(
     (section) => want === undefined || section.prUrl === null || section.prUrl === want
   )
   if (!sections.length) return null

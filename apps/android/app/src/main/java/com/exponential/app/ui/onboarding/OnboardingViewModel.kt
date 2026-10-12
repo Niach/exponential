@@ -2,6 +2,10 @@ package com.exponential.app.ui.onboarding
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.exponential.app.data.api.OFFLINE_MESSAGE
+import com.exponential.app.data.api.isOfflineError
+import com.exponential.app.data.api.isPlanLimitError
+import com.exponential.app.ui.components.FailedAction
 import com.exponential.app.data.TeamSelection
 import com.exponential.app.data.api.AuthApi
 import com.exponential.app.data.api.OnboardingApi
@@ -15,9 +19,11 @@ import com.exponential.app.domain.WebLinks
 import com.exponential.app.ui.components.OwnDevices
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 // First-run flow (shared iOS/Android spec, EXP-188): welcome → team
@@ -80,6 +86,15 @@ class OnboardingViewModel @Inject constructor(
     private val _teamJoinError = MutableStateFlow<String?>(null)
     val teamJoinError: StateFlow<String?> = _teamJoinError.asStateFlow()
 
+    // FEED-79: the cap and a refused invite link stay under their fields
+    // (above); any other failed create / join is ONE error toast.
+    private val _failure = MutableStateFlow<FailedAction?>(null)
+    val failure: StateFlow<FailedAction?> = _failure.asStateFlow()
+
+    fun clearFailure() {
+        _failure.value = null
+    }
+
     // EXP-1169: a join by a caller who owns no device lands on the devices
     // step instead of exiting; its Continue then runs finish().
     private val _joined = MutableStateFlow(false)
@@ -87,15 +102,50 @@ class OnboardingViewModel @Inject constructor(
 
     private var reconciled = false
 
+    // The account this wizard's state belongs to. The ViewModel outlives a
+    // sign-out → sign-in as ANOTHER account inside one session, so [start]
+    // drops the previous account's state (and its in-flight loads) first.
+    private var boundAccountId: String? = null
+    private var reconcileJob: Job? = null
+    private var prepareJob: Job? = null
+
+    /** The screen's entry, keyed on the signed-in account: a new account
+     * starts a fresh wizard, then reconciles and resolves its team. */
+    fun start(accountId: String?) {
+        if (accountId != boundAccountId) {
+            reset()
+            boundAccountId = accountId
+        }
+        reconcile()
+        prepare()
+    }
+
+    private fun reset() {
+        reconcileJob?.cancel()
+        prepareJob?.cancel()
+        reconciled = false
+        _teamId.value = null
+        _preparing.value = true
+        _error.value = null
+        _done.value = false
+        _needsTeamChoice.value = false
+        _teamSubmitting.value = false
+        _teamCreateError.value = null
+        _teamJoinError.value = null
+        _failure.value = null
+        _joined.value = false
+    }
+
     /** Re-read the session on appear so an account whose onboardingCompletedAt was
      * still null at login self-heals here instead of showing this screen again. */
-    fun reconcile() {
+    private fun reconcile() {
         if (reconciled) return
         reconciled = true
-        viewModelScope.launch {
+        reconcileJob = viewModelScope.launch {
             val accountId = auth.activeAccountId.value ?: return@launch
             val completedAt = runCatching { authApi.fetchSession(accountId)?.onboardingCompletedAt }
                 .getOrNull()
+            if (!isActive) return@launch
             if (completedAt != null) {
                 auth.markOnboardingCompleted(completedAt)
                 _done.value = true
@@ -106,7 +156,8 @@ class OnboardingViewModel @Inject constructor(
     /** Resolve the default team (never creates — EXP-188): an existing team
      * skips the choice, null shows the create-or-join step. */
     fun prepare() {
-        viewModelScope.launch {
+        prepareJob?.cancel()
+        prepareJob = viewModelScope.launch {
             _preparing.value = true
             _error.value = null
             val accountId = auth.activeAccountId.value
@@ -114,16 +165,20 @@ class OnboardingViewModel @Inject constructor(
                 _preparing.value = false
                 return@launch
             }
-            runCatching {
+            val resolved = runCatching {
                 val team = teamsApi.getDefault(accountId)
                 if (team != null) {
                     holder.database(forAccountId = accountId).teamDao().upsert(team)
                     if (selection.selectedId.value == null) selection.select(team.id)
                 }
                 team?.id
-            }.onSuccess { teamId ->
+            }
+            // Cancelled by an account change (runCatching swallows the
+            // cancellation): the new account's prepare owns the state.
+            if (!isActive) return@launch
+            resolved.onSuccess { teamId ->
                 if (teamId != null) _teamId.value = teamId else _needsTeamChoice.value = true
-            }.onFailure { _error.value = trpcErrorMessage(it, "Failed to prepare team") }
+            }.onFailure { _error.value = trpcErrorMessage(it, "") }
             _preparing.value = false
         }
     }
@@ -144,7 +199,14 @@ class OnboardingViewModel @Inject constructor(
                 selection.select(team.id)
                 team.id
             }.onSuccess { _teamId.value = it }
-                .onFailure { _teamCreateError.value = trpcErrorMessage(it, "Couldn't create the team") }
+                .onFailure {
+                    val message = trpcErrorMessage(it, "")
+                    if (isPlanLimitError(it)) {
+                        _teamCreateError.value = message
+                    } else {
+                        _failure.value = FailedAction("create", "the team", message)
+                    }
+                }
             _teamSubmitting.value = false
         }
     }
@@ -182,7 +244,13 @@ class OnboardingViewModel @Inject constructor(
                     auth.markOnboardingCompleted(java.time.Instant.now().toString())
                     _done.value = true
                 }
-            }.onFailure { _teamJoinError.value = trpcErrorMessage(it, "Couldn't join the team") }
+            }.onFailure {
+                if (isOfflineError(it)) {
+                    _failure.value = FailedAction("join", "the team", OFFLINE_MESSAGE) { joinTeam(input) }
+                } else {
+                    _teamJoinError.value = trpcErrorMessage(it, "Couldn't join the team")
+                }
+            }
             _teamSubmitting.value = false
         }
     }

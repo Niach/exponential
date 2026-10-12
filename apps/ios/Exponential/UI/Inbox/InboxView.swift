@@ -20,7 +20,13 @@ struct InboxListContent: View {
     let viewModel: InboxViewModel
 
     var body: some View {
-        if viewModel.entries.isEmpty {
+        if viewModel.entries.isEmpty, !viewModel.notificationsSynced {
+            // EXP-1275 (D8): the first load is skeleton rows.
+            SkeletonRows()
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else if viewModel.entries.isEmpty {
             EmptyState(.inbox)
                 .frame(maxHeight: .infinity)
         } else {

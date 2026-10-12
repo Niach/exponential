@@ -310,6 +310,9 @@ pub struct IssueTimeline {
     /// (the bottom one only; replies under a card are team-only), reset on
     /// every issue switch. ON = the send carries `audience: reporter`.
     reply_to_reporter: bool,
+    /// EXP-1241: the issue detail's body scroll, so a focused comment (the
+    /// run thread's comment card) can scroll itself into view.
+    scroll: Option<gpui::ScrollHandle>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -411,8 +414,15 @@ impl IssueTimeline {
             next_pending_key: 0,
             reporter: None,
             reply_to_reporter: false,
+            scroll: None,
             _subscriptions: subscriptions,
         }
+    }
+
+    /// EXP-1241: the scroll container the timeline sits in (the issue
+    /// detail's body), which a focused comment scrolls into view.
+    pub(crate) fn set_scroll_handle(&mut self, scroll: gpui::ScrollHandle) {
+        self.scroll = Some(scroll);
     }
 
     /// SLOP-4: the detail view's `widgets.submissionForIssue` answer. A
@@ -849,7 +859,11 @@ impl IssueTimeline {
                     Err(error) => {
                         log::warn!("[ui] comments.create failed: {error}");
                         this.note_attachment_failure(scope, &error);
-                        crate::toast::error(format!("Could not post {what}: {error}"), window, cx);
+                        crate::toast::show(
+                            crate::action_error::failed_toast("post", &format!("the {what}"), Some(error.to_string())),
+                            window,
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
@@ -1222,7 +1236,11 @@ impl IssueTimeline {
                         if let Some(editing) = this.editing.as_mut() {
                             editing.saving = false;
                         }
-                        crate::toast::error(format!("Could not save comment: {error}"), window, cx);
+                        crate::toast::show(
+                            crate::action_error::failed_toast("save", "the comment", Some(error.to_string())),
+                            window,
+                            cx,
+                        );
                     }
                 }
                 cx.notify();
@@ -1675,6 +1693,12 @@ impl Render for IssueTimeline {
                             pending: &reply.pending,
                             emoji_open: self.emoji_open(PendingScope::Reply),
                         });
+                    // EXP-1241: the comment (or a reply) a run thread's
+                    // comment card asked to open at.
+                    let mut focus_ids: Vec<&str> = vec![comment.id.as_str()];
+                    if let Some(list) = replies_by_parent.get(&comment.id) {
+                        focus_ids.extend(list.iter().map(|reply| reply.id.as_str()));
+                    }
                     let row = comments::comment_row(
                         CommentRowProps {
                             card,
@@ -1689,7 +1713,18 @@ impl Render for IssueTimeline {
                             emoji_open: self.emoji_open(PendingScope::Edit),
                         },
                         cx,
-                    );
+                    )
+                    .into_any_element();
+                    let row = match self.issue_id.as_deref() {
+                        Some(issue_id) => comments::with_comment_focus(
+                            row,
+                            issue_id,
+                            &focus_ids,
+                            self.scroll.as_ref(),
+                            cx,
+                        ),
+                        None => row,
+                    };
                     body = body.child(row);
                 }
             }

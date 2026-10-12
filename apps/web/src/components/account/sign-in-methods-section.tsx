@@ -8,6 +8,7 @@ import { trpc } from "@/lib/trpc-client"
 import { authClient } from "@/lib/auth/client"
 import { authErrorMessage } from "@/lib/auth/error-messages"
 import { oauthLinkErrorMessage } from "@/lib/deep-link"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import {
   AppleIcon,
   GithubIcon,
@@ -16,6 +17,7 @@ import {
 import { ChangeEmailDialog } from "@/components/account/change-email-dialog"
 import {
   Button,
+  FEEDBACK_WORDS,
   GlassSectionHeader,
   ListRow,
   SETTINGS_LIST_CLASS,
@@ -100,14 +102,12 @@ export function SignInMethodsSection({
   const [methods, setMethods] = useState<SignInMethods>(initialMethods)
   // A passkey added or removed below reloads the page's payload: take it.
   useEffect(() => setMethods(initialMethods), [initialMethods])
-  const [error, setError] = useState(``)
   // The arrival outcome toasts ONCE (StrictMode re-runs effects, and
   // stripping the params below re-renders with an empty return).
   const arrivalToasted = useRef(false)
   const [pendingLink, setPendingLink] = useState<string | null>(null)
   const [unlinkTarget, setUnlinkTarget] = useState<SignInProvider | null>(null)
   const [unlinking, setUnlinking] = useState(false)
-  const [unlinkError, setUnlinkError] = useState(``)
   const [changeOpen, setChangeOpen] = useState(false)
 
   const refresh = async () => {
@@ -138,7 +138,6 @@ export function SignInMethodsSection({
   const link = async (provider: SignInProvider) => {
     if (pendingLink) return
     setPendingLink(provider.id)
-    setError(``)
     const callbackURL = `${accountPath}?linked=${encodeURIComponent(provider.id)}`
     const errorCallbackURL = `${accountPath}?link_error=1`
     try {
@@ -155,12 +154,15 @@ export function SignInMethodsSection({
               errorCallbackURL,
             })
       if (startError) {
-        setError(authErrorMessage(startError, `Couldn't start linking. Try again.`))
+        failedAction(`link`, provider.name, startError, {
+          description: authErrorMessage(startError, ``) || undefined,
+          retry: () => void link(provider),
+        })
         setPendingLink(null)
       }
       // On success the client follows Better Auth's redirect to the provider.
-    } catch {
-      setError(`Couldn't start linking. Try again.`)
+    } catch (err) {
+      failedAction(`link`, provider.name, err, { retry: () => void link(provider) })
       setPendingLink(null)
     }
   }
@@ -168,9 +170,11 @@ export function SignInMethodsSection({
   const unlink = async () => {
     if (!unlinkTarget || unlinking) return
     setUnlinking(true)
-    setUnlinkError(``)
     try {
-      await trpc.users.unlinkSignInMethod.mutate({ providerId: unlinkTarget.id })
+      await trpc.users.unlinkSignInMethod.mutate(
+        { providerId: unlinkTarget.id },
+        SKIP_ERROR_TOAST
+      )
       toast.success(
         unlinkTarget.kind === `password`
           ? `Password removed.`
@@ -180,9 +184,8 @@ export function SignInMethodsSection({
       await refresh()
       onChanged?.()
     } catch (err) {
-      setUnlinkError(
-        err instanceof Error ? err.message : `Couldn't remove that sign-in method.`
-      )
+      if (unlinkTarget.kind === `password`) failedAction(`remove`, `the password`, err)
+      else failedAction(`unlink`, unlinkTarget.name, err)
     } finally {
       setUnlinking(false)
     }
@@ -250,10 +253,7 @@ export function SignInMethodsSection({
                   variant="outline"
                   className="shrink-0 text-destructive hover:text-destructive"
                   disabled={blocked}
-                  onClick={() => {
-                    setUnlinkError(``)
-                    setUnlinkTarget(provider)
-                  }}
+                  onClick={() => setUnlinkTarget(provider)}
                 >
                   {provider.kind === `password` ? `Remove` : `Unlink`}
                 </Button>
@@ -262,17 +262,18 @@ export function SignInMethodsSection({
                   size="sm"
                   variant="outline"
                   className="shrink-0"
+                  pending={pendingLink === provider.id}
+                  pendingLabel={FEEDBACK_WORDS.pending.connect}
                   disabled={pendingLink !== null}
                   onClick={() => void link(provider)}
                 >
-                  {pendingLink === provider.id ? `Redirecting…` : `Link`}
+                  Link
                 </Button>
               )}
             </ListRow>
           )
         })}
       </div>
-      {error && <p className="mt-2 text-sm text-destructive">{error}</p>}
 
       <ChangeEmailDialog
         open={changeOpen}
@@ -298,11 +299,7 @@ export function SignInMethodsSection({
             onSelect: () => unlink(),
           },
         })}
-      >
-        {unlinkError ? (
-          <p className="text-sm text-destructive">{unlinkError}</p>
-        ) : null}
-      </Prompt>
+      />
     </div>
   )
 }

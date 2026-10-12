@@ -504,6 +504,21 @@ private struct GlassMenuPopup<Content: View>: View {
     @Environment(\.motion) private var motion
     @State private var menuSize: CGSize = .zero
     @State private var appeared = false
+    /// EXP-1243: an outside tap fades the menu out (opacity only, the faster
+    /// `accelerate` exit) before the cover goes.
+    @State private var closing = false
+
+    /// EXP-1243 exit: opacity only, `accelerate` at the fast duration; an
+    /// item's own tap still closes at once (its action may present next).
+    private func fadeOut() {
+        guard !closing else { return }
+        guard let exit = motion.accelerate() else { return dismiss() }
+        withAnimation(exit) { closing = true }
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(DesignTokens.Motion.Duration.fast))
+            dismiss()
+        }
+    }
 
     var body: some View {
         // The outer reader is laid out INSIDE the host's safe area, so its top
@@ -525,7 +540,7 @@ private struct GlassMenuPopup<Content: View>: View {
                     // that closes the menu, exactly like a dropdown's outside tap.
                     Color.clear
                         .contentShape(Rectangle())
-                        .onTapGesture { dismiss() }
+                        .onTapGesture { fadeOut() }
 
                     menu(placement)
                 }
@@ -559,9 +574,11 @@ private struct GlassMenuPopup<Content: View>: View {
         }
         // Until the menu has measured itself its position is a guess, so the
         // first frame is drawn transparent rather than in the wrong place.
-        .opacity(appeared ? 1 : 0)
+        // EXP-1243: enters from `popoverFrom` (never from 0) at its trigger's
+        // corner, decelerating; Reduce Motion = the fade alone.
+        .opacity(appeared && !closing ? 1 : 0)
         .scaleEffect(
-            appeared ? 1 : 0.92,
+            appeared || motion.reduceMotion ? 1 : DesignTokens.Motion.Scale.popoverFrom,
             anchor: placement.opensBelow ? .topTrailing : .bottomTrailing
         )
         .offset(x: point.x, y: point.y)

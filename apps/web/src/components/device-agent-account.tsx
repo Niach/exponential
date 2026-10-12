@@ -36,7 +36,6 @@
 // command (its own cap: a build that only runs the login would report the
 // command unsupported, so the field stays hidden without it).
 import { useState, type ReactNode } from "react"
-import { LoaderCircle } from "lucide-react"
 import type {
   DeviceAgentAccount,
   DeviceAgentHealth,
@@ -67,8 +66,8 @@ import {
   deviceIsMine,
   type SteerDevice,
 } from "@/lib/steer-devices"
+import { failedAction, SKIP_ERROR_TOAST } from "@/lib/action-error"
 import { trpc } from "@/lib/trpc-client"
-import { trpcErrorMessage } from "@/lib/trpc-error"
 
 const SignInIcon = conceptIcon(`ui-sign-in`)
 const SignOutIcon = conceptIcon(`ui-sign-out`)
@@ -213,7 +212,7 @@ export function agentLoginLanding(
 /** `{email} was already added. Refreshed it.` — the warning toast a duplicate
  * landing raises (device-doctor.json `copy.alreadyAdded`, ×4). */
 export function alreadyAddedCopy(email: string): string {
-  return DEVICE_READINESS_COPY.alreadyAdded.replace(`{email}`, email)
+  return DEVICE_READINESS_COPY.alreadyAdded.replace(`{email}`, () => email)
 }
 
 /** THE account menu. The trigger is the caller's (the login rows draw a ghost
@@ -250,7 +249,7 @@ export function AccountChipMenu({
   const queue = async (
     kind: `agent_profile_remove` | `agent_profile_sign_out`,
     success: string,
-    failure: string
+    failure: { verb: string; thing: string }
   ) => {
     if (busy) return
     setBusy(true)
@@ -264,7 +263,7 @@ export function AccountChipMenu({
         },
         // The surface says what failed in its own words; the global link
         // would add a second toast on top of it.
-        { context: { skipErrorToast: true } }
+        SKIP_ERROR_TOAST
       )
       // Both commands ride the owner→device queue and change NOTHING here
       // until the device's next heartbeat, so without this the click reads
@@ -272,12 +271,8 @@ export function AccountChipMenu({
       // (`accounts_section.rs`).
       toast.success(success)
     } catch (error) {
-      toast.error(failure, {
-        description: trpcErrorMessage(
-          error,
-          `The command could not be queued on the device.`
-        ),
-      })
+      // FEED-79: destructive, so no Retry.
+      failedAction(failure.verb, failure.thing, error)
     } finally {
       setBusy(false)
     }
@@ -333,13 +328,13 @@ export function AccountChipMenu({
           {
             label: `Sign out`,
             role: `destructive`,
-            leading: busy ? <LoaderCircle className="animate-spin" /> : undefined,
+            busy,
             onSelect: () => {
               setConfirmSignOut(false)
               void queue(
                 `agent_profile_sign_out`,
                 `${deviceLabel} will sign this login out.`,
-                `Couldn't sign the account out on that device`
+                { verb: `sign out`, thing: `the login` }
               )
             },
           },
@@ -359,13 +354,13 @@ export function AccountChipMenu({
           {
             label: `Remove`,
             role: `destructive`,
-            leading: busy ? <LoaderCircle className="animate-spin" /> : undefined,
+            busy,
             onSelect: () => {
               setConfirmRemove(false)
               void queue(
                 `agent_profile_remove`,
                 `${deviceLabel} will remove this login.`,
-                `Couldn't remove the account on that device`
+                { verb: `remove`, thing: `the login` }
               )
             },
           },
@@ -373,6 +368,15 @@ export function AccountChipMenu({
       />
     </>
   )
+}
+
+/** The device's own sentence when a login command FAILED, else null. The
+ *  dialog raises it as the failed action's toast (FEED-79). */
+export function agentLoginFailure(result: string | null | undefined): string | null {
+  if (!result) return null
+  const progress = parseAgentLoginResult(result)
+  if (progress?.phase !== `failed`) return null
+  return progress.message ?? `The device reported a failure.`
 }
 
 /** What a finished login command hands back: the CLI's own sign-in URL (open
@@ -391,13 +395,8 @@ export function AgentLoginOutcome({
 }) {
   const [draft, setDraft] = useState(``)
   const progress = parseAgentLoginResult(result)
-  if (progress?.phase === `failed`) {
-    return (
-      <p className="text-xs text-destructive">
-        {progress.message ?? `The device reported a failure.`}
-      </p>
-    )
-  }
+  // A failed login is the host's toast (FEED-79, `agentLoginFailure`).
+  if (progress?.phase === `failed`) return null
   if (!progress?.url) {
     return <p className="text-xs text-muted-foreground">{result}</p>
   }

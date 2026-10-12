@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.exponential.app.ui.components.SkeletonRows
 import com.exponential.app.ui.components.BoardIcon
 import com.exponential.app.ui.components.picker.Picker
 import com.exponential.app.ui.components.picker.PickerMode
@@ -53,15 +54,12 @@ fun ShareBoardSelector(
         when {
             groups.isEmpty() && loading -> {
                 // Placeholder while the board list loads — keeps the card's
-                // footprint so the form doesn't jump when the row fills in.
-                Text(
-                    "Loading boards…",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = TextEmphasis.Tertiary),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .glassGroup()
-                        .padding(horizontal = 16.dp, vertical = 14.dp),
+                // footprint so the form doesn't jump when the row fills in
+                // (EXP-1275: a skeleton row, never "Loading boards…").
+                SkeletonRows(
+                    modifier = Modifier.fillMaxWidth().glassGroup(),
+                    rows = 1,
+                    rowHeight = 48.dp,
                 )
             }
             groups.isEmpty() -> {

@@ -86,7 +86,7 @@ impl LiveHolders {
     /// Why `cleanup` must not be removed, if a live run holds it.
     fn holder_of(&self, cleanup: &RunCleanup) -> Option<String> {
         if self.branches.iter().any(|branch| *branch == cleanup.branch) {
-            return Some(format!("branch {} is held by a live run", cleanup.branch));
+            return Some(format!("branch {} is held by a live session", cleanup.branch));
         }
         let target = canonical(&cleanup.worktree);
         self.worktrees
@@ -95,7 +95,7 @@ impl LiveHolders {
                 let held = canonical(held);
                 held == target || held.starts_with(&target)
             })
-            .then(|| format!("worktree {} is held by a live run", cleanup.worktree.display()))
+            .then(|| format!("worktree {} is held by a live session", cleanup.worktree.display()))
     }
 }
 
@@ -362,7 +362,7 @@ mod tests {
         assert_eq!(
             remove_if_clean(&cleanup, &by_branch),
             CleanupOutcome::Skipped(SkipReason::HeldByLiveRun(format!(
-                "branch {} is held by a live run",
+                "branch {} is held by a live session",
                 cleanup.branch
             )))
         );

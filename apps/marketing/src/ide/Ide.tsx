@@ -2,8 +2,8 @@
    Shell (shell.rs, EXP-870/877): the left column is the rail, 272px and
    labelled, or — while a list is folded in beside an open issue — the 48px
    icon rail plus that ListNav. Right of it: the 44px work-tabs band over the
-   cutout panel. An issue and its run are ONE top tab (Issue | Run | +N −M in
-   the work header); every live run of mine owns a tab, clustered by agent. */
+   cutout panel. An issue and its session are ONE top tab (Issue | Run | +N −M in
+   the work header); every live session of mine owns a tab, clustered by agent. */
 import { useEffect, useMemo, useRef, useState } from "react"
 import {
   BATCH_RUN_TITLE,
@@ -204,7 +204,7 @@ export function IdeDemo({ view = `board`, interactive = true, className }: IdeDe
   }, [codingTarget])
 
   /* The transcript streams in the way a run's does: prose types out, tool
-     rows land whole. The run does not "finish" — its turn ends on the
+     rows land whole. The session does not "finish" — its turn ends on the
      question card and it holds for an answer (EXP-674). Instant when
      prefers-reduced-motion. */
   useEffect(() => {

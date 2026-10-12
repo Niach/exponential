@@ -58,6 +58,7 @@ pub(crate) mod issue_picker;
 pub(crate) mod label_picker;
 pub(crate) mod mcp_server_picker;
 pub(crate) mod priority_picker;
+pub(crate) mod search_list;
 pub(crate) mod status_picker;
 
 /// One row of a picker.
@@ -247,6 +248,9 @@ pub(crate) struct Picker<T: Clone> {
     /// the surface closes (a pick, Escape, a click outside), so the caller
     /// stops mounting it.
     pub opened: Option<PickerOnClose>,
+    /// SLOP-28: the search field's placeholder (`None` = "Search…"); the
+    /// issue pickers say the ×4 `ISSUE_SEARCH_PLACEHOLDER`.
+    pub placeholder: Option<SharedString>,
 }
 
 /// EXP-1249: what a caller-opened picker runs when its surface closes.
@@ -289,6 +293,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             footer: None,
             max: None,
             opened: None,
+            placeholder: None,
         }
     }
 
@@ -319,6 +324,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             footer: None,
             max: None,
             opened: None,
+            placeholder: None,
         }
     }
 
@@ -334,6 +340,12 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
     /// focus on the first frame. `on_close` runs when it closes.
     pub(crate) fn open(mut self, on_close: PickerOnClose) -> Self {
         self.opened = Some(on_close);
+        self
+    }
+
+    /// SLOP-28: the search field's placeholder.
+    pub(crate) fn placeholder(mut self, placeholder: impl Into<SharedString>) -> Self {
+        self.placeholder = Some(placeholder.into());
         self
     }
 
@@ -552,6 +564,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
             footer,
             max,
             opened,
+            placeholder,
             ..
         } = self;
         let multi = mode == PickerMode::Multi;
@@ -561,9 +574,16 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
         };
 
         let query = window.use_keyed_state(key("query"), cx, |window, cx| {
-            InputState::new(window, cx).placeholder("Search…")
+            InputState::new(window, cx)
+                .placeholder(placeholder.unwrap_or_else(|| SharedString::from("Search…")))
         });
         let state = window.use_keyed_state(key("state"), cx, |_, _| PickerSurfaceState::default());
+        // SLOP-28: the rows viewport's scroll — ↑/↓ keep the cursor in view,
+        // and the bottom fade reads where it stands.
+        let scroll = window
+            .use_keyed_state(key("scroll"), cx, |_, _| gpui::ScrollHandle::new())
+            .read(cx)
+            .clone();
 
         let rows_id = key("rows");
         let query_for_open = query.clone();
@@ -616,6 +636,10 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                 // move repaints it, as the base popover repaints itself.
                 let parent_view_id = window.current_view();
                 let filter = query.read(cx).value().trim().to_lowercase();
+                if state.read(cx).query != filter {
+                    // A new query starts the rows at the top again.
+                    scroll.set_offset(gpui::point(px(0.), px(0.)));
+                }
                 state.update(cx, |state, _| state.sync_query(&filter));
 
                 let mut column = v_flex().w_full();
@@ -633,26 +657,6 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                     });
                     return column.child(panel(dismiss, window, cx));
                 }
-                if search {
-                    column = column
-                        .child(
-                            crate::controls::search_field(
-                                &query,
-                                crate::controls::SearchFieldSize::Sm,
-                                window,
-                                cx,
-                            )
-                            .appearance(false),
-                        )
-                        .child(
-                            div()
-                                .h(px(1.))
-                                .w_full()
-                                .my_1()
-                                .bg(cx.theme().border.opacity(0.5)),
-                        );
-                }
-
                 let mut visible = match &rank {
                     Some(rank) => rank(&items, &filter, cx),
                     None => filter_items(&items, &filter),
@@ -661,6 +665,14 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                 // answer (a memo keyed on a pool that has since been
                 // rebuilt) must never reach `items[ix]`.
                 visible.retain(|ix| *ix < items.len());
+                // SLOP-28: THE search list's input row (the glyph, the
+                // field, the result count once a query is typed) over the
+                // hairline. The surface's own 4px inset already pads it.
+                if search {
+                    column = column
+                        .child(search_list::input_row(&query, Some(visible.len()), cx).px_2())
+                        .child(search_list::hairline(cx).mb_1());
+                }
                 if visible.is_empty() {
                     // ONE copy for "nothing here" and "nothing matched" —
                     // the web primitive's `emptyText` is the same string on
@@ -703,6 +715,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                 let cursor_shown = state.read(cx).cursor_visible(multi);
                 let list_active = cx.theme().list_active;
 
+                let visible_count = visible.len();
                 column = column
                     .capture_action(cursor_move_listener::<gpui_component::input::MoveUp>(
                         &state,
@@ -710,6 +723,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                         multi,
                         enabled.clone(),
                         parent_view_id,
+                        scroll.clone(),
                     ))
                     .capture_action(cursor_move_listener::<gpui_component::input::MoveDown>(
                         &state,
@@ -717,6 +731,7 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                         multi,
                         enabled,
                         parent_view_id,
+                        scroll.clone(),
                     ))
                     .capture_action({
                         let on_change = on_change.clone();
@@ -748,14 +763,16 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                         }
                     });
 
+                // SLOP-28: at most `MAX_VISIBLE_ROWS` rows, then it scrolls.
                 let mut rows = v_flex()
                     .id(rows_id.clone())
                     .w_full()
                     // A measured fit caps the whole COLUMN, so the rows take
-                    // whatever is left of it rather than a second ceiling.
+                    // whatever is left of it as well.
                     .when(fit.is_some(), |rows| rows.flex_1().min_h_0())
-                    .when(fit.is_none(), |rows| rows.max_h(px(PICKER_ROWS_MAX_HEIGHT)))
-                    .overflow_y_scroll();
+                    .max_h(px(search_list::ROWS_MAX_HEIGHT))
+                    .overflow_y_scroll()
+                    .track_scroll(&scroll);
                 // EXP-792 (web `Picker` highlight rows): a picked row's
                 // neighbours in the RENDERED list decide which of its edges
                 // keep the stroke and the radius, so a run of picked rows
@@ -809,6 +826,9 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                     // AND its corners; gpui has one border colour per
                     // element, so the shared edge's 1px goes to padding
                     // instead — same height, no seam, no shift.
+                    // SLOP-28: the search list's row height.
+                    .min_h(px(search_list::ROW_HEIGHT))
+                    .flex_shrink_0()
                     .border_1()
                     .border_color(gpui::transparent_black())
                     .when(multi && mark == PickerChecked::All, |row| {
@@ -859,7 +879,34 @@ impl<T: Clone + PartialEq + 'static> Picker<T> {
                 if let Some(note) = footer.as_ref().and_then(|footer| footer(&filter, cx)) {
                     rows = rows.child(note);
                 }
-                column.child(rows)
+                // The bottom fade while more rows sit below.
+                let more = search_list::has_more_below(
+                    visible_count,
+                    f32::from(scroll.offset().y),
+                    f32::from(scroll.max_offset().y),
+                );
+                column.child(
+                    v_flex()
+                        .relative()
+                        .w_full()
+                        .when(fit.is_some(), |viewport| viewport.flex_1().min_h_0())
+                        .child(rows)
+                        .when(more, |viewport| {
+                            viewport.child(
+                                div()
+                                    .absolute()
+                                    .bottom_0()
+                                    .left_0()
+                                    .right_0()
+                                    .h(px(search_list::FADE_HEIGHT))
+                                    .bg(gpui::linear_gradient(
+                                        180.,
+                                        gpui::linear_color_stop(cx.theme().popover.opacity(0.), 0.),
+                                        gpui::linear_color_stop(cx.theme().popover, 1.),
+                                    )),
+                            )
+                        }),
+                )
             })
             .into_any_element()
     }
@@ -994,7 +1041,6 @@ pub(crate) fn over(bottom: Hsla, top: Hsla) -> Hsla {
 
 /// How tall a picker menu / row list grows before it scrolls.
 const PICKER_MENU_MAX_HEIGHT: f32 = 320.;
-const PICKER_ROWS_MAX_HEIGHT: f32 = 240.;
 
 /// Report a pick: single hands over the one value, multi the WHOLE new set.
 fn pick<T: Clone + PartialEq + 'static>(
@@ -1186,6 +1232,7 @@ fn cursor_move_listener<A: gpui::Action>(
     multi: bool,
     enabled: Vec<bool>,
     parent_view_id: gpui::EntityId,
+    scroll: gpui::ScrollHandle,
 ) -> impl Fn(&A, &mut Window, &mut App) + 'static {
     let state = state.clone();
     move |_, _window, cx| {
@@ -1200,6 +1247,7 @@ fn cursor_move_listener<A: gpui::Action>(
         };
         if let Some(next) = next {
             if state.update(cx, |state, _| state.move_to(next)) {
+                scroll.scroll_to_item(next);
                 cx.notify(parent_view_id);
             }
         }

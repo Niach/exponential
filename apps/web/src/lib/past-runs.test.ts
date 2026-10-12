@@ -296,9 +296,9 @@ describe(`pastRunTitle`, () => {
     // desktop `session_title` name an issue-less run the same way.
     expect(
       pastRunTitle(run({ branch: `exp/batch-1a2b3c4d` }), undefined)
-    ).toBe(`Batch run`)
-    expect(pastRunTitle(run({ actionName: `  ` }), undefined)).toBe(`Batch run`)
-    expect(pastRunTitle(run(), undefined)).toBe(`Batch run`)
+    ).toBe(`Batch session`)
+    expect(pastRunTitle(run({ actionName: `  ` }), undefined)).toBe(`Batch session`)
+    expect(pastRunTitle(run(), undefined)).toBe(`Batch session`)
   })
 
   // EXP-876: a batch names itself after the issues it covered, so two of them
@@ -315,7 +315,7 @@ describe(`pastRunTitle`, () => {
       {
         id: `i-2`,
         identifier: `EXP-876`,
-        title: `Batch run names`,
+        title: `Batch session names`,
         branch: `exp/batch-1a2b3c4d`,
         createdAt: at(`2026-09-02T10:00:00Z`),
       },
@@ -329,7 +329,7 @@ describe(`pastRunTitle`, () => {
     ).toBe(`EXP-876`)
     // Nothing covered and nothing stored: the generic label, as before.
     expect(pastRunIdentifier(run(), undefined, covered)).toBe(null)
-    expect(pastRunTitle(run(), undefined, covered)).toBe(`Batch run`)
+    expect(pastRunTitle(run(), undefined, covered)).toBe(`Batch session`)
     // An issue run keeps ITS identifier; an action run has none.
     expect(
       pastRunIdentifier(run({ issueId: `i-1` }), { identifier: `EXP-874` })

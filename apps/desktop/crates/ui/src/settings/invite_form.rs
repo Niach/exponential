@@ -34,12 +34,17 @@ use crate::queries;
 /// it — the generated link renders right under this, so the wording points at
 /// it. Kept byte-identical to `invite-member-form.tsx`'s toast — a toast
 /// here too (EXP-1031).
-const EMAIL_FALLBACK_MESSAGE: &str =
-    "Couldn't email the invite. Copy the link below and share it instead.";
+/// FEED-79: the invite exists but its mail did not go out — the toast's
+/// description under `Couldn't email the invite`.
+const EMAIL_FALLBACK_MESSAGE: &str = "Copy the link below and share it instead.";
 
 /// EXP-771: the seat cap is not "some plan limit" — it is the web's
 /// `UpgradeDialog` on the invite controls, rendered inline here (the desktop
 /// never shows pricing, §4.9). Title + body byte-identical to the web.
+/// feedback-states.json's invalid-email input case: the field's line when
+/// the server refused the address without a sentence of its own.
+const INVALID_EMAIL: &str = "Enter a full email address";
+
 const OUT_OF_SEATS_TITLE: &str = "Out of seats";
 const OUT_OF_SEATS_MESSAGE: &str =
     "Everyone on your plan's seats is already in this team. Add seats to \
@@ -79,7 +84,12 @@ pub struct InviteForm {
     name_input: Entity<InputState>,
     email_input: Entity<InputState>,
     sending: bool,
-    error: Option<SharedString>,
+    /// EXP-1259 D8: the Send button's pending face ("Inviting").
+    pending: crate::feedback::Pending,
+    /// FEED-79: the address the server refused — INVALID INPUT, so it stays
+    /// under the field (13px rose) until the address changes; every other
+    /// failure is a toast.
+    email_error: Option<SharedString>,
     /// The seat cap rejected the invite — the web's "Out of seats" notice.
     out_of_seats: bool,
     /// The minted link: the manual fallback when delivery failed.
@@ -122,7 +132,10 @@ impl InviteForm {
                 &email_input,
                 window,
                 |this, _, event: &InputEvent, window, cx| match event {
-                    InputEvent::Change => cx.notify(),
+                    InputEvent::Change => {
+                        this.email_error = None;
+                        cx.notify();
+                    }
                     // Web: Enter in the address field sends.
                     InputEvent::PressEnter { .. } => this.send(window, cx),
                     _ => {}
@@ -135,7 +148,8 @@ impl InviteForm {
             name_input,
             email_input,
             sending: false,
-            error: None,
+            pending: crate::feedback::Pending::default(),
+            email_error: None,
             out_of_seats: false,
             invite_url: None,
             layout,
@@ -155,7 +169,7 @@ impl InviteForm {
     pub(super) fn reset_for_team(&mut self, team_id: String, cx: &mut gpui::Context<Self>) {
         self.team_id = team_id;
         self.invite_url = None;
-        self.error = None;
+        self.email_error = None;
         self.out_of_seats = false;
         cx.notify();
     }
@@ -184,7 +198,8 @@ impl InviteForm {
         let team_id = self.team_id.clone();
 
         self.sending = true;
-        self.error = None;
+        self.pending.start(cx);
+        self.email_error = None;
         self.out_of_seats = false;
         cx.notify();
 
@@ -208,6 +223,7 @@ impl InviteForm {
                 .await;
             let _ = this.update_in(window, |this, window, cx| {
                 this.sending = false;
+                this.pending.finish();
                 match result {
                     Ok(out) => {
                         this.invite_url = Some(format!("{base}/invite/{}", out.token).into());
@@ -235,16 +251,28 @@ impl InviteForm {
                         } else {
                             // Requested but not delivered (transport down or
                             // unconfigured) — fall back to the link.
-                            crate::toast::error(EMAIL_FALLBACK_MESSAGE, window, cx);
+                            crate::toast::show(
+                                crate::action_error::failed_toast(
+                                    "email",
+                                    "the invite",
+                                    Some(EMAIL_FALLBACK_MESSAGE.into()),
+                                ),
+                                window,
+                                cx,
+                            );
                         }
                     }
                     Err(err) if super::is_plan_limit(&err) => {
                         this.out_of_seats = true;
                     }
-                    Err(err) => {
-                        this.error =
-                            Some(super::form_error(&err, "Couldn't create the invite.").into());
+                    // The address the server refused stays under its field
+                    // (feedback-states.json's invalid-email case).
+                    Err(api::ApiError::Http { status: 400, message }) => {
+                        let message = crate::action_error::description_of(&message)
+                            .unwrap_or_else(|| INVALID_EMAIL.to_string());
+                        this.email_error = Some(message.into());
                     }
+                    Err(err) => crate::action_error::failed_action_err("send", "the invite", &err, cx),
                 }
                 cx.notify();
             });
@@ -263,14 +291,17 @@ impl Render for InviteForm {
         let email_empty = self.email_input.read(cx).value().trim().is_empty();
         let name_field = glass_input(&self.name_input, window, cx).web_input_sm();
         let email_field = glass_input(&self.email_input, window, cx).web_input_sm();
-        let send_button = Button::new("invite-send")
-            .primary()
-            .web_sm()
-            .label("Send invite")
-            .icon(registry::UI_MAIL)
-            .loading(self.sending)
-            .disabled(self.sending || email_empty)
-            .on_click(cx.listener(|this, _, window, cx| this.send(window, cx)));
+        let send_button = self.pending.apply(
+            Button::new("invite-send")
+                .primary()
+                .web_sm()
+                .label("Send invite")
+                .icon(registry::UI_MAIL)
+                .disabled(email_empty)
+                .on_click(cx.listener(|this, _, window, cx| this.send(window, cx))),
+            crate::feedback::PENDING_INVITE,
+            cx,
+        );
 
         let controls = match self.layout {
             // Web `sm:w-44`: the optional name is the NARROW half of the pair —
@@ -290,15 +321,21 @@ impl Render for InviteForm {
                 .child(h_flex().justify_end().child(send_button)),
         };
 
-        let mut form = v_flex().w_full().min_w_0().gap_2().child(controls);
+        let mut form = v_flex()
+            .w_full()
+            .min_w_0()
+            .gap_2()
+            .child(controls)
+            .children(
+                self.email_error
+                    .clone()
+                    .map(|message| crate::action_error::field_error(message, cx)),
+            );
 
         // The notices sit BETWEEN the row and the link (the email fallback's
         // toast says "copy the link below", so the link stays below the row).
         if self.out_of_seats {
             form = form.child(out_of_seats_notice(cx));
-        }
-        if let Some(error) = &self.error {
-            form = form.child(super::error_notice(error.clone(), cx));
         }
         if let Some(url) = &self.invite_url {
             form = form.child(invite_link_row("invite-copy", url.clone(), cx));

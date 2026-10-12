@@ -142,8 +142,7 @@ impl ChangeEmailDialogView {
             return;
         }
         let Some((instance_url, token, client)) = credentials(cx) else {
-            self.error = Some("Couldn't send the code.".into());
-            cx.notify();
+            crate::action_error::failed_action("send", "the code", None, cx);
             return;
         };
         self.busy = true;
@@ -167,9 +166,15 @@ impl ChangeEmailDialogView {
                         this.code.update(cx, |state, cx| state.focus(window, cx));
                         this.step = Step::Code { new_email: target };
                     }
-                    Err(err) => {
+                    // FEED-79: the server refusing the ADDRESS stays under the
+                    // field; a request that failed otherwise is a toast.
+                    Err(err @ api::ApiError::Http { .. }) => {
                         log::warn!("[ui] request-email-change failed: {err}");
                         this.error = Some(error_copy(&err, "Couldn't send the code.").into());
+                    }
+                    Err(err) => {
+                        log::warn!("[ui] request-email-change failed: {err}");
+                        crate::action_error::failed_action_err("send", "the code", &err, cx);
                     }
                 }
                 cx.notify();
@@ -187,8 +192,7 @@ impl ChangeEmailDialogView {
             return;
         }
         let Some((instance_url, token, client)) = credentials(cx) else {
-            self.error = Some("Couldn't change the email.".into());
-            cx.notify();
+            crate::action_error::failed_action("change", "the email", None, cx);
             return;
         };
         let Some(account_id) = queries::active_account(cx).map(|account| account.id) else {
@@ -228,9 +232,15 @@ impl ChangeEmailDialogView {
                         cx.refresh_windows();
                         native_dialog::close_dialog_window(window, cx);
                     }
-                    Err(err) => {
+                    // The CODE the server refused stays under the field.
+                    Err(err @ api::ApiError::Http { .. }) => {
                         log::warn!("[ui] change-email failed: {err}");
                         this.error = Some(error_copy(&err, "Couldn't change the email.").into());
+                        cx.notify();
+                    }
+                    Err(err) => {
+                        log::warn!("[ui] change-email failed: {err}");
+                        crate::action_error::failed_action_err("change", "the email", &err, cx);
                         cx.notify();
                     }
                 }
@@ -365,7 +375,7 @@ impl Render for ChangeEmailDialogView {
             }
         };
         if let Some(error) = self.error.clone() {
-            body = body.child(div().text_sm().text_color(cx.theme().danger).child(error));
+            body = body.child(crate::action_error::field_error(error, cx));
         }
         let footer = h_flex()
             .justify_end()

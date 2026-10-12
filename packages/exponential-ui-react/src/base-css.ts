@@ -11,7 +11,11 @@
 // Natives then add their own structure under `[data-xui-c="…"]`; a theme
 // never needs to (recipes carry only visuals, sizes and spacing).
 
-import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, RTL_MIRRORED_ICONS, keyframesCss } from "@exponential-at/ui"
+import { ANIMATION_NAMES, ANIMATION_PROPERTIES_CSS, RTL_MIRRORED_ICONS, SEARCH_LIST_FADE, SKELETON_OPACITY_HIGH, SKELETON_OPACITY_LOW, SKELETON_PULSE_MS, SKELETON_REDUCED_OPACITY, keyframesCss } from "@exponential-at/ui"
+
+/** EXP-1259: under reduce motion nothing scales (a pressed button stays
+ *  put) and a placeholder holds still at its reduced opacity. */
+const REDUCED_EXTRA = `.xui-surface [data-xui-c="Button"].xui-el:active{scale:none !important}.xui-surface [data-xui-c="Skeleton"].xui-el:not([data-rows]),.xui-surface .xui-Skeleton-dot,.xui-surface .xui-Skeleton-bar{animation:none !important;opacity:${SKELETON_REDUCED_OPACITY} !important}`
 
 /** Round 2 §2: the `animation` key's keyframe sets (style.json
  *  `animations`; the individual `translate`/`rotate`/`scale` properties
@@ -42,7 +46,7 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-c="Text"][data-xui-align="start"].xui-el{text-align:start}
 [data-xui-c="Text"][data-xui-align="center"].xui-el{text-align:center}
 [data-xui-c="Text"][data-xui-align="end"].xui-el{text-align:end}
-[data-xui-c="Button"].xui-el,[data-xui-c="Toggle"].xui-el,[data-xui-c="Link"].xui-el{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;cursor:pointer;user-select:none;flex-shrink:0;transition:background-color var(--xui-motion-fast) var(--xui-ease-standard,ease),color var(--xui-motion-fast) var(--xui-ease-standard,ease),opacity var(--xui-motion-fast) var(--xui-ease-standard,ease),border-color var(--xui-motion-fast) var(--xui-ease-standard,ease)}
+[data-xui-c="Button"].xui-el,[data-xui-c="Toggle"].xui-el,[data-xui-c="Link"].xui-el{display:inline-flex;align-items:center;justify-content:center;white-space:nowrap;cursor:pointer;user-select:none;flex-shrink:0;transition:background-color var(--xui-motion-fast) var(--xui-ease-standard,ease),color var(--xui-motion-fast) var(--xui-ease-standard,ease),opacity var(--xui-motion-fast) var(--xui-ease-standard,ease),border-color var(--xui-motion-fast) var(--xui-ease-standard,ease),scale var(--xui-motion-fast) var(--xui-ease-standard,ease)}
 [data-xui-c="Button"].xui-el:disabled,[data-xui-c="Toggle"].xui-el:disabled{cursor:default;pointer-events:none}
 [data-xui-c="Link"].xui-el{text-decoration:underline;text-underline-offset:3px}
 .xui-Button-icon,.xui-Button-spinner,.xui-Toggle-icon{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0}
@@ -98,6 +102,9 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-Tabs-tab{display:inline-flex;flex-direction:column;align-items:center;justify-content:center;gap:var(--xui-spacing-xs);cursor:pointer;white-space:nowrap;flex:0 0 auto;position:relative}
 .xui-Tabs-list[data-fill="true"]>.xui-Tabs-tab{flex:1 1 0}
 .xui-Tabs-tab-body{display:inline-flex;align-items:center;gap:var(--xui-spacing-xs)}
+.xui-Tabs-close,.xui-Tabs-new{display:inline-flex;align-items:center;justify-content:center;align-self:center;flex-shrink:0;cursor:pointer;padding:0;border:0}
+.xui-Tabs-close>svg{width:12px;height:12px}
+.xui-Tabs-new>svg{width:16px;height:16px}
 .xui-Tabs-indicator{position:absolute;left:0;right:0;bottom:0}
 .xui-Tabs-content{display:flex;flex-direction:column;outline:none}
 .xui-Tabs-content[hidden]{display:none}
@@ -199,7 +206,31 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 [data-xui-c="Ring"].xui-el>svg,[data-xui-c="Spinner"].xui-el>svg{width:100%;height:100%;display:block}
 .xui-Ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center}
 [data-xui-c="Spinner"].xui-el>svg,.xui-Button-spinner>svg{animation:xui-spin 0.8s linear infinite}
-[data-xui-c="Skeleton"].xui-el{animation:xui-pulse 2s cubic-bezier(.4,0,.6,1) infinite;flex-shrink:0}
+[data-xui-c="Skeleton"].xui-el:not([data-rows]),.xui-Skeleton-dot,.xui-Skeleton-bar{animation:xui-skeleton ${SKELETON_PULSE_MS}ms ease-in-out infinite;opacity:${SKELETON_OPACITY_LOW};flex-shrink:0}
+[data-xui-c="Skeleton"][data-rows].xui-el{display:flex;flex-direction:column;align-self:stretch;flex-shrink:0;background:none;border-radius:0}
+.xui-Skeleton-row{display:flex;flex-direction:row;align-items:center;flex-shrink:0}
+.xui-Skeleton-row+.xui-Skeleton-row{border-top:var(--xui-border-hairline) solid var(--xui-color-border)}
+.xui-Skeleton-dot{display:block}
+.xui-Skeleton-bar{display:block}
+.xui-Skeleton-bar[data-title]{flex-shrink:1;min-width:0}
+@keyframes xui-skeleton{0%,100%{opacity:${SKELETON_OPACITY_LOW}}50%{opacity:${SKELETON_OPACITY_HIGH}}}
+[data-xui-c="SearchList"].xui-el{display:flex;flex-direction:column;overflow:hidden;min-width:0}
+.xui-SearchList-head,.xui-Menu-head{display:flex;flex-direction:row;align-items:center;flex-shrink:0}
+.xui-SearchList-search,.xui-Menu-search{display:flex;align-items:center;gap:8px;flex:1 1 auto;min-width:0;align-self:stretch}
+.xui-SearchList-search>svg,.xui-Menu-search>svg{width:16px;height:16px;opacity:.6;flex-shrink:0}
+.xui-SearchList-search>input,.xui-Menu-search>input{flex:1 1 auto;min-width:0;height:100%;padding:0;border:0;outline:none;background:transparent;color:inherit;font:inherit}
+.xui-SearchList-count,.xui-Menu-count{flex-shrink:0;font-variant-numeric:tabular-nums}
+.xui-SearchList-body,.xui-Menu-body{display:flex;flex-direction:column;position:relative;flex-shrink:1;min-height:0}
+.xui-SearchList-list,.xui-Menu-list{display:flex;flex-direction:column;flex-shrink:1;min-height:0;overflow-y:auto}
+.xui-SearchList-item{display:flex;flex-direction:row;align-items:center;flex-shrink:0;cursor:pointer;user-select:none;white-space:nowrap}
+.xui-SearchList-item[aria-disabled="true"]{pointer-events:none}
+.xui-SearchList-icon,.xui-SearchList-check{display:inline-flex;flex-shrink:0}
+.xui-SearchList-icon>svg,.xui-SearchList-check>svg{width:100%;height:100%}
+.xui-SearchList-identifier{flex-shrink:0}
+.xui-SearchList-label{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+.xui-SearchList-fade,.xui-Menu-fade{position:absolute;left:0;right:0;bottom:0;height:${SEARCH_LIST_FADE}px;pointer-events:none;background:linear-gradient(to bottom,transparent,var(--xui-color-popover)) !important}
+.xui-menu-search{display:flex;flex-direction:column;min-width:240px}
+.xui-menu-search .xui-Menu-item{flex-shrink:0}
 [data-xui-c="Markdown"].xui-el{display:block;min-width:0;overflow-wrap:anywhere}
 [data-xui-c="Markdown"][data-lines].xui-el{display:-webkit-box;-webkit-box-orient:vertical;overflow:clip}
 .xui-md>:first-child{margin-top:0}
@@ -343,8 +374,8 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-toast-layer>:nth-last-child(n+4){display:none}
 .xui-Popover-content[data-open-on="hover"]{pointer-events:auto}
 @keyframes xui-fade-out{to{opacity:0}}
-@keyframes xui-pop-in{from{opacity:0;scale:.96}}
-@keyframes xui-pop-out{to{opacity:0;scale:.96}}
+@keyframes xui-pop-in{from{opacity:0;scale:var(--xui-scale-popoverFrom,.96)}}
+@keyframes xui-pop-out{to{opacity:0}}
 @keyframes xui-slide-bottom-in{from{translate:0 100%}}
 @keyframes xui-slide-bottom-out{to{translate:0 100%}}
 @keyframes xui-slide-top-in{from{translate:0 -100%}}
@@ -356,7 +387,9 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 @keyframes xui-toast-in{from{opacity:0;translate:0 12px}}
 @keyframes xui-accordion-open{from{height:0}to{height:var(--radix-accordion-content-height)}}
 @keyframes xui-accordion-close{from{height:var(--radix-accordion-content-height)}to{height:0}}
-.xui-Popover-content[data-state="open"],.xui-Tooltip-content[data-state$="open"],.xui-Menu-content[data-state="open"],.xui-Select-content[data-state="open"],.xui-DatePicker-calendar[data-state="open"],.xui-DateRangePicker-calendar[data-state="open"],.xui-TimePicker-list[data-state="open"],.xui-Dialog-content[data-state="open"]{animation:xui-pop-in var(--xui-motion-fast) var(--xui-ease-decelerate,ease-out)}
+.xui-Popover-content,.xui-Tooltip-content,.xui-Menu-content,.xui-Select-content,.xui-DatePicker-calendar,.xui-DateRangePicker-calendar,.xui-TimePicker-list{transform-origin:var(--radix-popper-transform-origin)}
+.xui-Popover-content[data-state="open"],.xui-Tooltip-content[data-state$="open"],.xui-Menu-content[data-state="open"],.xui-Select-content[data-state="open"],.xui-DatePicker-calendar[data-state="open"],.xui-DateRangePicker-calendar[data-state="open"],.xui-TimePicker-list[data-state="open"],.xui-Dialog-content[data-state="open"]{animation:xui-pop-in var(--xui-motion-standard) var(--xui-ease-decelerate,ease-out)}
+[data-xui-c="Button"].xui-el:active:not(:disabled){scale:var(--xui-scale-press,1)}
 .xui-Popover-content[data-state="closed"],.xui-Tooltip-content[data-state="closed"],.xui-Menu-content[data-state="closed"],.xui-Select-content[data-state="closed"],.xui-DatePicker-calendar[data-state="closed"],.xui-DateRangePicker-calendar[data-state="closed"],.xui-TimePicker-list[data-state="closed"],.xui-Dialog-content[data-state="closed"]{animation:xui-pop-out var(--xui-motion-fast) var(--xui-ease-accelerate,ease-in) forwards}
 .xui-Dialog-overlay[data-state="open"],.xui-Drawer-overlay[data-state="open"]{animation:xui-fade-in var(--xui-motion-standard) var(--xui-ease-decelerate,ease-out)}
 .xui-Dialog-overlay[data-state="closed"],.xui-Drawer-overlay[data-state="closed"]{animation:xui-fade-out var(--xui-motion-standard) var(--xui-ease-accelerate,ease-in) forwards}
@@ -376,5 +409,6 @@ button:where([data-xui-part],.xui-calendar-nav,.xui-table-sort,.xui-carousel-nav
 .xui-accordion-title{display:inline-flex;align-items:baseline;gap:var(--xui-spacing-xs);min-width:0}
 .xui-Collapsible-chevron.xui-el{transition:transform var(--xui-motion-fast) var(--xui-ease-standard,ease)}
 }
-@media (prefers-reduced-motion: reduce){@layer xui-base{.xui-surface *,.xui-surface *::before,.xui-surface *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important;scroll-behavior:auto !important}}}
-.xui-surface[data-xui-motion="reduce"] *,.xui-surface[data-xui-motion="reduce"] *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important}`
+@media (prefers-reduced-motion: reduce){@layer xui-base{.xui-surface *,.xui-surface *::before,.xui-surface *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important;scroll-behavior:auto !important}${REDUCED_EXTRA}}}
+.xui-surface[data-xui-motion="reduce"] *,.xui-surface[data-xui-motion="reduce"] *::after{animation-duration:0ms !important;animation-iteration-count:1 !important;transition-duration:0ms !important}
+${REDUCED_EXTRA.replace(/\.xui-surface /g, `.xui-surface[data-xui-motion="reduce"] `)}`

@@ -13,7 +13,16 @@ const mockState = vi.hoisted(() => ({
   lookupQuery: vi.fn(),
   openGithubConnect: vi.fn(() => true),
   openGithubPopup: vi.fn(() => true),
+  toastError: vi.fn(),
 }))
+
+vi.mock(`sonner`, async (importOriginal) => {
+  const actual = await importOriginal<typeof import("sonner")>()
+  return {
+    ...actual,
+    toast: Object.assign(() => {}, actual.toast, { error: mockState.toastError }),
+  }
+})
 
 vi.mock(`@/lib/trpc-client`, () => ({
   trpc: {
@@ -94,7 +103,36 @@ describe(`GithubRepoPicker (SLOP-7)`, () => {
     mockState.lookupQuery.mockReset()
     mockState.openGithubConnect.mockClear()
     mockState.openGithubPopup.mockClear()
+    mockState.toastError.mockReset()
     mockState.reposQuery.mockResolvedValue(reposResult())
+  })
+
+  // FEED-79: a blocked popup is a failed connect: a toast whose Retry
+  // re-opens the popup, never a rose sentence in the picker.
+  it(`a blocked connect popup toasts with a Retry that re-opens it`, async () => {
+    mockState.reposQuery.mockResolvedValue(
+      reposResult({ linked: false, installed: false, repos: [], installations: [] })
+    )
+    mockState.openGithubConnect.mockReturnValueOnce(false)
+    renderPicker()
+    fireEvent.click(await screen.findByRole(`button`, { name: `Connect GitHub` }))
+
+    expect(mockState.toastError).toHaveBeenCalledTimes(1)
+    const [title, options] = mockState.toastError.mock.calls[0]
+    expect(title).toBe(`Couldn't connect GitHub`)
+    expect(options.description).toBe(`blocked`)
+    expect(screen.queryByText(`blocked`)).toBeNull()
+    options.action.onClick()
+    expect(mockState.openGithubConnect).toHaveBeenCalledTimes(2)
+  })
+
+  it(`a failed list load (on open, on focus) never toasts`, async () => {
+    mockState.reposQuery.mockRejectedValue(new Error(`GitHub is down`))
+    renderPicker()
+    await waitFor(() => expect(mockState.reposQuery).toHaveBeenCalled())
+    window.dispatchEvent(new Event(`focus`))
+    await waitFor(() => expect(mockState.reposQuery.mock.calls.length).toBeGreaterThan(1))
+    expect(mockState.toastError).not.toHaveBeenCalled()
   })
 
   it(`renders one configure link per installation under the list`, async () => {

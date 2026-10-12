@@ -282,19 +282,12 @@ private struct GuideBody: View {
     private var diffStatusLine: some View {
         switch diffStatus {
         case .loading:
-            HStack(spacing: 8) {
-                ProgressView().controlSize(.small).tint(.white)
-                Text("Loading changes…")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-            .accessibilityIdentifier("guide-diff-loading")
-        case let .failed(message):
-            Text("Couldn't load changes: \(message)")
-                .font(.caption)
-                .foregroundStyle(DesignTokens.Semantic.red)
-                .accessibilityIdentifier("guide-diff-error")
-        case .ready:
+            // EXP-1275 (D8): the file rows' placeholder, not "Loading…".
+            SkeletonRows(rows: 3, rowHeight: 36)
+                .accessibilityIdentifier("guide-diff-loading")
+        case .failed, .ready:
+            // FEED-79: the load runs on open, so a failure is quiet: the
+            // face keeps what it has, never a toast.
             EmptyView()
         }
     }
@@ -333,19 +326,13 @@ private struct GuideBody: View {
         case .loaded:
             // Rendered as the PR-body group (`prDescriptionGroup`).
             EmptyView()
-        case let .failed(message):
-            Text(message)
-                .font(.subheadline)
-                .foregroundStyle(DesignTokens.Palette.destructive)
-                .accessibilityIdentifier("results-pr-fallback-error")
+        case .failed:
+            // FEED-79: a load on open fails quietly, no red line.
+            EmptyView()
         case .loading:
-            HStack(spacing: 8) {
-                ProgressView().tint(.white).controlSize(.small)
-                Text("Loading the pull request…")
-                    .font(.subheadline)
-                    .foregroundStyle(.white.opacity(TextOpacity.secondary))
-            }
-            .accessibilityIdentifier("results-pr-fallback-loading")
+            // EXP-1275 (D8): a placeholder, not "Loading…".
+            SkeletonRows(rows: 2, rowHeight: 28, dot: false, dividers: false)
+                .accessibilityIdentifier("results-pr-fallback-loading")
         }
     }
 

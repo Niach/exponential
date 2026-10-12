@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState, type ReactNode } from "react"
 
 import { Button } from "../button"
+import { actionErrorTitle, FEEDBACK_ERRORS, toastActionError } from "../feedback"
 import { Picker, type PickerItem, type PickerSurfaceProps } from "./picker"
 import type { PickerTriggerVariant } from "./picker-trigger"
 
@@ -61,16 +62,25 @@ export function BranchPicker({
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false)
   const open = openProp ?? uncontrolledOpen
   const [branches, setBranches] = useState<string[] | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
+  const [loadFailed, setLoadFailed] = useState(false)
   const [loading, setLoading] = useState(false)
 
-  const load = useCallback(async () => {
+  // FEED-79: the list loads when the picker opens, so a failure is quiet:
+  // the empty list + Retry (the next open tries again too). Only a failed
+  // Retry tap, the person's own action, toasts.
+  const load = useCallback(async (retried = false): Promise<void> => {
     setLoading(true)
-    setLoadError(null)
+    setLoadFailed(false)
     try {
       setBranches(await loadBranches())
     } catch (err) {
-      setLoadError(err instanceof Error ? err.message : String(err))
+      setLoadFailed(true)
+      if (retried) {
+        toastActionError(actionErrorTitle(`load`, `branches`), {
+          description: err instanceof Error && err.message.trim() ? err.message : undefined,
+          retry: () => void load(true),
+        })
+      }
     } finally {
       setLoading(false)
     }
@@ -107,16 +117,16 @@ export function BranchPicker({
       // Nothing has loaded and nothing failed = the first frame of the lazy
       // fetch; the empty copy there would read as "this repo has no
       // branches".
-      loading={loading || (open && names === null && loadError === null)}
+      loading={loading || (open && names === null && !loadFailed)}
       error={
-        loadError ? (
+        loadFailed ? (
           <Button
             variant="ghost"
             size="sm"
-            className="w-full justify-start rounded-none text-destructive hover:text-destructive"
-            onClick={() => void load()}
+            className="w-full justify-start rounded-none text-muted-foreground"
+            onClick={() => void load(true)}
           >
-            Couldn&rsquo;t load branches — retry
+            {FEEDBACK_ERRORS.retry}
           </Button>
         ) : undefined
       }

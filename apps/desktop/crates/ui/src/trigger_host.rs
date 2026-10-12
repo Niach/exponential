@@ -787,8 +787,8 @@ fn launch(
             // A triggered run carries no run-time inputs (nobody to prompt).
             inputs: Vec::new(),
             target: None,
-            // Never steal focus: the whole point is an unattended run.
-            activate_app: false,
+            // Never takes the window: the whole point is an unattended run.
+            landing: crate::coding_flow::RunLanding::Background,
             reservation: Some(reservation),
             trigger: Some(note),
             on_settled: Some(on_settled),

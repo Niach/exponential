@@ -77,17 +77,17 @@ class ComposerMenuTest {
     }
 
     @Test
-    fun `the test ids, suggestions and plus label are the fixture's`() {
+    fun `the test ids, submenu geometry and plus label are the fixture's`() {
         val ids = fixture.getValue("testIds").jsonObject
         assertEquals(ids.string("plus"), ComposerMenu.PLUS_TEST_ID)
         assertEquals(ids.string("menu"), ComposerMenu.MENU_TEST_ID)
         assertEquals(ids.string("implementSubmit"), ComposerMenu.IMPLEMENT_SUBMIT_TEST_ID)
-        assertEquals(ids.string("suggestion"), ComposerMenu.SUGGESTION_TEST_ID)
-        assertEquals(ids.string("brandMark"), ComposerMenu.BRAND_MARK_TEST_ID)
+        assertEquals(ids.string("submenuSearch"), ComposerMenu.SUBMENU_SEARCH_TEST_ID)
+        // EXP-1259: the suggestion rows and the brand mark left the contract.
+        assertTrue("suggestion" !in ids && "brandMark" !in ids && "suggestions" !in fixture)
         assertEquals(ids.string("row").replace("{id}", "effort"), ComposerMenu.rowTestId(ComposerMenuRowId.Effort))
         assertEquals(fixture.string("plusLabel"), ComposerMenu.PLUS_LABEL)
-        val suggestions = fixture.getValue("suggestions").jsonObject
-        assertEquals(suggestions.getValue("count").jsonPrimitive.int, ComposerMenu.SUGGESTION_COUNT)
-        assertEquals(suggestions.string("icon"), ComposerMenu.SUGGESTION_ICON)
+        assertEquals(fixture.getValue("submenuRowHeight").jsonPrimitive.int, ComposerMenu.SUBMENU_ROW_HEIGHT)
+        assertEquals(fixture.getValue("submenuMaxRows").jsonPrimitive.int, ComposerMenu.SUBMENU_MAX_ROWS)
     }
 }

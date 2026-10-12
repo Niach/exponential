@@ -101,6 +101,7 @@ public enum EntityPreview {
         "notification": "nav-notifications",
         "attachment": "ui-attach",
         "list": "ui-checklist",
+        "thread": "work-faces",
     ]
 
     private static let nouns: [String: (String, String)] = [
@@ -108,7 +109,7 @@ public enum EntityPreview {
         "board": ("board", "boards"),
         "action": ("action", "actions"),
         "comment": ("comment", "comments"),
-        "session": ("run", "runs"),
+        "session": ("session", "sessions"),
         "label": ("label", "labels"),
         "status": ("status", "statuses"),
         "device": ("device", "devices"),
@@ -119,6 +120,7 @@ public enum EntityPreview {
         "notification": ("notification", "notifications"),
         "attachment": ("attachment", "attachments"),
         "list": ("list", "lists"),
+        "thread": ("thread", "threads"),
     ]
 
     /// The product noun for a kind: singular for `count` 1, plural otherwise.
@@ -153,9 +155,9 @@ public enum EntityPreview {
     }
 
     /// The chip's text:
-    /// - a `list`: `<count> <member noun>` ("3 issues", "1 run", "0 labels");
+    /// - a `list`: `<count> <member noun>` ("3 issues", "1 session", "0 labels");
     /// - an issue: its identifier, else its title, else "Issue";
-    /// - anything else: its title, else the capitalized noun ("Board", "Run").
+    /// - anything else: its title, else the capitalized noun ("Board", "Session").
     /// Whitespace-only titles count as absent.
     public static func chipLabel(_ ref: EntityRef) -> String {
         if ref.kind == "list" {

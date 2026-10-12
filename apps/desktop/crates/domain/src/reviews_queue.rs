@@ -40,7 +40,7 @@ use crate::rows::{Board, CodingSession, Issue};
 pub const REPO_BAND_CAPTION: &str = "not linked to an issue";
 
 /// The "Agent runs" band's trailing caption ×4 (`labels.runBandCaption`).
-pub const RUN_BAND_CAPTION: &str = "opened by a coding run";
+pub const RUN_BAND_CAPTION: &str = "opened by a coding session";
 
 const OPEN: &str = "open";
 

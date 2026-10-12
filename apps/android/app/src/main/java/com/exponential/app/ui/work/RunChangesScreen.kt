@@ -20,6 +20,7 @@ import com.exponential.app.domain.guideSectionPage
 import com.exponential.app.domain.parseSessionResultGroups
 import com.exponential.app.ui.components.LocalDetailHaze
 import com.exponential.app.ui.components.LocalToaster
+import com.exponential.app.ui.components.failedAction
 import com.exponential.app.ui.issue.toDiffFile
 import dev.chrisbanes.haze.rememberHazeState
 import com.exponential.app.domain.Prompts
@@ -52,7 +53,13 @@ fun RunChangesScreen(
             else -> null
         }
     }
-    val groups = remember(session?.results) { parseSessionResultGroups(session?.results) }
+    // EXP-1284 (rule 8): the run's THREAD's Guide once the thread has one.
+    val threadsVm: com.exponential.app.ui.thread.ThreadsViewModel = hiltViewModel()
+    val threadBySession by threadsVm.threadBySession.collectAsStateWithLifecycle()
+    val guideRaw = session?.let {
+        com.exponential.app.domain.ThreadPage.guideResults(it.results, threadBySession[it.id]?.results)
+    }
+    val groups = remember(guideRaw) { parseSessionResultGroups(guideRaw) }
     var sectionName by rememberSaveable { mutableStateOf<String?>(null) }
     // The Reviews row's own title: a chat run's subject, an action run's
     // snapshot, else "Chat".
@@ -72,7 +79,7 @@ fun RunChangesScreen(
         )
     }
 
-    // A refused merge toasts ONCE (the WorkScreen rule).
+    // A refused merge toasts ONCE (the WorkScreen rule; FEED-79).
     val toaster = LocalToaster.current
     var toastedError by rememberSaveable { mutableStateOf<String?>(null) }
     LaunchedEffect(actionError) {
@@ -81,7 +88,7 @@ fun RunChangesScreen(
             toastedError = null
         } else if (error != toastedError) {
             toastedError = error
-            toaster.error(error)
+            toaster.failedAction("merge", "the PR", error)
         }
     }
 
@@ -112,6 +119,7 @@ fun RunChangesScreen(
                     load = load,
                     merge = merge,
                     onBack = { sectionName = null },
+                    onRetry = viewModel::refresh,
                 )
             } else {
                 GuideFace(

@@ -32,6 +32,9 @@ export interface PickerItem<T extends string = string> {
    *  is what makes a label row a coloured dot and a board row a tinted
    *  glyph without the caller choosing a shape. */
   color?: string
+  /** A mono, muted IDENTIFIER leading the label (`EXP-12`): the issue rows
+   *  of the search list (SLOP-28) keep it in its own column. */
+  identifier?: string
   /** A muted second line (an email, a path). */
   description?: ReactNode
   /** A muted TRAILING note on the same line (`default`, a branch's age, a
@@ -88,6 +91,14 @@ export function PickerItemBody<T extends string>({
           className="size-2.5 shrink-0 rounded-full"
           style={{ backgroundColor: item.color }}
         />
+      ) : null}
+      {item.identifier !== undefined ? (
+        <span
+          data-slot="picker-identifier"
+          className="shrink-0 font-mono text-xs text-muted-foreground"
+        >
+          {item.identifier}
+        </span>
       ) : null}
       <span className="flex min-w-0 flex-1 flex-col gap-0.5 py-0.5 text-left">
         <span className="min-w-0 truncate text-sm">{item.label}</span>

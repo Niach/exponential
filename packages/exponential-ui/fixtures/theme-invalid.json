@@ -93,7 +93,7 @@
       "issues": [
         {
           "path": "tokens.elevation",
-          "message": "unknown token group; known: spacing|radius|control|opacity|border|motion|breakpoint|ease|density|blur|type"
+          "message": "unknown token group; known: spacing|radius|control|opacity|border|motion|breakpoint|ease|density|blur|scale|type"
         }
       ]
     },
@@ -1044,6 +1044,14 @@
         {
           "path": "tokens.blur.xl",
           "message": "missing value for $blur.xl"
+        },
+        {
+          "path": "tokens.scale.press",
+          "message": "missing value for $scale.press"
+        },
+        {
+          "path": "tokens.scale.popoverFrom",
+          "message": "missing value for $scale.popoverFrom"
         }
       ]
     },

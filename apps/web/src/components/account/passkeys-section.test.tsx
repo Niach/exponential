@@ -1,11 +1,20 @@
-import { render, screen } from "@testing-library/react"
+import { render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { PasskeysSection } from "@/components/account/passkeys-section"
 
 // EXP-1209: the last passkey (waysIn <= 1) is blocked up front, with the
 // same "your only way to sign in" label the provider rows use.
 
-const mockState = vi.hoisted(() => ({ listUserPasskeys: vi.fn() }))
+const mockState = vi.hoisted(() => ({
+  listUserPasskeys: vi.fn(),
+  toastError: vi.fn(),
+}))
+
+// FEED-79: a failed load on open is the empty state: no toast, no rose line.
+vi.mock(`sonner`, async (importOriginal) => ({
+  ...(await importOriginal<typeof import("sonner")>()),
+  toast: { success: vi.fn(), error: mockState.toastError },
+}))
 
 vi.mock(`@/lib/auth/client`, () => ({
   authClient: {
@@ -21,6 +30,7 @@ vi.mock(`@/lib/trpc-client`, () => ({
 }))
 
 beforeEach(() => {
+  mockState.toastError.mockReset()
   mockState.listUserPasskeys.mockReset()
   mockState.listUserPasskeys.mockResolvedValue({
     data: [
@@ -50,5 +60,20 @@ describe(`PasskeysSection last way in`, () => {
     expect((remove as HTMLButtonElement).disabled).toBe(false)
     expect(screen.getByText(/synced across your devices/)).toBeTruthy()
     expect(screen.queryByText(/your only way to sign in/)).toBeNull()
+  })
+})
+
+describe(`PasskeysSection load failure`, () => {
+  it(`stays quiet and draws the empty state`, async () => {
+    mockState.listUserPasskeys.mockResolvedValue({
+      data: null,
+      error: { message: `Server unavailable` },
+    })
+    render(<PasskeysSection passkeyEnabled waysIn={2} />)
+    await waitFor(() => expect(mockState.listUserPasskeys).toHaveBeenCalledTimes(1))
+    await waitFor(() => expect(screen.queryByTestId(`feedback-skeleton`)).toBeNull())
+    expect(mockState.toastError).not.toHaveBeenCalled()
+    expect(screen.queryByRole(`button`, { name: `Remove` })).toBeNull()
+    expect(screen.queryByRole(`alert`)).toBeNull()
   })
 })

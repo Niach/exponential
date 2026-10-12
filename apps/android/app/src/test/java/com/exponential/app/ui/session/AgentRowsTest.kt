@@ -614,8 +614,8 @@ class AgentRowsTest {
         )
         // A chat run carries "Chat" as its action snapshot (EXP-615).
         assertEquals("Chat", pastRunTitle(pastRun("r", actionName = "Chat"), null))
-        assertEquals("Batch run", pastRunTitle(pastRun("r", actionName = "  "), null))
-        assertEquals("Batch run", pastRunTitle(pastRun("r"), null))
+        assertEquals("Batch session", pastRunTitle(pastRun("r", actionName = "  "), null))
+        assertEquals("Batch session", pastRunTitle(pastRun("r"), null))
     }
 
     // EXP-905 — a chat run reads the agent CLI's auto-title, trimmed, else
@@ -685,7 +685,7 @@ class AgentRowsTest {
         assertNull(pastRunIdentifier(pastRun("d", branch = "exp/batch-1a2b3c4d"), null, covered))
         // Nothing to name it by — the generic label, and no lead-in.
         assertNull(pastRunIdentifier(pastRun("e"), null, covered))
-        assertEquals("Batch run", pastRunTitle(pastRun("e"), null, covered))
+        assertEquals("Batch session", pastRunTitle(pastRun("e"), null, covered))
         // An issue run keeps ITS identifier; an action run has none.
         assertEquals(
             "EXP-874",
